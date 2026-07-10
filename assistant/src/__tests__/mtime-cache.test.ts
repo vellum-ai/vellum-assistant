@@ -43,9 +43,11 @@ import {
 } from "../plugins/mtime-cache.js";
 import { getSourceVersionsPath } from "../plugins/source-versions.js";
 import {
+  __resetRegistryForTesting,
   getAllToolDefinitions,
   getPluginToolDefinitions,
   getToolOwner,
+  loadPluginTools,
 } from "../tools/registry.js";
 
 // ─── Test fixtures ───────────────────────────────────────────────────────────
@@ -171,6 +173,9 @@ beforeEach(() => {
   watchState = null;
   sentinelTouchSeq = 0;
   resetPluginCacheForTests();
+  // The registry pulls plugin tools via loadPluginTools(); clear its side
+  // (tools + pulled fingerprints) so registrations never leak across tests.
+  __resetRegistryForTesting();
 });
 
 afterAll(() => {
@@ -357,9 +362,11 @@ describe("plugin mtime cache (per-surface)", () => {
     touchFile(toolFile);
     publishSourceChanges();
     await getUserHooksFor("user-prompt-submit");
+    await loadPluginTools();
 
     // Both the cache and the global registry serve the fresh definition —
-    // the redeploy unregistered the old tool and registered the new one.
+    // the moved source mtime changed the plugin's fingerprint, so the pull
+    // reconcile re-registered its tool set.
     expect(getCachedUserTools()[0]?.description).toBe("v2");
     expect(
       getAllToolDefinitions().find((t) => t.name === "edited-tool")
@@ -485,8 +492,11 @@ describe("workspace hooks (<workspace>/hooks/)", () => {
     // Load-time discovery doesn't reject a plugin whose manifest name equals
     // the synthetic workspace owner. The cache key is scoped by owner kind, so
     // `plugin:__workspace__/…` and `workspace:__workspace__/…` stay distinct
-    // and both hooks run.
-    const dir = freshPluginDir("shadow");
+    // and both hooks run. The install slug (directory basename) equals the
+    // manifest name, as the installer enforces — that's what makes the plugin's
+    // hooks resolve at `<plugins>/__workspace__/hooks` while the workspace
+    // owner's resolve at `<workspace>/hooks`, distinct directories.
+    const dir = freshPluginDir("__workspace__");
     writePackageJson(dir, { ...SIMPLE_PKG, name: "__workspace__" });
     writeHook(
       dir,
@@ -629,11 +639,13 @@ const TOOL_SRC = (name: string) =>
  * production sequence: the monitor's pass rewrites the sentinel, and the
  * next hook dispatch's one-stat gate applies the diff. The hook name is
  * irrelevant — the reconcile runs regardless of whether a plugin defines
- * that hook.
+ * that hook. Finish with the registry pull the per-turn tool resolver
+ * fires, so registry-facing assertions see the reconciled tool set.
  */
 async function publishAndDispatch(): Promise<void> {
   publishSourceChanges();
   await getUserHooksFor("user-prompt-submit");
+  await loadPluginTools();
 }
 
 describe("plugin runtime activation", () => {
@@ -686,7 +698,11 @@ describe("plugin runtime activation", () => {
     });
   });
 
-  test("removing a plugin directory deactivates it (unregister + shutdown)", async () => {
+  test("an out-of-band directory removal unregisters tools but runs no shutdown", async () => {
+    // A raw `rm` (bypassing the managed uninstall) is only noticed by the
+    // monitor after the files are gone, so there's no `shutdown` to resolve —
+    // the reconcile just evicts. A managed uninstall runs `shutdown` before
+    // removal (see uninstall-plugin.test.ts).
     const dir = freshPluginDir("temp-plugin");
     writePackageJson(dir, { ...SIMPLE_PKG, name: "temp-plugin" });
     writeTool(dir, "temp-tool", TOOL_SRC("temp-tool"));
@@ -694,6 +710,7 @@ describe("plugin runtime activation", () => {
     writeMarkerHook(dir, "shutdown", shutdownMarker, "bye");
 
     await populateCacheAtBoot();
+    await loadPluginTools(); // boot pull (initializePlugins does this)
     expect(getToolOwner("temp-tool")?.kind).toBe("plugin");
 
     rmSync(dir, { recursive: true, force: true });
@@ -703,7 +720,7 @@ describe("plugin runtime activation", () => {
     expect(getPluginToolDefinitions().some((t) => t.name === "temp-tool")).toBe(
       false,
     );
-    expect(existsSync(shutdownMarker)).toBe(true);
+    expect(existsSync(shutdownMarker)).toBe(false);
   });
 
   test("a user plugin's shutdown hook is surfaced through the unified hook lookup", async () => {
@@ -725,18 +742,24 @@ describe("plugin runtime activation", () => {
     expect(existsSync(shutdownMarker)).toBe(true);
   });
 
-  test("disabling a plugin at runtime tears down its tools", async () => {
+  test("disabling a plugin at runtime tears down its tools and runs shutdown", async () => {
     const dir = freshPluginDir("disable-plugin");
     writePackageJson(dir, { ...SIMPLE_PKG, name: "disable-plugin" });
     writeTool(dir, "disable-tool", TOOL_SRC("disable-tool"));
+    const shutdownMarker = join(ROOT, "disable-shutdown.log");
+    writeMarkerHook(dir, "shutdown", shutdownMarker, "disabled");
 
     await populateCacheAtBoot();
+    await loadPluginTools(); // boot pull (initializePlugins does this)
     expect(getToolOwner("disable-tool")?.kind).toBe("plugin");
 
     writeFileSync(join(dir, ".disabled"), "");
     await publishAndDispatch();
 
     expect(getToolOwner("disable-tool")).toBeUndefined();
+    // Disable keeps the directory, so `shutdown` is resolved from disk and runs
+    // even though it was never pre-warmed.
+    expect(existsSync(shutdownMarker)).toBe(true);
   });
 });
 
@@ -820,7 +843,7 @@ describe("live reload (sentinel-driven redeploy)", () => {
     expect(await dispatchFirst("transitive-reload")).toBe("a:b2");
   });
 
-  test("a reload runs the old shutdown (reason: reload) and the new init", async () => {
+  test("a reload runs the plugin's shutdown (reason: reload) and the new init", async () => {
     const dir = freshPluginDir("lifecycle-plugin");
     writePackageJson(dir, { ...SIMPLE_PKG, name: "lifecycle-plugin" });
     const helperPath = writeLibFile(
@@ -843,12 +866,13 @@ describe("live reload (sentinel-driven redeploy)", () => {
     expect(readFileSync(initMarker, "utf8").trim().split("\n")).toHaveLength(1);
     expect(existsSync(shutdownMarker)).toBe(false);
 
+    // Edit a helper (not shutdown.ts) so the reload resolves the unchanged
+    // shutdown from disk and runs it, then brings the new version up through
+    // the same init path as boot.
     writeFileSync(helperPath, `export const value = 2;`);
     touchFile(helperPath, sentinelTouchSeq + 2);
     await publishAndDispatch();
 
-    // The edit is a redeploy: old version torn down with reason "reload",
-    // new version brought up through the same init path as boot.
     expect(readFileSync(shutdownMarker, "utf8").trim().split("\n")).toEqual([
       "reload",
     ]);
@@ -887,9 +911,8 @@ describe("sentinel path validation (ATL-983)", () => {
 
     // Forge a sentinel that claims the evil directory is a plugin.
     const sentinelPath = getSourceVersionsPath();
-    const { snapshotPluginSource } = await import(
-      "../plugins/source-fingerprint.js"
-    );
+    const { snapshotPluginSource } =
+      await import("../plugins/source-fingerprint.js");
     const snapshot = snapshotPluginSource(evilDir);
     writeFileSync(
       sentinelPath,

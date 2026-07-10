@@ -55,7 +55,9 @@ let _mockOverrides: Record<string, boolean> = {};
 mock.module("../config/assistant-feature-flags.js", () => ({
   isAssistantFeatureFlagEnabled: (key: string, _config: unknown): boolean => {
     const explicit = _mockOverrides[key];
-    if (typeof explicit === "boolean") return explicit;
+    if (typeof explicit === "boolean") {
+      return explicit;
+    }
     return false; // undeclared flags default to disabled
   },
   clearFeatureFlagOverridesCache: () => {
@@ -84,15 +86,23 @@ mock.module("../skills/active-skill-tools.js", () => {
     const entries: Array<{ id: string; version?: string }> = [];
     for (const msg of messages) {
       for (const block of msg.content) {
-        if (block.type !== "tool_result") continue;
-        if (!skillLoadUseIds.has(block.tool_use_id)) continue;
+        if (block.type !== "tool_result") {
+          continue;
+        }
+        if (!skillLoadUseIds.has(block.tool_use_id)) {
+          continue;
+        }
         const text = block.content;
-        if (!text) continue;
+        if (!text) {
+          continue;
+        }
         for (const m of text.matchAll(re)) {
           if (!seen.has(m[1])) {
             seen.add(m[1]);
             const entry: { id: string; version?: string } = { id: m[1] };
-            if (m[2]) entry.version = m[2];
+            if (m[2]) {
+              entry.version = m[2];
+            }
             entries.push(entry);
           }
         }
@@ -111,7 +121,9 @@ mock.module("../skills/tool-manifest.js", () => ({
     const parts = filePath.split("/");
     const skillId = parts[parts.length - 2];
     const manifest = mockManifests[skillId];
-    if (!manifest) throw new Error(`Mock: no manifest for skill "${skillId}"`);
+    if (!manifest) {
+      throw new Error(`Mock: no manifest for skill "${skillId}"`);
+    }
     return manifest;
   },
 }));
@@ -162,7 +174,20 @@ mock.module("../tools/registry.js", () => ({
     let found: Tool | undefined;
     for (const tools of mockRegisteredTools.values()) {
       for (const tool of tools) {
-        if (tool.name === name) found = tool;
+        if (tool.name === name) {
+          found = tool;
+        }
+      }
+    }
+    return found;
+  },
+  resolveTool: (name: string): Tool | undefined => {
+    let found: Tool | undefined;
+    for (const tools of mockRegisteredTools.values()) {
+      for (const tool of tools) {
+        if (tool.name === name) {
+          found = tool;
+        }
       }
     }
     return found;
@@ -177,7 +202,9 @@ mock.module("../tools/registry.js", () => ({
     let ownerSkillId: string | undefined;
     for (const [skillId, tools] of mockRegisteredTools.entries()) {
       for (const tool of tools) {
-        if (tool.name === name) ownerSkillId = skillId;
+        if (tool.name === name) {
+          ownerSkillId = skillId;
+        }
       }
     }
     return ownerSkillId === undefined
@@ -213,15 +240,6 @@ mock.module("../skills/version-hash.js", () => ({
     const skillId = parts[parts.length - 1];
     return `v1:default-hash-${skillId}`;
   },
-}));
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () => ({
-    info: () => {},
-    warn: () => {},
-    debug: () => {},
-    error: () => {},
-  }),
 }));
 
 // Mock the skill_loaded telemetry dependencies of conversation-skill-tools so

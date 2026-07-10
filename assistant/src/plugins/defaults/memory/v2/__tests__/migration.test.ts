@@ -31,18 +31,12 @@ import type {
   SendMessageOptions,
 } from "@vellumai/plugin-api";
 
-import { makeMockLogger } from "../../../../../__tests__/helpers/mock-logger.js";
-
 // -- Mocks that must be installed before importing the module under test ---
 //
 // Order matters: every `mock.module` here runs before the migration module is
 // imported below, so its top-level `getLogger`/`getConfiguredProvider`/
 // `enqueueMemoryJob` references resolve to our stubs. Reversing the order
 // lets the real implementations leak through.
-mock.module("../../../../../util/logger.js", () => ({
-  getLogger: () => makeMockLogger(),
-}));
-
 // `runMemoryV2Migration` calls `enqueueMemoryJob` which in turn calls
 // `getDb()`. We intercept the enqueue call so the test doesn't need to wire
 // up the full migration runner / data-dir scaffolding just to count

@@ -1,4 +1,3 @@
-import type { ApprovalRequired } from "@vellumai/service-contracts/credential-rpc";
 import { z } from "zod";
 
 import type { InterfaceId } from "../channels/types.js";
@@ -112,15 +111,6 @@ export interface ToolExecutionResult {
   }>;
   /** Directory scope ladder for the rule editor (narrowest to broadest). */
   riskDirectoryScopeOptions?: Array<{ scope: string; label: string }>;
-  /**
-   * When present, indicates that a CES tool returned an `approval_required`
-   * response. The executor uses the approval bridge to prompt the guardian,
-   * commit the grant decision to CES, and retry the original tool invocation
-   * with the granted grantId. CES tools populate this field rather than
-   * returning a textual error so the executor can intercept and handle the
-   * approval flow transparently.
-   */
-  cesApprovalRequired?: ApprovalRequired;
   /** Structured activity metadata for client rendering (web search, web fetch, etc).
    *  Populated by daemon-internal tools; plugins must not set this. */
   activityMetadata?: ToolActivityMetadata;
@@ -244,9 +234,9 @@ export interface ToolContext {
    * "Always Allow" rules, or non-interactive auto-approve shortcuts may
    * bypass the prompt. This flag is independently sufficient: it
    * promotes allow → prompt decisions on its own and suppresses
-   * temporary override options in the prompt UI. Used by
-   * `manage_secure_command_tool` to ensure a human reviews each secure
-   * bundle installation.
+   * temporary override options in the prompt UI. Used by the `run_workflow`
+   * launch path so a human consents to a run whose capability manifest grants
+   * side-effecting tools.
    * @legacy
    */
   requireFreshApproval?: boolean;
@@ -500,16 +490,22 @@ export type ToolDefinition = z.infer<typeof ToolDefinitionSchema>;
 export type Tool = Required<Omit<ToolDefinition, "exclusive">> &
   Pick<ToolDefinition, "exclusive">;
 
-/** The kind of extension that owns a tool. Core tools have no owner. */
-export type OwnerKind = "skill" | "mcp" | "plugin" | "workspace";
+/**
+ * The kind of entity that owns a tool. `"default"` is the built-in tool set
+ * that ships with the assistant; the others are extension surfaces. Every
+ * *registered* tool has an owner — {@link ../tools/registry.getToolOwner}
+ * returns `undefined` only for a name that is not registered at all.
+ */
+export type OwnerKind = "default" | "skill" | "mcp" | "plugin" | "workspace";
 
 /**
- * Identifies which extension owns a tool (skill / plugin / MCP server).
- * Tracked by the tool registry keyed by tool name, not stored on the `Tool`
- * object itself — query via {@link ../tools/registry.getToolOwner}.
+ * Identifies what owns a tool: the built-in default set, or a skill / plugin /
+ * MCP server / workspace override. Tracked by the tool registry keyed by tool
+ * name, not stored on the `Tool` object itself — query via
+ * {@link ../tools/registry.getToolOwner}.
  */
 export interface OwnerInfo {
   kind: OwnerKind;
-  /** ID of the owning extension (skill id / plugin name / MCP server id / workspace path). */
+  /** ID of the owner: skill id / plugin name / MCP server id / workspace path, or `"default"` for built-ins. */
   id: string;
 }

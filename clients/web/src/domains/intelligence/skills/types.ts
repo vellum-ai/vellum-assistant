@@ -1,7 +1,4 @@
-import type {
-  SkillsByIdFilesGetResponse,
-  SkillsGetResponses,
-} from "@/generated/daemon/types.gen";
+import type { SkillsGetResponses } from "@/generated/daemon/types.gen";
 
 export type SkillOrigin =
   | "vellum"
@@ -54,8 +51,6 @@ type GeneratedSkill = SkillsGetResponses[200]["skills"][number];
 type AssertAssignable<_Target, _Source extends _Target> = true;
 type _SkillInfoCompat = AssertAssignable<SkillInfo, GeneratedSkill>;
 
-export type SkillFileEntry = SkillsByIdFilesGetResponse["files"][number];
-
 export type SkillFilter = "all" | "installed" | "available" | SkillOrigin;
 
 export function isInstalledSkill(skill: SkillInfo): boolean {
@@ -64,8 +59,4 @@ export function isInstalledSkill(skill: SkillInfo): boolean {
 
 export function isAvailableSkill(skill: SkillInfo): boolean {
   return skill.kind === "catalog";
-}
-
-export function isRemovableSkill(skill: SkillInfo): boolean {
-  return skill.kind === "installed";
 }

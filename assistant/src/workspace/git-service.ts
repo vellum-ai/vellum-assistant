@@ -61,6 +61,7 @@ function cleanGitEnv(workspaceDir: string): Record<string, string> {
  * These are written to .gitignore on init and appended to existing .gitignore files.
  */
 const WORKSPACE_GITIGNORE_RULES = [
+  // Runtime state directories
   "data/db/",
   "data/qdrant/",
   "data/monitoring/",
@@ -70,21 +71,75 @@ const WORKSPACE_GITIGNORE_RULES = [
   "data/apps/*/records/",
   "data/apps/*/dist/",
   "data/apps/*.preview",
-  "plugins/*/node_modules/",
+  // Runtime-managed installs and caches — large and restorable
+  "/embedding-models/",
+  "/external/",
+  "/bin/",
+  "/plugins-data/",
+  "node_modules/",
+  "__pycache__/",
+  ".venv/",
+  // Logs and process state
   "logs/",
   "*.log",
+  "*.jsonl",
   "*.sock",
   "*.pid",
-  "*.sqlite",
-  "*.sqlite-journal",
-  "*.sqlite-wal",
-  "*.sqlite-shm",
-  "*.db",
-  "*.db-journal",
-  "*.db-wal",
-  "*.db-shm",
-  "vellum.pid",
+  "daemon-startup.lock",
   "session-token",
+  // Databases (covers sidecar -journal/-wal/-shm files)
+  "*.sqlite*",
+  "*.db",
+  "*.db-*",
+  // OS junk
+  ".DS_Store",
+  // Archives and disk images
+  "*.zip",
+  "*.tar",
+  "*.gz",
+  "*.tgz",
+  "*.bz2",
+  "*.xz",
+  "*.7z",
+  "*.rar",
+  "*.dmg",
+  "*.iso",
+  // Images (svg is text-based and stays tracked)
+  "*.png",
+  "*.jpg",
+  "*.jpeg",
+  "*.gif",
+  "*.webp",
+  "*.heic",
+  "*.bmp",
+  "*.tiff",
+  // Audio and video
+  "*.mp3",
+  "*.wav",
+  "*.m4a",
+  "*.flac",
+  "*.ogg",
+  "*.mp4",
+  "*.mov",
+  "*.avi",
+  "*.mkv",
+  "*.webm",
+  // Documents and model weights
+  "*.pdf",
+  "*.gguf",
+  "*.onnx",
+  "*.safetensors",
+  "*.pt",
+  "*.pth",
+  // Canonical user state re-included despite the extension rules above.
+  // Must stay after the extension rules: last matching pattern wins.
+  // (Not a broad !data/apps/** — that would also re-include dist/.)
+  // conversations/ holds the messages.jsonl disk view that DB recovery
+  // rebuilds from, so it survives the *.jsonl rule.
+  "!data/avatar/**",
+  "!data/sounds/**",
+  "!data/apps/*/icon.png",
+  "!conversations/**",
 ];
 
 const NULL_GIT_OID = "0000000000000000000000000000000000000000";
@@ -472,11 +527,15 @@ export class WorkspaceGitService {
                 // created before these helpers existed, or by external tools.
                 // These calls are OUTSIDE the rev-parse try/catch so that
                 // normalization errors are not misclassified as "no commits".
-                this.ensureGitignoreRulesLocked();
                 this.ensureBranchGuardHookLocked();
                 await this.ensureCommitIdentityLocked();
                 await this.ensureBranchGuardConfigLocked();
                 await this.ensureOnMainLocked();
+                // After the main switch: ensureOnMainLocked can discard
+                // local changes, which would wipe appended gitignore rules
+                // and staged deletions alike.
+                this.ensureGitignoreRulesLocked();
+                await this.untrackIgnoredFilesLocked();
                 await this.untrackOversizedFilesLocked();
                 this.initialized = true;
                 this.recordInitSuccess();
@@ -489,15 +548,20 @@ export class WorkspaceGitService {
           // Initialize new git repository
           await this.execGit(["init", "-b", "main"]);
 
-          // Run normalization (gitignore + identity + branch enforcement).
+          // Run normalization (identity + branch enforcement + gitignore).
           // For fresh `git init -b main` the branch is already main, but
           // in the corruption-recovery path we fall through here after
           // removing .git, so branch enforcement is still useful.
-          this.ensureGitignoreRulesLocked();
           this.ensureBranchGuardHookLocked();
           await this.ensureCommitIdentityLocked();
           await this.ensureBranchGuardConfigLocked();
           await this.ensureOnMainLocked();
+          // After the main switch (see above). A partial init (`.git`
+          // exists, no commit) can carry staged now-ignored paths from an
+          // interrupted `git add -A`; untracking must precede the initial
+          // commit.
+          this.ensureGitignoreRulesLocked();
+          await this.untrackIgnoredFilesLocked();
 
           // Create initial commit synchronously within the lock to prevent
           // races with the first commitChanges() call. Without this, the
@@ -833,52 +897,50 @@ export class WorkspaceGitService {
   }
 
   /**
-   * One-time-per-init sweep: untrack files that entered the index before
-   * the size guard existed (or before a limit decrease) and whose on-disk
-   * size now exceeds workspaceGit.maxFileSizeBytes. Removes them from the
-   * index only — working-tree files are kept, and blobs referenced by older
-   * commits remain in .git — then commits so the tip snapshot no longer
-   * carries oversized files. Must be called with the lock held, on a repo
-   * whose HEAD exists.
+   * Drop tracked files whose on-disk size exceeds
+   * workspaceGit.maxFileSizeBytes from the index (working tree untouched) —
+   * files committed before the size guard existed, or before a limit
+   * decrease. Blobs referenced by older commits remain in .git. Like
+   * {@link untrackIgnoredFilesLocked}, the staged deletions ride along with
+   * the next commit and failures are logged, never blocking init. Must be
+   * called with the mutex lock held.
    */
   private async untrackOversizedFilesLocked(): Promise<void> {
-    const tracked = await this.execGitStreaming(["ls-files", "-z"]);
-    const oversized = tracked.stdout
-      .split("\0")
-      .filter((p) => p.length > 0 && this.isOversized(p));
-    if (oversized.length === 0) {
-      return;
-    }
+    try {
+      const tracked = await this.execGitStreaming(["ls-files", "-z"]);
+      const oversized = tracked.stdout
+        .split("\0")
+        .filter((p) => p.length > 0 && this.isOversized(p));
+      if (oversized.length === 0) {
+        return;
+      }
 
-    await this.execGitStreaming(
-      [
-        "rm",
-        "--cached",
-        "-q",
-        "--ignore-unmatch",
-        "--pathspec-from-file=-",
-        "--pathspec-file-nul",
-      ],
-      { input: oversized.map((p) => `:(literal)${p}`).join("\0") },
-    );
-    await this.execGit(
-      this.buildSafeCommitArgs([
-        "-m",
-        "Untrack files exceeding workspaceGit.maxFileSizeBytes",
-      ]),
-    );
+      await this.execGitStreaming(
+        [
+          "rm",
+          "--cached",
+          "-q",
+          "--ignore-unmatch",
+          "--pathspec-from-file=-",
+          "--pathspec-file-nul",
+        ],
+        { input: oversized.map((p) => `:(literal)${p}`).join("\0") },
+      );
 
-    for (const p of oversized) {
-      this.warnedOversizedPaths.add(p);
+      for (const p of oversized) {
+        this.warnedOversizedPaths.add(p);
+      }
+      log.warn(
+        {
+          workspaceDir: this.workspaceDir,
+          files: oversized,
+          maxFileSizeBytes: this.maxFileSizeBytes(),
+        },
+        "Untracked oversized files from workspace index",
+      );
+    } catch (err) {
+      log.warn({ err }, "Failed to untrack oversized files");
     }
-    log.warn(
-      {
-        workspaceDir: this.workspaceDir,
-        files: oversized,
-        maxFileSizeBytes: this.maxFileSizeBytes(),
-      },
-      "Untracked oversized files from workspace git",
-    );
   }
 
   /**
@@ -988,18 +1050,38 @@ export class WorkspaceGitService {
         }
       }
 
+      // Exact line matching: a substring check would let an existing rule like
+      // "plugins/*/node_modules/" mask the broader "node_modules/" rule.
+      const existingLines = new Set(
+        content.split("\n").map((line) => line.trim()),
+      );
       const missingRules = WORKSPACE_GITIGNORE_RULES.filter(
-        (rule) => !content.includes(rule),
+        (rule) => !existingLines.has(rule),
       );
       if (hadLegacyDataRule || missingRules.length > 0) {
         let updated = content;
         if (missingRules.length > 0) {
+          // Negation rules must trail every Vellum rule (last matching
+          // pattern wins), so pull existing ones out and re-append them
+          // after the additions instead of leaving them mid-file.
+          const negationRules = WORKSPACE_GITIGNORE_RULES.filter((rule) =>
+            rule.startsWith("!"),
+          );
+          const negationSet = new Set(negationRules);
+          updated = updated
+            .split("\n")
+            .filter((line) => !negationSet.has(line.trim()))
+            .join("\n");
           if (!updated.endsWith("\n")) {
             updated += "\n";
           }
+          const additions = [
+            ...missingRules.filter((rule) => !rule.startsWith("!")),
+            ...negationRules,
+          ];
           updated +=
             "# Vellum runtime state (auto-added)\n" +
-            missingRules.join("\n") +
+            additions.join("\n") +
             "\n";
         }
         writeFileSync(gitignorePath, updated, "utf-8");
@@ -1010,6 +1092,67 @@ export class WorkspaceGitService {
         WORKSPACE_GITIGNORE_RULES.join("\n") +
         "\n";
       writeFileSync(gitignorePath, gitignore, "utf-8");
+    }
+  }
+
+  /**
+   * Drop tracked files matched by the Vellum-managed ignore rules from the
+   * index (working tree untouched). Ignore rules only affect untracked
+   * paths, so committed runtime state (e.g. embedding-models/) stays in the
+   * index — and churns every commit — until explicitly removed here. The
+   * staged deletions ride along with the next commit. Best-effort: failures
+   * are logged, never block init. Must be called with the mutex lock held.
+   *
+   * Deliberately matches against the Vellum-managed rules only — not the
+   * workspace .gitignore (which may carry user-authored rules whose matches
+   * are force-added on purpose) and not --exclude-standard (the user's
+   * global/local exclude files). The rules are passed via a temp file under
+   * .git so gitignore semantics, including negation order, are preserved.
+   */
+  private async untrackIgnoredFilesLocked(): Promise<void> {
+    const rulesPath = join(this.workspaceDir, ".git", "vellum-untrack-rules");
+    try {
+      writeFileSync(
+        rulesPath,
+        WORKSPACE_GITIGNORE_RULES.join("\n") + "\n",
+        "utf-8",
+      );
+      const { stdout } = await this.execGitStreaming([
+        "ls-files",
+        "-z",
+        "--cached",
+        "--ignored",
+        `--exclude-from=${rulesPath}`,
+      ]);
+      const files = stdout.split("\0").filter(Boolean);
+      if (files.length === 0) {
+        return;
+      }
+      // Chunked to stay under OS argv limits on bloated workspaces.
+      const chunkSize = 200;
+      for (let i = 0; i < files.length; i += chunkSize) {
+        await this.execGit([
+          "rm",
+          "--cached",
+          "-r",
+          "-q",
+          "--ignore-unmatch",
+          "--",
+          ...files.slice(i, i + chunkSize),
+        ]);
+      }
+      log.info(
+        { fileCount: files.length },
+        "Untracked newly ignored files from workspace index",
+      );
+    } catch (err) {
+      log.warn({ err }, "Failed to untrack newly ignored files");
+    } finally {
+      try {
+        unlinkSync(rulesPath);
+      } catch {
+        // Never created, or already gone.
+      }
     }
   }
 

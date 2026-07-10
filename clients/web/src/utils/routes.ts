@@ -140,7 +140,21 @@ export const routes = {
   },
   identity: r("/assistant/identity"),
   plugins: r("/assistant/plugins"),
-  skills: r("/assistant/skills"),
+  /**
+   * Skills surface — the list plus a dedicated per-skill detail page.
+   * `detail` deep-links a single skill (`/assistant/skills/:skillId`).
+   *
+   * Callers pass raw skill ids. skills.sh catalog ids are namespaced with
+   * slashes (`org/repo/skill`), so `detail` percent-encodes the id to keep it
+   * a single path segment — otherwise it would never match the
+   * `skills/:skillId` route. React Router decodes route params, so
+   * `useParams()` in the detail page yields the original id unchanged.
+   */
+  skills: {
+    root: r("/assistant/skills"),
+    detail: (skillId: string) =>
+      dyn(r("/assistant/skills"), encodeURIComponent(skillId)),
+  },
   workspace: r("/assistant/workspace"),
   library: {
     root: r("/assistant/library"),
@@ -208,7 +222,7 @@ export const routes = {
 const ABOUT_ASSISTANT_PATHS: readonly string[] = [
   routes.identity,
   routes.plugins,
-  routes.skills,
+  routes.skills.root,
   routes.workspace,
   routes.contacts.root,
   routes.channels,

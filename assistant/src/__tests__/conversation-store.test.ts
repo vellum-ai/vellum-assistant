@@ -1,11 +1,4 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
+import { beforeEach, describe, expect, test } from "bun:test";
 
 import {
   getAttachmentById,
@@ -49,8 +42,12 @@ describe("deleteLastExchange", () => {
 
     const remaining = getMessages(conv.id);
     expect(remaining).toHaveLength(2);
-    expect(remaining[0].content).toBe("first question");
-    expect(remaining[1].content).toBe("first answer");
+    expect(remaining[0].content).toEqual([
+      { type: "text", text: "first question" },
+    ]);
+    expect(remaining[1].content).toEqual([
+      { type: "text", text: "first answer" },
+    ]);
   });
 
   test("returns 0 when no user messages exist", () => {
@@ -94,8 +91,8 @@ describe("deleteLastExchange", () => {
 
     const remaining = getMessages(conv.id);
     expect(remaining).toHaveLength(2);
-    expect(remaining[0].content).toBe("first");
-    expect(remaining[1].content).toBe("reply1");
+    expect(remaining[0].content).toEqual([{ type: "text", text: "first" }]);
+    expect(remaining[1].content).toEqual([{ type: "text", text: "reply1" }]);
   });
 });
 
@@ -467,17 +464,11 @@ describe("conversation metadata defaults", () => {
     expect(conv.conversationType).toBe("standard");
   });
 
-  test("new conversation has memoryScopeId defaulting to default", () => {
-    const conv = createConversation("test");
-    expect(conv.memoryScopeId).toBe("default");
-  });
-
   test("defaults are persisted and retrievable from DB", () => {
     const conv = createConversation("test");
     const loaded = getConversation(conv.id);
     expect(loaded).not.toBeNull();
     expect(loaded!.conversationType).toBe("standard");
-    expect(loaded!.memoryScopeId).toBe("default");
   });
 
   test("existing conversations without explicit values get defaults via migration", () => {
@@ -493,7 +484,6 @@ describe("conversation metadata defaults", () => {
     const loaded = getConversation(id);
     expect(loaded).not.toBeNull();
     expect(loaded!.conversationType).toBe("standard");
-    expect(loaded!.memoryScopeId).toBe("default");
   });
 });
 
@@ -508,7 +498,6 @@ describe("createConversation with conversation type option", () => {
     const conv = createConversation("hello");
     expect(conv.title).toBe("hello");
     expect(conv.conversationType).toBe("standard");
-    expect(conv.memoryScopeId).toBe("default");
   });
 
   test("standard create with options object uses defaults", () => {
@@ -517,13 +506,11 @@ describe("createConversation with conversation type option", () => {
       conversationType: "standard",
     });
     expect(conv.conversationType).toBe("standard");
-    expect(conv.memoryScopeId).toBe("default");
   });
 
   test("no-arg create uses defaults", () => {
     const conv = createConversation();
     expect(conv.conversationType).toBe("standard");
-    expect(conv.memoryScopeId).toBe("default");
   });
 });
 

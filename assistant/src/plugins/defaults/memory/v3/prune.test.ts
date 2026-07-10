@@ -40,6 +40,7 @@ const realDb = {
   ...(await import("../../../../persistence/db-connection.js")),
 };
 const realConfigLoader = { ...(await import("../../../../config/loader.js")) };
+const realMemoryConfig = { ...(await import("../config.js")) };
 
 let pruneMockActive = false;
 let pruneConfig: {
@@ -84,6 +85,15 @@ mock.module("../../../../config/loader.js", () => ({
     pruneMockActive
       ? { memory: { v3: { prune: pruneConfig ?? undefined } } }
       : realConfigLoader.getConfig(),
+}));
+
+// Memory code resolves its config through the plugin's own accessor, not
+// getConfig(); stub the same conditional slice there.
+mock.module("../config.js", () => ({
+  getMemoryConfig: () =>
+    pruneMockActive
+      ? { v3: { prune: pruneConfig ?? undefined } }
+      : realMemoryConfig.getMemoryConfig(),
 }));
 
 const {

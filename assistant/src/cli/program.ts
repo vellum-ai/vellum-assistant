@@ -21,7 +21,6 @@ import { registerCompletionsCommand } from "./commands/completions.js";
 import { registerConfigCommand } from "./commands/config.js";
 import { registerContactsCommand } from "./commands/contacts.js";
 import { registerConversationsCommand } from "./commands/conversations.js";
-import { registerCredentialExecutionCommand } from "./commands/credential-execution.js";
 import { registerCredentialsCommand } from "./commands/credentials.js";
 import { registerDbCommand } from "./commands/db/index.js";
 import { registerDefaultAction } from "./commands/default-action.js";
@@ -118,7 +117,6 @@ Examples:
   registerConfigCommand(program);
   registerContactsCommand(program);
   registerConversationsCommand(program);
-  registerCredentialExecutionCommand(program);
   registerCredentialsCommand(program);
   registerDbCommand(program);
   registerDomainCommand(program);

@@ -16,6 +16,7 @@ import {
 import { resolveTtsConfig } from "../tts/tts-config-resolver.js";
 import type { TtsProvider, TtsProviderId } from "../tts/types.js";
 import { getLogger } from "../util/logger.js";
+import type { CallAudioFormat } from "./audio-store.js";
 import {
   evaluateTelephonyTtsPlayability,
   fishAudioReferenceIdConfigured,
@@ -43,7 +44,7 @@ export interface ResolvedCallTts {
   useSynthesizedPath: boolean;
 
   /** Audio format to use for synthesized audio. */
-  audioFormat: "mp3" | "wav" | "opus";
+  audioFormat: CallAudioFormat;
 }
 
 // ---------------------------------------------------------------------------
@@ -52,18 +53,17 @@ export interface ResolvedCallTts {
 
 export interface ResolveCallTtsOptions {
   /**
-   * When true, force `audioFormat` to `"wav"` regardless of the
+   * When true, resolve `audioFormat` to `"pcm"` regardless of the
    * provider's configured format. The media-stream transport sets this
-   * because its {@link audioBufferToFrames} can only correctly
-   * transcode WAV (PCM) to mu-law -- compressed formats (mp3, opus)
-   * are sent as raw bytes and produce garbled audio.
+   * because it transcodes raw PCM to mu-law -- compressed formats
+   * (mp3, opus) are sent as raw bytes and produce garbled audio.
    *
    * Also gates the media-stream playability guard: a configured provider
-   * that cannot produce playable PCM/WAV audio (or lacks credentials) is
+   * that cannot produce playable PCM audio (or lacks credentials) is
    * swapped for a playable fallback provider instead of resolving into a
    * provider whose only possible media-stream outcome is silence.
    */
-  preferWav?: boolean;
+  requiresPcmAudio?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -80,8 +80,8 @@ export interface ResolveCallTtsOptions {
  * `callMode: "native-twilio"` send text via `sendTextToken`, which the
  * media-stream transport re-synthesizes through daemon TTS.
  *
- * For WAV-requiring transports (`preferWav`, i.e. media-stream), the
- * resolved provider is validated against the media-stream playability
+ * For PCM-requiring transports (`requiresPcmAudio`, i.e. media-stream),
+ * the resolved provider is validated against the media-stream playability
  * capability (format + credentials); a not-playable provider is replaced
  * by {@link findPlayableTelephonyTtsFallback}.
  *
@@ -108,9 +108,9 @@ export async function resolveCallTtsProvider(
     const fishAudioUnusable =
       providerId === "fish-audio" && !fishAudioReferenceIdConfigured();
 
-    if (options?.preferWav) {
+    if (options?.requiresPcmAudio) {
       // Media-stream transport: every spoken turn is synthesized, so the
-      // provider must produce playable PCM/WAV with resolvable credentials
+      // provider must produce playable PCM with resolvable credentials
       // and satisfied config invariants (the capability check covers the
       // fish-audio referenceId rule). Swap in a playable fallback rather
       // than resolving into a provider that can only be silent.
@@ -134,7 +134,7 @@ export async function resolveCallTtsProvider(
         }
       }
     } else if (useSynthesizedPath && fishAudioUnusable) {
-      // Non-WAV transport: degrade to the native token path rather than
+      // Non-PCM transport: degrade to the native token path rather than
       // letting the call stay silent.
       log.warn(
         { provider: providerId },
@@ -149,10 +149,11 @@ export async function resolveCallTtsProvider(
     // config so the streaming store entry's content-type matches the
     // actual audio bytes the provider produces.
     //
-    // When preferWav is set (media-stream transport), force WAV so
-    // audioBufferToFrames receives PCM it can transcode to mu-law.
-    const audioFormat: "mp3" | "wav" | "opus" = options?.preferWav
-      ? "wav"
+    // When requiresPcmAudio is set (media-stream transport), resolve to
+    // PCM so audioBufferToFrames receives raw PCM it can transcode to
+    // mu-law.
+    const audioFormat: CallAudioFormat = options?.requiresPcmAudio
+      ? "pcm"
       : (() => {
           const configuredFormat = (
             resolved.providerConfig as { format?: string }
@@ -162,7 +163,7 @@ export async function resolveCallTtsProvider(
             ["mp3", "wav", "opus"].includes(configuredFormat)
               ? configuredFormat
               : "mp3"
-          ) as "mp3" | "wav" | "opus";
+          ) as Exclude<CallAudioFormat, "pcm">;
         })();
 
     return { provider, useSynthesizedPath, audioFormat };
@@ -172,6 +173,28 @@ export async function resolveCallTtsProvider(
     // path where the provider object is not used.
     return { provider: null, useSynthesizedPath: false, audioFormat: "mp3" };
   }
+}
+
+/**
+ * Decode a resolved call audio format into the provider request format
+ * and the audio-store format.
+ *
+ * Transport-forced PCM and user-configured WAV both request raw PCM from
+ * the provider so the audio bytes match the store's content-type —
+ * without this, providers like Fish Audio still return mp3 and the
+ * downstream mu-law transcoder fails on the format mismatch. The store
+ * format follows the request: when raw PCM is requested the entry's
+ * content-type must be audio/pcm, otherwise the store would say
+ * "audio/wav" while the bytes have no RIFF header and
+ * audioBufferToFrames falls through to the wrong decode path.
+ */
+export function resolveSynthesisFormats(format: CallAudioFormat): {
+  outputFormat: "pcm" | undefined;
+  storeFormat: CallAudioFormat;
+} {
+  const outputFormat =
+    format === "pcm" || format === "wav" ? ("pcm" as const) : undefined;
+  return { outputFormat, storeFormat: outputFormat ?? format };
 }
 
 /**

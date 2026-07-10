@@ -70,12 +70,6 @@ const CATALOG_RECORD: CatalogRecord = {
     description: "Compacts conversation history to stay within context limits.",
     domain: "agentLoop",
   },
-  analyzeConversation: {
-    id: "analyzeConversation",
-    displayName: "Analyze Conversation",
-    description: "Analyzes conversation content for summaries and insights.",
-    domain: "agentLoop",
-  },
   callAgent: {
     id: "callAgent",
     displayName: "Call Agent",

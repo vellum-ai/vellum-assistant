@@ -3,6 +3,7 @@ import { beforeEach, describe, it, expect } from "bun:test";
 import {
   isAppNotFoundError,
   useViewerStore,
+  type ActivityStepsPayload,
   type ToolDetailPayload,
 } from "@/stores/viewer-store";
 
@@ -343,6 +344,90 @@ describe("closeBackgroundTaskDetail", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Skill detail
+// ---------------------------------------------------------------------------
+
+describe("openSkillDetail", () => {
+  it("saves current view and switches to skill-detail", () => {
+    getState().openSkillDetail("skill-1");
+    const state = getState();
+    expect(state.mainView).toBe("skill-detail");
+    expect(state.activeSkillDetailId).toBe("skill-1");
+    expect(state.viewBeforeSkillDetail).toBe("chat");
+  });
+
+  it("preserves existing viewBeforeSkillDetail when already in skill-detail", () => {
+    useViewerStore.setState({
+      mainView: "skill-detail",
+      viewBeforeSkillDetail: "app",
+      activeSkillDetailId: "skill-1",
+    });
+    getState().openSkillDetail("skill-2");
+    const state = getState();
+    expect(state.viewBeforeSkillDetail).toBe("app");
+    expect(state.activeSkillDetailId).toBe("skill-2");
+  });
+
+  it("saves non-chat view correctly", () => {
+    useViewerStore.setState({ mainView: "app" });
+    getState().openSkillDetail("skill-1");
+    expect(getState().viewBeforeSkillDetail).toBe("app");
+  });
+
+  it("does not overwrite a real prior view with a transient one when opened over tool-detail", () => {
+    useViewerStore.setState({
+      mainView: "tool-detail",
+      viewBeforeSkillDetail: "app",
+      activeToolDetail: SAMPLE_TOOL,
+    });
+    getState().openSkillDetail("skill-1");
+    const state = getState();
+    expect(state.mainView).toBe("skill-detail");
+    expect(state.viewBeforeSkillDetail).toBe("app");
+  });
+});
+
+describe("closeSkillDetail", () => {
+  it("restores viewBeforeSkillDetail and clears activeSkillDetailId", () => {
+    useViewerStore.setState({
+      mainView: "skill-detail",
+      viewBeforeSkillDetail: "chat",
+      activeSkillDetailId: "skill-1",
+    });
+    getState().closeSkillDetail();
+    const state = getState();
+    expect(state.mainView).toBe("chat");
+    expect(state.activeSkillDetailId).toBeNull();
+  });
+
+  it("restores a non-chat view", () => {
+    useViewerStore.setState({
+      mainView: "skill-detail",
+      viewBeforeSkillDetail: "app",
+      activeSkillDetailId: "skill-1",
+    });
+    getState().closeSkillDetail();
+    const state = getState();
+    expect(state.mainView).toBe("app");
+    expect(state.activeSkillDetailId).toBeNull();
+  });
+
+  it("unwinds stacked panels one layer at a time (skill-detail over tool-detail)", () => {
+    // Mirrors the Escape flow: each panel keeps its own viewBefore*, so
+    // closing skill-detail restores its saved non-overlay view, and closing
+    // tool-detail afterwards restores the view it saved — the stack never
+    // dead-ends inside an overlay.
+    getState().openToolDetail(SAMPLE_TOOL);
+    getState().openSkillDetail("skill-1");
+    getState().closeSkillDetail();
+    expect(getState().mainView).toBe("chat");
+    expect(getState().activeSkillDetailId).toBeNull();
+    getState().closeToolDetail();
+    expect(getState().mainView).toBe("chat");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Workflow detail
 // ---------------------------------------------------------------------------
 
@@ -614,6 +699,64 @@ describe("closeToolDetail", () => {
     const state = getState();
     expect(state.mainView).toBe("chat");
     expect(state.activeToolDetail).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Activity steps panel
+// ---------------------------------------------------------------------------
+
+const SAMPLE_STEPS: ActivityStepsPayload = {
+  messageId: "m1",
+  groupIndex: 0,
+  items: [],
+  toolCalls: [],
+};
+
+describe("openActivitySteps / toggleActivitySteps / closeActivitySteps", () => {
+  it("opens the panel with the payload and records the prior view", () => {
+    getState().openActivitySteps(SAMPLE_STEPS);
+    const state = getState();
+    expect(state.mainView).toBe("activity-steps");
+    expect(state.activeActivitySteps).toBe(SAMPLE_STEPS);
+    expect(state.viewBeforeActivitySteps).toBe("chat");
+  });
+
+  it("toggle closes the panel when targeting the SAME (message, group)", () => {
+    getState().openActivitySteps(SAMPLE_STEPS);
+    getState().toggleActivitySteps({ ...SAMPLE_STEPS });
+    const state = getState();
+    expect(state.mainView).toBe("chat");
+    expect(state.activeActivitySteps).toBeNull();
+  });
+
+  it("toggle switches to a DIFFERENT group instead of closing", () => {
+    getState().openActivitySteps(SAMPLE_STEPS);
+    getState().toggleActivitySteps({ ...SAMPLE_STEPS, groupIndex: 2 });
+    const state = getState();
+    expect(state.mainView).toBe("activity-steps");
+    expect(state.activeActivitySteps?.groupIndex).toBe(2);
+  });
+
+  it("identity-less payloads match on the first tool-call id", () => {
+    const a: ActivityStepsPayload = {
+      items: [],
+      toolCalls: [{ id: "tc-1", name: "bash", input: {} }],
+    };
+    getState().openActivitySteps(a);
+    getState().toggleActivitySteps({
+      items: [],
+      toolCalls: [{ id: "tc-1", name: "bash", input: {} }],
+    });
+    expect(getState().mainView).toBe("chat");
+  });
+
+  it("close restores a non-chat prior view", () => {
+    useViewerStore.setState({ mainView: "app" });
+    getState().openActivitySteps(SAMPLE_STEPS);
+    expect(getState().viewBeforeActivitySteps).toBe("app");
+    getState().closeActivitySteps();
+    expect(getState().mainView).toBe("app");
   });
 });
 

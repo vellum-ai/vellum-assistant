@@ -22,11 +22,6 @@ mock.module("../../../config/loader.js", () => ({
   invalidateConfigCache: () => {},
 }));
 
-mock.module("../../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
-}));
-
 // ── Real imports (after mocks) ────────────────────────────────────────────────
 
 import { LLMSchema } from "../../../config/schemas/llm.js";

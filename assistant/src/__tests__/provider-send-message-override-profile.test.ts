@@ -11,13 +11,18 @@
  * makes per-conversation pinned profiles (PR 6+) work.
  */
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { makeMockLogger } from "./helpers/mock-logger.js";
+import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () => makeMockLogger(),
-}));
+// These suites exercise override-profile PLUMBING through legacy-shaped
+// fixtures (llm.default-centric, no defaultProvider). Pinned to the
+// flag-off cascade; override-or-default resolution semantics are pinned by
+// llm-resolver-override-or-default.test.ts and the inference-profile loop
+// suite.
+beforeAll(() => {
+  setOverridesForTesting({ "override-or-default-resolution": false });
+});
 
 // Mutable LLM config consumed by the resolver via `getConfig()`.
 let mockLlmConfig: Record<string, unknown> = {};

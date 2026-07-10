@@ -26,12 +26,14 @@ import {
   upsertSubagentRecord,
 } from "../persistence/subagent-store.js";
 import { wrapWithCallSiteRouting } from "../providers/call-site-routing.js";
-import { resolveDefaultProvider } from "../providers/connection-resolution.js";
+import {
+  mainAgentResolutionError,
+  resolveDefaultProvider,
+} from "../providers/connection-resolution.js";
 import { RateLimitProvider } from "../providers/ratelimit.js";
 import { listProviders } from "../providers/registry.js";
 import type { Message, TextContent } from "../providers/types.js";
 import { createAbortReason } from "../util/abort-reasons.js";
-import { ProviderNotConfiguredError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import { getSandboxWorkingDir } from "../util/platform.js";
 import { injectMessageIntoParent } from "./notify.js";
@@ -371,10 +373,7 @@ export class SubagentManager {
     // platform auth unavailable).
     const baseProvider = await resolveDefaultProvider(appConfig);
     if (!baseProvider) {
-      const resolved = resolveCallSiteConfig("mainAgent", appConfig.llm);
-      throw new ProviderNotConfiguredError(resolved.provider, listProviders(), {
-        connectionName: resolved.provider_connection,
-      });
+      throw await mainAgentResolutionError(appConfig.llm, listProviders());
     }
     // Per-call `options.config.callSite` (e.g. `subagentSpawn`) can resolve
     // to a profile that differs from `llm.default`. The shared wrapper

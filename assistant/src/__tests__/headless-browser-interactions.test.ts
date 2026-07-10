@@ -2,13 +2,6 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ── Mocks ────────────────────────────────────────────────────────────
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 /**
  * Fake CDP session used by every interaction tool that has been
  * migrated to `CdpClient` (click, hover, type, press_key,

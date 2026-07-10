@@ -11,9 +11,9 @@
 import { getConfiguredProvider } from "@vellumai/plugin-api";
 
 import type { AssistantConfig } from "../../../../config/types.js";
-import { BackendUnavailableError } from "../../../../util/errors.js";
-import { getLogger } from "../../../../util/logger.js";
+import { BackendUnavailableError } from "../host-utils.js";
 import { extractToolUse, userMessage } from "../llm-helpers.js";
+import { getLogger } from "../logging.js";
 import { createEdge, createNode, queryNodes } from "./store.js";
 
 const log = getLogger("graph-pattern-scan");
@@ -115,7 +115,6 @@ export interface PatternScanResult {
 }
 
 export async function runPatternScan(
-  scopeId: string = "default",
   _config: AssistantConfig,
 ): Promise<PatternScanResult> {
   const start = Date.now();
@@ -128,7 +127,6 @@ export async function runPatternScan(
   // Sample: take all nodes (for a graph of ~1000, this is manageable)
   // For larger graphs, we'd sample more selectively
   const allNodes = queryNodes({
-    scopeId,
     fidelityNot: ["gone"],
     limit: 200,
   });
@@ -227,7 +225,6 @@ export async function runPatternScan(
       narrativeRole: null,
       partOfStory: pattern.partOfStory ?? null,
       imageRefs: null,
-      scopeId,
     });
 
     result.patternsDetected++;

@@ -17,13 +17,6 @@ import type { PairingOptions } from "../notifications/conversation-pairing.js";
 
 // -- Mocks (must be declared before importing modules that depend on them) ----
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 mock.module("../contacts/guardian-delivery-reader.js", () => ({
   getGuardianDelivery: async () => null,
 }));

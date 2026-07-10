@@ -1,4 +1,4 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, sql } from "drizzle-orm";
 
 import { getDb } from "../../../../persistence/db-connection.js";
 import { memoryGraphNodes } from "../../../../persistence/schema/index.js";
@@ -12,7 +12,6 @@ export async function executePlaybookList(
   input: Record<string, unknown>,
   _context: ToolContext,
 ): Promise<ToolExecutionResult> {
-  const scopeId = "default";
   const channelFilter =
     typeof input.channel === "string" ? input.channel : null;
   const categoryFilter =
@@ -31,7 +30,6 @@ export async function executePlaybookList(
       .from(memoryGraphNodes)
       .where(
         and(
-          eq(memoryGraphNodes.scopeId, scopeId),
           sql`${memoryGraphNodes.sourceConversations} LIKE '%playbook:%'`,
           sql`${memoryGraphNodes.fidelity} != 'gone'`,
         ),

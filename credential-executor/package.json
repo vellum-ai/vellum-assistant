@@ -8,12 +8,11 @@
   },
   "bin": {
     "credential-executor": "./src/main.ts",
-    "credential-executor-managed": "./src/managed-main.ts",
     "ces": "./src/cli.ts"
   },
   "scripts": {
     "dev": "bun run src/main.ts",
-    "dev:managed": "CES_MODE=managed bun run src/managed-main.ts",
+    "dev:managed": "CES_MODE=managed bun run src/main.ts",
     "lint": "eslint",
     "lint:unused": "knip --include files,dependencies,unlisted",
     "typecheck": "bunx tsc --noEmit",

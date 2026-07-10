@@ -15,11 +15,6 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ── Module mocks (must precede imports of the module under test) ─────
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
-}));
-
 // ── DB layer mocks for session-history ───────────────────────────────
 
 /** In-memory message store for the fake DB layer. */
@@ -27,7 +22,7 @@ let dbMessages: Array<{
   id: string;
   conversationId: string;
   role: string;
-  content: string;
+  content: ContentBlock[];
   createdAt: number;
   metadata: string | null;
 }> = [];
@@ -48,7 +43,9 @@ mock.module("../persistence/conversation-crud.js", () => ({
   updateMessageContent: (messageId: string, content: string) => {
     updatedMessages.push({ id: messageId, content });
     const msg = dbMessages.find((m) => m.id === messageId);
-    if (msg) msg.content = content;
+    if (msg) {
+      msg.content = JSON.parse(content) as ContentBlock[];
+    }
   },
   relinkAttachments: () => 0,
   deleteLastExchange: () => 0,
@@ -98,7 +95,7 @@ function makeDbMessage(
     id,
     conversationId,
     role,
-    content: JSON.stringify(content),
+    content,
     createdAt,
     metadata: null,
   };
@@ -681,6 +678,12 @@ describe("web_search_tool_result structural guard", () => {
     // reasoning as caption-blocks.ts above.
     "providers/media-resolve.ts",
 
+    // Walks a tool_result's rich `contentBlocks` to materialize nested base64
+    // media into workspace references at persist time. web_search_tool_result
+    // blocks carry no contentBlocks, so only tool_result is relevant. Same
+    // reasoning as media-resolve.ts above.
+    "daemon/persist-media-references.ts",
+
     // Detects turn boundaries by checking whether a user message carries any
     // tool_result block (internal continuation) vs. none (genuine user prompt).
     // A web_search_tool_result-only message is also internal, but treating one
@@ -699,10 +702,6 @@ describe("web_search_tool_result structural guard", () => {
     // Renders tool_result events for subagent event streams.
     // web_search_tool_result is not emitted through the subagent event path.
     "runtime/routes/subagents-routes.ts",
-
-    // Extracts tool results from persisted message content for work-item
-    // display. web_search_tool_result blocks are not relevant here.
-    "runtime/routes/work-items-routes.ts",
 
     // Media token counting iterates tool_result.contentBlocks for nested
     // image/file blocks. web_search_tool_result has opaque content with no
@@ -803,7 +802,9 @@ describe("web_search_tool_result structural guard", () => {
       const hasRawCheck =
         /[=!]==?\s*["']tool_result["']/.test(line) ||
         /["']tool_result["']\s*[=!]==?/.test(line);
-      if (!hasRawCheck) continue;
+      if (!hasRawCheck) {
+        continue;
+      }
 
       // Allow lines that reference web_search_tool_result nearby (paired check).
       // Multi-line patterns like `block.type === "tool_result" ||\n  block.type === "web_search_tool_result"`
@@ -815,7 +816,9 @@ describe("web_search_tool_result structural guard", () => {
       const windowEnd = Math.min(lines.length - 1, i + 3);
       let pairedOrSuppressed = false;
       for (let j = windowStart; j <= windowEnd; j++) {
-        if (consumedSuppressions.has(j)) continue;
+        if (consumedSuppressions.has(j)) {
+          continue;
+        }
         if (
           /web_search_tool_result/.test(lines[j]) ||
           /guard:allow-tool-result-only/.test(lines[j])
@@ -825,10 +828,14 @@ describe("web_search_tool_result structural guard", () => {
           break;
         }
       }
-      if (pairedOrSuppressed) continue;
+      if (pairedOrSuppressed) {
+        continue;
+      }
 
       // Allow comment-only lines
-      if (/^\s*\/\//.test(line) || /^\s*\*/.test(line)) continue;
+      if (/^\s*\/\//.test(line) || /^\s*\*/.test(line)) {
+        continue;
+      }
 
       violations.push({
         file: filePath,
@@ -883,7 +890,9 @@ describe("web_search_tool_result structural guard", () => {
       const relPath = filePath.slice(SRC_DIR.length + 1);
 
       // Skip allowlisted files
-      if (ALLOWLISTED_FILES.has(relPath)) continue;
+      if (ALLOWLISTED_FILES.has(relPath)) {
+        continue;
+      }
 
       const source = readFileSync(filePath, "utf-8");
       const violations = findRawToolResultChecks(source, relPath);

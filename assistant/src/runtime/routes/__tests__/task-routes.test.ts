@@ -208,6 +208,8 @@ mock.module("../../../util/platform.js", () => {
     getDataDir: stub,
     getConfigQuarantineNoticePath: () =>
       "/mock/workspace/data/config-quarantine-notice.json",
+    getConfigValidationResetNoticePath: () =>
+      "/mock/workspace/data/config-validation-reset-notice.json",
     getEmbeddingModelsDir: stub,
     getSandboxRootDir: stub,
     getSandboxWorkingDir: stub,
@@ -240,8 +242,6 @@ mock.module("../../../util/platform.js", () => {
     getProfilerRootDir: stub,
     getProfilerRunsDir: stub,
     getProfilerRunDir: stub,
-    getSkillRuntimePath: stub,
-    getBundledBunPath: () => undefined,
     ensureDataDir: () => {},
   };
 });

@@ -6,16 +6,8 @@
  * so adding/removing tools only requires editing this manifest.
  */
 
-import { getConfig } from "../config/loader.js";
-import {
-  isCesSecureInstallEnabled,
-  isCesToolsEnabled,
-} from "../credential-execution/feature-gates.js";
 import { recallTool, rememberTool } from "../plugins/defaults/memory/tools.js";
 import { askQuestionTool } from "./ask-question/ask-question-tool.js";
-import { makeAuthenticatedRequestTool } from "./credential-execution/make-authenticated-request.js";
-import { manageSecureCommandTool } from "./credential-execution/manage-secure-command-tool.js";
-import { runAuthenticatedCommandTool } from "./credential-execution/run-authenticated-command.js";
 import { fileEditTool } from "./filesystem/edit.js";
 import { fileListTool } from "./filesystem/list.js";
 import { fileReadTool } from "./filesystem/read.js";
@@ -58,45 +50,4 @@ export const explicitTools: ToolDefinition[] = [
   recallTool,
   notifyParentTool,
   askQuestionTool,
-  // NOTE: external skill tools (registered via registerExternalTools in
-  // registry.ts) are intentionally NOT included here. `explicitTools` is a
-  // module-level const whose value is fixed at first evaluation, so
-  // external tools registered after this file loads would be missed.
-  // `initializeTools()` in `registry.ts` calls `getExternalTools()`
-  // separately at runtime so late registrations are picked up.
 ];
-
-// ── CES tools (feature-flag gated) ──────────────────────────────────
-// Credential Execution Service tools are only registered when the
-// CES feature flag (`ces-tools`) is enabled.
-// This list is intentionally separate from `explicitTools` so that
-// initializeTools() in registry.ts can conditionally include them.
-
-/** All CES tools - stable references for the manifest snapshot. */
-export const cesTools: ToolDefinition[] = [
-  makeAuthenticatedRequestTool,
-  runAuthenticatedCommandTool,
-  manageSecureCommandTool,
-];
-
-/**
- * Return CES tools only if the CES feature flag is enabled.
- * Returns an empty array when the flag is disabled so callers can
- * unconditionally iterate the result.
- */
-export function getCesToolsIfEnabled(): ToolDefinition[] {
-  try {
-    const config = getConfig();
-    if (isCesToolsEnabled(config)) {
-      // manage_secure_command_tool is additionally gated behind the
-      // ces-secure-install flag so it can be rolled out independently.
-      const secureInstallEnabled = isCesSecureInstallEnabled(config);
-      return cesTools.filter(
-        (t) => t.name !== "manage_secure_command_tool" || secureInstallEnabled,
-      );
-    }
-  } catch {
-    // Config not yet loaded (e.g. during test setup) - CES tools stay off.
-  }
-  return [];
-}

@@ -6,6 +6,7 @@
  * 1. The registered default injectors are listed in the
  *    documented order (disk-pressure-warning → workspace-context →
  *    background-turn → unified-turn-context → config-quarantine-notice →
+ *    config-validation-reset-notice →
  *    pkb-context → pkb-reminder → memory-v2-static → now-md →
  *    active-documents → document-comments → subagent-status →
  *    slack-messages → thread-focus).
@@ -36,6 +37,18 @@ mock.module("../config/loader.js", () => ({
       ...real,
       memory: { ...real.memory, v2: { ...real.memory.v2, enabled: false } },
     };
+  },
+}));
+
+// Memory code resolves its config through the plugin's own accessor, not
+// getConfig(); mirror the v2-disabled override there.
+const realMemoryConfigModule =
+  await import("../plugins/defaults/memory/config.js");
+const realGetMemoryConfig = realMemoryConfigModule.getMemoryConfig;
+mock.module("../plugins/defaults/memory/config.js", () => ({
+  getMemoryConfig: () => {
+    const real = realGetMemoryConfig();
+    return { ...real, v2: { ...real.v2, enabled: false } };
   },
 }));
 
@@ -311,6 +324,7 @@ describe("injector chain", () => {
       "background-turn",
       "unified-turn-context",
       "config-quarantine-notice",
+      "config-validation-reset-notice",
       "pkb-context",
       "pkb-reminder",
       "memory-v2-static",
@@ -341,6 +355,9 @@ describe("injector chain", () => {
     );
     expect(byName.get("config-quarantine-notice")).toBe(
       DEFAULT_INJECTOR_ORDER.configQuarantineNotice,
+    );
+    expect(byName.get("config-validation-reset-notice")).toBe(
+      DEFAULT_INJECTOR_ORDER.configValidationResetNotice,
     );
     expect(byName.get("pkb-context")).toBe(DEFAULT_INJECTOR_ORDER.pkbContext);
     expect(byName.get("pkb-reminder")).toBe(DEFAULT_INJECTOR_ORDER.pkbReminder);

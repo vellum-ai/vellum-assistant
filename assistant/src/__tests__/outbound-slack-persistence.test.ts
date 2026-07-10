@@ -15,13 +15,6 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ── Shared mock plumbing (must precede module-under-test imports) ──────────
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 type TestConfig = {
   ui: { userTimezone?: string; detectedTimezone?: string };
   skills: Record<string, unknown>;
@@ -114,6 +107,15 @@ mock.module("../persistence/conversation-crud.js", () => ({
     // Mirror updateContent into the same capture array so existing
     // `lastAssistantPersisted()` assertions continue to find the row that
     // was reserved at `llm_call_started` time.
+    const row = persistedRows.find((candidate) => candidate.id === messageId);
+    if (row) row.content = content;
+    const call = addMessageCalls.find((c) => c.id === messageId);
+    if (call) call.content = content;
+  },
+  markMessageContentInflight: () => {},
+  finalizeMessageContent: (messageId: string, content: string) => {
+    // The finalize seam writes through `finalizeMessageContent`; mirror it
+    // into the same captures as `updateMessageContent`.
     const row = persistedRows.find((candidate) => candidate.id === messageId);
     if (row) row.content = content;
     const call = addMessageCalls.find((c) => c.id === messageId);

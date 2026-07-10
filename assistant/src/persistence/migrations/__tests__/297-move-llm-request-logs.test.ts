@@ -63,7 +63,7 @@ describe("migration 297 — llm_request_logs lives in the logs database", () => 
       "anthropic",
       "mainAgent",
     );
-    const row = getRequestLogById(id);
+    const row = getRequestLogById(id!);
     expect(row?.conversationId).toBe("conv-297");
     expect(row?.messageId).toBe("msg-297");
     expect(row?.provider).toBe("anthropic");
@@ -75,7 +75,7 @@ describe("migration 297 — llm_request_logs lives in the logs database", () => 
         { c: number },
         [string]
       >(`SELECT COUNT(*) AS c FROM llm_request_logs WHERE id = ?`)
-      .get(id);
+      .get(id!);
     expect(inLogs?.c).toBe(1);
   });
 

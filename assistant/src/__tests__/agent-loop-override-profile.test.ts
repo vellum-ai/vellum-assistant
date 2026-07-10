@@ -13,13 +13,18 @@
  * field is omitted from `providerConfig` rather than carrying `undefined`.
  */
 
-import { describe, expect, mock, test } from "bun:test";
+import { beforeAll, describe, expect, mock, test } from "bun:test";
 
-import { makeMockLogger } from "./helpers/mock-logger.js";
+import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () => makeMockLogger(),
-}));
+// These suites exercise override-profile PLUMBING through legacy-shaped
+// fixtures (llm.default-centric, no defaultProvider). Pinned to the
+// flag-off cascade; override-or-default resolution semantics are pinned by
+// llm-resolver-override-or-default.test.ts and the inference-profile loop
+// suite.
+beforeAll(() => {
+  setOverridesForTesting({ "override-or-default-resolution": false });
+});
 
 import { AgentLoop } from "../agent/loop.js";
 import type {
@@ -287,6 +292,9 @@ mock.module("../providers/inference/connections.js", () => ({
   }),
 }));
 
+let mockActiveProfile: string | undefined;
+let mockCallSites: Record<string, unknown> = {};
+
 mock.module("../config/loader.js", () => ({
   getConfig: () => ({
     llm: {
@@ -298,7 +306,14 @@ mock.module("../config/loader.js", () => ({
       profiles: {
         // Disable the catalog default so resolution lands on llm.default.
         balanced: { source: "managed", status: "disabled" },
+        fast: {
+          source: "user",
+          provider: "anthropic",
+          model: "claude-haiku-4-5-20251001",
+        },
       },
+      activeProfile: mockActiveProfile,
+      callSites: mockCallSites,
     },
     rateLimit: { maxRequestsPerMinute: 0 },
   }),
@@ -464,6 +479,48 @@ describe("executeSubagentSpawn — nested inheritance via context.overrideProfil
       expect("overrideProfile" in capturedConfig!).toBe(false);
     } finally {
       manager.spawn = originalSpawn;
+    }
+  });
+
+  test("an explicit subagentSpawn call-site pin suppresses the invoker-default inheritance", async () => {
+    // With an active profile the invoker-default tier resolves ("fast"), so
+    // absent a pin it is forwarded as the inherited override; with an
+    // explicit llm.callSites.subagentSpawn profile the heuristic must yield
+    // so the pin can win under override-or-default resolution.
+    const manager = getSubagentManager();
+    const originalSpawn = manager.spawn.bind(manager);
+    let capturedConfig: Record<string, unknown> | undefined;
+    manager.spawn = async (config: never) => {
+      capturedConfig = config;
+      return "nested-subagent-id-3";
+    };
+    mockActiveProfile = "fast";
+    try {
+      const baseContext = {
+        workingDir: "/tmp",
+        conversationId: "subagent-conv-id-3",
+        trustClass: "guardian",
+        sendToClient: () => {},
+      } as import("../tools/types.js").ToolContext;
+
+      mockCallSites = {};
+      await executeSubagentSpawn(
+        { label: "nested", objective: "do nested work" },
+        baseContext,
+      );
+      expect(capturedConfig!.overrideProfile).toBe("fast");
+
+      mockCallSites = { subagentSpawn: { profile: "fast" } };
+      capturedConfig = undefined;
+      await executeSubagentSpawn(
+        { label: "nested", objective: "do nested work" },
+        baseContext,
+      );
+      expect("overrideProfile" in capturedConfig!).toBe(false);
+    } finally {
+      manager.spawn = originalSpawn;
+      mockActiveProfile = undefined;
+      mockCallSites = {};
     }
   });
 });

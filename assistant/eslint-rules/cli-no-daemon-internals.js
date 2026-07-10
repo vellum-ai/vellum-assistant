@@ -1,304 +1,126 @@
-// Import prefixes allowed for each transport class. Entries cover both
-// depth-1 (e.g. `commands/foo.ts`) and depth-2 (e.g. `commands/oauth/bar.ts`)
-// relative paths so nested command directories don't false-positive.
-//
-// Adding a new entry: prefer the narrowest match that captures the legitimate
-// case. Daemon-internal modules (`runtime/`, `services/`, `agents/`, `llm/`,
-// `skills/`, etc.) MUST remain off the allowlist for `ipc`-tagged commands.
-const ALLOWED_PREFIXES = {
-  ipc: [
-    "node:",
-    "bun:",
-    "commander",
-    // Sibling subcommand composition (e.g. oauth/index.ts -> ./connect.js).
-    // The imported file is itself a command and the rule will check its
-    // imports independently, so this can't be used to smuggle daemon
-    // internals through a sibling re-export.
-    "./",
-    // IPC client at depth-1 and depth-2.
-    "../../ipc/cli-client",
-    "../../../ipc/cli-client",
-    // Status command's daemon-down fallback needs socket path + platform.
-    "../../ipc/socket-path",
-    "../../util/platform",
-    // App version constant (leaf module; reads package.json/env, no daemon
-    // deps) — status prints it to surface CLI-vs-runtime version drift.
-    "../../version",
-    "../../../version",
-    // Robust stdin reader (leaf module; only node:fs, no daemon deps) —
-    // commands that accept piped payloads read fd 0 through it at depth-1
-    // and depth-2.
-    "../../util/read-stdin",
-    "../../../util/read-stdin",
-    // Logger / output at depth-1 and depth-2.
-    "../logger",
-    "../output",
-    "../../logger",
-    "../../output",
-    // Shared CLI lib / utils at depth-1 and depth-2.
-    "../lib/",
-    "../../lib/",
-    "../utils/",
-    "../../utils/",
-    // Environment access for commands that need to read VELLUM_* env vars
-    // before issuing IPC calls (e.g. email, domain).
-    "../../config/env",
-    // Browser command's operation metadata (drives subcommand generation).
-    "../../browser/operations",
-  ],
-  local: [
-    "node:",
-    "bun:",
-    "commander",
-    "zod",
-    // Sibling helpers + cross-namespace helper for config.ts managed-mode
-    // check (see commands/oauth/shared.ts docstring).
-    "./",
-    // Config schema/loader at depth-1 and depth-2.
-    "../../config/loader",
-    "../../../config/loader",
-    "../../config/schema",
-    "../../config/env",
-    "../../util/platform",
-    "../../../util/platform",
-    // Memory retrospective — the retrospective CLI runs the fork-based
-    // retrospective in-process (no daemon, no IPC), so it imports the
-    // job handler directly from the default-memory plugin. Depth-2 for
-    // commands/memory/ nesting.
-    "../../plugins/defaults/memory/memory-retrospective-job",
-    "../../../plugins/defaults/memory/memory-retrospective-job",
-    // Standalone tool execution — `tools run` executes a single tool
-    // in-process from the filesystem (no daemon, no IPC), so it imports the
-    // standalone runner directly. Depth-2 for commands/ nesting.
-    "../../tools/run-standalone",
-    "../../../tools/run-standalone",
-    "../logger",
-    "../output",
-    "../../logger",
-    "../../output",
-    "../lib/",
-    "../../lib/",
-    "../utils/",
-    "../../utils/",
-    // Secure key storage (keys.ts) needs direct security module access —
-    // by design, the secure-key helpers run in-process (not over IPC).
-    "../../security/",
-    // Canonical API-key provider list (keys.ts help text + validation) —
-    // a static metadata catalog with no daemon state.
-    "../../providers/provider-secret-catalog",
-    // CES bridge (credential-execution.ts) speaks to the CES sidecar via
-    // service-contracts RPC; daemon is not involved.
-    "../../credential-execution/",
-    "@vellumai/service-contracts",
-  ],
-  bootstrap: [
-    "node:",
-    "bun:",
-    "commander",
-    "./",
-    "../../config/loader",
-    "../../config/schema",
-    "../../config/env",
-    "../../util/platform",
-    "../logger",
-    "../output",
-    "../../logger",
-    "../../output",
-    "../lib/",
-    "../../lib/",
-    "../utils/",
-    "../../utils/",
-  ],
-};
+import path from "node:path";
 
 /**
- * Walks the program AST looking for a `registerCommand({ transport: ... })`
- * call. Returns:
- *   - the transport string when registerCommand is called with a string
- *     transport prop ("ipc" / "local" / "bootstrap")
- *   - "MISSING_TRANSPORT" when registerCommand is called but no string
- *     transport prop is present
- *   - null when no registerCommand call is found at all (helper module —
- *     not a command entry, no checks apply)
+ * `cli/no-daemon-internals`
+ *
+ * Forbids CLI command files from *hoisting* (statically importing at module
+ * top level) any module that lives outside the CLI's own tree or the shared
+ * leaf zones. Top-level imports load on every `assistant …` invocation, so
+ * pulling a daemon subsystem into the static graph inflates the memory
+ * footprint of every command — including the bash-tool fast path that only
+ * meant to run one small verb.
+ *
+ * The rule is purely structural — no per-module allowlist. Hoisted imports may
+ * resolve only to:
+ *   - non-relative specifiers (Node/npm/`bun:`/scoped packages), or
+ *   - the CLI's own tree (`src/cli/**`), or
+ *   - the shared non-daemon leaf zones below (`util/`, `ipc/`, `types/`,
+ *     `version`), which carry no daemon runtime graph.
+ *
+ * Everything else under `src/` is daemon-internal and must be reached with a
+ * dynamic `import()` inside the action, so it loads only when the command
+ * actually runs. Type-only imports are always fine — they are erased at
+ * compile time and cost nothing at runtime. Dynamic `import()` expressions are
+ * not `ImportDeclaration`s, so they are never flagged.
  */
-function findTransport(program) {
-  const worklist = [...program.body];
-  const seen = new WeakSet();
-  let registerCommandCalled = false;
 
-  while (worklist.length > 0) {
-    const node = worklist.pop();
+// Top-level `src/` directories that hold no daemon runtime graph and may be
+// hoisted into the CLI's static import graph. These are whole non-daemon
+// categories, not carve-outs for individual daemon modules: the CLI itself,
+// shared leaf utilities, the IPC transport (client + socket path), and type
+// declarations.
+const SAFE_DIRS = new Set(["cli", "util", "ipc", "types"]);
+// Individual leaf files directly under `src/` that may be hoisted (e.g. the
+// app version constant `src/version.ts`).
+const SAFE_ROOT_FILES = new Set(["version"]);
 
-    if (!node || typeof node !== "object" || seen.has(node)) {
-      continue;
-    }
-    seen.add(node);
-
-    if (
-      node.type === "CallExpression" &&
-      node.callee.type === "Identifier" &&
-      node.callee.name === "registerCommand"
-    ) {
-      registerCommandCalled = true;
-      for (const arg of node.arguments) {
-        if (arg.type === "ObjectExpression") {
-          for (const prop of arg.properties) {
-            if (
-              prop.type === "Property" &&
-              prop.key.type === "Identifier" &&
-              prop.key.name === "transport" &&
-              prop.value.type === "Literal" &&
-              typeof prop.value.value === "string"
-            ) {
-              return prop.value.value;
-            }
-          }
-        }
-      }
-    }
-
-    switch (node.type) {
-      case "ExpressionStatement":
-        worklist.push(node.expression);
-        break;
-      case "CallExpression":
-        // Enqueue both arguments AND the callee so chained patterns like
-        // `registerCommand(...).command(...).description(...)` are walked.
-        // The outer call's callee is a MemberExpression whose object is the
-        // inner CallExpression; without traversing the callee we'd never
-        // reach the inner `registerCommand` invocation and findTransport()
-        // would return null, silently skipping all checks.
-        worklist.push(node.callee);
-        for (const arg of node.arguments) {
-          worklist.push(arg);
-        }
-        break;
-      case "MemberExpression":
-        // Reach through `.foo` chains so we can walk into the receiver.
-        worklist.push(node.object);
-        break;
-      case "FunctionDeclaration":
-      case "FunctionExpression":
-      case "ArrowFunctionExpression":
-        if (node.body) worklist.push(node.body);
-        break;
-      case "BlockStatement":
-        for (const stmt of node.body) {
-          worklist.push(stmt);
-        }
-        break;
-      case "ReturnStatement":
-        if (node.argument) worklist.push(node.argument);
-        break;
-      case "ExportNamedDeclaration":
-      case "ExportDefaultDeclaration":
-        if (node.declaration) worklist.push(node.declaration);
-        break;
-      case "VariableDeclaration":
-        for (const decl of node.declarations) {
-          if (decl.init) worklist.push(decl.init);
-        }
-        break;
-      case "ObjectExpression":
-        for (const prop of node.properties) {
-          if (prop.type === "Property") {
-            worklist.push(prop.value);
-          }
-        }
-        break;
-      default:
-        break;
-    }
+/**
+ * Given the importing file and an import specifier, decide whether hoisting it
+ * is allowed. Returns true (allowed) for anything that is not a
+ * daemon-internal module.
+ */
+function isHoistAllowed(filename, specifier) {
+  // Non-relative specifiers are packages (Node/npm/bun/scoped) — always fine.
+  if (!specifier.startsWith(".")) {
+    return true;
   }
 
-  return registerCommandCalled ? "MISSING_TRANSPORT" : null;
+  // Locate the `.../src/cli/` prefix of the importing file to anchor `src/`.
+  const marker = `${path.sep}src${path.sep}cli${path.sep}`;
+  const markerIdx = filename.indexOf(marker);
+  if (markerIdx === -1) {
+    // Not a file under src/cli — the rule's file glob shouldn't match it, so
+    // be conservative and don't flag.
+    return true;
+  }
+  const srcRoot = filename.slice(0, markerIdx) + `${path.sep}src`;
+
+  const resolved = path.resolve(path.dirname(filename), specifier);
+  const relFromSrc = path.relative(srcRoot, resolved);
+
+  // Resolves outside `src/` entirely (unusual for a relative import) — leave
+  // it alone; it isn't a daemon-internal module.
+  if (relFromSrc.startsWith("..")) {
+    return true;
+  }
+
+  const segments = relFromSrc.split(path.sep);
+  const firstSegment = segments[0];
+
+  // A leaf file directly under src/ (e.g. `version.js`).
+  if (segments.length === 1) {
+    return SAFE_ROOT_FILES.has(firstSegment.replace(/\.[jt]s$/, ""));
+  }
+
+  return SAFE_DIRS.has(firstSegment);
 }
 
 const rule = {
   meta: {
-    type: "suggestion",
+    type: "problem",
     docs: {
       description:
-        "Enforce import allowlists for CLI commands by transport class",
+        "Forbid CLI command files from hoisting daemon-internal imports (lazy-import them inside the action instead)",
     },
     messages: {
-      missingTransport:
-        "CLI command file must call registerCommand({ transport: ... }) to declare its transport class.",
-      forbiddenImport:
-        "'{{transport}}'-tagged CLI command imports forbidden module '{{source}}'. See src/cli/AGENTS.md for allowed imports.",
+      hoistedDaemonImport:
+        "CLI command hoists daemon-internal module '{{source}}'. Import it lazily inside the action (`await import(...)`) so it stays out of the CLI's static graph. See src/cli/AGENTS.md.",
     },
     schema: [],
   },
 
   create(context) {
-    const importNodes = [];
+    const filename = context.filename ?? context.getFilename();
 
     return {
       ImportDeclaration(node) {
-        importNodes.push(node);
-      },
-
-      "Program:exit"(program) {
-        if (importNodes.length === 0) {
+        // `import type { … } from "…"` — erased at compile time. Skip.
+        if (node.importKind === "type") {
+          return;
+        }
+        // Inline-type form `import { type A, type B } from "…"`: when *every*
+        // named specifier is type-only the whole import is erased. Skip those.
+        // Side-effect-only imports (`import "x"`) have no specifiers and run at
+        // load time — do not skip those.
+        if (
+          node.specifiers.length > 0 &&
+          node.specifiers.every(
+            (s) => s.type === "ImportSpecifier" && s.importKind === "type",
+          )
+        ) {
           return;
         }
 
-        const transport = findTransport(program);
-
-        // Helper modules (no registerCommand call) are not command entries —
-        // skip them. Command files that call registerCommand without a string
-        // transport prop still trip missingTransport.
-        if (transport === null) {
+        const source = node.source.value;
+        if (typeof source !== "string") {
           return;
         }
-
-        if (transport === "MISSING_TRANSPORT") {
+        if (!isHoistAllowed(filename, source)) {
           context.report({
-            node: program,
-            messageId: "missingTransport",
+            node,
+            messageId: "hoistedDaemonImport",
+            data: { source },
           });
-          return;
-        }
-
-        const allowedPrefixes = ALLOWED_PREFIXES[transport];
-        if (!allowedPrefixes) {
-          return;
-        }
-
-        for (const importNode of importNodes) {
-          // `import type {...}` is erased at compile time — top-level type
-          // import kind is set to "type" on the declaration. Skip.
-          if (importNode.importKind === "type") {
-            continue;
-          }
-          // Inline-type form `import { type X, type Y } from "..."` keeps
-          // the declaration `importKind === "value"` while marking each
-          // ImportSpecifier with `importKind === "type"`. When *every*
-          // specifier is type-only the entire import is erased. Skip those
-          // too. Side-effect-only imports (`import "x"`) have an empty
-          // specifiers list and run at module load — must NOT skip.
-          if (
-            importNode.specifiers.length > 0 &&
-            importNode.specifiers.every(
-              (s) => s.type === "ImportSpecifier" && s.importKind === "type",
-            )
-          ) {
-            continue;
-          }
-          const source = importNode.source.value;
-          const allowed = allowedPrefixes.some((prefix) =>
-            source.startsWith(prefix),
-          );
-          if (!allowed) {
-            context.report({
-              node: importNode,
-              messageId: "forbiddenImport",
-              data: {
-                transport,
-                source,
-              },
-            });
-          }
         }
       },
     };

@@ -21,13 +21,8 @@ import {
 
 import { eq } from "drizzle-orm";
 
-import { makeMockLogger } from "../../../../__tests__/helpers/mock-logger.js";
 import { DEFAULT_CONFIG } from "../../../../config/defaults.js";
 import type { AssistantConfig } from "../../../../config/types.js";
-
-mock.module("../../../../util/logger.js", () => ({
-  getLogger: () => makeMockLogger(),
-}));
 
 const TEST_CONFIG: AssistantConfig = {
   ...DEFAULT_CONFIG,

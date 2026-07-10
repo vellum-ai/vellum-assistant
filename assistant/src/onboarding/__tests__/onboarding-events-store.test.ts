@@ -1,13 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-// Silence the logger.
-mock.module("../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // Mutable consent gate, flipped per-test.
 let shareAnalytics = true;
 mock.module("../../platform/consent-cache.js", () => ({

@@ -19,7 +19,12 @@ import {
   type AbortReasonKind,
   createAbortReason,
 } from "../util/abort-reasons.js";
-import { ProviderError, ProviderNotConfiguredError } from "../util/errors.js";
+import {
+  ConfigError,
+  ProviderError,
+  ProviderNotConfiguredError,
+  VellumError,
+} from "../util/errors.js";
 
 describe("isUserCancellation", () => {
   it("returns false for non-AbortError even when abort flag is set", () => {
@@ -371,6 +376,24 @@ describe("classifyConversationError", () => {
       expect(result.code).toBe("IMAGE_TOO_LARGE");
       expect(result.errorCategory).toBe("image_dimensions_too_large");
       expect(result.retryable).toBe(false);
+    });
+
+    it("classifies Anthropic 400 'Could not process image' as image_unprocessable (non-retryable)", () => {
+      // The rejection Anthropic returns for images below its minimum size
+      // floor (e.g. a 16×14 px upload). It must route to the image-recovery
+      // classification with a friendly message, not surface the raw JSON body
+      // through the generic PROVIDER_API branch.
+      const err = new ProviderError(
+        'Anthropic API error (400): 400 {"type":"error","error":{"type":"invalid_request_error","message":"Could not process image"},"request_id":"req_011CcsLvPnYo5Xnvhs5edSS2"}',
+        "anthropic",
+        400,
+      );
+      const result = classifyConversationError(err, baseCtx);
+      expect(result.code).toBe("IMAGE_TOO_LARGE");
+      expect(result.errorCategory).toBe("image_unprocessable");
+      expect(result.retryable).toBe(false);
+      expect(result.userMessage).not.toContain("invalid_request_error");
+      expect(result.userMessage.toLowerCase()).toContain("image");
     });
 
     it("does not steal generic 400s that happen to mention 'image'", () => {
@@ -822,6 +845,178 @@ describe("classifyConversationError", () => {
     });
   });
 
+  describe("reason-driven classification (ProviderError.reason)", () => {
+    it("classifies reason=model_restricted on the skew-safe PROVIDER_API code with a specific errorCategory", () => {
+      const err = new ProviderError(
+        "Vercel AI Gateway API error (403): Model claude-opus-4 is restricted on your plan [type=no_providers_available]",
+        "vercel-ai-gateway",
+        403,
+        { reason: "model_restricted" },
+      );
+
+      const result = classifyConversationError(err, baseCtx);
+
+      // Rides the existing PROVIDER_API code so version-skewed clients still
+      // parse the event; the specific signal is on the free-form errorCategory.
+      expect(result.code).toBe("PROVIDER_API");
+      expect(result.errorCategory).toBe("provider_model_restricted");
+      expect(result.retryable).toBe(false);
+      expect(result.userMessage).toContain(
+        "Model claude-opus-4 is restricted on your plan",
+      );
+      expect(result.userMessage).toContain("upgrade your plan");
+    });
+
+    it("falls back to the plan sentence without detail when none is extractable", () => {
+      const err = new ProviderError(
+        "Vercel AI Gateway API error (403): [type=no_providers_available]",
+        "vercel-ai-gateway",
+        403,
+        { reason: "model_restricted" },
+      );
+
+      const result = classifyConversationError(err, baseCtx);
+
+      expect(result.code).toBe("PROVIDER_API");
+      expect(result.errorCategory).toBe("provider_model_restricted");
+      expect(result.userMessage).toContain(
+        "This model isn't available on your current provider plan. Switch",
+      );
+    });
+
+    it("routes reason=invalid_credentials to MANAGED_KEY_INVALID under managed-proxy", () => {
+      providerRoutingSources["vercel-ai-gateway"] = "managed-proxy";
+      const err = new ProviderError(
+        "Vercel AI Gateway API error (401): unauthorized",
+        "vercel-ai-gateway",
+        401,
+        { reason: "invalid_credentials" },
+      );
+
+      const result = classifyConversationError(err, baseCtx);
+
+      expect(result.code).toBe("MANAGED_KEY_INVALID");
+      expect(result.errorCategory).toBe("managed_key_invalid");
+      expect(result.retryable).toBe(false);
+    });
+
+    it("routes reason=invalid_credentials to PROVIDER_INVALID_KEY under a user key", () => {
+      providerRoutingSources.openai = "user-key";
+      const err = new ProviderError(
+        "OpenAI API error (401): invalid api key",
+        "openai",
+        401,
+        { reason: "invalid_credentials" },
+      );
+
+      const result = classifyConversationError(err, baseCtx);
+
+      expect(result.code).toBe("PROVIDER_INVALID_KEY");
+      expect(result.errorCategory).toBe("provider_invalid_key");
+    });
+
+    it("overlays reason=rate_limited both ways (managed vs user)", () => {
+      providerRoutingSources.openrouter = "managed-proxy";
+      const managed = classifyConversationError(
+        new ProviderError("rate limited", "openrouter", 429, {
+          reason: "rate_limited",
+        }),
+        baseCtx,
+      );
+      expect(managed.code).toBe("MANAGED_USAGE_LIMIT");
+      expect(managed.errorCategory).toBe("managed_usage_limit");
+
+      providerRoutingSources.openai = "user-key";
+      const user = classifyConversationError(
+        new ProviderError("rate limited", "openai", 429, {
+          reason: "rate_limited",
+        }),
+        baseCtx,
+      );
+      expect(user.code).toBe("PROVIDER_RATE_LIMIT");
+      expect(user.errorCategory).toBe("rate_limit");
+    });
+
+    it("classifies reason=rate_limited managed quota bodies as MANAGED_USAGE_LIMIT even without a managed routing source", () => {
+      // Per-connection platform auth path leaves routingSource unset, so the
+      // managed quota body pattern must still win over PROVIDER_RATE_LIMIT.
+      providerRoutingSources.openai = "user-key";
+      const result = classifyConversationError(
+        new ProviderError('{"code":"daily_quota_exceeded"}', "openai", 429, {
+          reason: "rate_limited",
+        }),
+        baseCtx,
+      );
+      expect(result.code).toBe("MANAGED_USAGE_LIMIT");
+      expect(result.errorCategory).toBe("managed_usage_limit");
+    });
+
+    it("defers reason=bad_request to the existing status/regex fallback", () => {
+      const err = new ProviderError(
+        "context_length_exceeded: your prompt is too long",
+        "openai",
+        400,
+        { reason: "bad_request" },
+      );
+
+      const result = classifyConversationError(err, baseCtx);
+
+      // Falls through to the 4xx context-too-large branch, unchanged.
+      expect(result.code).toBe("CONTEXT_TOO_LARGE");
+      expect(result.errorCategory).toBe("context_too_large");
+    });
+
+    it("honors a stamped reason on a statusless ProviderError (no HTTP status)", () => {
+      // SDK streaming failures throw with statusCode undefined but can still
+      // carry a reason; it must classify semantically, not fall to the fallback.
+      const err = new ProviderError("stream failed", "openai", undefined, {
+        reason: "insufficient_credits",
+      });
+      const result = classifyConversationError(err, baseCtx);
+      expect(result.code).toBe("PROVIDER_BILLING");
+      expect(result.errorCategory).toBe("provider_billing");
+    });
+
+    it("keeps reason-less ProviderErrors on the legacy status path", () => {
+      const err = new ProviderError("Unauthorized", "anthropic", 401);
+      const result = classifyConversationError(err, baseCtx);
+      expect(result.code).toBe("PROVIDER_INVALID_KEY");
+      expect(result.errorCategory).toBe("provider_invalid_key");
+    });
+  });
+
+  describe("reason-less fallback stays functional", () => {
+    it("classifies a reason-less network Error via the regex battery", () => {
+      const result = classifyConversationError(
+        new Error("ECONNREFUSED"),
+        baseCtx,
+      );
+      expect(result.code).toBe("PROVIDER_NETWORK");
+      expect(result.errorCategory).toBe("provider_network");
+    });
+
+    it("classifies a reason-less ProviderError 500 via the status switch", () => {
+      const err = new ProviderError("Internal server error", "openai", 500);
+      const result = classifyConversationError(err, baseCtx);
+      expect(result.code).toBe("PROVIDER_API");
+      expect(result.errorCategory).toBe("provider_server_error");
+    });
+
+    it("yields the same classification for a stamped reason and its reason-less twin", () => {
+      const withReason = classifyConversationError(
+        new ProviderError("boom", "openai", 500, { reason: "server_error" }),
+        baseCtx,
+      );
+      const withoutReason = classifyConversationError(
+        new ProviderError("boom", "openai", 500),
+        baseCtx,
+      );
+      expect(withReason.code).toBe(withoutReason.code);
+      expect(withReason.errorCategory).toBe(withoutReason.errorCategory);
+      expect(withReason.userMessage).toBe(withoutReason.userMessage);
+    });
+  });
+
   describe("debug detail truncation", () => {
     it("truncates debugDetails longer than 4000 chars", () => {
       const longMsg = "x".repeat(5000);
@@ -1027,20 +1222,121 @@ describe("ConnectionResolutionError classification", () => {
     );
     const result = classifyConversationError(err, errCtx);
     expect(result.code).toBe("PROVIDER_NOT_CONFIGURED");
-    expect(result.userMessage).toContain("No compatible provider connection");
+    expect(result.userMessage).toContain('"anthropic-managed"');
+    expect(result.userMessage).toContain("different provider");
     expect(result.userMessage).toContain("Settings");
     expect(result.userMessage).not.toContain("provider_connection");
     expect(result.connectionName).toBe("anthropic-managed");
+    expect(result.debugDetails).toContain(
+      "connection_resolution:provider_mismatch",
+    );
   });
 
-  it("classifies not_found as PROVIDER_NOT_CONFIGURED", () => {
+  it("classifies not_found as PROVIDER_NOT_CONFIGURED naming the connection and profile", () => {
     const err = new ConnectionResolutionError(
       "deleted-connection",
       "not_found",
       'provider_connection "deleted-connection" not found in DB',
+      { profileName: "custom-fast" },
     );
     const result = classifyConversationError(err, errCtx);
     expect(result.code).toBe("PROVIDER_NOT_CONFIGURED");
+    expect(result.userMessage).toContain('"deleted-connection"');
+    expect(result.userMessage).toContain('profile "custom-fast"');
+    expect(result.userMessage).toContain("no longer exists");
     expect(result.userMessage).not.toContain("not found in DB");
+    expect(result.profileName).toBe("custom-fast");
+  });
+
+  it("classifies missing_connection with an add-a-key fix and no sentinel name", () => {
+    const err = new ConnectionResolutionError(
+      "<llm.default>",
+      "missing_connection",
+      "llm.default.provider_connection is unset",
+    );
+    const result = classifyConversationError(err, errCtx);
+    expect(result.userMessage).toContain(
+      "No provider connection is configured",
+    );
+    expect(result.userMessage).toContain("Add an API key or log in");
+    expect(result.userMessage).not.toContain("<llm.default>");
+    expect(result.connectionName).toBeUndefined();
+  });
+
+  it("classifies model_incompatible naming the model", () => {
+    const err = new ConnectionResolutionError(
+      "chatgpt-codex",
+      "model_incompatible",
+      "subscription connection only serves codex models",
+      { model: "claude-fable-5" },
+    );
+    const result = classifyConversationError(err, errCtx);
+    expect(result.userMessage).toContain('Model "claude-fable-5"');
+    expect(result.userMessage).toContain('"chatgpt-codex"');
+  });
+
+  it("classifies lookup_failed with a restart hint and preserves the cause", () => {
+    const cause = new Error("db locked");
+    const err = new ConnectionResolutionError(
+      "anthropic-personal",
+      "lookup_failed",
+      "lookup failed",
+      { cause },
+    );
+    expect(err.cause).toBe(cause);
+    const result = classifyConversationError(err, errCtx);
+    expect(result.userMessage).toContain("Restart the assistant");
+  });
+
+  it("classifies missing_credential naming the connection and fix", () => {
+    const err = new ConnectionResolutionError(
+      "anthropic-personal",
+      "missing_credential",
+      "no key",
+      { profileName: "custom-fast" },
+    );
+    const result = classifyConversationError(err, errCtx);
+    expect(result.code).toBe("PROVIDER_NOT_CONFIGURED");
+    expect(result.userMessage).toContain('"anthropic-personal"');
+    expect(result.userMessage).toContain("no stored credential");
+    expect(result.userMessage).toContain('profile "custom-fast"');
+  });
+
+  it("classifies platform_unauthenticated with a log-in fix", () => {
+    const err = new ConnectionResolutionError(
+      "vellum",
+      "platform_unauthenticated",
+      "not logged in",
+    );
+    const result = classifyConversationError(err, errCtx);
+    expect(result.userMessage).toContain("platform login");
+    expect(result.userMessage).toContain("Log in");
+  });
+
+  it("is a structured VellumError (ConfigError) for logging/monitoring", () => {
+    const err = new ConnectionResolutionError("x", "not_found", "m");
+    expect(err).toBeInstanceOf(VellumError);
+    expect(err).toBeInstanceOf(ConfigError);
+    expect(err.name).toBe("ConnectionResolutionError");
+  });
+
+  it("prefers the error's own profileName over context attribution", () => {
+    const err = new ConnectionResolutionError("c", "not_found", "m", {
+      profileName: "from-error",
+    });
+    const result = classifyConversationError(err, {
+      ...errCtx,
+      profileName: "from-context",
+    });
+    expect(result.profileName).toBe("from-error");
+  });
+
+  it("falls back to context attribution when the error carries no profile", () => {
+    const err = new ConnectionResolutionError("c", "not_found", "m");
+    const result = classifyConversationError(err, {
+      ...errCtx,
+      profileName: "from-context",
+    });
+    expect(result.profileName).toBe("from-context");
   });
 });

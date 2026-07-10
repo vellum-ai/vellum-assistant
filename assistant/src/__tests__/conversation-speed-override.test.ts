@@ -16,27 +16,6 @@ import type { Message, ProviderResponse } from "../providers/types.js";
 // Mocks — must precede Conversation import
 // ---------------------------------------------------------------------------
 
-function makeLoggerStub(): Record<string, unknown> {
-  const stub: Record<string, unknown> = {};
-  for (const m of [
-    "info",
-    "warn",
-    "error",
-    "debug",
-    "trace",
-    "fatal",
-    "silent",
-    "child",
-  ]) {
-    stub[m] = m === "child" ? () => makeLoggerStub() : () => {};
-  }
-  return stub;
-}
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () => makeLoggerStub(),
-}));
-
 mock.module("../providers/registry.js", () => ({
   getProvider: () => ({ name: "mock-provider" }),
   initializeProviders: async () => {},
@@ -73,7 +52,16 @@ mock.module("../config/loader.js", () => ({
         },
       },
       profiles: {},
-      callSites: {},
+      // This file's blanket assistant-feature-flags mock forces the
+      // override-or-default resolution flag ON; the speed under test rides
+      // in the mainAgent call-site tweak (applies under both semantics)
+      // rather than llm.default.
+      callSites: {
+        mainAgent: {
+          speed: mockConfigSpeed,
+          contextWindow: { maxInputTokens: 100000 },
+        },
+      },
       pricingOverrides: [],
     },
     rateLimit: { maxRequestsPerMinute: 0 },
@@ -89,7 +77,9 @@ mock.module("../config/loader.js", () => ({
 // Feature flag mock — fast-mode enabled for all tests in this file.
 mock.module("../config/assistant-feature-flags.js", () => ({
   isAssistantFeatureFlagEnabled: (key: string) => {
-    if (key === "fast-mode") return true;
+    if (key === "fast-mode") {
+      return true;
+    }
     return true;
   },
 }));

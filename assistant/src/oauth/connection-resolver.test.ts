@@ -18,13 +18,6 @@ let syncManualTokenCalls: string[] = [];
 // Module mocks (must precede imports of the module under test)
 // ---------------------------------------------------------------------------
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 mock.module("./oauth-store.js", () => ({
   getProvider: () => mockProvider,
   getActiveConnections: (
@@ -78,6 +71,7 @@ mock.module("../platform/client.js", () => ({
 
 import { BYOOAuthConnection } from "./byo-connection.js";
 import {
+  formatNoConnectionError,
   resolveEffectiveBaseUrl,
   resolveOAuthConnection,
   resolveOAuthConnectionWithMeta,
@@ -573,6 +567,145 @@ describe("resolveOAuthConnectionWithMeta multi-account visibility", () => {
 
     expect(ambiguous).toBe(false);
     expect(allAccounts).toEqual(["user@example.com"]);
+  });
+});
+
+describe("no-match error lists available accounts", () => {
+  function clientReturning(results: unknown[]) {
+    return {
+      ...makeMockClient(),
+      fetch: mock(
+        async (path: string) =>
+          new Response(
+            JSON.stringify({
+              // Filtered lookups (account_identifier present) return nothing;
+              // the unfiltered fallback returns the real connections.
+              results: path.includes("account_identifier=") ? [] : results,
+            }),
+            { status: 200 },
+          ),
+      ),
+    };
+  }
+
+  beforeEach(() => {
+    setupDefaults();
+  });
+
+  test("BYO: names the provider's active accounts when the requested account misses", async () => {
+    mockConnections = [
+      {
+        id: "conn-personal",
+        provider: "google",
+        accountInfo: "user@example.com",
+        grantedScopes: JSON.stringify([]),
+        status: "active",
+      },
+      {
+        id: "conn-work",
+        provider: "google",
+        accountInfo: "other@example.org",
+        grantedScopes: JSON.stringify([]),
+        status: "active",
+      },
+    ];
+
+    let message = "";
+    try {
+      await resolveOAuthConnection("google", {
+        account: "missing@example.com",
+      });
+    } catch (error) {
+      message = (error as Error).message;
+    }
+
+    expect(message).toContain('account "missing@example.com"');
+    expect(message).toContain(
+      "Active google connections: user@example.com, other@example.org",
+    );
+    expect(message).toContain("Check the account spelling.");
+  });
+
+  test("BYO: zero connections keeps the plain 'needs to be connected' shape", async () => {
+    mockConnections = [];
+
+    let message = "";
+    try {
+      await resolveOAuthConnection("google", {
+        account: "missing@example.com",
+      });
+    } catch (error) {
+      message = (error as Error).message;
+    }
+
+    expect(message).not.toContain("Active google connections:");
+    expect(message).toContain(
+      "The google service needs to be connected before it can be used.",
+    );
+  });
+
+  test("managed: names the provider's active accounts when the requested account misses", async () => {
+    mockProvider!.managedServiceConfigKey = "google-oauth";
+    mockPlatformClient = clientReturning([
+      { id: "conn-personal", account_label: "user@example.com" },
+      { id: "conn-work", account_label: "other@example.org" },
+    ]);
+
+    let message = "";
+    try {
+      await resolveOAuthConnection("google", {
+        account: "missing@example.com",
+      });
+    } catch (error) {
+      message = (error as Error).message;
+    }
+
+    expect(message).toContain('account "missing@example.com"');
+    expect(message).toContain(
+      "Active google connections: user@example.com, other@example.org",
+    );
+    expect(message).toContain("Check the account spelling.");
+  });
+});
+
+describe("formatNoConnectionError", () => {
+  test("appends available account labels when the provider has active connections", () => {
+    // The requested account is a one-letter misspelling of an active one.
+    const message = formatNoConnectionError({
+      provider: "outlook",
+      account: "usr@example.com",
+      availableLabels: ["user@example.com", "other@example.org"],
+    });
+    expect(message).toBe(
+      'No active OAuth connection found for provider "outlook" with account ' +
+        '"usr@example.com". Active outlook connections: user@example.com, ' +
+        "other@example.org. Check the account spelling.",
+    );
+  });
+
+  test("keeps the plain message shape when no active connections exist", () => {
+    const message = formatNoConnectionError({
+      provider: "outlook",
+      account: "user@example.com",
+      availableLabels: [],
+    });
+    expect(message).toBe(
+      'No active OAuth connection found for provider "outlook" with account ' +
+        '"user@example.com". The outlook service needs to be connected before ' +
+        "it can be used.",
+    );
+  });
+
+  test("includes both account and client ID qualifiers when present", () => {
+    const message = formatNoConnectionError({
+      provider: "outlook",
+      account: "user@example.com",
+      clientId: "client-1",
+      availableLabels: [],
+    });
+    expect(message).toContain(
+      'with account "user@example.com" and client ID "client-1"',
+    );
   });
 });
 

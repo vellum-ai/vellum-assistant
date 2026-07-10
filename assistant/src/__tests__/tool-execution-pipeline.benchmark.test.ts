@@ -22,14 +22,6 @@ import { beforeAll, describe, expect, mock, test } from "bun:test";
 // so that registerTool/getTool/getAllTools work for our benchmark tools.
 const localRegistry = new Map<string, import("../tools/types.js").Tool>();
 
-// Mocks must precede imports of modules under test.
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 mock.module("../config/loader.js", () => ({
   getConfig: () => ({
     ui: {},
@@ -52,6 +44,7 @@ mock.module("../config/skills.js", () => ({
 
 mock.module("../tools/registry.js", () => ({
   getTool: (name: string) => localRegistry.get(name),
+  resolveTool: (name: string) => localRegistry.get(name),
   getAllTools: () => Array.from(localRegistry.values()),
   registerTool: (tool: import("../tools/types.js").Tool) => {
     localRegistry.set(tool.name, tool);

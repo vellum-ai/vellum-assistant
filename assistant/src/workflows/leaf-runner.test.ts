@@ -19,15 +19,9 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { z } from "zod";
 
-import { makeMockLogger } from "../__tests__/helpers/mock-logger.js";
-
 // ---------------------------------------------------------------------------
 // Mocks — defined before importing the module under test.
 // ---------------------------------------------------------------------------
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () => makeMockLogger(),
-}));
 
 const TEST_PROFILES = { balanced: {}, "cost-optimized": {} };
 

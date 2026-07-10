@@ -10,13 +10,6 @@ import {
 
 mock.module("../config/env.js", () => ({ isHttpAuthDisabled: () => true }));
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 mock.module("../config/loader.js", () => ({
   getConfig: () => ({
     ui: {},

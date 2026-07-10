@@ -1,12 +1,13 @@
 /**
  * Shared response-consumption helpers for streaming TTS HTTP responses.
  *
- * `readChunkedBody` reads a fetch response body to completion, forwarding each
- * non-empty chunk to an optional callback, and guards against stalled upstream
- * streams with a first-chunk timeout and an idle (between-chunks) timeout. On
- * timeout the reader is cancelled and the caller-supplied error is thrown.
- * `consumeSynthesisResponse` wraps it with the provider-common empty-response
- * guards and the buffered (non-streaming) read path.
+ * `consumeSynthesisResponse` is the public API: it consumes an OK TTS response
+ * into complete audio, with provider-common empty-response guards and a
+ * buffered (non-streaming) read path. Its streaming path reads the body to
+ * completion, forwarding each non-empty chunk to an optional callback, and
+ * guards against stalled upstreams with a first-chunk timeout and an idle
+ * (between-chunks) timeout; on timeout the reader is cancelled and the
+ * caller-supplied error is thrown.
  */
 
 /** Default timeout waiting for the first chunk of a TTS stream (ms). */
@@ -24,7 +25,7 @@ export interface StreamReadTimeouts {
   idleTimeoutMs?: number;
 }
 
-export interface ReadChunkedBodyOptions extends StreamReadTimeouts {
+interface ReadChunkedBodyOptions extends StreamReadTimeouts {
   /** Invoked with each non-empty chunk as it arrives. */
   onChunk?: (chunk: Uint8Array) => void;
 
@@ -38,7 +39,7 @@ export interface ReadChunkedBodyOptions extends StreamReadTimeouts {
  * and switches from the first-chunk timeout to the idle timeout; only
  * non-empty chunks are collected and forwarded to `onChunk`.
  */
-export async function readChunkedBody(
+async function readChunkedBody(
   body: ReadableStream<Uint8Array>,
   options: ReadChunkedBodyOptions,
 ): Promise<Buffer> {

@@ -15,7 +15,16 @@
  * `Conversation`, then verify it's a `CallSiteRoutingProvider` that selects
  * the right transport for the `subagentSpawn` callSite.
  */
-import { describe, expect, mock, test } from "bun:test";
+import { beforeAll, describe, expect, mock, test } from "bun:test";
+
+import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
+
+// Legacy-shaped fixtures (llm.default-centric resolution): pinned to the
+// flag-off cascade. Override-or-default (flag-on) semantics are pinned by
+// llm-resolver-override-or-default.test.ts and its companion suites.
+beforeAll(() => {
+  setOverridesForTesting({ "override-or-default-resolution": false });
+});
 
 import type { ServerMessage } from "../daemon/message-protocol.js";
 
@@ -127,8 +136,12 @@ mock.module("../providers/registry.js", () => ({
     throw new Error(`legacy getProvider should not be called: ${name}`);
   },
   resolveProviderFromConnection: async (connection: { name: string }) => {
-    if (connection.name === "anthropic-conn") return anthropicStub;
-    if (connection.name === "openai-conn") return openaiStub;
+    if (connection.name === "anthropic-conn") {
+      return anthropicStub;
+    }
+    if (connection.name === "openai-conn") {
+      return openaiStub;
+    }
     return null;
   },
   clearConnectionProviderCache: () => {},
@@ -138,18 +151,20 @@ mock.module("../providers/registry.js", () => ({
 // is stubbed; tests don't touch SQLite.
 mock.module("../providers/inference/connections.js", () => ({
   getConnection: (_db: unknown, name: string) => {
-    if (name === "anthropic-conn")
+    if (name === "anthropic-conn") {
       return {
         name: "anthropic-conn",
         provider: "anthropic",
         auth: { type: "platform" },
       };
-    if (name === "openai-conn")
+    }
+    if (name === "openai-conn") {
       return {
         name: "openai-conn",
         provider: "openai",
         auth: { type: "platform" },
       };
+    }
     return null;
   },
 }));
@@ -166,11 +181,6 @@ mock.module("../config/loader.js", () => ({
     llm: mockLlmConfig,
     rateLimit: { maxRequestsPerMinute: 0 },
   }),
-}));
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
 }));
 
 // ── Imports (after mocks) ───────────────────────────────────────────────────
@@ -473,7 +483,9 @@ describe("CallSiteRoutingProvider — selectProvider behavior", () => {
     const wrapper = new CallSiteRoutingProvider(
       defaultProvider,
       async (connectionName) => {
-        if (connectionName === "openai-conn") return altProvider;
+        if (connectionName === "openai-conn") {
+          return altProvider;
+        }
         return null;
       },
     );

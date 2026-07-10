@@ -1,6 +1,8 @@
 import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
 
+import { runWithSqliteQueryLabel } from "../../util/sqlite-query-label.js";
+import { withSqliteRetry } from "../../util/sqlite-retry.js";
 import {
   callerFromStack,
   SLOW_QUERY_THRESHOLD_MS,
@@ -211,6 +213,99 @@ describe("slow-query-log", () => {
     const db = new Database(":memory:");
     expect(wrapSqliteForSlowQueryLogging(db)).toBe(db);
   });
+
+  test("an ambient label tags the event and keeps the derived caller", () => {
+    const events: SlowQueryEvent[] = [];
+    const db = new Database(":memory:");
+    db.exec("CREATE TABLE t (id INTEGER PRIMARY KEY)");
+    wrapSqliteForSlowQueryLogging(db, {
+      thresholdMs: 100,
+      now: fakeClock(0, 500),
+      onSlowQuery: (e) => events.push(e),
+    });
+
+    runWithSqliteQueryLabel("memory:upsertRetrospectiveState", () => {
+      db.query("SELECT * FROM t").all();
+    });
+
+    expect(events).toHaveLength(1);
+    expect(events[0].label).toBe("memory:upsertRetrospectiveState");
+    // Unlike an explicit `.label()`, an ambient label marks an outer boundary,
+    // so the statement's own call site is still derived from the stack.
+    expect(events[0].caller).toContain("slow-query-log.test.ts");
+  });
+
+  test("an explicit .label() wins over the ambient label", () => {
+    const events: SlowQueryEvent[] = [];
+    const db = new Database(":memory:");
+    db.exec("CREATE TABLE t (id INTEGER PRIMARY KEY, v TEXT)");
+    wrapSqliteForSlowQueryLogging(db, {
+      thresholdMs: 100,
+      now: fakeClock(0, 500),
+      onSlowQuery: (e) => events.push(e),
+    });
+
+    runWithSqliteQueryLabel("ambient:outer", () => {
+      db.label("schedule::claimDue")
+        .query("INSERT INTO t (v) VALUES (?)")
+        .run("a");
+    });
+
+    expect(events).toHaveLength(1);
+    expect(events[0].label).toBe("schedule::claimDue");
+    expect(events[0].caller).toBeUndefined();
+  });
+
+  test("withSqliteRetry's op labels slow queries inside it, retries included", async () => {
+    const events: SlowQueryEvent[] = [];
+    const db = new Database(":memory:");
+    db.exec("CREATE TABLE t (id INTEGER PRIMARY KEY)");
+    wrapSqliteForSlowQueryLogging(db, {
+      thresholdMs: 100,
+      now: fakeClock(0, 500),
+      onSlowQuery: (e) => events.push(e),
+    });
+
+    // First attempt loses the write-lock race; the retry (which runs from a
+    // stack truncated by the backoff sleep) issues the slow query.
+    let attempt = 0;
+    await withSqliteRetry(
+      () => {
+        if (attempt++ === 0) {
+          throw Object.assign(new Error("busy"), { code: "SQLITE_BUSY" });
+        }
+        return db.query("SELECT * FROM t").all();
+      },
+      { op: "test:claimRow", baseDelayMs: 1 },
+    );
+
+    expect(events).toHaveLength(1);
+    expect(events[0].label).toBe("test:claimRow");
+  });
+
+  test("withSqliteRetry's op labels a lazy thenable that runs when awaited", async () => {
+    const events: SlowQueryEvent[] = [];
+    const db = new Database(":memory:");
+    db.exec("CREATE TABLE t (id INTEGER PRIMARY KEY)");
+    wrapSqliteForSlowQueryLogging(db, {
+      thresholdMs: 100,
+      now: fakeClock(0, 500),
+      onSlowQuery: (e) => events.push(e),
+    });
+
+    // Mirrors a Drizzle QueryPromise: fn returns immediately and the statement
+    // only executes when the thenable is assimilated by an await. The retry
+    // helper must perform that await inside its label scope.
+    const lazy = {
+      then(resolve: (value: unknown) => void) {
+        resolve(db.query("SELECT * FROM t").all());
+      },
+    } as unknown as Promise<unknown>;
+    await withSqliteRetry(() => lazy, { op: "test:lazyUpdate" });
+
+    expect(events).toHaveLength(1);
+    expect(events[0].label).toBe("test:lazyUpdate");
+  });
 });
 
 describe("callerFromStack", () => {
@@ -251,6 +346,36 @@ describe("callerFromStack", () => {
     ].join("\n");
     expect(callerFromStack(stack)).toBe(
       "plugins/defaults/memory/context-search/sources/conversations.ts:231",
+    );
+  });
+
+  test("prefers the nearest named app frame over an anonymous callback", () => {
+    // A statement run inside `db.transaction((tx) => …)` sits in an anonymous
+    // app frame, with the accountable named function above the ORM plumbing.
+    const stack = [
+      "Error",
+      "    at emit (/repo/assistant/src/persistence/slow-query-log.ts:192:5)",
+      "    at <anonymous> (/repo/assistant/src/persistence/conversation-crud.ts:629:44)",
+      "    at <anonymous> (/root/.bun/install/cache/drizzle-orm@0.45.2@@@1/bun-sqlite/session.js:35:16)",
+      "    at transaction (bun:sqlite:416:27)",
+      "    at transaction (/root/.bun/install/cache/drizzle-orm@0.45.2@@@1/bun-sqlite/session.js:37:33)",
+      "    at insertMessageCore (/repo/assistant/src/persistence/conversation-crud.ts:474:10)",
+    ].join("\n");
+    expect(callerFromStack(stack)).toBe(
+      "persistence/conversation-crud.ts:insertMessageCore:474",
+    );
+  });
+
+  test("falls back to the innermost anonymous app frame when nothing is named", () => {
+    const stack = [
+      "Error",
+      "    at emit (/repo/assistant/src/persistence/slow-query-log.ts:192:5)",
+      "    at <anonymous> (/repo/assistant/src/persistence/conversation-crud.ts:629:44)",
+      "    at <anonymous> (/repo/assistant/src/daemon/lifecycle.ts:88:12)",
+      "    at processTicksAndRejections (native:7:39)",
+    ].join("\n");
+    expect(callerFromStack(stack)).toBe(
+      "persistence/conversation-crud.ts:<anonymous>:629",
     );
   });
 

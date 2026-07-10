@@ -51,14 +51,6 @@ mock.module("../config/loader.js", () => ({
   setNestedValue: () => {},
 }));
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-  truncateForLog: (value: string) => value,
-}));
-
 mock.module("../permissions/checker.js", () => ({
   isDynamicSkillLoadInvocation: () => false,
   classifyRisk: async () => ({ level: "low" }),
@@ -107,6 +99,19 @@ function resetAuditCalls(): void {
 
 mock.module("../tools/registry.js", () => ({
   getTool: (name: string) => {
+    if (name === "unknown_tool") {
+      return undefined;
+    }
+    return {
+      name,
+      description: "test tool",
+      category: "test",
+      defaultRiskLevel: "low",
+      input_schema: {},
+      execute: async () => fakeToolResult,
+    };
+  },
+  resolveTool: (name: string) => {
     if (name === "unknown_tool") {
       return undefined;
     }

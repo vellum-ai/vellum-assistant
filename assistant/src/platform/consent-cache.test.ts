@@ -34,13 +34,6 @@ mock.module("../config/loader.js", () => ({
   }),
 }));
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // ---------------------------------------------------------------------------
 // Import under test (after mocks)
 // ---------------------------------------------------------------------------

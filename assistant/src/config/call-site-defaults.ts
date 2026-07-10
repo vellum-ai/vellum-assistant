@@ -26,7 +26,6 @@ export const CALL_SITE_DEFAULTS: Record<LLMCallSite, CallSiteDefaultConfig> = {
   mainAgent: { profile: "balanced" },
   subagentSpawn: { profile: "balanced" },
   compactionAgent: { profile: "balanced" },
-  analyzeConversation: { profile: "balanced" },
   patternScan: { profile: "balanced" },
   narrativeRefinement: { profile: "balanced" },
   callAgent: { profile: "balanced" },
@@ -38,7 +37,11 @@ export const CALL_SITE_DEFAULTS: Record<LLMCallSite, CallSiteDefaultConfig> = {
     profile: "cost-optimized",
     contextWindow: { maxInputTokens: 1000000 },
   },
-  memoryV3SelectL2: { profile: "balanced", temperature: 0 },
+  memoryV3SelectL2: {
+    profile: "balanced",
+    temperature: 0,
+    thinking: { enabled: false, streamThinking: false },
+  },
   recall: {
     profile: "balanced",
     maxTokens: 4096,

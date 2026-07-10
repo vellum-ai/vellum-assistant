@@ -1,0 +1,72 @@
+/**
+ * Tests the master switch for LLM request logging (`llmRequestLogs.enabled`).
+ * When logging is off, the store's insert paths (`recordRequestLog`,
+ * `recordSyntheticAgentErrorMessageLog`) must skip the write entirely — no
+ * prompt/completion payload lands on disk — and return `null`. The read-side
+ * 4xx is exercised separately at the route layer.
+ */
+import { beforeEach, describe, expect, test } from "bun:test";
+
+import { getLogsDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import {
+  getRequestLogById,
+  getRequestLogsByConversationId,
+  recordRequestLog,
+  recordSyntheticAgentErrorMessageLog,
+} from "../persistence/llm-request-log-store.js";
+import { llmRequestLogs } from "../persistence/schema/index.js";
+import { setConfig } from "./helpers/set-config.js";
+
+function setLlmRequestLogging(enabled: boolean): void {
+  setConfig("llmRequestLogs", { readSource: "local", enabled });
+}
+
+await initializeDb();
+
+function resetLogs(): void {
+  getLogsDb()!.delete(llmRequestLogs).run();
+}
+
+describe("llmRequestLogs.enabled write gate", () => {
+  beforeEach(() => {
+    resetLogs();
+    setLlmRequestLogging(true);
+  });
+
+  test("recordRequestLog writes normally when logging is enabled", () => {
+    const id = recordRequestLog("conv-1", '{"req":1}', '{"res":1}');
+    expect(id).not.toBeNull();
+    expect(getRequestLogById(id!)).not.toBeNull();
+  });
+
+  test("recordRequestLog skips the write when logging is disabled", () => {
+    setLlmRequestLogging(false);
+    const id = recordRequestLog("conv-1", '{"req":1}', '{"res":1}');
+    expect(id).toBeNull();
+    expect(getRequestLogsByConversationId("conv-1")).toEqual([]);
+  });
+
+  test("recordSyntheticAgentErrorMessageLog skips the write when disabled", () => {
+    setLlmRequestLogging(false);
+    const id = recordSyntheticAgentErrorMessageLog({
+      conversationId: "conv-2",
+      messageId: "msg-2",
+      exitReason: "budget_yield_unrecovered",
+      noticeText: "Out of budget.",
+      preparedRequest: null,
+      createdAt: Date.now(),
+    });
+    expect(id).toBeNull();
+    expect(getRequestLogsByConversationId("conv-2")).toEqual([]);
+  });
+
+  test("re-enabling logging restores writes", () => {
+    setLlmRequestLogging(false);
+    expect(recordRequestLog("conv-3", '{"req":1}', '{"res":1}')).toBeNull();
+    setLlmRequestLogging(true);
+    const id = recordRequestLog("conv-3", '{"req":2}', '{"res":2}');
+    expect(id).not.toBeNull();
+    expect(getRequestLogsByConversationId("conv-3")).toHaveLength(1);
+  });
+});

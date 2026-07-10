@@ -42,13 +42,6 @@ const addMessageMock = mock(
   }),
 );
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 mock.module("../persistence/conversation-key-store.js", () => ({
   getOrCreateConversation: () => ({ conversationId: "conv-parity-test" }),
   getConversationByKey: () => null,

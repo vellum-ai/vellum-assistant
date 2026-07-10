@@ -12,13 +12,6 @@ mock.module("../config/env.js", () => ({ isHttpAuthDisabled: () => true }));
 
 // ── Logger mock (must come before any source imports) ────
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // ── Config mock ─────────────────────────────────────────────────────
 
 mock.module("../config/loader.js", () => {
@@ -93,7 +86,7 @@ mock.module("../config/loader.js", () => {
 // ── Credential mock (prevents real key lookups) ──────────────────────
 
 // Provider API keys resolve by default so telephony playability checks
-// (WAV-transport tests) can select providers; tests can narrow the
+// (PCM-transport tests) can select providers; tests can narrow the
 // resolvable set. Reset to null (all resolve) in beforeEach.
 let mockResolvableProviderKeys: ((service: string) => string | null) | null =
   null;
@@ -149,7 +142,9 @@ function createMockVoiceTurn(tokens: string[]) {
 
     // Emit text deltas
     for (const token of tokens) {
-      if (opts.signal?.aborted) break;
+      if (opts.signal?.aborted) {
+        break;
+      }
       opts.onTextDelta(token);
     }
 
@@ -394,8 +389,9 @@ async function pollUntil(
 ): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (!predicate()) {
-    if (Date.now() > deadline)
+    if (Date.now() > deadline) {
       throw new Error(`pollUntil timed out after ${timeoutMs}ms`);
+    }
     await new Promise((r) => setTimeout(r, intervalMs));
   }
 }
@@ -408,8 +404,8 @@ function setupController(
   opts?: {
     assistantId?: string;
     trustContext?: import("../daemon/trust-context-types.js").TrustContext;
-    /** Simulate the media-stream transport's WAV requirement. */
-    requiresWavAudio?: boolean;
+    /** Simulate the media-stream transport's PCM requirement. */
+    requiresPcmAudio?: boolean;
   },
 ) {
   ensureConversation("conv-ctrl-test");
@@ -422,8 +418,8 @@ function setupController(
   });
   updateCallSession(session.id, { status: "in_progress" });
   const transport = createMockTransport();
-  if (opts?.requiresWavAudio) {
-    Object.assign(transport, { requiresWavAudio: true });
+  if (opts?.requiresPcmAudio) {
+    Object.assign(transport, { requiresPcmAudio: true });
   }
   const controller = new CallController(session.id, transport, task ?? null, {
     assistantId: opts?.assistantId,
@@ -438,23 +434,13 @@ function getLatestAssistantText(conversationId: string): string | null {
   );
   if (msgs.length === 0) return null;
   const latest = msgs[msgs.length - 1];
-  try {
-    const parsed = JSON.parse(latest.content) as unknown;
-    if (Array.isArray(parsed)) {
-      return parsed
-        .filter(
-          (b): b is { type: string; text?: string } =>
-            typeof b === "object" && b != null,
-        )
-        .filter((b) => b.type === "text")
-        .map((b) => b.text ?? "")
-        .join("");
-    }
-    if (typeof parsed === "string") return parsed;
-  } catch {
-    /* fall through */
-  }
-  return latest.content;
+  return latest.content
+    .filter(
+      (b): b is { type: "text"; text: string } =>
+        b.type === "text" && typeof (b as { text?: unknown }).text === "string",
+    )
+    .map((b) => b.text)
+    .join("");
 }
 
 function setupControllerWithOrigin(task?: string) {
@@ -3493,16 +3479,127 @@ describe("call-controller", () => {
     controller.destroy();
   });
 
+  // ── Eager first segment (synthesized-play path) ─────────────────────
+
+  test("synthesized provider: the turn's first segment flushes eagerly at a clause boundary before any sentence ends", async () => {
+    const { synthesizedTexts } = registerFishAudioSegmentRecorder();
+    const { relay, controller } = setupController();
+
+    let segmentsBeforeSentenceEnd = -1;
+    mockStartVoiceTurn.mockImplementation(
+      async (opts: {
+        onTextDelta: (t: string) => void;
+        onComplete: () => void;
+      }) => {
+        opts.onTextDelta("Let me take a look at that, ");
+        // The clause-bounded prefix must reach synthesis while no sentence
+        // has ended yet — full-sentence rules would still be buffering.
+        await pollUntil(() => synthesizedTexts.length > 0);
+        segmentsBeforeSentenceEnd = synthesizedTexts.length;
+        opts.onTextDelta("and get right back to you.");
+        opts.onComplete();
+        return { turnId: "run-eager", abort: () => {} };
+      },
+    );
+
+    await controller.handleCallerUtterance("Hi");
+
+    expect(segmentsBeforeSentenceEnd).toBe(1);
+    expect(synthesizedTexts).toEqual([
+      "Let me take a look at that,",
+      "and get right back to you.",
+    ]);
+    expect(relay.sentPlayUrls.length).toBe(2);
+
+    controller.destroy();
+  });
+
+  test("synthesized provider: eager mode applies only to the first segment — later clauses wait for sentence ends", async () => {
+    const { synthesizedTexts } = registerFishAudioSegmentRecorder();
+    mockStartVoiceTurn.mockImplementation(
+      createMockVoiceTurn([
+        "Let me take a look at that, and then, after checking, I will confirm.",
+      ]),
+    );
+    const { controller } = setupController();
+
+    await controller.handleCallerUtterance("Hi");
+
+    expect(synthesizedTexts).toEqual([
+      "Let me take a look at that,",
+      "and then, after checking, I will confirm.",
+    ]);
+
+    controller.destroy();
+  });
+
+  test("synthesized provider: a long unpunctuated opening flushes at the eager 60-char cap; the force-flushed tail is unaffected", async () => {
+    const { synthesizedTexts } = registerFishAudioSegmentRecorder();
+    mockStartVoiceTurn.mockImplementation(
+      createMockVoiceTurn([
+        "The quick brown fox jumps over the lazy dog near the quiet river bank",
+      ]),
+    );
+    const { controller } = setupController();
+
+    await controller.handleCallerUtterance("Hi");
+
+    // First segment splits at the last whitespace under the 60-char eager
+    // cap (the default cap is 180); the short remainder never reaches a
+    // boundary and force-flushes at turn completion.
+    expect(synthesizedTexts).toEqual([
+      "The quick brown fox jumps over the lazy dog near the quiet",
+      "river bank",
+    ]);
+
+    controller.destroy();
+  });
+
+  test("synthesized provider: a short reply below every eager threshold only force-flushes at turn completion", async () => {
+    const { synthesizedTexts } = registerFishAudioSegmentRecorder();
+    mockStartVoiceTurn.mockImplementation(createMockVoiceTurn(["Quick note"]));
+    const { relay, controller } = setupController();
+
+    await controller.handleCallerUtterance("Hi");
+
+    expect(synthesizedTexts).toEqual(["Quick note"]);
+    expect(relay.sentPlayUrls.length).toBe(1);
+
+    controller.destroy();
+  });
+
+  test("synthesized provider: each turn's first segment is eager again", async () => {
+    const { synthesizedTexts } = registerFishAudioSegmentRecorder();
+    mockStartVoiceTurn.mockImplementation(
+      createMockVoiceTurn(["Let me take a look at that, one moment."]),
+    );
+    const { controller } = setupController();
+
+    await controller.handleCallerUtterance("Hi");
+    await controller.handleCallerUtterance("Thanks");
+
+    expect(synthesizedTexts).toEqual([
+      "Let me take a look at that,",
+      "one moment.",
+      "Let me take a look at that,",
+      "one moment.",
+    ]);
+
+    controller.destroy();
+  });
+
   // ── Per-segment fallback on WAV-requiring transports ────────────────
+
+  // ── Per-segment fallback on PCM-requiring transports ────────────────
 
   /**
    * Register a failing fish-audio primary and a recording elevenlabs
    * fallback, with fish-audio configured as the active provider. Used by
-   * the WAV-transport segment-fallback tests. With
+   * the PCM-transport segment-fallback tests. With
    * `fishEmitsChunkBeforeFailing`, the primary emits one audio chunk (so
    * the play URL reaches the transport) before failing mid-stream.
    */
-  function registerWavFallbackProviders(opts?: {
+  function registerPcmFallbackProviders(opts?: {
     fishEmitsChunkBeforeFailing?: boolean;
   }): {
     fishTexts: string[];
@@ -3557,13 +3654,13 @@ describe("call-controller", () => {
     return { fishTexts, fallbackTexts };
   }
 
-  test("WAV transport: a failed segment and the rest of the turn synthesize via a playable fallback provider", async () => {
-    const { fishTexts, fallbackTexts } = registerWavFallbackProviders();
+  test("PCM transport: a failed segment and the rest of the turn synthesize via a playable fallback provider", async () => {
+    const { fishTexts, fallbackTexts } = registerPcmFallbackProviders();
     mockStartVoiceTurn.mockImplementation(
       createMockVoiceTurn(["First part is done. ", "Second part is done."]),
     );
     const { relay, controller } = setupController(undefined, {
-      requiresWavAudio: true,
+      requiresPcmAudio: true,
     });
 
     await controller.handleCallerUtterance("Hi");
@@ -3577,7 +3674,7 @@ describe("call-controller", () => {
       "Second part is done.",
     ]);
     expect(relay.sentPlayUrls.length).toBe(2);
-    // No text routes through native tokens on a WAV transport.
+    // No text routes through native tokens on a PCM transport.
     expect(relay.sentTokens.filter((t) => t.token.length > 0)).toEqual([]);
     const lastToken = relay.sentTokens[relay.sentTokens.length - 1];
     expect(lastToken).toEqual({ token: "", last: true });
@@ -3585,15 +3682,15 @@ describe("call-controller", () => {
     controller.destroy();
   });
 
-  test("WAV transport: a mid-stream failure after audio reached the caller is not re-spoken, but later segments use the fallback", async () => {
-    const { fishTexts, fallbackTexts } = registerWavFallbackProviders({
+  test("PCM transport: a mid-stream failure after audio reached the caller is not re-spoken, but later segments use the fallback", async () => {
+    const { fishTexts, fallbackTexts } = registerPcmFallbackProviders({
       fishEmitsChunkBeforeFailing: true,
     });
     mockStartVoiceTurn.mockImplementation(
       createMockVoiceTurn(["First part is done. ", "Second part is done."]),
     );
     const { relay, controller } = setupController(undefined, {
-      requiresWavAudio: true,
+      requiresPcmAudio: true,
     });
 
     await controller.handleCallerUtterance("Hi");
@@ -3612,16 +3709,16 @@ describe("call-controller", () => {
     controller.destroy();
   });
 
-  test("WAV transport: when no playable fallback exists, failed segments are skipped and end-of-turn still fires", async () => {
+  test("PCM transport: when no playable fallback exists, failed segments are skipped and end-of-turn still fires", async () => {
     // Only fish-audio's key resolves, so the fallback scan finds nothing.
     mockResolvableProviderKeys = (service) =>
       service === "fish-audio" ? "test-key" : null;
-    const { fishTexts, fallbackTexts } = registerWavFallbackProviders();
+    const { fishTexts, fallbackTexts } = registerPcmFallbackProviders();
     mockStartVoiceTurn.mockImplementation(
       createMockVoiceTurn(["First part is done. ", "Second part is done."]),
     );
     const { relay, controller } = setupController(undefined, {
-      requiresWavAudio: true,
+      requiresPcmAudio: true,
     });
 
     await controller.handleCallerUtterance("Hi");
@@ -3629,7 +3726,7 @@ describe("call-controller", () => {
     expect(fishTexts).toEqual(["First part is done."]);
     expect(fallbackTexts).toEqual([]);
     expect(relay.sentPlayUrls.length).toBe(0);
-    // Native tokens are never used on a WAV transport, and the turn
+    // Native tokens are never used on a PCM transport, and the turn
     // still closes with the end-of-turn signal.
     expect(relay.sentTokens.filter((t) => t.token.length > 0)).toEqual([]);
     const lastToken = relay.sentTokens[relay.sentTokens.length - 1];
@@ -3802,7 +3899,9 @@ describe("call-controller", () => {
       const turnPromise = controller.handleCallerUtterance("Hello");
 
       // Wait for microtasks to settle
-      for (let i = 0; i < 5; i++) await Promise.resolve();
+      for (let i = 0; i < 5; i++) {
+        await Promise.resolve();
+      }
 
       // No outbound audio/tokens yet → still processing.
       expect(controller.getState()).toBe("processing");
@@ -3858,7 +3957,9 @@ describe("call-controller", () => {
 
       const { controller } = setupController();
       const turnPromise = controller.handleCallerUtterance("Hi");
-      for (let i = 0; i < 5; i++) await Promise.resolve();
+      for (let i = 0; i < 5; i++) {
+        await Promise.resolve();
+      }
 
       // Before any token: processing, barge-in ignored (turn not aborted).
       expect(controller.getState()).toBe("processing");
@@ -3867,7 +3968,9 @@ describe("call-controller", () => {
 
       // Release the first token → controller flips to speaking.
       emitFirstToken();
-      for (let i = 0; i < 5; i++) await Promise.resolve();
+      for (let i = 0; i < 5; i++) {
+        await Promise.resolve();
+      }
       expect(controller.getState()).toBe("speaking");
 
       // Now barge-in is accepted and interrupts the turn.
@@ -3910,7 +4013,9 @@ describe("call-controller", () => {
       };
 
       const turnPromise = controller.handleCallerUtterance("Hi");
-      for (let i = 0; i < 10; i++) await Promise.resolve();
+      for (let i = 0; i < 10; i++) {
+        await Promise.resolve();
+      }
 
       // Tokens were emitted (buffered by the transport) but no audio has
       // started — the controller must still be processing.
@@ -3966,7 +4071,9 @@ describe("call-controller", () => {
       };
 
       const turnPromise = controller.handleCallerUtterance("Hi");
-      for (let i = 0; i < 10; i++) await Promise.resolve();
+      for (let i = 0; i < 10; i++) {
+        await Promise.resolve();
+      }
       expect(controller.getState()).toBe("processing");
 
       // Transport reports real outbound audio started → speaking.
@@ -4019,7 +4126,9 @@ describe("call-controller", () => {
       };
 
       const turn1 = controller.handleCallerUtterance("Hi");
-      for (let i = 0; i < 10; i++) await Promise.resolve();
+      for (let i = 0; i < 10; i++) {
+        await Promise.resolve();
+      }
       expect(controller.getState()).toBe("processing");
       expect(cancelledPendingSpeech).toBe(0);
 
@@ -4060,7 +4169,9 @@ describe("call-controller", () => {
       };
 
       const turnPromise = controller.handleCallerUtterance("Hi");
-      for (let i = 0; i < 10; i++) await Promise.resolve();
+      for (let i = 0; i < 10; i++) {
+        await Promise.resolve();
+      }
       const staleCallback = audioStartCallback!;
 
       // Supersede the run (hard interrupt), then fire the stale signal.
@@ -4102,7 +4213,9 @@ describe("call-controller", () => {
       const turnPromise = controller.handleCallerUtterance("Hi");
 
       // Let microtasks settle so onTextDelta runs
-      for (let i = 0; i < 10; i++) await Promise.resolve();
+      for (let i = 0; i < 10; i++) {
+        await Promise.resolve();
+      }
 
       expect(controller.getState()).toBe("speaking");
 

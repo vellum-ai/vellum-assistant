@@ -5,7 +5,8 @@
  *   - `seedV2SkillEntries` enumerates the catalog and calls
  *     `upsertConceptPageEmbedding` with `slug: "skills/<id>"` for each
  *     enabled skill in the unified `memory_v2_concept_pages` collection.
- *   - It skips skills whose declared feature flag is disabled.
+ *   - It skips skills the host resolves as flag-gated (state
+ *     "unavailable") — installed and remote alike.
  *   - It calls `pruneSlugsWithPrefixExcept("skills/", ...)` with the active
  *     id list as suffixes, so stale skill slugs in the unified collection
  *     get pruned without touching concept-page slugs.
@@ -24,14 +25,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { makeMockLogger } from "../../../../../__tests__/helpers/mock-logger.js";
 import type { ResolvedSkill } from "../../../../../config/skill-state.js";
 import type { SkillSummary } from "../../../../../config/skills.js";
 import type { CatalogSkill } from "../../../../../skills/catalog-install.js";
-
-mock.module("../../../../../util/logger.js", () => ({
-  getLogger: () => makeMockLogger(),
-}));
 
 // ---------------------------------------------------------------------------
 // Programmable test state — drives every mocked dependency below.
@@ -113,7 +109,9 @@ mock.module("../../../../../config/skill-state.js", () => ({
     catalog: SkillSummary[],
     config: { skills?: { allowBundled?: string[] | null } },
   ) => {
-    if (state.resolved) return state.resolved;
+    if (state.resolved) {
+      return state.resolved;
+    }
     return catalog
       .filter((summary) => {
         const allowBundled = config.skills?.allowBundled;
@@ -144,7 +142,9 @@ mock.module(
   "../../../../../persistence/embeddings/embedding-backend.js",
   () => ({
     embedWithBackend: async (_config: unknown, inputs: unknown[]) => {
-      if (state.embedThrows) throw state.embedThrows;
+      if (state.embedThrows) {
+        throw state.embedThrows;
+      }
       // Echo the configured per-call vectors back, padded if needed.
       const vectors = state.embedReturn.length
         ? state.embedReturn
@@ -157,7 +157,9 @@ mock.module(
 
 mock.module("../qdrant.js", () => ({
   upsertConceptPageEmbedding: async (params: UpsertCall) => {
-    if (state.upsertThrows) throw state.upsertThrows;
+    if (state.upsertThrows) {
+      throw state.upsertThrows;
+    }
     state.callSequence.push("upsert");
     state.upsertCalls.push(params);
   },
@@ -174,7 +176,9 @@ mock.module("../qdrant.js", () => ({
     kind: string,
     allowedSuffixes: ReadonlySet<string>,
   ) => {
-    if (state.backfillThrows) throw state.backfillThrows;
+    if (state.backfillThrows) {
+      throw state.backfillThrows;
+    }
     state.callSequence.push("backfill");
     state.backfillCalls.push({ prefix, kind, allowedSuffixes });
     return state.backfillReturn;
@@ -183,7 +187,9 @@ mock.module("../qdrant.js", () => ({
 
 mock.module("../../../../../skills/catalog-cache.js", () => ({
   getCatalog: async () => {
-    if (state.fullCatalogThrows) throw state.fullCatalogThrows;
+    if (state.fullCatalogThrows) {
+      throw state.fullCatalogThrows;
+    }
     return state.fullCatalog;
   },
 }));
@@ -349,23 +355,53 @@ describe("seedV2SkillEntries", () => {
   });
 
   test("skips skills whose declared feature flag is disabled", async () => {
+    // Flag gating is resolved host-side: `resolveSkillStates` drops the
+    // flagged skill from its result, so it reaches the seed loop as
+    // `state: "unavailable"` and must not be embedded.
     const flagged = makeSummary({
       id: "example-skill-a",
       featureFlag: "experimental-flag",
     });
     const unflagged = makeSummary({ id: "example-skill-b" });
     state.catalog = [flagged, unflagged];
-    state.resolved = [
-      { summary: flagged, state: "enabled" },
-      { summary: unflagged, state: "enabled" },
-    ];
-    state.flagsEnabled = { "experimental-flag": false };
+    state.resolved = [{ summary: unflagged, state: "enabled" }];
     state.embedReturn = [[0.4, 0.5, 0.6]];
 
     await seedV2SkillEntries();
 
     expect(state.upsertCalls).toHaveLength(1);
     expect(state.upsertCalls[0].slug).toBe("skills/example-skill-b");
+  });
+
+  test("does not seed remote catalog skills whose feature flag is disabled but keeps their ids in the backfill allowlist", async () => {
+    state.catalog = [];
+    state.resolved = [];
+    state.fullCatalog = [
+      {
+        id: "gated-remote",
+        name: "gated-remote",
+        description: "Remote skill behind a disabled flag",
+        metadata: { vellum: { "feature-flag": "off-flag" } },
+      },
+      { id: "open-remote", name: "open-remote", description: "Open remote" },
+    ];
+    state.flagsEnabled = { "off-flag": false };
+    state.embedReturn = [[0.1, 0.2, 0.3]];
+
+    await seedV2SkillEntries();
+
+    // Only the ungated remote skill is embedded...
+    expect(state.upsertCalls.map((c) => c.slug)).toEqual([
+      "skills/open-remote",
+    ]);
+    // ...but the gated id stays in the known-skill allowlist so the legacy
+    // kind backfill never mis-tags (and prune never deletes) a user page
+    // that happens to share its slug.
+    expect(state.backfillCalls).toHaveLength(1);
+    expect([...state.backfillCalls[0].allowedSuffixes].sort()).toEqual([
+      "gated-remote",
+      "open-remote",
+    ]);
   });
 
   test("calls pruneSlugsWithPrefixExcept with the active id list and the skills/ prefix", async () => {
@@ -404,11 +440,7 @@ describe("seedV2SkillEntries", () => {
     });
     const unflagged = makeSummary({ id: "example-skill-b" });
     state.catalog = [flagged, unflagged];
-    state.resolved = [
-      { summary: flagged, state: "enabled" },
-      { summary: unflagged, state: "enabled" },
-    ];
-    state.flagsEnabled = { "off-flag": false };
+    state.resolved = [{ summary: unflagged, state: "enabled" }];
     state.fullCatalog = [
       { id: "example-skill-a", name: "example-skill-a", description: "A" },
       { id: "example-skill-b", name: "example-skill-b", description: "B" },
@@ -521,7 +553,9 @@ describe("seedV2SkillEntries", () => {
         ]),
       ).resolves.toBeDefined();
     } finally {
-      if (timeout) clearTimeout(timeout);
+      if (timeout) {
+        clearTimeout(timeout);
+      }
     }
 
     expect(state.upsertCalls.map((call) => call.slug)).toEqual([

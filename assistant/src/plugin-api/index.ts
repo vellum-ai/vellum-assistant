@@ -172,3 +172,75 @@ export { resolveMediaSourceData } from "../providers/media-resolve.js";
 // hook reads it off `PostModelCallContext.stopReason` to decide whether to
 // continue a cut-off reply.
 export { isMaxTokensStopReason } from "../providers/stop-reasons.js";
+// Identity reads — "who is the assistant and the user." A plugin that builds
+// its own prompts (e.g. for its own inference) names the actor via these.
+// Backed by the workspace `IDENTITY.md` / user profile; each returns null when
+// unset. `resolveUserName` reads the profile under the given workspace dir.
+export {
+  getAssistantName,
+  resolveUserName,
+} from "../daemon/identity-helpers.js";
+// Declarative help for the top-level `assistant` CLI commands that have adopted
+// the static-help split. Plugins (e.g. the memory capability indexer) read this
+// to embed CLI command capabilities without importing the CLI action graph.
+// Pure data — iterate the fields directly.
+export { CLI_COMMAND_HELP } from "../cli/index.help.js";
+// Embeddings — self-contained operations on the host's shared embedding /
+// vector-store subsystem. Host-resolved: each reads the live workspace config
+// internally, so plugins hold no config. Async because the facade loads the
+// embed graph lazily on first call.
+export {
+  embedAndUpsert,
+  selectedBackendSupportsMultimodal,
+} from "../persistence/embeddings/plugin-facade.js";
+// Skills — the installed skill catalog with resolved states, and the remote
+// skill catalog. Host-resolved: catalog load, install-state resolution,
+// feature-flag gating, and install-meta reads are composed internally, so
+// plugins hold no config and run no flag checks. Async because the facade
+// loads the catalog/flag graph lazily on first call.
+export type { ResolvedSkillEntry } from "../skills/available-skills.js";
+export {
+  listCatalogSkills,
+  listInstalledSkills,
+} from "../skills/available-skills.js";
+// Stored-message content — pure projections of the persisted message content
+// format (a JSON content-block array) to a string, so plugins that read
+// conversation history stay agnostic to how content is persisted.
+// `stringifyMessageContent` keeps only the spoken text (text blocks; tool
+// calls/results, thinking, and media are dropped);
+// `extractTextFromStoredMessageContent` renders the annotated transcript
+// (tool calls with inputs, tool results, thinking, image/file markers).
+export {
+  extractTextFromStoredMessageContent,
+  stringifyMessageContent,
+} from "../persistence/message-content.js";
+// Conversation history — reads and writes on the host conversation store
+// (rows, message history, processing state, disk-view paths) plus the lexical
+// message-search surface. Every operation takes explicit parameters; nothing
+// is resolved from config. Async because the facade loads the DB store graph
+// lazily on first call.
+export type { ConversationRow } from "../persistence/conversation-crud.js";
+export {
+  addMessage,
+  buildMessageExcerpt,
+  deleteConversation,
+  getConversation,
+  getConversationDirPath,
+  getMessages,
+  hasLexicalTokens,
+  isConversationProcessing,
+  listConversations,
+  parseMessageMetadata,
+  searchMessageIdsLexical,
+  syncMessageToDisk,
+  updateMessageMetadata,
+} from "../persistence/conversation-plugin-facade.js";
+// Synthesize text to speech through the assistant's globally configured TTS
+// provider (ElevenLabs, Fish Audio, etc.). Plugins that need voice output —
+// e.g. a meeting bot speaking into a live call — use this instead of managing
+// TTS credentials and provider config themselves. Returns a Buffer + MIME type.
+// Text is sanitized internally (markdown/URLs/emoji stripped) so callers can
+// pass raw model output directly.
+export type { SynthesizeTextOptions } from "../tts/synthesize-text.js";
+export { synthesizeText, TtsSynthesisError } from "../tts/synthesize-text.js";
+export type { TtsSynthesisResult } from "../tts/types.js";

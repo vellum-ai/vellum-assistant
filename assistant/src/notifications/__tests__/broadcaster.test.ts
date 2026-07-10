@@ -29,9 +29,8 @@ mock.module("../copy-composer.js", () => ({
 
 // Stub only getGuardianDelivery; keep the real selectors so this mock is
 // harmless if it leaks into destination-resolver.test.ts under a shared run.
-const realGuardianReader = await import(
-  "../../contacts/guardian-delivery-reader.js"
-);
+const realGuardianReader =
+  await import("../../contacts/guardian-delivery-reader.js");
 mock.module("../../contacts/guardian-delivery-reader.js", () => ({
   ...realGuardianReader,
   getGuardianDelivery: async () => null,
@@ -68,23 +67,13 @@ mock.module("../../persistence/conversation-crud.js", () => ({
 // Mock destination-resolver so platform channel tests get a destination
 // without needing guardian-delivery data.
 mock.module("../destination-resolver.js", () => ({
-  resolveDestinations: (
-    channels: readonly string[],
-    _guardians: unknown,
-  ) => {
+  resolveDestinations: (channels: readonly string[], _guardians: unknown) => {
     const map = new Map();
     for (const ch of channels) {
       map.set(ch, { channel: ch, endpoint: ch, metadata: {} });
     }
     return map;
   },
-}));
-
-mock.module("../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
 }));
 
 const { NotificationBroadcaster } = await import("../broadcaster.js");
@@ -132,9 +121,7 @@ interface CapturedSend {
   destination: ChannelDestination;
 }
 
-function makeCapturingAdapter(
-  channel: "vellum" | "platform",
-): {
+function makeCapturingAdapter(channel: "vellum" | "platform"): {
   adapter: ChannelAdapter;
   sends: CapturedSend[];
 } {

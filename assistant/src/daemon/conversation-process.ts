@@ -40,6 +40,7 @@ import { stampTurnOutcome } from "../telemetry/turn-outcome.js";
 import { getLogger } from "../util/logger.js";
 import type { CleanResult, Conversation } from "./conversation.js";
 import {
+  CONVERSATION_BUSY_MESSAGE,
   persistQueuedMessageBody,
   serializePersistedUserMessageContent,
 } from "./conversation-messaging.js";
@@ -92,9 +93,11 @@ function isEchoSuppressedUserMessage(
   );
 }
 
+/** Locale-formatted count for the user-facing context stats cards. */
+const fmt = (n: number | undefined) => (n ?? 0).toLocaleString("en-US");
+
 /** Format the result of a forced compaction into a user-facing message. */
 export function formatCompactResult(result: ContextWindowResult): string {
-  const fmt = (n: number | undefined) => (n ?? 0).toLocaleString("en-US");
   if (!result.compacted) {
     return [
       `Context compaction skipped — ${result.reason ?? "nothing to compact"}.`,
@@ -116,9 +119,50 @@ export function formatCompactResult(result: ContextWindowResult): string {
   ].join("\n");
 }
 
+/**
+ * User-facing copy for the compactor's internal skip-reason strings, keyed by
+ * the exact `ContextWindowResult.reason` values reachable from the
+ * "summarize up to here" path. Unknown reasons fall back to the raw string.
+ */
+const SUMMARIZE_SKIP_REASON_COPY: Record<string, string> = {
+  "fixed boundary out of range": "nothing to summarize before this point",
+  "tail_start at head — nothing to compact":
+    "nothing to summarize before this point",
+  "no messages to compact": "nothing to summarize",
+  "compaction disabled": "summarization is disabled in the assistant's config",
+  "provider error": "the summary could not be generated — try again",
+  "unparseable response": "the summary could not be generated — try again",
+};
+
+/**
+ * Format the result of a "summarize up to here" compaction into a user-facing
+ * card.
+ */
+export function formatSummarizeUpToResult(result: ContextWindowResult): string {
+  if (!result.compacted) {
+    const reason = result.reason
+      ? (SUMMARIZE_SKIP_REASON_COPY[result.reason] ?? result.reason)
+      : "nothing to summarize";
+    return `Summarization skipped — ${reason}.`;
+  }
+  const saved =
+    result.previousEstimatedInputTokens - result.estimatedInputTokens;
+  return [
+    "**Conversation summarized**",
+    // Persisted (row-space) count — `compactedMessages` is history-space and
+    // counts the synthetic summary head on a repeat summarize, which is not
+    // a message the user ever saw. The kept tail never contains the head.
+    `Summarized ${fmt(result.compactedPersistedMessages)} earlier messages. ${fmt(
+      result.preservedTailMessages,
+    )} recent messages kept in full.`,
+    `Context: ${fmt(result.previousEstimatedInputTokens)} → ${fmt(
+      result.estimatedInputTokens,
+    )} tokens (${fmt(saved)} saved)`,
+  ].join("\n");
+}
+
 /** Format the result of a forced clean into a user-facing message. */
 export function formatCleanResult(result: CleanResult): string {
-  const fmt = (n: number | undefined) => (n ?? 0).toLocaleString("en-US");
   const reclaimed =
     result.previousEstimatedInputTokens - result.estimatedInputTokens;
   return [
@@ -379,6 +423,36 @@ function repairPendingToolUseBlocks(conversation: Conversation): void {
 // ── drainQueue ───────────────────────────────────────────────────────
 
 /**
+ * Restore drained messages to the front of the queue, in their original
+ * order, when another turn (e.g. a barged-in voice turn woken by the idle
+ * transition) owns the processing lock. The lock holder's own finally block
+ * re-drains the queue. A steered drain also re-arms `pendingSteerRepair` so
+ * the re-drain promotes the steered head on its own instead of batching it
+ * with tails; the tool-use repair it re-triggers is idempotent.
+ */
+function requeueOnLockContention(
+  conversation: Conversation,
+  messages: QueuedMessage[],
+  steered: boolean,
+  logMessage: string,
+): void {
+  log.info(
+    {
+      conversationId: conversation.conversationId,
+      requestId: messages[0].requestId,
+      batchSize: messages.length,
+    },
+    logMessage,
+  );
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    conversation.queue.unshift(messages[i]);
+  }
+  if (steered) {
+    conversation.pendingSteerRepair = true;
+  }
+}
+
+/**
  * Process the next message in the queue, if any.
  * Called from the `runAgentLoop` finally block after processing completes.
  *
@@ -405,7 +479,7 @@ export async function drainQueue(
     if (!next) {
       return;
     }
-    return drainSingleMessage(conversation, next, reason);
+    return drainSingleMessage(conversation, next, reason, true);
   }
 
   const batch = await buildPassthroughBatch(conversation);
@@ -429,7 +503,24 @@ async function drainSingleMessage(
   conversation: Conversation,
   next: QueuedMessage,
   reason: QueueDrainReason,
+  steered = false,
 ): Promise<void> {
+  // Another turn already owns the processing lock: requeue before touching
+  // ANY conversation state. The lock holder installed its own per-turn
+  // context (turn channel/interface, trust, transport hints) and a drain
+  // that proceeded past this point would clobber it. The persist-busy
+  // requeue below stays as the TOCTOU backstop for a lock taken after
+  // this check.
+  if (conversation.isProcessing()) {
+    requeueOnLockContention(
+      conversation,
+      [next],
+      steered,
+      "Requeueing drained message: processing lock is held",
+    );
+    return;
+  }
+
   // Reset per-turn preactivation so a prior iteration (e.g. an unknown-slash
   // from a desktop source that skips runAgentLoop) can't leak CU preactivation
   // into the next queued message.
@@ -568,8 +659,8 @@ async function drainSingleMessage(
       // The in-memory userMessage (sent to the LLM) still uses the stripped content.
       const contentToPersist = serializePersistedUserMessageContent(
         next.content,
-        next.attachments,
         next.displayContent,
+        next.attachments,
       );
       await addMessage(conversation.conversationId, "user", contentToPersist, {
         metadata: drainChannelMeta,
@@ -664,8 +755,8 @@ async function drainSingleMessage(
         "user",
         serializePersistedUserMessageContent(
           next.content,
-          next.attachments,
           next.displayContent,
+          next.attachments,
         ),
         { metadata: drainChannelMeta },
       );
@@ -750,8 +841,8 @@ async function drainSingleMessage(
         "user",
         serializePersistedUserMessageContent(
           next.content,
-          next.attachments,
           next.displayContent,
+          next.attachments,
         ),
         { metadata: drainChannelMeta },
       );
@@ -841,6 +932,20 @@ async function drainSingleMessage(
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+    // runAgentLoop never ran, so its finally block won't clear this
+    conversation.preactivatedSkillIds = undefined;
+    if (message === CONVERSATION_BUSY_MESSAGE) {
+      // Another turn took the lock between this drain's dequeue and its
+      // persist. The message is still valid — requeue it at the front and
+      // stop; the lock holder's own finally re-drains the queue.
+      requeueOnLockContention(
+        conversation,
+        [next],
+        steered,
+        "Requeueing drained message: processing lock was retaken",
+      );
+      return;
+    }
     log.error(
       {
         err,
@@ -854,8 +959,6 @@ async function drainSingleMessage(
       conversationId: conversation.conversationId,
       message,
     });
-    // runAgentLoop never ran, so its finally block won't clear this
-    conversation.preactivatedSkillIds = undefined;
     // Continue draining — don't strand remaining messages
     await drainQueue(conversation);
     return;
@@ -988,6 +1091,20 @@ async function drainBatch(
   batch: QueuedMessage[],
   reason: QueueDrainReason,
 ): Promise<void> {
+  // Another turn already owns the processing lock: requeue the whole batch
+  // before touching ANY conversation state, mirroring `drainSingleMessage`.
+  // The head persist-busy requeue below stays as the TOCTOU backstop.
+  // Steered drains never batch, so there is no steer promotion to restore.
+  if (conversation.isProcessing()) {
+    requeueOnLockContention(
+      conversation,
+      batch,
+      false,
+      "Requeueing drained batch: processing lock is held",
+    );
+    return;
+  }
+
   // Head-wins: the batch-builder guarantees identical userMessageInterface
   // across the batch; channel/transport divergence is accepted with the head's
   // environment.
@@ -1192,6 +1309,20 @@ async function drainBatch(
       persistedMessageIds.push(batchPersistResult.id);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
+      if (i === 0 && message === CONVERSATION_BUSY_MESSAGE) {
+        // The head hit lock contention before any batch state was set:
+        // another turn took the lock between dequeue and persist. The
+        // whole batch is still valid — requeue it at the front in order
+        // and stop; the lock holder's finally re-drains the queue.
+        conversation.preactivatedSkillIds = undefined;
+        requeueOnLockContention(
+          conversation,
+          batch,
+          false,
+          "Requeueing drained batch: processing lock was retaken",
+        );
+        return;
+      }
       log.error(
         {
           err,
@@ -1545,8 +1676,8 @@ export async function processMessage(
         "user",
         serializePersistedUserMessageContent(
           content,
-          attachments,
           displayContent,
+          attachments,
         ),
         { metadata: routerChannelMeta },
       );
@@ -1634,8 +1765,8 @@ export async function processMessage(
     // The in-memory userMessage (sent to the LLM) still uses the stripped content.
     const contentToPersist = serializePersistedUserMessageContent(
       content,
-      attachments,
       displayContent,
+      attachments,
     );
     const persisted = await addMessage(
       conversation.conversationId,
@@ -1717,8 +1848,8 @@ export async function processMessage(
         "user",
         serializePersistedUserMessageContent(
           content,
-          attachments,
           displayContent,
+          attachments,
         ),
         { metadata: pmChannelMeta },
       );
@@ -1794,8 +1925,8 @@ export async function processMessage(
         "user",
         serializePersistedUserMessageContent(
           content,
-          attachments,
           displayContent,
+          attachments,
         ),
         { metadata: pmChannelMeta },
       );

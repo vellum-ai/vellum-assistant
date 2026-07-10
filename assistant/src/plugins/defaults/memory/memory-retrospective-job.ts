@@ -28,14 +28,26 @@
 //   - `lastProcessedMessageId` advances ONLY on `result.invoked === true`.
 //     Wake failures keep it unchanged so the next attempt re-processes the
 //     same messages. This is the load-bearing correctness invariant.
-//   - `lastRunAt` advances on EVERY job end (success or failure) via a
-//     `try/finally` write, so the per-conversation cooldown gate applies to
-//     subsequent trigger-driven enqueues.
+//   - `lastRunAt` advances at the end of every job that actually attempted a
+//     run (success or wake failure), so the per-conversation cooldown gate
+//     applies to subsequent trigger-driven enqueues. The mid-turn skip
+//     deliberately leaves it untouched — see the guard in
+//     `runForkBasedRetrospective` — so the turn-end trigger check can
+//     requeue the run immediately instead of burning it.
 //
 // Daemon crash recovery: `resetRunningJobsToPending` (in jobs-store.ts) flips
 // crashed `running` rows back to `pending` at startup. The orphan background
 // conversations left by a mid-run crash are swept by
 // `memory-retrospective-startup-cleanup.ts`.
+
+import {
+  addMessage,
+  type ContentBlock,
+  type ConversationRow,
+  deleteConversation,
+  getConversation,
+  isConversationProcessing,
+} from "@vellumai/plugin-api";
 
 import {
   type InterfaceId,
@@ -53,26 +65,21 @@ import {
 import type { WakeToolContextPin } from "../../../daemon/tool-setup-types.js";
 import { INTERNAL_GUARDIAN_TRUST_CONTEXT } from "../../../daemon/trust-context.js";
 import {
-  addMessage,
-  type ConversationRow,
-  deleteConversation,
-  deleteConversationGently,
   forkConversationForRetrospective,
-  getConversation,
-  getMessagesAfter,
-  isConversationProcessing,
   resolveOverrideProfile,
 } from "../../../persistence/conversation-crud.js";
 import {
   enqueueMemoryJob,
   type MemoryJob,
   type MemoryJobType,
+  upsertMemoryRetrospectiveJob,
 } from "../../../persistence/jobs-store.js";
 import { resolveUserSlug } from "../../../prompts/persona-resolver.js";
 import type { SystemPromptPersonaOverride } from "../../../prompts/system-prompt.js";
 import { wakeAgentForOpportunity } from "../../../runtime/agent-wake.js";
-import { getLogger } from "../../../util/logger.js";
 import { findMostRecentRetrospectiveFor } from "./find-most-recent-retrospective-for.js";
+import { getLogger } from "./logging.js";
+import { getRetrospectiveMessagesAfter } from "./memory-retrospective-accounting.js";
 import {
   MEMORY_RETROSPECTIVE_FORK_SOURCE,
   MEMORY_RETROSPECTIVE_GROUP_ID,
@@ -81,6 +88,10 @@ import {
   MEMORY_RETROSPECTIVE_SOURCE,
 } from "./memory-retrospective-constants.js";
 import { loadRetrospectiveRunMessages } from "./memory-retrospective-fork-boundary.js";
+import {
+  extractRetrospectiveRunSkillScaffolds,
+  insertSkillCardMessage,
+} from "./memory-retrospective-skill-card.js";
 import {
   appendToRememberedLog,
   bumpRetrospectiveLastRunAt,
@@ -96,6 +107,17 @@ const log = getLogger("memory-retrospective-job");
  * touching the handler body.
  */
 const FOLLOW_UP_JOB_TYPES: readonly MemoryJobType[] = [] as const;
+
+/**
+ * Fallback delay for re-upserting a run that was skipped because the source
+ * conversation was mid-turn. The PRIMARY requeue is event-driven: the
+ * mid-turn skip leaves `lastRunAt` unbumped, so the message-indexing pass on
+ * the turn's final assistant message re-enqueues immediately. This timed row
+ * only covers a turn that aborts without ever persisting another message.
+ * Each retried attempt re-checks the processing flag and re-upserts at the
+ * same cadence, so the loop self-resolves when the turn ends.
+ */
+export const SOURCE_PROCESSING_REQUEUE_DELAY_MS = 60_000;
 
 export type MemoryRetrospectiveOutcome =
   | { kind: "disabled" }
@@ -141,7 +163,7 @@ export async function runForkBasedRetrospective(
   // Start stamp for the retrospective's end-to-end wall time, surfaced as
   // `durationMs` on the "invoked" log (start → invoked).
   const startedAtMs = Date.now();
-  const sourceConversation = getConversation(sourceConversationId);
+  const sourceConversation = await getConversation(sourceConversationId);
   if (!sourceConversation) {
     log.warn(
       { sourceConversationId },
@@ -155,23 +177,52 @@ export async function runForkBasedRetrospective(
   // agent loop is still running. Check the persisted `processing_started_at`
   // column (the cross-process source of truth) instead of the in-memory
   // registry, so this guard works even when running in a separate CLI
-  // process with an empty conversation registry. Bump `lastRunAt` so the
-  // cooldown gate applies, leave `lastProcessedMessageId` untouched so the
-  // next interval/message-count trigger re-processes the same messages —
-  // nothing is lost. Returning (not throwing) keeps the jobs-worker from
+  // process with an empty conversation registry.
+  //
+  // The skipped run is RETRIED, not burned. `lastRunAt` is deliberately not
+  // bumped: the message-indexing hook runs the trigger check on every
+  // persisted message — including the turn's final assistant message — so an
+  // unbumped `lastRunAt` lets that turn-end pass re-enqueue with no cooldown
+  // suppression. That is the primary, event-driven requeue: the retrospective
+  // runs right after the colliding turn completes. Mid-turn attempts are
+  // cheap no-ops (existence + processing check) that recur at most once per
+  // persisted message and coalesce into a single pending row via the upsert.
+  // The timed re-upsert below is a fallback for a turn that aborts without
+  // ever indexing another message (the lifecycle/disposal enqueue remains
+  // the last-resort net). Both state pointers stay untouched, so nothing is
+  // lost. Returning (not throwing) keeps the jobs-worker from
   // retry-with-backoff.
-  if (isConversationProcessing(sourceConversationId)) {
-    await bumpRetrospectiveLastRunAt(sourceConversationId, Date.now());
-    log.info(
-      { sourceConversationId },
-      "memory-retrospective (fork): source conversation is mid-turn; skipping",
-    );
+  if (await isConversationProcessing(sourceConversationId)) {
+    try {
+      upsertMemoryRetrospectiveJob(
+        { conversationId: sourceConversationId },
+        Date.now() + SOURCE_PROCESSING_REQUEUE_DELAY_MS,
+      );
+      log.info(
+        {
+          sourceConversationId,
+          requeueDelayMs: SOURCE_PROCESSING_REQUEUE_DELAY_MS,
+        },
+        "memory-retrospective (fork): source conversation is mid-turn; requeued",
+      );
+    } catch (err) {
+      log.warn(
+        { err, sourceConversationId },
+        "memory-retrospective (fork): mid-turn fallback requeue failed; relying on the turn-end trigger check",
+      );
+    }
     return { kind: "source_processing" };
   }
 
   const state = getRetrospectiveState(sourceConversationId);
   const lastProcessedMessageId = state?.lastProcessedMessageId ?? null;
-  const newMessages = getMessagesAfter(
+  // Kind-aware slice: a prior run's own `skill-authored-card` message lands
+  // AFTER the cursor that run persisted, so the raw slice would treat the
+  // card as new work — a card-only tail must be `no_new_messages`, and a
+  // mixed tail's cutoff must land on the last REAL message (never blindly
+  // past the card, so an interleaved real message is never skipped). See
+  // `memory-retrospective-accounting.ts`.
+  const newMessages = getRetrospectiveMessagesAfter(
     sourceConversationId,
     lastProcessedMessageId,
   );
@@ -186,12 +237,12 @@ export async function runForkBasedRetrospective(
   }
   const cutoffMessageId = cutoffMessage.id;
 
-  // The fork carries the full conversation, so the agent needs an explicit
-  // anchor telling it where the review window begins. Prefer the user
-  // turn's `<turn_context>` `current_time:` (the exact string the model
-  // sees in its rehydrated history); fall back to `createdAt` rendered in
-  // the conversation's timezone when no row in the slice carries a
-  // turn-context metadata block.
+  // The fork carries the source's visible window (inherited compaction
+  // summary + tail rows), so the agent needs an explicit anchor telling it
+  // where the review window begins. Prefer the user turn's `<turn_context>`
+  // `current_time:` (the exact string the model sees in its rehydrated
+  // history); fall back to `createdAt` rendered in the conversation's
+  // timezone when no row in the slice carries a turn-context metadata block.
   const timezoneContext = resolveTurnTimezoneContext({
     configuredUserTimeZone: config.ui.userTimezone ?? null,
     detectedTimezone: config.ui.detectedTimezone ?? null,
@@ -207,7 +258,7 @@ export async function runForkBasedRetrospective(
   // Locate the prior retrospective and assemble the dedup baseline BEFORE
   // forking — otherwise `findMostRecentRetrospectiveFor` could locate this
   // run's own fork.
-  const { prior, priorRemembers } = resolvePriorRetrospective(
+  const { prior, priorRemembers } = await resolvePriorRetrospective(
     sourceConversationId,
     state?.rememberedLog ?? [],
   );
@@ -219,10 +270,9 @@ export async function runForkBasedRetrospective(
   // advances to `cutoffMessageId`, causing the next retrospective to
   // reprocess (and potentially re-`remember`) those same turns.
   //
-  // `forkConversation` inherits `contextSummary` /
-  // `contextCompactedMessageCount` / `contextCompactedAt` when the fork
-  // point sits within the visible window. Compacted source ⇒ compacted
-  // fork ⇒ summary + tail visible to the agent natively.
+  // The fork copies only the source's visible tail and carries the inherited
+  // compaction summary on its own row (with a fork-local compacted count of
+  // 0). Compacted source ⇒ summary + tail visible to the agent natively.
   let forkConversationRow: Awaited<
     ReturnType<typeof forkConversationForRetrospective>
   >;
@@ -272,7 +322,10 @@ export async function runForkBasedRetrospective(
       { err, forkId, sourceConversationId },
       "memory-retrospective (fork): failed to persist instruction message",
     );
-    safeDeleteRetrospectiveConversation(forkId, FORK_DELETE_FAILURE_WARNING);
+    await safeDeleteRetrospectiveConversation(
+      forkId,
+      FORK_DELETE_FAILURE_WARNING,
+    );
     await bumpRetrospectiveLastRunAt(sourceConversationId, Date.now());
     throw err;
   }
@@ -398,7 +451,10 @@ export async function runForkBasedRetrospective(
   // `lastProcessedMessageId` alone so the next attempt re-processes the
   // same messages. Then clean up the orphan fork.
   await bumpRetrospectiveLastRunAt(sourceConversationId, Date.now());
-  safeDeleteRetrospectiveConversation(forkId, FORK_DELETE_FAILURE_WARNING);
+  await safeDeleteRetrospectiveConversation(
+    forkId,
+    FORK_DELETE_FAILURE_WARNING,
+  );
 
   if (threw !== undefined) {
     throw threw;
@@ -544,18 +600,24 @@ function resolveSourceLiveInterface(
 ): InterfaceId | undefined {
   for (let i = sliceMessages.length - 1; i >= 0; i--) {
     const row = sliceMessages[i]!;
-    if (row.role !== "user" || !row.metadata) continue;
+    if (row.role !== "user" || !row.metadata) {
+      continue;
+    }
     let meta: unknown;
     try {
       meta = JSON.parse(row.metadata);
     } catch {
       continue;
     }
-    if (!meta || typeof meta !== "object") continue;
+    if (!meta || typeof meta !== "object") {
+      continue;
+    }
     const iface = parseInterfaceId(
       (meta as Record<string, unknown>).userMessageInterface,
     );
-    if (iface) return iface;
+    if (iface) {
+      return iface;
+    }
   }
   return (
     parseInterfaceId(source.originInterface) ??
@@ -576,14 +638,17 @@ type PriorRetrospective = NonNullable<
  * it. The prior row is returned so the success path can GC it once this run
  * supersedes it.
  */
-function resolvePriorRetrospective(
+async function resolvePriorRetrospective(
   sourceConversationId: string,
   rememberedLog: string[],
-): { prior: PriorRetrospective | null; priorRemembers: string[] } {
+): Promise<{ prior: PriorRetrospective | null; priorRemembers: string[] }> {
   const prior = findMostRecentRetrospectiveFor(sourceConversationId);
   return {
     prior,
-    priorRemembers: collectPriorRetrospectiveRemembers(prior, rememberedLog),
+    priorRemembers: await collectPriorRetrospectiveRemembers(
+      prior,
+      rememberedLog,
+    ),
   };
 }
 
@@ -617,7 +682,7 @@ async function finalizeSuccessfulRetrospective(args: {
     logFields,
   } = args;
 
-  const runRemembers = extractRetrospectiveRunRemembers(
+  const runRemembers = await extractRetrospectiveRunRemembers(
     retrospectiveConversationId,
   );
   await upsertRetrospectiveState({
@@ -626,6 +691,43 @@ async function finalizeSuccessfulRetrospective(args: {
     lastRunAt: Date.now(),
     rememberedLog: appendToRememberedLog(priorRemembers, runRemembers),
   });
+
+  // Surface newly created skills as a `skill_card` ui_surface message on the
+  // source conversation. Gated on proc-to-skills being active (the run can
+  // only author skills when it is). `insertSkillCardMessage` is best-effort —
+  // a card failure never fails the job — and defers delivery through a
+  // durable `skill_card_insert` job when the source is mid-turn, so the card
+  // still always lands once the turn ends. Every gate outcome logs at info
+  // level so a missing card is one-grep diagnosable in the field
+  // ("skill-card:" / "skill card:").
+  if (isProcToSkillsActive(config)) {
+    const authoredSkills = await extractRetrospectiveRunSkillScaffolds(
+      retrospectiveConversationId,
+    );
+    log.info(
+      {
+        sourceConversationId,
+        retrospectiveConversationId,
+        scaffoldCount: authoredSkills.length,
+      },
+      "skill-card: gate passed; extracted skill scaffolds from the run",
+    );
+    if (authoredSkills.length > 0) {
+      await insertSkillCardMessage(
+        sourceConversationId,
+        retrospectiveConversationId,
+        authoredSkills,
+      );
+    }
+  } else {
+    log.info(
+      {
+        sourceConversationId,
+        retrospectiveConversationId,
+      },
+      "skill-card: skipped — proc-to-skills inactive",
+    );
+  }
 
   await deleteSupersededPriorRetrospective(config, prior, sourceConversationId);
 
@@ -659,12 +761,12 @@ const FORK_DELETE_FAILURE_WARNING =
  * failure path. Deletion failure is logged with the caller-supplied warning
  * and never escalates.
  */
-function safeDeleteRetrospectiveConversation(
+async function safeDeleteRetrospectiveConversation(
   conversationId: string,
   warnMessage: string,
-): void {
+): Promise<void> {
   try {
-    deleteConversation(conversationId);
+    await deleteConversation(conversationId);
   } catch (err) {
     log.warn({ err, conversationId }, warnMessage);
   }
@@ -699,15 +801,21 @@ async function deleteSupersededPriorRetrospective(
   prior: PriorRetrospective | null,
   sourceConversationId: string,
 ): Promise<void> {
-  if (!prior) return;
-  if (config.memory.retrospective.keepSupersededRuns) return;
-  if (prior.forkParentConversationId !== sourceConversationId) return;
+  if (!prior) {
+    return;
+  }
+  if (config.memory.retrospective.keepSupersededRuns) {
+    return;
+  }
+  if (prior.forkParentConversationId !== sourceConversationId) {
+    return;
+  }
   try {
     // Fork-kind priors carry a full copy of the source's message history, so
     // delete the message rows off the event loop in lock-friendly batches —
     // the deletion mirror of the batched fork copy that built them — instead
     // of one lock-holding transaction that would starve live user turns.
-    await deleteConversationGently(prior.id);
+    await deleteConversation(prior.id);
   } catch (err) {
     log.warn(
       { err, priorConversationId: prior.id },
@@ -730,16 +838,22 @@ function findFirstTurnContextTimestamp(
   messages: Array<{ role: string; metadata: string | null }>,
 ): string | null {
   for (const row of messages) {
-    if (row.role !== "user" || !row.metadata) continue;
+    if (row.role !== "user" || !row.metadata) {
+      continue;
+    }
     let meta: unknown;
     try {
       meta = JSON.parse(row.metadata);
     } catch {
       continue;
     }
-    if (!meta || typeof meta !== "object") continue;
+    if (!meta || typeof meta !== "object") {
+      continue;
+    }
     const block = (meta as Record<string, unknown>).turnContextBlock;
-    if (typeof block !== "string") continue;
+    if (typeof block !== "string") {
+      continue;
+    }
     // Reuse the compactor's parser by wrapping the metadata block text in a
     // single-text-block message — same `<turn_context>` / `current_time:`
     // scan it applies to rehydrated content.
@@ -747,7 +861,9 @@ function findFirstTurnContextTimestamp(
       role: "user",
       content: [{ type: "text", text: block }],
     });
-    if (ts) return ts;
+    if (ts) {
+      return ts;
+    }
   }
   return null;
 }
@@ -767,13 +883,17 @@ function findFirstTurnContextTimestamp(
  * the prior run after success) for state rows that predate the log column
  * or whose log is empty. Empty array on first run (no log, no prior).
  */
-function collectPriorRetrospectiveRemembers(
+async function collectPriorRetrospectiveRemembers(
   prior: { id: string } | null,
   rememberedLog: string[],
-): string[] {
-  if (rememberedLog.length > 0) return rememberedLog;
-  if (!prior) return [];
-  return extractRetrospectiveRunRemembers(prior.id);
+): Promise<string[]> {
+  if (rememberedLog.length > 0) {
+    return rememberedLog;
+  }
+  if (!prior) {
+    return [];
+  }
+  return await extractRetrospectiveRunRemembers(prior.id);
 }
 
 /**
@@ -782,22 +902,26 @@ function collectPriorRetrospectiveRemembers(
  * `loadRetrospectiveRunMessages` scopes fork-kind rows to the post-fork tail
  * (the copied prefix contains the source conversation's own inline
  * `remember` calls, which must not pollute the dedup baseline) and returns
- * `null` on load failure or an undetectable fork boundary (logged, never
- * fatal) — treated here as "the run saved nothing".
+ * `null` on load failure (logged, never fatal) — treated here as "the run
+ * saved nothing".
  */
-function extractRetrospectiveRunRemembers(conversationId: string): string[] {
-  const conv = getConversation(conversationId);
-  const runMessages = loadRetrospectiveRunMessages(
+async function extractRetrospectiveRunRemembers(
+  conversationId: string,
+): Promise<string[]> {
+  const conv = await getConversation(conversationId);
+  const runMessages = await loadRetrospectiveRunMessages(
     conversationId,
     conv?.source ?? null,
   );
-  if (runMessages == null) return [];
+  if (runMessages == null) {
+    return [];
+  }
   return extractRememberContents(runMessages);
 }
 
 interface MessageLike {
   role: string;
-  content: string;
+  content: string | ContentBlock[];
 }
 
 /**
@@ -808,29 +932,47 @@ interface MessageLike {
 function extractRememberContents(messages: MessageLike[]): string[] {
   const contents: string[] = [];
   for (const msg of messages) {
-    if (msg.role !== "assistant") continue;
-    let blocks: unknown;
-    try {
-      blocks = JSON.parse(msg.content);
-    } catch {
+    if (msg.role !== "assistant") {
       continue;
     }
-    if (!Array.isArray(blocks)) continue;
+    let blocks: unknown = msg.content;
+    if (typeof blocks === "string") {
+      try {
+        blocks = JSON.parse(blocks);
+      } catch {
+        continue;
+      }
+    }
+    if (!Array.isArray(blocks)) {
+      continue;
+    }
     for (const block of blocks) {
-      if (!block || typeof block !== "object") continue;
+      if (!block || typeof block !== "object") {
+        continue;
+      }
       const b = block as Record<string, unknown>;
-      if (b.type !== "tool_use") continue;
-      if (b.name !== "remember") continue;
+      if (b.type !== "tool_use") {
+        continue;
+      }
+      if (b.name !== "remember") {
+        continue;
+      }
       const input = b.input;
-      if (!input || typeof input !== "object") continue;
+      if (!input || typeof input !== "object") {
+        continue;
+      }
       const content = (input as Record<string, unknown>).content;
       // `remember` accepts a single string or an array of facts (batch form);
       // flatten both so batched saves still feed the dedup baseline.
       const facts = Array.isArray(content) ? content : [content];
       for (const fact of facts) {
-        if (typeof fact !== "string") continue;
+        if (typeof fact !== "string") {
+          continue;
+        }
         const trimmed = fact.trim();
-        if (trimmed.length > 0) contents.push(trimmed);
+        if (trimmed.length > 0) {
+          contents.push(trimmed);
+        }
       }
     }
   }
@@ -844,7 +986,6 @@ function extractRememberContents(messages: MessageLike[]): string[] {
 /**
  * Neutralize closing `</already_remembered>` sentinels in untrusted content so
  * they can't close the wrapper tag and escape into instruction context.
- * Mirrors `neutralizeTranscriptSentinel` from the auto-analysis prompt.
  */
 function neutralizeSentinels(s: string): string {
   return s.replace(

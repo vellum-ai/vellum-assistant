@@ -123,6 +123,18 @@ export class MessageQueue {
   }
 
   /**
+   * Requeue a message at the FRONT of the queue. Used when a drained
+   * message hits processing-lock contention and must run on the next
+   * drain instead of being dropped. Deliberately skips the byte-budget
+   * check: the item was already accepted (and just popped), so a requeue
+   * must never reject it.
+   */
+  unshift(item: QueuedMessage): void {
+    this.items.unshift(item);
+    this.currentBytes += estimateItemBytes(item);
+  }
+
+  /**
    * Read-only access to a queued message by index without mutating the queue.
    * Returns `undefined` when the index is out of range.
    */

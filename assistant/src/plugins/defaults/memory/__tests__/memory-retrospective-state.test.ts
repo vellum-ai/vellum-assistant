@@ -2,12 +2,6 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { eq } from "drizzle-orm";
 
-import { makeMockLogger } from "../../../../__tests__/helpers/mock-logger.js";
-
-mock.module("../../../../util/logger.js", () => ({
-  getLogger: () => makeMockLogger(),
-}));
-
 mock.module("../../../../config/loader.js", () => ({
   getConfig: () => ({
     ui: {},

@@ -70,7 +70,12 @@ describe("WorkspaceGitService", () => {
       expect(content).toContain("*.sock");
       expect(content).toContain("*.pid");
       expect(content).toContain("session-token");
-      expect(content).toContain("plugins/*/node_modules/");
+      expect(content).toContain("node_modules/");
+      expect(content).toContain("/embedding-models/");
+      expect(content).toContain(".DS_Store");
+      expect(content).toContain("*.png");
+      expect(content).toContain("*.jsonl");
+      expect(content).toContain("!conversations/**");
     });
 
     test("sets git identity correctly", async () => {
@@ -695,6 +700,47 @@ describe("WorkspaceGitService", () => {
       expect(branchAfter).toBe("main");
     });
 
+    test("gitignore rules and untracking apply to main after a branch switch", async () => {
+      execFileSync("git", ["init", "-b", "main"], { cwd: testDir });
+      execFileSync("git", ["config", "user.name", "Test"], { cwd: testDir });
+      execFileSync("git", ["config", "user.email", "user@example.com"], {
+        cwd: testDir,
+      });
+      // main: committed runtime junk and a .gitignore without Vellum rules
+      writeFileSync(join(testDir, ".gitignore"), "main-rule\n");
+      mkdirSync(join(testDir, "embedding-models"), { recursive: true });
+      writeFileSync(join(testDir, "embedding-models", "model.bin"), "weights");
+      writeFileSync(join(testDir, "notes.md"), "keep me");
+      execFileSync("git", ["add", "-A", "-f"], { cwd: testDir });
+      execFileSync("git", ["commit", "-m", "init"], { cwd: testDir });
+      // Checked out on a branch whose .gitignore differs from main's
+      execFileSync("git", ["checkout", "-b", "legacy"], { cwd: testDir });
+      writeFileSync(join(testDir, ".gitignore"), "legacy-rule\n");
+      execFileSync("git", ["add", "-A"], { cwd: testDir });
+      execFileSync("git", ["commit", "-m", "legacy rule"], { cwd: testDir });
+
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      // Landed on main with the Vellum rules applied to MAIN's .gitignore
+      const branch = execFileSync("git", ["symbolic-ref", "--short", "HEAD"], {
+        cwd: testDir,
+        encoding: "utf-8",
+      }).trim();
+      expect(branch).toBe("main");
+      const content = readFileSync(join(testDir, ".gitignore"), "utf-8");
+      expect(content).toContain("main-rule");
+      expect(content).toContain("data/db/");
+
+      // Untracking ran against main's index
+      const tracked = execFileSync("git", ["ls-files"], {
+        cwd: testDir,
+        encoding: "utf-8",
+      });
+      expect(tracked).not.toContain("embedding-models/model.bin");
+      expect(tracked).toContain("notes.md");
+    });
+
     test("existing repo gets .gitignore rules appended on init", async () => {
       // Set up a pre-existing git repo without our gitignore rules
       execFileSync("git", ["init", "-b", "main"], { cwd: testDir });
@@ -722,6 +768,165 @@ describe("WorkspaceGitService", () => {
       expect(contentAfter).toContain("*.log");
       expect(contentAfter).toContain("*.sock");
       expect(contentAfter).toContain("session-token");
+    });
+
+    test("existing repo with committed runtime state gets it untracked on init", async () => {
+      // Repo that committed runtime state before the ignore rule existed
+      execFileSync("git", ["init", "-b", "main"], { cwd: testDir });
+      execFileSync("git", ["config", "user.name", "Test"], { cwd: testDir });
+      execFileSync("git", ["config", "user.email", "user@example.com"], {
+        cwd: testDir,
+      });
+      mkdirSync(join(testDir, "embedding-models"), { recursive: true });
+      writeFileSync(join(testDir, "embedding-models", "model.bin"), "weights");
+      writeFileSync(join(testDir, "notes.md"), "keep me");
+      execFileSync("git", ["add", "-A"], { cwd: testDir });
+      execFileSync("git", ["commit", "-m", "init"], { cwd: testDir });
+
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      // Now-ignored path is dropped from the index; tracked files survive.
+      const tracked = execFileSync("git", ["ls-files"], {
+        cwd: testDir,
+        encoding: "utf-8",
+      });
+      expect(tracked).not.toContain("embedding-models/model.bin");
+      expect(tracked).toContain("notes.md");
+
+      // Working tree is untouched — only the index entry is removed.
+      expect(existsSync(join(testDir, "embedding-models", "model.bin"))).toBe(
+        true,
+      );
+
+      // The staged deletion rides along with the next commit and the file
+      // is not re-added despite `git add -A`.
+      await service.commitChanges("next turn");
+      const headFiles = execFileSync(
+        "git",
+        ["ls-tree", "-r", "--name-only", "HEAD"],
+        { cwd: testDir, encoding: "utf-8" },
+      );
+      expect(headFiles).not.toContain("embedding-models/model.bin");
+      expect(headFiles).toContain("notes.md");
+    });
+
+    test("partial init with staged now-ignored files drops them from the initial commit", async () => {
+      // Interrupted previous init: `.git` exists with staged files, no commit
+      execFileSync("git", ["init", "-b", "main"], { cwd: testDir });
+      mkdirSync(join(testDir, "embedding-models"), { recursive: true });
+      writeFileSync(join(testDir, "embedding-models", "model.bin"), "weights");
+      writeFileSync(join(testDir, "notes.md"), "keep me");
+      execFileSync("git", ["add", "-A"], { cwd: testDir });
+
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      const headFiles = execFileSync(
+        "git",
+        ["ls-tree", "-r", "--name-only", "HEAD"],
+        { cwd: testDir, encoding: "utf-8" },
+      );
+      expect(headFiles).not.toContain("embedding-models/model.bin");
+      expect(headFiles).toContain("notes.md");
+    });
+
+    test("untracking is limited to Vellum rules and keeps avatar/sounds state", async () => {
+      execFileSync("git", ["init", "-b", "main"], { cwd: testDir });
+      execFileSync("git", ["config", "user.name", "Test"], { cwd: testDir });
+      execFileSync("git", ["config", "user.email", "user@example.com"], {
+        cwd: testDir,
+      });
+      // Canonical user state that matches the media extension rules
+      mkdirSync(join(testDir, "data", "avatar"), { recursive: true });
+      writeFileSync(join(testDir, "data", "avatar", "avatar-image.png"), "img");
+      mkdirSync(join(testDir, "data", "sounds"), { recursive: true });
+      writeFileSync(join(testDir, "data", "sounds", "ding.mp3"), "snd");
+      mkdirSync(join(testDir, "data", "apps", "my-app", "dist"), {
+        recursive: true,
+      });
+      writeFileSync(join(testDir, "data", "apps", "my-app", "icon.png"), "ic");
+      writeFileSync(
+        join(testDir, "data", "apps", "my-app", "dist", "bundle.png"),
+        "junk",
+      );
+      // Conversation disk views survive the *.jsonl rule
+      mkdirSync(join(testDir, "conversations", "conv-1"), { recursive: true });
+      writeFileSync(
+        join(testDir, "conversations", "conv-1", "messages.jsonl"),
+        "{}",
+      );
+      // Media junk elsewhere that should be untracked
+      mkdirSync(join(testDir, "pkb"), { recursive: true });
+      writeFileSync(join(testDir, "pkb", "photo.png"), "junk");
+      // Tracked file matching only the user's repo-local exclude file — the
+      // untrack step must not consult it.
+      writeFileSync(join(testDir, "fixture-keep.md"), "keep");
+      writeFileSync(
+        join(testDir, ".git", "info", "exclude"),
+        "fixture-keep.md\n",
+      );
+      // Force-added despite a user-authored .gitignore rule — the untrack
+      // step matches Vellum-managed rules only, so it must stay tracked.
+      writeFileSync(join(testDir, ".gitignore"), "user-secret.md\n");
+      writeFileSync(join(testDir, "user-secret.md"), "keep");
+      execFileSync("git", ["add", "-A", "-f"], { cwd: testDir });
+      execFileSync("git", ["commit", "-m", "init"], { cwd: testDir });
+
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      const tracked = execFileSync("git", ["ls-files"], {
+        cwd: testDir,
+        encoding: "utf-8",
+      });
+      expect(tracked).toContain("data/avatar/avatar-image.png");
+      expect(tracked).toContain("data/sounds/ding.mp3");
+      expect(tracked).toContain("data/apps/my-app/icon.png");
+      expect(tracked).toContain("conversations/conv-1/messages.jsonl");
+      expect(tracked).toContain("fixture-keep.md");
+      expect(tracked).toContain("user-secret.md");
+      expect(tracked).not.toContain("pkb/photo.png");
+      // The icon negation must not drag dist/ back in
+      expect(tracked).not.toContain("data/apps/my-app/dist/bundle.png");
+    });
+
+    test("appending rules keeps negations last even when already present mid-file", async () => {
+      execFileSync("git", ["init", "-b", "main"], { cwd: testDir });
+      execFileSync("git", ["config", "user.name", "Test"], { cwd: testDir });
+      execFileSync("git", ["config", "user.email", "user@example.com"], {
+        cwd: testDir,
+      });
+      // Negation already present BEFORE the extension rules get appended —
+      // if it stayed there, a later *.png would win and re-ignore the avatar.
+      writeFileSync(
+        join(testDir, ".gitignore"),
+        "!data/avatar/**\nnode_modules/\n",
+      );
+      writeFileSync(join(testDir, "file.txt"), "content");
+      execFileSync("git", ["add", "-A"], { cwd: testDir });
+      execFileSync("git", ["commit", "-m", "init"], { cwd: testDir });
+
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      const content = readFileSync(join(testDir, ".gitignore"), "utf-8");
+      expect(content.lastIndexOf("!data/avatar/**")).toBeGreaterThan(
+        content.indexOf("*.png"),
+      );
+
+      // Effective behavior: the avatar path is not ignored (check-ignore
+      // exits 1 → throws), media elsewhere is (exits 0).
+      expect(() =>
+        execFileSync(
+          "git",
+          ["check-ignore", "-q", "data/avatar/avatar-image.png"],
+          { cwd: testDir },
+        ),
+      ).toThrow();
+      execFileSync("git", ["check-ignore", "-q", "pkb/photo.png"], {
+        cwd: testDir,
+      });
     });
 
     test("existing repo with old data/ rule gets it replaced with selective rules", async () => {
@@ -831,7 +1036,7 @@ describe("WorkspaceGitService", () => {
         cwd: testDir,
       });
       const gitignoreContent =
-        "# Runtime state - excluded from git tracking\ndata/db/\ndata/qdrant/\ndata/monitoring/\ndata/apps/*/records/\ndata/apps/*/dist/\ndata/apps/*.preview\nplugins/*/node_modules/\nlogs/\n*.log\n*.sock\n*.pid\n*.sqlite\n*.sqlite-journal\n*.sqlite-wal\n*.sqlite-shm\n*.db\n*.db-journal\n*.db-wal\n*.db-shm\nvellum.pid\nsession-token\n";
+        "# Runtime state - excluded from git tracking\ndata/db/\ndata/qdrant/\ndata/monitoring/\ndata/apps/*/records/\ndata/apps/*/dist/\ndata/apps/*.preview\n/embedding-models/\n/external/\n/bin/\n/plugins-data/\nnode_modules/\n__pycache__/\n.venv/\nlogs/\n*.log\n*.jsonl\n*.sock\n*.pid\ndaemon-startup.lock\nsession-token\n*.sqlite*\n*.db\n*.db-*\n.DS_Store\n*.zip\n*.tar\n*.gz\n*.tgz\n*.bz2\n*.xz\n*.7z\n*.rar\n*.dmg\n*.iso\n*.png\n*.jpg\n*.jpeg\n*.gif\n*.webp\n*.heic\n*.bmp\n*.tiff\n*.mp3\n*.wav\n*.m4a\n*.flac\n*.ogg\n*.mp4\n*.mov\n*.avi\n*.mkv\n*.webm\n*.pdf\n*.gguf\n*.onnx\n*.safetensors\n*.pt\n*.pth\n!data/avatar/**\n!data/sounds/**\n!data/apps/*/icon.png\n!conversations/**\n";
       writeFileSync(join(testDir, ".gitignore"), gitignoreContent);
       writeFileSync(join(testDir, "file.txt"), "content");
       execFileSync("git", ["add", "-A"], { cwd: testDir });
@@ -1682,11 +1887,15 @@ describe("WorkspaceGitService", () => {
       // Working-tree file is preserved; only tracking is dropped
       expect(existsSync(join(testDir, "legacy.bin"))).toBe(true);
 
-      const message = execFileSync("git", ["log", "-1", "--pretty=%B"], {
-        cwd: testDir,
-        encoding: "utf-8",
-      });
-      expect(message).toContain("Untrack files exceeding");
+      // The staged removal rides along with the next auto-commit
+      const result = await second.commitIfDirty(() => ({ message: "sweep" }));
+      expect(result.committed).toBe(true);
+      const tree = execFileSync(
+        "git",
+        ["ls-tree", "-r", "--name-only", "HEAD"],
+        { cwd: testDir, encoding: "utf-8" },
+      );
+      expect(tree).not.toContain("legacy.bin");
 
       // And the workspace reads clean afterwards — no dirty-loop churn
       const status = await second.getStatus();

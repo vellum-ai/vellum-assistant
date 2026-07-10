@@ -8,21 +8,16 @@
  * (`tool_invocations`) pruning follows `auditLog.retentionDays`.
  *
  * The real cleanup-schedule-state module (pure, in-memory, no DB) provides the
- * per-job throttle; only jobs-store's enqueue functions and the logger are
- * mocked so we can observe which jobs were enqueued on each tick.
+ * per-job throttle; jobs-store's enqueue functions, the checkpoint store (which
+ * persists each enqueue so the cadence survives restarts), and the logger are
+ * mocked so we can observe which jobs were enqueued on each tick and what was
+ * persisted.
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { AssistantConfig } from "../config/types.js";
 
 // ── Mocks (must precede imports of tested module) ──────────────────
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
 
 let convCalls: Array<number | undefined> = [];
 let llmCalls: Array<number | undefined> = [];
@@ -49,13 +44,33 @@ mock.module("../persistence/jobs-store.js", () => ({
   },
 }));
 
+// In-memory stand-in for the persisted checkpoint store.
+const checkpointStore = new Map<string, string>();
+
+mock.module("../persistence/checkpoints.js", () => ({
+  getMemoryCheckpoint: (key: string) => checkpointStore.get(key) ?? null,
+  setMemoryCheckpoint: (key: string, value: string) => {
+    checkpointStore.set(key, value);
+  },
+  deleteMemoryCheckpoint: (key: string) => {
+    checkpointStore.delete(key);
+  },
+}));
+
 mock.module("../config/loader.js", () => ({
   getConfig: () => ({ memory: { enabled: false } }),
   loadConfig: () => ({ memory: { enabled: false } }),
 }));
 
 import { resetCleanupScheduleThrottle } from "../persistence/cleanup-schedule-state.js";
-import { maybeEnqueueScheduledCleanupJobs } from "../plugins/defaults/memory/jobs-worker.js";
+import {
+  maybeEnqueueScheduledCleanupJobs,
+  seedCleanupScheduleFromCheckpoints,
+} from "../plugins/defaults/memory/jobs-worker.js";
+
+const CONV_CHECKPOINT_KEY = "cleanup:last_enqueue:conversations";
+const LLM_CHECKPOINT_KEY = "cleanup:last_enqueue:llm_request_logs";
+const TOOL_CHECKPOINT_KEY = "cleanup:last_enqueue:tool_invocations";
 
 const HOUR = 60 * 60 * 1000;
 
@@ -92,6 +107,7 @@ describe("maybeEnqueueScheduledCleanupJobs retention-derived cadence", () => {
     convCalls = [];
     llmCalls = [];
     toolCalls = [];
+    checkpointStore.clear();
     resetCleanupScheduleThrottle();
   });
 
@@ -199,5 +215,82 @@ describe("maybeEnqueueScheduledCleanupJobs retention-derived cadence", () => {
     expect(convCalls.length).toBe(2);
     expect(llmCalls.length).toBe(2);
     expect(toolCalls.length).toBe(2);
+  });
+});
+
+describe("cleanup schedule persistence across restarts", () => {
+  beforeEach(() => {
+    convCalls = [];
+    llmCalls = [];
+    toolCalls = [];
+    checkpointStore.clear();
+    resetCleanupScheduleThrottle();
+  });
+
+  test("each enqueue persists its timestamp to a per-job checkpoint", () => {
+    const config = makeConfig({
+      conversationRetentionDays: 1,
+      llmRequestLogRetentionMs: HOUR,
+      auditLogRetentionDays: 1,
+    });
+
+    maybeEnqueueScheduledCleanupJobs(config, BASE);
+
+    expect(checkpointStore.get(CONV_CHECKPOINT_KEY)).toBe(String(BASE));
+    expect(checkpointStore.get(LLM_CHECKPOINT_KEY)).toBe(String(BASE));
+    expect(checkpointStore.get(TOOL_CHECKPOINT_KEY)).toBe(String(BASE));
+  });
+
+  test("seeding from checkpoints resumes the cadence instead of re-firing", () => {
+    // Simulate a prior run at BASE that persisted its checkpoint, then a
+    // restart: reset the in-memory throttle (as a fresh process would start)
+    // and seed from the persisted checkpoint.
+    checkpointStore.set(LLM_CHECKPOINT_KEY, String(BASE));
+    resetCleanupScheduleThrottle();
+    seedCleanupScheduleFromCheckpoints();
+
+    const config = makeConfig({ llmRequestLogRetentionMs: HOUR });
+
+    // 30 min after the persisted enqueue: still within the window, so a boot
+    // tick does NOT re-fire (the pre-persistence behavior would have fired
+    // because the throttle started at 0).
+    expect(
+      maybeEnqueueScheduledCleanupJobs(config, BASE + 30 * 60 * 1000),
+    ).toBe(false);
+    expect(llmCalls).toEqual([]);
+
+    // Past the window: due again.
+    expect(maybeEnqueueScheduledCleanupJobs(config, BASE + HOUR + 1)).toBe(
+      true,
+    );
+    expect(llmCalls).toEqual([HOUR]);
+  });
+
+  test("a job with no checkpoint fires on the first tick (never run yet)", () => {
+    // No checkpoints present — seeding is a no-op and the throttle stays 0.
+    seedCleanupScheduleFromCheckpoints();
+
+    const config = makeConfig({ conversationRetentionDays: 30 });
+
+    expect(maybeEnqueueScheduledCleanupJobs(config, BASE)).toBe(true);
+    expect(convCalls).toEqual([30]);
+    expect(checkpointStore.get(CONV_CHECKPOINT_KEY)).toBe(String(BASE));
+  });
+
+  test("seeding ignores malformed or non-positive checkpoint values", () => {
+    checkpointStore.set(LLM_CHECKPOINT_KEY, "not-a-number");
+    checkpointStore.set(CONV_CHECKPOINT_KEY, "0");
+    resetCleanupScheduleThrottle();
+    seedCleanupScheduleFromCheckpoints();
+
+    const config = makeConfig({
+      conversationRetentionDays: 30,
+      llmRequestLogRetentionMs: HOUR,
+    });
+
+    // Both seeds were rejected, so the throttle is still 0 and both fire.
+    expect(maybeEnqueueScheduledCleanupJobs(config, BASE)).toBe(true);
+    expect(convCalls).toEqual([30]);
+    expect(llmCalls).toEqual([HOUR]);
   });
 });

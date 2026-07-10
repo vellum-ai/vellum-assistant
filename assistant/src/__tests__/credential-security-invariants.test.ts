@@ -26,13 +26,6 @@ import {
 // Mock logger
 // ---------------------------------------------------------------------------
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // ---------------------------------------------------------------------------
 // Use encrypted backend with a temp store path
 // ---------------------------------------------------------------------------
@@ -208,6 +201,7 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "media/image-credentials.ts", // shared image-gen credential resolver (provider API key lookup)
       "persistence/embeddings/embedding-backend.ts", // embedding backend API key lookup
       "persistence/llm-request-log-source-clickhouse.ts", // ClickHouse read source — lazy lookup of clickhouse:url + clickhouse:password + vellum:platform_assistant_id for self-scoped mirror reads
+      "persistence/llm-request-log-sink-clickhouse.ts", // ClickHouse write sink — lazy lookup of clickhouse:url + clickhouse:password + vellum:platform_assistant_id for self-scoped log writes
       "persistence/compaction-log-store-clickhouse.ts", // ClickHouse compaction log writer — lazy lookup of clickhouse:url + clickhouse:password + vellum:platform_assistant_id for self-scoped event writes
       "daemon/providers-setup.ts", // provider initialization API key lookup
       "workspace/migrations/006-services-config.ts", // services config migration reads provider API keys
@@ -231,12 +225,10 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "cli/commands/oauth/connect.ts", // CLI OAuth connect stored-secret verification
       "runtime/routes/chatgpt-subscription-auth-routes.ts", // ChatGPT subscription OAuth token storage
       "runtime/routes/identity-routes.ts", // health/readyz endpoint checks CES connectivity via getCesClient
-      "tools/credential-execution/run-authenticated-command.ts", // resolves the CES RPC client via getCesClient
-      "tools/credential-execution/make-authenticated-request.ts", // resolves the CES RPC client via getCesClient
-      "tools/credential-execution/manage-secure-command-tool.ts", // resolves the CES RPC client via getCesClient
       "tools/executor.ts", // CES approval bridge resolves the CES RPC client via getCesClient
       "tools/network/web-fetch.ts", // Firecrawl /scrape BYOK fetch provider API key lookup (firecrawl provider key)
       "workspace/default-provider-ensure.ts", // legacy anthropic echo disambiguation (vault key presence check)
+      "providers/inference/connection-availability.ts", // shared (provider, connection) availability status (credential presence check only; value never leaves the helper)
     ]);
 
     const thisDir = dirname(fileURLToPath(import.meta.url));

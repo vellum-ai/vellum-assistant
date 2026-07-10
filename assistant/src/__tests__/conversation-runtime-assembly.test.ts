@@ -10,6 +10,10 @@ import { eq } from "drizzle-orm";
 // injection chain assertions stay meaningful.
 const realLoaderForAssemblyTest = await import("../config/loader.js");
 const realGetConfigForAssemblyTest = realLoaderForAssemblyTest.getConfig;
+const realMemoryConfigForAssemblyTest =
+  await import("../plugins/defaults/memory/config.js");
+const realGetMemoryConfigForAssemblyTest =
+  realMemoryConfigForAssemblyTest.getMemoryConfig;
 // Per-test overrides for `ui.userTimezone` / `ui.detectedTimezone` so the
 // config self-resolution inside `applyRuntimeInjections` can be exercised.
 let assemblyConfiguredUserTimezone: string | null | undefined;
@@ -30,6 +34,15 @@ mock.module("../config/loader.js", () => ({
       memory: { ...real.memory, v2: { ...real.memory.v2, enabled: false } },
       slack: { ...real.slack, botUserId: "U_BOT" },
     };
+  },
+}));
+
+// Memory code resolves its config through the plugin's own accessor, not
+// getConfig(); mirror the v2-disabled override there.
+mock.module("../plugins/defaults/memory/config.js", () => ({
+  getMemoryConfig: () => {
+    const real = realGetMemoryConfigForAssemblyTest();
+    return { ...real, v2: { ...real.v2, enabled: false } };
   },
 }));
 
@@ -75,7 +88,9 @@ let pkbSearchResults: Array<{
 let pkbSearchThrows: Error | null = null;
 mock.module("../plugins/defaults/memory/pkb/pkb-search.js", () => ({
   searchPkbFiles: async () => {
-    if (pkbSearchThrows) throw pkbSearchThrows;
+    if (pkbSearchThrows) {
+      throw pkbSearchThrows;
+    }
     return pkbSearchResults;
   },
 }));
@@ -3194,15 +3209,18 @@ describe("Slack channel chronological rendering — multi-thread", () => {
     const outer: Record<string, unknown> = {
       ...(opts.extraOuterMetadata ?? {}),
     };
-    if (opts.slackMeta) outer.slackMeta = writeSlackMetadata(opts.slackMeta);
+    if (opts.slackMeta) {
+      outer.slackMeta = writeSlackMetadata(opts.slackMeta);
+    }
     return {
       id: opts.id,
       conversationId: "conv-1",
       role: "user",
-      content: JSON.stringify([{ type: "text", text: opts.text }]),
+      content: [{ type: "text", text: opts.text }],
       createdAt: opts.createdAt,
       metadata: Object.keys(outer).length > 0 ? JSON.stringify(outer) : null,
       clientMessageId: null,
+      finalized: 1,
     };
   }
 
@@ -3213,15 +3231,18 @@ describe("Slack channel chronological rendering — multi-thread", () => {
     slackMeta?: SlackMessageMetadata;
   }): MessageRow {
     const outer: Record<string, unknown> = {};
-    if (opts.slackMeta) outer.slackMeta = writeSlackMetadata(opts.slackMeta);
+    if (opts.slackMeta) {
+      outer.slackMeta = writeSlackMetadata(opts.slackMeta);
+    }
     return {
       id: opts.id,
       conversationId: "conv-1",
       role: "assistant",
-      content: JSON.stringify([{ type: "text", text: opts.text }]),
+      content: [{ type: "text", text: opts.text }],
       createdAt: opts.createdAt,
       metadata: Object.keys(outer).length > 0 ? JSON.stringify(outer) : null,
       clientMessageId: null,
+      finalized: 1,
     };
   }
 
@@ -3261,7 +3282,9 @@ describe("Slack channel chronological rendering — multi-thread", () => {
     return messages.map((m) => {
       for (let i = m.content.length - 1; i >= 0; i--) {
         const block = m.content[i];
-        if (block.type === "text") return block.text;
+        if (block.type === "text") {
+          return block.text;
+        }
       }
       return "";
     });
@@ -4216,7 +4239,10 @@ describe("Slack channel chronological rendering — multi-thread", () => {
             id: r.id,
             conversationId: "runtime-assembly-fallback",
             role: r.role,
-            content: r.content,
+            content:
+              typeof r.content === "string"
+                ? r.content
+                : JSON.stringify(r.content),
             createdAt: r.createdAt,
             metadata: r.metadata,
           })),
@@ -4811,7 +4837,9 @@ describe("assembleSlackActiveThreadFocusBlock", () => {
 
   function envelope(meta: SlackMessageMetadata | null): string {
     const outer: Record<string, unknown> = {};
-    if (meta) outer.slackMeta = writeSlackMetadata(meta);
+    if (meta) {
+      outer.slackMeta = writeSlackMetadata(meta);
+    }
     return JSON.stringify(outer);
   }
 

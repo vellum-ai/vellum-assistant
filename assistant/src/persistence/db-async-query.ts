@@ -193,11 +193,18 @@ async function runViaCli(
     stderr: "pipe",
   });
 
-  // Match the busy_timeout the daemon connection uses so this subprocess
-  // waits for — rather than instantly failing against — a lock held by the
-  // still-running in-process connection (and vice versa). Prepended to the
-  // piped SQL so it takes effect before the statement runs.
-  const sqlWithPragma = `PRAGMA busy_timeout=${SQLITE_BUSY_TIMEOUT_MS};\n${sql}`;
+  // Match the daemon connection's pragmas (`applyConnectionPragmas`) so this
+  // subprocess writes like every other connection. `busy_timeout` makes it
+  // wait for — rather than instantly fail against — a lock held by the
+  // still-running in-process connection (and vice versa).
+  // `synchronous=NORMAL` overrides the CLI default (FULL), which would fsync
+  // the WAL inside every commit's write-lock window and stretch bulk-batch
+  // lock holds under I/O pressure: in WAL mode, NORMAL commits become durable
+  // at checkpoint (an OS/power crash can lose the last commits, never
+  // corrupt) — the durability posture every daemon write already has, so
+  // FULL here buys no end-to-end guarantee. Prepended to the piped SQL so
+  // both take effect before the statement runs.
+  const sqlWithPragma = `PRAGMA busy_timeout=${SQLITE_BUSY_TIMEOUT_MS};\nPRAGMA synchronous=NORMAL;\n${sql}`;
 
   // Write the SQL and close stdin so sqlite3 sees EOF and exits.
   proc.stdin.write(sqlWithPragma + "\n");
@@ -280,11 +287,13 @@ async function runInProcessBlocking(
     let sqlite: Database;
     if (usesDedicatedFile) {
       transient = new Database(options.dbPath ?? getDbPath());
-      // Match the daemon connection's busy_timeout so this transient
-      // connection waits for a lock held by another writer rather than
-      // failing immediately with SQLITE_BUSY. (The daemon connection reused
-      // in the else branch already has it set via applyConnectionPragmas.)
+      // Match the daemon connection's busy_timeout and synchronous pragmas so
+      // this transient connection waits for locks and commits like every
+      // other writer (see the runViaCli prelude for the synchronous=NORMAL
+      // rationale). (The daemon connection reused in the else branch already
+      // has both set via applyConnectionPragmas.)
       transient.exec(`PRAGMA busy_timeout=${SQLITE_BUSY_TIMEOUT_MS}`);
+      transient.exec("PRAGMA synchronous=NORMAL");
       for (const a of options.attach ?? []) {
         transient.exec(
           `ATTACH DATABASE '${a.path.replace(/'/g, "''")}' AS ${a.alias}`,

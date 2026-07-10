@@ -1,13 +1,6 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { mock } from "bun:test";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 mock.module("../config/loader.js", () => ({
   getConfig: () => ({
     ui: {},

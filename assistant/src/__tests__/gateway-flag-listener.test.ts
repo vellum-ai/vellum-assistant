@@ -51,18 +51,6 @@ mock.module("../runtime/sync/sync-publisher.js", () => ({
 }));
 
 // ---------------------------------------------------------------------------
-// Track calls to syncFlagGatedTools so we can assert the listener registers
-// newly-enabled flag-gated tools after a runtime refresh (not just the cache).
-// ---------------------------------------------------------------------------
-let syncToolsCallCount = 0;
-
-mock.module("../tools/registry.js", () => ({
-  syncFlagGatedTools: async () => {
-    syncToolsCallCount++;
-  },
-}));
-
-// ---------------------------------------------------------------------------
 // Track reconcileFlagGatedProfiles calls and let each test control whether it
 // reports a config change, so we can assert the listener broadcasts only when
 // the managed profile set actually changes.
@@ -144,7 +132,6 @@ describe("gateway-flag-listener", () => {
     mkdirSync(testRoot, { recursive: true });
     refreshCallCount = 0;
     refreshReturnsLoaded = true;
-    syncToolsCallCount = 0;
     publishedTagSets = [];
     reconcileCallCount = 0;
     reconcileReturns = false;
@@ -167,7 +154,7 @@ describe("gateway-flag-listener", () => {
     }
   });
 
-  test("refreshes flag cache AND syncs gated tools on connect and on feature_flags_changed event", async () => {
+  test("refreshes flag cache on connect and on feature_flags_changed event", async () => {
     await new Promise<void>((resolve) => {
       testServer.server.listen(socketPath, resolve);
     });
@@ -177,17 +164,11 @@ describe("gateway-flag-listener", () => {
     await new Promise((r) => setTimeout(r, 100));
 
     expect(refreshCallCount).toBe(1);
-    // Connect must also sync gated tools, so a flag flipped while disconnected
-    // registers its tools without waiting for a restart.
-    expect(syncToolsCallCount).toBe(1);
 
     testServer.emit("feature_flags_changed");
     await new Promise((r) => setTimeout(r, 100));
 
     expect(refreshCallCount).toBe(2);
-    // The runtime flag change must register newly-enabled tools too — not just
-    // refresh the cache (the bug: routes pass the gate but tools stay absent).
-    expect(syncToolsCallCount).toBe(2);
   });
 
   test("broadcasts feature-flags sync_changed when flags change", async () => {
@@ -261,15 +242,13 @@ describe("gateway-flag-listener", () => {
     await testServer.waitForClient();
     await new Promise((r) => setTimeout(r, 100));
 
-    // Tool sync stays unconditional; the profile reconcile/broadcast are gated.
-    expect(syncToolsCallCount).toBe(1);
+    // The profile reconcile/broadcast are gated on flags actually loading.
     expect(reconcileCallCount).toBe(0);
     expect(configChangedCount).toBe(0);
 
     testServer.emit("feature_flags_changed");
     await new Promise((r) => setTimeout(r, 100));
 
-    expect(syncToolsCallCount).toBe(2);
     expect(reconcileCallCount).toBe(0);
     expect(configChangedCount).toBe(0);
   });

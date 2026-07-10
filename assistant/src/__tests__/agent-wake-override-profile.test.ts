@@ -26,7 +26,26 @@
  *      pinned-profile values.
  */
 
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  test,
+} from "bun:test";
+
+import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
+
+// These suites exercise override-profile PLUMBING through legacy-shaped
+// fixtures (llm.default-centric, no defaultProvider). Pinned to the
+// flag-off cascade; override-or-default resolution semantics are pinned by
+// llm-resolver-override-or-default.test.ts and the inference-profile loop
+// suite.
+beforeAll(() => {
+  setOverridesForTesting({ "override-or-default-resolution": false });
+});
 
 let mockOverrideProfile: string | undefined = undefined;
 
@@ -96,6 +115,7 @@ function makeTarget(): {
     messages,
     getMessages: () => messages,
     isProcessing: () => processing,
+    waitForIdle: async () => !processing,
     setProcessing: (on: boolean) => {
       processing = on;
     },

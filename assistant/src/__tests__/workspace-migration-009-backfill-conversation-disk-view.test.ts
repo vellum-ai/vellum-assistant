@@ -18,13 +18,6 @@ const workspaceDir = testDir;
 const conversationsDir = join(workspaceDir, "conversations");
 mkdirSync(conversationsDir, { recursive: true });
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 mock.module("../config/loader.js", () => ({
   getConfig: () => ({
     ui: {},
@@ -86,7 +79,6 @@ function seedConversationRows(): {
       updatedAt: conversationUpdatedAt,
       conversationType: "standard",
       source: "user",
-      memoryScopeId: "default",
       originChannel: "desktop",
     })
     .run();

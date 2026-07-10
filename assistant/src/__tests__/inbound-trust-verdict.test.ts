@@ -8,13 +8,6 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../config/env.js", () => ({ isHttpAuthDisabled: () => true }));
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // Enable the channel-trust-floors flag so the admission-policy stage runs.
 mock.module("../config/assistant-feature-flags.js", () => ({
   isAssistantFeatureFlagEnabled: (key: string) =>

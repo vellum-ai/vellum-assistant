@@ -1,32 +1,23 @@
+import { createRequire } from "node:module";
+
 import type { Command } from "commander";
 
-import { API_KEY_PROVIDERS } from "../../providers/provider-secret-catalog.js";
-import { credentialKey } from "../../security/credential-key.js";
-import { getSecureKeyAsync } from "../../security/secure-keys.js";
-import {
-  deleteSecureKeyViaDaemon,
-  setSecureKeyViaDaemon,
-} from "../lib/daemon-credential-client.js";
 import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
 
-// ---------------------------------------------------------------------------
-// CES shell lockdown guard
-// ---------------------------------------------------------------------------
+const loadModule = createRequire(import.meta.url);
 
 /**
- * Returns true when the current process is running inside an untrusted shell
- * (CES shell lockdown active). CLI commands that store or delete API keys
- * must check this and fail deterministically.
+ * Loaded lazily because the provider catalog pulls the full model/TTS/STT
+ * graphs. Sync require rather than import(): commander invokes help-text
+ * callbacks synchronously, so there is no place to await a module load.
  */
-function isUntrustedShell(): boolean {
-  return process.env.VELLUM_UNTRUSTED_SHELL === "1";
+function apiKeyProviders(): readonly string[] {
+  const { API_KEY_PROVIDERS } = loadModule(
+    "../../providers/provider-secret-catalog.js",
+  ) as typeof import("../../providers/provider-secret-catalog.js");
+  return API_KEY_PROVIDERS;
 }
-
-/** Error message for commands blocked by CES shell lockdown. */
-const UNTRUSTED_SHELL_ERROR =
-  "This command is not available in untrusted shell mode. " +
-  "API key management is restricted when running under CES shell lockdown.";
 
 export function registerKeysCommand(program: Command): void {
   registerCommand(program, {
@@ -36,11 +27,11 @@ export function registerKeysCommand(program: Command): void {
     build: (keys) => {
       keys.addHelpText(
         "after",
-        `
+        () => `
 Keys are stored in secure local storage and are never written to disk in
 plaintext. Each key is identified by provider name.
 
-Known providers: ${API_KEY_PROVIDERS.join(", ")}
+Known providers: ${apiKeyProviders().join(", ")}
 
 Examples:
   $ assistant keys list
@@ -53,8 +44,8 @@ Examples:
         .description("List all stored API key names")
         .addHelpText(
           "after",
-          `
-Checks each known provider (${API_KEY_PROVIDERS.join(", ")}) and prints the
+          () => `
+Checks each known provider (${apiKeyProviders().join(", ")}) and prints the
 names of providers that have a stored key. Providers without a stored key are
 omitted from the output.
 
@@ -62,12 +53,18 @@ Examples:
   $ assistant keys list`,
         )
         .action(async () => {
+          const [{ credentialKey }, { getSecureKeyAsync }] = await Promise.all([
+            import("../../security/credential-key.js"),
+            import("../../security/secure-keys.js"),
+          ]);
           const stored: string[] = [];
-          for (const provider of API_KEY_PROVIDERS) {
+          for (const provider of apiKeyProviders()) {
             const value =
               (await getSecureKeyAsync(credentialKey(provider, "api_key"))) ??
               (await getSecureKeyAsync(provider));
-            if (value) stored.push(provider);
+            if (value) {
+              stored.push(provider);
+            }
           }
           if (stored.length === 0) {
             log.info("No API keys stored");
@@ -98,12 +95,8 @@ Examples:
   $ assistant keys set fireworks fw-abc123`,
         )
         .action(async (provider: string, key: string) => {
-          // CES shell lockdown: deny key storage in untrusted shells.
-          if (isUntrustedShell()) {
-            log.error(UNTRUSTED_SHELL_ERROR);
-            process.exit(1);
-          }
-
+          const { setSecureKeyViaDaemon } =
+            await import("../lib/daemon-credential-client.js");
           const setResult = await setSecureKeyViaDaemon(
             "api_key",
             provider,
@@ -135,12 +128,8 @@ Examples:
   $ assistant keys delete anthropic`,
         )
         .action(async (provider: string) => {
-          // CES shell lockdown: deny key deletion in untrusted shells.
-          if (isUntrustedShell()) {
-            log.error(UNTRUSTED_SHELL_ERROR);
-            process.exit(1);
-          }
-
+          const { deleteSecureKeyViaDaemon } =
+            await import("../lib/daemon-credential-client.js");
           const delResult = await deleteSecureKeyViaDaemon("api_key", provider);
           if (delResult.result === "deleted") {
             log.info(`Deleted API key for "${provider}"`);

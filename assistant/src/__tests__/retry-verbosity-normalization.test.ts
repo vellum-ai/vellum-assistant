@@ -5,12 +5,16 @@
  * the unknown field on the wire.
  */
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
-}));
+import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
+
+// Legacy-shaped fixtures (llm.default-centric resolution): pinned to the
+// flag-off cascade. Override-or-default (flag-on) semantics are pinned by
+// llm-resolver-override-or-default.test.ts and its companion suites.
+beforeAll(() => {
+  setOverridesForTesting({ "override-or-default-resolution": false });
+});
 
 let mockLlmConfig: Record<string, unknown> = {};
 

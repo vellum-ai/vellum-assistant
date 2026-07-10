@@ -4,13 +4,6 @@ import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 const testDir = process.env.VELLUM_WORKSPACE_DIR!;
 
-mock.module("../../../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // Track calls to embedAndUpsert
 const embedAndUpsertCalls: Array<{
   config: unknown;
@@ -150,7 +143,6 @@ describe("embedMediaJob", () => {
     expect(call.extraPayload).toEqual({
       created_at: now,
       kind: "image",
-      memory_scope_id: "default",
       subject: "My Screenshot",
     });
   });

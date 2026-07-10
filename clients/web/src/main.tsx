@@ -14,6 +14,7 @@ import { isChunkLoadError } from "@/lib/chunk-errors";
 import { installConsentRefreshListeners } from "@/lib/consent/consent-refresh";
 import { isLocalMode, loadLockfile } from "@/lib/local-mode";
 import { initSentry } from "@/lib/sentry/sentry-init";
+import { installTranslateDomGuard } from "@/lib/translate-dom-guard";
 import { initSessionReplay } from "@/lib/session-replay/session-replay-init";
 import { setupAuthListeners, useAuthStore } from "@/stores/auth-store";
 import { setupOrganizationStore } from "@/stores/organization-store";
@@ -26,6 +27,10 @@ import { initSafeAreaBridge } from "@/runtime/native-safe-area";
 import { initInputModality } from "@vellumai/design-library";
 
 async function boot() {
+  // Install before React first commits so the reconciler survives DOM
+  // mutations from browser page translation.
+  installTranslateDomGuard();
+
   initInputModality();
   await initSafeAreaBridge();
   initSentry();
@@ -42,7 +47,9 @@ async function boot() {
   setupAuthListeners();
 
   const rootEl = document.getElementById("root");
-  if (!rootEl) throw new Error("Root element #root not found");
+  if (!rootEl) {
+    throw new Error("Root element #root not found");
+  }
 
   createRoot(rootEl).render(
     <StrictMode>

@@ -2,7 +2,6 @@
  * Wire contract for the conversation history / messages endpoints.
  *
  *   - `GET /v1/assistants/:id/messages` → `{ messages: ConversationMessage[] }`
- *   - `POST /v1/messages` send acks echo an `assistantMessage: ConversationMessage`
  *
  * Holds the canonical history-row shape produced by the daemon's
  * `renderHistoryContent` + conversation-routes serializer and consumed by
@@ -153,6 +152,15 @@ export const ConversationMessageToolCallSchema = z.object({
   imageData: z.string().optional(),
   /** Base64-encoded image data from tool contentBlocks (e.g. browser_screenshot, image generation). */
   imageDataList: z.array(z.string()).optional(),
+  /**
+   * Workspace attachment ids for tool-result images persisted as workspace
+   * references. When present, clients fetch the image bytes by id on render
+   * (lazy) rather than embedding base64 in the history wire. Positionally
+   * aligned with the tool's rendered images; a row emits either these ids
+   * (referenced media) or `imageDataList` (legacy inline base64), not both for
+   * the same image.
+   */
+  imageAttachmentIds: z.array(z.string()).optional(),
   /** Unix ms when the tool started executing (the `tool_use_start` time). */
   startedAt: z.number().optional(),
   /**
@@ -471,20 +479,6 @@ export const ConversationMessageSchema = z.object({
    * scaffolding, never a displayed turn.
    */
   role: z.enum(["user", "assistant"]),
-  /**
-   * @deprecated Superseded by `contentBlocks`. Flat plain-text body (joined
-   * text segments). Redundant with `textSegments`/`contentOrder` for clients
-   * that render from the positional arrays (web, CLI). The serializer always
-   * emits it — do not remove without auditing clients that read it directly.
-   */
-  content: z
-    .string()
-    .meta({
-      deprecated: true,
-      description:
-        "Deprecated: superseded by contentBlocks. Flat plain-text body (joined text segments).",
-    })
-    .optional(),
   /** Display timestamp as an ISO-8601 string. */
   timestamp: z.string(),
   /**

@@ -30,6 +30,7 @@ import {
   getToolOwner,
   getWorkspaceToolDefinitions,
   getWorkspaceToolNames,
+  loadPluginTools,
 } from "../tools/registry.js";
 import {
   ACTIVITY_SKIP_SET,
@@ -834,11 +835,15 @@ export function createResolveToolsCallback(
     // serialized, so the registry settles for a subsequent turn to read.
     void loadWorkspaceTools();
 
-    // Re-read plugin tool definitions from the registry each turn so a plugin
-    // installed/removed at runtime (activated by the per-turn scan in
-    // `plugins/mtime-cache.ts`) is picked up without recreating the
-    // conversation. Plugin tools share core's context filter + allowlist path,
-    // so combine them with the core snapshot before filtering.
+    // Same treatment for user-plugin tools: pull the plugin mtime-cache's
+    // active tool set into the registry (a no-op costs one sentinel stat +
+    // fingerprint compares), so a plugin installed/removed/edited at runtime
+    // is picked up without recreating the conversation.
+    void loadPluginTools();
+
+    // Re-read plugin tool definitions from the registry each turn. Plugin
+    // tools share core's context filter + allowlist path, so combine them
+    // with the core snapshot before filtering.
     const currentPluginDefs = getPluginToolDefinitions();
 
     // Scope plugin tools to the conversation's per-chat plugin set. `null`

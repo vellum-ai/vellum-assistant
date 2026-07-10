@@ -38,6 +38,10 @@ describe("PanelItem trailing action", () => {
     expect(html).toContain("has-[[aria-expanded=true]]:opacity-100");
   });
 
+  test("stays visible on coarse-pointer (touch) devices, which have no hover to reveal it", () => {
+    expect(renderRow()).toContain("pointer-coarse:opacity-100");
+  });
+
   test("stays visible on the active row", () => {
     const html = renderRow();
     expect(html).toContain("group-aria-[current=page]:opacity-100");

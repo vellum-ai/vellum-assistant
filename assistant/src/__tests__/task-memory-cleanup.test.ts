@@ -4,13 +4,6 @@ import { eq } from "drizzle-orm";
 
 import { DEFAULT_CONFIG } from "../config/defaults.js";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 mock.module("../persistence/embeddings/qdrant-client.js", () => ({
   getQdrantClient: () => ({
     searchWithFilter: async () => [],
@@ -156,7 +149,6 @@ describe("invalidateAssistantInferredItemsForConversation", () => {
           sourceType: "inferred",
           narrativeRole: null,
           partOfStory: null,
-          scopeId: "default",
         },
         {
           id: "item-user-reported",
@@ -176,7 +168,6 @@ describe("invalidateAssistantInferredItemsForConversation", () => {
           sourceType: "direct",
           narrativeRole: null,
           partOfStory: null,
-          scopeId: "default",
         },
         {
           id: "item-other-conv",
@@ -196,7 +187,6 @@ describe("invalidateAssistantInferredItemsForConversation", () => {
           sourceType: "inferred",
           narrativeRole: null,
           partOfStory: null,
-          scopeId: "default",
         },
         {
           id: "item-already-gone",
@@ -216,7 +206,6 @@ describe("invalidateAssistantInferredItemsForConversation", () => {
           sourceType: "inferred",
           narrativeRole: null,
           partOfStory: null,
-          scopeId: "default",
         },
       ])
       .run();
@@ -288,7 +277,6 @@ describe("invalidateAssistantInferredItemsForConversation", () => {
         sourceType: "inferred",
         narrativeRole: null,
         partOfStory: null,
-        scopeId: "default",
       })
       .run();
 
@@ -433,7 +421,6 @@ describe("invalidateAssistantInferredItemsForConversation", () => {
         sourceType: "inferred",
         narrativeRole: null,
         partOfStory: null,
-        scopeId: "default",
       })
       .run();
 
@@ -545,7 +532,6 @@ describe("invalidateAssistantInferredItemsForConversation", () => {
         sourceType: "inferred",
         narrativeRole: null,
         partOfStory: null,
-        scopeId: "default",
       })
       .run();
 
@@ -650,7 +636,6 @@ describe("invalidateAssistantInferredItemsForConversation", () => {
         sourceType: "inferred",
         narrativeRole: null,
         partOfStory: null,
-        scopeId: "default",
       })
       .run();
 
@@ -752,16 +737,13 @@ describe("invalidateAssistantInferredItemsForConversation", () => {
     // Enqueue graph_extract jobs for the target conversation
     enqueueMemoryJob("graph_extract", {
       conversationId: convId,
-      scopeId: "default",
     });
     enqueueMemoryJob("graph_extract", {
       conversationId: convId,
-      scopeId: "default",
     });
     // Enqueue a graph_extract job for a different conversation
     enqueueMemoryJob("graph_extract", {
       conversationId: otherConvId,
-      scopeId: "default",
     });
 
     // Verify all jobs are pending

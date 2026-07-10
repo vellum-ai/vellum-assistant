@@ -11,6 +11,8 @@
 
 import { readdirSync, readFileSync } from "node:fs";
 
+import { deriveName } from "../util/process-tree.js";
+
 /** Linux page size assumed when converting `/proc/<pid>/statm` pages to bytes. */
 const PAGE_SIZE_BYTES = 4096;
 
@@ -99,10 +101,13 @@ export function topProcessesByMemory(limit: number): ProcessMemory[] {
     if (mem == null) {
       continue;
     }
+    // Redact the raw command line via deriveName to strip secrets (tokens,
+    // API keys, database URLs) commonly passed as process arguments. The
+    // raw command line is read here but never stored.
     let command: string;
     try {
       const raw = readFileSync(`/proc/${pid}/cmdline`, "utf-8");
-      command = raw.split("\0").filter(Boolean).join(" ") || `pid ${pid}`;
+      command = deriveName(raw.split("\0").filter(Boolean).join(" ")) || `pid ${pid}`;
     } catch {
       // Process exited between readdir and read — skip.
       continue;

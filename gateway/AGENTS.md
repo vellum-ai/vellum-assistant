@@ -29,6 +29,19 @@ All assistant API requests from clients, CLI, skills, and user-facing tooling **
 
 **SKILL.md gateway URL pattern:** For gateway control-plane writes/actions that are not exposed through a CLI read command, use `$INTERNAL_GATEWAY_BASE_URL` (injected by `bash` and `host_bash`). Do not hardcode `localhost`/ports in skill examples, and do not instruct users/agents to manually export the variable from Settings. For public ingress URLs (e.g. OAuth redirect URIs, webhook registration), use `assistant config get ingress.publicBaseUrl` or load the `public-ingress` skill — do not inject public URLs as environment variables.
 
+### Control-Plane Route Shapes — Clients Emit Scoped, Boundaries Strip to Flat
+
+Clients always **emit** assistant-scoped URLs (`/v1/assistants/{id}/...`) — multi-tenant cloud routing needs the id. A single-assistant boundary strips the prefix before the gateway routes the request:
+
+- **Cloud/managed:** the platform's Django `RuntimeProxyView` strips `/v1/assistants/{id}/` and forwards the flat path to the gateway.
+- **Self-hosted (macOS Electron / local / remote gateway):** `rewriteForSelfHostedIngress` (`clients/web/src/lib/api-interceptors.ts`) flattens contact-family paths (`contacts`, `contact-channels`) to the same flat shape; every other segment is forwarded scoped, verbatim.
+
+Route-registration consequences (`gateway/src/index.ts`):
+
+- **Contacts** (`/v1/contacts...`, `/v1/contact-channels...`) are served on **flat routes only** — both boundaries deliver flat, so no assistant-scoped contact mirrors exist. The self-hosted flattening covers the **entire** `contacts`/`contact-channels` segment family, not just the CRUD writes: invites requests land on the gateway's flat edge-scoped invite routes (the same gateway invite engine the daemon relays to), and daemon-only subpaths (`contacts/search`, `contacts/prompt`) match no flat registration and fall through the runtime-proxy catch-all to the daemon verbatim.
+- **Other control-plane families** (channel-admission-policy, channel-permission-overrides, trust-rules, backups) register **flat + assistant-scoped variants**: the self-hosted rewrite forwards their paths verbatim, so a scoped mirror must catch that traffic. These stores are gateway-global — the scoped variant matches and discards the id.
+- **Invariant: never remove a flat gateway control-plane route.** Cloud's prefix strip means the flat family is the load-bearing production path even when repo-local clients appear to emit only scoped URLs. The flat channel-admission-policy routes were removed once on that mistaken theory (`2fb435314f`) and had to be restored before #35150 merged (`53fcfa7cc2` re-added the schema entries the removal took out).
+
 ### Trust Management in Docker Mode
 
 In Docker mode, the gateway is the sole owner of trust rule storage. Trust files (`trust.json`, `actor-token-signing-key`) live on the gateway security volume (`/gateway-security`), configured via `GATEWAY_SECURITY_DIR`. No other container has access to this volume.
@@ -97,7 +110,7 @@ For exempt ids, `PUT /v1/assistants/:id/channel-admission-policy/:channelType` r
 - They are **not** exempt — the runtime still evaluates rank-vs-floor, so a real inbound channel like `whatsapp` keeps its admission floor.
 - Their floor is pinned to the seed default; `seedAdmissionPolicyDefaults` **overwrites** any drifted/legacy row at startup (e.g. a stale `whatsapp = no_one`), so a stranded floor can't silently block a channel the user can no longer see or reset. The guardian is always max-rank on `vellum`, so its `guardian_only` seed default never locks them out — there is **no** `no_one` picker or 422 kill-switch path for hidden channels.
 
-Only the **assistant-scoped** routes (`/v1/assistants/:id/channel-admission-policy/...`) exist; admission policy is gateway-global so the id is matched and discarded. (The flat `/v1/channel-admission-policy/...` variants were removed with the CLI that used them.)
+Both the flat (`/v1/channel-admission-policy/...`) and assistant-scoped (`/v1/assistants/:id/channel-admission-policy/...`) route variants are registered. The flat routes carry all cloud traffic — the platform strips the scoped prefix before forwarding — and must never be removed (see "Control-Plane Route Shapes" above). Admission policy is gateway-global, so the scoped variant matches and discards the id.
 
 **Split enforcement** (locked decision):
 

@@ -5,12 +5,11 @@
  * suggestion chips shown on the empty conversation page.
  */
 
-import { and, desc, eq, sql } from "drizzle-orm";
+import { desc, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { loadSkillCatalog } from "../../config/skills.js";
 import { getDb } from "../../persistence/db-connection.js";
-import { asString } from "../../persistence/job-utils.js";
 import type { MemoryJob } from "../../persistence/jobs-store.js";
 import { rawAll } from "../../persistence/raw-query.js";
 import {
@@ -46,7 +45,7 @@ const log = getLogger("conversation-starters-gen");
 
 // ── Rollup construction ───────────────────────────────────────────
 
-function buildMemoryRollup(scopeId: string): string {
+function buildMemoryRollup(): string {
   let rows: Array<{
     type: string;
     content: string;
@@ -61,12 +60,7 @@ function buildMemoryRollup(scopeId: string): string {
         significance: memoryGraphNodes.significance,
       })
       .from(memoryGraphNodes)
-      .where(
-        and(
-          sql`${memoryGraphNodes.fidelity} != 'gone'`,
-          eq(memoryGraphNodes.scopeId, scopeId),
-        ),
-      )
+      .where(sql`${memoryGraphNodes.fidelity} != 'gone'`)
       .orderBy(desc(memoryGraphNodes.significance))
       .limit(60)
       .all();
@@ -97,11 +91,9 @@ function buildMemoryRollup(scopeId: string): string {
   return truncate(rollup, 6000, "");
 }
 
-function buildNewItemsDiff(scopeId: string): string {
+function buildNewItemsDiff(): string {
   const lastGenAt =
-    parseCheckpointInt(
-      getCheckpointValue(checkpointKey(CK_LAST_GEN_AT, scopeId)),
-    ) ?? 0;
+    parseCheckpointInt(getCheckpointValue(checkpointKey(CK_LAST_GEN_AT))) ?? 0;
 
   if (lastGenAt === 0) return ""; // No previous generation — skip diff
 
@@ -111,9 +103,8 @@ function buildNewItemsDiff(scopeId: string): string {
   }>(
     "starters:buildNewItemsDiff",
     `SELECT type AS kind, content FROM memory_graph_nodes
-     WHERE fidelity != 'gone' AND scope_id = ? AND created > ?
+     WHERE fidelity != 'gone' AND created > ?
      ORDER BY created DESC LIMIT 20`,
-    scopeId,
     lastGenAt,
   );
 
@@ -176,19 +167,19 @@ interface GeneratedStarter {
   category: string;
 }
 
-async function generateStarters(scopeId: string): Promise<GeneratedStarter[]> {
+async function generateStarters(): Promise<GeneratedStarter[]> {
   const provider = await getConfiguredProvider("conversationStarters");
   if (!provider) {
     log.info("No configured provider for conversation starters generation");
     return [];
   }
 
-  const rollup = buildMemoryRollup(scopeId);
+  const rollup = buildMemoryRollup();
   if (!rollup) {
     log.info("No memory items to generate conversation starters from");
     return [];
   }
-  const diff = buildNewItemsDiff(scopeId);
+  const diff = buildNewItemsDiff();
   const skills = buildSkillsSummary();
 
   const now = new Date();
@@ -395,38 +386,29 @@ Bad → Good (incomplete phrase → complete):
 // ── Job handler ───────────────────────────────────────────────────
 
 export async function generateConversationStartersJob(
-  job: MemoryJob,
+  _job: MemoryJob,
 ): Promise<void> {
-  const scopeId = asString(job.payload.scopeId) ?? "default";
   const db = getDb();
   const now = Date.now();
 
   // Record attempt time so the route handler's cooldown prevents rapid retries
   // even when generation produces 0 valid starters.
-  upsertCheckpoint(
-    checkpointKey(CK_LAST_ATTEMPT_AT, scopeId),
-    String(now),
-    now,
-  );
+  upsertCheckpoint(checkpointKey(CK_LAST_ATTEMPT_AT), String(now), now);
 
-  const starters = await generateStarters(scopeId);
+  const starters = await generateStarters();
   if (starters.length === 0) {
-    log.info({ scopeId }, "No conversation starters generated");
+    log.info("No conversation starters generated");
 
     // Sync the item count checkpoint so `checkpointAhead` clears, but do NOT
     // update `CK_LAST_GEN_AT` — the stale TTL should trigger a retry on the
     // next GET rather than blocking retries for the full TTL window.
-    const totalActive = countActiveMemoryNodes(scopeId);
-    upsertCheckpoint(
-      checkpointKey(CK_ITEM_COUNT, scopeId),
-      String(totalActive),
-      now,
-    );
+    const totalActive = countActiveMemoryNodes();
+    upsertCheckpoint(checkpointKey(CK_ITEM_COUNT), String(totalActive), now);
     return;
   }
 
   // Determine next batch number
-  const prevBatch = getCheckpointValue(checkpointKey(CK_BATCH, scopeId));
+  const prevBatch = getCheckpointValue(checkpointKey(CK_BATCH));
   const nextBatch = prevBatch ? parseInt(prevBatch, 10) + 1 : 1;
 
   // Collect the memory types that informed this batch
@@ -435,12 +417,7 @@ export async function generateConversationStartersJob(
     const kindRows = db
       .select({ kind: memoryGraphNodes.type })
       .from(memoryGraphNodes)
-      .where(
-        and(
-          sql`${memoryGraphNodes.fidelity} != 'gone'`,
-          eq(memoryGraphNodes.scopeId, scopeId),
-        ),
-      )
+      .where(sql`${memoryGraphNodes.fidelity} != 'gone'`)
       .groupBy(memoryGraphNodes.type)
       .all();
     sourceKinds = kindRows.map((r) => r.kind).join(",");
@@ -448,10 +425,8 @@ export async function generateConversationStartersJob(
     // Table may have been dropped (migration 203)
   }
 
-  // Remove previous starters for this scope before inserting the new batch
-  db.delete(conversationStarters)
-    .where(eq(conversationStarters.scopeId, scopeId))
-    .run();
+  // Remove previous starters before inserting the new batch
+  db.delete(conversationStarters).run();
 
   for (const starter of starters) {
     db.insert(conversationStarters)
@@ -462,24 +437,19 @@ export async function generateConversationStartersJob(
         category: starter.category,
         cardType: "chip",
         generationBatch: nextBatch,
-        scopeId,
         sourceMemoryKinds: sourceKinds,
         createdAt: now,
       })
       .run();
   }
 
-  const totalActive = countActiveMemoryNodes(scopeId);
-  upsertCheckpoint(
-    checkpointKey(CK_ITEM_COUNT, scopeId),
-    String(totalActive),
-    now,
-  );
-  upsertCheckpoint(checkpointKey(CK_BATCH, scopeId), String(nextBatch), now);
-  upsertCheckpoint(checkpointKey(CK_LAST_GEN_AT, scopeId), String(now), now);
+  const totalActive = countActiveMemoryNodes();
+  upsertCheckpoint(checkpointKey(CK_ITEM_COUNT), String(totalActive), now);
+  upsertCheckpoint(checkpointKey(CK_BATCH), String(nextBatch), now);
+  upsertCheckpoint(checkpointKey(CK_LAST_GEN_AT), String(now), now);
 
   log.info(
-    { scopeId, batch: nextBatch, count: starters.length },
+    { batch: nextBatch, count: starters.length },
     "Generated conversation starters",
   );
 }

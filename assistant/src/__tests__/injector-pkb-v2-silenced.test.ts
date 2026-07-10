@@ -30,6 +30,14 @@ mock.module("../config/loader.js", () => ({
   }),
 }));
 
+// The PKB silencing gate reads the plugin's own config accessor.
+mock.module("../plugins/defaults/memory/config.js", () => ({
+  getMemoryConfig: () => ({
+    v2: { enabled: v2Active },
+    retrieval: { scratchpadInjection: { enabled: true } },
+  }),
+}));
+
 mock.module("../plugins/defaults/memory/pkb/pkb-search.js", () => ({
   searchPkbFiles: async () => [],
 }));

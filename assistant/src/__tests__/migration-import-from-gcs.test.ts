@@ -68,13 +68,6 @@ function setWorkspaceDir(dir: string): void {
 // Mocks (mirrors migration-import-from-url.test.ts)
 // ---------------------------------------------------------------------------
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 mock.module("../permissions/trust-store.js", () => ({
   getAllRules: () => [],
   isStarterBundleAccepted: () => false,

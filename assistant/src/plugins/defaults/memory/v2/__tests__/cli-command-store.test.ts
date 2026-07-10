@@ -21,12 +21,6 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { Command } from "commander";
 
-import { makeMockLogger } from "../../../../../__tests__/helpers/mock-logger.js";
-
-mock.module("../../../../../util/logger.js", () => ({
-  getLogger: () => makeMockLogger(),
-}));
-
 // ---------------------------------------------------------------------------
 // Programmable test state
 // ---------------------------------------------------------------------------
@@ -107,6 +101,12 @@ mock.module("../../../../../cli/program.js", () => ({
     }
     return program;
   },
+}));
+
+// Keep the suite driven entirely by the mocked program tree above: no commands
+// are sourced from the declarative `cli/index.help.ts` aggregate.
+mock.module("../../../../../cli/index.help.js", () => ({
+  CLI_COMMAND_HELP: [],
 }));
 
 mock.module(

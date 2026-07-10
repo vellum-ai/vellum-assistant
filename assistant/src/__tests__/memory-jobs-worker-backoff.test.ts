@@ -9,13 +9,6 @@ import { describe, expect, mock, test } from "bun:test";
 
 // ── Mocks (must precede imports of tested module) ──────────────────
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // Mock config — memory disabled so runMemoryJobsOnce returns 0 immediately
 mock.module("../config/loader.js", () => ({
   getConfig: () => ({
@@ -35,6 +28,14 @@ mock.module("../persistence/jobs-store.js", () => ({
   failMemoryJob: () => {},
   failStalledJobs: () => 0,
   enqueuePruneOldConversationsJob: () => null,
+}));
+
+// Mock checkpoints (accesses DB) — worker startup seeds the cleanup throttle
+// from persisted checkpoints.
+mock.module("../persistence/checkpoints.js", () => ({
+  getMemoryCheckpoint: () => null,
+  setMemoryCheckpoint: () => {},
+  deleteMemoryCheckpoint: () => {},
 }));
 
 import {

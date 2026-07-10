@@ -170,6 +170,10 @@ export type MarkdownLinkComponent = (
   props: Pick<AnchorHTMLAttributes<HTMLAnchorElement>, "href" | "children">,
 ) => ReactNode;
 
+export type MarkdownImageComponent = (
+  props: { src: string; alt: string },
+) => ReactNode;
+
 /**
  * Browser-default `<em>` italic synthesizes an oblique skew on every glyph in
  * the run — including color-emoji glyphs — so `*🥺*` renders a slanted emoji.
@@ -250,6 +254,7 @@ function renderUprightEmoji(children: ReactNode): ReactNode {
 
 function buildMarkdownComponents(
   LinkComponent: MarkdownLinkComponent,
+  ImageComponent?: MarkdownImageComponent,
 ): Components {
   return {
     // mb-6 (24px) equals one --text-chat-line-height, so a `\n\n` paragraph
@@ -369,6 +374,9 @@ function buildMarkdownComponents(
         srcStr.startsWith(".");
       if (isLocal) {
         return <img src={srcStr} alt={altStr} className="my-1 max-w-full rounded" />;
+      }
+      if (ImageComponent) {
+        return <ImageComponent src={srcStr} alt={altStr} />;
       }
       return (
         <span className="inline-flex items-center gap-1 rounded bg-stone-100 px-1.5 py-0.5 text-body-small-default text-stone-500 dark:bg-moss-800 dark:text-stone-400">
@@ -575,6 +583,15 @@ export interface MarkdownMessageProps {
    */
   linkComponent?: MarkdownLinkComponent;
   /**
+   * Custom image component for rendering external `<img>` elements inside
+   * markdown. Receives `src` and `alt` props. By default, external images
+   * are blocked and show a placeholder label.
+   *
+   * Pass a stable reference (module-level function or `useCallback`) to
+   * avoid rebuilding internal component overrides on every render.
+   */
+  imageComponent?: MarkdownImageComponent;
+  /**
    * Custom URL transform applied to link, image, and definition URLs.
    * Overrides react-markdown's default sanitization which only allows
    * `http:`, `https:`, `mailto:`, and a few other schemes. Use this to
@@ -583,6 +600,15 @@ export interface MarkdownMessageProps {
    * @see https://github.com/remarkjs/react-markdown?tab=readme-ov-file#urltransform
    */
   urlTransform?: (url: string) => string;
+  /**
+   * Extra rehype plugins appended after the built-in ones (KaTeX). Lets
+   * consumers post-process the HTML tree — e.g. wrapping streamed words for
+   * entrance animations — without the design library knowing the domain.
+   *
+   * Pass a stable reference (module-level array) so the plugin list doesn't
+   * churn ReactMarkdown's pipeline on every render.
+   */
+  extraRehypePlugins?: readonly import("unified").Pluggable[];
 }
 
 export function MarkdownMessage({
@@ -590,17 +616,23 @@ export function MarkdownMessage({
   className,
   hardLineBreaks,
   linkComponent,
+  imageComponent,
   urlTransform,
+  extraRehypePlugins,
 }: MarkdownMessageProps) {
   const processed = useMemo(() => {
     const escaped = escapeCurrencyDollars(content);
     return hardLineBreaks ? hardBreakNewlines(escaped) : escaped;
   }, [content, hardLineBreaks]);
   const Link = linkComponent ?? DefaultLink;
-  const components = useMemo(() => buildMarkdownComponents(Link), [Link]);
+  const components = useMemo(() => buildMarkdownComponents(Link, imageComponent), [Link, imageComponent]);
+  const rehypePlugins = useMemo(
+    () => [rehypeKatex, ...(extraRehypePlugins ?? [])],
+    [extraRehypePlugins],
+  );
   return (
     <div data-slot="markdown-message" className={cn("text-chat text-[var(--content-default)]", className)}>
-      <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath, remarkPreserveOrderedListNumbers]} rehypePlugins={[rehypeKatex]} components={components} urlTransform={urlTransform}>
+      <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath, remarkPreserveOrderedListNumbers]} rehypePlugins={rehypePlugins} components={components} urlTransform={urlTransform}>
         {processed}
       </ReactMarkdown>
     </div>

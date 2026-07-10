@@ -10,7 +10,16 @@
  * (heartbeat, filing, scheduler) pass an explicit `callSite` so
  * `RetryProvider` resolves their per-call config from `llm.callSites.<id>`.
  */
-import { describe, expect, mock, test } from "bun:test";
+import { beforeAll, describe, expect, mock, test } from "bun:test";
+
+import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
+
+// Legacy-shaped fixtures (llm.default-centric resolution): pinned to the
+// flag-off cascade. Override-or-default (flag-on) semantics are pinned by
+// llm-resolver-override-or-default.test.ts and its companion suites.
+beforeAll(() => {
+  setOverridesForTesting({ "override-or-default-resolution": false });
+});
 
 import { CompactionCircuit } from "../agent/compaction-circuit.js";
 import type { Message, ProviderResponse } from "../providers/types.js";
@@ -26,11 +35,6 @@ function clearCaptured(): void {
   captured.callSite = undefined;
   captured.constructorMaxTokens = undefined;
 }
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
-}));
 
 const mockProviderStub = { name: "mock-provider" };
 mock.module("../providers/registry.js", () => ({

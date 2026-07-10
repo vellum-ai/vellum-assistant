@@ -39,8 +39,6 @@
 
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { makeMockLogger } from "../__tests__/helpers/mock-logger.js";
-
 // ---------------------------------------------------------------------------
 // Mocks — defined before importing the module under test.
 //
@@ -48,10 +46,6 @@ import { makeMockLogger } from "../__tests__/helpers/mock-logger.js";
 // other surface — sandbox, leaf runner, agent loop, journal store,
 // capabilities, config — is the real implementation.
 // ---------------------------------------------------------------------------
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () => makeMockLogger(),
-}));
 
 interface SendOptions {
   signal?: AbortSignal;

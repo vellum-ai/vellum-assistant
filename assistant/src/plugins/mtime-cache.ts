@@ -16,8 +16,8 @@
  *   — including helper modules hooks/tools import) arrives through the
  *   source-versions sentinel published by the resource monitor's watcher.
  *   The dispatch path stats that one file and otherwise runs on memory.
- * - A changed plugin is redeployed in place: the old version's `shutdown`
- *   runs, its hook/tool cache entries and module-registry entries are
+ * - A changed plugin is redeployed in place: its `shutdown` runs (resolved
+ *   from disk), its hook/tool cache entries and module-registry entries are
  *   swept, and reactivation runs `init`; the next read of each hook re-resolves
  *   it from the swept-clean registry. The whole directory is the reload unit
  *   (every module path is swept) so a re-imported hook can never pair with a
@@ -30,7 +30,13 @@
  * each hook through the hook loader on demand.
  */
 
-import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
+import {
+  existsSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  statSync,
+} from "node:fs";
 import { join } from "node:path";
 
 import {
@@ -45,10 +51,6 @@ import {
   WORKSPACE_HOOKS_OWNER,
 } from "../hooks/hook-loader.js";
 import type { HookFunction, ShutdownReason } from "../plugin-api/types.js";
-import {
-  registerPluginTools,
-  unregisterPluginTools,
-} from "../tools/registry.js";
 import { finalizeTool } from "../tools/tool-defaults.js";
 import type { Tool, ToolDefinition } from "../tools/types.js";
 import { getLogger } from "../util/logger.js";
@@ -56,7 +58,6 @@ import {
   getWorkspaceHooksDir,
   getWorkspacePluginsDir,
 } from "../util/platform.js";
-import { APP_VERSION } from "../version.js";
 import {
   deriveToolName,
   listSurfaceDir,
@@ -159,8 +160,9 @@ function getInstallDate(pluginDir: string): number {
 
 /**
  * A cached tool plus the mtime of its source file. When the on-disk mtime
- * changes, the tool is re-imported, the old tool is unregistered from the
- * global tool registry, and the new one is registered.
+ * changes, the tool is re-imported and the cache entry replaced; the tool
+ * registry picks the new version up on its next pull reconcile (the mtime is
+ * part of the {@link ActivePluginTools} fingerprint).
  */
 interface CachedTool {
   readonly tool: Tool;
@@ -228,7 +230,7 @@ export async function getUserHookEntriesFor<TCtx = unknown>(
   await maybeReconcileFromSentinel();
   return collectUserHookEntries<TCtx>(
     hookName,
-    discoveredPluginDirs,
+    discoveredPluginDirs.values(),
     effectiveEnabledPlugins,
   );
 }
@@ -307,7 +309,11 @@ async function maybeReconcileFromSentinel(): Promise<void> {
  * symlinked path that looks like it's under the plugins dir but points
  * elsewhere is rejected.
  */
-function isAllowedPluginDir(dir: string, pluginsDir: string, hooksDir: string): boolean {
+function isAllowedPluginDir(
+  dir: string,
+  pluginsDir: string,
+  hooksDir: string,
+): boolean {
   let resolved: string;
   try {
     resolved = realpathSync(dir);
@@ -336,11 +342,13 @@ function isAllowedPluginDir(dir: string, pluginsDir: string, hooksDir: string): 
  * Per directory, the transitions are:
  * - present + enabled with a moved fingerprint → in-place redeploy:
  *   `shutdown` (reason `reload`) → sweep hook/tool caches and the module
- *   registry → re-import, re-register tools, `init`. The whole directory is
- *   the reload unit on purpose: partial eviction would let a re-imported
+ *   registry → re-import, re-register tools, `init`. The whole directory
+ *   is the reload unit on purpose: partial eviction would let a re-imported
  *   hook pair with a stale cached helper, silently mixing versions.
  * - newly present (installed, or `.disabled` removed) → bring up.
- * - gone, or newly disabled → tear down (`uninstall` / `disable`).
+ * - gone → tear down (`uninstall`; `shutdown` already ran at removal time or the
+ *   directory is gone, so none runs here) or newly disabled → tear down
+ *   (`disable`, resolving `shutdown` from the still-present directory).
  * The workspace hooks pseudo-entry gets the same treatment through its own
  * `init`/`shutdown` lifecycle.
  */
@@ -398,9 +406,9 @@ async function applySourceVersions(
           { plugin: activeName, dir },
           "plugin source changed — reloading",
         );
-        // Tear the old version down first: `deactivatePlugin` runs the
-        // still-cached `shutdown`, then `evictHooksForOwner` drops the owner's
-        // cached resolutions so the next read re-resolves fresh.
+        // Tear the old version down first: `deactivatePlugin` runs `shutdown`,
+        // then `evictHooksForOwner` drops the owner's cached resolutions so the
+        // next read re-resolves fresh.
         await deactivatePlugin(activeName, "reload");
         evictHooksForOwner("plugin", activeName);
         evictToolCacheEntries(activeName);
@@ -495,12 +503,7 @@ async function reconcileWorkspaceHooks(
     (p) => p.kind === "workspace" && p.name === WORKSPACE_HOOKS_OWNER,
   );
   if (activeIdx >= 0) {
-    await runShutdownHook(
-      "workspace",
-      WORKSPACE_HOOKS_OWNER,
-      { assistantVersion: APP_VERSION, reason },
-      reason,
-    );
+    await runShutdownHook("workspace", WORKSPACE_HOOKS_OWNER, reason);
     activatedPlugins.splice(activeIdx, 1);
   }
   evictHooksForOwner("workspace", WORKSPACE_HOOKS_OWNER);
@@ -555,10 +558,11 @@ function toolKey(pluginName: string, toolName: string): string {
 
 /**
  * Reconcile the tool cache for a single plugin directory. Re-imports
- * changed tool files, unregisters deleted tools, and registers new ones.
+ * changed tool files, evicts cache entries for deleted files, and caches
+ * newly appeared ones.
  *
- * Called during `scanPlugins()` so that by the time any consumer reads
- * the tool registry, the cache is fresh.
+ * Called during `scanPlugins()` so that by the time the tool registry pulls
+ * via {@link getActiveUserPluginTools}, the cache is fresh.
  */
 async function reconcilePluginTools(
   pluginDir: string,
@@ -626,11 +630,75 @@ async function reconcilePluginTools(
 }
 
 /**
- * Get all cached tools from user plugins. Called by the tool registry
- * to supplement the core + default plugin tools.
+ * Get all cached tools from user plugins, active or not. Test/diagnostic
+ * read; production consumers go through {@link getActiveUserPluginTools}.
  */
 export function getCachedUserTools(): Tool[] {
   return Array.from(toolCache.values()).map((c) => c.tool);
+}
+
+/**
+ * A single active plugin's tool contribution, as pulled by the tool
+ * registry's plugin reconcile (`loadPluginTools` in `tools/registry.ts`).
+ */
+export interface ActivePluginTools {
+  /**
+   * Change stamp for this plugin's tool set: tool names paired with their
+   * source-file mtimes. The registry reconcile re-registers a plugin's tools
+   * only when this moves, so an unchanged plugin costs a string compare.
+   */
+  fingerprint: string;
+  tools: Tool[];
+}
+
+/**
+ * Sync the plugin caches with the source-versions sentinel, then return the
+ * tool contributions of every *active* (discovered, enabled, activated)
+ * user plugin, keyed by plugin name in install-date order.
+ *
+ * This is the pull half of the tool-registry relationship: the registry's
+ * `loadPluginTools()` reconcile calls this and diffs the result into its own
+ * maps — this module never writes to the registry. Mirrors how hook reads
+ * pull through {@link getUserHookEntriesFor}.
+ */
+export async function getActiveUserPluginTools(): Promise<
+  Map<string, ActivePluginTools>
+> {
+  await maybeReconcileFromSentinel();
+
+  const byPlugin = new Map<string, CachedTool[]>();
+  for (const cached of toolCache.values()) {
+    if (!activatedNames.has(cached.pluginName)) {
+      continue;
+    }
+    const list = byPlugin.get(cached.pluginName);
+    if (list) {
+      list.push(cached);
+    } else {
+      byPlugin.set(cached.pluginName, [cached]);
+    }
+  }
+
+  // Emit in install-date order (discoveredPluginDirs is kept sorted), so the
+  // registry registers plugin tools in the same deterministic order the push
+  // model used. Plugins activated but no longer discovered (mid-teardown)
+  // simply don't appear.
+  const result = new Map<string, ActivePluginTools>();
+  for (const pluginName of discoveredPluginDirs.values()) {
+    const cachedTools = byPlugin.get(pluginName);
+    if (cachedTools === undefined || result.has(pluginName)) {
+      continue;
+    }
+    const fingerprint = cachedTools
+      .map((c) => `${c.tool.name}:${c.sourceMtime}`)
+      .sort()
+      .join("\n");
+    result.set(pluginName, {
+      fingerprint,
+      tools: cachedTools.map((c) => c.tool),
+    });
+  }
+  return result;
 }
 
 // ─── Plugin discovery ────────────────────────────────────────────────────────
@@ -733,8 +801,8 @@ async function scanPlugins(): Promise<void> {
   // Activate any plugin not yet brought up. Idempotent: already-active plugins
   // are skipped by the `activatedNames` guard, so steady-state scans (one per
   // hook dispatch) cost only a membership check per plugin. Tools were imported
-  // into `toolCache` by `reconcilePluginTools` above, so they are ready to
-  // register here.
+  // into `toolCache` by `reconcilePluginTools` above, so they are visible to
+  // the registry's pull reconcile as soon as activation flips.
   for (const [dir, name] of discoveredPluginDirs) {
     await activatePlugin(dir, name);
   }
@@ -828,8 +896,9 @@ const activatedPlugins: Array<{ kind: HookOwnerKind; name: string }> = [];
 const activatedNames = new Set<string>();
 
 /**
- * Activate a single discovered plugin: register its tools into the global tool
- * registry and run its `init` hook. Running `init` also resolves the owner's
+ * Activate a single discovered plugin: mark its cached tools live (the tool
+ * registry pulls them via {@link getActiveUserPluginTools} on its next
+ * reconcile) and run its `init` hook. Running `init` also resolves the owner's
  * `shutdown` (caching it for teardown), so no separate pre-import step is
  * needed; dispatch hooks resolve on their first read. Idempotent — a plugin
  * already activated (or mid-activation) is skipped. Never throws; per-surface
@@ -848,29 +917,9 @@ async function activatePlugin(
     return;
   }
   // Reserve synchronously, before any await, so a re-entrant or concurrent
-  // scan observes this plugin as already handled.
+  // scan observes this plugin as already handled. From this point the
+  // plugin's cached tools are visible to the registry's pull reconcile.
   activatedNames.add(pluginName);
-
-  // Register this plugin's tools into the global tool registry so
-  // `getAllTools()` and `getTool()` can find them. Tools were already imported
-  // and cached by `reconcilePluginTools` during the scan.
-  const pluginTools = Array.from(toolCache.values())
-    .filter((c) => c.pluginName === pluginName)
-    .map((c) => c.tool);
-  if (pluginTools.length > 0) {
-    try {
-      registerPluginTools(pluginName, pluginTools);
-      log.info(
-        { plugin: pluginName, count: pluginTools.length },
-        "user plugin tools registered",
-      );
-    } catch (err) {
-      log.error(
-        { err, plugin: pluginName },
-        `Failed to register tools for user plugin ${pluginName}`,
-      );
-    }
-  }
 
   // Run the `init` hook if present.
   await runInitHook(pluginName, pluginDir);
@@ -879,11 +928,18 @@ async function activatePlugin(
 }
 
 /**
- * Deactivate a plugin whose directory was removed (`uninstall`) or disabled
- * (`disable`) at runtime: unregister its tools and run its `shutdown` hook with
- * the matching {@link ShutdownReason}. Must run *before* `evictPlugin` /
- * `evictHooksForOwner` clear the owner's cache, since the `shutdown` hook is
- * read from it. Idempotent — a plugin that was never activated is a no-op.
+ * Deactivate a plugin that was disabled (`disable`), removed (`uninstall`), or
+ * is being redeployed (`reload`) at runtime: drop it from the active set (the
+ * tool registry's pull reconcile removes its tools on its next pass) and run
+ * its `shutdown` hook. Must run *before* `evictPlugin` / `evictHooksForOwner`
+ * clear the owner's cache. Idempotent — a plugin that was never activated is a
+ * no-op.
+ *
+ * `disable` and `reload` keep the directory present, so {@link runShutdownHook}
+ * resolves and runs the on-disk `shutdown` (via the same resolution the dispatch
+ * path uses). `uninstall` runs nothing here: a managed uninstall runs `shutdown`
+ * *before* removing the directory (see `cli/lib/uninstall-plugin.ts`), and an
+ * out-of-band `rm` leaves nothing to resolve.
  */
 async function deactivatePlugin(
   pluginName: string,
@@ -900,30 +956,16 @@ async function deactivatePlugin(
     activatedPlugins.splice(idx, 1);
   }
 
-  // Unregister tools before running shutdown so the model-visible surface is
-  // clean before teardown.
-  try {
-    unregisterPluginTools(pluginName);
-  } catch (err) {
-    log.warn(
-      { err, plugin: pluginName },
-      "user plugin tool unregister failed (continuing)",
-    );
+  if (reason !== "uninstall") {
+    await runShutdownHook("plugin", pluginName, reason);
   }
-
-  await runShutdownHook(
-    "plugin",
-    pluginName,
-    { assistantVersion: APP_VERSION, reason },
-    reason,
-  );
 }
 
 // ─── Boot population ─────────────────────────────────────────────────────────
 
 /**
  * Populate the caches at boot by scanning the plugins directory once (which
- * imports surfaces, registers tools, and runs `init` hooks via `activatePlugin`
+ * imports surfaces into the caches and runs `init` hooks via `activatePlugin`
  * inside `scanPlugins`) and activating standalone workspace hooks. At daemon
  * shutdown these owners' `shutdown` hooks fire through the unified
  * `runHook(HOOKS.SHUTDOWN)` pipeline; a runtime uninstall/disable tears a single
@@ -931,13 +973,15 @@ async function deactivatePlugin(
  *
  * This replaces the old `loadExternalPlugin` → `registerPlugin` →
  * `bootstrapPlugins` path for user plugins. Instead of registering whole
- * `Plugin` objects into the plugin registry, we register individual tools into
- * the tool registry and cache hooks by mtime.
+ * `Plugin` objects into the plugin registry, we cache individual surfaces by
+ * mtime; the tool registry pulls the active tool set through
+ * {@link getActiveUserPluginTools}.
  *
  * Called by `loadUserPlugins()` during daemon startup. After boot, the same
- * `scanPlugins` → `activatePlugin`/`deactivatePlugin` reconciliation runs on
- * every turn via `getUserHooksFor` (plugin hook dispatch), so plugins whose
- * files appear or disappear at runtime are picked up without a restart.
+ * `activatePlugin`/`deactivatePlugin` reconciliation runs via the
+ * source-versions sentinel on every hook dispatch and registry pull, so
+ * plugins whose files appear or disappear at runtime are picked up without a
+ * restart.
  */
 export async function populateCacheAtBoot(
   opts: { importTimeoutMs?: number } = {},

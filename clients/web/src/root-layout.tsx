@@ -38,6 +38,7 @@ import { useSoundEffects } from "@/hooks/use-sound-effects";
 import { useOnboardingWindowSize } from "@/hooks/use-onboarding-window-size";
 import { useConversationSync } from "@/hooks/use-conversation-sync";
 import { useFeatureFlagBusSync } from "@/hooks/use-feature-flag-bus-sync";
+import { useWorkspaceTheme } from "@/hooks/use-workspace-theme";
 import { useClientFeatureFlagSync } from "@/hooks/use-client-feature-flag-sync";
 import { useAssistantFeatureFlagSync } from "@/hooks/use-assistant-feature-flag-sync";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
@@ -46,6 +47,7 @@ import { useConversationStore } from "@/stores/conversation-store";
 import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection";
 import { useViewerStore } from "@/stores/viewer-store";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
+import { useAvatarAccentVar } from "@/hooks/use-avatar-accent-var";
 import { useDynamicFavicon } from "@/hooks/use-dynamic-favicon";
 import { useElectronIconSync } from "@/hooks/use-electron-icon-sync";
 import { useElectronIdentitySync } from "@/hooks/use-electron-identity-sync";
@@ -135,6 +137,7 @@ export function RootLayout() {
   useAssistantResourceSync(assistantId, isAssistantActive);
   useConversationSync(assistantId, isAssistantActive);
   useFeatureFlagBusSync(assistantId, isAssistantActive);
+  useWorkspaceTheme(assistantId, isAssistantActive);
   useNotificationIntentSync(assistantId);
   usePushRegistration(assistantId);
   useNotificationTapNavigation();
@@ -147,6 +150,9 @@ export function RootLayout() {
   // so the favicon persists when navigating between sibling layouts.
   const avatar = useAssistantAvatar(assistantId);
   useDynamicFavicon(avatar.customImageUrl, avatar.components, avatar.traits);
+  // Publish the avatar accent as `--avatar-accent` so chat loading shimmers
+  // (and any future accent-tinted UI) can read it from plain CSS.
+  useAvatarAccentVar(avatar.components, avatar.traits);
 
   // Feed the same avatar to the Electron Dock + menu-bar icons, and publish
   // the live connection status to the menu-bar dot. Both no-op off Electron.

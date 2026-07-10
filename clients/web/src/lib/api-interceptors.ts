@@ -100,12 +100,27 @@ const RUNTIME_PROXIED_FIRST_SEGMENTS = new Set<string>([
   // assistant-scoped requests without this list — that is the paved road
   // for new endpoints. Deliberately NOT listed: `artifacts` (no
   // gateway/daemon route exists) and `a2a` (platform broker route); those
-  // stay on the platform.
+  // stay on the platform. The contact family (`contacts`,
+  // `contact-channels`) is forwarded via {@link FLATTENED_FIRST_SEGMENTS}
+  // with the assistant prefix stripped — it does not belong in this
+  // allowlist.
   "config",
 ]);
 
 const ASSISTANT_PATH_RE =
-  /^\/v1\/assistants\/[^/]+\/([^/?#]+)(?:\/.*)?$/;
+  /^\/v1\/assistants\/[^/]+\/(([^/?#]+)(?:\/.*)?)$/;
+
+/**
+ * First segments whose `/v1/assistants/{id}/` prefix is stripped before
+ * forwarding to the ingress. The gateway serves the contact family on
+ * flat `/v1/...` control-plane routes only, so the rewrite delivers the
+ * same flat shape cloud's Django `RuntimeProxyView` does. Flattened
+ * segments are forwarded by every client, allowlist or not.
+ */
+const FLATTENED_FIRST_SEGMENTS = new Set<string>([
+  "contacts",
+  "contact-channels",
+]);
 
 /**
  * Rewrites a request bound for `/v1/assistants/{id}/{runtime-segment}/...`
@@ -121,7 +136,8 @@ const ASSISTANT_PATH_RE =
  *   {@link RUNTIME_PROXIED_FIRST_SEGMENTS}. The daemon client sets this
  *   because every daemon SDK endpoint is a daemon route by definition.
  *   The platform client leaves it `false` to avoid forwarding
- *   platform-owned routes (maintenance-mode, system-events, etc.).
+ *   platform-owned routes (maintenance-mode, system-events, etc.);
+ *   {@link FLATTENED_FIRST_SEGMENTS} are forwarded regardless.
  *
  * Exported for direct unit testing — production code paths invoke this
  * via {@link requestInterceptor} / {@link daemonRequestInterceptor}.
@@ -137,22 +153,26 @@ export async function rewriteForSelfHostedIngress(
 
   const match = ASSISTANT_PATH_RE.exec(url.pathname);
   if (!match) return null;
-  const firstSegment = match[1];
+  const [, subPath, firstSegment] = match;
   if (
-    !firstSegment ||
-    (!skipSegmentAllowlist &&
-      !RUNTIME_PROXIED_FIRST_SEGMENTS.has(firstSegment))
+    !skipSegmentAllowlist &&
+    !RUNTIME_PROXIED_FIRST_SEGMENTS.has(firstSegment) &&
+    !FLATTENED_FIRST_SEGMENTS.has(firstSegment)
   ) {
     return null;
   }
 
-  // Splice the platform's base out and the user's gateway in. Path and
-  // query are preserved verbatim — the gateway exposes the same
-  // `/v1/assistants/{id}/...` routes the platform's RuntimeProxyView
-  // would otherwise forward to.
+  // Splice the platform's base out and the user's gateway in. Contact-family
+  // paths are flattened to `/v1/<rest>` — the shape cloud's Django strip
+  // delivers to the gateway, which serves them on its flat control-plane
+  // routes. Every other segment keeps the scoped path verbatim: the gateway
+  // exposes the same `/v1/assistants/{id}/...` routes the platform's
+  // RuntimeProxyView would otherwise forward to.
   const rewrittenUrl = new URL(ingressUrl);
   const prefix = rewrittenUrl.pathname.replace(/\/$/, "");
-  rewrittenUrl.pathname = prefix + url.pathname;
+  rewrittenUrl.pathname = FLATTENED_FIRST_SEGMENTS.has(firstSegment)
+    ? `${prefix}/v1/${subPath}`
+    : prefix + url.pathname;
   rewrittenUrl.search = url.search;
 
   // Build a fresh header set. Drop platform-only headers; keep client +

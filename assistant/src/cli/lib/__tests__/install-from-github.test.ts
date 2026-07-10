@@ -78,14 +78,14 @@ function makeContentsFetch(opts: {
     const prefix = apiPath ? `${apiPath}/` : "";
     const direct = new Map<string, boolean>();
     for (const key of Object.keys(tree)) {
-      if (!key.startsWith(prefix)) continue;
+      if (!key.startsWith(prefix)) {continue;}
       const remainder = key.slice(prefix.length);
-      if (!remainder) continue;
+      if (!remainder) {continue;}
       const seg = remainder.split("/")[0]!;
       const isDir = remainder.includes("/") || tree[`${prefix}${seg}`] === null;
       direct.set(seg, (direct.get(seg) ?? false) || isDir);
     }
-    if (direct.size === 0) return null;
+    if (direct.size === 0) {return null;}
     return Array.from(direct.entries()).map(([name, isDir]) => {
       const path = `${prefix}${name}`;
       return isDir
@@ -157,7 +157,7 @@ function fakeGitRunner(opts: {
     opts.calls?.push([...args]);
     switch (args[0]) {
       case "fetch": {
-        if (opts.fetchError) throw opts.fetchError;
+        if (opts.fetchError) {throw opts.fetchError;}
         mkdirSync(join(cwd, ".git"), { recursive: true });
         writeFileSync(join(cwd, ".git", "config"), "[core]\n");
         for (const [rel, content] of Object.entries(opts.tree)) {
@@ -1096,6 +1096,38 @@ describe("installPlugin — direct (untrusted) install", () => {
       ),
     ).rejects.toBeInstanceOf(PluginSourceUnavailableError);
     expect(readdirSync(pluginsDir)).toEqual([]);
+  });
+
+  test("synthesizes a minimal package.json when the upstream repo ships none", async () => {
+    // GIVEN a plugin tree with no package.json at all
+    const fetch = makeContentsFetch({ tree: {} });
+    const runGit = fakeGitRunner({
+      tree: { "hooks/init.ts": "//", "README.md": "# bare" },
+      commit: "f".repeat(40),
+    });
+
+    // WHEN we install directly
+    await installPlugin(
+      {
+        name: "bare-plugin",
+        directSource: {
+          owner: "owner",
+          repo: "bare",
+          rootPath: "",
+          ref: "HEAD",
+        },
+      },
+      { fetch, runGit, workspacePluginsDir: pluginsDir },
+    );
+
+    // THEN a minimal package.json is synthesized with the install name and
+    // the default plugin-api peer dependency range
+    const pkgPath = join(pluginsDir, "bare-plugin", "package.json");
+    expect(existsSync(pkgPath)).toBe(true);
+    const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
+    expect(pkg.name).toBe("bare-plugin");
+    expect(pkg.version).toBe("0.0.0");
+    expect(pkg.peerDependencies["@vellumai/plugin-api"]).toBeDefined();
   });
 });
 

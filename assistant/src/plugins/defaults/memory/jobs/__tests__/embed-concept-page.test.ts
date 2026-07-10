@@ -29,13 +29,6 @@ import {
   test,
 } from "bun:test";
 
-mock.module("../../../../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // ── Embedding backend stub ─────────────────────────────────────────
 // `embedConceptPageJob` calls `getMemoryBackendStatus` first to verify a
 // provider is configured, then `embedWithBackend` for the dense vector and

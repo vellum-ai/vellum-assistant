@@ -160,21 +160,25 @@ export async function executeSubagentSpawn(
   // that only surfaces with no `activeProfile` set and a hand-tuned call-site
   // profile.
   //
-  // The fallback is forwarded NON-forced, so an explicit
-  // `llm.callSites.subagentSpawn` profile still wins; an explicit
-  // `inference_profile` argument keeps `forceOverrideProfile` and wins
-  // outright. (The row read short-circuits to `undefined` for the background
-  // subagent conversation and for tool calls outside an agent-loop turn.)
+  // An explicit `llm.callSites.subagentSpawn` profile must still win over
+  // the invoker-default tier: that tier is a matching heuristic, not a user
+  // choice, and any override outranks the call-site pin under
+  // override-or-default resolution — so the heuristic is only forwarded
+  // when no explicit pin exists. (Under the legacy cascade a non-forced
+  // override already lost to the pin, so this guard is behavior-identical
+  // there.) An explicit `inference_profile` argument keeps
+  // `forceOverrideProfile` and wins outright; the row read short-circuits
+  // to `undefined` for the background subagent conversation and for tool
+  // calls outside an agent-loop turn.
   let inheritedOverrideProfile = requestedOverrideProfile;
   if (inheritedOverrideProfile === undefined) {
-    const inheritedCandidate =
+    const llm = getConfig().llm;
+    inheritedOverrideProfile =
       context.overrideProfile ??
       getConversationOverrideProfile(context.conversationId) ??
-      resolveDefaultProfileKey(
-        context.invokingCallSite ?? "mainAgent",
-        getConfig().llm,
-      );
-    inheritedOverrideProfile = inheritedCandidate;
+      (llm.callSites?.subagentSpawn?.profile == null
+        ? resolveDefaultProfileKey(context.invokingCallSite ?? "mainAgent", llm)
+        : undefined);
   }
 
   try {
@@ -366,7 +370,9 @@ function appendInFlightAssistantTurn(
 ): Message[] {
   // When the snapshot already ends on an assistant turn, the in-flight turn is
   // present (or there is none to add) — appending the latest row would duplicate it.
-  if (messages[messages.length - 1]?.role === "assistant") return messages;
+  if (messages[messages.length - 1]?.role === "assistant") {
+    return messages;
+  }
 
   let rows;
   try {
@@ -374,26 +380,19 @@ function appendInFlightAssistantTurn(
   } catch {
     return messages;
   }
-  if (!rows || rows.length === 0) return messages;
-
-  const lastRow = rows[rows.length - 1];
-  if (lastRow.role !== "assistant") return messages;
-
-  let blocks: ContentBlock[];
-  try {
-    const parsed = JSON.parse(lastRow.content);
-    if (Array.isArray(parsed)) {
-      blocks = parsed as ContentBlock[];
-    } else if (typeof parsed === "string") {
-      blocks = [{ type: "text", text: parsed }];
-    } else {
-      return messages;
-    }
-  } catch {
-    // Plain-text content (no JSON envelope).
-    blocks = [{ type: "text", text: lastRow.content }];
+  if (!rows || rows.length === 0) {
+    return messages;
   }
 
-  if (blocks.length === 0) return messages;
+  const lastRow = rows[rows.length - 1];
+  if (lastRow.role !== "assistant") {
+    return messages;
+  }
+
+  const blocks: ContentBlock[] = lastRow.content;
+
+  if (blocks.length === 0) {
+    return messages;
+  }
   return [...messages, { role: "assistant", content: blocks }];
 }

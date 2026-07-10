@@ -19,8 +19,6 @@ import type { AgentLoopRunOptions } from "../agent/loop.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import { resetPluginRegistryAndRegisterDefaults } from "../plugins/defaults/index.js";
 import type { Message, ToolDefinition } from "../providers/types.js";
-import { makeMockLogger } from "./helpers/mock-logger.js";
-
 // Snapshot the real `conversation-crud` exports before `mock.module()` below
 // replaces them. We use a synchronous CJS-style require (via `createRequire`)
 // because static `import` is hoisted above `mock.module()` calls — but bun's
@@ -44,10 +42,6 @@ const conversationDiskViewRealSnapshot = {
 };
 
 // ── Module mocks (must precede imports of the module under test) ─────
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () => makeMockLogger(),
-}));
 
 mock.module("../config/loader.js", () => ({
   getConfig: () => ({
@@ -76,7 +70,12 @@ mock.module("../config/loader.js", () => ({
         },
       },
       profiles: {
+        // Complete (materialized) shape: override-or-default semantics skip
+        // profiles that don't carry their own provider+model.
         "quality-optimized": {
+          source: "user",
+          provider: "anthropic",
+          model: "claude-opus-4-8",
           contextWindow: { maxInputTokens: 50000 },
         },
       },
@@ -446,8 +445,6 @@ function makeCtx(
     } as unknown as Conversation["contextWindowManager"],
     contextCompactedMessageCount: 0,
     contextCompactedAt: null,
-
-    memoryPolicy: { scopeId: "default", includeDefaultFallback: true },
 
     currentActiveSurfaceId: undefined,
     currentPage: undefined,

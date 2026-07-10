@@ -22,13 +22,6 @@ import {
 } from "../persistence/conversation-key-store.js";
 import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 mock.module("../config/loader.js", () => ({
   getConfig: () => ({
     ui: {},
@@ -164,10 +157,6 @@ function makeCompletingConversation(): Conversation {
       processing = true;
       return { id: options.requestId ?? "msg-1", deduplicated: false };
     },
-    memoryPolicy: {
-      scopeId: "default",
-      includeDefaultFallback: false,
-    },
     setChannelCapabilities: () => {},
     setAssistantId: () => {},
     setTrustContext: () => {},
@@ -217,10 +206,6 @@ function makeHangingConversation(): Conversation {
     persistUserMessage: (options: { requestId?: string }) => {
       processing = true;
       return { id: options.requestId ?? "msg-1", deduplicated: false };
-    },
-    memoryPolicy: {
-      scopeId: "default",
-      includeDefaultFallback: false,
     },
     setChannelCapabilities: () => {},
     setAssistantId: () => {},
@@ -300,10 +285,6 @@ function makePendingApprovalConversation(
       id: options.requestId ?? "msg-1",
       deduplicated: false,
     }),
-    memoryPolicy: {
-      scopeId: "default",
-      includeDefaultFallback: false,
-    },
     setChannelCapabilities: () => {},
     setAssistantId: () => {},
     trustContext: undefined as unknown,

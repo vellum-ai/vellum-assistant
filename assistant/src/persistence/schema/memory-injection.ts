@@ -7,7 +7,9 @@ import {
 } from "drizzle-orm/sqlite-core";
 
 // Time-series of memory-v2 card injections, used by the router to decay a
-// concept's recent injection pressure.
+// concept's recent injection pressure. Lives in the dedicated memory database
+// (`assistant-memory.db`), not main — access it via the memory connection
+// (`getMemoryDb()` / `getMemorySqlite()`).
 export const memoryV2InjectionEvents = sqliteTable(
   "memory_v2_injection_events",
   {

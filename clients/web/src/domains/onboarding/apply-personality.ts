@@ -27,11 +27,9 @@ import {
   messagesGet,
   messagesPost,
 } from "@/generated/daemon/sdk.gen";
-import type {
-  MessagesGetResponses,
-  MessagesPostData,
-} from "@/generated/daemon/types.gen";
+import type { MessagesPostData } from "@/generated/daemon/types.gen";
 import { captureError } from "@/lib/sentry/capture-error";
+import { latestAssistantText } from "@/domains/onboarding/latest-assistant-text";
 
 /**
  * Axis ids the personality step keys its slider values by. Mirror
@@ -139,27 +137,6 @@ ${nameInstruction}
 
 Each rewritten file must still be complete: SOUL.md keeps everything you operate by — how you use memory, your boundaries, your compliance stance — re-expressed in your new voice rather than dropped. When you finish, both files should read top-to-bottom as this new personality, with nothing left in the generic default voice.
 </system-message>`;
-}
-
-type GetMessage = MessagesGetResponses[200]["messages"][number];
-
-/** Latest assistant reply text (text blocks, then legacy flat content). */
-function latestAssistantText(messages: GetMessage[]): string {
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const m = messages[i];
-    if (!m || m.role !== "assistant") continue;
-    const blocks = m.contentBlocks;
-    if (blocks && blocks.length > 0) {
-      const text = blocks
-        .filter((b): b is Extract<typeof b, { type: "text" }> => b.type === "text")
-        .map((b) => b.text)
-        .join("\n")
-        .trim();
-      if (text) return text;
-    }
-    return (m.content ?? "").trim();
-  }
-  return "";
 }
 
 export interface ApplyPersonalityOptions {

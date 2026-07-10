@@ -10,13 +10,6 @@ import type { Conversation } from "../daemon/conversation.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { SecretPromptResult } from "../permissions/secret-prompt-types.js";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 mock.module("../config/loader.js", () => ({
   getConfig: () => ({
     ui: {},
@@ -162,10 +155,6 @@ function makeIdleSession(opts?: {
       processing = true;
       return { id: options.requestId ?? "msg-1", deduplicated: false };
     },
-    memoryPolicy: {
-      scopeId: "default",
-      includeDefaultFallback: false,
-    },
     setChannelCapabilities: () => {},
     setAssistantId: () => {},
     setTrustContext: () => {},
@@ -228,10 +217,6 @@ function makeConfirmationEmittingSession(opts?: {
     persistUserMessage: (options: { requestId?: string }) => {
       processing = true;
       return { id: options.requestId ?? "msg-1", deduplicated: false };
-    },
-    memoryPolicy: {
-      scopeId: "default",
-      includeDefaultFallback: false,
     },
     setChannelCapabilities: () => {},
     setAssistantId: () => {},

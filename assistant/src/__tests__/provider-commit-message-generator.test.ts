@@ -1,4 +1,13 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
+
+import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
+
+// Legacy-shaped fixtures (llm.default-centric): pinned to the flag-off
+// cascade; see llm-resolver-override-or-default.test.ts for flag-on
+// resolution semantics.
+beforeAll(() => {
+  setOverridesForTesting({ "override-or-default-resolution": false });
+});
 
 import { DEFAULT_CONFIG } from "../config/defaults.js";
 import type { AssistantConfig } from "../config/types.js";
@@ -81,13 +90,6 @@ mock.module("../providers/provider-send-message.js", () => ({
 // ---------------------------------------------------------------------------
 // Mock: logger (noop)
 // ---------------------------------------------------------------------------
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // ---------------------------------------------------------------------------
 // Import the module under test AFTER mocks are set up
 // ---------------------------------------------------------------------------

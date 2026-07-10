@@ -85,7 +85,7 @@ structured data (`ChatHeaderSupplements`) that `ChatLayout` renders
 directly. This keeps conversation-action callbacks in `ChatLayout`
 (which owns `useConversationActions`) instead of duplicating them in
 `ActiveChatView`. The supplements carry only the few chat-specific
-values the header menu needs (fork, analyze, inspect callbacks, slack
+values the header menu needs (fork, inspect callbacks, slack
 label, `hasPersistedMessage`).
 
 A Zustand store rather than outlet context because `ActiveAssistantGate`

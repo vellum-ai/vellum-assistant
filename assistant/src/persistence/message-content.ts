@@ -1,12 +1,17 @@
-import { mediaSourceBytes } from "../providers/media-resolve.js";
 import type { ContentBlock } from "../providers/types.js";
 import { escapeXmlAttr } from "../util/xml.js";
 
-export function extractTextFromStoredMessageContent(raw: string): string {
+export function extractTextFromStoredMessageContent(
+  raw: string | ContentBlock[],
+): string {
   try {
-    const parsed = JSON.parse(raw) as unknown;
-    if (typeof parsed === "string") return parsed;
-    if (!Array.isArray(parsed)) return raw;
+    const parsed = Array.isArray(raw) ? raw : (JSON.parse(raw) as unknown);
+    if (typeof parsed === "string") {
+      return parsed;
+    }
+    if (!Array.isArray(parsed)) {
+      return raw as string;
+    }
     const blocks = parsed as ContentBlock[];
     const lines: string[] = [];
     for (const block of blocks) {
@@ -63,66 +68,7 @@ export function extractTextFromStoredMessageContent(raw: string): string {
     }
     return lines.join("\n").trim();
   } catch {
-    return raw;
-  }
-}
-
-export function extractMediaBlocks(raw: string): Array<{
-  type: "image";
-  data: Buffer;
-  mimeType: string;
-  index: number;
-}> {
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) return [];
-    const results: Array<{
-      type: "image";
-      data: Buffer;
-      mimeType: string;
-      index: number;
-    }> = [];
-    for (let i = 0; i < parsed.length; i++) {
-      const block = parsed[i] as ContentBlock;
-      if (block.type === "image") {
-        // The source may be inline base64 or a workspace reference;
-        // mediaSourceBytes resolves both to raw bytes.
-        const bytes = mediaSourceBytes(block.source);
-        if (!bytes) continue;
-        results.push({
-          type: "image" as const,
-          data: bytes,
-          mimeType: block.source.media_type,
-          index: i,
-        });
-      }
-    }
-    return results;
-  } catch {
-    return [];
-  }
-}
-
-/**
- * Lightweight variant of extractMediaBlocks that returns only type and index
- * metadata without decoding base64 image data into Buffers.
- */
-export function extractMediaBlockMeta(
-  raw: string,
-): Array<{ type: "image"; index: number }> {
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) return [];
-    const results: Array<{ type: "image"; index: number }> = [];
-    for (let i = 0; i < parsed.length; i++) {
-      const block = parsed[i] as { type?: string };
-      if (block.type === "image") {
-        results.push({ type: "image" as const, index: i });
-      }
-    }
-    return results;
-  } catch {
-    return [];
+    return Array.isArray(raw) ? "" : raw;
   }
 }
 
@@ -149,15 +95,25 @@ function stableJson(value: unknown): string {
  * Parse failures fall back to returning the raw input trimmed (the
  * legacy-string path).
  */
-export function stringifyMessageContent(stored: string): string {
+export function stringifyMessageContent(
+  stored: string | ContentBlock[],
+): string {
   let parsed: unknown;
-  try {
-    parsed = JSON.parse(stored);
-  } catch {
-    return stored.trim();
+  if (Array.isArray(stored)) {
+    parsed = stored;
+  } else {
+    try {
+      parsed = JSON.parse(stored);
+    } catch {
+      return stored.trim();
+    }
   }
-  if (typeof parsed === "string") return parsed.trim();
-  if (!Array.isArray(parsed)) return stored.trim();
+  if (typeof parsed === "string") {
+    return parsed.trim();
+  }
+  if (!Array.isArray(parsed)) {
+    return (stored as string).trim();
+  }
   const parts: string[] = [];
   for (const block of parsed) {
     if (

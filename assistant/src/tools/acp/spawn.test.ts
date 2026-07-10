@@ -35,13 +35,6 @@ afterAll(() => {
   which.restore();
 });
 
-mock.module("../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // Stub credential broker + metadata store so `prepareAgentEnv` can resolve
 // tokens without the real OS keyring. Driven via `vaultStore` per test in
 // beforeEach; the default seeds a vault token so existing tests (which assume
