@@ -434,72 +434,76 @@ export function ResearchResultsStep({
       <OnboardingTopBar onBack={onBack} onNext={onForward} />
 
       {/* Bounded to the viewport bottom so a long claims list can't push the
-          continue button off-screen on short windows — the list (the only
-          child allowed to shrink, via min-h-0) scrolls instead. */}
+          continue button off-screen on short windows. The button is a pinned
+          footer; everything above it scrolls as one region (min-h-0 lets it
+          shrink), so the claims stay reachable even when the window is shorter
+          than the heading + button alone. */}
       <div className="absolute bottom-0 left-1/2 top-[14%] sm:top-[26%] z-10 flex w-full max-w-xl -translate-x-1/2 flex-col px-6 pb-8">
-        <div className="flex items-center gap-3">
-          <MiniAssistant />
-          <h1 className="text-[2.2rem] leading-none" style={{ fontFamily: "var(--font-serif)" }}>
-            This is what I found about you
-          </h1>
-        </div>
-        <p className="mb-7 mt-2 text-[15px]" style={{ color: tone.fgMuted }}>
-          {hasClaims
-            ? loading
-              ? "Still checking the rest. You can review these as they come in."
-              : "I searched the web. Feel free to remove anything that isn’t true"
-            : loading
-              ? "Still putting this together…"
-              : "I didn’t turn up much — we can fill it in as we chat."}
-        </p>
+        <div className="flex min-h-0 flex-col overflow-y-auto">
+          <div className="flex items-center gap-3">
+            <MiniAssistant />
+            <h1 className="text-[2.2rem] leading-none" style={{ fontFamily: "var(--font-serif)" }}>
+              This is what I found about you
+            </h1>
+          </div>
+          <p className="mb-7 mt-2 text-[15px]" style={{ color: tone.fgMuted }}>
+            {hasClaims
+              ? loading
+                ? "Still checking the rest. You can review these as they come in."
+                : "I searched the web. Feel free to remove anything that isn’t true"
+              : loading
+                ? "Still putting this together…"
+                : "I didn’t turn up much — we can fill it in as we chat."}
+          </p>
 
-        <div className="flex min-h-0 flex-col gap-3 overflow-y-auto">
-          <AnimatePresence>
-            {visible.map((fact) => (
-              <motion.div
-                key={fact.claim}
-                layout
-                initial={reduce ? false : { opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={reduce ? undefined : { opacity: 0, scale: 0.95 }}
-                className="flex items-center justify-between gap-3 rounded-2xl px-5 py-4 text-[15px]"
-                style={{
-                  backgroundColor: tone.isLight
-                    ? "rgba(0,0,0,0.06)"
-                    : "rgba(255,255,255,0.1)",
-                }}
-              >
-                <span>{fact.claim}</span>
-                <button
-                  type="button"
-                  aria-label={`Remove "${fact.claim}"`}
-                  onClick={() =>
-                    setRemoved((prev) => new Set(prev).add(fact.claim))
-                  }
-                  className="flex cursor-pointer h-6 w-6 shrink-0 items-center justify-center rounded-full transition-opacity hover:opacity-100"
-                  style={{ color: tone.fgMuted }}
+          <div className="flex flex-col gap-3">
+            <AnimatePresence>
+              {visible.map((fact) => (
+                <motion.div
+                  key={fact.claim}
+                  layout
+                  initial={reduce ? false : { opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={reduce ? undefined : { opacity: 0, scale: 0.95 }}
+                  className="flex items-center justify-between gap-3 rounded-2xl px-5 py-4 text-[15px]"
+                  style={{
+                    backgroundColor: tone.isLight
+                      ? "rgba(0,0,0,0.06)"
+                      : "rgba(255,255,255,0.1)",
+                  }}
                 >
-                  <X className="h-4 w-4" />
-                </button>
-              </motion.div>
-            ))}
-          </AnimatePresence>
-        </div>
+                  <span>{fact.claim}</span>
+                  <button
+                    type="button"
+                    aria-label={`Remove "${fact.claim}"`}
+                    onClick={() =>
+                      setRemoved((prev) => new Set(prev).add(fact.claim))
+                    }
+                    className="flex cursor-pointer h-6 w-6 shrink-0 items-center justify-center rounded-full transition-opacity hover:opacity-100"
+                    style={{ color: tone.fgMuted }}
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </motion.div>
+              ))}
+            </AnimatePresence>
+          </div>
 
-        {/* The whole search can land on the wrong person (similar names). Let the
-            user disown it in one click — continue with no web-research context at
-            all, telling the assistant to forget everything it found. Only once
-            there's something to reject and the turn has settled. */}
-        {hasClaims && canContinue && (
-          <button
-            type="button"
-            onClick={onRejectAll}
-            className="mt-5 self-start cursor-pointer text-[14px] underline underline-offset-2 transition-opacity hover:opacity-80"
-            style={{ color: tone.fgMuted }}
-          >
-            This is not me
-          </button>
-        )}
+          {/* The whole search can land on the wrong person (similar names). Let the
+              user disown it in one click — continue with no web-research context at
+              all, telling the assistant to forget everything it found. Only once
+              there's something to reject and the turn has settled. */}
+          {hasClaims && canContinue && (
+            <button
+              type="button"
+              onClick={onRejectAll}
+              className="mt-5 self-start shrink-0 cursor-pointer text-[14px] underline underline-offset-2 transition-opacity hover:opacity-80"
+              style={{ color: tone.fgMuted }}
+            >
+              This is not me
+            </button>
+          )}
+        </div>
 
         <button
           type="button"
