@@ -745,9 +745,6 @@ export function ChatComposer({
                       {(!isMobile || !canSendMessageContent) && (
                         <Button
                           variant="primary"
-                          // Slightly tighter corners than the default primary
-                          // box to match the stop control in the design.
-                          className="rounded"
                           iconOnly={
                             <Square className="h-3 w-3" fill="currentColor" />
                           }
