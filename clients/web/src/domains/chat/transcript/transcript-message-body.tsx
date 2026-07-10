@@ -768,20 +768,18 @@ export function TranscriptMessageBody({
         message={message}
         assistantDisplayName={assistantDisplayName}
       />
-      {!isTouch && (
-        <div
-          className={`${trailerHeightClass} opacity-0 transition-[height,margin,opacity] duration-200 ease-out group-hover/msg:opacity-100 has-[:focus-visible]:opacity-100 group-data-[revealed=true]/msg:opacity-100 motion-reduce:transition-none`}
-        >
-          <MessageHoverActions
-            message={message}
-            conversationId={conversationId}
-            openInSlackUrl={slackMessageUrl}
-            onFork={forkHandler}
-            onSummarizeUpToHere={summarizeHandler}
-            onInspect={inspectHandler}
-          />
-        </div>
-      )}
+      <div
+        className={`${trailerHeightClass} opacity-0 transition-[height,margin,opacity] duration-200 ease-out group-hover/msg:opacity-100 has-[:focus-visible]:opacity-100 group-data-[revealed=true]/msg:opacity-100 motion-reduce:transition-none`}
+      >
+        <MessageHoverActions
+          message={message}
+          conversationId={conversationId}
+          openInSlackUrl={slackMessageUrl}
+          onFork={forkHandler}
+          onSummarizeUpToHere={summarizeHandler}
+          onInspect={inspectHandler}
+        />
+      </div>
     </>
   );
 
