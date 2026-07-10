@@ -549,7 +549,7 @@ describe("forkConversationForRetrospective — compacted source", () => {
       .set({ createdAt: tip.createdAt + 100 })
       .where(eq(messages.id, runMessage.id))
       .run();
-    const runRows = loadRetrospectiveRunMessages(
+    const runRows = await loadRetrospectiveRunMessages(
       fork.id,
       MEMORY_RETROSPECTIVE_FORK_SOURCE,
     );
@@ -602,7 +602,7 @@ describe("forkConversationForRetrospective — compacted source", () => {
       },
       skipIndexing: true,
     });
-    const runRows = loadRetrospectiveRunMessages(
+    const runRows = await loadRetrospectiveRunMessages(
       fork.id,
       MEMORY_RETROSPECTIVE_FORK_SOURCE,
     );
