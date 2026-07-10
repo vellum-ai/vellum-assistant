@@ -104,6 +104,23 @@ describe("googleCalendarProvider — initial syncToken", () => {
     ).rejects.toThrow(/did not return a syncToken/i);
   });
 
+  test("incremental sync reuses the initial request's paging params", async () => {
+    // Google requires incremental syncToken requests to carry the same allowed
+    // params as the initial sync. Both must send maxResults and no filters.
+    responses = [
+      { status: 200, body: { items: [], nextSyncToken: "tok_next" } },
+    ];
+
+    await googleCalendarProvider.fetchNew("google", "existing-token", {}, "k");
+
+    expect(recorded).toHaveLength(1);
+    expect(recorded[0]!.query.syncToken).toBe("existing-token");
+    expect(recorded[0]!.query.maxResults).toBe("250");
+    for (const param of FILTER_PARAMS) {
+      expect(recorded[0]!.query).not.toHaveProperty(param);
+    }
+  });
+
   test("fetchNew with null watermark establishes the token and returns no items", async () => {
     responses = [{ status: 200, body: { items: [], nextSyncToken: "tok_2" } }];
 

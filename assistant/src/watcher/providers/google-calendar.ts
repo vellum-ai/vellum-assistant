@@ -204,7 +204,10 @@ async function incrementalSync(
   let nextSyncToken: string | undefined;
 
   do {
-    const query: Record<string, string> = { syncToken };
+    // maxResults mirrors fetchInitialSyncToken's page size. Google's sync guide
+    // asks that paging params match between the initial and incremental requests;
+    // maxResults/pageToken are the only params allowed alongside syncToken.
+    const query: Record<string, string> = { syncToken, maxResults: "250" };
     if (pageToken) query.pageToken = pageToken;
 
     const resp = await connection.request({
@@ -241,18 +244,17 @@ async function incrementalSync(
 /**
  * Establish the initial syncToken (stored as the watermark).
  *
- * This intentionally sends a BARE request — no timeMin/timeMax/orderBy/q and no
- * singleEvents — for two reasons the Calendar API enforces:
- *   1. nextSyncToken is withheld whenever the request carries any of those
- *      filter params (timeMin/timeMax/orderBy/q/updatedMin/...). Passing them
- *      leaves the token undefined, which previously threw and auto-disabled the
- *      watcher after 5 retries.
- *   2. incrementalSync() sends only { syncToken, pageToken }, and Google returns
- *      400 if the follow-up sync's params differ from the initial sync. Matching
- *      that bare shape here keeps init and incremental consistent by construction.
+ * Sends a paging-only request (maxResults + pageToken) with no filter params.
+ * The Calendar API enforces two rules this satisfies:
+ *   1. It withholds nextSyncToken when the request carries any filter param
+ *      (timeMin/timeMax/orderBy/q/updatedMin/...), so those must be absent for
+ *      the token to be returned.
+ *   2. Incremental syncs must reuse the same query params as this initial
+ *      request; incrementalSync() sends the same { syncToken, maxResults }
+ *      shape, keeping the two consistent.
  *
- * No items are returned; the watermark marks "now" so the first incremental
- * sync picks up everything that changes afterward.
+ * Returns no items; the watermark marks the current point so the first
+ * incremental sync picks up everything that changes afterward.
  */
 async function fetchInitialSyncToken(
   connection: OAuthConnection,
@@ -380,9 +382,9 @@ async function fallbackFetch(
     eventToItem(event, "new_calendar_event"),
   );
 
-  // Re-establish a fresh syncToken for the next watermark via the same bare
-  // request as initialization — a filtered request would withhold nextSyncToken,
-  // which is exactly what expired the previous token.
+  // Re-establish a fresh syncToken for the next watermark via the same
+  // paging-only request as initialization; a filtered request would withhold
+  // nextSyncToken.
   const syncToken = await fetchInitialSyncToken(connection);
 
   return { items, watermark: syncToken ?? "" };
