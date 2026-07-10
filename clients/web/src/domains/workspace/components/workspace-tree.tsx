@@ -672,6 +672,7 @@ export function WorkspaceTree({
   const invalidateWorkspace = useCallback(() => {
     for (const key of [
       "assistantsWorkspaceTreeRetrieve",
+      "assistantsWorkspaceTreeSearch",
       "assistantsWorkspaceFileRetrieve",
       "assistantsWorkspaceFileContentRetrieve",
     ]) {
