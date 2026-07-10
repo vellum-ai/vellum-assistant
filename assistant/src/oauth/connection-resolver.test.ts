@@ -576,6 +576,104 @@ describe("resolveOAuthConnectionWithMeta multi-account visibility", () => {
   });
 });
 
+describe("resolveOAuthConnection account-mismatch error listing", () => {
+  function clientReturning(results: unknown[]) {
+    return {
+      ...makeMockClient(),
+      fetch: mock(
+        async () => new Response(JSON.stringify({ results }), { status: 200 }),
+      ),
+    };
+  }
+
+  beforeEach(() => {
+    setupDefaults();
+  });
+
+  test("managed: account mismatch lists other active connections", async () => {
+    mockProvider!.managedServiceConfigKey = "google-oauth";
+    mockPlatformClient = {
+      ...makeMockClient(),
+      fetch: mock(async (path: string) => {
+        // The account-identifier-filtered lookup matches nothing…
+        if (path.includes("account_identifier=")) {
+          return new Response(JSON.stringify({ results: [] }), { status: 200 });
+        }
+        // …but the provider still has active connections.
+        return new Response(
+          JSON.stringify({
+            results: [
+              { id: "conn-1", account_label: "user@example.com" },
+              { id: "conn-2", account_label: "alice@example.org" },
+            ],
+          }),
+          { status: 200 },
+        );
+      }),
+    };
+
+    await expect(
+      resolveOAuthConnection("google", { account: "typo@example.com" }),
+    ).rejects.toThrow(
+      'No active OAuth connection found for provider "google" with account ' +
+        '"typo@example.com". Active google connections: user@example.com, ' +
+        "alice@example.org.",
+    );
+  });
+
+  test("managed: zero connections keeps the connect-me message", async () => {
+    mockProvider!.managedServiceConfigKey = "google-oauth";
+    mockPlatformClient = clientReturning([]);
+
+    await expect(
+      resolveOAuthConnection("google", { account: "typo@example.com" }),
+    ).rejects.toThrow(
+      'No active OAuth connection found for provider "google" with account ' +
+        '"typo@example.com". The google service needs to be connected.',
+    );
+  });
+
+  test("BYO: account mismatch lists other active connections", async () => {
+    mockConnections = [
+      {
+        id: "conn-personal",
+        provider: "google",
+        accountInfo: "user@example.com",
+        grantedScopes: JSON.stringify([]),
+        status: "active",
+      },
+      {
+        id: "conn-work",
+        provider: "google",
+        accountInfo: "alice@example.org",
+        grantedScopes: JSON.stringify([]),
+        status: "active",
+      },
+    ];
+
+    await expect(
+      resolveOAuthConnection("google", { account: "typo@example.com" }),
+    ).rejects.toThrow(
+      'No active OAuth connection found for "google" matching account ' +
+        '"typo@example.com". Active google connections: user@example.com, ' +
+        "alice@example.org.",
+    );
+  });
+
+  test("BYO: zero connections keeps the connect-me message", async () => {
+    mockConnection = undefined;
+    mockConnections = [];
+
+    await expect(
+      resolveOAuthConnection("google", { account: "typo@example.com" }),
+    ).rejects.toThrow(
+      'No active OAuth connection found for "google" matching account ' +
+        '"typo@example.com". The google service needs to be connected before ' +
+        "it can be used.",
+    );
+  });
+});
+
 describe("resolveEffectiveBaseUrl", () => {
   const fallback = "https://login.salesforce.com";
 

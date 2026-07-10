@@ -154,8 +154,19 @@ export async function resolveOAuthConnectionWithMeta(
     const qualifier = filters.length
       ? ` matching ${filters.join(" and ")}`
       : "";
+    // When a filter (account/clientId) matched nothing but the provider still
+    // has active connections, list their labels so the caller can self-correct
+    // a mistyped account instead of misreading this as a disconnected service.
+    const otherLabels = getActiveConnections(provider).map(
+      (row) => (row.accountInfo as string | null) ?? (row.id as string),
+    );
     throw new Error(
-      `No active OAuth connection found for "${provider}"${qualifier}. The ${provider} service needs to be connected before it can be used.`,
+      noConnectionFoundMessage({
+        base: `No active OAuth connection found for "${provider}"${qualifier}.`,
+        provider,
+        otherLabels,
+        connectHint: `The ${provider} service needs to be connected before it can be used.`,
+      }),
     );
   }
 
@@ -365,8 +376,11 @@ async function resolvePlatformConnectionId(
     accountIdentifier: account,
   });
 
+  // Holds all active connections for the provider when the account-filtered
+  // lookup came up empty — reused below to list available accounts on failure.
+  let unfilteredConnections: PlatformConnectionEntry[] | undefined;
   if (account && connections.length === 0) {
-    const unfilteredConnections = await fetchPlatformConnections({
+    unfilteredConnections = await fetchPlatformConnections({
       client,
       provider,
     });
@@ -377,10 +391,22 @@ async function resolvePlatformConnectionId(
   }
 
   if (connections.length === 0) {
+    // Reuse the already-fetched unfiltered connections (no extra network call)
+    // to list the user's real accounts so the caller can correct a mistyped
+    // account rather than misreading this as a disconnected service.
+    const otherLabels = (unfilteredConnections ?? []).map(
+      platformConnectionLabel,
+    );
     throw new Error(
-      `No active OAuth connection found for provider "${provider}"` +
-        (account ? ` with account "${account}"` : "") +
-        `. The ${provider} service needs to be connected.`,
+      noConnectionFoundMessage({
+        base:
+          `No active OAuth connection found for provider "${provider}"` +
+          (account ? ` with account "${account}"` : "") +
+          `.`,
+        provider,
+        otherLabels,
+        connectHint: `The ${provider} service needs to be connected.`,
+      }),
     );
   }
 
@@ -485,6 +511,29 @@ function parseGrantedScopes(raw: string | null | undefined): string[] {
   } catch {
     return [];
   }
+}
+
+/**
+ * Build the "no connection found" error. When the provider still has other
+ * active connections, list their account labels so the caller (usually the
+ * model) can self-correct a mistyped account instead of reading the failure as
+ * "the service is disconnected". Falls back to the connect-me hint only when
+ * the provider genuinely has zero active connections.
+ *
+ * `base` is the leading sentence ending in a period. The labels shown are the
+ * user's own connected accounts surfaced back to the same user's assistant.
+ */
+function noConnectionFoundMessage(options: {
+  base: string;
+  provider: string;
+  otherLabels: string[];
+  connectHint: string;
+}): string {
+  const { base, provider, otherLabels, connectHint } = options;
+  if (otherLabels.length > 0) {
+    return `${base} Active ${provider} connections: ${otherLabels.join(", ")}.`;
+  }
+  return `${base} ${connectHint}`;
 }
 
 /** Actionable error shown when a connection is missing required scopes. */
