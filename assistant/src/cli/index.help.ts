@@ -12,6 +12,12 @@
  */
 
 import { attachmentHelp } from "./commands/attachment.help.js";
+import { auditHelp } from "./commands/audit.help.js";
+import { authHelp } from "./commands/auth.help.js";
 import type { CliCommandHelp } from "./lib/cli-command-help.js";
 
-export const CLI_COMMAND_HELP: readonly CliCommandHelp[] = [attachmentHelp];
+export const CLI_COMMAND_HELP: readonly CliCommandHelp[] = [
+  attachmentHelp,
+  auditHelp,
+  authHelp,
+];

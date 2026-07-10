@@ -33,15 +33,18 @@ export function buildCliCommandContent(
  */
 export function buildCliCommandHelpContent(help: CliCommandHelp): string {
   const sections: string[] = [];
+  const topOptions = renderOptionLines(help.options);
+  if (topOptions) {
+    sections.push(topOptions);
+  }
   if (help.helpText) {
     sections.push(help.helpText.trim());
   }
   for (const sub of help.subcommands ?? []) {
     const lines = [`${help.name} ${sub.name} — ${sub.description}`];
-    for (const option of sub.options ?? []) {
-      lines.push(
-        `  ${option.flags}${option.required ? " (required)" : ""}  ${option.description}`,
-      );
+    const options = renderOptionLines(sub.options);
+    if (options) {
+      lines.push(options);
     }
     if (sub.helpText) {
       lines.push(sub.helpText.trim());
@@ -53,4 +56,16 @@ export function buildCliCommandHelpContent(help: CliCommandHelp): string {
     help.description,
     sections.join("\n\n"),
   );
+}
+
+function renderOptionLines(options: CliCommandHelp["options"]): string | null {
+  if (!options?.length) {
+    return null;
+  }
+  return options
+    .map(
+      (option) =>
+        `  ${option.flags}${option.required ? " (required)" : ""}  ${option.description}`,
+    )
+    .join("\n");
 }
