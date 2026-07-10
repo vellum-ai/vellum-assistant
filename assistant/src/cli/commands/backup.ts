@@ -2,9 +2,7 @@
  * `assistant backup` — manage automated backup configuration and list snapshots.
  *
  * Thin IPC wrapper: each subcommand forwards its request to the daemon via
- * cliIpcCall. The command's help structure lives in `backup.help.ts`
- * (import-safe for the memory capability indexer); this module applies it and
- * attaches the action handlers.
+ * cliIpcCall.
  */
 
 import type { Command } from "commander";
