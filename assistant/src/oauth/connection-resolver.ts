@@ -154,10 +154,12 @@ export async function resolveOAuthConnectionWithMeta(
     const qualifier = filters.length
       ? ` matching ${filters.join(" and ")}`
       : "";
-    // When a filter (account/clientId) matched nothing but the provider still
-    // has active connections, list their labels so the caller can self-correct
-    // a mistyped account instead of misreading this as a disconnected service.
-    const otherLabels = getActiveConnections(provider).map(
+    // When a filter matched nothing but active connections still exist, list
+    // their labels so the caller can self-correct a mistyped account instead
+    // of misreading this as a disconnected service. Only the account filter is
+    // dropped: clientId narrows to a specific OAuth app, and accounts under
+    // other apps cannot serve a retry that pins the same clientId.
+    const otherLabels = getActiveConnections(provider, { clientId }).map(
       (row) => (row.accountInfo as string | null) ?? (row.id as string),
     );
     throw new Error(

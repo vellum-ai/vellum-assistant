@@ -660,6 +660,38 @@ describe("resolveOAuthConnection account-mismatch error listing", () => {
     );
   });
 
+  test("BYO: clientId + mistyped account lists only that app's accounts", async () => {
+    mockConnections = [
+      {
+        id: "conn-app1",
+        provider: "google",
+        accountInfo: "user@example.com",
+        grantedScopes: JSON.stringify([]),
+        status: "active",
+        clientId: "client-1",
+      },
+      {
+        id: "conn-app2",
+        provider: "google",
+        accountInfo: "alice@example.org",
+        grantedScopes: JSON.stringify([]),
+        status: "active",
+        clientId: "client-2",
+      },
+    ];
+
+    await expect(
+      resolveOAuthConnection("google", {
+        clientId: "client-1",
+        account: "typo@example.com",
+      }),
+    ).rejects.toThrow(
+      'No active OAuth connection found for "google" matching account ' +
+        '"typo@example.com" and client ID "client-1". Active google ' +
+        "connections: user@example.com.",
+    );
+  });
+
   test("BYO: zero connections keeps the connect-me message", async () => {
     mockConnection = undefined;
     mockConnections = [];
