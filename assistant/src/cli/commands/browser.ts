@@ -11,6 +11,12 @@ import { writeFileSync } from "node:fs";
 
 import { type Command, Option } from "commander";
 
+// operation-meta is an execution-free data leaf (no Playwright imports),
+// consumed synchronously while building the `browser` subcommand tree — the
+// program is assembled by the sync `buildCliProgramTree()`, so this can't be a
+// lazy `import()`. Kept out of the heavier `browser/operations` barrel on
+// purpose.
+// eslint-disable-next-line cli/no-daemon-internals
 import { BROWSER_OPERATION_META } from "../../browser/operation-meta.js";
 import type {
   BrowserOperationMeta,
@@ -98,7 +104,9 @@ function parseFieldValue(
   value: unknown,
   field: OperationField,
 ): string | number | boolean {
-  if (field.type === "boolean") return Boolean(value);
+  if (field.type === "boolean") {
+    return Boolean(value);
+  }
   if (field.type === "number") {
     const num = Number(value);
     if (!Number.isFinite(num)) {
@@ -192,8 +200,12 @@ function buildSubcommand(parent: Command, meta: BrowserOperationMeta): void {
     }
 
     for (const [key, value] of Object.entries(opts)) {
-      if (excludeKeys.has(key)) continue;
-      if (value === undefined) continue;
+      if (excludeKeys.has(key)) {
+        continue;
+      }
+      if (value === undefined) {
+        continue;
+      }
 
       const snakeKey = camelToSnake(key);
       // Find the matching field for type coercion
