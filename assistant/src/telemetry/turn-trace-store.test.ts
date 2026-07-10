@@ -26,26 +26,15 @@ let mockLiveConversation:
   | {
       isProcessing: () => boolean;
       getCurrentSystemPrompt?: () => string;
-      getRegisteredToolNames?: () => Set<string>;
+      getRegisteredToolDefinitions?: () => Array<{
+        name: string;
+        description: string;
+        input_schema: object;
+      }>;
     }
   | undefined;
 mock.module("../daemon/conversation-registry.js", () => ({
   findConversation: () => mockLiveConversation,
-}));
-
-// Stub the tool registry so trace assembly can resolve descriptions without
-// loading the real tool graph. Returns `undefined` by default; tests override
-// for specific tool names.
-let mockToolDescriptions: Record<string, string> = {};
-mock.module("../tools/registry.js", () => ({
-  getTool: (name: string) =>
-    mockToolDescriptions[name]
-      ? { description: mockToolDescriptions[name], input_schema: {} }
-      : undefined,
-  resolveTool: (name: string) =>
-    mockToolDescriptions[name]
-      ? { description: mockToolDescriptions[name], input_schema: {} }
-      : undefined,
 }));
 
 import { createConversation } from "../persistence/conversation-crud.js";
@@ -72,7 +61,6 @@ function purge(): void {
 beforeEach(() => {
   purge();
   mockLiveConversation = undefined;
-  mockToolDescriptions = {};
 });
 
 interface MessageSeed {
@@ -238,16 +226,16 @@ describe("assembleTurnTrace", () => {
       createdAt: 1100,
     });
 
+    // The conversation resolves + sorts its registered tools; trace assembly
+    // just maps them into the trace, so feed it already-resolved definitions.
     mockLiveConversation = {
       isProcessing: () => false,
       getCurrentSystemPrompt: () => "You are a helpful assistant.",
-      getRegisteredToolNames: () =>
-        new Set(["web_search", "file_read", "notify_parent"]),
-    };
-    mockToolDescriptions = {
-      web_search: "Search the web",
-      file_read: "Read a file",
-      // notify_parent intentionally not in the map — description should be ""
+      getRegisteredToolDefinitions: () => [
+        { name: "file_read", description: "Read a file", input_schema: {} },
+        { name: "notify_parent", description: "", input_schema: {} },
+        { name: "web_search", description: "Search the web", input_schema: {} },
+      ],
     };
 
     const trace = assembleTurnTrace(boundary(conv.id, "m-user-1", 1000));

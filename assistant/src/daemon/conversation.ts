@@ -74,7 +74,7 @@ import {
   type SystemPromptPersonaOverride,
 } from "../prompts/system-prompt.js";
 import type { ContentBlock, Message } from "../providers/types.js";
-import type { Provider } from "../providers/types.js";
+import type { Provider, ToolDefinition } from "../providers/types.js";
 import { type TrustClass } from "../runtime/actor-trust-resolver.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import type { AuthContext } from "../runtime/auth/types.js";
@@ -768,9 +768,6 @@ export class Conversation {
       tools: toolDefs.length > 0 ? toolDefs : undefined,
       toolExecutor: toolDefs.length > 0 ? toolExecutor : undefined,
       resolveTools,
-      // A tool the registry marks exclusive (e.g. `advisor`) runs alone in its
-      // turn; the loop defers any sibling calls until the next turn.
-      isExclusiveTool: (name) => getTool(name)?.exclusive === true,
       resolveConversationDir: () => {
         const conv = getConversation(this.conversationId);
         if (!conv) {
@@ -2377,6 +2374,26 @@ export class Conversation {
    */
   getRegisteredToolNames(): Set<string> {
     return new Set(this.lastResolvedToolNames ?? this.coreToolNames);
+  }
+
+  /**
+   * The {@link getRegisteredToolNames} inventory resolved to full definitions
+   * (name, description, input schema), sorted by name. Resolution reads the
+   * live registry so skill/MCP tools — whose definitions are not in the base
+   * turn snapshot — are included. Consumers (e.g. turn-trace telemetry) read
+   * this instead of reaching into the tool registry themselves.
+   */
+  getRegisteredToolDefinitions(): ToolDefinition[] {
+    return Array.from(this.getRegisteredToolNames())
+      .sort((a, b) => a.localeCompare(b))
+      .map((name) => {
+        const tool = getTool(name);
+        return {
+          name,
+          description: tool?.description ?? "",
+          input_schema: tool?.input_schema ?? {},
+        };
+      });
   }
 
   // ── History ──────────────────────────────────────────────────────

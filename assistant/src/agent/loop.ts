@@ -43,6 +43,7 @@ import type {
   ToolResultContent,
 } from "../providers/types.js";
 import { isContextOverflowError } from "../providers/types.js";
+import { getTool } from "../tools/registry.js";
 import type { SensitiveOutputBinding } from "../tools/sensitive-output-placeholders.js";
 import {
   applyStreamingSubstitution,
@@ -709,14 +710,6 @@ export interface AgentLoopConstructorOptions {
   toolExecutor?: LoopToolExecutor;
   resolveTools?: (history: Message[]) => ToolDefinition[];
   /**
-   * Decide whether a tool runs exclusively in its turn (see
-   * {@link ToolDefinition.exclusive}). When it returns true for a tool present
-   * in a multi-call turn, the loop runs only that tool and defers the siblings
-   * un-run. Injected by the conversation wiring, which can read the tool
-   * registry; lightweight loops that omit it never defer.
-   */
-  isExclusiveTool?: (toolName: string) => boolean;
-  /**
    * Conversation this loop drives. Scopes the loop-held compaction circuit
    * breaker and is the source of truth the loop's pipeline contexts and
    * post-compaction re-injection resolve the live conversation through.
@@ -741,7 +734,6 @@ export class AgentLoop {
   private tools: ToolDefinition[];
   private resolveTools: ((history: Message[]) => ToolDefinition[]) | null;
   private toolExecutor: LoopToolExecutor | null;
-  private isExclusiveTool: ((toolName: string) => boolean) | null;
 
   /**
    * Conversation this loop drives. Source of truth for the `conversationId`
@@ -771,7 +763,6 @@ export class AgentLoop {
       tools,
       toolExecutor,
       resolveTools,
-      isExclusiveTool,
       conversationId,
       resolveConversationDir,
     } = options;
@@ -781,7 +772,6 @@ export class AgentLoop {
     this.tools = tools ?? [];
     this.resolveTools = resolveTools ?? null;
     this.toolExecutor = toolExecutor ?? null;
-    this.isExclusiveTool = isExclusiveTool ?? null;
     this.conversationId = conversationId;
     this.resolveConversationDir = resolveConversationDir ?? null;
     this.compactionCircuit = new CompactionCircuit(this.conversationId);
@@ -2069,9 +2059,9 @@ export class AgentLoop {
         // the siblings with a benign, un-run result so the model re-issues them
         // next turn if still needed. Every tool_use still gets a matching
         // tool_result, so history stays well-formed.
-        const exclusiveBlock = this.isExclusiveTool
-          ? toolUseBlocks.find((block) => this.isExclusiveTool!(block.name))
-          : undefined;
+        const exclusiveBlock = toolUseBlocks.find(
+          (block) => getTool(block.name)?.exclusive === true,
+        );
         const deferSiblings =
           exclusiveBlock !== undefined && toolUseBlocks.length > 1;
         if (deferSiblings) {
