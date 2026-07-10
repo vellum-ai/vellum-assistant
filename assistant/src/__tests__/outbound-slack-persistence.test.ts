@@ -119,6 +119,15 @@ mock.module("../persistence/conversation-crud.js", () => ({
     const call = addMessageCalls.find((c) => c.id === messageId);
     if (call) call.content = content;
   },
+  markMessageContentInflight: () => {},
+  finalizeMessageContent: (messageId: string, content: string) => {
+    // The finalize seam writes through `finalizeMessageContent`; mirror it
+    // into the same captures as `updateMessageContent`.
+    const row = persistedRows.find((candidate) => candidate.id === messageId);
+    if (row) row.content = content;
+    const call = addMessageCalls.find((c) => c.id === messageId);
+    if (call) call.content = content;
+  },
   // The handler treats provenance as a flat spread; returning {} keeps the
   // metadata snapshot focused on the fields under test.
   provenanceFromTrustContext: () => ({}),

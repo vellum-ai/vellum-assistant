@@ -71,6 +71,8 @@ mock.module("../persistence/conversation-crud.js", () => ({
   getConversation: () => null,
   getMessageById: () => null,
   updateMessageContent: updateMessageContentMock,
+  markMessageContentInflight: () => {},
+  finalizeMessageContent: updateMessageContentMock,
   provenanceFromTrustContext: () => ({}),
   reserveMessage: reserveMessageMock,
   recordConversationPersistedSeq: (id: string, seq: number) => {
