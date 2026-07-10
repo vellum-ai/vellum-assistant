@@ -125,7 +125,7 @@ describe("credential-request mint (IPC)", () => {
     expect(JSON.stringify(row)).not.toContain(result.token);
   });
 
-  test("makes public ingress live before resolving the URL", async () => {
+  test("makes public ingress live on the successful mint path", async () => {
     const ensurePublicIngressLive = mock(async () => {});
     const result = await createCredentialRequest(
       fakeGatewayConfig("https://velay-dev.vellum.ai"),
@@ -139,6 +139,21 @@ describe("credential-request mint (IPC)", () => {
 
     expect(result.ok).toBe(true);
     expect(ensurePublicIngressLive).toHaveBeenCalledTimes(1);
+  });
+
+  test("does not enable public ingress when the mint is rejected", async () => {
+    // No config URL and no velay fallback → no_public_base_url. Public ingress
+    // must NOT be flipped on as a side effect of a failed mint.
+    const ensurePublicIngressLive = mock(async () => {});
+    const result = await createCredentialRequest(
+      fakeGatewayConfig(),
+      fakeConfigFile(undefined),
+      { service: "github", field: "api_token" },
+      { ensurePublicIngressLive },
+    );
+
+    expect(result).toEqual({ ok: false, error: "no_public_base_url" });
+    expect(ensurePublicIngressLive).not.toHaveBeenCalled();
   });
 
   test("refuses to mint when the feature flag is off — before any ingress work", async () => {

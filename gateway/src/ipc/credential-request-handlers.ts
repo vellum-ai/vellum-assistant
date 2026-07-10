@@ -125,15 +125,6 @@ export async function createCredentialRequest(
     return { ok: false, error: "flag_disabled" };
   }
 
-  // Minting a credential link is an explicit request to expose the public
-  // credential-entry page, so make ingress live before resolving the URL:
-  // enable it if it was explicitly disabled AND start the Velay tunnel (on
-  // platform the tunnel otherwise only starts for Twilio / live voice, so the
-  // config bit alone would leave the link unreachable). The mint still returns
-  // immediately using the resolved fallback URL; the link becomes reachable
-  // within a few seconds once the tunnel registers.
-  await deps.ensurePublicIngressLive?.();
-
   const publicBaseUrl = await resolvePublicHttpBaseUrl(
     config,
     configFile,
@@ -152,6 +143,16 @@ export async function createCredentialRequest(
   if (store.countActive(now) >= MAX_ACTIVE_CREDENTIAL_REQUESTS) {
     return { ok: false, error: "too_many_active" };
   }
+
+  // All guards passed — the link WILL be minted, so now make ingress live:
+  // enable it if it was explicitly disabled AND start the Velay tunnel (on
+  // platform the tunnel otherwise only starts for Twilio / live voice, so the
+  // config bit alone would leave the link unreachable). Deferred to the success
+  // path so a rejected mint (no resolvable URL, rate limit, too many active)
+  // never flips public ingress on as a side effect. The mint still returns
+  // immediately using the resolved URL; the link becomes reachable within a few
+  // seconds once the tunnel registers.
+  await deps.ensurePublicIngressLive?.();
 
   const ttlMs = Math.min(
     params.ttlMs ?? DEFAULT_CREDENTIAL_REQUEST_TTL_MS,
