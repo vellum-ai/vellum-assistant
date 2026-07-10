@@ -476,16 +476,29 @@ describe("forkConversation", () => {
       "Message 1",
       { skipIndexing: true },
     );
-    await addMessage(source.id, "assistant", "Message 2", {
+    const m2 = await addMessage(source.id, "assistant", "Message 2", {
       skipIndexing: true,
     });
-    await addMessage(source.id, "user", "Message 3", {
+    const m3 = await addMessage(source.id, "user", "Message 3", {
       skipIndexing: true,
     });
 
-    const compactedAt = Date.now();
-    getDb()
-      .update(conversations)
+    // Pin timestamps so the compaction event sits strictly after every
+    // message — same-millisecond inserts would otherwise make the event
+    // "at-or-before" the branch point and inherit.
+    const db = getDb();
+    const base = Date.now();
+    db.run(
+      `UPDATE messages SET created_at = ${base} WHERE id = '${compactedBranchPoint.id}'`,
+    );
+    db.run(
+      `UPDATE messages SET created_at = ${base + 1} WHERE id = '${m2.id}'`,
+    );
+    db.run(
+      `UPDATE messages SET created_at = ${base + 2} WHERE id = '${m3.id}'`,
+    );
+    const compactedAt = base + 3;
+    db.update(conversations)
       .set({
         contextSummary: "Compacted summary",
         contextCompactedMessageCount: 2,

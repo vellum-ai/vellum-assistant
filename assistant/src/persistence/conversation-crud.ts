@@ -1124,15 +1124,26 @@ interface PopulateForkContentsArgs {
   /** Source→fork message-id map for every copied row. */
   forkedMessageIds: Map<string, string>;
   latestForkedAssistant: { messageId: string; messageAt: number } | null;
-  /** `copyBoundaryIndex === sourceMessages.length - 1` for the source. */
+  /**
+   * True when the fork branches from the source's tip, so its rendered window
+   * equals the source's and the wholesale memory-state carry is valid.
+   */
   isFullHistoryFork: boolean;
   /**
-   * Count of leading messages behind the compaction event this fork inherits
-   * (0 when the fork branches from uncompacted history). Memory-slug seeding
-   * skips this prefix, since rows behind the fork's summary are not rendered
-   * and must stay re-injectable.
+   * Count of leading `messagesToCopy` entries behind the compaction event this
+   * fork inherits (0 when the copied range already starts at the visible
+   * window, or the fork branches from uncompacted history). Memory-slug
+   * seeding skips this prefix, since rows behind the fork's summary are not
+   * rendered and must stay re-injectable.
    */
   inheritedCompactedMessageCount: number;
+  /**
+   * When true, the source's compaction-event ledger is not copied into the
+   * fork. Set by the retrospective fork whenever it inherits a compaction —
+   * it seeds its own count-adjusted event instead, since the source events'
+   * `compactedMessageCount` values index source-space row positions.
+   */
+  skipCompactionLedgerCopy?: boolean;
   /**
    * When provided, a disk-sync entry is appended per copied message for the
    * caller to flush after commit. Omitted by the retrospective fork, whose
@@ -1165,6 +1176,7 @@ function populateForkContentsInProcess(args: PopulateForkContentsArgs): void {
     latestForkedAssistant,
     isFullHistoryFork,
     inheritedCompactedMessageCount,
+    skipCompactionLedgerCopy,
     diskSyncQueue,
   } = args;
   const db = getDb();
@@ -1269,13 +1281,17 @@ function populateForkContentsInProcess(args: PopulateForkContentsArgs): void {
   });
 
   // Carry the source's compaction events that predate the fork boundary so the
-  // fork owns a correct ledger for its own future forks/compactions.
-  forkCompactionLedger(
-    db,
-    sourceConversationId,
-    fork.id,
-    messagesToCopy.at(-1)?.createdAt ?? null,
-  );
+  // fork owns a correct ledger for its own future forks/compactions. The
+  // tail-only retrospective fork opts out and seeds a single count-adjusted
+  // event of its own instead.
+  if (!skipCompactionLedgerCopy) {
+    forkCompactionLedger(
+      db,
+      sourceConversationId,
+      fork.id,
+      messagesToCopy.at(-1)?.createdAt ?? null,
+    );
+  }
 }
 
 /**
@@ -1302,17 +1318,28 @@ function latestForkedAssistantFrom(
 
 /**
  * Async variant of {@link forkConversation} for the memory-retrospective job,
- * which forks the entire source conversation into a throwaway background
- * conversation on a hot path that must not stall the daemon.
+ * which forks the source conversation's visible window into a throwaway
+ * background conversation on a hot path that must not stall the daemon.
  *
- * The dominant cost — copying every source message row — runs OFF the event
- * loop in a `sqlite3` subprocess (see {@link copyForkMessagesViaSubprocess}),
- * so `/healthz` and gateway IPC stay responsive during the copy. The cheap
- * tail (conversation row, attachment relink, memory-state seeding) runs
- * in-process and reuses {@link populateForkContentsInProcess}, the same helper
- * the synchronous fork uses, so the two paths cannot drift on that logic. The
- * boundary/compaction computation mirrors {@link forkConversation} and is
- * pinned by a parity test.
+ * Only rows at-or-after the inherited compaction boundary are copied. The
+ * retrospective wake always runs under guardian trust, whose history render
+ * slices `contextCompactedMessageCount` rows off the front and prepends the
+ * summary on `contextSummary` presence alone — so the fork carries the
+ * inherited summary with a compacted count of 0 and renders identically to
+ * the source (summary + tail) without materializing rows the agent cannot
+ * see. The user-facing {@link forkConversation} keeps the full physical
+ * history: user forks are long-lived and browsable, and untrusted-actor
+ * views render the persisted history unsliced.
+ *
+ * The dominant cost — copying the visible tail's message rows — runs OFF the
+ * event loop in a `sqlite3` subprocess (see
+ * {@link copyForkMessagesViaSubprocess}), so `/healthz` and gateway IPC stay
+ * responsive during the copy. The cheap tail (conversation row, attachment
+ * relink, memory-state seeding) runs in-process and reuses
+ * {@link populateForkContentsInProcess}, the same helper the synchronous fork
+ * uses, so the two paths cannot drift on that logic. The cutoff/boundary
+ * computation mirrors {@link forkConversation} and is pinned by a parity
+ * test.
  *
  * The disk-view projection (`syncMessageToDisk`) is intentionally skipped: the
  * fork is GC'd after the retrospective pass and never browsed, and the agent
@@ -1340,6 +1367,12 @@ export async function forkConversationForRetrospective(params: {
   }
 
   const sourceMessages = getMessages(conversationId);
+  // The render path hides the first `contextCompactedMessageCount` rows in
+  // THIS load order (`getMessages`, `createdAt` only) — capture it before the
+  // cutoff re-sort below so the tail-only drop-set matches what the source
+  // actually renders even when `createdAt` ties straddle the compaction
+  // boundary.
+  const loadOrderIds = sourceMessages.map((message) => message.id);
   if (throughMessageId != null) {
     // Re-sort on `(createdAt, id)` so the cutoff slice agrees with the cursor
     // the caller chose it from — see the matching note in `forkConversation`.
@@ -1389,6 +1422,21 @@ export async function forkConversationForRetrospective(params: {
   const inheritsLatestCompaction =
     inheritedCompaction != null &&
     inheritedCompaction.compactedAt === sourceConversation.contextCompactedAt;
+  // Copy only the visible tail: rows behind the inherited summary are never
+  // rendered on this fork (the retrospective wake runs under guardian trust,
+  // which slices `contextCompactedMessageCount` rows off the front), so
+  // copying them would hold the write lock for rows the agent cannot see.
+  // The drop-set is the first `compactedMessageCount` rows in LOAD order —
+  // the exact rows the source's render hides — rather than a positional
+  // slice of the re-sorted array, whose tie order can differ at the
+  // boundary. `slice` self-clamps when the ledger count exceeds the row
+  // count, mirroring the render path's clamp.
+  const hiddenRowIds = new Set(
+    loadOrderIds.slice(0, inheritedCompaction?.compactedMessageCount ?? 0),
+  );
+  const rowsToCopy = messagesToCopy.filter(
+    (message) => !hiddenRowIds.has(message.id),
+  );
   const forkParentMessageId = messagesToCopy.at(-1)?.id ?? null;
   const forkTitle =
     params.title ?? `${sourceConversation.title ?? "Untitled"} (Fork)`;
@@ -1396,7 +1444,7 @@ export async function forkConversationForRetrospective(params: {
 
   // Pre-generate the id map in JS so the same map drives the off-loop copy and
   // the in-process attachment relink that follows.
-  const idPairs: ForkIdPair[] = messagesToCopy.map((message) => ({
+  const idPairs: ForkIdPair[] = rowsToCopy.map((message) => ({
     oldId: message.id,
     newId: uuidv7(),
   }));
@@ -1421,9 +1469,19 @@ export async function forkConversationForRetrospective(params: {
           .set({
             forkParentConversationId: sourceConversation.id,
             forkParentMessageId,
+            // Stamped at creation so the startup orphan sweep (which only
+            // considers rows with a non-null `lastMessageAt`) can age this
+            // fork even if the daemon crashes before the copy or the
+            // retrospective instruction lands — including the empty-tail
+            // fork, which copies no rows at all. Phase 3 re-derives the same
+            // value from the copied rows when the tail is non-empty.
+            lastMessageAt: boundaryMessageCreatedAt,
             contextSummary: inheritedCompaction?.summary ?? null,
-            contextCompactedMessageCount:
-              inheritedCompaction?.compactedMessageCount ?? 0,
+            // Zero of the fork's own rows sit behind the boundary (the
+            // compacted prefix is not copied). The summary still renders:
+            // the history render keys on `contextSummary` presence, not on
+            // this count.
+            contextCompactedMessageCount: 0,
             contextCompactedAt: inheritedCompaction?.compactedAt ?? null,
             slackContextCompactionWatermarkTs: inheritsLatestCompaction
               ? sourceConversation.slackContextCompactionWatermarkTs
@@ -1472,7 +1530,7 @@ export async function forkConversationForRetrospective(params: {
     // contention: the transaction rolls back atomically, so re-running it is
     // safe.
     const latestForkedAssistant = latestForkedAssistantFrom(
-      messagesToCopy,
+      rowsToCopy,
       forkedMessageIds,
     );
     await withSqliteRetry(
@@ -1482,14 +1540,33 @@ export async function forkConversationForRetrospective(params: {
             populateForkContentsInProcess({
               fork,
               sourceConversationId: sourceConversation.id,
-              messagesToCopy,
+              messagesToCopy: rowsToCopy,
               forkedMessageIds,
               latestForkedAssistant,
               isFullHistoryFork:
                 copyBoundaryIndex === sourceMessages.length - 1,
-              inheritedCompactedMessageCount:
-                inheritedCompaction?.compactedMessageCount ?? 0,
+              // The copied range already starts at the visible window.
+              inheritedCompactedMessageCount: 0,
+              skipCompactionLedgerCopy: inheritedCompaction != null,
             });
+            // The fork owns none of the source's ledger events — their
+            // counts index source-space row positions, and this fork row
+            // stores a count of 0. Seed a single event mirroring the fork
+            // row's compaction fields whenever a compaction is inherited
+            // (even when the hidden prefix fell outside the cutoff and
+            // nothing was dropped), so the ledger and the row cache agree
+            // and a fork of this fork inherits the summary with the
+            // fork-local count. With no inherited compaction the default
+            // ledger copy is a natural no-op (no source event is
+            // at-or-before the boundary). Rolls back with the transaction,
+            // so the retry unit stays atomic.
+            if (inheritedCompaction) {
+              appendCompactionEvent(fork.id, {
+                compactedAt: inheritedCompaction.compactedAt,
+                summary: inheritedCompaction.summary,
+                compactedMessageCount: 0,
+              });
+            }
           },
           { behavior: "immediate" },
         ),

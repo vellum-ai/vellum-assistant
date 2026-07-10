@@ -263,8 +263,8 @@ async function selectPreservedBaseline(rows: RetroRow[]): Promise<string> {
  * Whether the retrospective row produced any assistant output of its own.
  * `loadRetrospectiveRunMessages` scopes fork-kind rows to the post-fork tail
  * (the copied source prefix contains the source's own assistant turns) and
- * returns `null` for rows whose output cannot be determined (load failure or
- * no detectable fork boundary) — those rows contribute nothing to dedup
+ * returns `null` for rows whose output cannot be determined (load failure) —
+ * those rows contribute nothing to dedup
  * (`collectPriorRetrospectiveRemembers` treats them as empty), so they don't
  * qualify. Legacy-kind rows start empty, so any assistant message counts.
  */
