@@ -53,9 +53,9 @@ import {
   SLOW_LLM_JOB_TYPES,
 } from "../../../persistence/jobs-store.js";
 import { spawnMemoryWorkerProcess } from "../../../persistence/worker-control.js";
-import { getWorkspaceDir } from "../../../util/platform.js";
 import { getLogger } from "./logging.js";
 import { sweepOrphanMemoryRetrospectiveConversations } from "./memory-retrospective-startup-cleanup.js";
+import { getWorkspaceDir } from "./paths.js";
 import { hasPkbBufferContent } from "./pkb-schedule.js";
 import { countBufferLines } from "./v2/consolidation-job.js";
 

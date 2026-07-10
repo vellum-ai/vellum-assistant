@@ -14,10 +14,10 @@ import { existsSync, unlinkSync, writeFileSync } from "node:fs";
 
 import { getConfig } from "../../../config/loader.js";
 import { initializeTools } from "../../../tools/registry.js";
-import { getMemoryWorkerPidPath } from "../../../util/platform.js";
 import { registerMemoryPluginJobHandlers } from "./job-handler-registration.js";
 import { startInProcessMemoryJobsWorker } from "./jobs-worker.js";
 import { getLogger } from "./logging.js";
+import { getMemoryWorkerPidPath } from "./paths.js";
 
 const log = getLogger("memory-worker-process");
 

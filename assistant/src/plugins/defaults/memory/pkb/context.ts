@@ -1,8 +1,8 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
-import { getWorkspaceDir } from "../../../../util/platform.js";
 import { stripCommentLines } from "../../../../util/strip-comment-lines.js";
+import { getWorkspaceDir } from "../paths.js";
 import { getPkbAutoInjectList } from "./autoinject.js";
 
 /** Max buffer.md lines injected into prompts — keeps context bounded even when filing is off. */

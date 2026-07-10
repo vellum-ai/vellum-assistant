@@ -27,9 +27,9 @@ import {
 import type { AssistantConfig } from "../../../../config/types.js";
 import { getDb } from "../../../../persistence/db-connection.js";
 import type { MemoryJob } from "../../../../persistence/jobs-store.js";
-import { getWorkspaceDir } from "../../../../util/platform.js";
 import { enqueueEmbedConceptPageJob } from "../jobs/embed-concept-page.js";
 import { getLogger } from "../logging.js";
+import { getWorkspaceDir } from "../paths.js";
 import {
   computeOwnActivation,
   selectCandidates,
