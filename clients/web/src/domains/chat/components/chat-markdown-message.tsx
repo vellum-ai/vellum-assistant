@@ -28,6 +28,7 @@ import {
   openMarkdownOAuthLinkInPopup,
   shouldOpenMarkdownLinkInOAuthPopup,
 } from "@/domains/chat/utils/oauth-popup-links";
+import { rehypeStreamWordFade } from "@/domains/chat/utils/rehype-stream-word-fade";
 
 /** Returns true when `href` is a known `vellum://` attachment link. */
 export function isVellumLink(href: string | undefined): boolean {
@@ -221,6 +222,17 @@ export interface ChatMarkdownMessageProps extends Omit<MarkdownMessageProps, "li
   attachments?: DisplayAttachment[];
   /** Active assistant ID for fetching attachment content from the daemon. */
   assistantId?: string | null;
+  /**
+   * Streamed-text reveal sweep (see `rehypeStreamWordFade`): each word is
+   * wrapped in a fade span, and while `"revealing"` the words nearest the
+   * reveal edge are graded toward transparent so the text appears through a
+   * soft left-to-right gradient wipe. Pass `"caughtUp"` once the reveal has
+   * drained the stream backlog so the tail lifts to full opacity (spans stay
+   * mounted, ready for the next chunk). Only enable for the actively-growing
+   * text of a streaming message — the spans cost DOM weight, so settled
+   * content should render plain (`undefined`).
+   */
+  streamWordFade?: "revealing" | "caughtUp";
 }
 
 export const ChatMarkdownMessage = memo(function ChatMarkdownMessage({
@@ -230,6 +242,7 @@ export const ChatMarkdownMessage = memo(function ChatMarkdownMessage({
   onVellumLinkClick,
   attachments,
   assistantId,
+  streamWordFade,
 }: ChatMarkdownMessageProps) {
   const { openPreview, previewModal } = useAttachmentPreview(
     assistantId,
@@ -264,6 +277,19 @@ export const ChatMarkdownMessage = memo(function ChatMarkdownMessage({
     [onVellumLinkClick],
   );
 
+  const streamFadePlugins = useMemo(
+    () =>
+      streamWordFade
+        ? [
+            [
+              rehypeStreamWordFade,
+              { caughtUp: streamWordFade === "caughtUp" },
+            ] as import("unified").Pluggable,
+          ]
+        : undefined,
+    [streamWordFade],
+  );
+
   const imageComponent: MarkdownImageComponent = useMemo(
     () =>
       ({ src, alt }: { src: string; alt: string }) => {
@@ -292,6 +318,7 @@ export const ChatMarkdownMessage = memo(function ChatMarkdownMessage({
         linkComponent={linkComponent}
         imageComponent={imageComponent}
         urlTransform={vellumUrlTransform}
+        extraRehypePlugins={streamFadePlugins}
       />
       {previewModal}
     </>

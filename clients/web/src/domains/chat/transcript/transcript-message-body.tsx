@@ -34,6 +34,7 @@ import {
   isSubagentSpawnCall,
 } from "@/domains/chat/transcript/message-content";
 import { parseInlineSurfaces } from "@/domains/chat/utils/parse-inline-surfaces";
+import { useSmoothStreamText } from "@/domains/chat/hooks/use-smooth-stream-text";
 import { stopAcpRun } from "@/domains/chat/utils/acp-run-actions";
 import { stopBackgroundTask } from "@/domains/chat/utils/background-task-actions";
 import { captureError } from "@/lib/sentry/capture-error";
@@ -62,6 +63,17 @@ import {
   type TranscriptMessageBodyProps,
   workflowRunIdForCall,
 } from "@/domains/chat/transcript/transcript-message-body-shared";
+
+/**
+ * Word-fade cutoff for the streaming trailing text group. The fade wraps
+ * every word in a span, and each ~30fps reveal commit re-reconciles the whole
+ * group, so cost grows with group length: benchmarked (happy-dom, M-series)
+ * at ~1.6ms/commit for a 2k-char group and ~4.8ms at 8k — comfortably inside
+ * the 33ms commit budget — but ~14ms avg / 27ms p95 at 24k. Past this cutoff
+ * the group streams without the per-word fade (reveal smoothing still
+ * applies), trading polish for headroom on outlier-length messages.
+ */
+const STREAM_WORD_FADE_MAX_CHARS = 12000;
 
 /**
  * Renders a `DisplayMessage`'s body by walking its unified `contentBlocks`
@@ -95,6 +107,7 @@ export function TranscriptMessageBody({
   onWorkflowClick,
   onStopWorkflow,
   isStreaming = false,
+  isLatestMessage = false,
 }: TranscriptMessageBodyProps) {
   const isSlackMessage = Boolean(message.slackMessage);
   const isSlackReaction = message.slackMessage?.eventKind === "reaction";
@@ -105,6 +118,16 @@ export function TranscriptMessageBody({
   const groups = groupContentBlocks(message.contentBlocks ?? [], {
     splitInlineThinking: !isUser,
   });
+
+  // Only the trailing text group of a streaming assistant message is still
+  // growing, so only it gets the typewriter re-pacing; earlier groups (and
+  // everything once the turn settles) render their text directly.
+  const trailingGroup = groups[groups.length - 1];
+  const smoothedTrailingText = useSmoothStreamText(
+    isStreaming && !isUser && trailingGroup?.type === "text"
+      ? trailingGroup.text
+      : null,
+  );
 
   const textBubbleClass = isSlackMessage
     ? "max-w-[80%] text-[var(--content-default)] sm:max-w-[640px]"
@@ -312,7 +335,11 @@ export function TranscriptMessageBody({
     [message.attachments, assistantId],
   );
 
-  const renderTextWithInlineSurfaces = (text: string, key: string) => {
+  const renderTextWithInlineSurfaces = (
+    text: string,
+    key: string,
+    streamWordFade?: "revealing" | "caughtUp",
+  ) => {
     const inlineSegments = parseInlineSurfaces(text);
     if (inlineSegments) {
       return (
@@ -345,6 +372,7 @@ export function TranscriptMessageBody({
                   onVellumLinkClick={handleVellumLinkClick}
                   attachments={message.attachments}
                   assistantId={assistantId}
+                  streamWordFade={streamWordFade}
                 />
               </div>
             );
@@ -360,6 +388,7 @@ export function TranscriptMessageBody({
           onVellumLinkClick={handleVellumLinkClick}
           attachments={message.attachments}
           assistantId={assistantId}
+          streamWordFade={streamWordFade}
         />
       </div>
     );
@@ -674,7 +703,22 @@ export function TranscriptMessageBody({
     gi: number,
   ): ReactNode => {
     if (group.type === "text") {
-      return renderTextWithInlineSurfaces(group.text, `b-text-${gi}`);
+      const isSmoothedTrailing =
+        gi === lastGroupIndex && smoothedTrailingText !== null;
+      // `useSmoothStreamText` returns the target string itself (identity,
+      // not a copy) once the reveal has drained the backlog — that identity
+      // check is what flips the sweep from "revealing" to "caughtUp".
+      const fadeMode =
+        isSmoothedTrailing && group.text.length <= STREAM_WORD_FADE_MAX_CHARS
+          ? smoothedTrailingText === group.text
+            ? ("caughtUp" as const)
+            : ("revealing" as const)
+          : undefined;
+      return renderTextWithInlineSurfaces(
+        isSmoothedTrailing ? smoothedTrailingText : group.text,
+        `b-text-${gi}`,
+        fadeMode,
+      );
     }
     if (group.type === "surface") {
       return renderSurfaceNode(group.surface, `b-surface-${gi}`);
@@ -693,13 +737,23 @@ export function TranscriptMessageBody({
   // truncates inside the card instead of overflowing the message column.
   const columnClass = `flex w-full min-w-0 flex-col gap-2 ${isUser ? "items-end" : "items-start"}`;
 
+  // See `TranscriptMessageBodyProps.isLatestMessage` for why only the latest
+  // message collapses this row instead of reserving its height. `-mt-2`
+  // cancels the column's `gap-2` slot while collapsed — a zero-height flex
+  // item still incurs the parent gap — and animates back to `mt-0` on reveal.
+  const trailerHeightClass = isLatestMessage
+    ? "h-0 -mt-2 overflow-hidden group-hover/msg:h-8 group-hover/msg:mt-0 has-[:focus-visible]:h-8 has-[:focus-visible]:mt-0 group-data-[revealed=true]/msg:h-8 group-data-[revealed=true]/msg:mt-0"
+    : "h-6 overflow-hidden";
+
   const trailer = (
     <>
       <SlackMessageAttribution
         message={message}
         assistantDisplayName={assistantDisplayName}
       />
-      <div className="h-6 opacity-0 transition-opacity duration-150 group-hover/msg:opacity-100 has-[:focus-visible]:opacity-100 group-data-[revealed=true]/msg:opacity-100">
+      <div
+        className={`${trailerHeightClass} opacity-0 transition-[height,margin,opacity] duration-200 ease-out group-hover/msg:opacity-100 has-[:focus-visible]:opacity-100 group-data-[revealed=true]/msg:opacity-100 motion-reduce:transition-none`}
+      >
         <MessageHoverActions
           message={message}
           conversationId={conversationId}

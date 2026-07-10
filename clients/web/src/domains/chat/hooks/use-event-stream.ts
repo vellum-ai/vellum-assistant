@@ -143,7 +143,7 @@ export function useEventStream({
   /* eslint-disable react-hooks/refs -- lazy-init (runs once) */
   if (burstLimiterRef.current == null) {
     burstLimiterRef.current = createReachabilityBurstLimiter({
-      onReady: () => useTurnStore.getState().resetTurn(),
+      onReady: () => useTurnStore.getState().clearStaleTurn(),
       onClearError: () => useChatSessionStore.getState().setError(null),
       onExhausted: (err) => useChatSessionStore.getState().setError(err),
       onReset: () => reachabilityResetRef.current(),
