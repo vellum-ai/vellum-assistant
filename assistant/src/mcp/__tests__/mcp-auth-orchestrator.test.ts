@@ -71,8 +71,9 @@ mock.module("../../daemon/mcp-reload-service.js", () => ({
   reloadMcpServers: () => mockReloadMcpServers(),
 }));
 
+let mockIsContainerized = false;
 mock.module("../../config/env-registry.js", () => ({
-  getIsContainerized: () => false,
+  getIsContainerized: () => mockIsContainerized,
   getWorkspaceDirOverride: () => undefined,
   // Imported by the real util/logger.js; ESM named-import validation
   // requires it even though the silent test logger never calls it.
@@ -284,12 +285,28 @@ describe("orchestrateMcpOAuthConnect", () => {
     expect(mockReloadMcpServers).not.toHaveBeenCalled();
   });
 
-  test("default flow reuses stored client — does not invalidate credentials", async () => {
+  test("gateway flow reuses stored client — does not invalidate credentials", async () => {
+    mockIsContainerized = true;
+    try {
+      await orchestrateMcpOAuthConnect({
+        serverId: "test-server",
+        transport: { url: "https://example.com", type: "sse" },
+      });
+      expect(mockInvalidateCredentials).not.toHaveBeenCalled();
+    } finally {
+      mockIsContainerized = false;
+    }
+  });
+
+  test("loopback flow re-registers the client (fresh redirect port) but keeps tokens", async () => {
     await orchestrateMcpOAuthConnect({
       serverId: "test-server",
       transport: { url: "https://example.com", type: "sse" },
     });
-    expect(mockInvalidateCredentials).not.toHaveBeenCalled();
+    const scopes = mockInvalidateCredentials.mock.calls.map(
+      (c) => (c as unknown as string[])[0],
+    );
+    expect(scopes).toEqual(["client", "discovery"]);
   });
 
   test("reset flow invalidates client, discovery, and tokens before starting", async () => {
