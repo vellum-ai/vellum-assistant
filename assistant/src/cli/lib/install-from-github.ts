@@ -138,11 +138,13 @@ export interface InstallPluginOptions {
    * analogue of a marketplace install: the pin came from the reviewed bundled
    * catalog instead of a live marketplace fetch, so — unlike
    * {@link InstallPluginOptions.directSource} — the source is trusted and the
-   * adapter stub is kept. The stub is fetched from the canonical repo at
-   * {@link InstallPluginOptions.ref} (default {@link DEFAULT_PLUGIN_REF}), the
-   * same ref the online trusted path uses. When set, marketplace resolution and
-   * {@link InstallPluginOptions.commitOverride} are skipped; `trustedSource.ref`
-   * selects the commit to clone (the reviewed pin).
+   * adapter stub is kept. `trustedSource` names the EXTERNAL plugin repo, so
+   * `trustedSource.ref` (its immutable content commit) cannot address the stub,
+   * which lives in this repo; the stub is fetched from the canonical repo at
+   * {@link InstallPluginOptions.ref} (default {@link DEFAULT_PLUGIN_REF}) — the
+   * bundled catalog records no canonical-repo pin. When set, marketplace
+   * resolution and {@link InstallPluginOptions.commitOverride} are skipped;
+   * `trustedSource.ref` selects the commit to clone (the reviewed pin).
    */
   readonly trustedSource?: PluginFetchSource;
 }
@@ -406,9 +408,12 @@ export async function installPlugin(
     effectiveSource = opts.directSource;
     stubRef = null;
   } else if (opts.trustedSource) {
-    // Trusted, pre-resolved coordinates: keep the curated adapter overlay,
-    // fetched from the canonical repo at `marketplaceRef` exactly as the online
-    // trusted path does.
+    // Offline bundled-catalog install: clone the external content verbatim but
+    // keep the curated adapter overlay (like the marketplace-git trusted path).
+    // The stub lives in this repo, not in `trustedSource` (the external plugin),
+    // so `trustedSource.ref` can't address it; with no canonical-repo pin
+    // recorded offline, the stub is fetched at `marketplaceRef` (its default,
+    // DEFAULT_PLUGIN_REF).
     effectiveSource = opts.trustedSource;
     stubRef = marketplaceRef;
   } else {

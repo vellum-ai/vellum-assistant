@@ -548,7 +548,7 @@ Examples:
       plugins
         .command("search <query>")
         .description(
-          "Search the plugins/marketplace.json catalog for plugin names matching <query> (case-insensitive regex)",
+          "Search the installable plugin catalog for plugin names matching <query> (case-insensitive regex)",
         )
         .option("--json", "Emit machine-readable JSON instead of a table")
         .action(async (query: string, opts: { json?: boolean }) => {
