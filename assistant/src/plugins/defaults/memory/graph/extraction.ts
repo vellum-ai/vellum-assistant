@@ -1293,6 +1293,7 @@ function resolveImageRefMimeType(
       and(
         eq(messages.id, messageId),
         eq(messages.conversationId, conversationId),
+        eq(messages.finalized, 1),
       ),
     )
     .get();
@@ -1394,7 +1395,10 @@ function loadTranscriptWithImages(
   const db = getDb();
 
   // Build query conditions
-  const conditions = [eq(messages.conversationId, conversationId)];
+  const conditions = [
+    eq(messages.conversationId, conversationId),
+    eq(messages.finalized, 1),
+  ];
   if (afterTimestamp !== undefined) {
     conditions.push(gt(messages.createdAt, afterTimestamp));
   }

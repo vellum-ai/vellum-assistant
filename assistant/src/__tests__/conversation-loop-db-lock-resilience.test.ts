@@ -21,11 +21,12 @@ mock.module("../config/loader.js", () => ({
   loadConfig: () => ({}),
 }));
 
-// `updateMessageContent` throws `SQLITE_BUSY` for the first
-// `updateContentFailuresRemaining` calls, then records the content written.
+// `finalizeMessageContent` (the finalize seam's write) throws `SQLITE_BUSY`
+// for the first `updateContentFailuresRemaining` calls, then records the
+// content written.
 let updateContentFailuresRemaining = 0;
 const writtenContentById = new Map<string, string>();
-const updateMessageContentMock = mock((id: string, content: string) => {
+const finalizeMessageContentMock = mock((id: string, content: string) => {
   if (updateContentFailuresRemaining > 0) {
     updateContentFailuresRemaining -= 1;
     throw Object.assign(new Error("database is locked"), {
@@ -44,7 +45,9 @@ mock.module("../persistence/conversation-crud.js", () => ({
   isConversationProcessing: () => false,
   getConversation: () => null,
   getMessageById: () => null,
-  updateMessageContent: updateMessageContentMock,
+  updateMessageContent: () => {},
+  markMessageContentInflight: () => {},
+  finalizeMessageContent: finalizeMessageContentMock,
   provenanceFromTrustContext: () => ({}),
   reserveMessage: async (_conversationId: string, role: string) => ({
     id: role === "user" ? "tool-result-row" : "assistant-row",
@@ -138,7 +141,7 @@ describe("agent loop SQLite write-contention resilience", () => {
     updateContentFailuresRemaining = 0;
     writtenContentById.clear();
     persistedSeqByConversation.clear();
-    updateMessageContentMock.mockClear();
+    finalizeMessageContentMock.mockClear();
   });
 
   test("retries a transient SQLITE_BUSY and finalizes the assistant row", async () => {
@@ -153,7 +156,7 @@ describe("agent loop SQLite write-contention resilience", () => {
     );
 
     // THEN it retried until the write committed (2 failures + 1 success) ...
-    expect(updateMessageContentMock).toHaveBeenCalledTimes(3);
+    expect(finalizeMessageContentMock).toHaveBeenCalledTimes(3);
     expect(writtenContentById.get("assistant-row")).toContain("done");
     // ... the finalization completed ...
     expect(state.assistantRowAwaitingFinalization).toBe(false);
@@ -173,7 +176,7 @@ describe("agent loop SQLite write-contention resilience", () => {
     ).resolves.toBeUndefined();
 
     // THEN the write was attempted (initial try + the retries) ...
-    expect(updateMessageContentMock.mock.calls.length).toBeGreaterThan(1);
+    expect(finalizeMessageContentMock.mock.calls.length).toBeGreaterThan(1);
     // ... no content landed ...
     expect(writtenContentById.has("assistant-row")).toBe(false);
     // ... and the seq was NOT advanced past content that never became durable.

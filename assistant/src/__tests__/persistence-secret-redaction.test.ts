@@ -63,6 +63,13 @@ mock.module("../persistence/conversation-crud.js", () => ({
     const call = addMessageCalls.find((c) => c.id === messageId);
     if (call) call.content = content;
   },
+  markMessageContentInflight: () => {},
+  finalizeMessageContent: (messageId: string, content: string) => {
+    // The finalize seam writes through `finalizeMessageContent`; mirror it
+    // into the same capture array as `updateMessageContent`.
+    const call = addMessageCalls.find((c) => c.id === messageId);
+    if (call) call.content = content;
+  },
   provenanceFromTrustContext: () => ({}),
   reserveMessage: mock(
     async (

@@ -3,8 +3,9 @@
  *
  * A `messages.content` value is a union of two shapes:
  *   - Inline: a JSON-serialized `ContentBlock[]` (or a legacy plain string).
- *   - Ref:    `{ "ref": "conversations/<dir>/…/<messageId>.jsonl" }` pointing
- *             at a JSONL delta file that folds to a `ContentBlock[]`.
+ *   - Ref:    `{ "ref": "conversations/<dir>/inflight/<uuid>.jsonl" }`
+ *             pointing at a JSONL delta file that folds to a
+ *             `ContentBlock[]`.
  *
  * The ref path is workspace-relative and MUST live under the reserved
  * `conversations/` prefix with a `.jsonl` extension — the schema rejects
@@ -173,7 +174,10 @@ function resolveRefToBlocks(ref: MessageContentRef): ContentBlock[] {
   }
   const blocks = foldContentFile(absPath);
   if (blocks === null) {
-    log.warn(
+    // Normal for a row born in-flight that has not partial-flushed yet
+    // (fast replies inside the debounce window) — the file only exists
+    // once the first flush appends to it.
+    log.debug(
       { ref: ref.ref },
       "Content ref file missing or unreadable; resolving as empty",
     );

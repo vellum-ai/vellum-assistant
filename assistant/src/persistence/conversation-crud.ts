@@ -516,6 +516,8 @@ interface InsertMessageCoreParams {
   conversationId: string;
   role: MessageRole;
   content: string;
+  /** 0 = row is born streaming (content is an in-flight `{ ref }`). Defaults to 1. */
+  finalized?: 0 | 1;
   metadata?: Record<string, unknown>;
   clientMessageId?: string;
   /** Pre-assigned message ID. When omitted, a time-ordered `uuidv7()` is
@@ -549,8 +551,15 @@ interface InsertMessageCoreParams {
 async function insertMessageCore(
   params: InsertMessageCoreParams,
 ): Promise<InsertedMessage> {
-  const { conversationId, role, content, metadata, clientMessageId, id } =
-    params;
+  const {
+    conversationId,
+    role,
+    content,
+    finalized,
+    metadata,
+    clientMessageId,
+    id,
+  } = params;
   const db = getDb();
   // Time-ordered UUIDv7 so server-generated message ids append to the tail of
   // the WITHOUT ROWID `messages` primary key instead of scattering (v4).
@@ -586,6 +595,7 @@ async function insertMessageCore(
             role,
             content,
             createdAt: now,
+            ...(finalized !== undefined ? { finalized } : {}),
             ...(metadataStr ? { metadata: metadataStr } : {}),
             ...(clientMessageId ? { clientMessageId } : {}),
           };
@@ -3113,25 +3123,36 @@ export async function reserveMessage(
   conversationId: string,
   role: MessageRole,
   metadata?: Record<string, unknown>,
+  /**
+   * Workspace-relative in-flight delta-file path. When provided, the row is
+   * created already streaming — `content` holds the `{ ref }` pointer and
+   * `finalized = 0` — so no later row write is needed to enter the
+   * streaming state. The finalize seam folds the row inline.
+   */
+  inflightRef?: string,
 ) {
   return insertMessageCore({
     conversationId,
     role,
-    content: "[]",
+    content: inflightRef ? JSON.stringify({ ref: inflightRef }) : "[]",
+    ...(inflightRef ? { finalized: 0 as const } : {}),
     metadata,
   });
 }
 
 /**
- * Update the content of an existing message. Used when consolidating
- * multiple assistant messages into one.
+ * Update the content of an existing message in place. Used for edits to
+ * already-finalized rows: consolidation, channel edit propagation, and the
+ * post-finalize tool-timing stamps (`_startedAt`/`_previewStartedAt`).
+ * Streaming writes do NOT come through here — the agent loop's partial
+ * flushes append to the in-flight delta file (`inflight-message-content.ts`)
+ * and land on the row once, at the finalize seam.
  *
- * This is a pure CRUD primitive: it does NOT enqueue a lexical reindex, because
- * it is also driven by mid-stream partial flushes and high-frequency tool-timing
- * stamps (`_startedAt`/`_previewStartedAt`) that either don't change searchable
- * text or would spam reindex jobs. Callers on genuine content-change seams
- * (streaming finalize, channel edits, consolidation) enqueue the reindex
- * themselves via `enqueueLexicalIndexForMessage`.
+ * This is a pure CRUD primitive: it does NOT enqueue a lexical reindex
+ * (the timing stamps don't change searchable text and would spam reindex
+ * jobs). Callers on genuine content-change seams (channel edits,
+ * consolidation) enqueue the reindex themselves via
+ * `enqueueLexicalIndexForMessage`.
  */
 export function updateMessageContent(
   messageId: string,
@@ -3150,6 +3171,45 @@ export function updateMessageContent(
     .set({ content: newContent })
     .where(eq(messages.id, messageId))
     .run();
+}
+
+/**
+ * Terminal content write for a message: store the folded inline content and
+ * set `finalized = 1` in the same statement (with optional metadata riding
+ * the same transaction). After this, the row is immutable streaming-wise and
+ * eligible for batch readers (search, memory indexing).
+ */
+export function finalizeMessageContent(
+  messageId: string,
+  contentJson: string,
+  metadataUpdates?: Record<string, unknown>,
+): void {
+  const db = getDb();
+  if (!metadataUpdates) {
+    db.update(messages)
+      .set({ content: contentJson, finalized: 1 })
+      .where(eq(messages.id, messageId))
+      .run();
+    return;
+  }
+  db.transaction((tx) => {
+    const row = tx
+      .select({ metadata: messages.metadata })
+      .from(messages)
+      .where(eq(messages.id, messageId))
+      .get();
+    const existing = row?.metadata
+      ? (JSON.parse(row.metadata) as Record<string, unknown>)
+      : {};
+    tx.update(messages)
+      .set({
+        content: contentJson,
+        finalized: 1,
+        metadata: JSON.stringify({ ...existing, ...metadataUpdates }),
+      })
+      .where(eq(messages.id, messageId))
+      .run();
+  });
 }
 
 /**
