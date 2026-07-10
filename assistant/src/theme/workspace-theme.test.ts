@@ -123,7 +123,13 @@ describe("readWorkspaceTheme", () => {
     writeTheme(
       JSON.stringify({
         version: 1,
-        tokens: { text: "#fefefe", background: "#ffffff" },
+        tokens: {
+          text: "#fefefe",
+          textMuted: "#555555",
+          background: "#ffffff",
+          surface: "#f2f2f2",
+          surfaceRaised: "#e8e8e8",
+        },
       }),
     );
     const result = readWorkspaceTheme();
@@ -132,10 +138,39 @@ describe("readWorkspaceTheme", () => {
     expect(result.issues[0]).toContain("contrast");
   });
 
-  test("contrast floor is skipped when only one side of a pair is set", () => {
-    writeTheme(JSON.stringify({ version: 1, tokens: { text: "#ffffff" } }));
+  test("partial core override group is rejected, naming the missing tokens", () => {
+    writeTheme(
+      JSON.stringify({ version: 1, tokens: { background: "#000000" } }),
+    );
+    const result = readWorkspaceTheme();
+    expect(result.source).toBe("invalid");
+    expect(result.theme).toBeNull();
+    expect(result.issues[0]).toContain("incomplete override group");
+    expect(result.issues[0]).toContain("tokens.text");
+  });
+
+  test("partial bubble pair is rejected", () => {
+    writeTheme(
+      JSON.stringify({
+        version: 1,
+        tokens: { assistantBubbleBackground: "#33202a" },
+      }),
+    );
+    const result = readWorkspaceTheme();
+    expect(result.source).toBe("invalid");
+    expect(result.issues[0]).toContain("incomplete override group");
+  });
+
+  test("group-exempt tokens (accent, border) are valid alone", () => {
+    writeTheme(
+      JSON.stringify({
+        version: 1,
+        tokens: { accent: "#e8a04c", border: "#43301f" },
+      }),
+    );
     const result = readWorkspaceTheme();
     expect(result.source).toBe("workspace");
+    expect(result.issues).toEqual([]);
   });
 
   test("bubble text/background pairs are contrast-checked", () => {
@@ -150,6 +185,7 @@ describe("readWorkspaceTheme", () => {
     );
     const result = readWorkspaceTheme();
     expect(result.source).toBe("invalid");
+    expect(result.issues[0]).toContain("contrast");
   });
 });
 

@@ -7,6 +7,9 @@
  * - only the semantic token slots below are accepted (unknown keys reject),
  * - values must be plain 3- or 6-digit hex colors (no alpha, so the
  *   contrast floor stays meaningful),
+ * - tokens that resolve against each other are all-or-none per override
+ *   group, so a partial override can never pair an authored color with an
+ *   unknown base-theme color,
  * - text/background pairs must clear a minimum contrast ratio so an
  *   authored theme can never render core copy illegible.
  *
@@ -65,8 +68,9 @@ export type WorkspaceTheme = z.infer<typeof WorkspaceThemeSchema>;
 export const MIN_TEXT_CONTRAST_RATIO = 3;
 
 /**
- * Token pairs that must clear the contrast floor when both sides are
- * present: [foreground, background].
+ * Token pairs that must clear the contrast floor: [foreground, background].
+ * Group completeness (below) guarantees both sides are present whenever
+ * either is, so every pair is always checkable.
  */
 const CONTRAST_PAIRS: readonly [
   keyof WorkspaceThemeTokens,
@@ -74,10 +78,41 @@ const CONTRAST_PAIRS: readonly [
 ][] = [
   ["text", "background"],
   ["text", "surface"],
+  ["text", "surfaceRaised"],
   ["textMuted", "background"],
   ["assistantBubbleText", "assistantBubbleBackground"],
   ["userBubbleText", "userBubbleBackground"],
 ];
+
+/**
+ * Tokens that resolve against each other must be overridden together.
+ * Clients layer these tokens over a base theme whose palette the daemon
+ * does not know, so a half-overridden pairing (e.g. a dark `background`
+ * with the base's dark `text` inherited) would bypass the contrast floor.
+ * `accent` and `border` are exempt: no body copy resolves against them.
+ */
+const OVERRIDE_GROUPS: readonly (keyof WorkspaceThemeTokens)[][] = [
+  ["background", "surface", "surfaceRaised", "text", "textMuted"],
+  ["assistantBubbleBackground", "assistantBubbleText"],
+  ["userBubbleBackground", "userBubbleText"],
+];
+
+function groupCompletenessIssues(tokens: WorkspaceThemeTokens): string[] {
+  const issues: string[] = [];
+  for (const group of OVERRIDE_GROUPS) {
+    const set = group.filter((key) => tokens[key] !== undefined);
+    if (set.length === 0 || set.length === group.length) {
+      continue;
+    }
+    const missing = group.filter((key) => tokens[key] === undefined);
+    issues.push(
+      `incomplete override group: setting ${set.map((k) => `tokens.${k}`).join(", ")} also requires ` +
+        `${missing.map((k) => `tokens.${k}`).join(", ")} — a partial override mixes with unknown ` +
+        `base-theme colors, which would bypass the contrast floor`,
+    );
+  }
+  return issues;
+}
 
 function expandHex(hex: string): string {
   const raw = hex.slice(1);
@@ -190,11 +225,15 @@ export function readWorkspaceTheme(): WorkspaceThemeReadResult {
     };
   }
 
-  const legibility = result.data.tokens
-    ? contrastIssues(result.data.tokens)
-    : [];
-  if (legibility.length > 0) {
-    return { theme: null, source: "invalid", issues: legibility };
+  if (result.data.tokens) {
+    const completeness = groupCompletenessIssues(result.data.tokens);
+    if (completeness.length > 0) {
+      return { theme: null, source: "invalid", issues: completeness };
+    }
+    const legibility = contrastIssues(result.data.tokens);
+    if (legibility.length > 0) {
+      return { theme: null, source: "invalid", issues: legibility };
+    }
   }
 
   return { theme: result.data, source: "workspace", issues: [] };
