@@ -145,6 +145,19 @@ export function useGallerySwipe({
 
       if (g.axis !== "horizontal") return;
 
+      // Re-check vertical escape after arming: a gesture locked to horizontal at
+      // the deadzone can later turn mostly vertical (e.g. scrolling a tall PDF or
+      // text preview). Abandon it so incidental horizontal drift doesn't navigate
+      // during a scroll. Once past the commit threshold the swipe is already
+      // decided, so stop re-checking (mirrors use-edge-swipe's mid-gesture escape).
+      if (
+        Math.abs(dx) < COMMIT_THRESHOLD_PX &&
+        Math.abs(dy) > Math.abs(dx) * VERTICAL_ESCAPE_RATIO
+      ) {
+        reset();
+        return;
+      }
+
       // Follow the finger, damping travel beyond the commit threshold.
       const sign = Math.sign(dx);
       const abs = Math.abs(dx);
