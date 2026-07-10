@@ -1,14 +1,13 @@
 /**
  * Backwards-compat gate: per-channel admission floors (trust floors).
  *
- * The admission-policy list/set routes behind `useChannelTrustFloors`
- * and `useChannelProvenance` shipped with 0.10.0 (PR #35150) — the
- * pinned version below. Now that the `channel-trust-floors` flag
- * defaults on, an older gateway that omits the flag from
- * `/feature-flags` leaves the registry default (`true`) in place, so
- * without this gate the queries would fire against a gateway that
- * lacks the routes and render a dead error state. When unsupported,
- * the channel list renders without floor controls or provenance pills
+ * Gateways below the pinned version lack the admission-policy list/set
+ * routes behind `useChannelTrustFloors` and `useChannelProvenance`.
+ * Such a gateway also omits the `channel-trust-floors` flag from
+ * `/feature-flags`, leaving the registry default (`true`) in place, so
+ * the flag alone cannot keep the queries from firing against a gateway
+ * that 404s them into a dead error state. When unsupported, the
+ * channel list renders without floor controls or provenance pills
  * (read-path degrade), matching `channel-access-controls.ts`.
  */
 import { useAssistantSupports } from "./utils";
