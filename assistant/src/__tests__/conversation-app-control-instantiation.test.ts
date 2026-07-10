@@ -43,11 +43,6 @@ import type { Tool } from "../tools/types.js";
 // Module mocks for the skill-projection layer
 // ---------------------------------------------------------------------------
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
-}));
-
 let appControlFlagEnabled = false;
 mock.module("../config/assistant-feature-flags.js", () => ({
   isAssistantFeatureFlagEnabled: (key: string) => {

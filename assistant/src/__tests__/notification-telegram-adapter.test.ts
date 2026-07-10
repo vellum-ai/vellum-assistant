@@ -36,13 +36,6 @@ mock.module("../messaging/providers/telegram-bot/send.js", () => ({
   sendTelegramTypingIndicator: async () => true,
 }));
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 import { TelegramAdapter } from "../notifications/adapters/telegram.js";
 import type {
   ChannelDeliveryPayload,

@@ -41,14 +41,6 @@ mock.module("../security/secure-keys.js", () => ({
   getSecureKeyAsync: async (_keyId: string) => mockSecureKey,
 }));
 
-// Suppress logger output during tests
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // ---------------------------------------------------------------------------
 // Global fetch mock — swapped per test
 // ---------------------------------------------------------------------------

@@ -11,12 +11,6 @@ beforeAll(() => {
 
 // ── Module mocks ────────────────────────────────────────────────────────────
 //
-// Stub the logger so retry diagnostics don't pollute test output.
-mock.module("../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
-}));
-
 // Mutable test fixtures for `getConfig()`. Each test rebuilds the relevant
 // pieces via `setLlmConfig(...)` before exercising the path. The mock is
 // registered once and reads from these closures so subsequent tests don't

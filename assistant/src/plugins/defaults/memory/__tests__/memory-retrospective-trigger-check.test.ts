@@ -1,12 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-mock.module("../../../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // Record enqueues instead of writing job rows — the trigger decision is the
 // unit under test here, not the jobs store's gating.
 let enqueueCalls: Array<{ conversationId: string; trigger: string }> = [];

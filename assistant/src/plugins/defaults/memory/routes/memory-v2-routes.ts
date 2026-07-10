@@ -336,7 +336,7 @@ async function handleEmaScores({
 
   const pageIndex = await getPageIndex(getWorkspaceDir());
   const slugs = pageIndex.entries.map((e) => e.slug);
-  const scores = computeInjectionScores(getDb(), slugs, Date.now());
+  const scores = computeInjectionScores(slugs, Date.now());
 
   const entries: MemoryV2EmaScoresEntry[] = pageIndex.entries.map((entry) => ({
     slug: entry.slug,
@@ -536,7 +536,6 @@ export async function handleSimulateRouter({
     nowText,
     priorEverInjected: [],
     config: mergedConfig,
-    database: getDb(),
     ...(profileOverride !== undefined
       ? { overrideProfile: profileOverride }
       : {}),
@@ -550,11 +549,7 @@ export async function handleSimulateRouter({
   });
 
   const pageIndex = await getPageIndex(workspaceDir);
-  const scores = computeInjectionScores(
-    getDb(),
-    routerResult.selectedSlugs,
-    Date.now(),
-  );
+  const scores = computeInjectionScores(routerResult.selectedSlugs, Date.now());
 
   const sourceBySlug: Record<string, RouterSource> = {};
   for (const [slug, source] of routerResult.sourceBySlug.entries()) {
@@ -660,7 +655,7 @@ export async function handleCompareRetrievers({
 
   // The router is always comparand #1 (the harness self-test against its own
   // logged ground truth).
-  const retrievers: Retriever[] = [createRouterRetriever(db)];
+  const retrievers: Retriever[] = [createRouterRetriever()];
 
   return runComparisonOverHistory({
     db,

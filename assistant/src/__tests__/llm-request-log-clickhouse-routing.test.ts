@@ -6,11 +6,6 @@
  */
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
-}));
-
 // Logging stays enabled; `getConfigReadOnly` is only consulted by the store.s
 // disabled gate here (the sink factory itself is mocked below).
 mock.module("../config/loader.js", () => ({
@@ -18,7 +13,8 @@ mock.module("../config/loader.js", () => ({
   getConfigReadOnly: () => ({ llmRequestLogs: { readSource: "local" } }),
 }));
 
-// Mutable fake sink: when non-null, the store must route to it.
+// Mutable fake sink: when non-null, the store must route to it. Mirrors the
+// `LlmRequestLogWriter` surface the store dispatches through.
 interface CapturedRow {
   id: string;
   conversationId: string;
@@ -30,9 +26,13 @@ mock.module("../persistence/llm-request-log-sink-clickhouse.js", () => ({
   getClickHouseLlmRequestLogSink: () =>
     sinkActive
       ? {
-          recordBestEffort: (row: CapturedRow) => {
+          insertRequestLog: (row: CapturedRow) => {
             capturedRows.push(row);
           },
+          setAgentLoopExitReasonOnLatestLog: () => {},
+          backfillMessageIdOnLogs: () => {},
+          relinkLlmRequestLogs: () => {},
+          backfillMessageIdOnRecoveredLogs: () => {},
         }
       : null,
 }));

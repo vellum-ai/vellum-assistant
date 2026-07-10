@@ -254,15 +254,6 @@ mock.module("../skills/version-hash.js", () => ({
   },
 }));
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () => ({
-    info: () => {},
-    warn: () => {},
-    debug: () => {},
-    error: () => {},
-  }),
-}));
-
 mock.module("../config/loader.js", () => ({
   getConfig: () => ({
     skills: { entries: {}, allowBundled: null },

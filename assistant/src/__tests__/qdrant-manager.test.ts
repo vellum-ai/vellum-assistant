@@ -15,18 +15,10 @@ import {
   beforeEach,
   describe,
   expect,
-  mock,
   test,
 } from "bun:test";
 
 const testDataDir = process.env.VELLUM_WORKSPACE_DIR!;
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
 
 import { QdrantManager } from "../persistence/embeddings/qdrant-manager.js";
 

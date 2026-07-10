@@ -34,13 +34,6 @@ mock.module("../config/loader.js", () => ({
   setNestedValue: () => {},
 }));
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 import { runSkillToolScript } from "../tools/skills/skill-script-runner.js";
 import type { ToolContext } from "../tools/types.js";
 

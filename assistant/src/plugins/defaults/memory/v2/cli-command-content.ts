@@ -15,6 +15,8 @@ import type { CLI_COMMAND_HELP } from "@vellumai/plugin-api";
 
 /** Element type of the plugin-api's declarative CLI help constant. */
 type CliCommandHelp = (typeof CLI_COMMAND_HELP)[number];
+/** Subcommand element type — recursive via its own `subcommands` field. */
+type CliSubcommandHelp = NonNullable<CliCommandHelp["subcommands"]>[number];
 
 export function buildCliCommandContent(
   name: string,
@@ -40,8 +42,28 @@ export function buildCliCommandHelpContent(help: CliCommandHelp): string {
   if (help.helpText) {
     sections.push(help.helpText.trim());
   }
-  for (const sub of help.subcommands ?? []) {
-    const lines = [`${help.name} ${sub.name} — ${sub.description}`];
+  collectSubcommandSections(help.name, help.subcommands, sections);
+  return buildCliCommandContent(
+    help.name,
+    help.description,
+    sections.join("\n\n"),
+  );
+}
+
+/**
+ * Walk the subcommand tree depth-first, emitting one section per subcommand
+ * headed by its full command path (`backup destinations add <path> — …`) so
+ * nested groups index under the phrase a user would actually type.
+ */
+function collectSubcommandSections(
+  path: string,
+  subs: readonly CliSubcommandHelp[] | undefined,
+  sections: string[],
+): void {
+  for (const sub of subs ?? []) {
+    const subPath = `${path} ${sub.name}`;
+    const heading = `${subPath}${sub.args ? ` ${sub.args}` : ""} — ${sub.description}`;
+    const lines = [heading];
     const options = renderOptionLines(sub.options);
     if (options) {
       lines.push(options);
@@ -50,12 +72,8 @@ export function buildCliCommandHelpContent(help: CliCommandHelp): string {
       lines.push(sub.helpText.trim());
     }
     sections.push(lines.join("\n"));
+    collectSubcommandSections(subPath, sub.subcommands, sections);
   }
-  return buildCliCommandContent(
-    help.name,
-    help.description,
-    sections.join("\n\n"),
-  );
 }
 
 function renderOptionLines(options: CliCommandHelp["options"]): string | null {
@@ -63,9 +81,17 @@ function renderOptionLines(options: CliCommandHelp["options"]): string | null {
     return null;
   }
   return options
-    .map(
-      (option) =>
-        `  ${option.flags}${option.required ? " (required)" : ""}  ${option.description}`,
-    )
+    .map((option) => {
+      const qualifiers = [
+        option.required ? " (required)" : "",
+        option.choices?.length
+          ? ` (choices: ${option.choices.join(", ")})`
+          : "",
+        option.defaultValue !== undefined
+          ? ` (default: ${option.defaultValue})`
+          : "",
+      ].join("");
+      return `  ${option.flags}${qualifiers}  ${option.description}`;
+    })
     .join("\n");
 }

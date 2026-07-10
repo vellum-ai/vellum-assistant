@@ -74,13 +74,12 @@ mock.module("../skill-store.js", () => ({
 }));
 
 // Stub `computeInjectionScores` so tier-2 tests can dictate scores
-// without spinning up a real bun:sqlite db. Real production wiring is
-// covered by the splitTier2 unit tests in page-index.test.ts and the
-// score-formula tests in injection-events.test.ts.
+// without spinning up a real bun:sqlite db in the memory singleton slot.
+// Real production wiring is covered by the splitTier2 unit tests in
+// page-index.test.ts and the score-formula tests in injection-events.test.ts.
 const scoresStub = new Map<string, number>();
 mock.module("../injection-events.js", () => ({
   computeInjectionScores: (
-    _db: unknown,
     slugs: readonly string[],
     _now: number,
   ): Map<string, number> => {
@@ -956,10 +955,6 @@ describe("runRouter — tier 1 (recently modified)", () => {
 // ---------------------------------------------------------------------------
 
 describe("runRouter — tier 2 (highest EMA)", () => {
-  // Any non-null value passes the `params.database` check in the orchestrator;
-  // the real db is never touched because computeInjectionScores is mocked.
-  const stubDb = {} as Parameters<typeof runRouter>[0]["database"];
-
   beforeEach(async () => {
     await writePage(workspaceDir, makePage("alpha", { summary: "A" }));
     await writePage(workspaceDir, makePage("bravo", { summary: "B" }));
@@ -974,7 +969,6 @@ describe("runRouter — tier 2 (highest EMA)", () => {
       workspaceDir,
       ...COMMON_PARAMS,
       config: makeConfig(),
-      database: stubDb,
     });
     expect(providerCalls).toHaveLength(1);
   });
@@ -989,7 +983,6 @@ describe("runRouter — tier 2 (highest EMA)", () => {
       workspaceDir,
       ...COMMON_PARAMS,
       config: makeConfig({ tier2Size: 2 }),
-      database: stubDb,
     });
     expect(providerCalls.length).toBe(2);
 
@@ -1025,7 +1018,6 @@ describe("runRouter — tier 2 (highest EMA)", () => {
       workspaceDir,
       ...COMMON_PARAMS,
       config: makeConfig({ tier1Size: 2, tier2Size: 2 }),
-      database: stubDb,
     });
     expect(providerCalls.length).toBe(3);
 
@@ -1054,7 +1046,6 @@ describe("runRouter — tier 2 (highest EMA)", () => {
       workspaceDir,
       ...COMMON_PARAMS,
       config: makeConfig({ tier2Size: 100 }),
-      database: stubDb,
     });
     expect(providerCalls.length).toBe(2);
     const tier2Prompt = providerCalls[0].systemPrompt ?? "";
@@ -1071,7 +1062,6 @@ describe("runRouter — tier 2 (highest EMA)", () => {
       workspaceDir,
       ...COMMON_PARAMS,
       config: makeConfig({ tier1Size: 1, tier2Size: 1 }),
-      database: stubDb,
     });
 
     // Every selected slug should have a tier tag — exactly one of:
@@ -1092,20 +1082,17 @@ describe("runRouter — tier 2 (highest EMA)", () => {
     expect(tags.has("tier2")).toBe(true);
   });
 
-  test("tier2_size set without database logs a warn and skips tier 2", async () => {
-    scoresStub.set("bravo", 5.0);
+  test("tier2_size set with all-zero scores skips tier 2 (degraded memory DB)", async () => {
+    // No scores stubbed — mirrors `computeInjectionScores` returning an
+    // empty map when the memory connection is unavailable. Tier 2 must
+    // select nothing rather than pulling in arbitrary pages.
     providerStub = makeProvider(toolUseResponse([1]));
     await runRouter({
       workspaceDir,
       ...COMMON_PARAMS,
       config: makeConfig({ tier2Size: 2 }),
-      // No database → tier 2 silently skipped.
     });
     expect(providerCalls).toHaveLength(1);
-    const warned = warnLogs.some((l) =>
-      JSON.stringify(l.args).includes("tier2_size set but no database"),
-    );
-    expect(warned).toBe(true);
   });
 });
 

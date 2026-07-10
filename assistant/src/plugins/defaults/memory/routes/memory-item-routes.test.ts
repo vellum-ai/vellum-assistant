@@ -14,13 +14,6 @@ import {
   test,
 } from "bun:test";
 
-mock.module("../../../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // Stub config loader — return a config with memory.v2.enabled=false so the
 // v1 paths under test stay active.
 mock.module("../../../../config/loader.js", () => ({

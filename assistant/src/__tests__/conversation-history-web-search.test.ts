@@ -15,11 +15,6 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ── Module mocks (must precede imports of the module under test) ─────
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
-}));
-
 // ── DB layer mocks for session-history ───────────────────────────────
 
 /** In-memory message store for the fake DB layer. */
@@ -707,10 +702,6 @@ describe("web_search_tool_result structural guard", () => {
     // Renders tool_result events for subagent event streams.
     // web_search_tool_result is not emitted through the subagent event path.
     "runtime/routes/subagents-routes.ts",
-
-    // Extracts tool results from persisted message content for work-item
-    // display. web_search_tool_result blocks are not relevant here.
-    "runtime/routes/work-items-routes.ts",
 
     // Media token counting iterates tool_result.contentBlocks for nested
     // image/file blocks. web_search_tool_result has opaque content with no

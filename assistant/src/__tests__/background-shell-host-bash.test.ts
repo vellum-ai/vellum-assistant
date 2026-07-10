@@ -81,13 +81,6 @@ mock.module("../config/loader.js", () => ({
   setNestedValue: () => {},
 }));
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // Mock HostBashProxy singleton — proxy delegation tests configure this.
 let mockProxyAvailable = false;
 let mockProxyRequestImpl: (

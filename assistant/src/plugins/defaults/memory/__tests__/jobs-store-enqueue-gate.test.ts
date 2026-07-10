@@ -17,14 +17,6 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-// Silence the logger.
-mock.module("../../../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // Mutable config shape, mutated per-test. `null` means "no `memory` key
 // at all" — exercises the defensive `?.` chain in `isMemoryEnabled`.
 type MemoryEnabledShape = boolean | null | undefined;

@@ -36,11 +36,6 @@ function clearCaptured(): void {
   captured.constructorMaxTokens = undefined;
 }
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
-}));
-
 const mockProviderStub = { name: "mock-provider" };
 mock.module("../providers/registry.js", () => ({
   getProvider: () => mockProviderStub,

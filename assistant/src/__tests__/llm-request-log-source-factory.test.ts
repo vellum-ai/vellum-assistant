@@ -1,26 +1,5 @@
 import { afterAll, describe, expect, mock, test } from "bun:test";
 
-function makeLoggerStub(): Record<string, unknown> {
-  const stub: Record<string, unknown> = {};
-  for (const m of [
-    "info",
-    "warn",
-    "error",
-    "debug",
-    "trace",
-    "fatal",
-    "silent",
-    "child",
-  ]) {
-    stub[m] = m === "child" ? () => makeLoggerStub() : () => {};
-  }
-  return stub;
-}
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () => makeLoggerStub(),
-}));
-
 // Configurable config stub. Each test sets `currentConfig` before calling
 // the factory. The ClickHouse source is dynamic-imported, so its
 // constructor runs lazily; we don't need to mock conversation-crud here

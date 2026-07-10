@@ -91,15 +91,6 @@ mock.module("../oauth/oauth-store.js", () => ({
   },
 }));
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () => ({
-    info: () => {},
-    warn: () => {},
-    debug: () => {},
-    error: () => {},
-  }),
-}));
-
 class MockTokenExpiredError extends Error {
   constructor(service: string, message?: string) {
     super(message ?? `Token expired for "${service}"`);

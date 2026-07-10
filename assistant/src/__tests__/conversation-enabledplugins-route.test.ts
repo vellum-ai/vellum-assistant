@@ -1,11 +1,5 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { makeMockLogger } from "./helpers/mock-logger.js";
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () => makeMockLogger(),
-}));
-
 const config = {
   llm: {
     profiles: {},
@@ -86,8 +80,8 @@ describe("PUT /v1/conversations/:id/enabledplugins", () => {
 
     // Default (no per-chat restriction): the field is omitted from the wire.
     expect(
-      "enabledPlugins" in buildConversationDetailResponse(conversation.id)!
-        .conversation,
+      "enabledPlugins" in
+        buildConversationDetailResponse(conversation.id)!.conversation,
     ).toBe(false);
 
     // Explicit empty scope (user cleared all optional plugins): preserved as [].

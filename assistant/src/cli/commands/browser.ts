@@ -5,47 +5,34 @@
  * browser operations contract ({@link BROWSER_OPERATION_META}).
  * Each subcommand maps CLI kebab-case flags into snake_case input
  * keys and calls `browser_execute` over the CLI IPC socket.
+ *
+ * The command's help structure lives in `browser.help.ts` (import-safe for
+ * the memory capability indexer, derived from the same operations contract);
+ * this module applies it and attaches the action handlers.
  */
 
 import { writeFileSync } from "node:fs";
 
-import { type Command, Option } from "commander";
+import type { Command } from "commander";
 
+// operation-meta is an execution-free data leaf (no Playwright imports),
+// consumed synchronously while building the `browser` subcommand tree — the
+// program is assembled by the sync `buildCliProgramTree()`, so this can't be a
+// lazy `import()`. Kept out of the heavier `browser/operations` barrel on
+// purpose.
+// eslint-disable-next-line cli/no-daemon-internals
 import { BROWSER_OPERATION_META } from "../../browser/operation-meta.js";
 import type {
   BrowserOperationMeta,
   OperationField,
 } from "../../browser/types.js";
 import { cliIpcCall } from "../../ipc/cli-client.js";
+import { applyCommandHelp, subcommand } from "../lib/cli-command-help.js";
 import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
+import { browserHelp, toKebab } from "./browser.help.js";
 
 // ── Naming helpers ───────────────────────────────────────────────────
-
-/**
- * Convert a snake_case operation name to kebab-case for CLI subcommand
- * names (e.g. `press_key` -> `press-key`).
- */
-function toKebab(snakeCase: string): string {
-  return snakeCase.replace(/_/g, "-");
-}
-
-/**
- * Convert a snake_case field name to a kebab-case CLI option flag
- * (e.g. `allow_private_network` -> `--allow-private-network`).
- *
- * Boolean fields declare only `--flag`; Commander 13 auto-generates
- * the `--no-flag` negation variant. Declaring both in a single spec
- * string (e.g. `--flag, --no-flag`) breaks in Commander 13 because
- * `--flag` still parses to `false`.
- */
-function fieldToFlag(field: OperationField): string {
-  const kebab = toKebab(field.name);
-  if (field.type === "boolean") {
-    return `--${kebab}`;
-  }
-  return `--${kebab} <${field.type === "number" ? "number" : "value"}>`;
-}
 
 /**
  * Convert a kebab-case option key back to snake_case for the IPC
@@ -98,7 +85,9 @@ function parseFieldValue(
   value: unknown,
   field: OperationField,
 ): string | number | boolean {
-  if (field.type === "boolean") return Boolean(value);
+  if (field.type === "boolean") {
+    return Boolean(value);
+  }
   if (field.type === "number") {
     const num = Number(value);
     if (!Number.isFinite(num)) {
@@ -117,51 +106,20 @@ interface BrowserExecuteResult {
   screenshots?: Array<{ mediaType: string; data: string }>;
 }
 
-// ── Subcommand builder ───────────────────────────────────────────────
+// ── Operation action wiring ──────────────────────────────────────────
 
 /**
- * Build a Commander subcommand for a single browser operation.
+ * Attach the `browser_execute` action for a single browser operation to its
+ * (already help-declared) subcommand.
  */
-function buildSubcommand(parent: Command, meta: BrowserOperationMeta): void {
-  const subcmd = parent
-    .command(toKebab(meta.operation))
-    .description(meta.description);
-
-  // Add per-operation field options
-  for (const field of meta.fields) {
-    const flag = fieldToFlag(field);
-
-    if (field.enum) {
-      // Use Commander's Option class with .choices() for enum-constrained
-      // fields so invalid values are rejected at the CLI level and
-      // --help lists the allowed values.
-      const opt = new Option(flag, field.description).choices([...field.enum]);
-      if (field.required) {
-        opt.makeOptionMandatory(true);
-      }
-      subcmd.addOption(opt);
-    } else if (field.required) {
-      subcmd.requiredOption(flag, field.description);
-    } else {
-      subcmd.option(flag, field.description);
-    }
-  }
-
-  // Append per-operation help text with behavioral notes and examples
-  if (meta.helpText) {
-    subcmd.addHelpText("after", `\n${meta.helpText}`);
-  }
-
-  // screenshot gets an --output <path> option for writing JPEG to disk
-  if (meta.operation === "screenshot") {
-    subcmd.option(
-      "--output <path>",
-      "Write the screenshot JPEG to a file path on disk.",
-    );
-  }
+function attachOperationAction(
+  browser: Command,
+  meta: BrowserOperationMeta,
+): void {
+  const subcmd = subcommand(browser, toKebab(meta.operation));
 
   subcmd.action(async (opts: Record<string, unknown>) => {
-    const parentOpts = parent.opts() as {
+    const parentOpts = browser.opts() as {
       session?: string;
       json?: boolean;
       browserMode?: string;
@@ -192,8 +150,12 @@ function buildSubcommand(parent: Command, meta: BrowserOperationMeta): void {
     }
 
     for (const [key, value] of Object.entries(opts)) {
-      if (excludeKeys.has(key)) continue;
-      if (value === undefined) continue;
+      if (excludeKeys.has(key)) {
+        continue;
+      }
+      if (value === undefined) {
+        continue;
+      }
 
       const snakeKey = camelToSnake(key);
       // Find the matching field for type coercion
@@ -343,320 +305,249 @@ function formatBrowserStatus(content: string): void {
 
 // ── Registration ─────────────────────────────────────────────────────
 
-/**
- * Valid browser mode values for the --browser-mode option.
- * Includes canonical values and compatibility aliases accepted by
- * `normalizeBrowserMode` (cdp-debugger → cdp-inspect, playwright → local).
- */
-const BROWSER_MODES = [
-  "auto",
-  "extension",
-  "cdp-inspect",
-  "cdp-debugger",
-  "local",
-  "playwright",
-] as const;
-
 export function registerBrowserCommand(program: Command): void {
   registerCommand(program, {
-    name: "browser",
+    name: browserHelp.name,
     transport: "ipc",
-    description: "Control the browser via the running assistant.",
+    description: browserHelp.description,
     build: (browser) => {
-      browser
-        .option(
-          "--session <id>",
-          "Session ID to preserve browser state across invocations.",
-          "default",
-        )
-        .option("--json", "Output results as machine-readable JSON.")
-        .addOption(
-          new Option(
-            "--browser-mode <mode>",
-            "Browser backend to use. Overrides automatic selection.",
-          ).choices([...BROWSER_MODES]),
-        )
-        .option(
-          "--target-client-id <id>",
-          "Route browser operations to a specific client. Obtain IDs from `assistant clients list --capability host_browser`.",
-        );
+      applyCommandHelp(browser, browserHelp);
 
-      browser.addHelpText(
-        "after",
-        `
-Browser operations are executed through the running assistant.
-Each subcommand maps to a browser operation and communicates
-with the assistant process.
-
-The --session flag groups sequential commands so they share browser
-state (same page, cookies, etc.). Different session IDs create
-independent browser contexts.
-
-The --browser-mode flag pins the browser backend for all operations
-in the invocation. Valid modes: auto (default), extension, cdp-inspect,
-local. Useful for debugging or when deterministic backend selection
-is required.
-
-Examples:
-  $ assistant browser navigate --url https://example.com
-  $ assistant browser snapshot
-  $ assistant browser click --selector "#login"
-  $ assistant browser type --text "hello" --element-id e14
-  $ assistant browser screenshot --output page.jpg
-  $ assistant browser --session myflow navigate --url https://example.com
-  $ assistant browser --browser-mode local navigate --url http://localhost:3000
-  $ assistant browser --json screenshot`,
-      );
-
-      // Register one subcommand per browser operation
+      // Attach one action per browser operation
       for (const meta of BROWSER_OPERATION_META) {
-        buildSubcommand(browser, meta);
+        attachOperationAction(browser, meta);
       }
 
       // -- tabs subcommand group
-      const tabs = browser.command("tabs").description("Manage browser tabs");
+      const tabs = subcommand(browser, "tabs");
 
-      tabs
-        .command("list")
-        .description("List all open browser tabs")
-        .option("--pretty", "Human-readable table output instead of JSON")
-        .action(async (opts: { pretty?: boolean }) => {
-          const parentOpts = browser.opts() as {
-            session?: string;
-            json?: boolean;
-            targetClientId?: string;
-          };
-          const sessionId = parentOpts.session ?? "default";
-          const jsonMode = parentOpts.json ?? false;
-          const conversationId = resolveContextConversationId();
-          const targetClientId = parentOpts.targetClientId;
+      subcommand(tabs, "list").action(async (opts: { pretty?: boolean }) => {
+        const parentOpts = browser.opts() as {
+          session?: string;
+          json?: boolean;
+          targetClientId?: string;
+        };
+        const sessionId = parentOpts.session ?? "default";
+        const jsonMode = parentOpts.json ?? false;
+        const conversationId = resolveContextConversationId();
+        const targetClientId = parentOpts.targetClientId;
 
-          const ipcResult = await cliIpcCall<{
-            ok: boolean;
-            tabs?: Array<{
-              tabId?: number;
-              windowId?: number;
-              url?: string;
-              title?: string;
-              active: boolean;
-              pinned: boolean;
-            }>;
-          }>(
-            "browser_tabs",
-            {
-              body: {
-                command: "list",
-                sessionId,
-                ...(conversationId ? { conversationId } : {}),
-                ...(targetClientId ? { targetClientId } : {}),
-              },
-            },
-            { timeoutMs: 30_000 },
-          );
-
-          if (!ipcResult.ok) {
-            if (jsonMode) {
-              process.stdout.write(
-                JSON.stringify({ ok: false, error: ipcResult.error }) + "\n",
-              );
-            } else {
-              log.error(`Error: ${ipcResult.error}`);
-            }
-            process.exitCode = 1;
-            return;
-          }
-
-          const tabList = ipcResult.result?.tabs ?? [];
-
-          if (jsonMode || !opts.pretty) {
-            process.stdout.write(JSON.stringify(tabList) + "\n");
-          } else {
-            if (tabList.length === 0) {
-              log.info("No tabs found.");
-              return;
-            }
-            log.info(
-              `${"ID".padEnd(8)} ${"WIN".padEnd(5)} ${"ACT".padEnd(4)} ${"PIN".padEnd(4)} URL/Title`,
-            );
-            log.info("-".repeat(80));
-            for (const tab of tabList) {
-              const id = String(tab.tabId ?? "?").padEnd(8);
-              const win = String(tab.windowId ?? "?").padEnd(5);
-              const act = (tab.active ? "yes" : "no").padEnd(4);
-              const pin = (tab.pinned ? "yes" : "no").padEnd(4);
-              const label = tab.url ?? tab.title ?? "(untitled)";
-              log.info(`${id} ${win} ${act} ${pin} ${label}`);
-            }
-          }
-        });
-
-      tabs
-        .command("select")
-        .description("Select (activate) a browser tab by ID")
-        .requiredOption("--tab-id <id>", "Tab ID to select", Number)
-        .action(async (opts: { tabId: number }) => {
-          const parentOpts = browser.opts() as {
-            session?: string;
-            json?: boolean;
-            targetClientId?: string;
-          };
-          const sessionId = parentOpts.session ?? "default";
-          const jsonMode = parentOpts.json ?? false;
-          const conversationId = resolveContextConversationId();
-          const targetClientId = parentOpts.targetClientId;
-
-          const ipcResult = await cliIpcCall<{ ok: boolean; tab?: unknown }>(
-            "browser_tabs",
-            {
-              body: {
-                command: "select",
-                sessionId,
-                tabId: opts.tabId,
-                ...(conversationId ? { conversationId } : {}),
-                ...(targetClientId ? { targetClientId } : {}),
-              },
-            },
-            { timeoutMs: 30_000 },
-          );
-
-          if (!ipcResult.ok) {
-            if (jsonMode) {
-              process.stdout.write(
-                JSON.stringify({ ok: false, error: ipcResult.error }) + "\n",
-              );
-            } else {
-              log.error(`Error: ${ipcResult.error}`);
-            }
-            process.exitCode = 1;
-            return;
-          }
-
-          if (jsonMode) {
-            process.stdout.write(
-              JSON.stringify({ ok: true, tab: ipcResult.result?.tab }) + "\n",
-            );
-          } else {
-            log.info(`Selected tab ${opts.tabId}`);
-          }
-        });
-
-      tabs
-        .command("new")
-        .description("Open a new browser tab")
-        .option("--url <url>", "URL to navigate the new tab to")
-        .action(async (opts: { url?: string }) => {
-          const parentOpts = browser.opts() as {
-            session?: string;
-            json?: boolean;
-            targetClientId?: string;
-          };
-          const sessionId = parentOpts.session ?? "default";
-          const jsonMode = parentOpts.json ?? false;
-          const conversationId = resolveContextConversationId();
-          const targetClientId = parentOpts.targetClientId;
-
-          const ipcResult = await cliIpcCall<{
-            ok: boolean;
-            tabId?: string;
-            clientId?: string;
-          }>(
-            "browser_tabs",
-            {
-              body: {
-                command: "new",
-                sessionId,
-                ...(opts.url ? { url: opts.url } : {}),
-                ...(conversationId ? { conversationId } : {}),
-                ...(targetClientId ? { targetClientId } : {}),
-              },
-            },
-            { timeoutMs: 30_000 },
-          );
-
-          if (!ipcResult.ok) {
-            if (jsonMode) {
-              process.stdout.write(
-                JSON.stringify({ ok: false, error: ipcResult.error }) + "\n",
-              );
-            } else {
-              log.error(`Error: ${ipcResult.error}`);
-            }
-            process.exitCode = 1;
-            return;
-          }
-
-          if (jsonMode) {
-            process.stdout.write(
-              JSON.stringify({
-                ok: true,
-                tabId: ipcResult.result?.tabId,
-                clientId: ipcResult.result?.clientId,
-              }) + "\n",
-            );
-          } else {
-            log.info(
-              `Opened new tab${ipcResult.result?.tabId ? ` (ID: ${ipcResult.result.tabId})` : ""}`,
-            );
-          }
-        });
-
-      tabs
-        .command("close")
-        .description("Close a browser tab by ID")
-        .requiredOption("--tab-id <id>", "Tab ID to close", Number)
-        .action(async (opts: { tabId: number }) => {
-          const parentOpts = browser.opts() as {
-            session?: string;
-            json?: boolean;
-            targetClientId?: string;
-          };
-          const sessionId = parentOpts.session ?? "default";
-          const jsonMode = parentOpts.json ?? false;
-          const conversationId = resolveContextConversationId();
-          const targetClientId = parentOpts.targetClientId;
-
-          const ipcResult = await cliIpcCall<{
-            ok: boolean;
-            closed?: boolean;
+        const ipcResult = await cliIpcCall<{
+          ok: boolean;
+          tabs?: Array<{
             tabId?: number;
-          }>(
-            "browser_tabs",
-            {
-              body: {
-                command: "close",
-                sessionId,
-                tabId: opts.tabId,
-                ...(conversationId ? { conversationId } : {}),
-                ...(targetClientId ? { targetClientId } : {}),
-              },
+            windowId?: number;
+            url?: string;
+            title?: string;
+            active: boolean;
+            pinned: boolean;
+          }>;
+        }>(
+          "browser_tabs",
+          {
+            body: {
+              command: "list",
+              sessionId,
+              ...(conversationId ? { conversationId } : {}),
+              ...(targetClientId ? { targetClientId } : {}),
             },
-            { timeoutMs: 30_000 },
-          );
+          },
+          { timeoutMs: 30_000 },
+        );
 
-          if (!ipcResult.ok) {
-            if (jsonMode) {
-              process.stdout.write(
-                JSON.stringify({ ok: false, error: ipcResult.error }) + "\n",
-              );
-            } else {
-              log.error(`Error: ${ipcResult.error}`);
-            }
-            process.exitCode = 1;
-            return;
-          }
-
+        if (!ipcResult.ok) {
           if (jsonMode) {
             process.stdout.write(
-              JSON.stringify({
-                ok: true,
-                closed: ipcResult.result?.closed,
-                tabId: opts.tabId,
-              }) + "\n",
+              JSON.stringify({ ok: false, error: ipcResult.error }) + "\n",
             );
           } else {
-            log.info(`Closed tab ${opts.tabId}`);
+            log.error(`Error: ${ipcResult.error}`);
           }
-        });
+          process.exitCode = 1;
+          return;
+        }
+
+        const tabList = ipcResult.result?.tabs ?? [];
+
+        if (jsonMode || !opts.pretty) {
+          process.stdout.write(JSON.stringify(tabList) + "\n");
+        } else {
+          if (tabList.length === 0) {
+            log.info("No tabs found.");
+            return;
+          }
+          log.info(
+            `${"ID".padEnd(8)} ${"WIN".padEnd(5)} ${"ACT".padEnd(4)} ${"PIN".padEnd(4)} URL/Title`,
+          );
+          log.info("-".repeat(80));
+          for (const tab of tabList) {
+            const id = String(tab.tabId ?? "?").padEnd(8);
+            const win = String(tab.windowId ?? "?").padEnd(5);
+            const act = (tab.active ? "yes" : "no").padEnd(4);
+            const pin = (tab.pinned ? "yes" : "no").padEnd(4);
+            const label = tab.url ?? tab.title ?? "(untitled)";
+            log.info(`${id} ${win} ${act} ${pin} ${label}`);
+          }
+        }
+      });
+
+      subcommand(tabs, "select").action(async (opts: { tabId: string }) => {
+        const parentOpts = browser.opts() as {
+          session?: string;
+          json?: boolean;
+          targetClientId?: string;
+        };
+        const sessionId = parentOpts.session ?? "default";
+        const jsonMode = parentOpts.json ?? false;
+        const conversationId = resolveContextConversationId();
+        const targetClientId = parentOpts.targetClientId;
+        const tabId = Number(opts.tabId);
+
+        const ipcResult = await cliIpcCall<{ ok: boolean; tab?: unknown }>(
+          "browser_tabs",
+          {
+            body: {
+              command: "select",
+              sessionId,
+              tabId,
+              ...(conversationId ? { conversationId } : {}),
+              ...(targetClientId ? { targetClientId } : {}),
+            },
+          },
+          { timeoutMs: 30_000 },
+        );
+
+        if (!ipcResult.ok) {
+          if (jsonMode) {
+            process.stdout.write(
+              JSON.stringify({ ok: false, error: ipcResult.error }) + "\n",
+            );
+          } else {
+            log.error(`Error: ${ipcResult.error}`);
+          }
+          process.exitCode = 1;
+          return;
+        }
+
+        if (jsonMode) {
+          process.stdout.write(
+            JSON.stringify({ ok: true, tab: ipcResult.result?.tab }) + "\n",
+          );
+        } else {
+          log.info(`Selected tab ${tabId}`);
+        }
+      });
+
+      subcommand(tabs, "new").action(async (opts: { url?: string }) => {
+        const parentOpts = browser.opts() as {
+          session?: string;
+          json?: boolean;
+          targetClientId?: string;
+        };
+        const sessionId = parentOpts.session ?? "default";
+        const jsonMode = parentOpts.json ?? false;
+        const conversationId = resolveContextConversationId();
+        const targetClientId = parentOpts.targetClientId;
+
+        const ipcResult = await cliIpcCall<{
+          ok: boolean;
+          tabId?: string;
+          clientId?: string;
+        }>(
+          "browser_tabs",
+          {
+            body: {
+              command: "new",
+              sessionId,
+              ...(opts.url ? { url: opts.url } : {}),
+              ...(conversationId ? { conversationId } : {}),
+              ...(targetClientId ? { targetClientId } : {}),
+            },
+          },
+          { timeoutMs: 30_000 },
+        );
+
+        if (!ipcResult.ok) {
+          if (jsonMode) {
+            process.stdout.write(
+              JSON.stringify({ ok: false, error: ipcResult.error }) + "\n",
+            );
+          } else {
+            log.error(`Error: ${ipcResult.error}`);
+          }
+          process.exitCode = 1;
+          return;
+        }
+
+        if (jsonMode) {
+          process.stdout.write(
+            JSON.stringify({
+              ok: true,
+              tabId: ipcResult.result?.tabId,
+              clientId: ipcResult.result?.clientId,
+            }) + "\n",
+          );
+        } else {
+          log.info(
+            `Opened new tab${ipcResult.result?.tabId ? ` (ID: ${ipcResult.result.tabId})` : ""}`,
+          );
+        }
+      });
+
+      subcommand(tabs, "close").action(async (opts: { tabId: string }) => {
+        const parentOpts = browser.opts() as {
+          session?: string;
+          json?: boolean;
+          targetClientId?: string;
+        };
+        const sessionId = parentOpts.session ?? "default";
+        const jsonMode = parentOpts.json ?? false;
+        const conversationId = resolveContextConversationId();
+        const targetClientId = parentOpts.targetClientId;
+        const tabId = Number(opts.tabId);
+
+        const ipcResult = await cliIpcCall<{
+          ok: boolean;
+          closed?: boolean;
+          tabId?: number;
+        }>(
+          "browser_tabs",
+          {
+            body: {
+              command: "close",
+              sessionId,
+              tabId,
+              ...(conversationId ? { conversationId } : {}),
+              ...(targetClientId ? { targetClientId } : {}),
+            },
+          },
+          { timeoutMs: 30_000 },
+        );
+
+        if (!ipcResult.ok) {
+          if (jsonMode) {
+            process.stdout.write(
+              JSON.stringify({ ok: false, error: ipcResult.error }) + "\n",
+            );
+          } else {
+            log.error(`Error: ${ipcResult.error}`);
+          }
+          process.exitCode = 1;
+          return;
+        }
+
+        if (jsonMode) {
+          process.stdout.write(
+            JSON.stringify({
+              ok: true,
+              closed: ipcResult.result?.closed,
+              tabId,
+            }) + "\n",
+          );
+        } else {
+          log.info(`Closed tab ${tabId}`);
+        }
+      });
     },
   });
 }

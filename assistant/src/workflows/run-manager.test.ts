@@ -1,12 +1,4 @@
-import { describe, expect, mock, test } from "bun:test";
-
-// Silence the logger.
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
+import { describe, expect, test } from "bun:test";
 
 import type { AssistantConfig } from "../config/schema.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";

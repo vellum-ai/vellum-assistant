@@ -24,12 +24,6 @@ beforeAll(() => {
   setOverridesForTesting({ "override-or-default-resolution": false });
 });
 
-import { makeMockLogger } from "./helpers/mock-logger.js";
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () => makeMockLogger(),
-}));
-
 // Mutable LLM config consumed by the resolver via `getConfig()`.
 let mockLlmConfig: Record<string, unknown> = {};
 

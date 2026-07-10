@@ -4,13 +4,6 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 // Module mocks — must appear before importing the module under test
 // ---------------------------------------------------------------------------
 
-mock.module("../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 mock.module("../../security/secure-keys.js", () => ({
   getSecureKeyAsync: async () => "test-fish-api-key",
 }));
@@ -41,10 +34,12 @@ let capturedBody = "";
 beforeEach(() => {
   originalFetch = globalThis.fetch;
   capturedBody = "";
-  globalThis.fetch = mock(async (_input: RequestInfo | URL, init?: RequestInit) => {
-    capturedBody = init?.body as string;
-    return new Response(new Uint8Array([1, 2, 3]), { status: 200 });
-  }) as unknown as typeof globalThis.fetch;
+  globalThis.fetch = mock(
+    async (_input: RequestInfo | URL, init?: RequestInit) => {
+      capturedBody = init?.body as string;
+      return new Response(new Uint8Array([1, 2, 3]), { status: 200 });
+    },
+  ) as unknown as typeof globalThis.fetch;
 });
 
 afterEach(() => {
