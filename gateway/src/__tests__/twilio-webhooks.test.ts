@@ -1,10 +1,15 @@
-import { describe, test, expect, mock, afterEach } from "bun:test";
+import { describe, test, expect, mock, afterEach, beforeEach } from "bun:test";
 import { createHmac } from "node:crypto";
 import type { GatewayConfig } from "../config.js";
 import type { CredentialCache } from "../credential-cache.js";
 import type { ConfigFileCache } from "../config-file-cache.js";
 import { credentialKey } from "../credential-key.js";
 import { initSigningKey } from "../auth/token-service.js";
+import {
+  initAdmissionPolicyCache,
+  resetAdmissionPolicyCache,
+} from "../risk/admission-policy-cache.js";
+import { initGatewayDb, resetGatewayDb } from "../db/connection.js";
 
 const TEST_SIGNING_KEY = Buffer.from("test-signing-key-at-least-32-bytes-long");
 initSigningKey(TEST_SIGNING_KEY);
@@ -52,9 +57,21 @@ const { createTwilioStatusWebhookHandler } =
 
 const AUTH_TOKEN = "test-twilio-auth-token";
 
+beforeEach(async () => {
+  // The voice webhook resolves the phone admission floor (channel-trust-floors
+  // is on by default); init the cache fresh per test like the other webhook
+  // handler tests.
+  resetGatewayDb();
+  resetAdmissionPolicyCache();
+  await initGatewayDb();
+  initAdmissionPolicyCache();
+});
+
 afterEach(() => {
   fetchMock = mock(async () => new Response());
   logCalls.length = 0;
+  resetAdmissionPolicyCache();
+  resetGatewayDb();
 });
 
 function findLogCall(message: string): {
