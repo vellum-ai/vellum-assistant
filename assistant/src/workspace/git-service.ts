@@ -490,11 +490,13 @@ export class WorkspaceGitService {
                 // These calls are OUTSIDE the rev-parse try/catch so that
                 // normalization errors are not misclassified as "no commits".
                 this.ensureGitignoreRulesLocked();
-                await this.untrackIgnoredFilesLocked();
                 this.ensureBranchGuardHookLocked();
                 await this.ensureCommitIdentityLocked();
                 await this.ensureBranchGuardConfigLocked();
                 await this.ensureOnMainLocked();
+                // After the main switch: ensureOnMainLocked can discard
+                // local changes, which would wipe staged deletions.
+                await this.untrackIgnoredFilesLocked();
                 this.initialized = true;
                 this.recordInitSuccess();
                 return;
@@ -511,13 +513,14 @@ export class WorkspaceGitService {
           // in the corruption-recovery path we fall through here after
           // removing .git, so branch enforcement is still useful.
           this.ensureGitignoreRulesLocked();
-          // A partial init (`.git` exists, no commit) can carry staged
-          // now-ignored paths from an interrupted `git add -A`.
-          await this.untrackIgnoredFilesLocked();
           this.ensureBranchGuardHookLocked();
           await this.ensureCommitIdentityLocked();
           await this.ensureBranchGuardConfigLocked();
           await this.ensureOnMainLocked();
+          // After the main switch (see above). A partial init (`.git`
+          // exists, no commit) can carry staged now-ignored paths from an
+          // interrupted `git add -A`; must run before the initial commit.
+          await this.untrackIgnoredFilesLocked();
 
           // Create initial commit synchronously within the lock to prevent
           // races with the first commitChanges() call. Without this, the
