@@ -387,7 +387,13 @@ export function DoctorPanel() {
   // panel (list + restore) inline so the user can act without leaving the
   // session. Only the most recent completed listing gets the panel — earlier
   // listings are stale once the doctor (or the user) creates or restores one.
+  // Persisted history replays of past sessions never get it: a transcript
+  // from days ago is no place for live Create/Restore buttons.
   const latestBackupsListEntryId = useMemo(() => {
+    const viewingLiveSession = sessionId !== null || storeEntries.length > 0;
+    if (!viewingLiveSession) {
+      return null;
+    }
     for (let i = entries.length - 1; i >= 0; i--) {
       const candidate = entries[i];
       if (
@@ -400,7 +406,7 @@ export function DoctorPanel() {
       }
     }
     return null;
-  }, [entries]);
+  }, [entries, sessionId, storeEntries]);
 
   // Scroll coordinator — auto-follows streaming growth only while the
   // user is pinned to the latest message. Scrolling away (drag on
