@@ -142,11 +142,11 @@ describe("ClickHouseLlmRequestLogSink.insert", () => {
     ).rejects.toThrow(/ClickHouse llm-request-log write failed/);
   });
 
-  test("recordBestEffort never throws synchronously on a failing backend", () => {
+  test("insertRequestLog never throws synchronously on a failing backend", () => {
     const calls: FakeFetchCall[] = [];
     const sink = makeSink(calls, 500);
     expect(() =>
-      sink.recordBestEffort({
+      sink.insertRequestLog({
         id: "log-4",
         conversationId: "conv-4",
         messageId: null,
@@ -158,6 +158,19 @@ describe("ClickHouseLlmRequestLogSink.insert", () => {
         callSite: null,
       }),
     ).not.toThrow();
+  });
+
+  test("the post-hoc mutators are no-ops that never touch the backend", () => {
+    // INSERT-only backend: the LlmRequestLogWriter mutation methods must not
+    // issue any request (and must not throw) — the store relies on this to
+    // keep stale local rows untouched while ClickHouse owns writes.
+    const calls: FakeFetchCall[] = [];
+    const sink = makeSink(calls);
+    sink.setAgentLoopExitReasonOnLatestLog("conv-1", "no_tool_calls");
+    sink.backfillMessageIdOnLogs("conv-1", "msg-1");
+    sink.relinkLlmRequestLogs(["m1"], "m2");
+    sink.backfillMessageIdOnRecoveredLogs(["log-1"], "msg-1");
+    expect(calls).toHaveLength(0);
   });
 });
 

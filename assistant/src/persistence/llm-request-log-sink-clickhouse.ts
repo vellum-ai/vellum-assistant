@@ -40,25 +40,12 @@ import type { LlmRequestLogsClickHouseConfig } from "../config/schemas/llm-reque
 import { credentialKey } from "../security/credential-key.js";
 import { getSecureKeyAsync } from "../security/secure-keys.js";
 import { getLogger } from "../util/logger.js";
+import type {
+  LlmRequestLogWriter,
+  LlmRequestLogWriteRow,
+} from "./llm-request-log-writer-types.js";
 
 const log = getLogger("clickhouse-llm-request-log-sink");
-
-/**
- * A request-log row to insert, in the store's domain shape. `null` string
- * fields are written as the `''` sentinel; `assistant_id` is resolved
- * internally from the credential store, so callers never supply it.
- */
-export interface LlmRequestLogSinkRow {
-  id: string;
-  conversationId: string;
-  messageId: string | null;
-  provider: string | null;
-  requestPayload: string;
-  responsePayload: string;
-  createdAt: number;
-  agentLoopExitReason: string | null;
-  callSite: string | null;
-}
 
 /** Wire row written as one JSONEachRow line. */
 interface ClickHouseInsertRow {
@@ -96,7 +83,7 @@ export interface ClickHouseLlmRequestLogSinkDeps {
   fetchImpl?: ClickHouseSinkFetch;
 }
 
-export class ClickHouseLlmRequestLogSink {
+export class ClickHouseLlmRequestLogSink implements LlmRequestLogWriter {
   private cachedUrl: string | null = null;
   private cachedPassword: string | null = null;
   private cachedAssistantId: string | null = null;
@@ -123,12 +110,16 @@ export class ClickHouseLlmRequestLogSink {
   }
 
   /**
-   * Fire-and-forget insert. Returns immediately; the write runs on a detached
-   * promise whose rejection is logged and swallowed so a ClickHouse outage
-   * never propagates into the turn. Mirrors the compaction-log store's
-   * best-effort recording contract.
+   * `LlmRequestLogWriter` insert. Fire-and-forget: returns immediately; the
+   * write runs on a detached promise whose rejection is logged and swallowed
+   * so a ClickHouse outage never propagates into the turn. Mirrors the
+   * compaction-log store's best-effort recording contract.
+   *
+   * `latencyBreakdown` on the row is intentionally dropped — the ClickHouse
+   * table doesn't carry that column, and the read source already treats
+   * ClickHouse-sourced rows as having no latency waterfall.
    */
-  recordBestEffort(row: LlmRequestLogSinkRow): void {
+  insertRequestLog(row: LlmRequestLogWriteRow): void {
     this.insert(row).catch((err: unknown) => {
       log.warn(
         { err, conversationId: row.conversationId, callSite: row.callSite },
@@ -137,7 +128,35 @@ export class ClickHouseLlmRequestLogSink {
     });
   }
 
-  async insert(row: LlmRequestLogSinkRow): Promise<void> {
+  /**
+   * No-op: this backend is INSERT-only, so a row's exit reason is whatever
+   * was known at insert time (synthetic rows carry theirs; real calls stay
+   * unstamped). Deliberately does NOT fall through to SQLite — the newest
+   * NULL-reason local row would be a stale one from an earlier local-mode
+   * turn, and stamping it would corrupt local history.
+   */
+  setAgentLoopExitReasonOnLatestLog(
+    _conversationId: string,
+    _reason: string,
+  ): void {}
+
+  /**
+   * No-op: INSERT-only. The NULL-`message_id`-scoped backfill is a heuristic
+   * over the write backend's own rows; running it against SQLite in
+   * ClickHouse mode would stamp stale local rows with the wrong message.
+   */
+  backfillMessageIdOnLogs(_conversationId: string, _messageId: string): void {}
+
+  /** No-op: INSERT-only — rows cannot be re-linked after the fact. */
+  relinkLlmRequestLogs(_fromMessageIds: string[], _toMessageId: string): void {}
+
+  /** No-op: INSERT-only — recovered-row backfill only applies to local rows. */
+  backfillMessageIdOnRecoveredLogs(
+    _logIds: string[],
+    _messageId: string,
+  ): void {}
+
+  async insert(row: LlmRequestLogWriteRow): Promise<void> {
     const assistantId = await this.assistantId();
     await this.ensureTable();
     const wire: ClickHouseInsertRow = {

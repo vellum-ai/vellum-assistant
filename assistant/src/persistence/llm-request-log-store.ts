@@ -33,6 +33,10 @@ import {
 } from "./conversation-crud.js";
 import { type DrizzleDb, getDb, getLogsDb } from "./db-connection.js";
 import { getClickHouseLlmRequestLogSink } from "./llm-request-log-sink-clickhouse.js";
+import type {
+  LlmRequestLogWriter,
+  LlmRequestLogWriteRow,
+} from "./llm-request-log-writer-types.js";
 import { llmRequestLogs, messages } from "./schema/index.js";
 import { timeSyncSection } from "./slow-sync-log.js";
 
@@ -181,6 +185,127 @@ function parseRawBody(rawBody: string): unknown {
   }
 }
 
+/**
+ * The local SQLite write backend for `llm_request_logs` — the
+ * `LlmRequestLogWriter` implementation behind the default
+ * `readSource: "local"` config. Holds the actual SQL for the insert and
+ * every post-hoc mutation; the exported store functions dispatch here (or
+ * to the ClickHouse sink) via {@link resolveLlmRequestLogWriter}.
+ */
+class LocalLlmRequestLogWriter implements LlmRequestLogWriter {
+  insertRequestLog(row: LlmRequestLogWriteRow): void {
+    const db = logsDb();
+    // Synchronous insert of the full request/response payloads (an entire
+    // context window for main-agent calls) into the append-only logs DB, on
+    // the per-LLM-call critical path. Timed so an event-loop freeze the
+    // watchdog detects can be attributed to this write (see slow-sync-log).
+    timeSyncSection(
+      "llm-request-log:write",
+      () =>
+        db
+          .insert(llmRequestLogs)
+          .values({
+            id: row.id,
+            conversationId: row.conversationId,
+            messageId: row.messageId,
+            provider: row.provider,
+            requestPayload: row.requestPayload,
+            responsePayload: row.responsePayload,
+            createdAt: row.createdAt,
+            agentLoopExitReason: row.agentLoopExitReason,
+            callSite: row.callSite,
+            latencyBreakdown: row.latencyBreakdown ?? null,
+          })
+          .run(),
+      () => ({
+        conversationId: row.conversationId,
+        callSite: row.callSite,
+        requestBytes: row.requestPayload.length,
+        responseBytes: row.responsePayload.length,
+      }),
+    );
+  }
+
+  setAgentLoopExitReasonOnLatestLog(
+    conversationId: string,
+    reason: string,
+  ): void {
+    const db = logsDb();
+    const latest = db
+      .select({ id: llmRequestLogs.id })
+      .from(llmRequestLogs)
+      .where(
+        and(
+          eq(llmRequestLogs.conversationId, conversationId),
+          isNull(llmRequestLogs.agentLoopExitReason),
+        ),
+      )
+      .orderBy(desc(llmRequestLogs.createdAt))
+      .limit(1)
+      .get();
+    if (!latest) {
+      return;
+    }
+    db.update(llmRequestLogs)
+      .set({ agentLoopExitReason: reason })
+      .where(eq(llmRequestLogs.id, latest.id))
+      .run();
+  }
+
+  backfillMessageIdOnLogs(conversationId: string, messageId: string): void {
+    const db = logsDb();
+    db.update(llmRequestLogs)
+      .set({ messageId })
+      .where(
+        and(
+          eq(llmRequestLogs.conversationId, conversationId),
+          isNull(llmRequestLogs.messageId),
+        ),
+      )
+      .run();
+  }
+
+  relinkLlmRequestLogs(fromMessageIds: string[], toMessageId: string): void {
+    const db = logsDb();
+    db.update(llmRequestLogs)
+      .set({ messageId: toMessageId })
+      .where(inArray(llmRequestLogs.messageId, fromMessageIds))
+      .run();
+  }
+
+  backfillMessageIdOnRecoveredLogs(logIds: string[], messageId: string): void {
+    const db = logsDb();
+    // Guard with isNull so this recovery path never overwrites a messageId
+    // already set by an authoritative caller (e.g. watch-notifier).
+    db.update(llmRequestLogs)
+      .set({ messageId })
+      .where(
+        and(
+          inArray(llmRequestLogs.id, logIds),
+          isNull(llmRequestLogs.messageId),
+        ),
+      )
+      .run();
+  }
+}
+
+const LOCAL_LLM_REQUEST_LOG_WRITER = new LocalLlmRequestLogWriter();
+
+/**
+ * Resolve the write backend that currently owns `llm_request_logs` writes:
+ * the ClickHouse sink when `llmRequestLogs.readSource === "clickhouse"`,
+ * local SQLite otherwise. Every writer of the table — inserts AND the
+ * post-hoc mutators — dispatches through this, so a backend that can't
+ * support an operation expresses that as a method no-op rather than the
+ * store branching per backend. Resolved fresh per call so config edits take
+ * effect without a restart (same contract as the read-source factory); a
+ * future third-party backend implements `LlmRequestLogWriter` and slots in
+ * here.
+ */
+function resolveLlmRequestLogWriter(): LlmRequestLogWriter {
+  return getClickHouseLlmRequestLogSink() ?? LOCAL_LLM_REQUEST_LOG_WRITER;
+}
+
 export function recordRequestLog(
   conversationId: string,
   requestPayload: string,
@@ -197,62 +322,26 @@ export function recordRequestLog(
     return null;
   }
   const id = uuid();
-  // When ClickHouse is the configured source, it is also the write target:
-  // send the row there instead of local SQLite (fire-and-forget). The id is
-  // still returned for signature parity, though no local row exists for the
-  // post-loop stamping helpers to update — an accepted ClickHouse limitation.
-  const clickHouseSink = getClickHouseLlmRequestLogSink();
-  if (clickHouseSink) {
-    clickHouseSink.recordBestEffort({
-      id,
-      conversationId,
-      messageId: messageId ?? null,
-      provider: provider ?? null,
-      requestPayload,
-      responsePayload,
-      createdAt: Date.now(),
-      agentLoopExitReason: null,
-      callSite: callSite ?? null,
-    });
-    return id;
-  }
-  const db = logsDb();
-  // Synchronous insert of the full request/response payloads (an entire
-  // context window for main-agent calls) into the append-only logs DB, on the
-  // per-LLM-call critical path. Timed so an event-loop freeze the watchdog
-  // detects can be attributed to this write (see slow-sync-log).
-  timeSyncSection(
-    "llm-request-log:write",
-    () =>
-      db
-        .insert(llmRequestLogs)
-        .values({
-          id,
-          conversationId,
-          messageId: messageId ?? null,
-          provider: provider ?? null,
-          requestPayload,
-          responsePayload,
-          createdAt: Date.now(),
-          // Stamped later via setAgentLoopExitReasonOnLatestLog, once the
-          // agent loop body actually exits. Intermediate rows stay NULL.
-          agentLoopExitReason: null,
-          // Logical call site (`mainAgent`, `compactionAgent`, …). NULL when
-          // a caller hasn't been updated yet — preserves backward compat
-          // while we plumb call sites through one site at a time.
-          callSite: callSite ?? null,
-          // JSON first-token latency waterfall, supplied by `handleUsage` for
-          // main-agent calls. NULL for failed/non-instrumented call paths.
-          latencyBreakdown: latencyBreakdown ?? null,
-        })
-        .run(),
-    () => ({
-      conversationId,
-      callSite: callSite ?? null,
-      requestBytes: requestPayload.length,
-      responseBytes: responsePayload.length,
-    }),
-  );
+  resolveLlmRequestLogWriter().insertRequestLog({
+    id,
+    conversationId,
+    messageId: messageId ?? null,
+    provider: provider ?? null,
+    requestPayload,
+    responsePayload,
+    createdAt: Date.now(),
+    // Stamped later via setAgentLoopExitReasonOnLatestLog, once the agent
+    // loop body actually exits. Intermediate rows stay NULL. (INSERT-only
+    // backends never stamp — their rows keep the insert-time value.)
+    agentLoopExitReason: null,
+    // Logical call site (`mainAgent`, `compactionAgent`, …). NULL when a
+    // caller hasn't been updated yet — preserves backward compat while we
+    // plumb call sites through one site at a time.
+    callSite: callSite ?? null,
+    // JSON first-token latency waterfall, supplied by `handleUsage` for
+    // main-agent calls. NULL for failed/non-instrumented call paths.
+    latencyBreakdown: latencyBreakdown ?? null,
+  });
   return id;
 }
 
@@ -318,38 +407,21 @@ export function recordSyntheticAgentErrorMessageLog(args: {
       noticeText: args.noticeText,
     },
   });
-  // Route to ClickHouse when it is the configured target. The exit reason is
-  // already known here, so it is carried on the row directly (unlike real
-  // calls, which stamp it post-loop against a local row that ClickHouse lacks).
-  const clickHouseSink = getClickHouseLlmRequestLogSink();
-  if (clickHouseSink) {
-    clickHouseSink.recordBestEffort({
-      id,
-      conversationId: args.conversationId,
-      messageId: args.messageId,
-      provider: null,
-      requestPayload,
-      responsePayload,
-      createdAt: args.createdAt,
-      agentLoopExitReason: args.exitReason,
-      callSite: CALL_SITE_SYNTHETIC_AGENT_ERROR_MESSAGE,
-    });
-    return id;
-  }
-  const db = logsDb();
-  db.insert(llmRequestLogs)
-    .values({
-      id,
-      conversationId: args.conversationId,
-      messageId: args.messageId,
-      provider: null,
-      requestPayload,
-      responsePayload,
-      createdAt: args.createdAt,
-      agentLoopExitReason: args.exitReason,
-      callSite: CALL_SITE_SYNTHETIC_AGENT_ERROR_MESSAGE,
-    })
-    .run();
+  // The exit reason is already known here, so it is carried on the row at
+  // insert time — which also makes synthetic rows complete on INSERT-only
+  // backends that can never stamp it afterwards.
+  resolveLlmRequestLogWriter().insertRequestLog({
+    id,
+    conversationId: args.conversationId,
+    messageId: args.messageId,
+    provider: null,
+    requestPayload,
+    responsePayload,
+    createdAt: args.createdAt,
+    agentLoopExitReason: args.exitReason,
+    callSite: CALL_SITE_SYNTHETIC_AGENT_ERROR_MESSAGE,
+    latencyBreakdown: null,
+  });
   return id;
 }
 
@@ -370,40 +442,20 @@ export function setAgentLoopExitReasonOnLatestLog(
   conversationId: string,
   reason: string,
 ): void {
-  const db = logsDb();
-  const latest = db
-    .select({ id: llmRequestLogs.id })
-    .from(llmRequestLogs)
-    .where(
-      and(
-        eq(llmRequestLogs.conversationId, conversationId),
-        isNull(llmRequestLogs.agentLoopExitReason),
-      ),
-    )
-    .orderBy(desc(llmRequestLogs.createdAt))
-    .limit(1)
-    .get();
-  if (!latest) return;
-  db.update(llmRequestLogs)
-    .set({ agentLoopExitReason: reason })
-    .where(eq(llmRequestLogs.id, latest.id))
-    .run();
+  resolveLlmRequestLogWriter().setAgentLoopExitReasonOnLatestLog(
+    conversationId,
+    reason,
+  );
 }
 
 export function backfillMessageIdOnLogs(
   conversationId: string,
   messageId: string,
 ): void {
-  const db = logsDb();
-  db.update(llmRequestLogs)
-    .set({ messageId })
-    .where(
-      and(
-        eq(llmRequestLogs.conversationId, conversationId),
-        isNull(llmRequestLogs.messageId),
-      ),
-    )
-    .run();
+  resolveLlmRequestLogWriter().backfillMessageIdOnLogs(
+    conversationId,
+    messageId,
+  );
 }
 
 /**
@@ -416,12 +468,13 @@ export function relinkLlmRequestLogs(
   fromMessageIds: string[],
   toMessageId: string,
 ): void {
-  if (fromMessageIds.length === 0) return;
-  const db = logsDb();
-  db.update(llmRequestLogs)
-    .set({ messageId: toMessageId })
-    .where(inArray(llmRequestLogs.messageId, fromMessageIds))
-    .run();
+  if (fromMessageIds.length === 0) {
+    return;
+  }
+  resolveLlmRequestLogWriter().relinkLlmRequestLogs(
+    fromMessageIds,
+    toMessageId,
+  );
 }
 
 /**
@@ -772,23 +825,17 @@ export function getRequestLogsByMessageId(messageId: string): LogRow[] {
         );
 
         // Opportunistically backfill recovered unlinked logs so future queries
-        // hit the fast indexed-by-messageId path.  Guard with isNull so this
-        // recovery path never overwrites a messageId already set by an
-        // authoritative caller (e.g. watch-notifier).
+        // hit the fast indexed-by-messageId path. Dispatched through the
+        // active write backend like every other table writer — INSERT-only
+        // backends no-op.
         if (unlinkedLogs.length > 0 && turnMessageIds.length > 0) {
           try {
-            const db = logsDb();
             const ids = unlinkedLogs.map((l) => l.id);
             const targetMessageId = turnMessageIds[turnMessageIds.length - 1]!;
-            db.update(llmRequestLogs)
-              .set({ messageId: targetMessageId })
-              .where(
-                and(
-                  inArray(llmRequestLogs.id, ids),
-                  isNull(llmRequestLogs.messageId),
-                ),
-              )
-              .run();
+            resolveLlmRequestLogWriter().backfillMessageIdOnRecoveredLogs(
+              ids,
+              targetMessageId,
+            );
           } catch {
             // non-fatal — the recovery already returned the right data
           }

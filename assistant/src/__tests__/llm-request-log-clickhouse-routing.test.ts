@@ -13,7 +13,8 @@ mock.module("../config/loader.js", () => ({
   getConfigReadOnly: () => ({ llmRequestLogs: { readSource: "local" } }),
 }));
 
-// Mutable fake sink: when non-null, the store must route to it.
+// Mutable fake sink: when non-null, the store must route to it. Mirrors the
+// `LlmRequestLogWriter` surface the store dispatches through.
 interface CapturedRow {
   id: string;
   conversationId: string;
@@ -25,9 +26,13 @@ mock.module("../persistence/llm-request-log-sink-clickhouse.js", () => ({
   getClickHouseLlmRequestLogSink: () =>
     sinkActive
       ? {
-          recordBestEffort: (row: CapturedRow) => {
+          insertRequestLog: (row: CapturedRow) => {
             capturedRows.push(row);
           },
+          setAgentLoopExitReasonOnLatestLog: () => {},
+          backfillMessageIdOnLogs: () => {},
+          relinkLlmRequestLogs: () => {},
+          backfillMessageIdOnRecoveredLogs: () => {},
         }
       : null,
 }));
