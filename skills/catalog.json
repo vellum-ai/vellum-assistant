@@ -287,6 +287,32 @@
       "updatedAt": "2026-07-07T04:41:23.000Z"
     },
     {
+      "id": "gmail-trigger",
+      "name": "gmail-trigger",
+      "description": "Beta. Act on new Gmail as it arrives: get pinged only for urgent mail, digest newsletters, forward invoices — any standing instruction, across one or several accounts.",
+      "metadata": {
+        "emoji": "📬",
+        "vellum": {
+          "category": "email",
+          "display-name": "Gmail Triggers (Beta)",
+          "includes": [
+            "schedule"
+          ],
+          "activation-hints": [
+            "User wants hands-off monitoring of their Gmail inbox",
+            "Ping me / tell me when a new email arrives",
+            "Watch my inbox for new messages"
+          ],
+          "avoid-when": [
+            "Recurring inbox cleanup, archiving, triage, or reply drafting — use inbox-management",
+            "A one-time inbox summary or search, or reading a specific email"
+          ]
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants",
+      "updatedAt": "2026-07-10T10:29:14.000Z"
+    },
+    {
       "id": "google-calendar",
       "name": "google-calendar",
       "description": "View, create, and manage Google Calendar events and check availability",
@@ -1173,7 +1199,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-07-10T04:58:09.000Z"
+      "updatedAt": "2026-07-10T05:05:47.000Z"
     },
     {
       "id": "vercel-token-setup",
