@@ -119,14 +119,6 @@ mock.module("../../../../runtime/sync/resource-sync-events.js", () => ({
   },
 }));
 
-let mockFlagEnabled = false;
-mock.module("../../../../config/assistant-feature-flags.js", () => ({
-  isAssistantFeatureFlagEnabled: (key: string) =>
-    key === "skill-creation-card" && mockFlagEnabled,
-  getAssistantFeatureFlagValue: (key: string) =>
-    key === "skill-creation-card" && mockFlagEnabled,
-}));
-
 let mockProcToSkillsActive = false;
 mock.module("../../../../config/memory-v3-gate.js", () => ({
   isProcToSkillsActive: () => mockProcToSkillsActive,
@@ -343,7 +335,6 @@ describe("memory-retrospective skill card", () => {
     publishedConversationIds = [];
     conversationOverrides = {};
     messagesByConversationId = {};
-    mockFlagEnabled = false;
     mockProcToSkillsActive = false;
     onWake = null;
     skillCardJobUpserts = [];
@@ -823,11 +814,10 @@ describe("memory-retrospective skill card", () => {
   });
 
   // -------------------------------------------------------------------------
-  // Finalize wiring (flag + proc-to-skills gates), via the job handler
+  // Finalize wiring (proc-to-skills gate), via the job handler
   // -------------------------------------------------------------------------
 
   test("two skills authored in one run batch into ONE card message on the source conversation", async () => {
-    mockFlagEnabled = true;
     mockProcToSkillsActive = true;
     stageForkTail([
       scaffoldMsg("tu-1", skillInput("skill-a"), { createdAt: 2000 }),
@@ -868,7 +858,6 @@ describe("memory-retrospective skill card", () => {
     // (so the run proceeds), but a user turn begins while the fork wake is
     // in flight. Finalize must queue the card, not splice it into the
     // in-progress turn's history.
-    mockFlagEnabled = true;
     mockProcToSkillsActive = true;
     stageForkTail([
       scaffoldMsg("tu-1", skillInput("skill-a"), { createdAt: 2000 }),
@@ -896,22 +885,7 @@ describe("memory-retrospective skill card", () => {
     });
   });
 
-  test("flag off (default): finalize inserts nothing even when scaffolds occurred", async () => {
-    mockProcToSkillsActive = true;
-    stageForkTail([
-      scaffoldMsg("tu-1", skillInput("skill-a"), { createdAt: 2000 }),
-      toolResultMsg("tu-1", { createdAt: 2001 }),
-    ]);
-
-    const outcome = await memoryRetrospectiveJob(makeJob(), makeConfig());
-
-    expect(outcome.kind).toBe("invoked");
-    expect(cardMessagesFor("src-conv-1")).toHaveLength(0);
-    expect(publishedConversationIds).toHaveLength(0);
-  });
-
-  test("proc-to-skills inactive: finalize inserts nothing even with the flag on", async () => {
-    mockFlagEnabled = true;
+  test("proc-to-skills inactive: finalize inserts nothing even when scaffolds occurred", async () => {
     stageForkTail([
       scaffoldMsg("tu-1", skillInput("skill-a"), { createdAt: 2000 }),
       toolResultMsg("tu-1", { createdAt: 2001 }),
@@ -925,7 +899,6 @@ describe("memory-retrospective skill card", () => {
   });
 
   test("no scaffolds in the run: finalize inserts nothing", async () => {
-    mockFlagEnabled = true;
     mockProcToSkillsActive = true;
     stageForkTail([
       {

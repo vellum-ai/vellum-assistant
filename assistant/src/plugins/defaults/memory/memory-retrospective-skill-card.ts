@@ -47,13 +47,6 @@ import { loadRetrospectiveRunMessages } from "./memory-retrospective-fork-bounda
 
 const log = getLogger("memory-retrospective-skill-card");
 
-/**
- * Assistant feature flag gating skill-card insertion (default off; declared
- * in the feature-flag registry with `scope: "both"` — the web client gates
- * rendering on the same key).
- */
-export const SKILL_CREATION_CARD_FLAG = "skill-creation-card";
-
 /** A newly created skill extracted from a retrospective run's fork tail. */
 export interface AuthoredSkill {
   skillId: string;
