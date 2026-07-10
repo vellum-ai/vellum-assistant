@@ -19,6 +19,15 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
+// The recorder writes through the gateway client; serve that surface from
+// the local canonical store the candidate builder reads.
+import { gatewayGuardianRequestsStoreBridge } from "./helpers/gateway-guardian-requests-store-bridge.js";
+
+mock.module(
+  "../channels/gateway-guardian-requests.js",
+  () => gatewayGuardianRequestsStoreBridge,
+);
+
 import {
   createCanonicalGuardianDelivery,
   createCanonicalGuardianRequest,
@@ -167,7 +176,7 @@ describe("buildConversationCandidates guardian enrichment", () => {
     expect(candidate?.guardianContext).toBeUndefined();
   });
 
-  test("counts a Slack channel card recorded through the real recorder", () => {
+  test("counts a Slack channel card recorded through the real recorder", async () => {
     const SLACK = "slack" as NotificationChannel;
     const convId = "conv-slack-card";
     seedCandidateConversation(convId, SLACK);
@@ -182,7 +191,7 @@ describe("buildConversationCandidates guardian enrichment", () => {
       conversationId: "access-req-synthetic",
       guardianPrincipalId: TEST_PRINCIPAL,
     });
-    recordGuardianRequestDeliveries({
+    await recordGuardianRequestDeliveries({
       requestId: req.id,
       deliveryResults: [
         {

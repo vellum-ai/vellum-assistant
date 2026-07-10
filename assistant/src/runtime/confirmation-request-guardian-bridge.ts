@@ -12,7 +12,7 @@
  * canonical records.
  */
 
-import type { CanonicalGuardianRequest } from "../contacts/canonical-guardian-store.js";
+import type { GuardianRequestWire } from "../channels/gateway-guardian-requests.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
 import {
   recordApprovalCardDelivery,
@@ -33,7 +33,7 @@ const log = getLogger("confirmation-request-guardian-bridge");
 
 export interface BridgeConfirmationRequestParams {
   /** The canonical guardian request already persisted for this confirmation_request. */
-  canonicalRequest: CanonicalGuardianRequest;
+  canonicalRequest: GuardianRequestWire;
   /** Guardian runtime context from the session. */
   trustContext: TrustContext;
   /** Conversation ID where the confirmation_request was emitted. */
@@ -154,7 +154,7 @@ export async function bridgeConfirmationRequestToGuardian(
 
   // The vellum delivery row is created up front in onConversationCreated so the
   // in-app client sees it immediately; the post-resolve recorder reuses it.
-  let vellumDeliveryId: string | undefined;
+  let vellumDeliveryIdPromise: Promise<string | undefined> | undefined;
 
   // Emit guardian.question notification so the guardian is alerted.
   const signalPromise = emitNotificationSignal({
@@ -185,21 +185,21 @@ export async function bridgeConfirmationRequestToGuardian(
     },
     dedupeKey: `tc-confirmation-request:${canonicalRequest.id}`,
     onConversationCreated: (info) => {
-      vellumDeliveryId = recordApprovalCardDelivery({
+      vellumDeliveryIdPromise ??= recordApprovalCardDelivery({
         requestId: canonicalRequest.id,
         channel: "vellum",
         conversationId: info.conversationId,
-      })?.id;
+      }).then((delivery) => delivery?.id);
     },
   });
 
   // Record deliveries from the notification pipeline (fire-and-forget).
   void signalPromise
-    .then((signalResult) => {
-      recordGuardianRequestDeliveries({
+    .then(async (signalResult) => {
+      await recordGuardianRequestDeliveries({
         requestId: canonicalRequest.id,
         deliveryResults: signalResult.deliveryResults,
-        vellumDeliveryId,
+        vellumDeliveryId: await vellumDeliveryIdPromise,
       });
     })
     .catch((err) => {

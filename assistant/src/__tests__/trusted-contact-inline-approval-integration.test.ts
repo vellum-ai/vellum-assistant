@@ -165,7 +165,10 @@ mock.module("../config/env.js", () => ({
 // Production imports (AFTER mocks)
 // ---------------------------------------------------------------------------
 
+// Guardian-request creation, delivery recording, and decisions all go through
+// the gateway client; the sim serves that whole surface.
 import { createGuardianGatewaySim } from "./guardian-gateway-sim.js";
+import { toGuardianRequestWire } from "./helpers/gateway-guardian-requests-store-bridge.js";
 
 const sim = createGuardianGatewaySim();
 // The verification secret transits via the atomic decide's mintedSession.
@@ -393,7 +396,7 @@ describe("(b) prompt-path flow: confirmation_request bridges to guardian", () =>
     const trustContext = makeTrustedContactTrustContext();
 
     const result = await bridgeConfirmationRequestToGuardian({
-      canonicalRequest,
+      canonicalRequest: toGuardianRequestWire(canonicalRequest),
       trustContext,
       conversationId: "conv-bridge-1",
       toolName: "bash",
@@ -432,7 +435,7 @@ describe("(b) prompt-path flow: confirmation_request bridges to guardian", () =>
     const trustContext = makeTrustedContactTrustContext();
 
     await bridgeConfirmationRequestToGuardian({
-      canonicalRequest,
+      canonicalRequest: toGuardianRequestWire(canonicalRequest),
       trustContext,
       conversationId: "conv-unified-1",
       toolName: "bash",
@@ -489,7 +492,7 @@ describe("(c) no-binding flow: trusted contact fails fast without guardian bindi
     const trustContext = makeTrustedContactTrustContext();
 
     const result = await bridgeConfirmationRequestToGuardian({
-      canonicalRequest,
+      canonicalRequest: toGuardianRequestWire(canonicalRequest),
       trustContext,
       conversationId: "conv-nobinding",
       toolName: "bash",
@@ -602,7 +605,7 @@ describe("(d) unknown actor flow: fail-closed with no interactive approval", () 
     };
 
     const result = await bridgeConfirmationRequestToGuardian({
-      canonicalRequest,
+      canonicalRequest: toGuardianRequestWire(canonicalRequest),
       trustContext,
       conversationId: "conv-unknown",
       toolName: "bash",
@@ -1030,7 +1033,7 @@ describe("cross-milestone integration checks", () => {
     const trustContext = makeTrustedContactTrustContext();
 
     const bridgeResult = await bridgeConfirmationRequestToGuardian({
-      canonicalRequest,
+      canonicalRequest: toGuardianRequestWire(canonicalRequest),
       trustContext,
       conversationId: "conv-consistency",
       toolName: "bash",

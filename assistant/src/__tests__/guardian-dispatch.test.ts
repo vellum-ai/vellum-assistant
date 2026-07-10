@@ -78,6 +78,15 @@ mock.module("../notifications/emit-signal.js", () => ({
   },
 }));
 
+// Guardian requests/deliveries are created through the gateway client; serve
+// that surface from the local canonical store (the tests assert its tables).
+import { gatewayGuardianRequestsStoreBridge } from "./helpers/gateway-guardian-requests-store-bridge.js";
+
+mock.module(
+  "../channels/gateway-guardian-requests.js",
+  () => gatewayGuardianRequestsStoreBridge,
+);
+
 import {
   createCallSession,
   createPendingQuestion,

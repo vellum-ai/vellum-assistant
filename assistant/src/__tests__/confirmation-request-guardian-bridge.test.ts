@@ -69,6 +69,18 @@ mock.module("../runtime/channel-verification-service.js", () => ({
   },
 }));
 
+// The bridge records deliveries through the gateway client; serve that
+// surface from the local canonical store the assertions read.
+import {
+  gatewayGuardianRequestsStoreBridge,
+  toGuardianRequestWire,
+} from "./helpers/gateway-guardian-requests-store-bridge.js";
+
+mock.module(
+  "../channels/gateway-guardian-requests.js",
+  () => gatewayGuardianRequestsStoreBridge,
+);
+
 import {
   createCanonicalGuardianRequest,
   generateCanonicalRequestCode,
@@ -92,21 +104,23 @@ function resetTables(): void {
 // ---------------------------------------------------------------------------
 
 function makeCanonicalRequest(overrides: Record<string, unknown> = {}) {
-  return createCanonicalGuardianRequest({
-    id: `req-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-    kind: "tool_approval",
-    sourceType: "channel",
-    sourceChannel: "telegram",
-    conversationId: "conv-1",
-    requesterExternalUserId: "requester-1",
-    guardianExternalUserId: "guardian-1",
-    guardianPrincipalId: "test-principal-id",
-    toolName: "bash",
-    status: "pending",
-    requestCode: generateCanonicalRequestCode(),
-    expiresAt: Date.now() + 5 * 60 * 1000,
-    ...overrides,
-  });
+  return toGuardianRequestWire(
+    createCanonicalGuardianRequest({
+      id: `req-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      kind: "tool_approval",
+      sourceType: "channel",
+      sourceChannel: "telegram",
+      conversationId: "conv-1",
+      requesterExternalUserId: "requester-1",
+      guardianExternalUserId: "guardian-1",
+      guardianPrincipalId: "test-principal-id",
+      toolName: "bash",
+      status: "pending",
+      requestCode: generateCanonicalRequestCode(),
+      expiresAt: Date.now() + 5 * 60 * 1000,
+      ...overrides,
+    }),
+  );
 }
 
 function makeTrustedContactContext(
@@ -290,12 +304,14 @@ describe("bridgeConfirmationRequestToGuardian", () => {
 
     expect(mockOnConversationCreatedCallbacks).toHaveLength(1);
 
-    // Simulate the broadcaster invoking onConversationCreated
+    // Simulate the broadcaster invoking onConversationCreated. The callback
+    // kicks off an async recorder write — flush it before reading rows.
     mockOnConversationCreatedCallbacks[0]({
       conversationId: "guardian-conversation-1",
       title: "Guardian question",
       sourceEventName: "guardian.question",
     });
+    await new Promise((resolve) => setTimeout(resolve, 0));
 
     const deliveries = listCanonicalGuardianDeliveries(canonicalRequest.id);
     const vellumDelivery = deliveries.find(

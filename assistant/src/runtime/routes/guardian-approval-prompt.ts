@@ -148,7 +148,7 @@ export async function deliverGeneratedApprovalPrompt(
         assistantId,
       );
       if (deliveryResult.ts) {
-        recordApprovalCardDelivery({
+        await recordApprovalCardDelivery({
           requestId: uiMetadata.requestId,
           channel: sourceChannel,
           chatId,
@@ -181,7 +181,7 @@ export async function deliverGeneratedApprovalPrompt(
         assistantId,
       });
       if (fallbackResult.ts) {
-        recordApprovalCardDelivery({
+        await recordApprovalCardDelivery({
           requestId: uiMetadata.requestId,
           channel: sourceChannel,
           chatId,
@@ -215,7 +215,7 @@ export async function deliverGeneratedApprovalPrompt(
       assistantId,
     });
     if (plainResult.ts) {
-      recordApprovalCardDelivery({
+      await recordApprovalCardDelivery({
         requestId: uiMetadata.requestId,
         channel: sourceChannel,
         chatId,

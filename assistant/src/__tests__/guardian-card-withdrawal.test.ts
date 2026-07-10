@@ -20,6 +20,15 @@ mock.module("../messaging/providers/slack/withdraw.js", () => ({
   withdrawSlackApprovalCard,
 }));
 
+// The recorder writes through the gateway client; serve that surface from
+// the local canonical store the assertions read.
+import { gatewayGuardianRequestsStoreBridge } from "./helpers/gateway-guardian-requests-store-bridge.js";
+
+mock.module(
+  "../channels/gateway-guardian-requests.js",
+  () => gatewayGuardianRequestsStoreBridge,
+);
+
 import { withdrawGuardianRequestCards } from "../approvals/guardian-card-withdrawal.js";
 import {
   type CanonicalGuardianRequest,
@@ -240,9 +249,9 @@ describe("recordApprovalCardDelivery", () => {
     resetTables();
   });
 
-  test("records a channel card with its addressing and status", () => {
+  test("records a channel card with its addressing and status", async () => {
     const req = makeRequest();
-    const delivery = recordApprovalCardDelivery({
+    const delivery = await recordApprovalCardDelivery({
       requestId: req.id,
       channel: "slack",
       chatId: "C1",
@@ -255,9 +264,9 @@ describe("recordApprovalCardDelivery", () => {
     expect(delivery?.status).toBe("sent");
   });
 
-  test("records a vellum card addressed by conversation id, defaulting to pending", () => {
+  test("records a vellum card addressed by conversation id, defaulting to pending", async () => {
     const req = makeRequest();
-    const delivery = recordApprovalCardDelivery({
+    const delivery = await recordApprovalCardDelivery({
       requestId: req.id,
       channel: "vellum",
       conversationId: "conv-x",
@@ -267,12 +276,12 @@ describe("recordApprovalCardDelivery", () => {
     expect(delivery?.status).toBe("pending");
   });
 
-  test("lets a Slack reaction resolve back to its request (LUM-2502)", () => {
+  test("lets a Slack reaction resolve back to its request (LUM-2502)", async () => {
     // A delivered Slack approval card must be addressable by (channel, chat, ts)
     // so an emoji reaction on it resolves to the right request rather than
     // silently falling through to transcript persistence.
     const req = makeRequest();
-    recordApprovalCardDelivery({
+    await recordApprovalCardDelivery({
       requestId: req.id,
       channel: "slack",
       chatId: "C-guardian",
@@ -295,9 +304,9 @@ describe("recordGuardianRequestDeliveries", () => {
     withdrawSlackApprovalCard.mockClear();
   });
 
-  test("records each delivery with addressing + status and returns the vellum id", () => {
+  test("records each delivery with addressing + status and returns the vellum id", async () => {
     const req = makeRequest();
-    const vellumId = recordGuardianRequestDeliveries({
+    const vellumId = await recordGuardianRequestDeliveries({
       requestId: req.id,
       deliveryResults: [
         {
@@ -327,15 +336,15 @@ describe("recordGuardianRequestDeliveries", () => {
     expect(slack?.status).toBe("sent");
   });
 
-  test("reuses a pre-created vellum row instead of creating a second", () => {
+  test("reuses a pre-created vellum row instead of creating a second", async () => {
     const req = makeRequest();
-    const pre = recordApprovalCardDelivery({
+    const pre = await recordApprovalCardDelivery({
       requestId: req.id,
       channel: "vellum",
       conversationId: "conv-1",
     });
 
-    const vellumId = recordGuardianRequestDeliveries({
+    const vellumId = await recordGuardianRequestDeliveries({
       requestId: req.id,
       deliveryResults: [
         {
@@ -354,9 +363,9 @@ describe("recordGuardianRequestDeliveries", () => {
     expect(deliveries[0].status).toBe("sent");
   });
 
-  test("marks a non-sent delivery result as failed (status now tracked for all producers)", () => {
+  test("marks a non-sent delivery result as failed (status now tracked for all producers)", async () => {
     const req = makeRequest();
-    recordGuardianRequestDeliveries({
+    await recordGuardianRequestDeliveries({
       requestId: req.id,
       deliveryResults: [
         { channel: "slack", destination: "C1", status: "failed" },
@@ -366,9 +375,9 @@ describe("recordGuardianRequestDeliveries", () => {
     expect(delivery.status).toBe("failed");
   });
 
-  test("omits chat id when the channel destination is empty", () => {
+  test("omits chat id when the channel destination is empty", async () => {
     const req = makeRequest();
-    recordGuardianRequestDeliveries({
+    await recordGuardianRequestDeliveries({
       requestId: req.id,
       deliveryResults: [{ channel: "slack", destination: "", status: "sent" }],
     });
@@ -378,7 +387,7 @@ describe("recordGuardianRequestDeliveries", () => {
 
   test("records a Slack delivery the withdrawal path can then edit in place", async () => {
     const req = makeRequest();
-    recordGuardianRequestDeliveries({
+    await recordGuardianRequestDeliveries({
       requestId: req.id,
       deliveryResults: [
         {

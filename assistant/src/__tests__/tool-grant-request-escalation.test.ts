@@ -95,6 +95,8 @@ mock.module("../runtime/gateway-client.js", () => ({
   },
 }));
 
+// Grant escalation creates AND decides its guardian request through the
+// gateway client; the sim serves that whole surface.
 import { createGuardianGatewaySim } from "./guardian-gateway-sim.js";
 
 const sim = createGuardianGatewaySim();
