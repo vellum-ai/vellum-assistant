@@ -1302,6 +1302,17 @@ export function setNestedValue(
 export const _writeQuarantineNotice = writeQuarantineNotice;
 
 /**
+ * Test-only alias for `recoverFromInvalidConfig`. The strip-and-reparse
+ * cleanup (including sparse-array compaction) repairs every known real-world
+ * config shape, so no config.json fixture reliably reaches the recovery
+ * ladder through `loadConfig` — the ladder is defense-in-depth for schema
+ * shapes the cleanup does not anticipate. Tests exercise its rungs (last
+ * known good, per-section salvage, full defaults) by calling it directly.
+ * Not for production use.
+ */
+export const _recoverFromInvalidConfigForTests = recoverFromInvalidConfig;
+
+/**
  * Test-only reset for the module-level last-known-good config safety net.
  * Exists so tests can exercise the first-load-after-startup salvage path (where
  * no last-known-good config exists yet) deterministically. Not for production
