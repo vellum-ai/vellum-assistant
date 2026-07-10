@@ -1902,6 +1902,86 @@ describe("WorkspaceGitService", () => {
       expect(status.clean).toBe(true);
     });
 
+    test("history compaction purges oversized blobs from aged history", async () => {
+      const gitEnvAt = (daysAgo: number) => {
+        const date = new Date(Date.now() - daysAgo * 86400_000).toISOString();
+        return {
+          ...process.env,
+          GIT_AUTHOR_DATE: date,
+          GIT_COMMITTER_DATE: date,
+        };
+      };
+      // Build history externally: a big blob committed 30 days ago,
+      // untracked 20 days ago, plus a recent commit inside retention.
+      execFileSync("git", ["init", "-b", "main"], { cwd: testDir });
+      execFileSync("git", ["config", "user.name", "Test"], { cwd: testDir });
+      execFileSync("git", ["config", "user.email", "user@example.com"], {
+        cwd: testDir,
+      });
+      writeFileSync(join(testDir, "keep.txt"), "v1");
+      writeFileSync(join(testDir, "legacy.bin"), bigContent());
+      execFileSync("git", ["add", "-A"], { cwd: testDir });
+      execFileSync("git", ["commit", "--no-verify", "-m", "old with blob"], {
+        cwd: testDir,
+        env: gitEnvAt(30),
+      });
+      execFileSync("git", ["rm", "--cached", "-q", "legacy.bin"], {
+        cwd: testDir,
+      });
+      execFileSync("git", ["commit", "--no-verify", "-m", "untrack blob"], {
+        cwd: testDir,
+        env: gitEnvAt(20),
+      });
+      writeFileSync(join(testDir, "recent.txt"), "recent");
+      execFileSync("git", ["add", "recent.txt"], { cwd: testDir });
+      execFileSync("git", ["commit", "--no-verify", "-m", "recent change"], {
+        cwd: testDir,
+      });
+
+      const blobSha = execFileSync("git", ["hash-object", "--stdin"], {
+        cwd: testDir,
+        input: bigContent(),
+        encoding: "utf-8",
+      }).trim();
+      execFileSync("git", ["cat-file", "-e", blobSha], { cwd: testDir });
+
+      const service = new WorkspaceGitService(testDir);
+      await service.compactHistoryNow();
+
+      // The blob is genuinely gone from .git, not just untracked
+      expect(() =>
+        execFileSync("git", ["cat-file", "-e", blobSha], { cwd: testDir }),
+      ).toThrow();
+
+      const subjects = execFileSync("git", ["log", "--format=%s"], {
+        cwd: testDir,
+        encoding: "utf-8",
+      });
+      expect(subjects).toContain("recent change");
+      expect(subjects).toContain("Compacted workspace history");
+      expect(subjects).not.toContain("old with blob");
+
+      // Working tree untouched; service keeps functioning afterwards
+      expect(readFileSync(join(testDir, "keep.txt"), "utf-8")).toBe("v1");
+      expect(existsSync(join(testDir, "legacy.bin"))).toBe(true);
+      writeFileSync(join(testDir, "after.txt"), "after");
+      await service.commitChanges("After compaction");
+      expect(trackedFiles()).toContain("after.txt");
+    });
+
+    test("history compaction is a no-op without oversized blobs", async () => {
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+      writeFileSync(join(testDir, "a.txt"), "a");
+      await service.commitChanges("Add a");
+
+      const headBefore = await service.getHeadHash();
+      const result = await service.compactHistoryNow();
+
+      expect(result.rewrote).toBe(false);
+      expect(await service.getHeadHash()).toBe(headBefore);
+    });
+
     test("deletion of an oversized tracked file is committed", async () => {
       const service = new WorkspaceGitService(testDir);
       await service.ensureInitialized();

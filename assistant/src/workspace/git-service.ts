@@ -142,6 +142,11 @@ const WORKSPACE_GITIGNORE_RULES = [
   "!conversations/**",
 ];
 
+/** Default identity for automated workspace commits. */
+const DEFAULT_GIT_NAME = "Vellum Assistant";
+// generic-examples:ignore-next-line — reason: real daemon commit identity, not an example
+const DEFAULT_GIT_EMAIL = "assistant@vellum.ai";
+
 const NULL_GIT_OID = "0000000000000000000000000000000000000000";
 
 /**
@@ -151,6 +156,16 @@ const NULL_GIT_OID = "0000000000000000000000000000000000000000";
 const EMPTY_TREE_OID = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 
 const DEFAULT_MAX_FILE_SIZE_BYTES = 256000;
+
+/**
+ * History compaction keeps commits younger than this; older ones are
+ * squashed into a scrubbed base commit so oversized blobs referenced only
+ * by old history can be pruned from .git.
+ */
+const HISTORY_RETENTION_DAYS = 7;
+
+/** Timeout for one-shot history rewrite / gc operations. */
+const HISTORY_COMPACTION_TIMEOUT_MS = 10 * 60_000;
 
 const WORKSPACE_BRANCH_GUARD_HOOK = `#!/bin/sh
 set -eu
@@ -258,6 +273,7 @@ export class WorkspaceGitService {
   private initNextAllowedAttemptMs = 0;
   /** Oversized paths already logged, to avoid re-warning every commit cycle. */
   private readonly warnedOversizedPaths = new Set<string>();
+  private historyCompactionScheduled = false;
 
   constructor(workspaceDir: string) {
     this.workspaceDir = workspaceDir;
@@ -539,6 +555,9 @@ export class WorkspaceGitService {
                 await this.untrackOversizedFilesLocked();
                 this.initialized = true;
                 this.recordInitSuccess();
+                // Fire-and-forget: queues behind this locked section, so
+                // init and the first commit are never blocked by a rewrite.
+                this.scheduleHistoryCompaction();
                 return;
               }
             }
@@ -944,6 +963,257 @@ export class WorkspaceGitService {
   }
 
   /**
+   * Fire-and-forget history compaction, scheduled once per service instance
+   * when an existing repo finishes initialization. Best-effort like the
+   * untrack sweeps: failures are logged and never affect commits.
+   */
+  private scheduleHistoryCompaction(): void {
+    if (this.historyCompactionScheduled) {
+      return;
+    }
+    this.historyCompactionScheduled = true;
+    void this.compactHistoryNow().catch((err) => {
+      log.warn(
+        { err, workspaceDir: this.workspaceDir },
+        "Workspace history compaction failed",
+      );
+    });
+  }
+
+  /**
+   * Rewrite workspace history so blobs over workspaceGit.maxFileSizeBytes
+   * stop occupying .git. Commits older than HISTORY_RETENTION_DAYS are
+   * squashed into a single base commit whose tree is scrubbed of oversized
+   * entries; younger commits are replayed verbatim (trees, messages,
+   * authors, and dates preserved); reflogs are then expired and unreachable
+   * objects pruned. Runs only when the object store actually contains an
+   * oversized blob, so the steady state is a cheap detection scan.
+   *
+   * Oversized blobs still referenced by replayed recent commits survive
+   * until those commits age past retention — a later run reclaims them, so
+   * bloat disappears automatically within the retention window. The working
+   * tree and index are never touched (the tip tree is reused unchanged).
+   * Git notes attached to rewritten commits are orphaned; enrichment only
+   * targets commits created after the rewrite, so this is cosmetic.
+   */
+  async compactHistoryNow(): Promise<{
+    rewrote: boolean;
+    squashedCommits: number;
+    keptCommits: number;
+  }> {
+    await this.ensureInitialized();
+    return this.mutex.withLock(() => this.compactHistoryLocked());
+  }
+
+  private async compactHistoryLocked(): Promise<{
+    rewrote: boolean;
+    squashedCommits: number;
+    keptCommits: number;
+  }> {
+    const noop = { rewrote: false, squashedCommits: 0, keptCommits: 0 };
+    const limit = this.maxFileSizeBytes();
+
+    // Any oversized blobs at all? Reads object metadata only — no history
+    // walk — and bounds the cost of every boot where there is nothing to do.
+    const objects = await this.execGitStreaming(
+      [
+        "cat-file",
+        "--batch-all-objects",
+        "--unordered",
+        "--batch-check=%(objecttype) %(objectsize)",
+      ],
+      { timeoutMs: HISTORY_COMPACTION_TIMEOUT_MS },
+    );
+    const hasOversizedBlob = objects.stdout.split("\n").some((line) => {
+      const [type, size] = line.split(" ");
+      return type === "blob" && Number(size) > limit;
+    });
+    if (!hasOversizedBlob) {
+      return noop;
+    }
+
+    // Only rewrite linear main history from its tip.
+    const head = await this.execGit(["symbolic-ref", "--short", "HEAD"]);
+    if (head.stdout.trim() !== "main") {
+      return noop;
+    }
+
+    // %x1f field / %x1e record separators — %B is the raw multi-line body.
+    const logOut = await this.execGitStreaming(
+      [
+        "log",
+        "--first-parent",
+        "--reverse",
+        "--format=%H%x1f%T%x1f%ct%x1f%an%x1f%ae%x1f%aD%x1f%cn%x1f%ce%x1f%cD%x1f%B%x1e",
+        "main",
+      ],
+      { timeoutMs: HISTORY_COMPACTION_TIMEOUT_MS },
+    );
+    const commits = logOut.stdout
+      .split("\x1e")
+      .map((record) => record.replace(/^\n/, ""))
+      .filter((record) => record.includes("\x1f"))
+      .map((record) => {
+        const f = record.split("\x1f");
+        return {
+          sha: f[0] ?? "",
+          tree: f[1] ?? "",
+          committedAtSec: Number(f[2] ?? "0"),
+          authorName: f[3] ?? "",
+          authorEmail: f[4] ?? "",
+          authorDate: f[5] ?? "",
+          committerName: f[6] ?? "",
+          committerEmail: f[7] ?? "",
+          committerDate: f[8] ?? "",
+          body: f[9] ?? "",
+        };
+      });
+    if (commits.length === 0) {
+      return noop;
+    }
+
+    // Squash a PREFIX of the chain so replay order stays consistent even if
+    // commit timestamps are not monotonic.
+    const cutoffSec =
+      Math.floor(Date.now() / 1000) - HISTORY_RETENTION_DAYS * 86400;
+    let splitIdx = commits.findIndex((c) => c.committedAtSec >= cutoffSec);
+    if (splitIdx === -1) {
+      splitIdx = commits.length;
+    }
+    if (splitIdx === 0) {
+      // Blobs live only in commits still within retention; a later run
+      // compacts them once they age out.
+      log.debug(
+        { workspaceDir: this.workspaceDir },
+        "Oversized blobs present but all history is within retention",
+      );
+      return { ...noop, keptCommits: commits.length };
+    }
+
+    const kept = commits.slice(splitIdx);
+    const boundary = commits[splitIdx - 1];
+    if (!boundary) {
+      return noop;
+    }
+    const identityEnv = (c: (typeof commits)[number]) => ({
+      GIT_AUTHOR_NAME: c.authorName || DEFAULT_GIT_NAME,
+      GIT_AUTHOR_EMAIL: c.authorEmail || DEFAULT_GIT_EMAIL,
+      GIT_AUTHOR_DATE: c.authorDate,
+      GIT_COMMITTER_NAME: c.committerName || DEFAULT_GIT_NAME,
+      GIT_COMMITTER_EMAIL: c.committerEmail || DEFAULT_GIT_EMAIL,
+      GIT_COMMITTER_DATE: c.committerDate,
+    });
+
+    const baseTree = await this.scrubTreeLocked(boundary.tree, limit);
+    let newHead = (
+      await this.execGit(
+        [
+          "commit-tree",
+          baseTree,
+          "-m",
+          `Compacted workspace history (${splitIdx} commits squashed)`,
+        ],
+        { env: identityEnv(boundary) },
+      )
+    ).stdout.trim();
+    for (const c of kept) {
+      newHead = (
+        await this.execGit(
+          [
+            "commit-tree",
+            c.tree,
+            "-p",
+            newHead,
+            "-m",
+            c.body.trim() || "(no message)",
+          ],
+          { env: identityEnv(c) },
+        )
+      ).stdout.trim();
+    }
+
+    // Compare-and-swap against the tip we read, in case an external git
+    // process moved main while we rewrote.
+    const oldHead = commits[commits.length - 1]?.sha ?? "";
+    await this.execGit(["update-ref", "refs/heads/main", newHead, oldHead]);
+    await this.execGit(
+      ["reflog", "expire", "--expire=now", "--expire-unreachable=now", "--all"],
+      { timeoutMs: HISTORY_COMPACTION_TIMEOUT_MS },
+    );
+    await this.execGit(["gc", "--prune=now", "--quiet"], {
+      timeoutMs: HISTORY_COMPACTION_TIMEOUT_MS,
+    });
+
+    log.info(
+      {
+        workspaceDir: this.workspaceDir,
+        squashedCommits: splitIdx,
+        keptCommits: kept.length,
+        maxFileSizeBytes: limit,
+      },
+      "Compacted workspace git history",
+    );
+    return {
+      rewrote: true,
+      squashedCommits: splitIdx,
+      keptCommits: kept.length,
+    };
+  }
+
+  /**
+   * Return a copy of `tree` with entries whose blob size exceeds the limit
+   * removed, built in a temporary index so the real index is untouched.
+   * Returns the original tree when nothing in it is oversized.
+   */
+  private async scrubTreeLocked(tree: string, limit: number): Promise<string> {
+    const listing = await this.execGitStreaming(
+      ["ls-tree", "-r", "-l", "-z", tree],
+      {
+        timeoutMs: HISTORY_COMPACTION_TIMEOUT_MS,
+      },
+    );
+    const oversizedPaths: string[] = [];
+    for (const entry of listing.stdout.split("\0")) {
+      const tab = entry.indexOf("\t");
+      if (tab < 0) {
+        continue;
+      }
+      // "<mode> <type> <oid> <size>\t<path>" — size is right-aligned.
+      const meta = entry.substring(0, tab).trim().split(/\s+/);
+      if (meta[1] === "blob" && Number(meta[3]) > limit) {
+        oversizedPaths.push(entry.substring(tab + 1));
+      }
+    }
+    if (oversizedPaths.length === 0) {
+      return tree;
+    }
+
+    const tmpIndex = join(this.workspaceDir, ".git", "vellum-compact-index");
+    const env = { GIT_INDEX_FILE: tmpIndex };
+    try {
+      await this.execGit(["read-tree", tree], { env });
+      await this.execGitStreaming(
+        [
+          "rm",
+          "--cached",
+          "-q",
+          "--ignore-unmatch",
+          "--pathspec-from-file=-",
+          "--pathspec-file-nul",
+        ],
+        { input: oversizedPaths.map((p) => `:(literal)${p}`).join("\0"), env },
+      );
+      return (await this.execGit(["write-tree"], { env })).stdout.trim();
+    } finally {
+      try {
+        unlinkSync(tmpIndex);
+      } catch {
+        // Never created, or already gone.
+      }
+    }
+  }
+
+  /**
    * Stage all workspace changes except files whose working-tree size exceeds
    * workspaceGit.maxFileSizeBytes. Oversized files stay on disk untouched —
    * they just never enter workspace history. Deletions always stage (they
@@ -1162,9 +1432,8 @@ export class WorkspaceGitService {
    * Must be called with the mutex lock held.
    */
   private async ensureCommitIdentityLocked(): Promise<void> {
-    const gitName = process.env.ASSISTANT_GIT_USER_NAME || "Vellum Assistant";
-    const gitEmail =
-      process.env.ASSISTANT_GIT_USER_EMAIL || "assistant@vellum.ai";
+    const gitName = process.env.ASSISTANT_GIT_USER_NAME || DEFAULT_GIT_NAME;
+    const gitEmail = process.env.ASSISTANT_GIT_USER_EMAIL || DEFAULT_GIT_EMAIL;
     await this.execGit(["config", "user.name", gitName]);
     await this.execGit(["config", "user.email", gitEmail]);
   }
@@ -1256,16 +1525,23 @@ export class WorkspaceGitService {
    */
   private async execGit(
     args: string[],
-    options?: { signal?: AbortSignal },
+    options?: {
+      signal?: AbortSignal;
+      timeoutMs?: number;
+      env?: Record<string, string>;
+    },
   ): Promise<{ stdout: string; stderr: string }> {
     const config = getConfig();
-    const timeoutMs = config.workspaceGit?.interactiveGitTimeoutMs ?? 10_000;
+    const timeoutMs =
+      options?.timeoutMs ??
+      config.workspaceGit?.interactiveGitTimeoutMs ??
+      10_000;
     try {
       const { stdout, stderr } = await execFileAsync("git", args, {
         cwd: this.workspaceDir,
         encoding: "utf-8",
         timeout: timeoutMs,
-        env: cleanGitEnv(this.workspaceDir),
+        env: { ...cleanGitEnv(this.workspaceDir), ...options?.env },
         signal: options?.signal,
       });
       return { stdout, stderr };
@@ -1295,14 +1571,22 @@ export class WorkspaceGitService {
    */
   private execGitStreaming(
     args: string[],
-    options?: { signal?: AbortSignal; input?: string },
+    options?: {
+      signal?: AbortSignal;
+      input?: string;
+      timeoutMs?: number;
+      env?: Record<string, string>;
+    },
   ): Promise<{ stdout: string; stderr: string }> {
     const config = getConfig();
-    const timeoutMs = config.workspaceGit?.interactiveGitTimeoutMs ?? 10_000;
+    const timeoutMs =
+      options?.timeoutMs ??
+      config.workspaceGit?.interactiveGitTimeoutMs ??
+      10_000;
     return new Promise((resolve, reject) => {
       const child = spawn("git", args, {
         cwd: this.workspaceDir,
-        env: cleanGitEnv(this.workspaceDir),
+        env: { ...cleanGitEnv(this.workspaceDir), ...options?.env },
         signal: options?.signal,
       });
 
