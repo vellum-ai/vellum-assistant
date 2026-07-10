@@ -9,17 +9,23 @@
  *   2. Request code parsing (6-char alphanumeric prefix matching)
  *   3. NL classification via the conversational approval engine
  *
- * All decisions flow through `applyCanonicalGuardianDecision` from M2,
- * which handles identity validation, expiry checks, CAS resolution,
+ * All decisions flow through `applyGuardianDecision`, which handles identity
+ * validation, expiry checks, the atomic gateway CAS+outcome commit,
  * kind-specific resolver dispatch, and grant minting.
+ *
+ * Routing reads (code lookup, pending discovery, reaction addressing) use the
+ * degrading gateway-client variants: an unreachable gateway resolves to "no
+ * pending requests", so the message falls through to the normal pipeline
+ * instead of failing the inbound turn — decisions themselves still fail
+ * loudly inside the primitive.
  *
  * The router is intentionally kept separate from the inbound message handler
  * to allow for incremental migration and independent testability.
  */
 
 import {
-  applyCanonicalGuardianDecision,
-  type CanonicalDecisionResult,
+  applyGuardianDecision,
+  type GuardianDecisionResult,
 } from "../approvals/guardian-decision-primitive.js";
 import type {
   ActorContext,
@@ -27,13 +33,12 @@ import type {
   ResolverEmissionContext,
 } from "../approvals/guardian-request-resolvers.js";
 import {
-  type CanonicalGuardianRequest,
-  getCanonicalGuardianRequest,
-  getCanonicalGuardianRequestByCode,
-  getPendingCanonicalRequestByDestinationMessage,
-  isRequestExpired,
-  listCanonicalGuardianRequests,
-} from "../contacts/canonical-guardian-store.js";
+  getGuardianRequestByCodeOrNull,
+  getGuardianRequestOrNull,
+  getPendingRequestByDestinationMessageOrNull,
+  type GuardianRequestWire,
+  listGuardianRequestsOrEmpty,
+} from "../channels/gateway-guardian-requests.js";
 import {
   buildGuardianCodeOnlyClarification,
   buildGuardianDisambiguationExample,
@@ -54,6 +59,13 @@ import type {
 import { parseReactionCallbackData } from "./routes/channel-route-shared.js";
 
 const log = getLogger("guardian-reply-router");
+
+/** True when a request has passed its `expiresAt` deadline. */
+function isRequestExpired(
+  request: Pick<GuardianRequestWire, "expiresAt">,
+): boolean {
+  return Boolean(request.expiresAt && request.expiresAt < Date.now());
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -132,8 +144,8 @@ export interface GuardianReplyResult {
   type: GuardianReplyResultType;
   /** The canonical request ID that was targeted (if any). */
   requestId?: string;
-  /** Detailed result from the canonical decision primitive (when a decision was attempted). */
-  canonicalResult?: CanonicalDecisionResult;
+  /** Detailed result from the decision primitive (when a decision was attempted). */
+  canonicalResult?: GuardianDecisionResult;
   /**
    * When true, the caller should skip legacy approval interception for this
    * message. Set by the invite handoff bypass so that "open invite flow"
@@ -177,22 +189,15 @@ function parseCallbackAction(data: string): ParsedCallback | null {
 
 /**
  * 6-char alphanumeric request code at the start of a message.
- * Returns the matching canonical request and the remaining text after
+ * Returns the matching pending guardian request and the remaining text after
  * the code prefix.
- *
- * When `scopeConversationId` is provided, the matched request must belong
- * to that conversation — otherwise the code is treated as unmatched so
- * that requests from other sessions are never accidentally consumed.
  */
 interface CodeParseResult {
-  request: CanonicalGuardianRequest;
+  request: GuardianRequestWire;
   remainingText: string;
 }
 
-function parseRequestCode(
-  text: string,
-  scopeConversationId?: string,
-): CodeParseResult | null {
+async function parseRequestCode(text: string): Promise<CodeParseResult | null> {
   // Strip common channel formatting delimiters (backticks, bold, italic,
   // strikethrough) that messaging platforms wrap around inline code.
   const cleaned = text
@@ -208,29 +213,8 @@ function parseRequestCode(
   }
 
   const code = match[1];
-  const request = getCanonicalGuardianRequestByCode(code);
+  const request = await getGuardianRequestByCodeOrNull(code);
   if (!request) {
-    return null;
-  }
-
-  // Scope to the current conversation when requested, so a code belonging
-  // to a different conversation is not consumed here. Requests with
-  // null conversationId are global/unscoped and match any conversation.
-  if (
-    scopeConversationId &&
-    request.conversationId &&
-    request.conversationId !== scopeConversationId
-  ) {
-    log.info(
-      {
-        event: "router_code_conversation_mismatch",
-        code,
-        requestId: request.id,
-        expected: scopeConversationId,
-        actual: request.conversationId,
-      },
-      "Request code matched a canonical request from a different conversation — ignoring",
-    );
     return null;
   }
 
@@ -242,39 +226,42 @@ function parseRequestCode(
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Find all pending canonical requests for a guardian actor. */
-function findPendingCanonicalRequests(
+/** Find all pending guardian requests for a guardian actor. */
+async function findPendingGuardianRequests(
   actor: ActorContext,
   scope: GuardianPendingScope,
   conversationId?: string,
-): CanonicalGuardianRequest[] {
+): Promise<GuardianRequestWire[]> {
   // `blocked` fails closed: no pending requests and no identity fallback — the
   // Slack cross-chat hijack guard.
   if (scope.mode === "blocked") {
     return [];
   }
 
-  let results: CanonicalGuardianRequest[];
+  let results: GuardianRequestWire[];
 
   if (scope.mode === "scoped") {
     // Resolve exactly the supplied ids.
-    results = scope.requestIds
-      .map(getCanonicalGuardianRequest)
-      .filter((r): r is CanonicalGuardianRequest => r?.status === "pending");
+    const rows = await Promise.all(
+      scope.requestIds.map((id) => getGuardianRequestOrNull(id)),
+    );
+    results = rows.filter(
+      (r): r is GuardianRequestWire => r?.status === "pending",
+    );
   } else if (actor.actorExternalUserId) {
     // identity-fallback: query by guardian identity when available
-    results = listCanonicalGuardianRequests({
+    results = await listGuardianRequestsOrEmpty({
       status: "pending",
       guardianExternalUserId: actor.actorExternalUserId,
     });
   } else if (conversationId) {
-    // identity-fallback without an actorExternalUserId: scope by conversationId
-    // so the NL path can discover pending requests bound to this conversation.
-    // Include guardianPrincipalId when available so the guardian only sees
-    // requests they are authorized to act on.
-    results = listCanonicalGuardianRequests({
+    // identity-fallback without an actorExternalUserId: scope by the source
+    // conversation so the NL path can discover pending requests bound to this
+    // conversation. Include guardianPrincipalId when available so the
+    // guardian only sees requests they are authorized to act on.
+    results = await listGuardianRequestsOrEmpty({
       status: "pending",
-      conversationId,
+      sourceConversationId: conversationId,
       ...(actor.guardianPrincipalId
         ? { guardianPrincipalId: actor.guardianPrincipalId }
         : {}),
@@ -282,7 +269,7 @@ function findPendingCanonicalRequests(
   } else if (actor.guardianPrincipalId) {
     // identity-fallback by principal: desktop sessions discover pending
     // guardian work via their bound principal.
-    results = listCanonicalGuardianRequests({
+    results = await listGuardianRequestsOrEmpty({
       status: "pending",
       guardianPrincipalId: actor.guardianPrincipalId,
     });
@@ -320,7 +307,7 @@ function notConsumed(): GuardianReplyResult {
  *   2. Request code parsing (6-char alphanumeric prefix)
  *   3. NL classification via the conversational approval engine
  *
- * All decisions flow through `applyCanonicalGuardianDecision`.
+ * All decisions flow through `applyGuardianDecision`.
  */
 export async function routeGuardianReply(
   ctx: GuardianReplyContext,
@@ -356,7 +343,7 @@ export async function routeGuardianReply(
       // signal (it must not trigger an agent turn).
       return notConsumed();
     }
-    const request = getPendingCanonicalRequestByDestinationMessage(
+    const request = await getPendingRequestByDestinationMessageOrNull(
       channel,
       guardianChatId,
       reactedMessageTs,
@@ -380,7 +367,7 @@ export async function routeGuardianReply(
   const pendingScope: GuardianPendingScope = ctx.pendingScope ?? {
     mode: "identity-fallback",
   };
-  const pendingRequests = findPendingCanonicalRequests(
+  const pendingRequests = await findPendingGuardianRequests(
     actor,
     pendingScope,
     conversationId,
@@ -393,7 +380,7 @@ export async function routeGuardianReply(
   // ── 1. Deterministic callback parsing (button presses) ──
   // No conversationId scoping here — the guardian's reply comes from a
   // different conversation than the requester's. Identity validation in
-  // applyCanonicalGuardianDecision is sufficient to prevent unauthorized
+  // applyGuardianDecision is sufficient to prevent unauthorized
   // cross-user decisions.
   if (callbackData) {
     const parsed = parseCallbackAction(callbackData);
@@ -413,7 +400,7 @@ export async function routeGuardianReply(
   // No conversationId scoping — same rationale as the callback path above.
   // The guardian's conversation differs from the requester's.
   if (messageText.length > 0) {
-    const codeResult = parseRequestCode(messageText);
+    const codeResult = await parseRequestCode(messageText);
     if (codeResult) {
       const { request } = codeResult;
       if (scopedPendingRequestIds && !scopedPendingRequestIds.has(request.id)) {
@@ -435,7 +422,7 @@ export async function routeGuardianReply(
             requestId: request.id,
             status: request.status,
           },
-          "Request code matched a non-pending canonical request",
+          "Request code matched a non-pending guardian request",
         );
         return {
           decisionApplied: false,
@@ -730,7 +717,7 @@ export async function routeGuardianReply(
 // ---------------------------------------------------------------------------
 
 /**
- * Apply a decision to a canonical request through the unified primitive.
+ * Apply a decision to a guardian request through the unified primitive.
  */
 async function applyDecision(
   requestId: string,
@@ -740,7 +727,7 @@ async function applyDecision(
   channelDeliveryContext?: ChannelDeliveryContext,
   emissionContext?: ResolverEmissionContext,
 ): Promise<GuardianReplyResult> {
-  const canonicalResult = await applyCanonicalGuardianDecision({
+  const canonicalResult = await applyGuardianDecision({
     requestId,
     action,
     actorContext: actor,
@@ -803,13 +790,13 @@ async function applyDecision(
     `Guardian reply router: canonical decision not applied (${canonicalResult.reason})`,
   );
 
-  // When the canonical request doesn't exist, allow the message to fall
+  // When the guardian request doesn't exist, allow the message to fall
   // through so the legacy handleApprovalInterception handler can process it.
   if (canonicalResult.reason === "not_found") {
     return notConsumed();
   }
 
-  const request = getCanonicalGuardianRequest(requestId);
+  const request = await getGuardianRequestOrNull(requestId);
 
   return {
     decisionApplied: false,
@@ -969,7 +956,7 @@ function inferActionFromText(
 }
 
 function resolveRequestInstructionMode(
-  request?: Pick<CanonicalGuardianRequest, "kind" | "toolName"> | null,
+  request?: Pick<GuardianRequestWire, "kind" | "toolName"> | null,
 ): "approval" | "answer" {
   return resolveGuardianInstructionModeForRequest(request);
 }
@@ -992,7 +979,7 @@ type CanonicalFailureReason =
 function failureReplyText(
   reason: CanonicalFailureReason,
   requestCode?: string | null,
-  request?: CanonicalGuardianRequest,
+  request?: GuardianRequestWire,
 ): string {
   switch (reason) {
     case "already_resolved":
@@ -1025,7 +1012,7 @@ function failureReplyText(
  * tells the guardian how to approve or reject it.
  */
 function composeCodeOnlyClarification(
-  request: CanonicalGuardianRequest,
+  request: GuardianRequestWire,
 ): string {
   const code = request.requestCode ?? "unknown";
   const mode = resolveRequestInstructionMode(request);
@@ -1046,7 +1033,7 @@ function composeCodeOnlyClarification(
  * explicit instructions so the guardian knows exactly how to proceed.
  */
 function composeDisambiguationReply(
-  pendingRequests: CanonicalGuardianRequest[],
+  pendingRequests: GuardianRequestWire[],
   engineReplyText?: string,
 ): string {
   const lines: string[] = [];

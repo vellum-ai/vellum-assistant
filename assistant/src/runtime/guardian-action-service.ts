@@ -2,15 +2,15 @@
  * Shared service for processing guardian action decisions.
  *
  * Encapsulates the core business logic — validation, conversation scoping,
- * canonical decision application, and result mapping — so both the HTTP
- * handler and the message handler can delegate here without duplicating code.
+ * decision application, and result mapping — so both the HTTP handler and
+ * the message handler can delegate here without duplicating code.
  */
 
-import { applyCanonicalGuardianDecision } from "../approvals/guardian-decision-primitive.js";
+import { applyGuardianDecision } from "../approvals/guardian-decision-primitive.js";
 import {
-  getCanonicalGuardianRequest,
-  isRequestInConversationScope,
-} from "../contacts/canonical-guardian-store.js";
+  getGuardianRequestOrNull,
+  isGuardianRequestInScopeOrFalse,
+} from "../channels/gateway-guardian-requests.js";
 import {
   APPROVAL_ACTION_IDS,
   isApprovalAction,
@@ -62,15 +62,14 @@ export type ProcessGuardianDecisionResult =
 // ---------------------------------------------------------------------------
 
 /**
- * Process a guardian decision through the canonical request primitive.
+ * Process a guardian decision through the unified decision primitive.
  *
  * Validates the action, checks conversation scope if applicable, applies the
- * canonical decision, and maps the result to a caller-agnostic shape that
- * both HTTP and message handlers can interpret.
+ * decision, and maps the result to a caller-agnostic shape that both HTTP
+ * and message handlers can interpret.
  *
- * Valid actions are the `ApprovalAction` union; the canonical primitive
- * additionally scopes the introduction-card actions to `access_request`
- * requests.
+ * Valid actions are the `ApprovalAction` union; the primitive additionally
+ * scopes the introduction-card actions to `access_request` requests.
  */
 export async function processGuardianDecision(
   params: ProcessGuardianDecisionParams,
@@ -87,22 +86,28 @@ export async function processGuardianDecision(
     };
   }
 
-  // 2. Verify conversationId scoping before applying the canonical decision.
-  //    The decision is allowed when the conversationId matches the request's
+  // 2. Verify conversationId scoping before applying the decision. The
+  //    decision is allowed when the conversationId matches the request's
   //    source conversation OR a recorded delivery destination conversation.
+  //    Reads degrade fail-closed: an unreachable gateway scopes to not_found
+  //    (and the decide below fails loudly anyway).
   if (conversationId) {
-    const canonicalRequest = getCanonicalGuardianRequest(requestId);
+    const request = await getGuardianRequestOrNull(requestId);
     if (
-      canonicalRequest &&
-      canonicalRequest.conversationId &&
-      !isRequestInConversationScope(requestId, conversationId, channel)
+      request &&
+      request.sourceConversationId &&
+      !(await isGuardianRequestInScopeOrFalse(
+        requestId,
+        conversationId,
+        channel,
+      ))
     ) {
       return { ok: true, applied: false, reason: "not_found" };
     }
   }
 
-  // 3. Apply the canonical decision
-  const canonicalResult = await applyCanonicalGuardianDecision({
+  // 3. Apply the decision through the gateway-native primitive
+  const canonicalResult = await applyGuardianDecision({
     requestId,
     action,
     actorContext: {

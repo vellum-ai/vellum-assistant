@@ -1,30 +1,29 @@
 /**
- * Resolver registry for canonical guardian requests.
+ * Resolver registry for guardian requests.
  *
- * Dispatches to kind-specific resolvers after the unified decision primitive
- * has validated identity, status, and performed CAS resolution.  Each
- * resolver adapts the existing side-effect logic (channel approval handling,
- * voice call answer delivery) to the canonical request domain.
+ * The decision primitive validates identity/status, asks the kind's resolver
+ * to plan the gateway ACL outcome (`prepare`, before any status write),
+ * commits the status CAS + outcome atomically via `guardian_requests_decide`,
+ * and then dispatches the kind's daemon-domain follow-through (`resolve`:
+ * pending-interaction resume, call answering, notifications, verification-code
+ * delivery). Follow-through failures surface as `resolverFailed` but never
+ * disturb the committed decision — atomic decide made reopen-on-failed-persist
+ * obsolete.
  *
  * The registry is intentionally a simple Map keyed by request kind.  New
- * request kinds (access_request, etc.) can register resolvers here without
- * touching the core decision primitive.
+ * request kinds can register resolvers here without touching the core
+ * decision primitive.
  */
 
+import type { CreateOutboundSessionIpcResponse } from "@vellumai/gateway-client";
+
 import { answerCall } from "../calls/call-domain.js";
-import { createOutboundSession } from "../channels/gateway-verification-sessions.js";
-import {
-  type CanonicalGuardianRequest,
-  type CanonicalRequestStatus,
-  getCanonicalGuardianRequest,
-  resolveCanonicalGuardianRequest,
-} from "../contacts/canonical-guardian-store.js";
+import type {
+  GuardianRequestAclOutcome,
+  GuardianRequestWire,
+} from "../channels/gateway-guardian-requests.js";
+import { getGuardianRequestOrNull } from "../channels/gateway-guardian-requests.js";
 import { findContactChannel } from "../contacts/contact-store.js";
-import {
-  activateMemberChannel,
-  blockSenderChannel,
-  seedUnverifiedMemberChannel,
-} from "../contacts/member-write-relay.js";
 import { findConversation } from "../daemon/conversation-registry.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import {
@@ -45,6 +44,7 @@ import { deliverChannelReply } from "../runtime/gateway-client.js";
 import {
   introductionMode,
   parseRequesterSignals,
+  type RequesterIdentitySignals,
   resolveTrustBinding,
 } from "../runtime/introduction-policy.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
@@ -235,10 +235,37 @@ export interface ResolverEmissionContext {
   decisionText?: string;
 }
 
-/** Context passed to each resolver after CAS resolution succeeds. */
+/** Context passed to a resolver's `prepare`, before any status write. */
+export interface PrepareContext {
+  /** The guardian request, still pending. */
+  request: GuardianRequestWire;
+  /** The decision being applied. */
+  decision: ResolverDecision;
+  /** Actor context for the entity making the decision. */
+  actor: ActorContext;
+}
+
+/**
+ * Outcome plan a resolver produces before the decision commits.
+ *
+ * `aclOutcome` (when present) is committed by the gateway in the SAME
+ * transaction as the status CAS. `persistFailureReason` becomes the
+ * `resolverFailureReason` surfaced to callers when the atomic decide throws —
+ * the request stays pending gateway-side and the guardian can retry.
+ * `ok: false` aborts the decision before any status write.
+ */
+export type DecisionOutcomePlan =
+  | {
+      ok: true;
+      aclOutcome?: GuardianRequestAclOutcome;
+      persistFailureReason: string;
+    }
+  | { ok: false; reason: string };
+
+/** Context passed to each resolver after the atomic decide succeeds. */
 export interface ResolverContext {
-  /** The canonical request record (already resolved to its terminal status). */
-  request: CanonicalGuardianRequest;
+  /** The guardian request record (already resolved to its terminal status). */
+  request: GuardianRequestWire;
   /** The decision being applied. */
   decision: ResolverDecision;
   /** Actor context for the entity making the decision. */
@@ -247,6 +274,12 @@ export interface ResolverContext {
   channelDeliveryContext?: ChannelDeliveryContext;
   /** Optional emission context threaded to handleConfirmationResponse for correct source attribution. */
   emissionContext?: ResolverEmissionContext;
+  /**
+   * Raw outbound-session mint returned by the atomic decide when the planned
+   * outcome was `mint_outbound_session` — the secret transits back for
+   * daemon-owned code delivery.
+   */
+  mintedSession?: CreateOutboundSessionIpcResponse;
 }
 
 /** Discriminated result from a resolver. */
@@ -256,20 +289,20 @@ export type ResolverResult =
       applied: true;
       grantMinted?: boolean;
       guardianReplyText?: string;
-      activatedContact?: {
-        sourceChannel: string;
-        externalUserId: string;
-        externalChatId?: string;
-        displayName?: string;
-      };
     }
   | { ok: false; reason: string };
 
 /** Interface that kind-specific resolvers implement. */
 export interface GuardianRequestResolver {
-  /** The request kind this resolver handles (matches canonical_guardian_requests.kind). */
+  /** The request kind this resolver handles (matches guardian_requests.kind). */
   kind: string;
-  /** Execute kind-specific side effects after CAS resolution. */
+  /**
+   * Plan the gateway ACL outcome for this decision, BEFORE any status write.
+   * Kinds without gateway-owned outcomes omit this — their decide is a plain
+   * status CAS.
+   */
+  prepare?(context: PrepareContext): DecisionOutcomePlan;
+  /** Execute daemon-domain follow-through after the atomic decide commits. */
   resolve(context: ResolverContext): Promise<ResolverResult>;
 }
 
@@ -281,8 +314,8 @@ export interface GuardianRequestResolver {
  * Resolves `tool_approval` requests — the channel/desktop approval path.
  *
  * Adapts the existing `handleChannelDecision` logic: looks up the pending
- * interaction by conversation ID, maps the canonical decision to the
- * session's confirmation response, and resolves the interaction.
+ * interaction by conversation ID, maps the decision to the session's
+ * confirmation response, and resolves the interaction.
  *
  * Side effects are deferred to callers that wire into existing channel
  * approval infrastructure.  This resolver focuses on validating that the
@@ -294,7 +327,7 @@ const pendingInteractionResolver: GuardianRequestResolver = {
   async resolve(ctx: ResolverContext): Promise<ResolverResult> {
     const { request, decision } = ctx;
 
-    if (!request.conversationId) {
+    if (!request.sourceConversationId) {
       return {
         ok: false,
         reason: "tool_approval request missing conversationId",
@@ -305,13 +338,13 @@ const pendingInteractionResolver: GuardianRequestResolver = {
     const interaction = pendingInteractions.get(request.id);
     if (!interaction) {
       // The pending interaction was already consumed (stale) or not found.
-      // The canonical CAS already committed, so this is not an error — just
+      // The decision CAS already committed, so this is not an error — just
       // means the interaction was resolved by another path (e.g. timeout).
       log.warn(
         {
           event: "resolver_tool_approval_stale",
           requestId: request.id,
-          conversationId: request.conversationId,
+          conversationId: request.sourceConversationId,
         },
         "Tool approval resolver: pending interaction not found (already consumed or timed out)",
       );
@@ -340,7 +373,7 @@ const pendingInteractionResolver: GuardianRequestResolver = {
           event: "resolver_tool_approval_applied",
           requestId: request.id,
           action: decision.action,
-          conversationId: request.conversationId,
+          conversationId: request.sourceConversationId,
           toolName: request.toolName,
           directResolve: true,
         },
@@ -365,7 +398,7 @@ const pendingInteractionResolver: GuardianRequestResolver = {
         event: "resolver_tool_approval_applied",
         requestId: request.id,
         action: decision.action,
-        conversationId: request.conversationId,
+        conversationId: request.sourceConversationId,
         toolName: request.toolName,
       },
       "Tool approval resolver: pending interaction resolved",
@@ -378,13 +411,10 @@ const pendingInteractionResolver: GuardianRequestResolver = {
 /**
  * Resolves `pending_question` requests — the voice call question path.
  *
- * Adapts the existing `answerCall` + `resolveGuardianActionRequest` logic:
- * validates that voice-specific fields (callSessionId, pendingQuestionId)
- * are present, and signals that the answer has been captured.
- *
- * Actual call session answer delivery is handled downstream by existing
- * voice infrastructure.  This resolver validates the request shape and
- * records the resolution.
+ * Validates that voice-specific fields (callSessionId, pendingQuestionId)
+ * are present and delivers the answer to the live call session. An
+ * `answerCall` failure surfaces as `resolverFailed` — the committed decision
+ * stands (no reopen).
  */
 const pendingQuestionResolver: GuardianRequestResolver = {
   kind: "pending_question",
@@ -431,7 +461,7 @@ const pendingQuestionResolver: GuardianRequestResolver = {
         },
         "Pending question resolver: answerCall failed",
       );
-      // The canonical CAS has already committed so we don't roll back the
+      // The decision CAS has already committed so we don't roll back the
       // resolution, but we signal failure so the decision primitive skips
       // grant minting and callers see the side-effect failure.
       return { ok: false, reason: "answer_call_failed" };
@@ -450,7 +480,7 @@ const pendingQuestionResolver: GuardianRequestResolver = {
             ? (answerResult as Record<string, unknown>).ok
             : false,
       },
-      "Pending question resolver: canonical decision applied",
+      "Pending question resolver: decision applied",
     );
 
     return { ok: true, applied: true };
@@ -482,32 +512,64 @@ const OUTCOME_BY_ACTION = {
   block: "block",
 } as const satisfies Record<ApprovalAction, IntroductionOutcome>;
 
+/** Derived access-request decision facts shared by `prepare` and `resolve`. */
+interface AccessRequestDerivation {
+  channel: NotificationSourceChannel;
+  requesterExternalUserId: string;
+  requesterChatId: string;
+  requesterDisplayName: string | null;
+  signals: RequesterIdentitySignals;
+  outcome: IntroductionOutcome;
+}
+
 /**
- * Reopen an access request whose gateway-side persist failed after the CAS
- * already committed a terminal status. Leaving the row terminal would lie
- * about the ACL state: a `denied` row from a failed Block permanently
- * suppresses re-prompts for the sender (isAccessRequestDenied) even though
- * the revoke never landed, and an `approved` row from a failed activation
- * suppresses re-prompts for the verification window. Reopening keeps the
- * request decidable (the request code stays live) and lets the expiry sweep
- * re-enable discovery if the guardian never retries.
- *
- * CAS-guarded on the status this decision committed, so a concurrent writer
- * is never clobbered.
+ * Derive the effective introduction outcome and requester identity facts for
+ * an access-request decision. Pure over the request row + action, so
+ * `prepare` (outcome planning) and `resolve` (follow-through) branch
+ * identically.
  */
-function reopenAccessRequestAfterFailedPersist(
-  requestId: string,
-  fromStatus: CanonicalRequestStatus,
-): void {
-  const reopened = resolveCanonicalGuardianRequest(requestId, fromStatus, {
-    status: "pending",
-  });
-  if (!reopened) {
-    log.warn(
-      { event: "access_request_reopen_failed", requestId, fromStatus },
-      "Failed to reopen access request after gateway persist failure",
-    );
+function deriveAccessRequestDecision(
+  request: GuardianRequestWire,
+  action: ApprovalAction,
+): AccessRequestDerivation {
+  const channel: NotificationSourceChannel = isNotificationSourceChannel(
+    request.sourceChannel,
+  )
+    ? request.sourceChannel
+    : "vellum";
+  const requesterExternalUserId = request.requesterExternalUserId ?? "";
+  const requesterChatId =
+    request.requesterChatId ?? request.requesterExternalUserId ?? "";
+
+  // Resolve display names from the contacts database for enriched payloads
+  const requesterContactResult = requesterExternalUserId
+    ? findContactChannel({
+        channelType: channel,
+        address: requesterExternalUserId,
+      })
+    : null;
+  const requesterDisplayName =
+    requesterContactResult?.contact.displayName ?? null;
+
+  const signals = parseRequesterSignals(request.requesterSignals);
+  let outcome: IntroductionOutcome = OUTCOME_BY_ACTION[action];
+
+  // A bot cannot return a verification code, so a handshake approval on a
+  // bot requester can never complete. Coerce it to direct trust — the
+  // guardian's intent ("let it in") is unambiguous. Logged once, in
+  // `prepare` (this derivation runs again in `resolve`).
+  if (outcome === "verify_code" && signals.isBot === true) {
+    outcome = "trust";
   }
+
+  return {
+    channel,
+    requesterExternalUserId,
+    requesterChatId,
+    requesterDisplayName,
+    signals,
+    outcome,
+  };
 }
 
 /**
@@ -673,38 +735,161 @@ async function notifyRequesterOfDenial(params: {
  * - `block`: persists the sender's channel as `revoked` (gateway ACL is the
  *   source of truth).
  *
+ * `prepare` maps the outcome onto the gateway `aclOutcome` committed
+ * atomically with the status CAS; `resolve` runs the daemon-domain
+ * follow-through (requester/guardian notices, verification-code delivery
+ * from the decide's `mintedSession`, lifecycle signals).
+ *
  * A bot requester can never return a code, so handshake approvals are
  * coerced to direct trust.
- *
- * When a `channelDeliveryContext` is provided (channel path), the resolver
- * also delivers codes/notices on-channel and emits lifecycle signals.
  */
 const accessRequestResolver: GuardianRequestResolver = {
   kind: "access_request",
 
+  prepare(ctx: PrepareContext): DecisionOutcomePlan {
+    const { request, decision } = ctx;
+    const {
+      channel,
+      requesterExternalUserId,
+      requesterChatId,
+      requesterDisplayName,
+      signals,
+      outcome,
+    } = deriveAccessRequestDecision(request, decision.action);
+
+    if (outcome !== OUTCOME_BY_ACTION[decision.action]) {
+      log.info(
+        {
+          event: "resolver_access_request_bot_coercion",
+          requestId: request.id,
+          action: decision.action,
+        },
+        "Access request resolver: handshake approval on a bot coerced to direct trust",
+      );
+    }
+
+    if (outcome === "leave_unverified") {
+      // Persist the denied sender as an unverified_contact so future inbound
+      // resolves as unverified_contact rather than re-triggering discovery.
+      // Skipped for desktop-origin (vellum) requests, which carry no channel
+      // identity — those deny as a plain status CAS.
+      if (!requesterExternalUserId || channel === "vellum") {
+        return { ok: true, persistFailureReason: "decision_persist_failed" };
+      }
+      return {
+        ok: true,
+        aclOutcome: {
+          type: "seed_unverified",
+          sourceChannel: channel,
+          externalUserId: requesterExternalUserId,
+          ...(requesterDisplayName
+            ? { displayName: requesterDisplayName }
+            : {}),
+        },
+        persistFailureReason: "seed_unverified_failed",
+      };
+    }
+
+    if (outcome === "block") {
+      if (!requesterExternalUserId || channel === "vellum") {
+        // No channel identity to revoke — nothing can land on the gateway,
+        // so the decision is aborted before any status write.
+        return { ok: false, reason: "block_missing_channel_identity" };
+      }
+      return {
+        ok: true,
+        aclOutcome: {
+          type: "block",
+          sourceChannel: channel,
+          externalUserId: requesterExternalUserId,
+          ...(requesterDisplayName
+            ? { displayName: requesterDisplayName }
+            : {}),
+          reason: "introduction_block",
+        },
+        persistFailureReason: "block_persist_failed",
+      };
+    }
+
+    // Voice approvals: directly activate the trusted contact without minting
+    // a verification session. The caller is already on the line and the
+    // call setup flow's in-call wait loop will detect the approved status.
+    // The gateway fails the decide closed when the row carries no channel
+    // identity — a caller the ACL source of truth never verified must not
+    // resolve as approved.
+    if (channel === "phone") {
+      return {
+        ok: true,
+        aclOutcome: {
+          type: "activate_member",
+          sourceChannel: "phone",
+          ...(requesterExternalUserId
+            ? { externalUserId: requesterExternalUserId }
+            : {}),
+          ...(requesterChatId ? { externalChatId: requesterChatId } : {}),
+        },
+        persistFailureReason: "voice_activation_failed",
+      };
+    }
+
+    // Direct trust: activate the contact without a handshake. The binding
+    // strength is derived from the platform's identity signals — a
+    // workspace-vouched identity records `manual` (internal_workspace_match);
+    // an external/stranger records `manual_channel_claim`
+    // (inbound_channel_claim), never handshake-equivalent provenance.
+    if (outcome === "trust") {
+      // A trust without a channel identity cannot land on the gateway ACL —
+      // fail closed before any status write, mirroring the block guard.
+      if (!requesterExternalUserId || channel === "vellum") {
+        return { ok: false, reason: "trust_missing_channel_identity" };
+      }
+      const binding = resolveTrustBinding(channel, signals);
+      return {
+        ok: true,
+        aclOutcome: {
+          type: "activate_member",
+          sourceChannel: channel,
+          externalUserId: requesterExternalUserId,
+          externalChatId: requesterChatId,
+          ...(requesterDisplayName
+            ? { displayName: requesterDisplayName }
+            : {}),
+          verifiedVia: binding.verifiedVia,
+        },
+        persistFailureReason: "trust_activation_failed",
+      };
+    }
+
+    // Non-voice approvals: mint an identity-bound verification session so the
+    // requester can verify their identity. The raw secret transits back on
+    // the decide response for daemon-owned delivery.
+    return {
+      ok: true,
+      aclOutcome: {
+        type: "mint_outbound_session",
+        channel,
+        expectedExternalUserId: requesterExternalUserId,
+        expectedChatId: requesterChatId,
+        identityBindingStatus: "bound",
+        destinationAddress: requesterChatId,
+        verificationPurpose: "trusted_contact",
+      },
+      persistFailureReason: "verification_session_mint_failed",
+    };
+  },
+
   async resolve(ctx: ResolverContext): Promise<ResolverResult> {
     const { request, decision, channelDeliveryContext } = ctx;
-    const channel: NotificationSourceChannel = isNotificationSourceChannel(
-      request.sourceChannel,
-    )
-      ? request.sourceChannel
-      : "vellum";
-    const requesterExternalUserId = request.requesterExternalUserId ?? "";
-    const requesterChatId =
-      request.requesterChatId ?? request.requesterExternalUserId ?? "";
+    const {
+      channel,
+      requesterExternalUserId,
+      requesterChatId,
+      requesterDisplayName,
+      outcome,
+    } = deriveAccessRequestDecision(request, decision.action);
     const decidedByExternalUserId = ctx.actor.actorExternalUserId ?? "";
     const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
     const desktopDeliverUrl = resolveDeliverCallbackUrlForChannel(channel);
-
-    // Resolve display names from the contacts database for enriched payloads
-    const requesterContactResult = requesterExternalUserId
-      ? findContactChannel({
-          channelType: channel,
-          address: requesterExternalUserId,
-        })
-      : null;
-    const requesterDisplayName =
-      requesterContactResult?.contact.displayName ?? null;
 
     // Guardian-facing label prefers the contact display name over the raw ID.
     const requesterLabel =
@@ -722,26 +907,9 @@ const accessRequestResolver: GuardianRequestResolver = {
     const decidedByDisplayName =
       decidedByContactResult?.contact.displayName ?? null;
 
-    const signals = parseRequesterSignals(request.requesterSignals);
     // Requester-facing lifecycle notices are mode-gated: an admitted-mode
     // nudge's sender made no request. See introductionMode().
-    const mode = introductionMode(request.trigger);
-    let outcome: IntroductionOutcome = OUTCOME_BY_ACTION[decision.action];
-
-    // A bot cannot return a verification code, so a handshake approval on a
-    // bot requester can never complete. Coerce it to direct trust — the
-    // guardian's intent ("let it in") is unambiguous.
-    if (outcome === "verify_code" && signals.isBot === true) {
-      log.info(
-        {
-          event: "resolver_access_request_bot_coercion",
-          requestId: request.id,
-          action: decision.action,
-        },
-        "Access request resolver: handshake approval on a bot coerced to direct trust",
-      );
-      outcome = "trust";
-    }
+    const mode = introductionMode(request.requestTrigger);
 
     const deniedPayload: TrustedContactDecisionPayload = {
       sourceChannel: channel,
@@ -759,23 +927,6 @@ const accessRequestResolver: GuardianRequestResolver = {
         "Access request resolver: leave unverified",
       );
 
-      // Persist the denied sender as an unverified_contact (gateway-first).
-      // Denial is a terminal decision: the sender becomes a known, unverified
-      // contact so future inbound resolves as unverified_contact rather than
-      // re-triggering discovery. Paired with the denied-request suppression in
-      // notifyGuardianOfAccessRequest, this stops the prompt from re-firing on
-      // every subsequent DM. The guardian can still verify them later. Skipped
-      // for desktop-origin (vellum) requests, which carry no channel identity.
-      if (requesterExternalUserId && channel !== "vellum") {
-        await seedUnverifiedMemberChannel({
-          sourceChannel: channel,
-          externalUserId: requesterExternalUserId,
-          ...(requesterDisplayName
-            ? { displayName: requesterDisplayName }
-            : {}),
-        });
-      }
-
       await notifyRequesterOfDenial({
         channel,
         requesterChatId,
@@ -785,7 +936,7 @@ const accessRequestResolver: GuardianRequestResolver = {
         desktopDeliverUrl,
         deniedPayload,
         requestId: request.id,
-        conversationId: request.conversationId,
+        conversationId: request.sourceConversationId,
         suppressRequesterNotice: !mode.notifyRequesterOnDeny,
       });
 
@@ -810,27 +961,6 @@ const accessRequestResolver: GuardianRequestResolver = {
         "Access request resolver: block",
       );
 
-      if (!requesterExternalUserId || channel === "vellum") {
-        // No channel identity to revoke — nothing landed on the gateway, so
-        // the request must not stay terminally denied.
-        reopenAccessRequestAfterFailedPersist(request.id, "denied");
-        return { ok: false, reason: "block_missing_channel_identity" };
-      }
-
-      // Gateway-first: persist the revoked verdict on the ACL source of
-      // truth. Fail closed — a block the gateway did not persist must not be
-      // reported as applied.
-      const blockResult = await blockSenderChannel({
-        sourceChannel: channel,
-        externalUserId: requesterExternalUserId,
-        ...(requesterDisplayName ? { displayName: requesterDisplayName } : {}),
-        reason: "introduction_block",
-      });
-      if (!blockResult.revoked) {
-        reopenAccessRequestAfterFailedPersist(request.id, "denied");
-        return { ok: false, reason: "block_persist_failed" };
-      }
-
       // The requester sees the same denial notice as leave-unverified — the
       // block itself is not revealed.
       await notifyRequesterOfDenial({
@@ -842,7 +972,7 @@ const accessRequestResolver: GuardianRequestResolver = {
         desktopDeliverUrl,
         deniedPayload,
         requestId: request.id,
-        conversationId: request.conversationId,
+        conversationId: request.sourceConversationId,
         suppressRequesterNotice: !mode.notifyRequesterOnDeny,
       });
 
@@ -857,39 +987,9 @@ const accessRequestResolver: GuardianRequestResolver = {
       };
     }
 
-    // Voice approvals: directly activate the trusted contact without minting
-    // a verification session. The caller is already on the line and the
-    // call setup flow's in-call wait loop will detect the approved status.
+    // Voice approvals: the caller was activated atomically with the decide;
+    // the call setup flow's in-call wait loop detects the approved status.
     if (channel === "phone") {
-      let activation: Awaited<ReturnType<typeof activateMemberChannel>>;
-      try {
-        // Gateway-first activation: the gateway owns the ACL verdict, the local
-        // mirror persists the caller's contact/channel identity.
-        activation = await activateMemberChannel({
-          sourceChannel: "phone",
-          externalUserId: requesterExternalUserId,
-          externalChatId: requesterChatId,
-        });
-      } catch (err) {
-        log.error(
-          { err, requesterExternalUserId },
-          "Access request resolver: failed to activate voice caller as trusted contact",
-        );
-        reopenAccessRequestAfterFailedPersist(request.id, "approved");
-        return { ok: false, reason: "voice_activation_failed" };
-      }
-
-      // Fail-closed: a refused activation did not land on the gateway source of
-      // truth, so the caller is not actually trusted — do not report success.
-      if (activation.status === "refused") {
-        log.error(
-          { requesterExternalUserId },
-          "Access request resolver: gateway refused voice caller activation",
-        );
-        reopenAccessRequestAfterFailedPersist(request.id, "approved");
-        return { ok: false, reason: "voice_activation_refused" };
-      }
-
       log.info(
         {
           event: "resolver_access_request_voice_approved",
@@ -900,76 +1000,16 @@ const accessRequestResolver: GuardianRequestResolver = {
         "Access request resolver: voice approval — direct trusted-contact activation (no verification session)",
       );
 
-      return {
-        ok: true,
-        applied: true,
-        activatedContact: {
-          sourceChannel: "phone",
-          externalUserId: requesterExternalUserId,
-          ...(requesterChatId ? { externalChatId: requesterChatId } : {}),
-          ...(requesterDisplayName
-            ? { displayName: requesterDisplayName }
-            : {}),
-        },
-      };
+      return { ok: true, applied: true };
     }
 
-    // Direct trust: activate the contact without a handshake. The binding
-    // strength is derived from the platform's identity signals — a
-    // workspace-vouched identity records `manual` (internal_workspace_match);
-    // an external/stranger records `manual_channel_claim`
-    // (inbound_channel_claim), never handshake-equivalent provenance.
     if (outcome === "trust") {
-      // A trust without a channel identity cannot land on the gateway ACL —
-      // the local mirror alone would report a success the source of truth
-      // never recorded. Fail closed, mirroring the block guard.
-      if (!requesterExternalUserId || channel === "vellum") {
-        reopenAccessRequestAfterFailedPersist(request.id, "approved");
-        return { ok: false, reason: "trust_missing_channel_identity" };
-      }
-
-      const binding = resolveTrustBinding(channel, signals);
-
-      let activation: Awaited<ReturnType<typeof activateMemberChannel>>;
-      try {
-        activation = await activateMemberChannel({
-          sourceChannel: channel,
-          externalUserId: requesterExternalUserId,
-          externalChatId: requesterChatId,
-          ...(requesterDisplayName
-            ? { displayName: requesterDisplayName }
-            : {}),
-          verifiedVia: binding.verifiedVia,
-        });
-      } catch (err) {
-        log.error(
-          { err, requesterExternalUserId },
-          "Access request resolver: failed to activate directly-trusted contact",
-        );
-        reopenAccessRequestAfterFailedPersist(request.id, "approved");
-        return { ok: false, reason: "trust_activation_failed" };
-      }
-
-      // Fail-closed: a refused activation did not land on the gateway source
-      // of truth, so the sender is not actually trusted.
-      if (activation.status === "refused") {
-        log.error(
-          { requesterExternalUserId },
-          "Access request resolver: gateway refused direct-trust activation",
-        );
-        reopenAccessRequestAfterFailedPersist(request.id, "approved");
-        return { ok: false, reason: "trust_activation_refused" };
-      }
-
       log.info(
         {
           event: "resolver_access_request_trusted",
           requestId: request.id,
           channel,
           requesterExternalUserId,
-          verifiedVia: binding.verifiedVia,
-          bindingStrength: binding.bindingStrength,
-          isBot: signals.isBot === true,
         },
         "Access request resolver: direct trust — contact activated without handshake",
       );
@@ -991,14 +1031,6 @@ const accessRequestResolver: GuardianRequestResolver = {
       return {
         ok: true,
         applied: true,
-        activatedContact: {
-          sourceChannel: channel,
-          externalUserId: requesterExternalUserId,
-          ...(requesterChatId ? { externalChatId: requesterChatId } : {}),
-          ...(requesterDisplayName
-            ? { displayName: requesterDisplayName }
-            : {}),
-        },
         ...(ctx.actor.channel === "vellum"
           ? {
               guardianReplyText: `Trusted ${requesterLabel}. They can now message the assistant — no verification code needed.`,
@@ -1007,16 +1039,16 @@ const accessRequestResolver: GuardianRequestResolver = {
       };
     }
 
-    // Non-voice approvals: mint an identity-bound verification session so the
-    // requester can verify their identity.
-    const session = await createOutboundSession({
-      channel,
-      expectedExternalUserId: requesterExternalUserId,
-      expectedChatId: requesterChatId,
-      identityBindingStatus: "bound",
-      destinationAddress: requesterChatId,
-      verificationPurpose: "trusted_contact",
-    });
+    // Non-voice approvals: the identity-bound verification session was minted
+    // atomically with the decide; its raw secret arrives via `mintedSession`.
+    const session = ctx.mintedSession;
+    if (!session) {
+      log.error(
+        { event: "resolver_access_request_missing_mint", requestId: request.id },
+        "Access request resolver: decide returned no mintedSession for a verify_code outcome",
+      );
+      return { ok: false, reason: "minted_session_missing" };
+    }
 
     log.info(
       {
@@ -1173,7 +1205,7 @@ const accessRequestResolver: GuardianRequestResolver = {
             decidedByDisplayName,
             verificationSessionId: session.sessionId,
           },
-          request.conversationId,
+          request.sourceConversationId,
         );
       }
     } else {
@@ -1240,7 +1272,7 @@ const accessRequestResolver: GuardianRequestResolver = {
           decidedByDisplayName,
           verificationSessionId: session.sessionId,
         },
-        request.conversationId,
+        request.sourceConversationId,
       );
     }
 
@@ -1266,12 +1298,11 @@ const accessRequestResolver: GuardianRequestResolver = {
  *
  * Unlike `tool_approval`, this kind does NOT require a pending interaction in
  * the session tracker. The request represents an async escalation: the
- * requester's tool call was already denied, and the canonical request exists
+ * requester's tool call was already denied, and the guardian request exists
  * solely so the guardian can mint a scoped grant.
  *
- * On approve: the canonical decision primitive mints the grant (step 6 in
- * applyCanonicalGuardianDecision). This resolver optionally notifies the
- * requester to retry.
+ * On approve: the decision primitive mints the grant (after this resolver
+ * runs). This resolver optionally notifies the requester to retry.
  *
  * On reject: optionally notifies the requester that their request was denied.
  */
@@ -1324,39 +1355,38 @@ const toolGrantRequestResolver: GuardianRequestResolver = {
       return { ok: true, applied: true };
     }
 
-    // On approve: grant minting is handled by the canonical decision primitive
-    // (step 6). This resolver only handles requester notification.
+    // On approve: grant minting is handled by the decision primitive after
+    // this resolver runs. This resolver only handles requester notification.
     log.info(
       {
         event: "resolver_tool_grant_request_approved",
         requestId: request.id,
         toolName: request.toolName,
       },
-      "Tool grant request resolver: approved (grant minting deferred to canonical primitive)",
+      "Tool grant request resolver: approved (grant minting deferred to the decision primitive)",
     );
 
-    // Re-read the canonical request to check whether an inline grant waiter
+    // Re-read the guardian request to check whether an inline grant waiter
     // has already claimed this request. When followupState is
     // 'inline_wait_active', the requester's original tool call is blocking
     // on the grant and will resume automatically — sending a "please retry"
     // notification would be stale and confusing (and could cause duplicate
     // attempts or one-time-grant denials).
     //
-    // Staleness guard: the inline_wait_active marker is persisted in DB and
-    // can outlive the actual waiter if the daemon crashes or restarts during
+    // Staleness guard: the inline_wait_active marker is persisted and can
+    // outlive the actual waiter if the daemon crashes or restarts during
     // the wait. To avoid permanently suppressing the retry notification, we
     // treat the marker as stale if the encoded start timestamp is older than
     // the maximum wait budget plus a 30s buffer.
     const INLINE_WAIT_STALENESS_BUFFER_MS = 30_000;
-    const freshRequest = getCanonicalGuardianRequest(request.id);
+    const freshRequest = await getGuardianRequestOrNull(request.id);
     const followupState = freshRequest?.followupState ?? "";
     let inlineWaitActive = followupState.startsWith("inline_wait_active");
     if (inlineWaitActive && freshRequest) {
       // The followupState encodes the wall-clock epoch when the inline wait
       // started (e.g. 'inline_wait_active:1700000000000'). We use this
-      // instead of updatedAt because resolveCanonicalGuardianRequest sets
-      // updatedAt = now during CAS resolution, making updatedAt always fresh
-      // by the time this resolver runs.
+      // instead of updatedAt because the decide CAS sets updatedAt = now,
+      // making updatedAt always fresh by the time this resolver runs.
       const colonIdx = followupState.indexOf(":");
       const waitStartMs =
         colonIdx !== -1 ? Number(followupState.slice(colonIdx + 1)) : NaN;

@@ -24,7 +24,6 @@
 
 import {
   type CanonicalGuardianDelivery,
-  type CanonicalGuardianRequest,
   type CanonicalRequestStatus,
   listCanonicalGuardianDeliveries,
 } from "../contacts/canonical-guardian-store.js";
@@ -43,9 +42,20 @@ const SURFACE_STATUS_LABELS: Partial<Record<CanonicalRequestStatus, string>> = {
   cancelled: "Cancelled",
 };
 
+/**
+ * The request fields withdrawal reads — structural so both assistant-store
+ * rows and gateway wire rows satisfy it.
+ */
+export interface WithdrawableGuardianRequest {
+  id: string;
+  kind: string;
+  decidedByExternalUserId: string | null;
+  updatedAt: number;
+}
+
 export interface WithdrawGuardianCardsParams {
   /** The request, already transitioned to its terminal status. */
-  request: CanonicalGuardianRequest;
+  request: WithdrawableGuardianRequest;
   /** Terminal status to reflect on each card. */
   status: CanonicalRequestStatus;
   /**
@@ -108,7 +118,7 @@ export async function withdrawGuardianRequestCards(
  * client already completed the card itself.
  */
 function withdrawVellumCard(
-  request: CanonicalGuardianRequest,
+  request: WithdrawableGuardianRequest,
   delivery: CanonicalGuardianDelivery,
   status: CanonicalRequestStatus,
   originChannel: string | undefined,
@@ -130,7 +140,7 @@ function withdrawVellumCard(
  * No-ops when the channel-native message id was not captured at delivery time.
  */
 async function withdrawSlackCard(
-  request: CanonicalGuardianRequest,
+  request: WithdrawableGuardianRequest,
   delivery: CanonicalGuardianDelivery,
   status: CanonicalRequestStatus,
 ): Promise<void> {
