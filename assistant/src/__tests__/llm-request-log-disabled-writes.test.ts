@@ -5,24 +5,7 @@
  * prompt/completion payload lands on disk — and return `null`. The read-side
  * 4xx is exercised separately at the route layer.
  */
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
-
-// Mutable so each test toggles the flag the store reads via `getConfigReadOnly`.
-let enabled = true;
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    llmRequestLogs: { readSource: "local", enabled },
-  }),
-  getConfigReadOnly: () => ({
-    llmRequestLogs: { readSource: "local", enabled },
-  }),
-}));
-
-// `mock.module()` persists process-wide; reset so other files don't inherit a
-// stale value.
-afterAll(() => {
-  enabled = true;
-});
+import { beforeEach, describe, expect, test } from "bun:test";
 
 import { getLogsDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
@@ -33,6 +16,11 @@ import {
   recordSyntheticAgentErrorMessageLog,
 } from "../persistence/llm-request-log-store.js";
 import { llmRequestLogs } from "../persistence/schema/index.js";
+import { setConfig } from "./helpers/set-config.js";
+
+function setLlmRequestLogging(enabled: boolean): void {
+  setConfig("llmRequestLogs", { readSource: "local", enabled });
+}
 
 await initializeDb();
 
@@ -43,7 +31,7 @@ function resetLogs(): void {
 describe("llmRequestLogs.enabled write gate", () => {
   beforeEach(() => {
     resetLogs();
-    enabled = true;
+    setLlmRequestLogging(true);
   });
 
   test("recordRequestLog writes normally when logging is enabled", () => {
@@ -53,14 +41,14 @@ describe("llmRequestLogs.enabled write gate", () => {
   });
 
   test("recordRequestLog skips the write when logging is disabled", () => {
-    enabled = false;
+    setLlmRequestLogging(false);
     const id = recordRequestLog("conv-1", '{"req":1}', '{"res":1}');
     expect(id).toBeNull();
     expect(getRequestLogsByConversationId("conv-1")).toEqual([]);
   });
 
   test("recordSyntheticAgentErrorMessageLog skips the write when disabled", () => {
-    enabled = false;
+    setLlmRequestLogging(false);
     const id = recordSyntheticAgentErrorMessageLog({
       conversationId: "conv-2",
       messageId: "msg-2",
@@ -74,9 +62,9 @@ describe("llmRequestLogs.enabled write gate", () => {
   });
 
   test("re-enabling logging restores writes", () => {
-    enabled = false;
+    setLlmRequestLogging(false);
     expect(recordRequestLog("conv-3", '{"req":1}', '{"res":1}')).toBeNull();
-    enabled = true;
+    setLlmRequestLogging(true);
     const id = recordRequestLog("conv-3", '{"req":2}', '{"res":2}');
     expect(id).not.toBeNull();
     expect(getRequestLogsByConversationId("conv-3")).toHaveLength(1);
