@@ -33,6 +33,7 @@ import {
   getSelectedAssistant,
   isCliWakeableAssistant,
   isLocalAssistant,
+  isLocalGatewayAssistant,
   isPlatformAssistant,
   isRemoteGatewayMode,
   loadLockfile,
@@ -214,9 +215,10 @@ describe("assistant classification", () => {
   });
 
   test("externally-managed container runtimes are not web-client local", () => {
-    // Docker and apple-container have no `resources` in the web lockfile and are
-    // managed by the CLI / macOS app, not the web client's local flows — so
-    // restart/retire/logout routing must keep treating them as non-local.
+    // Docker and apple-container are managed by the CLI / macOS app, not the
+    // web client's lifecycle flows — so restart/retire/logout routing must keep
+    // treating them as non-local. (Docker is still gateway-reachable; see the
+    // isLocalGatewayAssistant tests.)
     const docker = { assistantId: "d", cloud: "docker" } as LockfileAssistant;
     const appleContainer = {
       assistantId: "a",
@@ -224,6 +226,16 @@ describe("assistant classification", () => {
     } as LockfileAssistant;
     expect(isLocalAssistant(docker)).toBe(false);
     expect(isLocalAssistant(appleContainer)).toBe(false);
+  });
+
+  test("local and docker assistants are local-gateway assistants; others are not", () => {
+    const docker = { assistantId: "d", cloud: "docker" } as LockfileAssistant;
+    expect(isLocalGatewayAssistant(localA)).toBe(true);
+    expect(isLocalGatewayAssistant(docker)).toBe(true);
+    for (const cloud of ["apple-container", "vellum", "paired", "gcp"]) {
+      const other = { assistantId: `o-${cloud}`, cloud } as LockfileAssistant;
+      expect(isLocalGatewayAssistant(other)).toBe(false);
+    }
   });
 
   test("a legacy entry with no cloud normalizes to local at the parse seam", () => {
@@ -269,6 +281,55 @@ describe("getLocalGatewayUrl", () => {
     enableLocalMode();
     const portless = { assistantId: "x", cloud: "local" } as LockfileAssistant;
     expect(getLocalGatewayUrl(portless)).toBeUndefined();
+  });
+
+  test("resolves a docker assistant's gateway from its loopback runtimeUrl", () => {
+    // Docker entries record the published gateway as a loopback runtimeUrl and
+    // carry no `resources` block.
+    enableLocalMode();
+    const docker = {
+      assistantId: "dk",
+      cloud: "docker",
+      runtimeUrl: "http://localhost:7930",
+    } as LockfileAssistant;
+    expect(getLocalGatewayUrl(docker)).toBe("/assistant/__gateway/7930");
+  });
+
+  test("accepts 127.0.0.1 as a loopback runtimeUrl host", () => {
+    enableLocalMode();
+    const docker = {
+      assistantId: "dk",
+      cloud: "docker",
+      runtimeUrl: "http://127.0.0.1:7931",
+    } as LockfileAssistant;
+    expect(getLocalGatewayUrl(docker)).toBe("/assistant/__gateway/7931");
+  });
+
+  test("prefers a recorded resources.gatewayPort over the runtimeUrl port", () => {
+    enableLocalMode();
+    const entry = {
+      assistantId: "x",
+      cloud: "local",
+      runtimeUrl: "http://localhost:9999",
+      resources: { gatewayPort: 7830 },
+    } as LockfileAssistant;
+    expect(getLocalGatewayUrl(entry)).toBe("/assistant/__gateway/7830");
+  });
+
+  test("never resolves a gateway from a non-loopback runtimeUrl", () => {
+    enableLocalMode();
+    const docker = {
+      assistantId: "dk",
+      cloud: "docker",
+      runtimeUrl: "http://assistant.example.com:7930",
+    } as LockfileAssistant;
+    expect(getLocalGatewayUrl(docker)).toBeUndefined();
+  });
+
+  test("is undefined for a docker assistant with no runtimeUrl or port", () => {
+    enableLocalMode();
+    const bare = { assistantId: "dk", cloud: "docker" } as LockfileAssistant;
+    expect(getLocalGatewayUrl(bare)).toBeUndefined();
   });
 
   test("is undefined for a platform assistant", () => {
@@ -335,6 +396,14 @@ describe("primeLocalGatewayConnection", () => {
       cloud: "local",
     } as LockfileAssistant;
     await expect(primeLocalGatewayConnection(portless)).rejects.toBeInstanceOf(
+      UnresolvedLocalGatewayError,
+    );
+  });
+
+  test("throws UnresolvedLocalGatewayError for a docker assistant with no resolvable gateway", async () => {
+    enableLocalMode();
+    const bare = { assistantId: "dk", cloud: "docker" } as LockfileAssistant;
+    await expect(primeLocalGatewayConnection(bare)).rejects.toBeInstanceOf(
       UnresolvedLocalGatewayError,
     );
   });
