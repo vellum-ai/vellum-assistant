@@ -22,6 +22,7 @@ import {
   disableWatcher,
   failWatcherPoll,
   getPendingEvents,
+  hasCredentialPause,
   insertWatcherEvent,
   resetStuckWatchers,
   setWatcherConversationId,
@@ -56,13 +57,20 @@ function isAuthConnectionError(err: unknown): boolean {
 }
 
 /**
- * Per-process record of watchers already notified about an ongoing auth
- * problem, keyed by watcher id. The value is the status key of the tick that
- * first raised the episode ("credential-unhealthy" / "auth-error"), retained
- * for diagnostics only. The presence of an entry — regardless of its value —
- * means the user has been told once for this outage; it is cleared when the
- * watcher's poll succeeds or the circuit breaker disables it, so a later new
- * outage notifies again.
+ * Per-process record of accounts already notified about an ongoing auth
+ * problem, keyed by `credentialService`. Keying by the credential rather than
+ * the watcher collapses multiple watchers that share one dead account into a
+ * single reconnect notification per outage. The value is the status key of
+ * the tick that first raised the episode ("credential-unhealthy" /
+ * "auth-error"), retained for diagnostics only. The presence of an entry —
+ * regardless of its value — means the user has been told once for this
+ * outage; it is cleared when a watcher on the account polls successfully or
+ * the circuit breaker disables the watcher, so a later new outage notifies
+ * again.
+ *
+ * This tracker is only the in-process layer: the durable `credentialPausedAt`
+ * marker on each watcher row backs it so an assistant restart mid-outage does
+ * not re-notify (see `notifyAuthEpisodeOnce`).
  */
 const authNotifiedEpisodes = new Map<string, string>();
 
@@ -72,23 +80,35 @@ export function _resetAuthNotificationStateForTests(): void {
 }
 
 /**
- * Send an auth-reconnect notification for a watcher at most once per
- * outage. Suppression is keyed on watcher id alone: once any auth
- * notification has been sent for an ongoing episode, no more are sent until
- * the episode is cleared (by a successful poll or by circuit-breaker
- * disable), even if a later tick classifies the failure under a different
- * status key. Returns true if a notification was sent, false if suppressed.
+ * Send an auth-reconnect notification for an account at most once per outage.
+ * Suppression is keyed on `credentialService`: once any auth notification has
+ * been sent for an ongoing episode, no more are sent until the episode is
+ * cleared (by a successful poll or by circuit-breaker disable), even if a
+ * later tick classifies the failure under a different status key or a sibling
+ * watcher on the same account trips.
+ *
+ * `alreadyPausedBeforeTick` reflects the durable `credentialPausedAt` marker,
+ * read credential-scoped (`hasCredentialPause`) before the current watcher's
+ * row is stamped this tick. When it is set, the user was already told in an
+ * earlier tick — by this watcher or a sibling on the same account, possibly
+ * before a restart that emptied the in-process tracker — so this seeds the
+ * tracker to keep the current process deduped but stays silent. Returns true
+ * if a notification was sent, false if suppressed.
  */
 function notifyAuthEpisodeOnce(
   notify: WatcherNotifier,
-  watcherId: string,
+  episodeKey: string,
+  alreadyPausedBeforeTick: boolean,
   statusKey: string,
   notification: { title: string; body: string },
 ): boolean {
-  if (authNotifiedEpisodes.has(watcherId)) {
+  if (authNotifiedEpisodes.has(episodeKey)) {
     return false;
   }
-  authNotifiedEpisodes.set(watcherId, statusKey);
+  authNotifiedEpisodes.set(episodeKey, statusKey);
+  if (alreadyPausedBeforeTick) {
+    return false;
+  }
   notify(notification);
   return true;
 }
@@ -156,11 +176,22 @@ export async function runWatchersOnce(
           health.status === "missing_token" ||
           (health.status === "expired" && !health.canAutoRecover))
       ) {
+        // Consult the durable marker before skipWatcherPoll stamps this row.
+        // The read is credential-scoped: a sibling watcher on the same
+        // account stamped in an earlier tick (possibly before a restart)
+        // also means the user has already been told about this outage.
+        const alreadyPaused = hasCredentialPause(watcher.credentialService);
         skipWatcherPoll(watcher.id, `Credential unhealthy: ${health.details}`);
-        notifyAuthEpisodeOnce(notify, watcher.id, "credential-unhealthy", {
-          title: `Reconnect needed: ${watcher.name}`,
-          body: `Your ${watcher.credentialService} account's authorization is no longer valid, so ${watcher.name} is paused. Reconnect the account to resume monitoring. (${health.details})`,
-        });
+        notifyAuthEpisodeOnce(
+          notify,
+          watcher.credentialService,
+          alreadyPaused,
+          "credential-unhealthy",
+          {
+            title: `Reconnect needed: ${watcher.name}`,
+            body: `Your ${watcher.credentialService} account's authorization is no longer valid, so ${watcher.name} is paused. Reconnect the account to resume monitoring. (${health.details})`,
+          },
+        );
         continue;
       }
     } catch {
@@ -233,8 +264,9 @@ export async function runWatchersOnce(
         conversationId: watcher.conversationId ?? undefined,
       });
       // A successful poll ends any active auth-failure episode so a later
-      // new outage notifies the user again.
-      authNotifiedEpisodes.delete(watcher.id);
+      // new outage notifies the user again. completeWatcherPoll clears the
+      // durable credentialPausedAt marker; drop the in-process entry too.
+      authNotifiedEpisodes.delete(watcher.credentialService);
       processed++;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -242,17 +274,28 @@ export async function runWatchersOnce(
         { err, watcherId: watcher.id, name: watcher.name },
         "Watcher poll failed",
       );
-      failWatcherPoll(watcher.id, message);
 
       // Auth-shaped failures point at a broken account connection. Tell the
       // user to reconnect immediately (once per episode) rather than waiting
       // for the circuit breaker to disable the watcher.
       const authShaped = isAuthConnectionError(err);
+      // Consult the credential-scoped durable marker before failWatcherPoll
+      // stamps this row (see the credential gate above for why).
+      const alreadyPaused =
+        authShaped && hasCredentialPause(watcher.credentialService);
+      failWatcherPoll(watcher.id, message, { credentialPaused: authShaped });
+
       if (authShaped) {
-        notifyAuthEpisodeOnce(notify, watcher.id, "auth-error", {
-          title: `Reconnect needed: ${watcher.name}`,
-          body: `Your ${watcher.credentialService} account's authorization is no longer valid, so ${watcher.name} can't check for updates. Reconnect the account to resume monitoring.`,
-        });
+        notifyAuthEpisodeOnce(
+          notify,
+          watcher.credentialService,
+          alreadyPaused,
+          "auth-error",
+          {
+            title: `Reconnect needed: ${watcher.name}`,
+            body: `Your ${watcher.credentialService} account's authorization is no longer valid, so ${watcher.name} can't check for updates. Reconnect the account to resume monitoring.`,
+          },
+        );
       }
 
       // Circuit breaker: disable after too many consecutive errors
@@ -262,8 +305,9 @@ export async function runWatchersOnce(
         // Close out the auth episode: the disable notification below is the
         // final word for this outage. Clearing lets a fresh episode (and a
         // fresh reconnect notification) start if the user re-enables the
-        // watcher while the account is still broken.
-        authNotifiedEpisodes.delete(watcher.id);
+        // watcher while the account is still broken. disableWatcher clears the
+        // durable credentialPausedAt marker for the same reason.
+        authNotifiedEpisodes.delete(watcher.credentialService);
         // Do NOT call provider.cleanup() here — auto-disable is reversible.
         // If the watcher is re-enabled later, it must diff against the same
         // baseline to avoid missing events that occurred while disabled.

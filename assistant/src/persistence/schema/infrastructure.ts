@@ -111,6 +111,11 @@ export const watchers = sqliteTable("watchers", {
   status: text("status").notNull().default("idle"), // idle | polling | error | disabled
   consecutiveErrors: integer("consecutive_errors").notNull().default(0),
   lastError: text("last_error"),
+  // Epoch ms at which polling was paused because the watcher's credential
+  // became unhealthy (revoked / missing / unrecoverably expired). Null when
+  // the credential is healthy. Doubles as the healthy→unhealthy transition
+  // marker that dedups the "monitoring paused" notification across ticks.
+  credentialPausedAt: integer("credential_paused_at"),
   lastPollAt: integer("last_poll_at"),
   nextPollAt: integer("next_poll_at").notNull(),
   configJson: text("config_json"),

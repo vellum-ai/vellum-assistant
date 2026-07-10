@@ -431,6 +431,7 @@ import { migrateDropTraceEventsTable } from "./migrations/320-drop-trace-events-
 import { migrateCanonicalGuardianRequestTrigger } from "./migrations/321-canonical-guardian-request-trigger.js";
 import { migrateAddProcessingResumeAttempts } from "./migrations/322-add-processing-resume-attempts.js";
 import { migrateDeleteNonDefaultMemoryScopes } from "./migrations/323-delete-non-default-memory-scopes.js";
+import { migrateWatchersCredentialPausedAt } from "./migrations/324-watchers-credential-paused-at.js";
 import type { MigrationStep } from "./migrations/run-migrations.js";
 
 export const migrationSteps: MigrationStep[] = [
@@ -1333,4 +1334,5 @@ export const migrationSteps: MigrationStep[] = [
   migrateCanonicalGuardianRequestTrigger,
   migrateAddProcessingResumeAttempts,
   migrateDeleteNonDefaultMemoryScopes,
+  migrateWatchersCredentialPausedAt,
 ];
