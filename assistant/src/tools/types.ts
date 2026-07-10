@@ -1,4 +1,3 @@
-import type { ApprovalRequired } from "@vellumai/service-contracts/credential-rpc";
 import { z } from "zod";
 
 import type { InterfaceId } from "../channels/types.js";
@@ -112,15 +111,6 @@ export interface ToolExecutionResult {
   }>;
   /** Directory scope ladder for the rule editor (narrowest to broadest). */
   riskDirectoryScopeOptions?: Array<{ scope: string; label: string }>;
-  /**
-   * When present, indicates that a CES tool returned an `approval_required`
-   * response. The executor uses the approval bridge to prompt the guardian,
-   * commit the grant decision to CES, and retry the original tool invocation
-   * with the granted grantId. CES tools populate this field rather than
-   * returning a textual error so the executor can intercept and handle the
-   * approval flow transparently.
-   */
-  cesApprovalRequired?: ApprovalRequired;
   /** Structured activity metadata for client rendering (web search, web fetch, etc).
    *  Populated by daemon-internal tools; plugins must not set this. */
   activityMetadata?: ToolActivityMetadata;

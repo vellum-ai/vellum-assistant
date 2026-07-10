@@ -13,9 +13,7 @@
     "./twilio-ingress": "./src/twilio-ingress.ts",
     "./trust-rules": "./src/trust-rules.ts",
     "./handles": "./src/handles.ts",
-    "./grants": "./src/grants.ts",
     "./rpc": "./src/rpc.ts",
-    "./rendering": "./src/rendering.ts",
     "./attachment-naming": "./src/attachment-naming.ts",
     "./error": "./src/error.ts"
   },
