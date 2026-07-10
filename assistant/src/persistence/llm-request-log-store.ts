@@ -32,7 +32,10 @@ import {
   messageMetadataSchema,
 } from "./conversation-crud.js";
 import { type DrizzleDb, getDb, getLogsDb } from "./db-connection.js";
-import { getClickHouseLlmRequestLogSink } from "./llm-request-log-sink-clickhouse.js";
+import {
+  clickHouseOwnsLlmRequestLogWrites,
+  getClickHouseLlmRequestLogSink,
+} from "./llm-request-log-sink-clickhouse.js";
 import { llmRequestLogs, messages } from "./schema/index.js";
 import { timeSyncSection } from "./slow-sync-log.js";
 
@@ -370,6 +373,10 @@ export function setAgentLoopExitReasonOnLatestLog(
   conversationId: string,
   reason: string,
 ): void {
+  // When ClickHouse owns writes there is no current-turn SQLite row to stamp;
+  // stamping would land this turn's reason on a stale local row from an earlier
+  // local-mode turn (the newest with a NULL reason), corrupting local history.
+  if (clickHouseOwnsLlmRequestLogWrites()) return;
   const db = logsDb();
   const latest = db
     .select({ id: llmRequestLogs.id })
@@ -394,6 +401,10 @@ export function backfillMessageIdOnLogs(
   conversationId: string,
   messageId: string,
 ): void {
+  // In ClickHouse-write mode the current turn's rows live in ClickHouse, not
+  // SQLite. Backfilling here would stamp this messageId onto unrelated
+  // NULL-messageId rows left over from earlier local-mode turns.
+  if (clickHouseOwnsLlmRequestLogWrites()) return;
   const db = logsDb();
   db.update(llmRequestLogs)
     .set({ messageId })
@@ -417,6 +428,9 @@ export function relinkLlmRequestLogs(
   toMessageId: string,
 ): void {
   if (fromMessageIds.length === 0) return;
+  // ClickHouse-owned rows aren't in SQLite; a relink here can only touch stale
+  // local rows, so skip when ClickHouse owns writes.
+  if (clickHouseOwnsLlmRequestLogWrites()) return;
   const db = logsDb();
   db.update(llmRequestLogs)
     .set({ messageId: toMessageId })
@@ -774,8 +788,13 @@ export function getRequestLogsByMessageId(messageId: string): LogRow[] {
         // Opportunistically backfill recovered unlinked logs so future queries
         // hit the fast indexed-by-messageId path.  Guard with isNull so this
         // recovery path never overwrites a messageId already set by an
-        // authoritative caller (e.g. watch-notifier).
-        if (unlinkedLogs.length > 0 && turnMessageIds.length > 0) {
+        // authoritative caller (e.g. watch-notifier). Skipped when ClickHouse
+        // owns writes — the SQLite rows aren't the source of truth then.
+        if (
+          unlinkedLogs.length > 0 &&
+          turnMessageIds.length > 0 &&
+          !clickHouseOwnsLlmRequestLogWrites()
+        ) {
           try {
             const db = logsDb();
             const ids = unlinkedLogs.map((l) => l.id);

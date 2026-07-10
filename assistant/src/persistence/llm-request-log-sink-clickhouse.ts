@@ -306,6 +306,31 @@ export function getClickHouseLlmRequestLogSink(): ClickHouseLlmRequestLogSink | 
   return cachedSink.sink;
 }
 
+/**
+ * Whether ClickHouse owns LLM-request-log writes (`readSource === "clickhouse"`).
+ *
+ * When this is true the local SQLite `llm_request_logs` table is NOT the write
+ * target, so the store's SQLite row mutators — the exit-reason stamp, the
+ * message-id backfills, and the relink — must skip. Running them against SQLite
+ * in ClickHouse mode would mutate stale rows left over from earlier local-mode
+ * turns (e.g. the exit-reason stamp would land on an unrelated prior call),
+ * corrupting local history and any later fallback/switch-back to local reads.
+ *
+ * Cheaper than {@link getClickHouseLlmRequestLogSink} for a boolean check (no
+ * sink instantiation). Read-only config access; `false` on any resolution
+ * error so a config hiccup keeps writes on SQLite.
+ */
+export function clickHouseOwnsLlmRequestLogWrites(): boolean {
+  try {
+    return (
+      configLoader.getConfigReadOnly().llmRequestLogs?.readSource ===
+      "clickhouse"
+    );
+  } catch {
+    return false;
+  }
+}
+
 /** Test hook: drop the memoized sink so config/dep changes are picked up. */
 export function resetClickHouseLlmRequestLogSinkForTests(): void {
   cachedSink = null;
