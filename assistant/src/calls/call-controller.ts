@@ -1030,6 +1030,14 @@ export class CallController {
     // streamed to TTS and its onTextDelta stopped speaking, dropped the marker,
     // and aborted the leg. Clear any residual buffer before the quality leg as
     // a belt-and-suspenders guard.
+    //
+    // KNOWN LIMITATION (issue #37850): this suppression governs the caller's
+    // AUDIO only. The bridge still broadcasts the front-door leg's raw
+    // assistant_text_delta events (marker + any post-marker text) to the
+    // conversation hub and persists them in the assistant message — the same
+    // path [END_CALL]/[ASK_GUARDIAN] already take today, so a web/desktop
+    // observer sees the raw markers on every voice turn. Stripping markers at
+    // the broadcast/persist source is tracked separately.
     if (escalateEnabled && frontDoorText.includes(ESCALATE_MARKER)) {
       ttsBuffer = "";
       // If the front-door model emitted no meaningful holding phrase before the
