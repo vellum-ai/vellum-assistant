@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../../../util/logger.js", () => ({
   getLogger: () =>
@@ -291,6 +291,72 @@ describe("GET /v1/conversations/llm-context", () => {
 
     expect(body.conversationId).toBeNull();
     expect(body.conversationKey).toBe("missing-key");
+    expect(body.logs).toEqual([]);
+  });
+});
+
+describe("inspector reads when llmRequestLogs.enabled is false", () => {
+  const payloadRoute = ROUTES.find(
+    (r) => r.operationId === "llm_request_logs_payload_get",
+  )!;
+  const contextRoute = ROUTES.find(
+    (r) => r.operationId === "llm_request_logs_context_get",
+  )!;
+
+  beforeEach(() => {
+    clearTables();
+    rawConfigFixture = {
+      llmRequestLogs: { readSource: "local", enabled: false },
+    };
+  });
+
+  afterEach(() => {
+    // Restore the neutral default so read blocks that rely on it (and don't
+    // reset the fixture themselves) aren't polluted by the disabled state.
+    rawConfigFixture = {};
+  });
+
+  async function expectDisabled(promise: unknown): Promise<void> {
+    // The handler throws a RouteError; assert on its wire-facing fields so the
+    // client can key on the stable code / 403 status.
+    let thrown: unknown;
+    try {
+      await promise;
+    } catch (err) {
+      thrown = err;
+    }
+    expect(thrown).toBeDefined();
+    expect((thrown as { code: string }).code).toBe("LLM_REQUEST_LOGS_DISABLED");
+    expect((thrown as { statusCode: number }).statusCode).toBe(403);
+  }
+
+  test("message llm-context is rejected", async () => {
+    await expectDisabled(dispatchLlmContext("msg-1"));
+  });
+
+  test("conversation llm-context is rejected", async () => {
+    await expectDisabled(
+      dispatchConversationLlmContext({ conversationId: "conv-1" }),
+    );
+  });
+
+  test("single-log payload is rejected", async () => {
+    await expectDisabled(payloadRoute.handler({ pathParams: { id: "log-a" } }));
+  });
+
+  test("single-log context is rejected", async () => {
+    await expectDisabled(contextRoute.handler({ pathParams: { id: "log-a" } }));
+  });
+
+  test("reads succeed again once logging is re-enabled", async () => {
+    rawConfigFixture = {
+      llmRequestLogs: { readSource: "local", enabled: true },
+    };
+    // An unresolved conversation key returns an empty inspector response
+    // (no throw), proving the disabled guard no longer short-circuits.
+    const body = (await dispatchConversationLlmContext({
+      conversationKey: "missing-key",
+    })) as { logs: unknown[] };
     expect(body.logs).toEqual([]);
   });
 });

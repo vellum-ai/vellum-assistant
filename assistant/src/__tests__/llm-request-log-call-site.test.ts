@@ -52,14 +52,14 @@ describe("recordRequestLog call_site stamping", () => {
       "anthropic",
       "mainAgent",
     );
-    const row = getRequestLogById(id);
+    const row = getRequestLogById(id!);
     expect(row).not.toBeNull();
     expect(row!.callSite).toBe("mainAgent");
   });
 
   test("leaves callSite NULL when omitted (backward compat)", () => {
     const id = recordRequestLog("conv-1", '{"req":1}', '{"res":1}');
-    const row = getRequestLogById(id);
+    const row = getRequestLogById(id!);
     expect(row).not.toBeNull();
     expect(row!.callSite).toBeNull();
   });
@@ -73,7 +73,7 @@ describe("recordRequestLog call_site stamping", () => {
       "anthropic",
       "compactionAgent",
     );
-    expect(getRequestLogById(id)?.callSite).toBe("compactionAgent");
+    expect(getRequestLogById(id!)?.callSite).toBe("compactionAgent");
   });
 
   test("two rows in the same conversation can carry different callSites", () => {
@@ -93,8 +93,8 @@ describe("recordRequestLog call_site stamping", () => {
       "anthropic",
       "compactionAgent",
     );
-    expect(getRequestLogById(mainId)?.callSite).toBe("mainAgent");
-    expect(getRequestLogById(compactId)?.callSite).toBe("compactionAgent");
+    expect(getRequestLogById(mainId!)?.callSite).toBe("mainAgent");
+    expect(getRequestLogById(compactId!)?.callSite).toBe("compactionAgent");
   });
 });
 

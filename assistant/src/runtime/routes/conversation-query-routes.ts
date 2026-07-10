@@ -110,6 +110,7 @@ import {
   type LlmContextSummary,
   normalizeLlmContextPayloads,
 } from "./llm-context-normalization.js";
+import { assertLlmRequestLoggingEnabled } from "./llm-request-logs-access.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const validEmbeddingProviderSet = new Set<string>(
@@ -1778,6 +1779,7 @@ async function handleGetLlmContext({
   pathParams = {},
   queryParams = {},
 }: RouteHandlerArgs) {
+  assertLlmRequestLoggingEnabled();
   const messageId = pathParams.id;
   if (!messageId) {
     throw new BadRequestError("message id is required");
@@ -1821,6 +1823,7 @@ async function handleGetLlmContext({
 async function handleGetConversationLlmContext({
   queryParams = {},
 }: RouteHandlerArgs) {
+  assertLlmRequestLoggingEnabled();
   const conversationKey = queryParams.conversationKey;
   const requestedConversationId = queryParams.conversationId;
   const view = resolveLlmContextView(queryParams.view);
@@ -1890,6 +1893,7 @@ async function handleGetConversationLlmContext({
 async function handleGetLlmRequestLogPayload({
   pathParams = {},
 }: RouteHandlerArgs) {
+  assertLlmRequestLoggingEnabled();
   const logId = pathParams.id;
   if (!logId) {
     throw new BadRequestError("log id is required");
@@ -1917,6 +1921,7 @@ async function handleGetLlmRequestLogPayload({
 async function handleGetLlmRequestLogContext({
   pathParams = {},
 }: RouteHandlerArgs) {
+  assertLlmRequestLoggingEnabled();
   const logId = pathParams.id;
   if (!logId) {
     throw new BadRequestError("log id is required");
