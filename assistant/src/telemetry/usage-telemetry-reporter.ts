@@ -37,7 +37,6 @@ import {
   buildActivationDaemonEventId,
 } from "./activation-funnel.js";
 import { queryUnreportedConfigSettingEvents } from "./config-setting-events-store.js";
-import { recordConfigSettingSnapshot } from "./config-setting-snapshot.js";
 import { queryUnreportedSkillLoadedEvents } from "./skill-loaded-events-store.js";
 import { queryUnreportedToolExecutedEvents } from "./tool-executed-events-store.js";
 import { isDiagnosticsConsentVersionEligible } from "./trace-collection-policy.js";
@@ -332,15 +331,6 @@ export class UsageTelemetryReporter {
         return;
       }
 
-      // Record the config-setting snapshot before querying, so the rows land
-      // in this very flush. This is the retry loop that makes the snapshot
-      // reliable: consent starts default-off until the first successful
-      // consent fetch, so a one-shot startup emit would usually be dropped —
-      // re-invoking here on every opted-in flush records each tracked setting
-      // exactly once per process (the snapshot memoizes per-key), plus again
-      // whenever its effective value changes.
-      recordConfigSettingSnapshot(getConfig());
-
       // Read usage watermark (compound cursor: createdAt + id)
       const watermark = Number(
         getMemoryCheckpoint(CHECKPOINT_KEY_WATERMARK) ?? "0",
@@ -538,8 +528,9 @@ export class UsageTelemetryReporter {
         skillLoadedEvents.length === 0 &&
         watchdogEvents.length === 0 &&
         configSettingEvents.length === 0
-      )
+      ) {
         return;
+      }
 
       // Resolve auth context. We send authenticated-only: if no platform
       // credentials are available yet, skip without advancing watermarks so the

@@ -14,9 +14,9 @@ const MAX_CONFIG_KEY_CHARS = 128;
 const MAX_CONFIG_VALUE_CHARS = 256;
 
 /**
- * Input for one `config_setting` telemetry event. Metadata only — tracked
- * keys are an explicit allowlist of non-sensitive settings (see
- * config-setting-snapshot.ts), never free-form config content.
+ * Input for one `config_setting` telemetry event. Metadata only — emitters
+ * must record an explicit allowlist of non-sensitive settings, never
+ * free-form config content, paths, or credentials.
  */
 export interface ConfigSettingEventRecord {
   /** Dotted config path, e.g. `"memory.enabled"`. */
@@ -37,19 +37,17 @@ export interface ConfigSettingEvent {
  * Record a `config_setting` telemetry event. No-ops when usage data
  * collection is disabled (the event is dropped to honor the opt-out,
  * matching the rest of telemetry) — so opt-out rows never exist and the
- * reporter's standard 0 watermark default is safe. Returns whether a row
- * was actually persisted, so callers with their own dedupe memo
- * (config-setting-snapshot.ts) don't memoize a dropped event.
+ * reporter's standard 0 watermark default is safe.
  */
 export function recordConfigSettingEvent(
   record: ConfigSettingEventRecord,
-): boolean {
+): void {
   if (!getCachedShareAnalytics()) {
-    return false;
+    return;
   }
   const db = getTelemetryDb();
   if (!db) {
-    return false;
+    return;
   }
   db.insert(configSettingEvents)
     .values({
@@ -59,7 +57,6 @@ export function recordConfigSettingEvent(
       configValue: record.configValue.slice(0, MAX_CONFIG_VALUE_CHARS),
     })
     .run();
-  return true;
 }
 
 /**
