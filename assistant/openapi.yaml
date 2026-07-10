@@ -17727,10 +17727,6 @@ paths:
                           enum:
                             - user
                             - assistant
-                        content:
-                          type: string
-                          deprecated: true
-                          description: "Deprecated: superseded by contentBlocks. Flat plain-text body (joined text segments)."
                         timestamp:
                           type: string
                         attachments:
