@@ -125,12 +125,23 @@ const FAKE_TREE: Record<string, ReturnType<typeof makeEntry>[]> = {
     makeEntry("archive/projects/AgentWatch/main.ts", "file"),
   ],
   bin: [makeEntry("bin/tool.sh", "file")],
+  wide: [...Array(20)].map((_, i) => makeEntry(`wide/d${i}`, "directory")),
 };
+for (let i = 0; i < 20; i++) {
+  FAKE_TREE[`wide/d${i}`] = [];
+}
+
+let inFlightLists = 0;
+let maxInFlightLists = 0;
 
 mock.module("@/generated/daemon/sdk.gen", () => ({
   workspaceTreeGet: async ({ query }: { query?: { path?: string } }) => {
     const path = query?.path ?? "";
     listedPaths.push(path);
+    inFlightLists++;
+    maxInFlightLists = Math.max(maxInFlightLists, inFlightLists);
+    await new Promise((resolve) => setTimeout(resolve, 1));
+    inFlightLists--;
     const entries = FAKE_TREE[path];
     return entries
       ? { data: { path, entries }, error: undefined }
@@ -142,11 +153,16 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
   workspaceWritePost: async () => ({}),
 }));
 
-import { searchWorkspaceTree, WorkspaceTreeCreateMenu } from "./workspace-tree";
+import {
+  SEARCH_MAX_CONCURRENT_LISTS,
+  searchWorkspaceTree,
+  WorkspaceTreeCreateMenu,
+} from "./workspace-tree";
 
 beforeEach(() => {
   mockIsMobile = false;
   listedPaths.length = 0;
+  maxInFlightLists = 0;
 });
 
 describe("searchWorkspaceTree", () => {
@@ -190,6 +206,13 @@ describe("searchWorkspaceTree", () => {
     const result = await search("zzz-no-such-entry");
     expect(result.visiblePaths.size).toBe(0);
     expect(result.expandedPaths.size).toBe(0);
+  });
+
+  test("bounds concurrent directory listings", async () => {
+    // A no-match search walks every directory, including the 20 under wide/.
+    await search("zzz-no-such-entry");
+    expect(maxInFlightLists).toBeGreaterThan(1);
+    expect(maxInFlightLists).toBeLessThanOrEqual(SEARCH_MAX_CONCURRENT_LISTS);
   });
 });
 

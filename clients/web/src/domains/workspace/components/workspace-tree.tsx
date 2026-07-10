@@ -105,6 +105,9 @@ function workspaceTreeRetrieveOptions(opts: {
 
 const SEARCH_MAX_DEPTH = 10;
 const SEARCH_MAX_DIRS = 2000;
+// The daemon lists directories with synchronous filesystem reads, so an
+// unbounded fan-out would stall it (and starve the rest of the Files view).
+export const SEARCH_MAX_CONCURRENT_LISTS = 8;
 
 export interface WorkspaceSearchResult {
   /** Entries to render while searching: matches plus their ancestor directories. */
@@ -136,6 +139,27 @@ export async function searchWorkspaceTree(
   let dirsListed = 0;
   let truncated = false;
 
+  // Counting semaphore over the daemon requests. A slot is held only for the
+  // duration of one directory listing — never across the recursion into
+  // children — so the walk cannot deadlock on its own permits.
+  let activeLists = 0;
+  const waiters: (() => void)[] = [];
+  const acquireListSlot = () => {
+    if (activeLists < SEARCH_MAX_CONCURRENT_LISTS) {
+      activeLists++;
+      return Promise.resolve();
+    }
+    return new Promise<void>((resolve) => waiters.push(resolve));
+  };
+  const releaseListSlot = () => {
+    const next = waiters.shift();
+    if (next) {
+      next();
+    } else {
+      activeLists--;
+    }
+  };
+
   async function walk(dirPath: string, depth: number): Promise<boolean> {
     if (depth > SEARCH_MAX_DEPTH || dirsListed >= SEARCH_MAX_DIRS) {
       truncated = true;
@@ -144,6 +168,7 @@ export async function searchWorkspaceTree(
     dirsListed++;
 
     let entries: WorkspaceTreeEntry[];
+    await acquireListSlot();
     try {
       const data = await queryClient.fetchQuery({
         ...workspaceTreeRetrieveOptions({
@@ -160,6 +185,8 @@ export async function searchWorkspaceTree(
     } catch {
       // An unreadable directory shouldn't sink the whole search.
       return false;
+    } finally {
+      releaseListSlot();
     }
 
     let subtreeHasMatch = false;
