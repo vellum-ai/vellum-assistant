@@ -11,12 +11,21 @@
  *   group, so a partial override can never pair an authored color with an
  *   unknown base-theme color,
  * - text/background pairs must clear a minimum contrast ratio so an
- *   authored theme can never render core copy illegible.
+ *   authored theme can never render core copy illegible,
+ * - the file itself is read through a no-follow, non-blocking, size-capped
+ *   guard so a symlink, FIFO, or oversized file cannot stall the event
+ *   loop or escape the workspace.
  *
  * Trust-critical chrome (permission prompts, credential entry) does not
  * consume these tokens; this module only governs the expressive surface.
  */
-import { existsSync, readFileSync } from "node:fs";
+import {
+  closeSync,
+  constants,
+  fstatSync,
+  openSync,
+  readFileSync,
+} from "node:fs";
 import { join } from "node:path";
 
 import { z } from "zod";
@@ -80,6 +89,8 @@ const CONTRAST_PAIRS: readonly [
   ["text", "surface"],
   ["text", "surfaceRaised"],
   ["textMuted", "background"],
+  ["textMuted", "surface"],
+  ["textMuted", "surfaceRaised"],
   ["assistantBubbleText", "assistantBubbleBackground"],
   ["userBubbleText", "userBubbleBackground"],
 ];
@@ -180,6 +191,65 @@ function formatZodIssues(error: z.ZodError): string[] {
   });
 }
 
+/** Generous ceiling for a token-override file; anything larger is not a theme. */
+export const MAX_THEME_FILE_BYTES = 64 * 1024;
+
+/**
+ * Open the theme file without following a final-component symlink and
+ * without blocking (opening a FIFO read-only would otherwise suspend the
+ * event loop until a writer appears), then require a bounded regular file
+ * before reading. Returns the file content or a rejection issue.
+ */
+function readThemeFileGuarded(
+  themePath: string,
+): { raw: string } | { missing: true } | { issue: string } {
+  let fd: number;
+  try {
+    fd = openSync(
+      themePath,
+      constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+    );
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === "ENOENT") {
+      return { missing: true };
+    }
+    if (code === "ELOOP" || code === "EMLINK") {
+      return {
+        issue: `${WORKSPACE_THEME_RELATIVE_PATH} must be a regular file, not a symbolic link`,
+      };
+    }
+    const message = err instanceof Error ? err.message : String(err);
+    return {
+      issue: `failed to open ${WORKSPACE_THEME_RELATIVE_PATH}: ${message}`,
+    };
+  }
+
+  try {
+    const stat = fstatSync(fd);
+    if (!stat.isFile()) {
+      return {
+        issue: `${WORKSPACE_THEME_RELATIVE_PATH} must be a regular file`,
+      };
+    }
+    if (stat.size > MAX_THEME_FILE_BYTES) {
+      return {
+        issue:
+          `${WORKSPACE_THEME_RELATIVE_PATH} is ${stat.size} bytes — ` +
+          `maximum is ${MAX_THEME_FILE_BYTES}`,
+      };
+    }
+    return { raw: readFileSync(fd, "utf-8") };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return {
+      issue: `failed to read ${WORKSPACE_THEME_RELATIVE_PATH}: ${message}`,
+    };
+  } finally {
+    closeSync(fd);
+  }
+}
+
 /**
  * Read and validate the workspace theme file. Never throws: an unreadable,
  * unparsable, or out-of-policy file yields `source: "invalid"` with
@@ -188,21 +258,15 @@ function formatZodIssues(error: z.ZodError): string[] {
  */
 export function readWorkspaceTheme(): WorkspaceThemeReadResult {
   const themePath = join(getWorkspaceDir(), WORKSPACE_THEME_RELATIVE_PATH);
-  if (!existsSync(themePath)) {
+
+  const file = readThemeFileGuarded(themePath);
+  if ("missing" in file) {
     return { theme: null, source: "none", issues: [] };
   }
-
-  let raw: string;
-  try {
-    raw = readFileSync(themePath, "utf-8");
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    return {
-      theme: null,
-      source: "invalid",
-      issues: [`failed to read ${WORKSPACE_THEME_RELATIVE_PATH}: ${message}`],
-    };
+  if ("issue" in file) {
+    return { theme: null, source: "invalid", issues: [file.issue] };
   }
+  const raw = file.raw;
 
   let parsed: unknown;
   try {
