@@ -443,7 +443,7 @@
           "display-name": "LLM Cost Optimizer"
         }
       },
-      "updatedAt": "2026-07-10T04:19:46.000Z"
+      "updatedAt": "2026-07-10T04:43:15.000Z"
     },
     {
       "id": "llm-provider-setup",
@@ -456,7 +456,7 @@
           "display-name": "LLM Provider Setup"
         }
       },
-      "updatedAt": "2026-07-10T04:28:57.000Z"
+      "updatedAt": "2026-07-10T04:43:15.000Z"
     },
     {
       "id": "macos-automation",
@@ -1160,6 +1160,20 @@
       },
       "compatibility": "Sandbox mode works without any host dependencies. Host mode requires tmux installed on the user's machine. Works on macOS and Linux.",
       "updatedAt": "2026-06-03T03:10:07.000Z"
+    },
+    {
+      "id": "vellum-workspace-theme",
+      "name": "vellum-workspace-theme",
+      "description": "Customize the app's visual theme — author design-token overrides (accent, background, surfaces, text, message-bubble colors) in the workspace ui/theme.json, validated by the assistant runtime and applied live to connected clients. Covers the token slots, the all-or-none override groups, the contrast floor, and reading back validation issues.",
+      "metadata": {
+        "emoji": "🖌️",
+        "vellum": {
+          "category": "content",
+          "display-name": "Workspace Theme"
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants",
+      "updatedAt": "2026-07-10T04:58:09.000Z"
     },
     {
       "id": "vercel-token-setup",
