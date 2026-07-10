@@ -456,6 +456,18 @@ function validateWithSchema(raw: Record<string, unknown>): AssistantConfig {
     deleteNestedKey(cleaned, issue.path as (string | number)[], true);
   }
 
+  // Deleting an invalid array element via `deleteNestedKey` uses `delete
+  // arr[i]` semantics, which leaves a sparse hole that the re-parse reads as
+  // `undefined` and rejects — one bad element in any array field would
+  // otherwise invalidate the whole cleaned config. Compact the holes away
+  // before re-parsing. An array that is emptied purely by stripping invalid
+  // elements is removed from its parent (and any ancestor object the removal
+  // empties is pruned too) so the schema default applies, matching how
+  // `deleteNestedKey` prunes emptied objects — `[]` is not equivalent to the
+  // default for fields like `backup.offsite.destinations` (default `null` =
+  // iCloud) or `skills.allowBundled` (default `null` = all bundled skills).
+  compactSparseArrays(cleaned);
+
   const retry = AssistantConfigSchema.safeParse(cleaned);
   if (retry.success) {
     clearConfigValidationResetNotice();
@@ -562,6 +574,59 @@ function recoverFromInvalidConfig(
       `issues: ${describeIssues([...salvaged.error.issues])}).`,
   );
   return cloneDefaultConfig();
+}
+
+/**
+ * Recursively remove holes from every array reachable inside `value`, mutating
+ * in place, and report whether `value` should be removed from its parent.
+ *
+ * Config values come from `JSON.parse`, which cannot encode holes (or
+ * `undefined`), so any hole is the residue of a `deleteNestedKey` strip of an
+ * invalid array element and is safe to drop. Surviving elements are recursed
+ * into so nested arrays are compacted too.
+ *
+ * `removeFromParent` is set for a value the parent must drop so the schema
+ * default applies:
+ *
+ * - An **array** that had at least one element removed by compaction (a hole
+ *   from a stripped invalid element, or a nested child array that itself
+ *   collapsed) and is now empty. An array that was already `[]` on disk keeps
+ *   `removeFromParent` false — no element was stripped, so `[]` is the user's
+ *   explicit choice and is preserved.
+ * - A **plain object** that a compaction removal emptied. This mirrors
+ *   `deleteNestedKey(…, true)` pruning emptied ancestor objects: an emptied
+ *   wrapper left behind can still read as a present, non-default override. An
+ *   object that was already empty on disk removed no child, so it is left alone.
+ */
+function compactSparseArrays(value: unknown): { removeFromParent: boolean } {
+  if (Array.isArray(value)) {
+    let removedElement = false;
+    for (let i = value.length - 1; i >= 0; i--) {
+      if (i in value) {
+        if (compactSparseArrays(value[i]).removeFromParent) {
+          value.splice(i, 1);
+          removedElement = true;
+        }
+      } else {
+        value.splice(i, 1);
+        removedElement = true;
+      }
+    }
+    return { removeFromParent: removedElement && value.length === 0 };
+  }
+  if (isPlainObject(value)) {
+    let removedChild = false;
+    for (const key of Object.keys(value)) {
+      if (compactSparseArrays(value[key]).removeFromParent) {
+        delete value[key];
+        removedChild = true;
+      }
+    }
+    return {
+      removeFromParent: removedChild && Object.keys(value).length === 0,
+    };
+  }
+  return { removeFromParent: false };
 }
 
 /**
