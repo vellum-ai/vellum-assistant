@@ -31,6 +31,7 @@ import { dirname, resolve, sep } from "node:path";
 
 import { z } from "zod";
 
+import { contentBlockSchema } from "../providers/content-block-schema.js";
 import type { ContentBlock } from "../providers/types.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir } from "../util/platform.js";
@@ -42,7 +43,7 @@ const log = getLogger("message-content-file");
  * reserved-path constrained so legacy plain-string rows that parse as
  * arbitrary JSON objects can never be mistaken for a ref.
  */
-const messageContentRefSchema = z
+export const messageContentRefSchema = z
   .object({
     ref: z
       .string()
@@ -62,23 +63,11 @@ const contentDeltaLineSchema = z
     i: z.number(),
     /** Monotonic write sequence; the highest `seq` per `i` wins the fold. */
     seq: z.number(),
-    /** Minimal ContentBlock shape — every block variant has a string type. */
-    block: z.object({ type: z.string() }).passthrough(),
+    block: contentBlockSchema,
   })
   .strict();
 
-export interface ContentDeltaLine {
-  i: number;
-  seq: number;
-  block: ContentBlock;
-}
-
-/** Narrow a parsed `messages.content` value to the ref shape. */
-export function isMessageContentRef(
-  value: unknown,
-): value is MessageContentRef {
-  return messageContentRefSchema.safeParse(value).success;
-}
+export type ContentDeltaLine = z.infer<typeof contentDeltaLineSchema>;
 
 /**
  * Parse a raw `messages.content` string to a ref, or null when the value is
@@ -154,7 +143,7 @@ export function foldContentDeltas(text: string): ContentBlock[] {
     const { i, seq, block } = result.data;
     const existing = byIndex.get(i);
     if (!existing || seq > existing.seq) {
-      byIndex.set(i, { seq, block: block as unknown as ContentBlock });
+      byIndex.set(i, { seq, block });
     }
   }
   return [...byIndex.entries()]
@@ -213,15 +202,29 @@ export function resolveMessageContentBlocks(raw: string): ContentBlock[] {
   if (ref) {
     return resolveRefToBlocks(ref);
   }
+  let parsed: unknown;
   try {
-    const parsed: unknown = JSON.parse(raw);
-    if (Array.isArray(parsed)) {
-      return parsed as ContentBlock[];
-    }
+    parsed = JSON.parse(raw);
   } catch {
-    // legacy plain string — fall through
+    // legacy plain string
+    return [{ type: "text", text: raw }];
   }
-  return [{ type: "text", text: raw } as ContentBlock];
+  if (Array.isArray(parsed)) {
+    const result = z.array(contentBlockSchema).safeParse(parsed);
+    if (result.success) {
+      return result.data;
+    }
+    // Historical rows may carry block variants that predate the current
+    // union (the renderer tolerates unknown types in its default case).
+    // Pass them through rather than mangling stored content into a text
+    // wrap; this is the one legacy boundary the schema cannot close.
+    log.warn(
+      { issueCount: result.error.issues.length },
+      "Inline content array has unrecognized block shapes; passing through unvalidated",
+    );
+    return parsed as ContentBlock[];
+  }
+  return [{ type: "text", text: raw }];
 }
 
 /**

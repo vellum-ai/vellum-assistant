@@ -15,13 +15,13 @@ import {
   appendContentDeltas,
   foldContentDeltas,
   foldContentFile,
-  isMessageContentRef,
+  messageContentRefSchema,
   resolveMessageContentBlocks,
   resolveStoredMessageContent,
 } from "../message-content-file.js";
 
 function textBlock(text: string): ContentBlock {
-  return { type: "text", text } as ContentBlock;
+  return { type: "text", text };
 }
 
 describe("foldContentDeltas", () => {
@@ -51,6 +51,19 @@ describe("foldContentDeltas", () => {
       "\n" +
       '{"i": 1, "seq": 3, "block": {"type": "text", "te'; // truncated
     expect(foldContentDeltas(text)).toEqual([textBlock("kept")]);
+  });
+
+  test("preserves internal rider fields on blocks (passthrough, not strip)", () => {
+    // Timing stamps like _startedAt ride inside persisted thinking blocks;
+    // the fold must round-trip them, not strip them as unknown keys.
+    const stamped = {
+      type: "thinking",
+      thinking: "hmm",
+      signature: "sig",
+      _startedAt: 123,
+    };
+    const text = JSON.stringify({ i: 0, seq: 1, block: stamped });
+    expect(foldContentDeltas(text)).toEqual([stamped as ContentBlock]);
   });
 
   test("empty input folds to empty content", () => {
@@ -85,28 +98,36 @@ describe("appendContentDeltas + foldContentFile", () => {
   });
 });
 
-describe("isMessageContentRef", () => {
+describe("messageContentRefSchema", () => {
   test("accepts exactly { ref } naming a reserved conversations/ .jsonl path", () => {
     expect(
-      isMessageContentRef({ ref: "conversations/a/inflight/b.jsonl" }),
+      messageContentRefSchema.safeParse({
+        ref: "conversations/a/inflight/b.jsonl",
+      }).success,
     ).toBe(true);
   });
 
   test("rejects non-reserved paths — the legacy-text discriminator", () => {
-    expect(isMessageContentRef({ ref: "a/b.jsonl" })).toBe(false);
-    expect(isMessageContentRef({ ref: "conversations/a/b.txt" })).toBe(false);
-    expect(isMessageContentRef({ ref: "/etc/passwd" })).toBe(false);
-    expect(isMessageContentRef({ ref: "../../../etc/passwd" })).toBe(false);
+    for (const ref of [
+      "a/b.jsonl",
+      "conversations/a/b.txt",
+      "/etc/passwd",
+      "../../../etc/passwd",
+    ]) {
+      expect(messageContentRefSchema.safeParse({ ref }).success).toBe(false);
+    }
   });
 
   test("rejects arrays, extra keys, empty and non-string refs", () => {
-    expect(isMessageContentRef([textBlock("x")])).toBe(false);
-    expect(
-      isMessageContentRef({ ref: "conversations/a/b.jsonl", other: 1 }),
-    ).toBe(false);
-    expect(isMessageContentRef({ ref: "" })).toBe(false);
-    expect(isMessageContentRef({ ref: 42 })).toBe(false);
-    expect(isMessageContentRef(null)).toBe(false);
+    for (const value of [
+      [textBlock("x")],
+      { ref: "conversations/a/b.jsonl", other: 1 },
+      { ref: "" },
+      { ref: 42 },
+      null,
+    ]) {
+      expect(messageContentRefSchema.safeParse(value).success).toBe(false);
+    }
   });
 });
 
@@ -176,6 +197,25 @@ describe("resolveMessageContentBlocks (expressive form)", () => {
     expect(
       resolveMessageContentBlocks(JSON.stringify([textBlock("hello")])),
     ).toEqual([textBlock("hello")]);
+  });
+
+  test("parses a nested tool_result with contentBlocks (recursive schema)", () => {
+    const blocks: ContentBlock[] = [
+      {
+        type: "tool_result",
+        tool_use_id: "tu-1",
+        content: "done",
+        contentBlocks: [textBlock("nested")],
+      },
+    ];
+    expect(resolveMessageContentBlocks(JSON.stringify(blocks))).toEqual(blocks);
+  });
+
+  test("passes historical arrays with unrecognized block shapes through", () => {
+    const historical = [{ type: "some_retired_block_kind", payload: 1 }];
+    expect(resolveMessageContentBlocks(JSON.stringify(historical))).toEqual(
+      historical as unknown as ContentBlock[],
+    );
   });
 
   test("folds a reserved-path ref to blocks", () => {
