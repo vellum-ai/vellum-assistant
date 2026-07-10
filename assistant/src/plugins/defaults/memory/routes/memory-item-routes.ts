@@ -865,7 +865,13 @@ export const ROUTES: RouteDefinition[] = [
     }),
     handler: ({ queryParams }) => {
       const limitRaw = queryParams?.limit;
-      const limit = limitRaw ? Number.parseInt(limitRaw, 10) : undefined;
+      let limit: number | undefined;
+      if (limitRaw) {
+        limit = Number.parseInt(limitRaw, 10);
+        if (!Number.isFinite(limit)) {
+          throw new BadRequestError("limit must be an integer");
+        }
+      }
       return handleListMemory(
         { search: queryParams?.search, limit },
         getConfig(),

@@ -1010,6 +1010,13 @@ describe("Memory Item Routes", () => {
       expect(after.nodes.map((n) => n.id)).not.toContain("n1");
     });
 
+    test("listMemoryNodes rejects a non-numeric limit as 400", async () => {
+      const res = await callHandler(getRoute("memory-nodes", "GET"), {
+        queryParams: { limit: "abc" },
+      });
+      expect(res.status).toBe(400);
+    });
+
     test("deleteMemoryNode rejects a missing content body as 400", async () => {
       const res = await callHandler(getRoute("memory-nodes/delete", "POST"), {
         body: {},
