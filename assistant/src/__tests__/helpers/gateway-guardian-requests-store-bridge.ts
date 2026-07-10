@@ -31,14 +31,14 @@ import {
   type UpdateGuardianRequestDeliveryIpcParams,
 } from "@vellumai/gateway-client";
 
-import {
-  type CanonicalGuardianRequest,
-  createCanonicalGuardianDelivery,
-  createCanonicalGuardianRequest,
-  listCanonicalGuardianDeliveries,
-  listCanonicalGuardianRequests,
-  updateCanonicalGuardianDelivery,
-} from "../../contacts/canonical-guardian-store.js";
+import type { CanonicalGuardianRequest } from "../../contacts/canonical-guardian-store.js";
+
+// Store access is deferred to call time so importing this helper installs no
+// production coupling before a test's own setup/mocks run (per the shared
+// test-helper rule in assistant/AGENTS.md).
+function store() {
+  return import("../../contacts/canonical-guardian-store.js");
+}
 
 function deriveSourceType(
   sourceChannel: string | null,
@@ -71,7 +71,7 @@ async function createGuardianRequest(
   const parsed = CreateGuardianRequestIpcParamsSchema.parse(params);
   const { sourceConversationId, requestTrigger, ...rest } = parsed;
   return toGuardianRequestWire(
-    createCanonicalGuardianRequest({
+    (await store()).createCanonicalGuardianRequest({
       ...rest,
       sourceType: deriveSourceType(parsed.sourceChannel ?? null),
       conversationId: sourceConversationId,
@@ -84,7 +84,7 @@ async function listGuardianRequests(
   filters: ListGuardianRequestsIpcParams = {},
 ): Promise<GuardianRequestWire[]> {
   const { sourceType, sourceConversationId, ...rest } = filters;
-  let rows = listCanonicalGuardianRequests({
+  let rows = (await store()).listCanonicalGuardianRequests({
     ...rest,
     conversationId: sourceConversationId,
     // voice/desktop translate to one channel; "channel" filters below.
@@ -102,7 +102,7 @@ async function listGuardianRequests(
 async function createGuardianRequestDelivery(
   params: CreateGuardianRequestDeliveryIpcParams,
 ): Promise<GuardianRequestDeliveryWire> {
-  return createCanonicalGuardianDelivery(
+  return (await store()).createCanonicalGuardianDelivery(
     CreateGuardianRequestDeliveryIpcParamsSchema.parse(params),
   );
 }
@@ -111,13 +111,13 @@ async function updateGuardianRequestDelivery(
   id: string,
   patch: UpdateGuardianRequestDeliveryIpcParams["patch"],
 ): Promise<void> {
-  updateCanonicalGuardianDelivery(id, patch);
+  (await store()).updateCanonicalGuardianDelivery(id, patch);
 }
 
 async function listGuardianRequestDeliveries(
   requestId: string,
 ): Promise<GuardianRequestDeliveryWire[]> {
-  return listCanonicalGuardianDeliveries(requestId);
+  return (await store()).listCanonicalGuardianDeliveries(requestId);
 }
 
 /**
