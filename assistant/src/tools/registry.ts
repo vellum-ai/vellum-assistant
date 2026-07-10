@@ -2,11 +2,6 @@ import { isPluginDisabled } from "../plugins/disabled-state.js";
 import { getLogger } from "../util/logger.js";
 import { coreAppProxyTools } from "./apps/definitions.js";
 import { registerAppTools } from "./apps/registry.js";
-import { hostFileEditTool } from "./host-filesystem/edit.js";
-import { hostFileReadTool } from "./host-filesystem/read.js";
-import { hostFileTransferTool } from "./host-filesystem/transfer.js";
-import { hostFileWriteTool } from "./host-filesystem/write.js";
-import { hostShellTool } from "./host-terminal/host-shell.js";
 import { toProviderSafeToolName } from "./provider-tool-name.js";
 import { registerSystemTools } from "./system/register.js";
 import { finalizeTool } from "./tool-defaults.js";
@@ -1090,19 +1085,6 @@ async function runToolInitialization(): Promise<void> {
     registerTool(tool);
   }
 
-  // Host tools are registered here so host access stays opt-in until this
-  // point in startup.
-  const hostTools = [
-    hostFileReadTool,
-    hostFileWriteTool,
-    hostFileEditTool,
-    hostFileTransferTool,
-    hostShellTool,
-  ];
-  for (const tool of hostTools) {
-    registerTool(tool);
-  }
-
   registerUiSurfaceTools();
   registerAppTools();
   registerSystemTools();
@@ -1112,15 +1094,14 @@ async function runToolInitialization(): Promise<void> {
   // arbitrary test tools that were registered before init.
   //
   // A pre-existing tool is included only if it is a known manifest tool
-  // (declared in explicitTools or hostTools) — e.g. a test registered a
-  // manifest tool directly before its first initializeTools() call.
+  // (declared in explicitTools) — e.g. a test registered a manifest tool
+  // directly before its first initializeTools() call.
   if (!coreToolsSnapshot) {
     // Core tool literals always set `name` (verified by `registerTool` —
     // it throws on missing name). The `!` assertions reflect that
     // invariant at the iteration sites.
     const manifestToolNames = new Set<string>([
       ...explicitTools.map((t) => t.name!),
-      ...hostTools.map((t) => t.name!),
       ...allUiSurfaceTools.map((t) => t.name!),
       ...coreAppProxyTools.map((t) => t.name!),
     ]);

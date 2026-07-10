@@ -13,6 +13,11 @@ import { fileListTool } from "./filesystem/list.js";
 import { fileReadTool } from "./filesystem/read.js";
 import { codeSearchTool } from "./filesystem/search.js";
 import { fileWriteTool } from "./filesystem/write.js";
+import { hostFileEditTool } from "./host-filesystem/edit.js";
+import { hostFileReadTool } from "./host-filesystem/read.js";
+import { hostFileTransferTool } from "./host-filesystem/transfer.js";
+import { hostFileWriteTool } from "./host-filesystem/write.js";
+import { hostShellTool } from "./host-terminal/host-shell.js";
 import { webFetchTool } from "./network/web-fetch.js";
 import { webSearchTool } from "./network/web-search.js";
 import { skillExecuteTool } from "./skills/execute.js";
@@ -50,4 +55,12 @@ export const explicitTools: ToolDefinition[] = [
   recallTool,
   notifyParentTool,
   askQuestionTool,
+  // Host tools — executed on the desktop host via the client proxy rather
+  // than in the daemon's sandbox. Listed after the sandbox tools so
+  // registration order (and thus tools.json ordering) is stable.
+  hostFileReadTool,
+  hostFileWriteTool,
+  hostFileEditTool,
+  hostFileTransferTool,
+  hostShellTool,
 ];
