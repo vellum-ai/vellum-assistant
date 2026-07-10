@@ -24,6 +24,7 @@ interface FakeWatcher {
   status: string;
   consecutiveErrors: number;
   lastError: string | null;
+  credentialPausedAt: number | null;
   lastPollAt: number | null;
   nextPollAt: number;
   configJson: string | null;
@@ -139,6 +140,7 @@ function makeWatcher(overrides: Partial<FakeWatcher> = {}): FakeWatcher {
     status: "polling",
     consecutiveErrors: 0,
     lastError: null,
+    credentialPausedAt: null,
     lastPollAt: now,
     nextPollAt: now + 60_000,
     configJson: null,

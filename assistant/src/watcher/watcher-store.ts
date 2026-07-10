@@ -21,6 +21,7 @@ export interface Watcher {
   status: string;
   consecutiveErrors: number;
   lastError: string | null;
+  credentialPausedAt: number | null;
   lastPollAt: number | null;
   nextPollAt: number;
   configJson: string | null;
@@ -71,6 +72,7 @@ export function createWatcher(params: {
     status: "idle",
     consecutiveErrors: 0,
     lastError: null as string | null,
+    credentialPausedAt: null as number | null,
     lastPollAt: null as number | null,
     nextPollAt: enabled ? now : 0,
     configJson: params.configJson ?? null,
@@ -131,11 +133,13 @@ export function updateWatcher(
   if (updates.enabled !== undefined) {
     set.enabled = updates.enabled;
     if (updates.enabled && !existing.enabled) {
-      // Re-enabling: schedule next poll now, reset errors
+      // Re-enabling: schedule next poll now, reset errors and any lingering
+      // credential-pause marker so a still-broken account notifies afresh.
       set.status = "idle";
       set.nextPollAt = now;
       set.consecutiveErrors = 0;
       set.lastError = null;
+      set.credentialPausedAt = null;
     } else if (!updates.enabled) {
       set.status = "disabled";
     }
@@ -212,6 +216,7 @@ export function completeWatcherPoll(
     nextPollAt: now + watcher.pollIntervalMs,
     consecutiveErrors: 0,
     lastError: null,
+    credentialPausedAt: null,
     updatedAt: now,
   };
 
@@ -223,10 +228,15 @@ export function completeWatcherPoll(
 }
 
 /**
- * Skip a watcher poll: apply backoff to nextPollAt without incrementing
- * consecutiveErrors. Used when a poll is skipped for a recoverable reason
- * (e.g. credential health gate) that should NOT count toward the circuit
- * breaker threshold.
+ * Skip a watcher poll because its credential is unhealthy: apply backoff to
+ * nextPollAt without incrementing consecutiveErrors (this is a recoverable
+ * reason that must NOT count toward the circuit breaker threshold), and mark
+ * the watcher as credential-paused.
+ *
+ * `credentialPausedAt` is stamped on the first skip and preserved on
+ * subsequent skips so it reflects when the outage began. It surfaces the
+ * paused state in `watchers list` and backs the engine's once-per-outage
+ * reconnect notification across restarts.
  */
 export function skipWatcherPoll(id: string, reason: string): void {
   const db = getDb();
@@ -245,6 +255,7 @@ export function skipWatcherPoll(id: string, reason: string): void {
     .set({
       status: "idle",
       lastError: truncate(reason, 2000, ""),
+      credentialPausedAt: watcher.credentialPausedAt ?? now,
       lastPollAt: now,
       nextPollAt: now + backoff,
       updatedAt: now,
@@ -255,8 +266,18 @@ export function skipWatcherPoll(id: string, reason: string): void {
 
 /**
  * Record a poll error: increment consecutive errors, apply backoff.
+ *
+ * When `credentialPaused` is set (the error was auth-shaped — a broken
+ * account connection), stamp `credentialPausedAt` so the watcher surfaces as
+ * paused in `watchers list` and the engine's reconnect notification dedups
+ * across restarts. The marker is preserved once set so it reflects when the
+ * outage began.
  */
-export function failWatcherPoll(id: string, error: string): void {
+export function failWatcherPoll(
+  id: string,
+  error: string,
+  opts?: { credentialPaused?: boolean },
+): void {
   const db = getDb();
   const watcher = db.select().from(watchers).where(eq(watchers.id, id)).get();
   if (!watcher) return;
@@ -271,6 +292,9 @@ export function failWatcherPoll(id: string, error: string): void {
       status: "idle",
       consecutiveErrors: errors,
       lastError: truncate(error, 2000, ""),
+      credentialPausedAt: opts?.credentialPaused
+        ? (watcher.credentialPausedAt ?? now)
+        : watcher.credentialPausedAt,
       lastPollAt: now,
       nextPollAt: now + backoff,
       updatedAt: now,
@@ -280,7 +304,9 @@ export function failWatcherPoll(id: string, error: string): void {
 }
 
 /**
- * Disable a watcher (circuit breaker tripped).
+ * Disable a watcher (circuit breaker tripped). Clears the credential-pause
+ * marker so a manual re-enable of a still-broken account starts a fresh
+ * reconnect episode instead of being suppressed by a stale marker.
  */
 export function disableWatcher(id: string, reason: string): void {
   const db = getDb();
@@ -289,6 +315,7 @@ export function disableWatcher(id: string, reason: string): void {
       status: "disabled",
       enabled: false,
       lastError: truncate(reason, 2000, ""),
+      credentialPausedAt: null,
       updatedAt: Date.now(),
     })
     .where(eq(watchers.id, id))
@@ -447,6 +474,7 @@ function parseWatcherRow(row: typeof watchers.$inferSelect): Watcher {
     status: row.status,
     consecutiveErrors: row.consecutiveErrors,
     lastError: row.lastError,
+    credentialPausedAt: row.credentialPausedAt,
     lastPollAt: row.lastPollAt,
     nextPollAt: row.nextPollAt,
     configJson: row.configJson,

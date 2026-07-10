@@ -65,7 +65,8 @@ mock.module("../../../util/logger.js", () => ({
 // Import module under test (after mocks)
 // ---------------------------------------------------------------------------
 
-const { registerWatchersCommand } = await import("../watchers.js");
+const { registerWatchersCommand, formatWatcherStatus } =
+  await import("../watchers.js");
 
 // ---------------------------------------------------------------------------
 // Test helper
@@ -417,6 +418,38 @@ describe("watchers list", () => {
     const { exitCode } = await runCommand(["watchers", "list"]);
 
     expect(exitCode).toBe(1);
+  });
+
+  describe("formatWatcherStatus", () => {
+    test("reports enabled for a healthy, polling watcher", () => {
+      expect(
+        formatWatcherStatus({ enabled: true, credentialPausedAt: null }),
+      ).toBe("enabled");
+    });
+
+    test("reports disabled when the watcher is turned off", () => {
+      expect(
+        formatWatcherStatus({ enabled: false, credentialPausedAt: null }),
+      ).toBe("disabled");
+    });
+
+    test("reports paused with reconnect guidance when the credential is paused", () => {
+      const status = formatWatcherStatus({
+        enabled: true,
+        credentialPausedAt: 1737000000000,
+      });
+      expect(status).toContain("paused");
+      expect(status).toContain("reconnect");
+    });
+
+    test("a disabled watcher reads as disabled even if a stale pause marker lingers", () => {
+      expect(
+        formatWatcherStatus({
+          enabled: false,
+          credentialPausedAt: 1737000000000,
+        }),
+      ).toBe("disabled");
+    });
   });
 
   test("--json outputs error on IPC failure", async () => {
