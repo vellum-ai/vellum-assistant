@@ -12,13 +12,6 @@
 import { tmpdir } from "node:os";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
-mock.module("../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // ---------------------------------------------------------------------------
 // Fake AcpAgentProcess with scriptable capabilities and history replay.
 // ---------------------------------------------------------------------------

@@ -2,12 +2,6 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { makeMockLogger } from "./helpers/mock-logger.js";
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () => makeMockLogger(),
-}));
-
 mock.module("../config/loader.js", () => ({
   getConfig: () => ({
     ui: {},
@@ -93,7 +87,7 @@ function resetTables(): void {
 /** Strip per-row identity so two forks of the same source compare equal. */
 function normalize(message: {
   role: string;
-  content: string;
+  content: unknown;
   createdAt: number;
   metadata: string | null;
 }) {
@@ -331,7 +325,7 @@ describe("forkConversationForRetrospective — compacted source", () => {
     return { id: source.id, summary, compactedAt, compactedCount: 4, base };
   }
 
-  function contentOf(m: { role: string; content: string; createdAt: number }) {
+  function contentOf(m: { role: string; content: unknown; createdAt: number }) {
     return { role: m.role, content: m.content, createdAt: m.createdAt };
   }
 
@@ -368,7 +362,7 @@ describe("forkConversationForRetrospective — compacted source", () => {
     // `loadFromDb` does — is identical to the source's.
     const render = (
       summary: string | null,
-      rows: Array<{ role: string; content: string; createdAt: number }>,
+      rows: Array<{ role: string; content: unknown; createdAt: number }>,
       count: number,
     ) => [summary, ...rows.slice(Math.min(count, rows.length)).map(contentOf)];
     expect(
@@ -665,8 +659,8 @@ describe("forkConversationForRetrospective — compacted source", () => {
     // The source renders ["still visible", "fresh tail"] after its slice;
     // the fork must carry exactly those rows.
     expect(getMessages(fork.id).map((m) => m.content)).toEqual([
-      "still visible",
-      "fresh tail",
+      [{ type: "text", text: "still visible" }],
+      [{ type: "text", text: "fresh tail" }],
     ]);
   });
 
@@ -715,7 +709,9 @@ describe("forkConversationForRetrospective — compacted source", () => {
       source: MEMORY_RETROSPECTIVE_FORK_SOURCE,
     });
 
-    expect(getMessages(fork.id).map((m) => m.content)).toEqual(["visible"]);
+    expect(getMessages(fork.id).map((m) => m.content)).toEqual([
+      [{ type: "text", text: "visible" }],
+    ]);
     expect(fork.contextSummary).toBe("Tie summary");
     expect(fork.contextCompactedMessageCount).toBe(0);
     const forkEvents = getDb()

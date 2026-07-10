@@ -20,13 +20,6 @@ import { installAcpConfigStub } from "../../../acp/__tests__/helpers/acp-config-
 import { installExecFileStub } from "../../../acp/__tests__/helpers/exec-file-stub.js";
 import { installWhichStub } from "../../../acp/__tests__/helpers/which-stub.js";
 
-mock.module("../../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 const {
   execScripts,
   execFileMock,

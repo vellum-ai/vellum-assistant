@@ -11,13 +11,6 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ── Shared mock plumbing (must precede module-under-test imports) ──────────
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 mock.module("../config/loader.js", () => ({
   getConfig: () => ({
     skills: {

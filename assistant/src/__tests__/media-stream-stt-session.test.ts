@@ -40,16 +40,6 @@ mock.module("../config/loader.js", () => ({
   }),
 }));
 
-// Mock the logger to suppress output during tests
-mock.module("../util/logger.js", () => ({
-  getLogger: () => ({
-    info: () => {},
-    warn: () => {},
-    error: () => {},
-    debug: () => {},
-  }),
-}));
-
 // Now import the mocked modules and the module under test.
 import { MediaStreamSttSession } from "../calls/media-stream-stt-session.js";
 import {

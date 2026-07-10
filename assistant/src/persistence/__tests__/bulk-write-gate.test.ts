@@ -1,15 +1,9 @@
 import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, mock, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 
 import { assertNotLiveDb } from "../../__tests__/assert-not-live-db.js";
-import { makeMockLogger } from "../../__tests__/helpers/mock-logger.js";
-
-mock.module("../../util/logger.js", () => ({
-  getLogger: () => makeMockLogger(),
-}));
-
 import { bulkWriteGateHolder, withBulkWriteGate } from "../bulk-write-gate.js";
 import { deleteConversationRowsInBatches } from "../conversation-row-batch-delete.js";
 import { copyForkMessagesViaSubprocess } from "../fork-message-copy.js";

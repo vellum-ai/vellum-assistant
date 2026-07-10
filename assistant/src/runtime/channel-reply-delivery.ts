@@ -75,13 +75,19 @@ function toDeliverableTextSegments(
         : stripped;
     })
     .filter((segment) => segment.trim().length > 0);
-  if (nonEmptySegments.length > 0) return nonEmptySegments;
+  if (nonEmptySegments.length > 0) {
+    return nonEmptySegments;
+  }
   // If the only text was <no_response/>, treat as intentional silence —
   // do not fall back to fallbackText.
-  if (hasNoResponseMarker(textSegments)) return [];
+  if (hasNoResponseMarker(textSegments)) {
+    return [];
+  }
   if (typeof fallbackText === "string") {
     const fallback = stripNoResponseMarkers(fallbackText);
-    if (fallback.length > 0) return [fallback];
+    if (fallback.length > 0) {
+      return [fallback];
+    }
   }
   return [];
 }
@@ -261,12 +267,7 @@ function readPersistedAssistantReply(msg: PersistedMessage): {
   rendered: RenderedHistoryContent;
   replyAttachments: RuntimeAttachmentMetadata[];
 } {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(msg.content);
-  } catch {
-    parsed = msg.content;
-  }
+  const parsed: unknown = msg.content;
   const rendered = renderHistoryContent(parsed);
 
   const linked = getAttachmentMetadataForMessage(msg.id);
@@ -282,9 +283,11 @@ function readPersistedAssistantReply(msg: PersistedMessage): {
 }
 
 function isToolResultUserMessage(msg: PersistedMessage): boolean {
-  if (msg.role !== "user") return false;
+  if (msg.role !== "user") {
+    return false;
+  }
   try {
-    const parsed = JSON.parse(msg.content) as unknown;
+    const parsed = msg.content as unknown;
     return (
       Array.isArray(parsed) &&
       parsed.length > 0 &&
@@ -306,7 +309,9 @@ export function findAssistantReplyMessageIdForTurn(
 ): string | undefined {
   const msgs = getMessages(conversationId);
   const userIndex = msgs.findIndex((msg) => msg.id === userMessageId);
-  if (userIndex === -1) return undefined;
+  if (userIndex === -1) {
+    return undefined;
+  }
 
   let turnEndIndex = msgs.length;
   for (let i = userIndex + 1; i < msgs.length; i++) {
@@ -446,7 +451,9 @@ export async function deliverReplyViaCallback(
 
   const msgs = getMessages(conversationId);
   for (let i = msgs.length - 1; i >= 0; i--) {
-    if (msgs[i].role !== "assistant") continue;
+    if (msgs[i].role !== "assistant") {
+      continue;
+    }
     const delivered = await deliverPersistedAssistantMessageViaCallback(
       msgs[i],
       externalChatId,
@@ -454,7 +461,9 @@ export async function deliverReplyViaCallback(
       assistantId,
       options,
     );
-    if (delivered) break;
+    if (delivered) {
+      break;
+    }
   }
 }
 
@@ -477,9 +486,13 @@ export async function deliverReplyViaCallback(
 function makeChannelTsReconciler(messageId: string): (ts: string) => void {
   let applied = false;
   return (ts: string): void => {
-    if (applied) return;
+    if (applied) {
+      return;
+    }
     applied = true;
-    if (!ts) return;
+    if (!ts) {
+      return;
+    }
     try {
       // Re-read the row's current metadata so a concurrent edit-propagation
       // write (e.g. `editedAt`) is not clobbered. `updateMessageMetadata`
@@ -489,7 +502,9 @@ function makeChannelTsReconciler(messageId: string): (ts: string) => void {
       // `readSlackMetadata` which rejects the partial form for lacking
       // channelTs — exactly the state we are reconciling).
       const row = getMessageById(messageId);
-      if (row === null || row.metadata === null) return;
+      if (row === null || row.metadata === null) {
+        return;
+      }
       let envelope: Record<string, unknown>;
       try {
         envelope = JSON.parse(row.metadata) as Record<string, unknown>;
@@ -498,11 +513,15 @@ function makeChannelTsReconciler(messageId: string): (ts: string) => void {
       }
       const slackMetaRaw =
         typeof envelope.slackMeta === "string" ? envelope.slackMeta : null;
-      if (slackMetaRaw === null) return;
+      if (slackMetaRaw === null) {
+        return;
+      }
       // If the existing slackMeta already parses cleanly via the strict
       // reader, channelTs is already present (a prior reconciliation ran,
       // or backfill stamped the field) — nothing to do.
-      if (readSlackMetadata(slackMetaRaw) !== null) return;
+      if (readSlackMetadata(slackMetaRaw) !== null) {
+        return;
+      }
       // Lenient parse of the partial slackMeta so we can preserve every
       // field already written by `handleMessageComplete` (source,
       // eventKind, channelId, threadTs, ...) while patching channelTs in.

@@ -5,11 +5,6 @@ import type { AgentEvent, AgentLoopRunResult } from "../agent/loop.js";
 import { resetPluginRegistryAndRegisterDefaults } from "../plugins/defaults/index.js";
 import type { Message, ProviderResponse } from "../providers/types.js";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
-}));
-
 mock.module("../providers/registry.js", () => ({
   getProvider: () => ({ name: "mock-provider" }),
   initializeProviders: async () => {},

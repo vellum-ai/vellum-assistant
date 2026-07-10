@@ -3216,7 +3216,7 @@ describe("Slack channel chronological rendering — multi-thread", () => {
       id: opts.id,
       conversationId: "conv-1",
       role: "user",
-      content: JSON.stringify([{ type: "text", text: opts.text }]),
+      content: [{ type: "text", text: opts.text }],
       createdAt: opts.createdAt,
       metadata: Object.keys(outer).length > 0 ? JSON.stringify(outer) : null,
       clientMessageId: null,
@@ -3238,7 +3238,7 @@ describe("Slack channel chronological rendering — multi-thread", () => {
       id: opts.id,
       conversationId: "conv-1",
       role: "assistant",
-      content: JSON.stringify([{ type: "text", text: opts.text }]),
+      content: [{ type: "text", text: opts.text }],
       createdAt: opts.createdAt,
       metadata: Object.keys(outer).length > 0 ? JSON.stringify(outer) : null,
       clientMessageId: null,
@@ -4239,7 +4239,10 @@ describe("Slack channel chronological rendering — multi-thread", () => {
             id: r.id,
             conversationId: "runtime-assembly-fallback",
             role: r.role,
-            content: r.content,
+            content:
+              typeof r.content === "string"
+                ? r.content
+                : JSON.stringify(r.content),
             createdAt: r.createdAt,
             metadata: r.metadata,
           })),

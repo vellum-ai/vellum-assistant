@@ -243,13 +243,19 @@ function alignAttachments(
 
   const byId = new Map<string, number>();
   attachments.forEach((att, idx) => {
-    if (att.id) byId.set(att.id, idx);
+    if (att.id) {
+      byId.set(att.id, idx);
+    }
   });
   const consumed = new Set<number>();
   const orderedRowIdx: Array<number | null> = attachmentRefs.map((ref) => {
-    if (!ref.attachmentId) return null;
+    if (!ref.attachmentId) {
+      return null;
+    }
     const idx = byId.get(ref.attachmentId);
-    if (idx === undefined || consumed.has(idx)) return null;
+    if (idx === undefined || consumed.has(idx)) {
+      return null;
+    }
     consumed.add(idx);
     return idx;
   });
@@ -260,7 +266,9 @@ function alignAttachments(
   if (matchedRows.length > 0) {
     const orphanRows: number[] = [];
     for (let i = 0; i < attachments.length; i++) {
-      if (!consumed.has(i)) orphanRows.push(i);
+      if (!consumed.has(i)) {
+        orphanRows.push(i);
+      }
     }
     const reordered = [
       ...matchedRows.map((i) => attachments[i]),
@@ -279,7 +287,9 @@ function alignAttachments(
       contentOrder
         .map((entry) => {
           const match = entry.match(ATTACHMENT_ENTRY_RE);
-          if (!match) return entry;
+          if (!match) {
+            return entry;
+          }
           const remapped = refToNewIdx.get(Number(match[1]));
           return remapped !== undefined ? `attachment:${remapped}` : undefined;
         })
@@ -332,7 +342,9 @@ function isValidRiskThreshold(value: unknown): value is RiskThreshold {
  * leaving them in the LLM-side context.
  */
 function isHiddenMessage(metadata: string | null): boolean {
-  if (!metadata) return false;
+  if (!metadata) {
+    return false;
+  }
   try {
     return isHiddenMessageMetadata(
       JSON.parse(metadata) as Record<string, unknown>,
@@ -346,7 +358,9 @@ function buildSlackHistoryMessage(
   slackMeta: SlackMessageMetadata | null,
   opts?: { role?: string; assistantDisplayName?: string },
 ): RuntimeMessagePayload["slackMessage"] | undefined {
-  if (!slackMeta) return undefined;
+  if (!slackMeta) {
+    return undefined;
+  }
 
   const slackConfig = getConfig().slack;
   const replyThreadTs =
@@ -443,7 +457,9 @@ function expireOrphanedCanonicalRequests(conversationId: string): void {
   for (const req of sourceScoped) {
     // Skip requests that still have a live in-memory pending interaction —
     // they are not orphaned.
-    if (pendingInteractions.get(req.id)) continue;
+    if (pendingInteractions.get(req.id)) {
+      continue;
+    }
 
     resolveCanonicalGuardianRequest(req.id, "pending", {
       status: "expired",
@@ -622,7 +638,9 @@ function buildQueuedMessagePayloads(
   conversationId: string,
 ): RuntimeMessagePayload[] {
   const conversation = findConversation(conversationId);
-  if (!conversation) return [];
+  if (!conversation) {
+    return [];
+  }
 
   // Hidden sends are suppressed from the transcript at every stage — echo,
   // persisted row, and here the in-memory queue window: a latest-page fetch
@@ -648,7 +666,9 @@ function buildQueuedMessagePayloads(
       );
 
       const contentBlocks: ConversationContentBlock[] = [];
-      if (text.length > 0) contentBlocks.push({ type: "text", text });
+      if (text.length > 0) {
+        contentBlocks.push({ type: "text", text });
+      }
       for (const attachment of attachments) {
         contentBlocks.push({ type: "attachment", attachment });
       }
@@ -823,12 +843,7 @@ export function handleListMessages({
   // alignment, letting renderHistoryContent inline `attachment` blocks during
   // its single content walk.
   const parsed = consolidatedMessages.map((msg) => {
-    let content: unknown;
-    try {
-      content = JSON.parse(msg.content);
-    } catch {
-      content = msg.content;
-    }
+    const content: unknown = msg.content;
 
     // Extract sentAt from metadata for display timestamps. When a message
     // was queued or its persistence was delayed (long assistant generation),
@@ -849,7 +864,9 @@ export function handleListMessages({
     if (msg.metadata) {
       try {
         const meta = JSON.parse(msg.metadata);
-        if (typeof meta.sentAt === "number") sentAt = meta.sentAt;
+        if (typeof meta.sentAt === "number") {
+          sentAt = meta.sentAt;
+        }
         // Every wake persists a `<background_event source="...">` trigger row
         // (see `persistWakeTriggerMessage`) that the LLM reads. Flag any such
         // row so clients hide it from the transcript like a subagent/ACP
@@ -1040,7 +1057,9 @@ export function handleListMessages({
       contentOrder = rendered.contentOrder
         .map((entry) => {
           const tm = entry.match(/^text:(\d+)$/);
-          if (!tm) return entry;
+          if (!tm) {
+            return entry;
+          }
           const newIdx = indexMap.get(Number(tm[1]));
           return newIdx !== undefined ? `text:${newIdx}` : undefined;
         })
@@ -1681,7 +1700,9 @@ export async function handleSendMessage(
           guardianPrincipalId,
           sourceChannel,
         );
-        if (healed) trustCtx = healed;
+        if (healed) {
+          trustCtx = healed;
+        }
       }
       conversation.setTrustContext(trustCtx);
     } else {
@@ -2626,10 +2647,14 @@ export async function handleGetSuggestion(
       resolvedConversationId = conversationKey;
     }
   }
-  if (!resolvedConversationId) return noSuggestion;
+  if (!resolvedConversationId) {
+    return noSuggestion;
+  }
 
   const rawMessages = getMessages(resolvedConversationId);
-  if (rawMessages.length === 0) return noSuggestion;
+  if (rawMessages.length === 0) {
+    return noSuggestion;
+  }
 
   // Staleness check: compare requested messageId against the latest
   // assistant message BEFORE filtering by text content.  This ensures
@@ -2653,17 +2678,16 @@ export async function handleGetSuggestion(
   // Walk backwards to find the last assistant message with text content
   for (let i = rawMessages.length - 1; i >= 0; i--) {
     const msg = rawMessages[i];
-    if (msg.role !== "assistant") continue;
-
-    let content: unknown;
-    try {
-      content = JSON.parse(msg.content);
-    } catch {
-      content = msg.content;
+    if (msg.role !== "assistant") {
+      continue;
     }
+
+    const content: unknown = msg.content;
     const rendered = renderHistoryContent(content);
     const text = rendered.text.trim();
-    if (!text) continue;
+    if (!text) {
+      continue;
+    }
 
     // If a messageId was requested and the first text-bearing assistant
     // message is a *different* message, the request is stale.
@@ -2682,13 +2706,10 @@ export async function handleGetSuggestion(
     // to guess which role it's generating for.
     let priorUserText: string | null = null;
     for (let j = i - 1; j >= 0; j--) {
-      if (rawMessages[j].role !== "user") continue;
-      let userContent: unknown;
-      try {
-        userContent = JSON.parse(rawMessages[j].content);
-      } catch {
-        userContent = rawMessages[j].content;
+      if (rawMessages[j].role !== "user") {
+        continue;
       }
+      const userContent: unknown = rawMessages[j].content;
       const userText = renderHistoryContent(userContent).text.trim();
       if (userText) {
         priorUserText = userText;

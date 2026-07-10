@@ -25,14 +25,6 @@ const testDir = process.env.VELLUM_WORKSPACE_DIR!;
 // Mocks — must be set before any production imports
 // ---------------------------------------------------------------------------
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-  truncateForLog: (value: string) => value,
-}));
-
 // Mock notification emission — capture calls
 const emittedSignals: Array<Record<string, unknown>> = [];
 mock.module("../notifications/emit-signal.js", () => ({

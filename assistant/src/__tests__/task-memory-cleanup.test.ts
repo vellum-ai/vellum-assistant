@@ -4,13 +4,6 @@ import { eq } from "drizzle-orm";
 
 import { DEFAULT_CONFIG } from "../config/defaults.js";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 mock.module("../persistence/embeddings/qdrant-client.js", () => ({
   getQdrantClient: () => ({
     searchWithFilter: async () => [],

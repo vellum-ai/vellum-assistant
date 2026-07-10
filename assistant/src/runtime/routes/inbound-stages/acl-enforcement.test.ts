@@ -15,11 +15,6 @@ import type { SourceMetadata, TrustVerdict } from "@vellumai/gateway-client";
 
 import { createGatewayVerificationSessionsStub } from "../../../__tests__/helpers/gateway-verification-sessions-stub.js";
 
-mock.module("../../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
-}));
-
 // Track contact-store reads to prove findContactChannel is NOT used on the
 // verdict path.
 const findContactChannelCalls: unknown[] = [];

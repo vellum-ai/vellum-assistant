@@ -9,6 +9,12 @@ let mockSecureKeys: Record<string, string> = {};
 
 mock.module("../config/env-registry.js", () => ({
   getIsPlatform: () => mockIsPlatform,
+  // Not called by this test, but the real util/logger.js + util/platform.js
+  // (loaded now that the logger is silent under test instead of mocked)
+  // import these names, and ESM named-import validation requires them.
+  getWorkspaceDirOverride: () => process.env.VELLUM_WORKSPACE_DIR,
+  getDebugStdoutLogs: () => false,
+  getIsContainerized: () => false,
 }));
 
 mock.module("../config/env.js", () => ({
@@ -18,15 +24,10 @@ mock.module("../config/env.js", () => ({
 
 mock.module("../security/secure-keys.js", () => ({
   getSecureKeyAsync: async (key: string) => mockSecureKeys[key] ?? undefined,
-}));
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () => ({
-    debug: () => {},
-    info: () => {},
-    warn: () => {},
-    error: () => {},
-  }),
+  // Bun shares mocked modules across test files in a combined run; peer
+  // tests import this name from the same module, so stub it to keep their
+  // ESM named-import validation satisfied when this mock wins evaluation.
+  deleteSecureKeyAsync: async () => ({ deleted: false }),
 }));
 
 const originalFetch = globalThis.fetch;

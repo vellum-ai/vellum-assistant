@@ -370,7 +370,9 @@ function appendInFlightAssistantTurn(
 ): Message[] {
   // When the snapshot already ends on an assistant turn, the in-flight turn is
   // present (or there is none to add) — appending the latest row would duplicate it.
-  if (messages[messages.length - 1]?.role === "assistant") return messages;
+  if (messages[messages.length - 1]?.role === "assistant") {
+    return messages;
+  }
 
   let rows;
   try {
@@ -378,26 +380,19 @@ function appendInFlightAssistantTurn(
   } catch {
     return messages;
   }
-  if (!rows || rows.length === 0) return messages;
-
-  const lastRow = rows[rows.length - 1];
-  if (lastRow.role !== "assistant") return messages;
-
-  let blocks: ContentBlock[];
-  try {
-    const parsed = JSON.parse(lastRow.content);
-    if (Array.isArray(parsed)) {
-      blocks = parsed as ContentBlock[];
-    } else if (typeof parsed === "string") {
-      blocks = [{ type: "text", text: parsed }];
-    } else {
-      return messages;
-    }
-  } catch {
-    // Plain-text content (no JSON envelope).
-    blocks = [{ type: "text", text: lastRow.content }];
+  if (!rows || rows.length === 0) {
+    return messages;
   }
 
-  if (blocks.length === 0) return messages;
+  const lastRow = rows[rows.length - 1];
+  if (lastRow.role !== "assistant") {
+    return messages;
+  }
+
+  const blocks: ContentBlock[] = lastRow.content;
+
+  if (blocks.length === 0) {
+    return messages;
+  }
   return [...messages, { role: "assistant", content: blocks }];
 }

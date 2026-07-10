@@ -13,13 +13,6 @@ import type { SkillSource } from "../config/skills.js";
 const TEST_DIR = process.env.VELLUM_WORKSPACE_DIR!;
 const mockRefreshSkillCapabilityMemories = mock(() => {});
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 mock.module("../daemon/skill-memory-refresh.js", () => ({
   refreshSkillCapabilityMemories: mockRefreshSkillCapabilityMemories,
 }));

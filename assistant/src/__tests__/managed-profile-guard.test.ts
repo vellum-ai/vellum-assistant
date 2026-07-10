@@ -20,12 +20,6 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 // Imported before the `mock.module` below so the mock can pass the real
 // implementation through instead of hand-copying it.
 import { setNestedValue } from "../config/loader.js";
-import { makeMockLogger } from "./helpers/mock-logger.js";
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () => makeMockLogger(),
-}));
-
 let savedRaw: Record<string, unknown> | null = null;
 let rawConfig: Record<string, unknown>;
 // Counters so tests can assert whether `commitConfigWrite` ran its post-write

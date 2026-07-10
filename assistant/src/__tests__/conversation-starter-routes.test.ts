@@ -2,13 +2,6 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { v4 as uuid } from "uuid";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 mock.module("../prompts/user-reference.js", () => ({
   DEFAULT_USER_REFERENCE: "my human",
   resolveUserReference: () => "Alice",

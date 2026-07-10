@@ -15,13 +15,6 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ── Shared mock plumbing (must precede module-under-test imports) ──────────
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 type TestConfig = {
   ui: { userTimezone?: string; detectedTimezone?: string };
   skills: Record<string, unknown>;

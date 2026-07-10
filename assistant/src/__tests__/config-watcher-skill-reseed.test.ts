@@ -15,14 +15,6 @@ const WORKSPACE_DIR = mkdtempSync(join(tmpdir(), "vellum-skills-watch-"));
 const SKILLS_DIR = join(WORKSPACE_DIR, "skills");
 process.env.VELLUM_WORKSPACE_DIR = WORKSPACE_DIR;
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-  truncateForLog: (v: string) => v,
-}));
-
 type WatchCallback = (eventType: string, filename: string | null) => void;
 
 interface CapturedWatcher {

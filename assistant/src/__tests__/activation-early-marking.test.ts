@@ -16,16 +16,9 @@
 
 import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 
 const TEST_DIR = process.env.VELLUM_WORKSPACE_DIR!;
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
 
 const { applyBootstrapTemplate } = await import("../prompts/system-prompt.js");
 const { isActivationSession } =

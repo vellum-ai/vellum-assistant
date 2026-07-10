@@ -25,14 +25,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { makeMockLogger } from "../../../../../__tests__/helpers/mock-logger.js";
 import type { ResolvedSkill } from "../../../../../config/skill-state.js";
 import type { SkillSummary } from "../../../../../config/skills.js";
 import type { CatalogSkill } from "../../../../../skills/catalog-install.js";
-
-mock.module("../../../../../util/logger.js", () => ({
-  getLogger: () => makeMockLogger(),
-}));
 
 // ---------------------------------------------------------------------------
 // Programmable test state — drives every mocked dependency below.

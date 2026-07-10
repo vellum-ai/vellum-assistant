@@ -18,13 +18,6 @@ mock.module("../../../config/env.js", () => ({
   hasUngatedHttpAuthDisabled: () => false,
 }));
 
-mock.module("../../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // ── Real imports (after mocks) ────────────────────────────────────────────
 
 import { assistantEventHub } from "../../assistant-event-hub.js";

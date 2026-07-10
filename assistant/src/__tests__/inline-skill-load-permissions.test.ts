@@ -23,13 +23,6 @@ const testDir = process.env.VELLUM_WORKSPACE_DIR!;
 // Point the file-based trust backend at the test temp dir.
 process.env.GATEWAY_SECURITY_DIR = join(testDir, "protected");
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 interface TestConfig {
   skills: { load: { extraDirs: string[] } };
   sandbox: { enabled: boolean };

@@ -242,15 +242,6 @@ mock.module("../skills/version-hash.js", () => ({
   },
 }));
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () => ({
-    info: () => {},
-    warn: () => {},
-    debug: () => {},
-    error: () => {},
-  }),
-}));
-
 // Mock the skill_loaded telemetry dependencies of conversation-skill-tools so
 // their heavy transitive imports (catalog-install → CLI program, sqlite) stay
 // out of this import-light test.

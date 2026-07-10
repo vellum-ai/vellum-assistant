@@ -29,13 +29,6 @@ let syncedServices: string[];
 // Mocks for the route's collaborators
 // ---------------------------------------------------------------------------
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 mock.module("../daemon/handlers/shared.js", () => ({
   requestSecretStandalone: mock(
     async (params: Record<string, unknown>): Promise<SecretPromptResult> => {

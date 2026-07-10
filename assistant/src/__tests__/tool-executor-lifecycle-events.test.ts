@@ -124,14 +124,6 @@ mock.module("../platform/consent-cache.js", () => ({
   getCachedShareAnalytics: () => true,
 }));
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-  truncateForLog: (value: string) => value,
-}));
-
 mock.module("../permissions/checker.js", () => ({
   isDynamicSkillLoadInvocation: () => false,
   classifyRisk: async () => ({ level: checkerRisk }),

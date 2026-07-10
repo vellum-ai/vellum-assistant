@@ -1,12 +1,5 @@
 import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
-mock.module("../../../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // Track calls to indexPkbFile so we can assert the handler forwards payload
 // fields correctly.
 const indexPkbFileCalls: Array<{

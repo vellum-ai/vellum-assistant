@@ -10,7 +10,7 @@
  * mocked config for feature flag checks.
  */
 
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import type { ChannelReplyPayload } from "@vellumai/gateway-client";
 
@@ -28,14 +28,6 @@ let defaultFetchResponse = { ok: true, status: 200, body: "{}" };
 // ---------------------------------------------------------------------------
 // Mocks — must be set up before importing modules under test
 // ---------------------------------------------------------------------------
-
-mock.module("../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-  truncateForLog: (value: string) => value,
-}));
 
 // The config-a2a handler uses these config functions directly (not mocked via
 // module replacement) because it calls loadRawConfig/saveRawConfig to toggle

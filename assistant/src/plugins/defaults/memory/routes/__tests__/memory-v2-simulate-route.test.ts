@@ -31,13 +31,6 @@ import type { ToolDefinition } from "../../llm-helpers.js";
 // Mocks (installed before the route module is imported)
 // ---------------------------------------------------------------------------
 
-mock.module("../../../../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // Skill store: empty by default so the page index only contains test pages.
 mock.module("../../v2/skill-store.js", () => ({
   SKILL_SLUG_PREFIX: "skills/",
@@ -58,15 +51,10 @@ mock.module("../../v2/now-text.js", () => ({
 // zero scores since the test workspace has no event history.
 const recordCalls: Array<{ slugs: readonly string[]; at: number }> = [];
 mock.module("../../v2/injection-events.js", () => ({
-  recordInjectionEvents: (
-    _db: unknown,
-    slugs: readonly string[],
-    at: number,
-  ) => {
+  recordInjectionEvents: (slugs: readonly string[], at: number) => {
     recordCalls.push({ slugs, at });
   },
   computeInjectionScores: (
-    _db: unknown,
     slugs: readonly string[],
     _now: number,
   ): Map<string, number> => new Map(slugs.map((s) => [s, 0])),

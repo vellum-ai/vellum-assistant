@@ -12,13 +12,6 @@ mock.module("../config/env.js", () => ({ isHttpAuthDisabled: () => true }));
 
 // ── Logger mock (must come before any source imports) ────
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // ── Config mock ─────────────────────────────────────────────────────
 
 mock.module("../config/loader.js", () => {
@@ -149,7 +142,9 @@ function createMockVoiceTurn(tokens: string[]) {
 
     // Emit text deltas
     for (const token of tokens) {
-      if (opts.signal?.aborted) break;
+      if (opts.signal?.aborted) {
+        break;
+      }
       opts.onTextDelta(token);
     }
 
@@ -394,8 +389,9 @@ async function pollUntil(
 ): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (!predicate()) {
-    if (Date.now() > deadline)
+    if (Date.now() > deadline) {
       throw new Error(`pollUntil timed out after ${timeoutMs}ms`);
+    }
     await new Promise((r) => setTimeout(r, intervalMs));
   }
 }
@@ -438,23 +434,13 @@ function getLatestAssistantText(conversationId: string): string | null {
   );
   if (msgs.length === 0) return null;
   const latest = msgs[msgs.length - 1];
-  try {
-    const parsed = JSON.parse(latest.content) as unknown;
-    if (Array.isArray(parsed)) {
-      return parsed
-        .filter(
-          (b): b is { type: string; text?: string } =>
-            typeof b === "object" && b != null,
-        )
-        .filter((b) => b.type === "text")
-        .map((b) => b.text ?? "")
-        .join("");
-    }
-    if (typeof parsed === "string") return parsed;
-  } catch {
-    /* fall through */
-  }
-  return latest.content;
+  return latest.content
+    .filter(
+      (b): b is { type: "text"; text: string } =>
+        b.type === "text" && typeof (b as { text?: unknown }).text === "string",
+    )
+    .map((b) => b.text)
+    .join("");
 }
 
 function setupControllerWithOrigin(task?: string) {
@@ -3913,7 +3899,9 @@ describe("call-controller", () => {
       const turnPromise = controller.handleCallerUtterance("Hello");
 
       // Wait for microtasks to settle
-      for (let i = 0; i < 5; i++) await Promise.resolve();
+      for (let i = 0; i < 5; i++) {
+        await Promise.resolve();
+      }
 
       // No outbound audio/tokens yet → still processing.
       expect(controller.getState()).toBe("processing");
@@ -3969,7 +3957,9 @@ describe("call-controller", () => {
 
       const { controller } = setupController();
       const turnPromise = controller.handleCallerUtterance("Hi");
-      for (let i = 0; i < 5; i++) await Promise.resolve();
+      for (let i = 0; i < 5; i++) {
+        await Promise.resolve();
+      }
 
       // Before any token: processing, barge-in ignored (turn not aborted).
       expect(controller.getState()).toBe("processing");
@@ -3978,7 +3968,9 @@ describe("call-controller", () => {
 
       // Release the first token → controller flips to speaking.
       emitFirstToken();
-      for (let i = 0; i < 5; i++) await Promise.resolve();
+      for (let i = 0; i < 5; i++) {
+        await Promise.resolve();
+      }
       expect(controller.getState()).toBe("speaking");
 
       // Now barge-in is accepted and interrupts the turn.
@@ -4021,7 +4013,9 @@ describe("call-controller", () => {
       };
 
       const turnPromise = controller.handleCallerUtterance("Hi");
-      for (let i = 0; i < 10; i++) await Promise.resolve();
+      for (let i = 0; i < 10; i++) {
+        await Promise.resolve();
+      }
 
       // Tokens were emitted (buffered by the transport) but no audio has
       // started — the controller must still be processing.
@@ -4077,7 +4071,9 @@ describe("call-controller", () => {
       };
 
       const turnPromise = controller.handleCallerUtterance("Hi");
-      for (let i = 0; i < 10; i++) await Promise.resolve();
+      for (let i = 0; i < 10; i++) {
+        await Promise.resolve();
+      }
       expect(controller.getState()).toBe("processing");
 
       // Transport reports real outbound audio started → speaking.
@@ -4130,7 +4126,9 @@ describe("call-controller", () => {
       };
 
       const turn1 = controller.handleCallerUtterance("Hi");
-      for (let i = 0; i < 10; i++) await Promise.resolve();
+      for (let i = 0; i < 10; i++) {
+        await Promise.resolve();
+      }
       expect(controller.getState()).toBe("processing");
       expect(cancelledPendingSpeech).toBe(0);
 
@@ -4171,7 +4169,9 @@ describe("call-controller", () => {
       };
 
       const turnPromise = controller.handleCallerUtterance("Hi");
-      for (let i = 0; i < 10; i++) await Promise.resolve();
+      for (let i = 0; i < 10; i++) {
+        await Promise.resolve();
+      }
       const staleCallback = audioStartCallback!;
 
       // Supersede the run (hard interrupt), then fire the stale signal.
@@ -4213,7 +4213,9 @@ describe("call-controller", () => {
       const turnPromise = controller.handleCallerUtterance("Hi");
 
       // Let microtasks settle so onTextDelta runs
-      for (let i = 0; i < 10; i++) await Promise.resolve();
+      for (let i = 0; i < 10; i++) {
+        await Promise.resolve();
+      }
 
       expect(controller.getState()).toBe("speaking");
 

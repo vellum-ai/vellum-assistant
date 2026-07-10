@@ -8,13 +8,6 @@ import type { ServerMessage } from "../daemon/message-protocol.js";
 
 type Context = Conversation;
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 mock.module("../config/loader.js", () => ({
   getConfig: () => ({
     llm: {
