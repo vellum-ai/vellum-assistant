@@ -2,9 +2,10 @@
  * Fetch the installable plugin catalog from the Vellum platform.
  *
  * The platform serves a flattened view of the curated marketplace at
- * `GET {PLATFORM}/v1/plugins/`. Each row is projected onto the shared
- * {@link PluginSearchMatch} shape via {@link marketplaceMatch}, so a catalog
- * sourced from the platform is indistinguishable from one read off GitHub.
+ * `GET {PLATFORM}/v1/plugins/`. Rows are normalized to {@link MarketplaceEntry}
+ * and projected via the shared {@link projectMarketplaceEntries} helper, so a
+ * catalog sourced from the platform is indistinguishable from one read off
+ * GitHub.
  *
  * Every failure mode (non-2xx, unreachable/aborted, malformed body) throws
  * {@link PluginCatalogUnavailableError} — the fetcher never returns a partial
