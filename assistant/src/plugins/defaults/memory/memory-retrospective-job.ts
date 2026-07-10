@@ -920,7 +920,7 @@ async function extractRetrospectiveRunRemembers(
   conversationId: string,
 ): Promise<string[]> {
   const conv = await getConversation(conversationId);
-  const runMessages = loadRetrospectiveRunMessages(
+  const runMessages = await loadRetrospectiveRunMessages(
     conversationId,
     conv?.source ?? null,
   );

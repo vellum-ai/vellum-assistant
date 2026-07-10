@@ -8,7 +8,8 @@
 // next run's dedup baseline). Lives in its own module so the sweep doesn't
 // have to import the job handler's full dependency graph.
 
-import { getMessages } from "../../../persistence/conversation-crud.js";
+import { getMessages } from "@vellumai/plugin-api";
+
 import { getLogger } from "../../../util/logger.js";
 import { MEMORY_RETROSPECTIVE_FORK_SOURCE } from "./memory-retrospective-constants.js";
 
@@ -33,7 +34,9 @@ export function findForkBoundaryCreatedAt(
 ): number | null {
   for (let i = forkMessages.length - 1; i >= 0; i--) {
     const row = forkMessages[i]!;
-    if (!row.metadata) continue;
+    if (!row.metadata) {
+      continue;
+    }
     try {
       const parsed = JSON.parse(row.metadata) as {
         forkSourceMessageId?: unknown;
@@ -63,13 +66,13 @@ export function findForkBoundaryCreatedAt(
  * metadata) — so callers degrade (empty dedup baseline / "no output").
  * Best-effort: failures are logged, never thrown.
  */
-export function loadRetrospectiveRunMessages(
+export async function loadRetrospectiveRunMessages(
   conversationId: string,
   source: string | null | undefined,
-): ReturnType<typeof getMessages> | null {
-  let messages: ReturnType<typeof getMessages>;
+): Promise<Awaited<ReturnType<typeof getMessages>> | null> {
+  let messages: Awaited<ReturnType<typeof getMessages>>;
   try {
-    messages = getMessages(conversationId);
+    messages = await getMessages(conversationId);
   } catch (err) {
     log.warn(
       { err, retrospectiveConversationId: conversationId },

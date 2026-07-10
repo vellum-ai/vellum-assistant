@@ -79,7 +79,7 @@ export interface AuthoredSkill {
 export async function extractRetrospectiveRunSkillScaffolds(
   retrospectiveConversationId: string,
 ): Promise<AuthoredSkill[]> {
-  const runMessages = loadRetrospectiveRunMessages(
+  const runMessages = await loadRetrospectiveRunMessages(
     retrospectiveConversationId,
     (await getConversation(retrospectiveConversationId))?.source ?? null,
   );

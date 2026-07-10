@@ -39,6 +39,7 @@
 // The sweep is skipped entirely when `memory.retrospective.keepSupersededRuns`
 // is true — see the comment inside the function.
 
+import { deleteConversation } from "@vellumai/plugin-api";
 import {
   and,
   eq,
@@ -51,7 +52,6 @@ import {
   sql,
 } from "drizzle-orm";
 
-import { deleteConversation } from "../../../persistence/conversation-crud.js";
 import { getDb, getMemoryDb } from "../../../persistence/db-connection.js";
 import {
   conversations,
@@ -85,9 +85,9 @@ export interface CleanupResult {
  * deleted. Best-effort: errors deleting individual rows are logged and the
  * sweep continues.
  */
-export function sweepOrphanMemoryRetrospectiveConversations(
+export async function sweepOrphanMemoryRetrospectiveConversations(
   now: number = Date.now(),
-): CleanupResult {
+): Promise<CleanupResult> {
   // When the operator opted into retaining superseded retrospective runs
   // (`memory.retrospective.keepSupersededRuns`), skip the sweep entirely —
   // retained runs must survive restarts, and the sweep cannot distinguish a
@@ -108,28 +108,6 @@ export function sweepOrphanMemoryRetrospectiveConversations(
   if (!memoryDb) {
     return { swept: 0 };
   }
-
-  // Job payloads encode the SOURCE conversation id (the conversation being
-  // analyzed), not the background-conversation id of the retrospective itself.
-  // The background conversation links back to its source via
-  // `forkParentConversationId` (set when bootstrapped — see
-  // memory-retrospective-job.ts). To protect in-flight jobs we therefore
-  // compare source-id to source-id by filtering on
-  // `conversations.forkParentConversationId`, not `conversations.id`.
-  const activeJobSourceConversationIds = memoryDb
-    .select({
-      conversationId: sql<string>`json_extract(${memoryJobs.payload}, '$.conversationId')`,
-    })
-    .from(memoryJobs)
-    .where(
-      and(
-        eq(memoryJobs.type, "memory_retrospective"),
-        inArray(memoryJobs.status, ["pending", "running"]),
-      ),
-    )
-    .all()
-    .map((row) => row.conversationId)
-    .filter((id): id is string => typeof id === "string" && id.length > 0);
 
   // Compute the preserved dedup baseline per source. Runs whose state row
   // predates the persisted `remembered_log` pull dedup context by scanning
@@ -153,7 +131,9 @@ export function sweepOrphanMemoryRetrospectiveConversations(
   const retrosPerSource = new Map<string, RetroRow[]>();
   for (const row of allRetros) {
     const parent = row.forkParentConversationId;
-    if (parent === null) continue;
+    if (parent === null) {
+      continue;
+    }
     const rows = retrosPerSource.get(parent);
     if (rows) {
       rows.push(row);
@@ -163,8 +143,37 @@ export function sweepOrphanMemoryRetrospectiveConversations(
   }
   const preservedIds = new Set<string>();
   for (const rows of retrosPerSource.values()) {
-    preservedIds.add(selectPreservedBaseline(rows));
+    preservedIds.add(await selectPreservedBaseline(rows));
   }
+
+  // Job payloads encode the SOURCE conversation id (the conversation being
+  // analyzed), not the background-conversation id of the retrospective itself.
+  // The background conversation links back to its source via
+  // `forkParentConversationId` (set when bootstrapped — see
+  // memory-retrospective-job.ts). To protect in-flight jobs we therefore
+  // compare source-id to source-id by filtering on
+  // `conversations.forkParentConversationId`, not `conversations.id`.
+  //
+  // Read in the same synchronous block as the orphan query below — AFTER the
+  // awaited baseline loads above. The sweep runs concurrently with worker
+  // ticking, and a retrospective forked while baselines were loading inherits
+  // the copied source prefix's old `lastMessageAt`, so the age cutoff alone
+  // does not protect it; its pending/running job must be in this set when the
+  // orphan candidates are classified.
+  const activeJobSourceConversationIds = memoryDb
+    .select({
+      conversationId: sql<string>`json_extract(${memoryJobs.payload}, '$.conversationId')`,
+    })
+    .from(memoryJobs)
+    .where(
+      and(
+        eq(memoryJobs.type, "memory_retrospective"),
+        inArray(memoryJobs.status, ["pending", "running"]),
+      ),
+    )
+    .all()
+    .map((row) => row.conversationId)
+    .filter((id): id is string => typeof id === "string" && id.length > 0);
 
   const orphans = db
     .select({ id: conversations.id })
@@ -198,7 +207,7 @@ export function sweepOrphanMemoryRetrospectiveConversations(
   let swept = 0;
   for (const row of orphans) {
     try {
-      deleteConversation(row.id);
+      await deleteConversation(row.id);
       swept++;
     } catch (err) {
       log.warn(
@@ -240,12 +249,14 @@ interface RetroRow {
  * Only loads messages for the newest `MAX_BASELINE_CANDIDATES_PER_SOURCE`
  * rows — never for every retro row.
  */
-function selectPreservedBaseline(rows: RetroRow[]): string {
+async function selectPreservedBaseline(rows: RetroRow[]): Promise<string> {
   const sorted = [...rows].sort((a, b) => b.createdAt - a.createdAt);
-  const withOutput = sorted
-    .slice(0, MAX_BASELINE_CANDIDATES_PER_SOURCE)
-    .find(retrospectiveHasOutput);
-  return (withOutput ?? sorted[0]!).id;
+  for (const row of sorted.slice(0, MAX_BASELINE_CANDIDATES_PER_SOURCE)) {
+    if (await retrospectiveHasOutput(row)) {
+      return row.id;
+    }
+  }
+  return sorted[0]!.id;
 }
 
 /**
@@ -257,8 +268,10 @@ function selectPreservedBaseline(rows: RetroRow[]): string {
  * (`collectPriorRetrospectiveRemembers` treats them as empty), so they don't
  * qualify. Legacy-kind rows start empty, so any assistant message counts.
  */
-function retrospectiveHasOutput(row: RetroRow): boolean {
-  const runMessages = loadRetrospectiveRunMessages(row.id, row.source);
-  if (runMessages == null) return false;
+async function retrospectiveHasOutput(row: RetroRow): Promise<boolean> {
+  const runMessages = await loadRetrospectiveRunMessages(row.id, row.source);
+  if (runMessages == null) {
+    return false;
+  }
   return runMessages.some((m) => m.role === "assistant");
 }
