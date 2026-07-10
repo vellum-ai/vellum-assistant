@@ -489,13 +489,14 @@ export class WorkspaceGitService {
                 // created before these helpers existed, or by external tools.
                 // These calls are OUTSIDE the rev-parse try/catch so that
                 // normalization errors are not misclassified as "no commits".
-                this.ensureGitignoreRulesLocked();
                 this.ensureBranchGuardHookLocked();
                 await this.ensureCommitIdentityLocked();
                 await this.ensureBranchGuardConfigLocked();
                 await this.ensureOnMainLocked();
                 // After the main switch: ensureOnMainLocked can discard
-                // local changes, which would wipe staged deletions.
+                // local changes, which would wipe appended gitignore rules
+                // and staged deletions alike.
+                this.ensureGitignoreRulesLocked();
                 await this.untrackIgnoredFilesLocked();
                 this.initialized = true;
                 this.recordInitSuccess();
@@ -508,18 +509,19 @@ export class WorkspaceGitService {
           // Initialize new git repository
           await this.execGit(["init", "-b", "main"]);
 
-          // Run normalization (gitignore + identity + branch enforcement).
+          // Run normalization (identity + branch enforcement + gitignore).
           // For fresh `git init -b main` the branch is already main, but
           // in the corruption-recovery path we fall through here after
           // removing .git, so branch enforcement is still useful.
-          this.ensureGitignoreRulesLocked();
           this.ensureBranchGuardHookLocked();
           await this.ensureCommitIdentityLocked();
           await this.ensureBranchGuardConfigLocked();
           await this.ensureOnMainLocked();
           // After the main switch (see above). A partial init (`.git`
           // exists, no commit) can carry staged now-ignored paths from an
-          // interrupted `git add -A`; must run before the initial commit.
+          // interrupted `git add -A`; untracking must precede the initial
+          // commit.
+          this.ensureGitignoreRulesLocked();
           await this.untrackIgnoredFilesLocked();
 
           // Create initial commit synchronously within the lock to prevent

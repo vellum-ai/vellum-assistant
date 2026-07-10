@@ -699,6 +699,47 @@ describe("WorkspaceGitService", () => {
       expect(branchAfter).toBe("main");
     });
 
+    test("gitignore rules and untracking apply to main after a branch switch", async () => {
+      execFileSync("git", ["init", "-b", "main"], { cwd: testDir });
+      execFileSync("git", ["config", "user.name", "Test"], { cwd: testDir });
+      execFileSync("git", ["config", "user.email", "user@example.com"], {
+        cwd: testDir,
+      });
+      // main: committed runtime junk and a .gitignore without Vellum rules
+      writeFileSync(join(testDir, ".gitignore"), "main-rule\n");
+      mkdirSync(join(testDir, "embedding-models"), { recursive: true });
+      writeFileSync(join(testDir, "embedding-models", "model.bin"), "weights");
+      writeFileSync(join(testDir, "notes.md"), "keep me");
+      execFileSync("git", ["add", "-A", "-f"], { cwd: testDir });
+      execFileSync("git", ["commit", "-m", "init"], { cwd: testDir });
+      // Checked out on a branch whose .gitignore differs from main's
+      execFileSync("git", ["checkout", "-b", "legacy"], { cwd: testDir });
+      writeFileSync(join(testDir, ".gitignore"), "legacy-rule\n");
+      execFileSync("git", ["add", "-A"], { cwd: testDir });
+      execFileSync("git", ["commit", "-m", "legacy rule"], { cwd: testDir });
+
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      // Landed on main with the Vellum rules applied to MAIN's .gitignore
+      const branch = execFileSync("git", ["symbolic-ref", "--short", "HEAD"], {
+        cwd: testDir,
+        encoding: "utf-8",
+      }).trim();
+      expect(branch).toBe("main");
+      const content = readFileSync(join(testDir, ".gitignore"), "utf-8");
+      expect(content).toContain("main-rule");
+      expect(content).toContain("data/db/");
+
+      // Untracking ran against main's index
+      const tracked = execFileSync("git", ["ls-files"], {
+        cwd: testDir,
+        encoding: "utf-8",
+      });
+      expect(tracked).not.toContain("embedding-models/model.bin");
+      expect(tracked).toContain("notes.md");
+    });
+
     test("existing repo gets .gitignore rules appended on init", async () => {
       // Set up a pre-existing git repo without our gitignore rules
       execFileSync("git", ["init", "-b", "main"], { cwd: testDir });
