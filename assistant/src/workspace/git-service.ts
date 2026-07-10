@@ -1036,6 +1036,20 @@ export class WorkspaceGitService {
   }
 
   /**
+   * Expire all reflogs and prune unreachable objects so dropped blobs are
+   * physically deleted from .git. Must be called with the mutex lock held.
+   */
+  private async expireReflogsAndPruneLocked(): Promise<void> {
+    await this.execGit(
+      ["reflog", "expire", "--expire=now", "--expire-unreachable=now", "--all"],
+      { timeoutMs: HISTORY_COMPACTION_TIMEOUT_MS },
+    );
+    await this.execGit(["gc", "--prune=now", "--quiet"], {
+      timeoutMs: HISTORY_COMPACTION_TIMEOUT_MS,
+    });
+  }
+
+  /**
    * Whether any blob in the object store exceeds the size limit. Reads
    * object metadata only — no history walk.
    */
@@ -1121,9 +1135,23 @@ export class WorkspaceGitService {
       splitIdx = commits.length;
     }
     if (splitIdx === 0) {
-      // Blobs live only in commits still within retention. Report when the
-      // oldest commit ages past the cutoff so the caller can retry then —
-      // otherwise a long-running daemon would keep the bloat until restart.
+      // Nothing is old enough to squash — but the oversized blobs may
+      // already be unreachable (e.g. an external `git add` hashed a blob
+      // that stageAllLocked then reset out of the index). Prune those right
+      // away; only blobs still reachable from recent commits must wait out
+      // retention.
+      await this.expireReflogsAndPruneLocked();
+      if (!(await this.objectStoreHasOversizedBlobLocked(limit))) {
+        log.info(
+          { workspaceDir: this.workspaceDir },
+          "Pruned unreachable oversized blobs from workspace git",
+        );
+        return { ...noop, keptCommits: commits.length };
+      }
+
+      // Report when the oldest commit ages past the cutoff so the caller
+      // can retry then — otherwise a long-running daemon would keep the
+      // bloat until restart.
       const oldestCommittedAtSec = commits[0]?.committedAtSec ?? cutoffSec;
       const oldestAgesOutMs =
         (oldestCommittedAtSec + HISTORY_RETENTION_DAYS * 86400) * 1000 -
@@ -1186,13 +1214,7 @@ export class WorkspaceGitService {
     // process moved main while we rewrote.
     const oldHead = commits[commits.length - 1]?.sha ?? "";
     await this.execGit(["update-ref", "refs/heads/main", newHead, oldHead]);
-    await this.execGit(
-      ["reflog", "expire", "--expire=now", "--expire-unreachable=now", "--all"],
-      { timeoutMs: HISTORY_COMPACTION_TIMEOUT_MS },
-    );
-    await this.execGit(["gc", "--prune=now", "--quiet"], {
-      timeoutMs: HISTORY_COMPACTION_TIMEOUT_MS,
-    });
+    await this.expireReflogsAndPruneLocked();
 
     // Blobs referenced by a replayed kept commit survive the prune (the
     // common case: a large file untracked only days ago). Request a retry

@@ -2031,6 +2031,28 @@ describe("WorkspaceGitService", () => {
       execFileSync("git", ["cat-file", "-e", blobSha], { cwd: testDir });
     });
 
+    test("history compaction prunes unreachable oversized blobs immediately", async () => {
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      // A loose blob with no referencing commit — e.g. an external
+      // `git add` that stageAllLocked later reset out of the index.
+      const blobSha = execFileSync("git", ["hash-object", "-w", "--stdin"], {
+        cwd: testDir,
+        input: bigContent(),
+        encoding: "utf-8",
+      }).trim();
+      execFileSync("git", ["cat-file", "-e", blobSha], { cwd: testDir });
+
+      const result = await service.compactHistoryNow();
+
+      // Reclaimed now — no waiting for retention, no retry needed
+      expect(result.retryAfterMs).toBeUndefined();
+      expect(() =>
+        execFileSync("git", ["cat-file", "-e", blobSha], { cwd: testDir }),
+      ).toThrow();
+    });
+
     test("history compaction defers with a retry when blobs are within retention", async () => {
       const service = new WorkspaceGitService(testDir);
       await service.ensureInitialized();
