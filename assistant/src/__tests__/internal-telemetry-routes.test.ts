@@ -28,7 +28,7 @@ mock.module("../telemetry/watchdog-direct-emit.js", () => ({
   },
 }));
 
-import { getDb } from "../persistence/db-connection.js";
+import { getTelemetryDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { authFallbackEvents } from "../persistence/schema/index.js";
 import { GATEWAY_PRINCIPALS } from "../runtime/auth/route-policy.js";
@@ -64,7 +64,7 @@ const VALID_BODY = {
 describe("internal-telemetry-routes: auth-fallback", () => {
   beforeEach(() => {
     shareAnalytics = true;
-    getDb().delete(authFallbackEvents).run();
+    getTelemetryDb()!.delete(authFallbackEvents).run();
   });
 
   test("route is locked to service-token callers (GATEWAY_PRINCIPALS + internal.write)", () => {

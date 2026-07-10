@@ -6,7 +6,7 @@ mock.module("../platform/consent-cache.js", () => ({
   getCachedShareAnalytics: () => shareAnalytics,
 }));
 
-import { getDb } from "../persistence/db-connection.js";
+import { getTelemetryDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { authFallbackEvents } from "../persistence/schema/index.js";
 import {
@@ -18,7 +18,7 @@ import {
 await initializeDb();
 
 function resetTable(): void {
-  getDb().delete(authFallbackEvents).run();
+  getTelemetryDb()!.delete(authFallbackEvents).run();
 }
 
 const SAMPLE: AuthFallbackCount[] = [

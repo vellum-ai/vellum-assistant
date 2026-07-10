@@ -398,9 +398,9 @@ beforeEach(() => {
   mockQueryUnreportedLifecycleEvents.mockReturnValue([]);
   mockQueryUnreportedOnboardingEvents.mockReset();
   mockQueryUnreportedOnboardingEvents.mockReturnValue([]);
-  getDb().delete(authFallbackEvents).run();
   getDb().delete(toolInvocations).run();
   getDb().delete(skillLoadedEvents).run();
+  getTelemetryDb()?.delete(authFallbackEvents).run();
   getTelemetryDb()?.delete(configSettingEvents).run();
   delete process.env.VELLUM_DISABLE_PLATFORM;
   delete process.env.IS_PLATFORM;
@@ -1938,7 +1938,11 @@ describe("UsageTelemetryReporter", () => {
 
     // The last row by the reporter's (createdAt, id) cursor order is the one
     // whose watermark should be persisted after a successful upload.
-    const rows = getDb()
+    const telemetryDb = getTelemetryDb();
+    if (!telemetryDb) {
+      throw new Error("telemetry DB unavailable in test");
+    }
+    const rows = telemetryDb
       .select()
       .from(authFallbackEvents)
       .orderBy(authFallbackEvents.createdAt, authFallbackEvents.id)
