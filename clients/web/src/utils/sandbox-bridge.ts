@@ -10,11 +10,13 @@
  *    the parent via `postMessage`.
  * 3. **Fetch proxy** — `window.vellum.fetch()` proxies authenticated requests
  *    through the parent, keeping auth tokens out of the sandbox.
- * 4. **Link interceptor** — catches clicks on `<a>` elements and opens them in
- *    new tabs via `window.open()`, which the `allow-popups` sandbox token
- *    permits. Without this, links inside sandboxed iframes are non-interactive
- *    because the sandbox lacks `allow-top-navigation` (intentionally, for
- *    security — the interceptor is the safer alternative).
+ * 4. **Link interceptor** — catches clicks on `<a>` elements. External links
+ *    (http/https/mailto/tel) open in a new tab via `window.open()` (permitted
+ *    by the `allow-popups` token); `vellum://` file links are forwarded to the
+ *    parent via `postMessage`, which resolves + downloads them exactly like
+ *    chat's `onVellumLinkClick`. Without this, links inside sandboxed iframes
+ *    are non-interactive because the sandbox lacks `allow-top-navigation`
+ *    (intentionally, for security — the interceptor is the safer alternative).
  * 5. **Safe injection** — `injectScript()` inserts `<script>` tags using
  *    `lastIndexOf` to avoid hijacking when app JS contains literal close-tag
  *    sequences.
@@ -92,33 +94,63 @@ export function buildStoragePolyfill(): string {
 
 /**
  * Build a `<script>` tag that intercepts clicks on `<a>` elements inside the
- * sandboxed iframe and opens them in new tabs.
+ * sandboxed iframe.
  *
  * Sandboxed iframes without `allow-top-navigation` cannot navigate the parent
  * window, so plain `<a href="...">` links are silently non-interactive. Adding
  * `allow-top-navigation` would let untrusted app JS redirect the host page at
  * will. Instead, this interceptor uses event delegation to catch link clicks
- * and calls `window.open()` (permitted by the existing `allow-popups` token),
- * which opens the URL in a new tab with `noopener,noreferrer`.
+ * and routes them safely:
  *
- * Only external links (http:, https:, mailto:, tel:) are intercepted. Anchor
- * links (`#foo`) and `javascript:` URIs are left alone — the former are
+ *   - External links (http:, https:, mailto:, tel:) open in a new tab via
+ *     `window.open()` (permitted by the existing `allow-popups` token) with
+ *     `noopener,noreferrer`.
+ *   - `vellum://workspace/` and `vellum://host/` file links are forwarded to
+ *     the parent via `postMessage` (`{ type: "vellum_open_link", frameId }`).
+ *     They can't be navigated or `window.open()`'d — the file has to be
+ *     resolved and downloaded by the parent, which keeps auth out of the
+ *     sandbox (the same path chat uses via `onVellumLinkClick`). The `frameId`
+ *     is echoed so `useSandboxFetchProxy` can route the message to the right
+ *     iframe.
+ *
+ * Anchor links (`#foo`) and `javascript:` URIs are left alone — the former are
  * in-page navigation, the latter are already blocked by the sandbox.
  */
-export function buildLinkInterceptorScript(): string {
+export function buildLinkInterceptorScript(frameId: string): string {
   return `<script>
 (function() {
+  function isVellumFileLink(u) {
+    return u.indexOf('vellum://workspace/') === 0 || u.indexOf('vellum://host/') === 0;
+  }
   document.addEventListener('click', function(e) {
     var el = e.target;
     while (el && el !== document.body) {
-      if (el.tagName === 'A' && el.href) {
-        var href = el.href;
-        // Only intercept external URL schemes. Leave in-page anchors and
-        // javascript: URIs (already blocked by sandbox) untouched.
-        if (/^https?:|^mailto:|^tel:/i.test(href)) {
+      if (el.tagName === 'A') {
+        var rawHref = el.getAttribute('href') || '';
+        var resolvedHref = el.href || '';
+        // vellum:// file links can't be navigated or opened in a new tab — the
+        // parent resolves + downloads them (the same path chat uses via
+        // onVellumLinkClick). Forward the click to the parent via postMessage.
+        var vellumHref = isVellumFileLink(rawHref)
+          ? rawHref
+          : (isVellumFileLink(resolvedHref) ? resolvedHref : '');
+        if (vellumHref) {
           e.preventDefault();
           e.stopPropagation();
-          window.open(href, '_blank', 'noopener,noreferrer');
+          window.parent.postMessage({
+            type: 'vellum_open_link',
+            frameId: ${jsonForScript(frameId)},
+            href: vellumHref,
+            linkText: (el.textContent || '').trim()
+          }, '*');
+          return;
+        }
+        // Only intercept external URL schemes. Leave in-page anchors and
+        // javascript: URIs (already blocked by sandbox) untouched.
+        if (resolvedHref && /^https?:|^mailto:|^tel:/i.test(resolvedHref)) {
+          e.preventDefault();
+          e.stopPropagation();
+          window.open(resolvedHref, '_blank', 'noopener,noreferrer');
           return;
         }
       }
@@ -230,7 +262,7 @@ function buildBridgeLogicScript(frameId: string, options?: BridgeOptions): strin
  * logic at separate positions in the HTML.
  */
 export function buildBridgeScript(frameId: string, options?: BridgeOptions): string {
-  return buildStoragePolyfill() + buildBridgeLogicScript(frameId, options) + buildLinkInterceptorScript();
+  return buildStoragePolyfill() + buildBridgeLogicScript(frameId, options) + buildLinkInterceptorScript(frameId);
 }
 
 // ---------------------------------------------------------------------------
@@ -295,7 +327,7 @@ export function prependScript(html: string, script: string): string {
  */
 export function injectBridge(html: string, frameId: string, options?: BridgeOptions): string {
   return prependScript(
-    injectScript(html, buildBridgeLogicScript(frameId, options) + buildLinkInterceptorScript()),
+    injectScript(html, buildBridgeLogicScript(frameId, options) + buildLinkInterceptorScript(frameId)),
     buildStoragePolyfill(),
   );
 }

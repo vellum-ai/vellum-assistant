@@ -356,6 +356,7 @@ export function TranscriptMessageBody({
                     assistantId={assistantId}
                     assistantDisplayName={assistantDisplayName}
                     toolCalls={message.toolCalls}
+                    onVellumLinkClick={handleVellumLinkClick}
                   />
                 </div>
               );
@@ -516,6 +517,7 @@ export function TranscriptMessageBody({
         onOpenDocument={onOpenDocument}
         assistantId={assistantId}
         toolCalls={message.toolCalls}
+        onVellumLinkClick={handleVellumLinkClick}
       />
     </div>
   );

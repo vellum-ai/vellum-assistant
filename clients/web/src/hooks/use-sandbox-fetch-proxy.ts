@@ -27,6 +27,12 @@ export interface SandboxFetchProxyOptions {
   enabled?: boolean;
   /** Handler for surface action messages from the sandboxed app. */
   onAction?: (actionId: string, data?: Record<string, unknown>) => void;
+  /**
+   * Handler for `vellum://` file link clicks forwarded from the sandboxed app.
+   * Always invoked regardless of the `enabled` flag (like surface actions),
+   * since the parent — not the sandbox — must resolve and download the file.
+   */
+  onOpenVellumLink?: (href: string, linkText: string) => void;
 }
 
 /**
@@ -41,7 +47,8 @@ export function useSandboxFetchProxy(
   iframeRef: RefObject<HTMLIFrameElement | null>,
   options: SandboxFetchProxyOptions,
 ): void {
-  const { frameId, assistantId, enabled = true, onAction } = options;
+  const { frameId, assistantId, enabled = true, onAction, onOpenVellumLink } =
+    options;
 
   useEffect(() => {
     const handler = async (event: MessageEvent) => {
@@ -51,6 +58,11 @@ export function useSandboxFetchProxy(
 
       if (msg.type === "vellum_surface_action") {
         onAction?.(msg.actionId, msg.data);
+        return;
+      }
+
+      if (msg.type === "vellum_open_link") {
+        onOpenVellumLink?.(msg.href, msg.linkText);
         return;
       }
 
@@ -145,5 +157,5 @@ export function useSandboxFetchProxy(
 
     window.addEventListener("message", handler);
     return () => window.removeEventListener("message", handler);
-  }, [frameId, assistantId, enabled, onAction, iframeRef]);
+  }, [frameId, assistantId, enabled, onAction, onOpenVellumLink, iframeRef]);
 }
