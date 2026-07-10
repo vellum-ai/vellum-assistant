@@ -224,7 +224,22 @@ export function useSwipeToReveal({
   const onTouchEnd = useCallback(
     (e: ReactTouchEvent) => {
       const g = gesture.current;
-      if (!g || g.axis !== "horizontal") {
+      if (!g) {
+        reset();
+        return;
+      }
+      // If the gesture never left "undecided" the touch was a tap, not a
+      // swipe. Preserve any revealed offset so a tap on an exposed action
+      // button can fire its onClick — reset() would zero the offset and
+      // hide the action layer before the synthetic click arrives on mobile.
+      // The action's onAfterSelect callback already calls close() to hide
+      // the row after the action completes.
+      if (g.axis === "undecided") {
+        gesture.current = null;
+        setIsDragging(false);
+        return;
+      }
+      if (g.axis !== "horizontal") {
         reset();
         return;
       }

@@ -105,6 +105,7 @@ export const SwipeActionReveal = forwardRef<HTMLDivElement, SwipeActionRevealPro
       trailingActions,
       enabled = isPointerCoarse(),
       className,
+      style,
       ...rest
     },
     ref,
@@ -133,7 +134,7 @@ export const SwipeActionReveal = forwardRef<HTMLDivElement, SwipeActionRevealPro
       // `ref`, etc. injected by the trigger) and forward `ref` so the
       // context menu works on fine-pointer desktop.
       return (
-        <div ref={ref} className={className} {...rest}>
+        <div ref={ref} className={className} style={style} {...rest}>
           {children}
         </div>
       );
@@ -146,6 +147,10 @@ export const SwipeActionReveal = forwardRef<HTMLDivElement, SwipeActionRevealPro
         // Spread injected props first so our swipe-specific touch handlers
         // take precedence if there is ever a key collision.
         {...rest}
+        // Allow vertical scrolling to remain native while claiming horizontal
+        // gestures for swipe-to-reveal, preventing the browser from
+        // intercepting them for edge navigation / native panning.
+        style={{ ...style, touchAction: "pan-y" }}
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
