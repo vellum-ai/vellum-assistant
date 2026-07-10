@@ -94,6 +94,9 @@ export class VelayTunnelClient {
   private publishedPublicBaseUrl: string | undefined;
   private credentialRefreshPending = false;
   private unsubscribeConfigInvalidation: (() => void) | undefined;
+  // Last observed value of `ingress.enabled === false`, so a config change can
+  // detect a disabled → enabled transition and wake a waiting reconnect.
+  private lastPublicIngressDisabled = false;
 
   constructor(private readonly options: VelayTunnelClientOptions) {
     this.webSocketConstructor =
@@ -162,6 +165,7 @@ export class VelayTunnelClient {
   start(): void {
     if (this.running) return;
     this.running = true;
+    this.lastPublicIngressDisabled = this.isPublicIngressDisabled();
     this.unsubscribeConfigInvalidation ??= this.options.configFile.onInvalidate(
       () => {
         this.handleConfigInvalidated();
@@ -586,11 +590,37 @@ export class VelayTunnelClient {
   }
 
   private handleConfigInvalidated(): void {
-    const ws = this.ws;
-    if (!ws || !this.isPublicIngressDisabled()) return;
+    const disabled = this.isPublicIngressDisabled();
+    const wasDisabled = this.lastPublicIngressDisabled;
+    this.lastPublicIngressDisabled = disabled;
 
-    log.info("Closing Velay tunnel because public ingress is disabled");
-    this.disconnectActiveWebSocket(ws, 1000, "public ingress disabled");
+    const ws = this.ws;
+
+    if (disabled) {
+      if (ws) {
+        log.info("Closing Velay tunnel because public ingress is disabled");
+        this.disconnectActiveWebSocket(ws, 1000, "public ingress disabled");
+      }
+      return;
+    }
+
+    // Public ingress just transitioned disabled → enabled. If the client is
+    // running but idling on a backoff timer (it was started while disabled, so
+    // `connect()` kept re-scheduling), reconnect now instead of waiting out the
+    // backoff — otherwise a link minted right after enabling ingress (which
+    // also starts the tunnel) stays unreachable for up to the max backoff.
+    if (wasDisabled && this.running && !ws && !this.connecting) {
+      this.reconnectAttempt = 0;
+      if (this.reconnectTimer) {
+        this.timerApi.clearTimeout(this.reconnectTimer);
+        this.reconnectTimer = null;
+      }
+      void this.connect().catch((err) => {
+        this.connecting = false;
+        log.error({ err }, "Velay reconnect after ingress enable failed");
+        this.scheduleReconnect();
+      });
+    }
   }
 
   private isPublicIngressDisabled(): boolean {

@@ -379,6 +379,28 @@ describe("VelayTunnelClient", () => {
     await client.stop();
   });
 
+  test("reconnects immediately when public ingress is re-enabled", async () => {
+    const sockets: FakeWebSocket[] = [];
+    const reconnectDelays: number[] = [];
+    const invalidations = { count: 0 };
+    const configFile = makeConfigFileCache(invalidations);
+    writeConfig({ ingress: { enabled: false } });
+    const client = makeClient({ sockets, reconnectDelays, configFile });
+
+    client.start();
+    await flushPromises();
+    // Started while disabled: no socket, just idling on the backoff timer.
+    expect(sockets).toHaveLength(0);
+
+    writeConfig({ ingress: { enabled: true } });
+    configFile.invalidate();
+    await flushPromises();
+
+    // The tunnel connects right away rather than waiting out the backoff.
+    expect(sockets).toHaveLength(1);
+    await client.stop();
+  });
+
   test("closes without publishing when public ingress is disabled after connecting", async () => {
     const sockets: FakeWebSocket[] = [];
     const reconnectDelays: number[] = [];
