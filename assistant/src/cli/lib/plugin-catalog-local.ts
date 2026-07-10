@@ -2,8 +2,8 @@
  * Offline plugin catalog reader backed by the manifest bundled into the
  * package at build time (see meta/feature-flags/sync-bundled-copies.ts).
  *
- * Consulted only when platform features are disabled (air-gapped / self-hosted,
- * `VELLUM_DISABLE_PLATFORM=true`) — the gate is wired in a later PR. Importing
+ * `getPluginCatalog` selects this reader only when platform features are
+ * disabled (air-gapped / self-hosted, `VELLUM_DISABLE_PLATFORM=true`). Importing
  * the JSON directly (resolveJsonModule) means no filesystem path resolution, so
  * it works identically in dev, Docker, and an npm-packed macOS install.
  */
