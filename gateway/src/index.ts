@@ -597,11 +597,7 @@ async function main() {
   const handleChannelPermissionResolve =
     createChannelPermissionResolveHandler();
 
-  const handleAgentCard = createAgentCardHandler(
-    config,
-    configFileCache,
-    credentialCache,
-  );
+  const handleAgentCard = createAgentCardHandler(configFileCache);
 
   const audioProxy = createAudioProxyHandler(config);
 

@@ -6,13 +6,9 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import type { GatewayConfig } from "../../config.js";
 import type { ConfigFileCache } from "../../config-file-cache.js";
-import type { CredentialCache } from "../../credential-cache.js";
-import { credentialKey } from "../../credential-key.js";
 import { getWorkspaceDir } from "../../credential-reader.js";
 import { getLogger } from "../../logger.js";
-import { resolvePublicHttpBaseUrl } from "../../runtime/client.js";
 
 const log = getLogger("a2a-routes");
 
@@ -93,11 +89,7 @@ function readAssistantName(): string {
 
 // ── Route handler factory ──────────────────────────────────────────
 
-export function createAgentCardHandler(
-  config: GatewayConfig,
-  configFile: ConfigFileCache,
-  credentials: CredentialCache,
-) {
+export function createAgentCardHandler(configFile: ConfigFileCache) {
   return async (_req: Request): Promise<Response> => {
     const enabled = configFile.getBoolean("a2a", "enabled") ?? false;
     if (!enabled) {
@@ -107,17 +99,13 @@ export function createAgentCardHandler(
       );
     }
 
-    // GET handler — resolve the public URL (with the Velay fallback) but never
-    // mutate config or start the tunnel here; enabling ingress is reserved for
-    // the explicit credential-mint action.
-    const publicBaseUrl = await resolvePublicHttpBaseUrl(
-      config,
-      configFile,
-      () =>
-        credentials
-          .get(credentialKey("vellum", "platform_assistant_id"))
-          .then((value) => value?.trim()),
-    );
+    // A2A intentionally does NOT use the VELAY_BASE_URL fallback: the A2A
+    // discovery/message paths are not on the Velay tunnel allowlist
+    // (gateway/src/velay/allowed-paths.ts), so a card advertising a Velay URL
+    // would point peers at an endpoint the tunnel rejects. Advertise a URL only
+    // when a real public base URL is configured.
+    const publicBaseUrl =
+      configFile.getString("ingress", "publicBaseUrl") ?? "";
     if (!publicBaseUrl) {
       log.warn("Agent card requested but no public base URL configured");
       return Response.json(
