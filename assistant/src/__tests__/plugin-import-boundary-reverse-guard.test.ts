@@ -104,7 +104,6 @@ const BASELINE: Record<string, readonly string[]> = {
     "src/persistence/conversation-crud.ts",
     "src/persistence/steps.ts",
     "src/persistence/worker-control.ts",
-    "src/plugins/types.ts",
     "src/prompts/system-prompt.ts",
     "src/runtime/routes/consolidation-routes.ts",
     "src/runtime/routes/conversation-query-routes.ts",

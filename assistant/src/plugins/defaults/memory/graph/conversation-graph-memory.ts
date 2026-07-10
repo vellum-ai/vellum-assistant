@@ -85,6 +85,16 @@ export function getLiveGraphMemory(
 }
 
 /**
+ * Full output of a single memory-graph retrieval — the object returned by
+ * {@link ConversationGraphMemory.prepareMemory} (injected messages, query
+ * vectors, metrics). The plugin's user-prompt-submit hook consumes these
+ * fields to drive PKB hint search and runtime injection.
+ */
+export type GraphMemoryResult = Awaited<
+  ReturnType<ConversationGraphMemory["prepareMemory"]>
+>;
+
+/**
  * Manages memory graph state for a single conversation.
  * Create one per Conversation instance. Persists across turns.
  */
