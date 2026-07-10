@@ -30982,6 +30982,93 @@ paths:
                   - oldPath
                   - newPath
                 additionalProperties: false
+  /v1/workspace/theme:
+    get:
+      operationId: workspace_theme_get
+      summary: Get workspace theme
+      description:
+        "Return validated design-token overrides from the workspace ui/theme.json. Absent or rejected files yield
+        theme: null with the rejection reasons in issues; clients fall back to built-in theme defaults."
+      tags:
+        - workspace
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  theme:
+                    anyOf:
+                      - type: object
+                        properties:
+                          version:
+                            type: number
+                            const: 1
+                          base:
+                            type: string
+                            enum:
+                              - light
+                              - dark
+                              - velvet
+                              - system
+                          tokens:
+                            type: object
+                            properties:
+                              accent:
+                                type: string
+                                pattern: ^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$
+                              background:
+                                type: string
+                                pattern: ^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$
+                              surface:
+                                type: string
+                                pattern: ^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$
+                              surfaceRaised:
+                                type: string
+                                pattern: ^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$
+                              border:
+                                type: string
+                                pattern: ^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$
+                              text:
+                                type: string
+                                pattern: ^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$
+                              textMuted:
+                                type: string
+                                pattern: ^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$
+                              assistantBubbleBackground:
+                                type: string
+                                pattern: ^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$
+                              assistantBubbleText:
+                                type: string
+                                pattern: ^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$
+                              userBubbleBackground:
+                                type: string
+                                pattern: ^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$
+                              userBubbleText:
+                                type: string
+                                pattern: ^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$
+                            additionalProperties: false
+                        required:
+                          - version
+                        additionalProperties: false
+                      - type: "null"
+                  source:
+                    type: string
+                    enum:
+                      - workspace
+                      - invalid
+                      - none
+                  issues:
+                    type: array
+                    items:
+                      type: string
+                required:
+                  - theme
+                  - source
+                  - issues
+                additionalProperties: false
   /v1/workspace/tree:
     get:
       operationId: workspace_tree_get
