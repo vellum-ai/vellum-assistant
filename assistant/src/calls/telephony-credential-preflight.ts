@@ -15,6 +15,7 @@
  */
 
 import { getConfig } from "../config/loader.js";
+import { effectiveSttProvider } from "../config/schemas/stt.js";
 import type { TelephonySttCapability } from "../providers/speech-to-text/resolve.js";
 import { resolveTelephonySttCapability } from "../providers/speech-to-text/resolve.js";
 import { findPlayableTelephonyTtsFallback } from "./resolve-call-tts-provider.js";
@@ -72,7 +73,9 @@ export async function resolveTelephonyCredentialReadiness(): Promise<TelephonyCr
 
   if (stt.status !== "supported") {
     const providerId =
-      "providerId" in stt ? stt.providerId : getConfig().services.stt.provider;
+      "providerId" in stt
+        ? stt.providerId
+        : effectiveSttProvider(getConfig().services.stt);
     missing.push({ kind: "stt", providerId, reason: stt.reason });
     clauses.push(sttGapClause(stt, providerId));
   }

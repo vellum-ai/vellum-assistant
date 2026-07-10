@@ -22,7 +22,7 @@ import type {
 // ---------------------------------------------------------------------------
 
 /** How the provider's credentials are configured by the user. */
-type SttSetupMode = "api-key" | "cli";
+type SttSetupMode = "api-key" | "cli" | "connection";
 
 /** Guide for obtaining API credentials from a provider. */
 interface SttCredentialsGuide {
@@ -203,7 +203,7 @@ const CATALOG: ReadonlyMap<SttProviderId, SttProviderEntry> = new Map<
       displayName: "Vellum Managed",
       subtitle:
         "Speech-to-text through your Vellum account — billed to Vellum credits, no separate API key needed.",
-      setupMode: "api-key",
+      setupMode: "connection",
       setupHint: "Connect your Vellum account to enable managed transcription.",
       credentialProvider: "vellum",
       supportedBoundaries: new Set<SttBoundaryId>([
@@ -318,6 +318,12 @@ export function listCredentialProviderNames(): readonly string[] {
   const seen = new Set<string>();
   const result: string[] = [];
   for (const entry of CATALOG.values()) {
+    // Connection-based providers (vellum) authenticate via the platform
+    // connection, not a stored API key — offering them on the generic
+    // key routes would accept a key that never enables anything.
+    if (entry.setupMode !== "api-key") {
+      continue;
+    }
     if (!seen.has(entry.credentialProvider)) {
       seen.add(entry.credentialProvider);
       result.push(entry.credentialProvider);
