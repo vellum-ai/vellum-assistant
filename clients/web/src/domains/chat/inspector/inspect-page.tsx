@@ -6,23 +6,26 @@ import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { useCanUseLlmInspector } from "@/domains/chat/inspector/access";
 import {
-    useConversationCallNumbering,
-    useConversationMessageList,
-    useLlmContext,
+  isLlmRequestLogsDisabledError,
+  useConversationCallNumbering,
+  useConversationMessageList,
+  useLlmContext,
 } from "@/domains/chat/inspector/inspector-api";
+import { configGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
+import { configPatch } from "@/generated/daemon/sdk.gen";
 import {
-    buildInspectorExportFilename,
-    buildInspectorExportZipBlobBatched,
+  buildInspectorExportFilename,
+  buildInspectorExportZipBlobBatched,
 } from "@/domains/chat/inspector/inspector-export";
 import {
-    llmCallDetailQueryOptions,
-    useLlmCallDetail,
+  llmCallDetailQueryOptions,
+  useLlmCallDetail,
 } from "@/domains/chat/inspector/inspector-detail-api";
 import { llmLogPayloadQueryOptions } from "@/domains/chat/inspector/inspector-payload-api";
 import { normalizeContentBlocks } from "@/domains/chat/api/messages";
 import {
-    supportsLlmContextSummaryView,
-    useSupportsLlmContextSummaryView,
+  supportsLlmContextSummaryView,
+  useSupportsLlmContextSummaryView,
 } from "@/lib/backwards-compat/llm-context-summary-view";
 import { isElectron } from "@/runtime/is-electron";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
@@ -35,11 +38,13 @@ import type {
   LLMRequestLogEntry,
 } from "@vellumai/assistant-api";
 import { Button } from "@vellumai/design-library";
+import { toast } from "@vellumai/design-library/components/toast";
+import { Toggle } from "@vellumai/design-library/components/toggle";
 
 import { CallRail } from "./components/call-rail";
 import {
-    ExportProgressModal,
-    type ExportPhase,
+  ExportProgressModal,
+  type ExportPhase,
 } from "./components/export-progress-modal";
 import { MobileCallSelector } from "./components/mobile-call-selector";
 import { TabBar, type InspectorTab } from "./components/tab-bar";
@@ -102,9 +107,7 @@ export function InspectPage(): ReactNode {
     return <CenteredMessage tone="muted">Loading…</CenteredMessage>;
   }
 
-  return (
-    <Inspector conversationId={conversationId} messageId={messageId} />
-  );
+  return <Inspector conversationId={conversationId} messageId={messageId} />;
 }
 
 interface InspectorProps {
@@ -214,7 +217,14 @@ function Inspector({ conversationId, messageId }: InspectorProps): ReactNode {
         {isLoadingContext ? (
           <CenteredMessage tone="muted">Loading…</CenteredMessage>
         ) : isError ? (
-          <ErrorState error={error} onRetry={() => void refetch()} />
+          isLlmRequestLogsDisabledError(error) ? (
+            <LoggingDisabledState
+              assistantId={assistantId}
+              onEnabled={() => void refetch()}
+            />
+          ) : (
+            <ErrorState error={error} onRetry={() => void refetch()} />
+          )
         ) : !logs.length ? (
           <EmptyState messageId={messageId} />
         ) : (
@@ -269,8 +279,7 @@ function Header({
     conversationId,
   );
   const turnPosition = useMemo(
-    () =>
-      messageId ? findTurnPosition(scopeMessages ?? [], messageId) : null,
+    () => (messageId ? findTurnPosition(scopeMessages ?? [], messageId) : null),
     [scopeMessages, messageId],
   );
 
@@ -294,9 +303,7 @@ function Header({
       // the modal's determinate progress bar.
       const blob = await buildInspectorExportZipBlobBatched(context, {
         fetchPayload: (logId) =>
-          queryClient.fetchQuery(
-            llmLogPayloadQueryOptions(assistantId, logId),
-          ),
+          queryClient.fetchQuery(llmLogPayloadQueryOptions(assistantId, logId)),
         fetchCallSections: (logId) =>
           supportsLlmContextSummaryView()
             ? queryClient.fetchQuery(
@@ -315,9 +322,7 @@ function Header({
       const { saveFile } = await import("@/runtime/native-file");
       await saveFile(
         blob,
-        buildInspectorExportFilename(
-          context.conversationId ?? conversationId,
-        ),
+        buildInspectorExportFilename(context.conversationId ?? conversationId),
       );
       setExportRun((prev) => (prev ? { ...prev, phase: "done" } : prev));
     } catch (err) {
@@ -548,7 +553,9 @@ interface ScopeOption {
 // A "turn" is headed by a user message: the user message plus every
 // assistant response it produced map to the same group of LLM calls,
 // so only user messages are offered as scope options.
-function buildMessageScopeOptions(messages: ConversationMessage[]): ScopeOption[] {
+function buildMessageScopeOptions(
+  messages: ConversationMessage[],
+): ScopeOption[] {
   const seen = new Set<string>();
   const options: ScopeOption[] = [];
   let index = 1;
@@ -646,7 +653,8 @@ function Loaded({
   // return sections inline and the list entry is used as-is.
   const supportsSummaryView = useSupportsLlmContextSummaryView();
   const selectedLogHasSections = Boolean(
-    selectedLog && (selectedLog.requestSections || selectedLog.responseSections),
+    selectedLog &&
+    (selectedLog.requestSections || selectedLog.responseSections),
   );
   const shouldFetchDetail = supportsSummaryView && !selectedLogHasSections;
   const {
@@ -859,6 +867,84 @@ function EmptyState({ messageId }: EmptyStateProps): ReactNode {
       >
         {body}
       </p>
+    </div>
+  );
+}
+
+interface LoggingDisabledStateProps {
+  assistantId: string | undefined;
+  onEnabled: () => void;
+}
+
+/**
+ * Rendered when the daemon reports that LLM request logging is turned off
+ * (`llmRequestLogs.enabled === false`). There's nothing to inspect, so instead
+ * of the generic error state we explain the situation and offer a toggle that
+ * flips the setting back on for future calls. Enabling patches the daemon
+ * config, invalidates the cached config view, and re-runs the inspector query.
+ */
+function LoggingDisabledState({
+  assistantId,
+  onEnabled,
+}: LoggingDisabledStateProps): ReactNode {
+  const queryClient = useQueryClient();
+  const [enabling, setEnabling] = useState(false);
+
+  async function handleEnable(next: boolean): Promise<void> {
+    // The toggle starts off; only act on the off → on transition.
+    if (!next || enabling || !assistantId) return;
+    setEnabling(true);
+    try {
+      const { response } = await configPatch({
+        path: { assistant_id: assistantId },
+        body: { llmRequestLogs: { enabled: true } },
+        throwOnError: false,
+      });
+      if (!response?.ok) {
+        throw new Error(`HTTP ${response?.status ?? "?"}`);
+      }
+      void queryClient.invalidateQueries({
+        queryKey: configGetQueryKey({ path: { assistant_id: assistantId } }),
+      });
+      toast.success("LLM request logging enabled");
+      onEnabled();
+    } catch (err) {
+      toast.error(
+        err instanceof Error
+          ? `Failed to enable logging (${err.message})`
+          : "Failed to enable logging",
+      );
+    } finally {
+      setEnabling(false);
+    }
+  }
+
+  return (
+    <div className="flex h-full w-full flex-col items-center justify-center gap-3 p-8 text-center">
+      <AlertCircle
+        size={32}
+        aria-hidden
+        style={{ color: "var(--content-secondary)" }}
+      />
+      <h2
+        className="text-body-medium-default"
+        style={{ color: "var(--content-default)" }}
+      >
+        LLM request logging is off
+      </h2>
+      <p
+        className="max-w-md text-label-default"
+        style={{ color: "var(--content-secondary)" }}
+      >
+        Request and response payloads aren’t being recorded, so there’s nothing
+        to inspect. Enable logging to capture future LLM calls.
+      </p>
+      <Toggle
+        checked={false}
+        disabled={enabling || !assistantId}
+        onChange={(next) => void handleEnable(next)}
+        label={enabling ? "Enabling…" : "Enable logging"}
+      />
     </div>
   );
 }
