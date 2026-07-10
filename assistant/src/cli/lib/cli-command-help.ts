@@ -1,4 +1,4 @@
-import type { Command } from "commander";
+import { type Command, Option } from "commander";
 
 /**
  * Fully declarative description of a top-level `assistant` CLI command and its
@@ -9,6 +9,13 @@ import type { Command } from "commander";
  */
 export interface CliCommandHelp {
   name: string;
+  /**
+   * Positional-argument spec appended to the name at registration, e.g.
+   * `"<command>"`. Use {@link commandSpec} to build the Commander registration
+   * string; `name` stays the bare command name so consumers (dedup, slugs,
+   * rendering) never parse argument syntax out of it.
+   */
+  args?: string;
   description: string;
   /** Options declared directly on the top-level command. */
   options?: CliOptionHelp[];
@@ -19,10 +26,14 @@ export interface CliCommandHelp {
 
 export interface CliSubcommandHelp {
   name: string;
+  /** Positional-argument spec, e.g. `"<path>"` — see {@link CliCommandHelp.args}. */
+  args?: string;
   description: string;
   options?: CliOptionHelp[];
   /** Extra help appended after the option list (`addHelpText("after", …)`). */
   helpText?: string;
+  /** Nested subcommand groups (e.g. `avatar character update`). */
+  subcommands?: CliSubcommandHelp[];
 }
 
 export interface CliOptionHelp {
@@ -33,11 +44,24 @@ export interface CliOptionHelp {
   required?: boolean;
   /** Default value passed to `option(flags, description, defaultValue)`. */
   defaultValue?: string;
+  /** Allowed values, applied via Commander's `Option.choices()` (invalid → error). */
+  choices?: readonly string[];
 }
 
 function applyOptions(command: Command, options?: CliOptionHelp[]): void {
   for (const option of options ?? []) {
-    if (option.required) {
+    if (option.choices) {
+      const built = new Option(option.flags, option.description).choices([
+        ...option.choices,
+      ]);
+      if (option.required) {
+        built.makeOptionMandatory(true);
+      }
+      if (option.defaultValue !== undefined) {
+        built.default(option.defaultValue);
+      }
+      command.addOption(built);
+    } else if (option.required) {
       command.requiredOption(option.flags, option.description);
     } else if (option.defaultValue !== undefined) {
       command.option(option.flags, option.description, option.defaultValue);
@@ -49,23 +73,38 @@ function applyOptions(command: Command, options?: CliOptionHelp[]): void {
 
 /**
  * Configure a Commander command from its declarative {@link CliCommandHelp}:
- * top-level options, appended help text, and subcommands (with their options).
- * Does not set the top-level name/description — `registerCommand` owns those —
- * and does not attach action handlers; the command module attaches those to the
- * command or its subcommands.
+ * top-level options, appended help text, and subcommands (with their options,
+ * recursively). Does not set the top-level name/description — `registerCommand`
+ * owns those — and does not attach action handlers; the command module attaches
+ * those to the command or its subcommands.
  */
 export function applyCommandHelp(command: Command, help: CliCommandHelp): void {
   applyOptions(command, help.options);
   if (help.helpText) {
     command.addHelpText("after", help.helpText);
   }
-  for (const sub of help.subcommands ?? []) {
-    const child = command.command(sub.name).description(sub.description);
+  applySubcommands(command, help.subcommands);
+}
+
+function applySubcommands(parent: Command, subs?: CliSubcommandHelp[]): void {
+  for (const sub of subs ?? []) {
+    const child = parent.command(commandSpec(sub)).description(sub.description);
     applyOptions(child, sub.options);
     if (sub.helpText) {
       child.addHelpText("after", sub.helpText);
     }
+    applySubcommands(child, sub.subcommands);
   }
+}
+
+/**
+ * Commander registration spec for a command: the bare name plus its
+ * positional-argument spec, if any (`"bash <command>"`, `"add <path>"`).
+ */
+export function commandSpec(
+  help: Pick<CliCommandHelp, "name" | "args">,
+): string {
+  return help.args ? `${help.name} ${help.args}` : help.name;
 }
 
 /** Return a subcommand by name, throwing if absent. */
