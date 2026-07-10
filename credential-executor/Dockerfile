@@ -73,6 +73,9 @@ RUN chmod +x \
     /usr/local/bin/vellum-block-volume-mount.sh \
     /usr/local/bin/vellum-block-volume-resize.sh
 
+# Stable launcher path consumed by vembda's pod template.
+COPY --chmod=755 credential-executor/docker-entrypoint.sh /usr/local/bin/ces-entrypoint.sh
+
 USER ces
 
 EXPOSE 8090
@@ -80,4 +83,4 @@ EXPOSE 8090
 ENV CES_MODE=managed
 ENV CES_HEALTH_PORT=8090
 
-CMD ["bun", "run", "src/main.ts"]
+CMD ["/usr/local/bin/ces-entrypoint.sh"]

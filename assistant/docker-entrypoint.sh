@@ -1,6 +1,9 @@
 #!/usr/bin/env sh
 set -eu
 
+# Raise the fd soft limit; non-fatal when the runtime hard limit is lower.
+ulimit -n 35000 2>/dev/null || echo "assistant-entrypoint: ulimit -n 35000 failed; using $(ulimit -n)" >&2
+
 # Ensure /tmp has the standard sticky-bit world-writable mode so non-root
 # processes (the `assistant` user, bun's tmpdir, scratch writes) can use it.
 chmod 1777 /tmp 2>/dev/null || true
