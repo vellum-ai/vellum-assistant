@@ -4,26 +4,17 @@
  * `recordSyntheticAgentErrorMessageLog`) must skip the write entirely — no
  * prompt/completion payload lands on disk — and return `null`. The read-side
  * 4xx is exercised separately at the route layer.
+ *
+ * Config is seeded for real rather than mocked: tests write a partial
+ * `config.json` into the per-test temp workspace and the production loader
+ * schema-merges it over defaults — the same path a user's config takes. This
+ * also exercises the loader's file-signature cache invalidation on rewrite.
  */
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { afterAll, beforeEach, describe, expect, test } from "bun:test";
 
-// Mutable so each test toggles the flag the store reads via `getConfigReadOnly`.
-let enabled = true;
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    llmRequestLogs: { readSource: "local", enabled },
-  }),
-  getConfigReadOnly: () => ({
-    llmRequestLogs: { readSource: "local", enabled },
-  }),
-}));
-
-// `mock.module()` persists process-wide; reset so other files don't inherit a
-// stale value.
-afterAll(() => {
-  enabled = true;
-});
-
+import { invalidateConfigCache } from "../config/loader.js";
 import { getLogsDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import {
@@ -34,6 +25,29 @@ import {
 } from "../persistence/llm-request-log-store.js";
 import { llmRequestLogs } from "../persistence/schema/index.js";
 
+const configPath = join(process.env.VELLUM_WORKSPACE_DIR!, "config.json");
+
+/**
+ * Seed the workspace config the store reads via `getConfigReadOnly`. The
+ * explicit cache invalidation makes the toggle deterministic even when two
+ * writes land within the file-signature granularity (same size + mtime ms).
+ */
+function setLlmRequestLogging(enabled: boolean): void {
+  writeFileSync(
+    configPath,
+    JSON.stringify({ llmRequestLogs: { readSource: "local", enabled } }),
+  );
+  invalidateConfigCache();
+}
+
+// The seeded config.json is per-file state in this process's temp workspace;
+// remove it so files sharing the process in a combined `bun test` run load
+// their own view instead of inheriting this one.
+afterAll(() => {
+  rmSync(configPath, { force: true });
+  invalidateConfigCache();
+});
+
 await initializeDb();
 
 function resetLogs(): void {
@@ -43,7 +57,7 @@ function resetLogs(): void {
 describe("llmRequestLogs.enabled write gate", () => {
   beforeEach(() => {
     resetLogs();
-    enabled = true;
+    setLlmRequestLogging(true);
   });
 
   test("recordRequestLog writes normally when logging is enabled", () => {
@@ -53,14 +67,14 @@ describe("llmRequestLogs.enabled write gate", () => {
   });
 
   test("recordRequestLog skips the write when logging is disabled", () => {
-    enabled = false;
+    setLlmRequestLogging(false);
     const id = recordRequestLog("conv-1", '{"req":1}', '{"res":1}');
     expect(id).toBeNull();
     expect(getRequestLogsByConversationId("conv-1")).toEqual([]);
   });
 
   test("recordSyntheticAgentErrorMessageLog skips the write when disabled", () => {
-    enabled = false;
+    setLlmRequestLogging(false);
     const id = recordSyntheticAgentErrorMessageLog({
       conversationId: "conv-2",
       messageId: "msg-2",
@@ -74,9 +88,9 @@ describe("llmRequestLogs.enabled write gate", () => {
   });
 
   test("re-enabling logging restores writes", () => {
-    enabled = false;
+    setLlmRequestLogging(false);
     expect(recordRequestLog("conv-3", '{"req":1}', '{"res":1}')).toBeNull();
-    enabled = true;
+    setLlmRequestLogging(true);
     const id = recordRequestLog("conv-3", '{"req":2}', '{"res":2}');
     expect(id).not.toBeNull();
     expect(getRequestLogsByConversationId("conv-3")).toHaveLength(1);
