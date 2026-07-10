@@ -61,11 +61,11 @@ Both environments fully support MCP. The only difference is which tool runs the 
 
 **Check this table before doing anything else.** If the service is listed, run the command shown and do nothing else — no exploration, no checking available commands, no looking up documentation.
 
-| Service         | Command                                                                                | After?                                          |
-| --------------- | -------------------------------------------------------------------------------------- | ----------------------------------------------- |
+| Service         | Command                                                                                | After?                                           |
+| --------------- | -------------------------------------------------------------------------------------- | ------------------------------------------------ |
 | Context7 (docs) | `assistant mcp add context7 -t streamable-http -u https://mcp.context7.com/mcp -r low` | Done — `add` reports `connected`, no auth needed |
-| Linear          | `assistant mcp add linear -t streamable-http -u https://mcp.linear.app/mcp`            | `add` reports `needs-auth` → do the OAuth flow  |
-| Figma           | `assistant mcp add figma -t streamable-http -u https://mcp.figma.com/mcp`              | `add` reports `needs-auth` → do the OAuth flow  |
+| Linear          | `assistant mcp add linear -t streamable-http -u https://mcp.linear.app/mcp`            | `add` reports `needs-auth` → do the OAuth flow   |
+| Figma           | `assistant mcp add figma -t streamable-http -u https://mcp.figma.com/mcp`              | `add` reports `needs-auth` → do the OAuth flow   |
 
 `assistant mcp add` verifies the connection and prints one of `connected`,
 `needs-auth`, or an error. When it reports `needs-auth`, follow the
