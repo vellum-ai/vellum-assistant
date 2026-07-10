@@ -608,4 +608,65 @@ describe("forkConversationForRetrospective — compacted source", () => {
     );
     expect(runRows?.map((m) => m.id)).toEqual([runMessage.id]);
   });
+
+  test("drops the render-hidden rows on createdAt ties, not the re-sort prefix", async () => {
+    const source = createConversation("Tie-boundary thread");
+    const first = await addMessage(source.id, "user", "hidden by compaction", {
+      skipIndexing: true,
+    });
+    const second = await addMessage(source.id, "assistant", "still visible", {
+      skipIndexing: true,
+    });
+    const tail = await addMessage(source.id, "user", "fresh tail", {
+      skipIndexing: true,
+    });
+
+    // The first two rows share a millisecond, with ids crafted so the cutoff
+    // re-sort's `(createdAt, id)` order REVERSES their insertion (= render)
+    // order. The compaction hides exactly one row: in render order that is
+    // `first`; a positional slice of the re-sorted array would drop `second`
+    // instead.
+    const db = getDb();
+    const base = Date.now();
+    db.update(messages)
+      .set({ id: "zz-tie-first", createdAt: base })
+      .where(eq(messages.id, first.id))
+      .run();
+    db.update(messages)
+      .set({ id: "aa-tie-second", createdAt: base })
+      .where(eq(messages.id, second.id))
+      .run();
+    db.update(messages)
+      .set({ createdAt: base + 10 })
+      .where(eq(messages.id, tail.id))
+      .run();
+    const compactedAt = base + 5;
+    db.update(conversations)
+      .set({
+        contextSummary: "Tie summary",
+        contextCompactedMessageCount: 1,
+        contextCompactedAt: compactedAt,
+      })
+      .where(eq(conversations.id, source.id))
+      .run();
+    appendCompactionEvent(source.id, {
+      compactedAt,
+      summary: "Tie summary",
+      compactedMessageCount: 1,
+    });
+
+    const fork = await forkConversationForRetrospective({
+      conversationId: source.id,
+      throughMessageId: tail.id,
+      conversationType: "background",
+      source: MEMORY_RETROSPECTIVE_FORK_SOURCE,
+    });
+
+    // The source renders ["still visible", "fresh tail"] after its slice;
+    // the fork must carry exactly those rows.
+    expect(getMessages(fork.id).map((m) => m.content)).toEqual([
+      "still visible",
+      "fresh tail",
+    ]);
+  });
 });

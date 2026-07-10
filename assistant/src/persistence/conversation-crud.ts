@@ -1400,6 +1400,12 @@ export async function forkConversationForRetrospective(params: {
   }
 
   const sourceMessages = getMessages(conversationId);
+  // The render path hides the first `contextCompactedMessageCount` rows in
+  // THIS load order (`getMessages`, `createdAt` only) — capture it before the
+  // cutoff re-sort below so the tail-only drop-set matches what the source
+  // actually renders even when `createdAt` ties straddle the compaction
+  // boundary.
+  const loadOrderIds = sourceMessages.map((message) => message.id);
   if (throughMessageId != null) {
     // Re-sort on `(createdAt, id)` so the cutoff slice agrees with the cursor
     // the caller chose it from — see the matching note in `forkConversation`.
@@ -1453,14 +1459,18 @@ export async function forkConversationForRetrospective(params: {
   // rendered on this fork (the retrospective wake runs under guardian trust,
   // which slices `contextCompactedMessageCount` rows off the front), so
   // copying them would hold the write lock for rows the agent cannot see.
-  // Clamped like the render path, since the ledger count is unclamped. The
-  // slice indexes the `(createdAt, id)` re-sorted order above, sharing its
-  // tie convention.
-  const visibleStartIndex = Math.min(
-    inheritedCompaction?.compactedMessageCount ?? 0,
-    messagesToCopy.length,
+  // The drop-set is the first `compactedMessageCount` rows in LOAD order —
+  // the exact rows the source's render hides — rather than a positional
+  // slice of the re-sorted array, whose tie order can differ at the
+  // boundary. `slice` self-clamps when the ledger count exceeds the row
+  // count, mirroring the render path's clamp.
+  const hiddenRowIds = new Set(
+    loadOrderIds.slice(0, inheritedCompaction?.compactedMessageCount ?? 0),
   );
-  const rowsToCopy = messagesToCopy.slice(visibleStartIndex);
+  const rowsToCopy = messagesToCopy.filter(
+    (message) => !hiddenRowIds.has(message.id),
+  );
+  const isTailOnlyCopy = rowsToCopy.length < messagesToCopy.length;
   const forkParentMessageId = messagesToCopy.at(-1)?.id ?? null;
   const forkTitle =
     params.title ?? `${sourceConversation.title ?? "Untitled"} (Fork)`;
@@ -1557,14 +1567,14 @@ export async function forkConversationForRetrospective(params: {
         isFullHistoryFork: copyBoundaryIndex === sourceMessages.length - 1,
         // The copied range already starts at the visible window.
         inheritedCompactedMessageCount: 0,
-        skipCompactionLedgerCopy: visibleStartIndex > 0,
+        skipCompactionLedgerCopy: isTailOnlyCopy,
       });
       // A tail-only fork owns none of the source's ledger events — their
       // counts index rows it does not contain. Seed a single event mirroring
       // the fork row's compaction fields so the ledger and the row cache
       // agree, and a fork of this fork inherits the summary with the correct
       // fork-local count.
-      if (visibleStartIndex > 0 && inheritedCompaction) {
+      if (isTailOnlyCopy && inheritedCompaction) {
         appendCompactionEvent(fork.id, {
           compactedAt: inheritedCompaction.compactedAt,
           summary: inheritedCompaction.summary,
