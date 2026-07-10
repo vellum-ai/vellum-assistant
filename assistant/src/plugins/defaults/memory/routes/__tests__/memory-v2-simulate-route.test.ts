@@ -71,6 +71,8 @@ mock.module("../../../../../persistence/db-connection.js", () => ({
   getMemorySqlite: () => ({ __stub: true }),
   getLogsDb: () => ({ __stub: true }),
   getLogsSqlite: () => ({ __stub: true }),
+  getTelemetryDb: () => ({ __stub: true }),
+  getTelemetrySqlite: () => ({ __stub: true }),
   resetDb: () => {},
 }));
 
