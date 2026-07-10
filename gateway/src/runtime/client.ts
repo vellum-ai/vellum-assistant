@@ -590,26 +590,43 @@ export function resolvePublicBaseWssUrl(
  *    disconnected (Velay clears the config value on every reconnect), so
  *    these links no longer break on a tunnel flap.
  *
+ * The platform assistant ID is read through a lazy getter so callers that
+ * resolve from the config value (self-hosted / manual URL) never touch the
+ * credential store — a transient CES outage must not fail those callers.
+ *
  * Returns `undefined` when no source provides a value.
  */
-export function resolvePublicHttpBaseUrl(
+export async function resolvePublicHttpBaseUrl(
   config: GatewayConfig,
   configFile?: ConfigFileCache,
-  platformAssistantId?: string,
-): string | undefined {
-  const fromVelay =
-    config.velayBaseUrl && platformAssistantId
-      ? config.velayBaseUrl.replace(/\/+$/, "") + "/" + platformAssistantId
-      : undefined;
-
+  getPlatformAssistantId?: () => Promise<string | undefined>,
+): Promise<string | undefined> {
   const resolved =
     normalizeHttpPublicBaseUrl(
       configFile?.getString("ingress", "publicBaseUrl"),
-    ) ?? normalizeHttpPublicBaseUrl(fromVelay);
+    ) ??
+    normalizeHttpPublicBaseUrl(
+      await resolveVelayHttpFallback(config, getPlatformAssistantId),
+    );
 
   // Drop a root-path trailing slash so callers can append `/…` without
   // producing a `//`.
   return resolved ? resolved.replace(/\/+$/, "") : undefined;
+}
+
+/**
+ * Build the `VELAY_BASE_URL/<platform-assistant-id>` fallback base URL. Only
+ * reads the platform assistant ID (via the getter) when `velayBaseUrl` is
+ * configured, so it's skipped entirely on self-hosted deployments.
+ */
+async function resolveVelayHttpFallback(
+  config: GatewayConfig,
+  getPlatformAssistantId?: () => Promise<string | undefined>,
+): Promise<string | undefined> {
+  if (!config.velayBaseUrl || !getPlatformAssistantId) return undefined;
+  const platformAssistantId = await getPlatformAssistantId();
+  if (!platformAssistantId) return undefined;
+  return config.velayBaseUrl.replace(/\/+$/, "") + "/" + platformAssistantId;
 }
 
 /**

@@ -35,7 +35,7 @@ mock.module("../credential-reader.js", () => ({
   readCredential: async () => undefined,
 }));
 
-const { VelayTunnelClient, createVelayTunnelClient } =
+const { VelayTunnelClient, createVelayTunnelClient, enablePublicIngress } =
   await import("./client.js");
 
 const WS_OPEN = WebSocket.OPEN;
@@ -203,6 +203,36 @@ beforeEach(() => {
 
 afterEach(() => {
   rmSync(workspaceDir, { recursive: true, force: true });
+});
+
+describe("enablePublicIngress", () => {
+  test("flips an explicitly disabled ingress on and invalidates the cache", async () => {
+    writeConfig({ ingress: { enabled: false } });
+    const invalidations = { count: 0 };
+
+    await enablePublicIngress(makeConfigFileCache(invalidations));
+
+    expect((readConfig().ingress as { enabled: boolean }).enabled).toBe(true);
+    expect(invalidations.count).toBeGreaterThan(0);
+  });
+
+  test("adds ingress.enabled when the section is absent", async () => {
+    writeConfig({});
+
+    await enablePublicIngress(makeConfigFileCache({ count: 0 }));
+
+    expect((readConfig().ingress as { enabled: boolean }).enabled).toBe(true);
+  });
+
+  test("is a no-op (no write) when ingress is already enabled", async () => {
+    writeConfig({ ingress: { enabled: true } });
+    const invalidations = { count: 0 };
+
+    await enablePublicIngress(makeConfigFileCache(invalidations));
+
+    expect((readConfig().ingress as { enabled: boolean }).enabled).toBe(true);
+    expect(invalidations.count).toBe(0);
+  });
 });
 
 describe("VelayTunnelClient", () => {

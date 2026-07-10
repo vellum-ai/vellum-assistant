@@ -42,16 +42,6 @@ mock.module("../feature-flag-resolver.js", () => ({
   getFeatureFlagValue: () => flagEnabled,
 }));
 
-// Record calls to the ingress auto-enable helper without touching the real
-// config file. The credential handler only imports `enablePublicIngress` from
-// this module.
-let enablePublicIngressCalls: ConfigFileCache[] = [];
-mock.module("../velay/client.js", () => ({
-  enablePublicIngress: async (configFile: ConfigFileCache) => {
-    enablePublicIngressCalls.push(configFile);
-  },
-}));
-
 const { getGatewayDb, initGatewayDb, resetGatewayDb } =
   await import("../db/connection.js");
 const { credentialRequests } = await import("../db/schema.js");
@@ -73,7 +63,6 @@ beforeEach(() => {
   ipcCalls = [];
   ipcFailure = null;
   flagEnabled = true;
-  enablePublicIngressCalls = [];
   resetCredentialRequestRateLimiterForTests();
 });
 
@@ -81,12 +70,10 @@ afterAll(() => {
   resetGatewayDb();
 });
 
-const fakeConfigFile = (publicBaseUrl?: string, enabled?: boolean) =>
+const fakeConfigFile = (publicBaseUrl?: string) =>
   ({
     getString: (_section: string, field: string) =>
       field === "publicBaseUrl" ? publicBaseUrl : undefined,
-    getBoolean: (_section: string, field: string) =>
-      field === "enabled" ? enabled : undefined,
   }) as unknown as ConfigFileCache;
 
 const fakeGatewayConfig = (velayBaseUrl?: string) =>
@@ -138,14 +125,48 @@ describe("credential-request mint (IPC)", () => {
     expect(JSON.stringify(row)).not.toContain(result.token);
   });
 
-  test("refuses to mint when the feature flag is off", async () => {
-    flagEnabled = false;
+  test("makes public ingress live before resolving the URL", async () => {
+    const ensurePublicIngressLive = mock(async () => {});
     const result = await createCredentialRequest(
-      fakeGatewayConfig(),
+      fakeGatewayConfig("https://velay-dev.vellum.ai"),
+      fakeConfigFile(undefined),
+      { service: "github", field: "api_token" },
+      {
+        getPlatformAssistantId: async () => "assistant-123",
+        ensurePublicIngressLive,
+      },
+    );
+
+    expect(result.ok).toBe(true);
+    expect(ensurePublicIngressLive).toHaveBeenCalledTimes(1);
+  });
+
+  test("refuses to mint when the feature flag is off — before any ingress work", async () => {
+    flagEnabled = false;
+    const ensurePublicIngressLive = mock(async () => {});
+    const getPlatformAssistantId = mock(async () => "assistant-123");
+    const result = await createCredentialRequest(
+      fakeGatewayConfig("https://velay-dev.vellum.ai"),
       fakeConfigFile("https://x.test"),
       { service: "github", field: "api_token" },
+      { getPlatformAssistantId, ensurePublicIngressLive },
     );
     expect(result).toEqual({ ok: false, error: "flag_disabled" });
+    // The flag gate runs first: no ingress activation, no credential read.
+    expect(ensurePublicIngressLive).not.toHaveBeenCalled();
+    expect(getPlatformAssistantId).not.toHaveBeenCalled();
+  });
+
+  test("does not read the platform assistant id when the config URL resolves", async () => {
+    const getPlatformAssistantId = mock(async () => "assistant-123");
+    const result = await createCredentialRequest(
+      fakeGatewayConfig("https://velay-dev.vellum.ai"),
+      fakeConfigFile("https://assistant.example.com"),
+      { service: "github", field: "api_token" },
+      { getPlatformAssistantId },
+    );
+    expect(result.ok).toBe(true);
+    expect(getPlatformAssistantId).not.toHaveBeenCalled();
   });
 
   test("falls back to VELAY_BASE_URL + platform assistant id when the config URL is empty", async () => {
@@ -155,37 +176,13 @@ describe("credential-request mint (IPC)", () => {
       fakeGatewayConfig("https://velay-dev.vellum.ai"),
       fakeConfigFile(undefined),
       { service: "github", field: "api_token" },
-      "assistant-123",
+      { getPlatformAssistantId: async () => "assistant-123" },
     );
 
     if (!result.ok) throw new Error(`mint failed: ${result.error}`);
     expect(result.url).toBe(
       `https://velay-dev.vellum.ai/assistant-123/assistant/credentials/enter#token=${encodeURIComponent(result.token)}`,
     );
-  });
-
-  test("auto-enables public ingress when it is explicitly disabled", async () => {
-    const result = await createCredentialRequest(
-      fakeGatewayConfig("https://velay-dev.vellum.ai"),
-      fakeConfigFile(undefined, false),
-      { service: "github", field: "api_token" },
-      "assistant-123",
-    );
-
-    expect(result.ok).toBe(true);
-    expect(enablePublicIngressCalls).toHaveLength(1);
-  });
-
-  test("does not touch ingress config when enabled is left at its default", async () => {
-    const result = await createCredentialRequest(
-      fakeGatewayConfig("https://velay-dev.vellum.ai"),
-      fakeConfigFile(undefined, undefined),
-      { service: "github", field: "api_token" },
-      "assistant-123",
-    );
-
-    expect(result.ok).toBe(true);
-    expect(enablePublicIngressCalls).toHaveLength(0);
   });
 
   test("refuses to mint when neither the config URL nor the velay fallback resolve", async () => {

@@ -108,15 +108,15 @@ export function createAgentCardHandler(
     }
 
     // GET handler — resolve the public URL (with the Velay fallback) but never
-    // mutate config here; auto-enabling ingress is reserved for the explicit
-    // credential-mint action.
-    const platformAssistantId = (
-      await credentials.get(credentialKey("vellum", "platform_assistant_id"))
-    )?.trim();
-    const publicBaseUrl = resolvePublicHttpBaseUrl(
+    // mutate config or start the tunnel here; enabling ingress is reserved for
+    // the explicit credential-mint action.
+    const publicBaseUrl = await resolvePublicHttpBaseUrl(
       config,
       configFile,
-      platformAssistantId,
+      () =>
+        credentials
+          .get(credentialKey("vellum", "platform_assistant_id"))
+          .then((value) => value?.trim()),
     );
     if (!publicBaseUrl) {
       log.warn("Agent card requested but no public base URL configured");

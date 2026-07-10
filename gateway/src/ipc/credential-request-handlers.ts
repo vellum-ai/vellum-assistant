@@ -24,7 +24,6 @@ import {
 import { isFeatureFlagEnabled } from "../feature-flag-resolver.js";
 import { getLogger } from "../logger.js";
 import { resolvePublicHttpBaseUrl } from "../runtime/client.js";
-import { enablePublicIngress } from "../velay/client.js";
 import type { IpcRoute } from "./server.js";
 
 const log = getLogger("credential-requests");
@@ -78,10 +77,25 @@ export type CreateCredentialRequestResult =
         | "too_many_active";
     };
 
+export interface CreateCredentialRequestDeps {
+  /**
+   * Lazily read `vellum:platform_assistant_id` — only invoked for the Velay
+   * fallback, so a config-resolved (self-hosted/manual) URL never touches CES.
+   */
+  getPlatformAssistantId?: () => Promise<string | undefined>;
+  /**
+   * Enable public ingress (if disabled) and start the Velay tunnel so the
+   * minted link is actually reachable. Wired by the gateway entrypoint, which
+   * owns the tunnel client.
+   */
+  ensurePublicIngressLive?: () => Promise<void>;
+}
+
 export function createCredentialRequestIpcRoutes(
   config: GatewayConfig,
   configFile: ConfigFileCache,
   credentials: CredentialCache,
+  ensurePublicIngressLive: () => Promise<void>,
 ): IpcRoute[] {
   return [
     {
@@ -89,17 +103,13 @@ export function createCredentialRequestIpcRoutes(
       schema: CreateCredentialRequestSchema,
       handler: async (params?: Record<string, unknown>) => {
         const parsed = CreateCredentialRequestSchema.parse(params ?? {});
-        const platformAssistantId = (
-          await credentials.get(
-            credentialKey("vellum", "platform_assistant_id"),
-          )
-        )?.trim();
-        return createCredentialRequest(
-          config,
-          configFile,
-          parsed,
-          platformAssistantId,
-        );
+        return createCredentialRequest(config, configFile, parsed, {
+          getPlatformAssistantId: () =>
+            credentials
+              .get(credentialKey("vellum", "platform_assistant_id"))
+              .then((value) => value?.trim()),
+          ensurePublicIngressLive,
+        });
       },
     },
   ];
@@ -109,28 +119,25 @@ export async function createCredentialRequest(
   config: GatewayConfig,
   configFile: ConfigFileCache,
   params: z.infer<typeof CreateCredentialRequestSchema>,
-  platformAssistantId?: string,
+  deps: CreateCredentialRequestDeps = {},
 ): Promise<CreateCredentialRequestResult> {
   if (!isFeatureFlagEnabled(CREDENTIAL_REQUESTS_FLAG)) {
     return { ok: false, error: "flag_disabled" };
   }
 
   // Minting a credential link is an explicit request to expose the public
-  // credential-entry page, so auto-enable public ingress when it was
-  // explicitly disabled. Only flip an explicit `false` — a default `undefined`
-  // already means "enabled" on platform (the Velay tunnel connects). Flipping
-  // it lets the Velay reconnect loop establish the tunnel; the mint still
-  // returns immediately using the resolved fallback URL below, and the link
-  // becomes reachable within a few seconds once the tunnel registers.
-  if (configFile.getBoolean("ingress", "enabled", { force: true }) === false) {
-    await enablePublicIngress(configFile);
-    log.info("Auto-enabled public ingress for credential link creation");
-  }
+  // credential-entry page, so make ingress live before resolving the URL:
+  // enable it if it was explicitly disabled AND start the Velay tunnel (on
+  // platform the tunnel otherwise only starts for Twilio / live voice, so the
+  // config bit alone would leave the link unreachable). The mint still returns
+  // immediately using the resolved fallback URL; the link becomes reachable
+  // within a few seconds once the tunnel registers.
+  await deps.ensurePublicIngressLive?.();
 
-  const publicBaseUrl = resolvePublicHttpBaseUrl(
+  const publicBaseUrl = await resolvePublicHttpBaseUrl(
     config,
     configFile,
-    platformAssistantId,
+    deps.getPlatformAssistantId,
   );
   if (!publicBaseUrl) {
     return { ok: false, error: "no_public_base_url" };
