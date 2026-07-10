@@ -9,20 +9,6 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ── Module mocks ─────────────────────────────────────────────────────────────
 
-const testConfig = {
-  skills: { load: { extraDirs: [] as string[] } },
-};
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => testConfig,
-  loadConfig: () => testConfig,
-  invalidateConfigCache: () => {},
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-  getNestedValue: () => undefined,
-  setNestedValue: () => {},
-}));
-
 // Mock feature flags to return false by default.
 mock.module("../config/assistant-feature-flags.js", () => ({
   isAssistantFeatureFlagEnabled: () => false,
@@ -176,7 +162,6 @@ import { RiskLevel } from "./types.js";
 
 describe("Permission Checker (gateway IPC)", () => {
   beforeEach(() => {
-    testConfig.skills = { load: { extraDirs: [] } };
     mockIsContainerized = false;
     mockIpcClassifyRiskResult = undefined;
     mockCachedThreshold = "low";
