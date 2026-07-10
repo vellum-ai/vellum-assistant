@@ -3123,15 +3123,18 @@ export async function reserveMessage(
 }
 
 /**
- * Update the content of an existing message. Used when consolidating
- * multiple assistant messages into one.
+ * Update the content of an existing message in place. Used for edits to
+ * already-finalized rows: consolidation, channel edit propagation, and the
+ * post-finalize tool-timing stamps (`_startedAt`/`_previewStartedAt`).
+ * Streaming writes do NOT come through here — the agent loop's partial
+ * flushes append to the in-flight delta file (`inflight-message-content.ts`)
+ * and land on the row once, at the finalize seam.
  *
- * This is a pure CRUD primitive: it does NOT enqueue a lexical reindex, because
- * it is also driven by mid-stream partial flushes and high-frequency tool-timing
- * stamps (`_startedAt`/`_previewStartedAt`) that either don't change searchable
- * text or would spam reindex jobs. Callers on genuine content-change seams
- * (streaming finalize, channel edits, consolidation) enqueue the reindex
- * themselves via `enqueueLexicalIndexForMessage`.
+ * This is a pure CRUD primitive: it does NOT enqueue a lexical reindex
+ * (the timing stamps don't change searchable text and would spam reindex
+ * jobs). Callers on genuine content-change seams (channel edits,
+ * consolidation) enqueue the reindex themselves via
+ * `enqueueLexicalIndexForMessage`.
  */
 export function updateMessageContent(
   messageId: string,
@@ -3150,6 +3153,62 @@ export function updateMessageContent(
     .set({ content: newContent })
     .where(eq(messages.id, messageId))
     .run();
+}
+
+/**
+ * Flip a message row to file-backed streaming state: `content` becomes the
+ * `{ ref }` pointer at the in-flight delta file and `finalized` drops to 0.
+ * One small fixed-size write for the whole stream — every subsequent
+ * partial flush appends to the file, not the row.
+ */
+export function markMessageContentInflight(
+  messageId: string,
+  ref: string,
+): void {
+  const db = getDb();
+  db.update(messages)
+    .set({ content: JSON.stringify({ ref }), finalized: 0 })
+    .where(eq(messages.id, messageId))
+    .run();
+}
+
+/**
+ * Terminal content write for a message: store the folded inline content and
+ * set `finalized = 1` in the same statement (with optional metadata riding
+ * the same transaction). After this, the row is immutable streaming-wise and
+ * eligible for batch readers (search, memory indexing).
+ */
+export function finalizeMessageContent(
+  messageId: string,
+  contentJson: string,
+  metadataUpdates?: Record<string, unknown>,
+): void {
+  const db = getDb();
+  if (!metadataUpdates) {
+    db.update(messages)
+      .set({ content: contentJson, finalized: 1 })
+      .where(eq(messages.id, messageId))
+      .run();
+    return;
+  }
+  db.transaction((tx) => {
+    const row = tx
+      .select({ metadata: messages.metadata })
+      .from(messages)
+      .where(eq(messages.id, messageId))
+      .get();
+    const existing = row?.metadata
+      ? (JSON.parse(row.metadata) as Record<string, unknown>)
+      : {};
+    tx.update(messages)
+      .set({
+        content: contentJson,
+        finalized: 1,
+        metadata: JSON.stringify({ ...existing, ...metadataUpdates }),
+      })
+      .where(eq(messages.id, messageId))
+      .run();
+  });
 }
 
 /**

@@ -1,5 +1,5 @@
 import { selectedBackendSupportsMultimodal } from "@vellumai/plugin-api";
-import { eq, isNotNull, like, ne } from "drizzle-orm";
+import { and, eq, isNotNull, like, ne } from "drizzle-orm";
 
 import { getDb } from "../../../../persistence/db-connection.js";
 import { withQdrantBreaker } from "../../../../persistence/embeddings/qdrant-circuit-breaker.js";
@@ -62,7 +62,12 @@ export async function rebuildIndexJob(): Promise<void> {
     const imageMessages = db
       .select({ id: messages.id, content: messages.content })
       .from(messages)
-      .where(like(messages.content, '%"type":"image"%'))
+      .where(
+        and(
+          eq(messages.finalized, 1),
+          like(messages.content, '%"type":"image"%'),
+        ),
+      )
       .all();
     for (const msg of imageMessages) {
       const blocks = extractMediaBlockMeta(msg.content);

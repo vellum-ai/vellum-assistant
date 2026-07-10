@@ -90,6 +90,12 @@ import {
 } from "./conversation-error.js";
 import { buildDeferredFinalizeEffect } from "./conversation-turn-finalize.js";
 import { resolveTurnTimezoneContext } from "./date-context.js";
+import {
+  appendInflightSnapshot,
+  createInflightContentWriter,
+  finalizeInflightContent,
+  type InflightContentWriter,
+} from "./inflight-message-content.js";
 import type {
   CardSurfaceData,
   ServerMessage,
@@ -194,6 +200,13 @@ export interface EventHandlerState {
    * absorbs the reserved row into the error message.
    */
   assistantRowAwaitingFinalization: boolean;
+  /**
+   * Per-row in-flight content writers, keyed by message row id. Created
+   * lazily on the first partial flush of a row; removed when the row's
+   * finalize seam folds the file inline. Writers still present at
+   * turn-finalize (cancelled/aborted turns) are folded there.
+   */
+  readonly inflightWriters: Map<string, InflightContentWriter>;
   readonly pendingToolResults: Map<string, PendingToolResult>;
   /**
    * Reservation of the grouped `user` tool-result row for the current batch,
@@ -395,6 +408,7 @@ export function createEventHandlerState(): EventHandlerState {
     persistProviderErrorAsAssistantMessage: false,
     lastAssistantMessageId: undefined,
     assistantRowAwaitingFinalization: false,
+    inflightWriters: new Map(),
     pendingToolResults: new Map(),
     pendingToolResultRowReservation: undefined,
     persistedToolUseIds: new Set(),
@@ -584,6 +598,27 @@ function resetPartialPersistAccumulator(state: EventHandlerState): void {
  * Returns whether the write committed, so callers can gate dependent
  * bookkeeping (e.g. advancing the persisted seq) on durable content.
  */
+/**
+ * Get or lazily create the in-flight writer for a row. Null when the
+ * conversation can't be resolved — callers then fall back to the direct
+ * row write, which stays correct at the cost of a full-blob UPDATE.
+ */
+function obtainInflightWriter(
+  state: EventHandlerState,
+  conversationId: string,
+  messageId: string,
+): InflightContentWriter | null {
+  const existing = state.inflightWriters.get(messageId);
+  if (existing) {
+    return existing;
+  }
+  const writer = createInflightContentWriter(conversationId, messageId);
+  if (writer) {
+    state.inflightWriters.set(messageId, writer);
+  }
+  return writer;
+}
+
 async function persistLoopMessageContent(
   messageId: string,
   contentJson: string,
@@ -631,18 +666,26 @@ async function flushAccumulatedContent(
     [],
     state.toolActivityMetadata,
   );
-  const contentJson = JSON.stringify(built);
   // Pair the seq with the exact content snapshot taken above: deltas that
   // arrive while the write is in flight bump `lastPersistedContentSeq`
   // again, but they are not part of this write.
   const flushedSeq = state.lastPersistedContentSeq;
 
-  const persisted = await persistLoopMessageContent(
+  // Partial flushes append to the in-flight delta file, off the SQLite
+  // writer lock; the row was flipped to `{ ref }` on the first flush.
+  const writer = obtainInflightWriter(
+    state,
+    deps.ctx.conversationId,
     messageId,
-    contentJson,
-    "partial_flush_assistant_content",
-    deps.rlog,
   );
+  const persisted = writer
+    ? await appendInflightSnapshot(writer, built, deps.rlog)
+    : await persistLoopMessageContent(
+        messageId,
+        JSON.stringify(built),
+        "partial_flush_assistant_content",
+        deps.rlog,
+      );
   // Record only after the write commits, so the snapshot seq never
   // claims content that is not yet durable.
   if (persisted && flushedSeq != null) {
@@ -1257,14 +1300,21 @@ async function persistPendingToolResultRow(
     deps.ctx.conversationId,
     buildToolResultMetadata(deps),
   );
-  // Serialize the content after the reservation resolves so the last of the
-  // concurrent writers reflects the fullest batch.
-  const persisted = await persistLoopMessageContent(
-    rowId,
-    JSON.stringify(buildToolResultBlocks(state.pendingToolResults)),
-    "persist_tool_result_row",
-    deps.rlog,
-  );
+  // Snapshot the batch after the reservation resolves so the last of the
+  // concurrent writers reflects the fullest batch. On-arrival writes go to
+  // the in-flight delta file; the finalize seam folds the row inline.
+  const batchBlocks = buildToolResultBlocks(
+    state.pendingToolResults,
+  ) as ContentBlock[];
+  const writer = obtainInflightWriter(state, deps.ctx.conversationId, rowId);
+  const persisted = writer
+    ? await appendInflightSnapshot(writer, batchBlocks, deps.rlog)
+    : await persistLoopMessageContent(
+        rowId,
+        JSON.stringify(batchBlocks),
+        "persist_tool_result_row",
+        deps.rlog,
+      );
   if (persisted) {
     recordConversationPersistedSeq(deps.ctx.conversationId, seq);
   }
@@ -1315,12 +1365,13 @@ export async function finalizePendingToolResultRow(
         )
       : blocks,
   );
-  await persistLoopMessageContent(
+  await finalizeInflightContent(
+    state.inflightWriters.get(rowId),
     rowId,
     contentJson,
-    "finalize_tool_result_row",
     rlog,
   );
+  state.inflightWriters.delete(rowId);
   // Sync the row to the JSONL disk view so it stays in lockstep with the DB.
   if (conv != null) {
     syncMessageToDisk(conversationId, rowId, conv.createdAt);
@@ -2072,13 +2123,14 @@ export async function handleMessageComplete(
   // assembly can attribute each assistant message to the model that actually
   // ran it — including per-call reroutes by a `pre-model-call` hook. Absent on
   // synthesized completions with no provider response; the key is omitted then.
-  const persisted = await persistLoopMessageContent(
+  const persisted = await finalizeInflightContent(
+    state.inflightWriters.get(assistantMessageId),
     assistantMessageId,
     contentJson,
-    "finalize_assistant_message",
     deps.rlog,
     event.model ? { model: event.model } : undefined,
   );
+  state.inflightWriters.delete(assistantMessageId);
   state.assistantRowAwaitingFinalization = false;
   // The assistant row now holds the authoritative content (text + thinking +
   // tool_use blocks from `event.message`), and any drained tool-result rows
