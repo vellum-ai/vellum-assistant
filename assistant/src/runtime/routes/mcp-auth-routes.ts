@@ -22,14 +22,18 @@ import { McpClient } from "../../mcp/client.js";
 import { orchestrateMcpOAuthConnect } from "../../mcp/mcp-auth-orchestrator.js";
 import { getMcpAuthState } from "../../mcp/mcp-auth-state.js";
 import {
+  buildMissingCredentialCommand,
   deleteMcpHeaders,
-  getMcpHeaders,
-  setMcpHeaders,
+  getMcpHeaderEnvelope,
+  type McpHeaderCredentialRef,
+  type McpHeaderEnvelope,
+  setMcpHeaderEnvelope,
 } from "../../mcp/mcp-header-store.js";
 import {
   deleteMcpOAuthCredentials,
   hasMcpOAuthTokens,
 } from "../../mcp/mcp-oauth-provider.js";
+import { resolveCredentialRef } from "../../tools/credentials/resolve.js";
 import { getMcpToolsByServer } from "../../tools/registry.js";
 import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
@@ -189,10 +193,63 @@ interface McpServerEntry {
   blockedTools?: string[];
 }
 
-function detectAuthType(headers: Record<string, string>): "bearer" | "api-key" {
-  const authValue = headers["Authorization"] ?? headers["authorization"];
-  if (authValue?.startsWith("Bearer ")) return "bearer";
-  return "api-key";
+interface StaticAuthEntry {
+  name: string;
+  bearer: boolean;
+}
+
+/**
+ * Derive the auth entries (header name + bearer-ness) for an MCP server from
+ * its stored envelope, falling back to legacy config-level headers. Only the
+ * header name and whether it carries a Bearer prefix are surfaced — resolved
+ * secret values are never read here.
+ */
+function envelopeAuthEntries(
+  envelope: McpHeaderEnvelope | undefined,
+  legacyConfigHeaders: Record<string, string> | undefined,
+): StaticAuthEntry[] {
+  const entries: StaticAuthEntry[] = [];
+  if (envelope) {
+    for (const [name, value] of Object.entries(envelope.literals)) {
+      entries.push({ name, bearer: value.startsWith("Bearer ") });
+    }
+    for (const ref of envelope.refs) {
+      entries.push({
+        name: ref.headerName,
+        bearer: (ref.prefix ?? "").startsWith("Bearer "),
+      });
+    }
+  } else if (legacyConfigHeaders) {
+    for (const [name, value] of Object.entries(legacyConfigHeaders)) {
+      entries.push({ name, bearer: value.startsWith("Bearer ") });
+    }
+  }
+  return entries;
+}
+
+function summarizeStaticAuth(entries: StaticAuthEntry[]): {
+  hasStaticAuth: boolean;
+  authType: "none" | "bearer" | "api-key";
+  authHeaderName?: string;
+} {
+  if (entries.length === 0) {
+    return { hasStaticAuth: false, authType: "none" };
+  }
+  const authorization = entries.find(
+    (e) => e.name.toLowerCase() === "authorization",
+  );
+  const authType: "bearer" | "api-key" = authorization?.bearer
+    ? "bearer"
+    : "api-key";
+  const authHeaderName =
+    authType === "api-key"
+      ? entries.find((e) => e.name.toLowerCase() !== "authorization")?.name
+      : undefined;
+  return {
+    hasStaticAuth: true,
+    authType,
+    ...(authHeaderName ? { authHeaderName } : {}),
+  };
 }
 
 async function handleMcpList(_args: {
@@ -219,25 +276,17 @@ async function handleMcpList(_args: {
             ? await hasMcpOAuthTokens(id)
             : false;
 
-        // Check credential store for stored static auth headers
-        const storedHeaders = await getMcpHeaders(id);
-        // Also check legacy config-level headers
+        // Derive auth shape from the stored envelope (literals + refs),
+        // falling back to legacy config-level headers. Secret values are
+        // never resolved here.
+        const envelope = await getMcpHeaderEnvelope(id);
         const configHeaders =
           config.transport.type !== "stdio"
             ? config.transport.headers
             : undefined;
-        const effectiveHeaders = storedHeaders ?? configHeaders;
-        const hasStaticAuth =
-          !!effectiveHeaders && Object.keys(effectiveHeaders).length > 0;
-        const authType: "none" | "bearer" | "api-key" = hasStaticAuth
-          ? detectAuthType(effectiveHeaders!)
-          : "none";
-        const authHeaderName =
-          authType === "api-key" && effectiveHeaders
-            ? Object.keys(effectiveHeaders).find(
-                (k) => k.toLowerCase() !== "authorization",
-              )
-            : undefined;
+        const { hasStaticAuth, authType, authHeaderName } = summarizeStaticAuth(
+          envelopeAuthEntries(envelope, configHeaders),
+        );
 
         // Strip headers from transport — never return secrets
         const { headers: _stripped, ...safeTransport } =
@@ -317,6 +366,124 @@ function handleMcpToolsSummary(): {
 }
 
 // ---------------------------------------------------------------------------
+// Static auth header inputs (literals + credential references)
+// ---------------------------------------------------------------------------
+
+const CREDENTIAL_PLACEHOLDER = /\{\{\s*credential:([^}]+?)\s*\}\}/;
+
+interface McpAuthHeaderInput {
+  headers?: Record<string, string> | null;
+  authCredential?: string;
+  authHeader?: string;
+  authPrefix?: string;
+}
+
+function parseServiceField(
+  ref: string,
+): { service: string; field: string } | undefined {
+  const trimmed = ref.trim();
+  const slash = trimmed.indexOf("/");
+  if (slash <= 0 || slash >= trimmed.length - 1) {
+    return undefined;
+  }
+  if (trimmed.indexOf("/", slash + 1) !== -1) {
+    return undefined;
+  }
+  return { service: trimmed.slice(0, slash), field: trimmed.slice(slash + 1) };
+}
+
+/**
+ * Build a versioned header envelope from CLI/route inputs, validating each
+ * value and confirming every credential reference resolves to a stored
+ * credential. Returns null when there is nothing to store (the caller clears
+ * any existing headers). Throws BadRequestError for invalid input.
+ */
+function buildMcpHeaderEnvelope(
+  input: McpAuthHeaderInput,
+): McpHeaderEnvelope | null {
+  const literals: Record<string, string> = {};
+  const refs: McpHeaderCredentialRef[] = [];
+
+  if (input.headers) {
+    for (const [name, value] of Object.entries(input.headers)) {
+      if (value.includes("${")) {
+        throw new BadRequestError(
+          `Header "${name}" contains a shell variable (value "${value}"). Shell environment variables are not available when the assistant stores MCP headers, so the header would be saved empty. Reference a stored vault credential instead with --auth-credential service/field (and --auth-header "${name}" if it is not Authorization), or embed {{credential:service/field}} in the header value.`,
+        );
+      }
+
+      const match = value.match(CREDENTIAL_PLACEHOLDER);
+      if (match) {
+        const parsed = parseServiceField(match[1]);
+        if (!parsed) {
+          throw new BadRequestError(
+            `Header "${name}" has an invalid credential placeholder "${match[0]}". Expected {{credential:service/field}}.`,
+          );
+        }
+        const placeholderStart = match.index ?? 0;
+        const prefix = value.slice(0, placeholderStart);
+        const suffix = value.slice(placeholderStart + match[0].length);
+        if (suffix.length > 0) {
+          throw new BadRequestError(
+            `Header "${name}" has text after the {{credential:...}} placeholder. Only a prefix before the placeholder is supported (e.g. "Bearer {{credential:service/field}}").`,
+          );
+        }
+        refs.push({
+          headerName: name,
+          service: parsed.service,
+          field: parsed.field,
+          ...(prefix ? { prefix } : {}),
+        });
+        continue;
+      }
+
+      if (value.trim().length === 0) {
+        throw new BadRequestError(
+          `Header "${name}" has an empty value and would be stored empty, causing auth failures. Provide a value, or reference a stored credential with --auth-credential or {{credential:service/field}}.`,
+        );
+      }
+      literals[name] = value;
+    }
+  }
+
+  const authCredential = input.authCredential?.trim();
+  if (authCredential) {
+    const parsed = parseServiceField(authCredential);
+    if (!parsed) {
+      throw new BadRequestError(
+        `--auth-credential "${input.authCredential}" is invalid. Expected the form service/field, e.g. reducto/api_key.`,
+      );
+    }
+    const headerName =
+      input.authHeader && input.authHeader.length > 0
+        ? input.authHeader
+        : "Authorization";
+    const prefix = input.authPrefix ?? "Bearer ";
+    refs.push({
+      headerName,
+      service: parsed.service,
+      field: parsed.field,
+      ...(prefix ? { prefix } : {}),
+    });
+  }
+
+  if (Object.keys(literals).length === 0 && refs.length === 0) {
+    return null;
+  }
+
+  for (const ref of refs) {
+    const resolved = resolveCredentialRef(`${ref.service}/${ref.field}`);
+    if (!resolved) {
+      throw new BadRequestError(
+        `Credential "${ref.service}/${ref.field}" (for header "${ref.headerName}") is not stored. Create it first with:\n  ${buildMissingCredentialCommand(ref.service, ref.field)}\nThis prompts for the secret through the client UI — never type it into the conversation.`,
+      );
+    }
+  }
+
+  return { version: 2, literals, refs };
+}
+
+// ---------------------------------------------------------------------------
 // Update
 // ---------------------------------------------------------------------------
 
@@ -333,6 +500,9 @@ async function handleMcpUpdate({
     allowedTools,
     blockedTools,
     headers,
+    authCredential,
+    authHeader,
+    authPrefix,
   } = body as {
     name: string;
     enabled?: boolean;
@@ -341,6 +511,9 @@ async function handleMcpUpdate({
     allowedTools?: string[] | null;
     blockedTools?: string[] | null;
     headers?: Record<string, string> | null;
+    authCredential?: string;
+    authHeader?: string;
+    authPrefix?: string;
   };
 
   const raw = loadRawConfig();
@@ -379,7 +552,7 @@ async function handleMcpUpdate({
       server.blockedTools = blockedTools;
     }
   }
-  if (headers !== undefined) {
+  if (headers !== undefined || authCredential !== undefined) {
     const transport = server.transport as Record<string, unknown> | undefined;
     if (
       transport &&
@@ -388,8 +561,15 @@ async function handleMcpUpdate({
       // Migrate any legacy config-level headers away
       delete transport.headers;
 
+      const envelope = buildMcpHeaderEnvelope({
+        headers,
+        authCredential,
+        authHeader,
+        authPrefix,
+      });
+
       // Store in credential store (or delete if clearing)
-      if (headers === null || Object.keys(headers).length === 0) {
+      if (!envelope) {
         const ok = await deleteMcpHeaders(name);
         if (!ok) {
           throw new InternalError(
@@ -397,7 +577,7 @@ async function handleMcpUpdate({
           );
         }
       } else {
-        const ok = await setMcpHeaders(name, headers);
+        const ok = await setMcpHeaderEnvelope(name, envelope);
         if (!ok) {
           throw new InternalError(
             "Failed to persist auth headers to credential store",
@@ -422,17 +602,31 @@ async function handleMcpAdd({
 }: {
   body?: Record<string, unknown>;
 }): Promise<{ added: true }> {
-  const { name, transportType, url, command, args, risk, disabled, headers } =
-    body as {
-      name: string;
-      transportType: string;
-      url?: string;
-      command?: string;
-      args?: string[];
-      risk?: string;
-      disabled?: boolean;
-      headers?: Record<string, string>;
-    };
+  const {
+    name,
+    transportType,
+    url,
+    command,
+    args,
+    risk,
+    disabled,
+    headers,
+    authCredential,
+    authHeader,
+    authPrefix,
+  } = body as {
+    name: string;
+    transportType: string;
+    url?: string;
+    command?: string;
+    args?: string[];
+    risk?: string;
+    disabled?: boolean;
+    headers?: Record<string, string>;
+    authCredential?: string;
+    authHeader?: string;
+    authPrefix?: string;
+  };
 
   const riskLevel = risk ?? "high";
   if (!["low", "medium", "high"].includes(riskLevel)) {
@@ -476,6 +670,24 @@ async function handleMcpAdd({
     );
   }
 
+  const wantsStaticAuth =
+    (headers && Object.keys(headers).length > 0) ||
+    (authCredential !== undefined && authCredential !== "");
+  if (wantsStaticAuth && transportType === "stdio") {
+    throw new BadRequestError(
+      "Static auth headers are only supported for sse/streamable-http transports.",
+    );
+  }
+
+  // Validate and build the header envelope before writing config so an
+  // invalid credential ref never leaves a half-configured server behind.
+  const envelope = buildMcpHeaderEnvelope({
+    headers,
+    authCredential,
+    authHeader,
+    authPrefix,
+  });
+
   serverMap[name] = {
     transport,
     enabled: !disabled,
@@ -483,8 +695,8 @@ async function handleMcpAdd({
   };
 
   // Store auth headers in credential store, not config
-  if (headers && Object.keys(headers).length > 0) {
-    const ok = await setMcpHeaders(name, headers);
+  if (envelope) {
+    const ok = await setMcpHeaderEnvelope(name, envelope);
     if (!ok) {
       throw new InternalError(
         "Failed to persist auth headers to credential store",
@@ -714,6 +926,9 @@ export const ROUTES: RouteDefinition[] = [
       allowedTools: z.array(z.string()).nullable().optional(),
       blockedTools: z.array(z.string()).nullable().optional(),
       headers: z.record(z.string(), z.string()).nullable().optional(),
+      authCredential: z.string().optional(),
+      authHeader: z.string().optional(),
+      authPrefix: z.string().optional(),
     }),
     handler: handleMcpUpdate,
   },
@@ -738,6 +953,9 @@ export const ROUTES: RouteDefinition[] = [
       risk: z.string().optional(),
       disabled: z.boolean().optional(),
       headers: z.record(z.string(), z.string()).optional(),
+      authCredential: z.string().optional(),
+      authHeader: z.string().optional(),
+      authPrefix: z.string().optional(),
     }),
     handler: handleMcpAdd,
   },
