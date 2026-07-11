@@ -293,7 +293,19 @@ export class OpenAIResponsesProvider implements Provider {
         ? EFFORT_TO_REASONING_EFFORT[effort]
         : undefined;
       if (reasoningEffort) {
-        params.reasoning = { effort: reasoningEffort };
+        // Request a human-readable reasoning summary whenever the model will
+        // reason — without it the Responses API emits no visible thinking at
+        // all. "auto" resolves to the richest level the model supports
+        // (older o-series models reject "concise"/"detailed"). The retry
+        // layer encodes the user's thinking toggle as `effort` for this
+        // provider, so `"none"` is the disabled state and gets no summary.
+        // The Codex subscription endpoint is param-sensitive (it already
+        // forces `store: false` and rejects `max_output_tokens`), so its
+        // wire shape is left untouched.
+        params.reasoning =
+          reasoningEffort === "none" || this.codexSubscription
+            ? { effort: reasoningEffort }
+            : { effort: reasoningEffort, summary: "auto" };
       }
 
       if (
@@ -357,6 +369,7 @@ export class OpenAIResponsesProvider implements Provider {
 
       // Accumulate the response from stream events
       let contentText = "";
+      let reasoningSummaryText = "";
       // Keyed by item_id (from the stream event) to support parallel tool calls.
       const toolCallMap = new Map<
         string,
@@ -406,6 +419,23 @@ export class OpenAIResponsesProvider implements Provider {
                 contentText += delta;
                 onEvent?.({ type: "text_delta", text: delta });
               }
+              break;
+            }
+
+            case "response.reasoning_summary_text.delta": {
+              const delta = event.delta;
+              if (delta) {
+                reasoningSummaryText += delta;
+                onEvent?.({ type: "thinking_delta", thinking: delta });
+              }
+              break;
+            }
+
+            case "response.reasoning_summary_part.done": {
+              // One summary part per reasoning section; separate them the way
+              // the dashboard renders summaries. The trailing separator after
+              // the final part is trimmed when the block is built.
+              reasoningSummaryText += "\n\n";
               break;
             }
 
@@ -534,6 +564,18 @@ export class OpenAIResponsesProvider implements Provider {
       // weaves search results into the text output, so the result content is
       // an empty array — the actual results are in the text block that follows.
       const content: ContentBlock[] = [];
+      const summaryText = reasoningSummaryText.trim();
+      if (summaryText) {
+        // Empty signature: OpenAI reasoning summaries carry no verification
+        // signature (same shape the chat-completions transport produces for
+        // reasoning text). History replay drops thinking blocks on this
+        // transport, so nothing is echoed back to the API.
+        content.push({
+          type: "thinking",
+          thinking: summaryText,
+          signature: "",
+        });
+      }
       for (const toolUseId of webSearchCallIds) {
         content.push({
           type: "server_tool_use",
