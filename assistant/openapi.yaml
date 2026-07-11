@@ -617,6 +617,27 @@ paths:
                 required:
                   - apps
                 additionalProperties: false
+  /v1/apps/{appId}/asset/{path}:
+    get:
+      operationId: apps_by_appId_asset_by_path_get
+      summary: Serve app asset
+      description: Serve a bundled binary asset (image, audio, video, font) from anywhere in an app's directory.
+      tags:
+        - apps
+      parameters:
+        - name: appId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: path
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
   /v1/apps/{appId}/dist/{filename}:
     get:
       operationId: apps_by_appId_dist_by_filename_get

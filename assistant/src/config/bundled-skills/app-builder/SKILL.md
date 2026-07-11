@@ -270,6 +270,18 @@ useEffect(() => {
 }, []);
 ```
 
+**Bundled media — `window.vellum.asset(path)`.** For binary assets too big to inline (images, audio, short video, custom fonts), bundle the file under the app directory with `file_write` and load it at runtime via `window.vellum.asset("assets/intro.mp4")`, which resolves to a `blob:` URL the sandbox can use directly. Don't reach for giant base64 data-URIs.
+
+```tsx
+const [src, setSrc] = useState("");
+useEffect(() => {
+  window.vellum.asset("assets/intro.mp4").then(setSrc).catch(() => notifyError("Couldn't load media"));
+}, []);
+return src ? <video src={src} controls /> : null;
+```
+
+Paths are validated server-side (no traversal, no `records/`); the file is served only from this app's own directory.
+
 **Writing a route handler.** Routes are `.ts`/`.js` files in `{workspaceDir}/routes/`, served at `/v1/x/<filename>` (`routes/items.ts` → `/v1/x/items`; `routes/bar/index.ts` → `/v1/x/bar`). Write them with `file_write` **before** `app_refresh`. Each exports named functions per HTTP method (`GET`/`POST`/`PUT`/`PATCH`/`DELETE`), receiving the Web `Request` and an optional `context`. Full Node API access (`fs`, `path`, `crypto`), 30s timeout, hot-reloaded on change. No `[id].ts` dynamic segments — use query params.
 
 ```typescript

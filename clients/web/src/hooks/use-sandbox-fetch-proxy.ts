@@ -23,6 +23,12 @@ export interface SandboxFetchProxyOptions {
   frameId: string;
   /** Assistant ID for constructing proxy URLs. */
   assistantId: string;
+  /**
+   * The app whose bundled assets `window.vellum.asset()` may read. Scopes
+   * asset requests to this app so a sandboxed frame can only reach its own
+   * files. Omit for non-app sandboxes — asset requests then fail gracefully.
+   */
+  appId?: string;
   /** Whether the fetch proxy is active. Surface actions are always forwarded regardless. Default: true. */
   enabled?: boolean;
   /** Handler for surface action messages from the sandboxed app. */
@@ -47,14 +53,20 @@ export function useSandboxFetchProxy(
   iframeRef: RefObject<HTMLIFrameElement | null>,
   options: SandboxFetchProxyOptions,
 ): void {
-  const { frameId, assistantId, enabled = true, onAction, onOpenVellumLink } =
-    options;
+  const {
+    frameId,
+    assistantId,
+    appId,
+    enabled = true,
+    onAction,
+    onOpenVellumLink,
+  } = options;
 
   useEffect(() => {
     const handler = async (event: MessageEvent) => {
       const msg = event.data;
-      if (!msg || msg.frameId !== frameId) return;
-      if (event.source !== iframeRef.current?.contentWindow) return;
+      if (!msg || msg.frameId !== frameId) {return;}
+      if (event.source !== iframeRef.current?.contentWindow) {return;}
 
       if (msg.type === "vellum_surface_action") {
         onAction?.(msg.actionId, msg.data);
@@ -68,12 +80,72 @@ export function useSandboxFetchProxy(
         // user activation (transient — typically ~5s after a user
         // gesture), so programmatic spam on load or in a loop can't
         // trigger unsolicited downloads.
-        if (!navigator.userActivation?.isActive) return;
+        if (!navigator.userActivation?.isActive) {return;}
         onOpenVellumLink?.(msg.href, msg.linkText);
         return;
       }
 
-      if (!enabled || msg.type !== "vellum_fetch_request") return;
+      if (msg.type === "vellum_asset_request") {
+        const { callId, path } = msg as { callId: string; path: string };
+        const iframe = iframeRef.current;
+        const sendAsset = (
+          response: Record<string, unknown>,
+          transfer?: Transferable[],
+        ) => {
+          iframe?.contentWindow?.postMessage(response, "*", transfer ?? []);
+        };
+        if (!enabled) {
+          sendAsset({ type: "vellum_asset_response", callId, error: "Asset proxy disabled" });
+          return;
+        }
+        if (!appId) {
+          sendAsset({ type: "vellum_asset_response", callId, error: "No app context for assets" });
+          return;
+        }
+        if (typeof path !== "string" || path === "" || path.includes("..")) {
+          sendAsset({ type: "vellum_asset_response", callId, error: "Invalid asset path" });
+          return;
+        }
+        try {
+          const encodedPath = path
+            .split("/")
+            .map(encodeURIComponent)
+            .join("/");
+          const url = `/v1/assistants/${assistantId}/apps/${appId}/asset/${encodedPath}`;
+          const { data: blob, response } = await client.get({
+            url,
+            parseAs: "blob",
+            throwOnError: false,
+          });
+          if (!response?.ok || !(blob instanceof Blob)) {
+            sendAsset({
+              type: "vellum_asset_response",
+              callId,
+              error: `Asset fetch failed (${response?.status ?? 0})`,
+            });
+            return;
+          }
+          const buffer = await blob.arrayBuffer();
+          sendAsset(
+            {
+              type: "vellum_asset_response",
+              callId,
+              buffer,
+              contentType: blob.type || "application/octet-stream",
+            },
+            [buffer],
+          );
+        } catch (err) {
+          sendAsset({
+            type: "vellum_asset_response",
+            callId,
+            error: err instanceof Error ? err.message : "Asset proxy error",
+          });
+        }
+        return;
+      }
+
+      if (!enabled || msg.type !== "vellum_fetch_request") {return;}
 
       const { callId, path, method, headers, body } = msg as {
         callId: string;
@@ -164,5 +236,13 @@ export function useSandboxFetchProxy(
 
     window.addEventListener("message", handler);
     return () => window.removeEventListener("message", handler);
-  }, [frameId, assistantId, enabled, onAction, onOpenVellumLink, iframeRef]);
+  }, [
+    frameId,
+    assistantId,
+    appId,
+    enabled,
+    onAction,
+    onOpenVellumLink,
+    iframeRef,
+  ]);
 }
