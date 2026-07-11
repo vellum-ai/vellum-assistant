@@ -13,6 +13,9 @@
  *    `window.vellum.asset(path)` is the binary sibling: it fetches a bundled
  *    app file through the parent and resolves to a `blob:` object URL the
  *    sandbox can load in `<img>` / `<video>` / `<audio>`.
+ *    `window.vellum.subscribe(filter, cb)` completes the trio with server→app
+ *    push: the parent forwards scoped `sync_changed` invalidations so an app
+ *    refreshes on demand instead of polling.
  * 4. **Link interceptor** — catches clicks on `<a>` elements and opens them in
  *    new tabs via `window.open()`, which the `allow-popups` sandbox token
  *    permits. Without this, links inside sandboxed iframes are non-interactive
@@ -235,6 +238,8 @@ function buildBridgeLogicScript(
   window.vellum._pendingAssets = {};
   window.vellum._assetNextId = 1;
   window.vellum._assetCache = {};
+  window.vellum._subs = {};
+  window.vellum._subNextId = 1;
   window.addEventListener('message', function(event) {
     var d = event.data;
     if (!d) return;
@@ -256,6 +261,12 @@ function buildBridgeLogicScript(
         window.vellum._assetCache[pa.path] = url;
         pa.resolve(url);
       } catch (e) { pa.reject(e); }
+    }
+    if (d.type === 'vellum_event' && d.subId) {
+      var s = window.vellum._subs[d.subId];
+      if (s && typeof s.cb === 'function') {
+        try { s.cb(d.event); } catch (e) { /* a subscriber throwing is not the host's problem */ }
+      }
     }
   });
   window.vellum.fetch = function(path, options) {
@@ -288,6 +299,26 @@ function buildBridgeLogicScript(
         path: path
       }, '*');
     });
+  };
+  window.vellum.subscribe = function(filter, cb) {
+    var subId = 's' + (window.vellum._subNextId++);
+    var tags = (filter && Array.isArray(filter.tags)) ? filter.tags : [];
+    window.vellum._subs[subId] = { cb: cb, tags: tags };
+    window.parent.postMessage({
+      type: 'vellum_subscribe',
+      frameId: ${jsonForScript(frameId)},
+      subId: subId,
+      tags: tags
+    }, '*');
+    return function() {
+      if (!window.vellum._subs[subId]) return;
+      delete window.vellum._subs[subId];
+      window.parent.postMessage({
+        type: 'vellum_unsubscribe',
+        frameId: ${jsonForScript(frameId)},
+        subId: subId
+      }, '*');
+    };
   };`
     : "";
 
