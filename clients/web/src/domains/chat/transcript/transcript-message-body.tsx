@@ -174,18 +174,16 @@ export function TranscriptMessageBody({
   const isAssistant = message.role === "assistant";
   const longPressHandlers = useLongPress(
     () => {
+      // Set the suppression flag so the compatibility click the browser emits
+      // on the following touchend (see handleBubbleClick) is swallowed rather
+      // than toggling the inline trailer / opening a Slack URL behind the sheet.
+      // The flag is cleared by that click, or — if the click is swallowed by
+      // native long-press handling or routed to the portaled sheet — when the
+      // sheet closes (handleLongPressOpenChange). It is deliberately NOT expired
+      // on a timer: a timer set from activation could fire before the compat
+      // click on a long hold, letting that click through as a real tap.
       longPressFiredRef.current = true;
       setLongPressOpen(true);
-      // Safety net: the flag is normally cleared by the compatibility click that
-      // follows the long-press (see handleBubbleClick) or when the sheet closes
-      // (handleLongPressOpenChange). But that click can be swallowed by native
-      // long-press handling or delivered to the portaled sheet instead of this
-      // wrapper, in which case neither path fires and the flag would otherwise
-      // stay set — eating the next legitimate tap. Clear it after the browser's
-      // synthetic click window so a stranded flag can't suppress a real tap.
-      window.setTimeout(() => {
-        longPressFiredRef.current = false;
-      }, 700);
     },
     undefined,
     { shouldSkip: () => isAssistant },
