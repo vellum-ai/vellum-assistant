@@ -399,7 +399,7 @@ beforeEach(() => {
   mockQueryUnreportedOnboardingEvents.mockReset();
   mockQueryUnreportedOnboardingEvents.mockReturnValue([]);
   getDb().delete(toolInvocations).run();
-  getDb().delete(skillLoadedEvents).run();
+  getTelemetryDb()?.delete(skillLoadedEvents).run();
   getTelemetryDb()?.delete(authFallbackEvents).run();
   getTelemetryDb()?.delete(configSettingEvents).run();
   delete process.env.VELLUM_DISABLE_PLATFORM;
@@ -2507,7 +2507,7 @@ describe("UsageTelemetryReporter", () => {
 
     // The last row by the reporter's (createdAt, id) cursor order is the one
     // whose watermark should be persisted after a successful upload.
-    const rows = getDb()
+    const rows = getTelemetryDb()!
       .select()
       .from(skillLoadedEvents)
       .orderBy(skillLoadedEvents.createdAt, skillLoadedEvents.id)
@@ -2541,7 +2541,7 @@ describe("UsageTelemetryReporter", () => {
       createdAt: 1700000000000 + i,
       skillName: "web-research",
     }));
-    getDb().insert(skillLoadedEvents).values(fullBatch).run();
+    getTelemetryDb()!.insert(skillLoadedEvents).values(fullBatch).run();
     mockFetch.mockImplementation(() =>
       Promise.resolve(new Response('{"accepted":500}', { status: 200 })),
     );

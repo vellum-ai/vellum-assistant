@@ -78,6 +78,7 @@ import {
   getDb,
   getLogsDb,
   getSqliteFrom,
+  getTelemetryDb,
 } from "./db-connection.js";
 import {
   copyForkMessagesViaSubprocess,
@@ -123,6 +124,20 @@ function logsDb(): DrizzleDb {
   const db = getLogsDb();
   if (!db) {
     throw new Error("logs database unavailable");
+  }
+  return db;
+}
+
+/**
+ * The telemetry connection (`assistant-telemetry.db`), where
+ * `skill_loaded_events` lives. Throws if the file cannot be opened — the
+ * conversation-delete call sites must not report success while unshipped
+ * skill events referencing the deleted conversation survive to be flushed.
+ */
+function telemetryDb(): DrizzleDb {
+  const db = getTelemetryDb();
+  if (!db) {
+    throw new Error("telemetry database unavailable");
   }
   return db;
 }
@@ -1630,11 +1645,17 @@ export function deleteConversation(id: string): DeletedMemoryIds {
   const convBeforeDelete = getConversation(id);
   const createdAtForDiskCleanup = convBeforeDelete?.createdAt;
 
-  // llm_request_logs lives in the dedicated logs connection, so it is deleted
-  // there — separately from the main-DB transaction below.
+  // llm_request_logs and skill_loaded_events live in the dedicated logs and
+  // telemetry connections, so they are deleted there — separately from (and
+  // before) the main-DB transaction below, so a failure leaves the
+  // conversation intact for a retried delete.
   logsDb()
     .delete(llmRequestLogs)
     .where(eq(llmRequestLogs.conversationId, id))
+    .run();
+  telemetryDb()
+    .delete(skillLoadedEvents)
+    .where(eq(skillLoadedEvents.conversationId, id))
     .run();
 
   db.transaction((tx) => {
@@ -1659,9 +1680,6 @@ export function deleteConversation(id: string): DeletedMemoryIds {
       tx.delete(toolInvocations)
         .where(eq(toolInvocations.conversationId, id))
         .run();
-      tx.delete(skillLoadedEvents)
-        .where(eq(skillLoadedEvents.conversationId, id))
-        .run();
       // Cascade deletes memory_segments, message_attachments.
       tx.delete(messages).where(eq(messages.conversationId, id)).run();
 
@@ -1680,9 +1698,6 @@ export function deleteConversation(id: string): DeletedMemoryIds {
       // No messages — just clean up non-message tables.
       tx.delete(toolInvocations)
         .where(eq(toolInvocations.conversationId, id))
-        .run();
-      tx.delete(skillLoadedEvents)
-        .where(eq(skillLoadedEvents.conversationId, id))
         .run();
     }
 
@@ -1785,14 +1800,19 @@ export async function deleteConversationGently(
     );
   }
 
+  // skill_loaded_events lives in the dedicated telemetry connection; delete
+  // it there before the main-DB transaction so a failure leaves the
+  // conversation intact for a retried delete.
+  telemetryDb()
+    .delete(skillLoadedEvents)
+    .where(eq(skillLoadedEvents.conversationId, id))
+    .run();
+
   // Remaining cleanup is cheap (bounded, non-message tables) so it stays a
   // single in-process transaction.
   db.transaction((tx) => {
     tx.delete(toolInvocations)
       .where(eq(toolInvocations.conversationId, id))
-      .run();
-    tx.delete(skillLoadedEvents)
-      .where(eq(skillLoadedEvents.conversationId, id))
       .run();
 
     // Clean up segment embeddings (not FK-linked to segments, so the message
@@ -2951,20 +2971,26 @@ export async function clearAll(): Promise<{
   await runOrThrow("DELETE FROM memory_segments");
   await runOrThrow("DELETE FROM memory_summaries");
   await runOrThrow("DELETE FROM memory_embeddings");
-  // memory_jobs and llm_request_logs each live in their own dedicated
-  // connection; clear them directly on those connections rather than through a
-  // sqlite3 subprocess.
+  // memory_jobs, llm_request_logs, and skill_loaded_events each live in their
+  // own dedicated connection; clear them directly on those connections rather
+  // than through a sqlite3 subprocess. Throw-on-failure like the main-DB
+  // deletes: unshipped skill events reference conversations this wipe must
+  // redact, so a failed delete must fail the clear-all rather than let them
+  // flush later.
   rawMemoryRun("conversation:clearAll:memoryJobs", "DELETE FROM memory_jobs");
   await runOrThrow("DELETE FROM memory_checkpoints");
   rawLogsRun(
     "conversation:clearAll:requestLogs",
     "DELETE FROM llm_request_logs",
   );
+  rawTelemetryRun(
+    "conversation:clearAll:skillLoadedEvents",
+    "DELETE FROM skill_loaded_events",
+  );
   await runOrThrow("DELETE FROM llm_usage_events");
   await runOrThrow("DELETE FROM message_attachments");
   await runOrThrow("DELETE FROM attachments");
   await runOrThrow("DELETE FROM tool_invocations");
-  await runOrThrow("DELETE FROM skill_loaded_events");
   await runOrThrow("DELETE FROM messages");
   await runOrThrow("DELETE FROM conversations");
 

@@ -16,7 +16,7 @@ import {
   getMessages,
 } from "../persistence/conversation-crud.js";
 import { isLastUserMessageToolResult } from "../persistence/conversation-queries.js";
-import { getDb } from "../persistence/db-connection.js";
+import { getDb, getTelemetryDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { skillLoadedEvents } from "../persistence/schema/index.js";
 // Initialize db once before all tests
@@ -354,9 +354,9 @@ describe("attachment orphan cleanup", () => {
     // Privacy posture: Clear All wins over unflushed telemetry — the
     // skill_loaded_events rows (conversation id, skill name, model
     // attribution) must not survive the wipe and ship later.
-    getDb().delete(skillLoadedEvents).run();
+    getTelemetryDb()!.delete(skillLoadedEvents).run();
     const conv = createConversation("test");
-    getDb()
+    getTelemetryDb()!
       .insert(skillLoadedEvents)
       .values([
         {
@@ -372,15 +372,17 @@ describe("attachment orphan cleanup", () => {
 
     await clearAll();
 
-    expect(getDb().select().from(skillLoadedEvents).all()).toHaveLength(0);
+    expect(
+      getTelemetryDb()!.select().from(skillLoadedEvents).all(),
+    ).toHaveLength(0);
   });
 
   test("deleteConversation removes that conversation's skill_loaded_events", async () => {
-    getDb().delete(skillLoadedEvents).run();
+    getTelemetryDb()!.delete(skillLoadedEvents).run();
     const conv = createConversation("doomed");
     await addMessage(conv.id, "user", "hello");
     const other = createConversation("kept");
-    getDb()
+    getTelemetryDb()!
       .insert(skillLoadedEvents)
       .values([
         {
@@ -400,14 +402,14 @@ describe("attachment orphan cleanup", () => {
 
     deleteConversation(conv.id);
 
-    const remaining = getDb().select().from(skillLoadedEvents).all();
+    const remaining = getTelemetryDb()!.select().from(skillLoadedEvents).all();
     expect(remaining.map((r) => r.id)).toEqual(["sle-del-2"]);
   });
 
   test("deleteConversation removes skill_loaded_events when the conversation has no messages", () => {
-    getDb().delete(skillLoadedEvents).run();
+    getTelemetryDb()!.delete(skillLoadedEvents).run();
     const conv = createConversation("empty");
-    getDb()
+    getTelemetryDb()!
       .insert(skillLoadedEvents)
       .values({
         id: "sle-del-empty",
@@ -419,7 +421,9 @@ describe("attachment orphan cleanup", () => {
 
     deleteConversation(conv.id);
 
-    expect(getDb().select().from(skillLoadedEvents).all()).toHaveLength(0);
+    expect(
+      getTelemetryDb()!.select().from(skillLoadedEvents).all(),
+    ).toHaveLength(0);
   });
 
   test("deleteLastExchange does not delete unlinked user uploads", async () => {
