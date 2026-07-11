@@ -784,7 +784,7 @@ describe("vellum managed playability", () => {
     const playable = await evaluateTelephonyTtsPlayability("vellum");
     expect(playable).toMatchObject({
       status: "not-playable",
-      reason: "missing-credentials",
+      reason: "missing-platform-connection",
     });
   });
 });

@@ -37,7 +37,8 @@ import { resolveTtsConfig } from "../tts/tts-config-resolver.js";
 export type TelephonyTtsNotPlayableReason =
   | "unsupported-format"
   | "missing-credentials"
-  | "missing-fish-audio-reference-id";
+  | "missing-fish-audio-reference-id"
+  | "missing-platform-connection";
 
 /**
  * Result of resolving whether a TTS provider is playable over the
@@ -123,7 +124,7 @@ export async function evaluateTelephonyTtsPlayability(
       return {
         status: "not-playable",
         providerId: entry.id,
-        reason: "missing-credentials",
+        reason: "missing-platform-connection",
       };
     }
   }
