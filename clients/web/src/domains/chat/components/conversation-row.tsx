@@ -150,25 +150,26 @@ export function buildSwipeActions(
     });
   }
 
-  // Trailing (swipe left): Archive / Unarchive
-  if (!isChannel) {
-    const isArchived = conversation.archivedAt != null;
-    if (isArchived && ctx.onUnarchive) {
-      trailingActions.push({
-        id: "unarchive",
-        label: "Unarchive",
-        icon: ArchiveRestore,
-        onSelect: () => ctx.onUnarchive?.(conversation),
-      });
-    } else if (!isArchived && ctx.onArchive) {
-      trailingActions.push({
-        id: "archive",
-        label: "Archive",
-        icon: Archive,
-        variant: "destructive",
-        onSelect: () => ctx.onArchive?.(conversation),
-      });
-    }
+  // Trailing (swipe left): Archive / Unarchive. Available for channel
+  // conversations too — archive is an organizational action that doesn't write
+  // to the source channel (matches the row menu, which keeps archive available
+  // for read-only channel threads). Only Pin above is channel-excluded.
+  const isArchived = conversation.archivedAt != null;
+  if (isArchived && ctx.onUnarchive) {
+    trailingActions.push({
+      id: "unarchive",
+      label: "Unarchive",
+      icon: ArchiveRestore,
+      onSelect: () => ctx.onUnarchive?.(conversation),
+    });
+  } else if (!isArchived && ctx.onArchive) {
+    trailingActions.push({
+      id: "archive",
+      label: "Archive",
+      icon: Archive,
+      variant: "destructive",
+      onSelect: () => ctx.onArchive?.(conversation),
+    });
   }
 
   return { leadingActions, trailingActions };
