@@ -35,17 +35,6 @@ mock.module("../permissions/trust-store.js", () => ({
   clearCache: () => {},
 }));
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-    model: "test",
-    provider: "test",
-    memory: { enabled: false },
-    rateLimit: { maxRequestsPerMinute: 0 },
-    secretDetection: { enabled: false },
-  }),
-}));
-
 const realEnv = await import("../config/env.js");
 mock.module("../config/env.js", () => ({
   ...realEnv,

@@ -116,18 +116,11 @@ mock.module("../oauth/oauth-store.js", () => ({
   getProvider: (key: string) => mockProviderStore[key],
 }));
 
-// Config / ingress mocks — for gateway transport validation
-let mockPublicBaseUrl = "";
-
-mock.module("../config/loader.js", () => ({
-  loadConfig: () => ({
-    ingress: { publicBaseUrl: mockPublicBaseUrl },
-  }),
-}));
-
+// Ingress mock — for gateway transport validation. The orchestrator passes
+// the real loaded config (seeded via setConfig below) into getPublicBaseUrl.
 mock.module("../inbound/public-ingress-urls.js", () => ({
   getPublicBaseUrl: (config?: { ingress?: { publicBaseUrl?: string } }) => {
-    const url = config?.ingress?.publicBaseUrl ?? mockPublicBaseUrl;
+    const url = config?.ingress?.publicBaseUrl ?? "";
     if (!url) {
       throw new Error("No public base URL configured.");
     }
@@ -140,6 +133,12 @@ mock.module("../inbound/public-ingress-urls.js", () => ({
 // ---------------------------------------------------------------------------
 
 import { orchestrateOAuthConnect } from "../oauth/connect-orchestrator.js";
+import { setConfig } from "./helpers/set-config.js";
+
+/** Seed `ingress.publicBaseUrl` in the real workspace config. */
+function setPublicBaseUrl(url: string): void {
+  setConfig("ingress", { publicBaseUrl: url });
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -217,7 +216,7 @@ const OUTLOOK_PROVIDER = makeProviderRow({
 beforeEach(() => {
   lastPrepareArgs = null;
   lastStartArgs = null;
-  mockPublicBaseUrl = "";
+  setPublicBaseUrl("");
   mockIdentityResult = "user@example.com";
   mockProviderStore = {};
 
@@ -268,7 +267,7 @@ describe("orchestrateOAuthConnect — transport selection", () => {
 
     test('callbackTransport: "gateway" → passes gateway options to prepareOAuth2Flow', async () => {
       mockProviderStore["google"] = GOOGLE_PROVIDER;
-      mockPublicBaseUrl = "https://gw.example.com";
+      setPublicBaseUrl("https://gw.example.com");
 
       const result = await orchestrateOAuthConnect({
         service: "google",
@@ -310,7 +309,7 @@ describe("orchestrateOAuthConnect — transport selection", () => {
 
     test("gateway without ingress configured → returns error", async () => {
       mockProviderStore["google"] = GOOGLE_PROVIDER;
-      mockPublicBaseUrl = ""; // no ingress
+      setPublicBaseUrl(""); // no ingress
 
       const result = await orchestrateOAuthConnect({
         service: "google",
@@ -326,7 +325,7 @@ describe("orchestrateOAuthConnect — transport selection", () => {
 
     test("loopback without ingress configured → succeeds", async () => {
       mockProviderStore["google"] = GOOGLE_PROVIDER;
-      mockPublicBaseUrl = ""; // no ingress
+      setPublicBaseUrl(""); // no ingress
 
       const result = await orchestrateOAuthConnect({
         service: "google",
@@ -435,7 +434,7 @@ describe("orchestrateOAuthConnect — transport selection", () => {
 
     test("Google + gateway → gateway transport", async () => {
       mockProviderStore["google"] = GOOGLE_PROVIDER;
-      mockPublicBaseUrl = "https://gw.example.com";
+      setPublicBaseUrl("https://gw.example.com");
 
       await orchestrateOAuthConnect({
         service: "google",
@@ -467,7 +466,7 @@ describe("orchestrateOAuthConnect — transport selection", () => {
 
     test("Outlook + gateway → gateway transport", async () => {
       mockProviderStore["outlook"] = OUTLOOK_PROVIDER;
-      mockPublicBaseUrl = "https://gw.example.com";
+      setPublicBaseUrl("https://gw.example.com");
 
       await orchestrateOAuthConnect({
         service: "outlook",
@@ -627,7 +626,7 @@ describe("orchestrateOAuthConnect — transport selection", () => {
   describe("error cases", () => {
     test("gateway without ingress (deferred, Google) → returns error", async () => {
       mockProviderStore["google"] = GOOGLE_PROVIDER;
-      mockPublicBaseUrl = "";
+      setPublicBaseUrl("");
 
       const result = await orchestrateOAuthConnect({
         service: "google",
@@ -645,7 +644,7 @@ describe("orchestrateOAuthConnect — transport selection", () => {
 
     test("gateway without ingress (deferred, Outlook) → returns error", async () => {
       mockProviderStore["outlook"] = OUTLOOK_PROVIDER;
-      mockPublicBaseUrl = "";
+      setPublicBaseUrl("");
 
       const result = await orchestrateOAuthConnect({
         service: "outlook",

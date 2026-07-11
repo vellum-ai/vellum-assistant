@@ -11,26 +11,6 @@ mock.module("../background-wake/publisher.js", () => ({
   refreshBackgroundWakeIntent: () => {},
 }));
 
-let workerEnabled = false;
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    schedules: { worker: { enabled: workerEnabled } },
-    timeouts: { scheduleTurnTimeoutSec: 1800 },
-  }),
-  loadConfig: () => ({}),
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-  getConfigReadOnly: () => ({}),
-  applyNestedDefaults: (config: unknown) => config,
-  deepMergeOverwrite: (base: unknown) => base,
-  mergeDefaultWorkspaceConfig: () => {},
-  getNestedValue: () => undefined,
-  setNestedValue: () => {},
-  API_KEY_PROVIDERS: [],
-  _writeQuarantineNotice: () => {},
-  invalidateConfigCache: () => {},
-}));
-
 mock.module("../daemon/disk-pressure-background-gate.js", () => ({
   checkDiskPressureBackgroundGate: () => ({
     action: "allow",
@@ -68,6 +48,12 @@ import {
   runDueSchedulesOnce,
   runScheduleDueWorkOnce,
 } from "../schedule/scheduler.js";
+import { setConfig } from "./helpers/set-config.js";
+
+/** Seed `schedules.worker.enabled` for real; the scheduler re-reads it per tick. */
+function setWorkerEnabled(enabled: boolean): void {
+  setConfig("schedules", { worker: { enabled } });
+}
 
 await initializeDb();
 
@@ -77,7 +63,7 @@ function rawDb(): import("bun:sqlite").Database {
 }
 
 beforeEach(() => {
-  workerEnabled = false;
+  setWorkerEnabled(false);
   mockEmitNotificationSignal.mockClear();
   const db = getDb();
   db.run("DELETE FROM cron_runs");
@@ -111,7 +97,7 @@ function runsFor(jobId: string): Array<{ status: string }> {
 
 describe("scheduler stand-down for the schedule worker", () => {
   test("flag on: leaves every due schedule unclaimed and reports none pending", async () => {
-    workerEnabled = true;
+    setWorkerEnabled(true);
     const { script } = await createDueScriptAndNotifyJobs();
     const dueBefore = rawDb()
       .query("SELECT id, next_run_at FROM cron_jobs")
@@ -133,7 +119,7 @@ describe("scheduler stand-down for the schedule worker", () => {
   });
 
   test("flag off: the in-process scheduler claims and runs due schedules itself", async () => {
-    workerEnabled = false;
+    setWorkerEnabled(false);
     const { script } = await createDueScriptAndNotifyJobs();
 
     const result = await runScheduleDueWorkOnce();
@@ -150,7 +136,7 @@ describe("runDueSchedulesOnce (the schedule worker's tick)", () => {
   test("claims and executes due schedules across modes", async () => {
     // The worker runs with the flag on; runDueSchedulesOnce itself does not
     // consult the flag — its caller owns schedule execution.
-    workerEnabled = true;
+    setWorkerEnabled(true);
     const { script } = await createDueScriptAndNotifyJobs();
 
     const result = await runDueSchedulesOnce();

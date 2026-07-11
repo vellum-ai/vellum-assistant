@@ -1,12 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-    memory: {},
-  }),
-}));
-
 mock.module("../persistence/jobs-store.js", () => ({
   enqueueMemoryJob: () => {},
 }));

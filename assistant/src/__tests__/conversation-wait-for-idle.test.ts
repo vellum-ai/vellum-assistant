@@ -24,47 +24,6 @@ mock.module("../providers/registry.js", () => ({
   initializeProviders: async () => {},
 }));
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-    llm: {
-      default: {
-        provider: "mock-provider",
-        model: "mock-model",
-        maxTokens: 4096,
-        effort: "high" as const,
-        speed: "standard" as const,
-        temperature: null,
-        thinking: { enabled: false, streamThinking: true },
-        contextWindow: {
-          enabled: true,
-          maxInputTokens: 100000,
-          targetBudgetRatio: 0.3,
-          compactThreshold: 0.8,
-          summaryBudgetRatio: 0.05,
-          overflowRecovery: {
-            enabled: true,
-            safetyMarginRatio: 0.05,
-            maxAttempts: 3,
-            interactiveLatestTurnCompression: "summarize",
-            nonInteractiveLatestTurnCompression: "truncate",
-          },
-        },
-      },
-      profiles: {},
-      callSites: {},
-      pricingOverrides: [],
-    },
-    rateLimit: { maxRequestsPerMinute: 0 },
-    timeouts: { permissionTimeoutSec: 1 },
-    skills: { entries: {}, allowBundled: true },
-    permissions: { mode: "workspace" },
-  }),
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-  invalidateConfigCache: () => {},
-}));
-
 mock.module("../config/assistant-feature-flags.js", () => ({
   isAssistantFeatureFlagEnabled: () => true,
 }));

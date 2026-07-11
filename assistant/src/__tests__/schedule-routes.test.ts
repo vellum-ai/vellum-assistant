@@ -1,32 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    heartbeat: {
-      enabled: false,
-      intervalMs: 60_000,
-      activeHoursStart: null,
-      activeHoursEnd: null,
-      cronExpression: null,
-      timezone: null,
-    },
-    migrations: { worker: { enabled: false } },
-    llm: { pricingOverrides: {} },
-    timeouts: { scheduleTurnTimeoutSec: 600 },
-  }),
-  getConfigReadOnly: () => ({
-    llm: {
-      profiles: {
-        balanced: { model: "test-model" },
-        "cost-optimized": { model: "test-model-small" },
-      },
-    },
-  }),
-  invalidateConfigCache: () => {},
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-}));
-
 mock.module("../heartbeat/heartbeat-service.js", () => ({
   HeartbeatService: {
     getInstance: () => null,
@@ -1277,8 +1250,8 @@ describe("POST /schedules — create", () => {
   });
 
   test("persists and round-trips workflowName/workflowArgs in the list response", async () => {
-    // Store-level round trip: the create route is flag-gated (and the mocked
-    // config disables it), so exercise persistence directly via the store.
+    // Store-level round trip: exercise persistence directly via the store,
+    // which is what the scheduler reads.
     await createSchedule({
       name: "Workflow schedule",
       cronExpression: "0 9 * * *",
