@@ -6,7 +6,7 @@ mock.module("../platform/consent-cache.js", () => ({
   getCachedShareAnalytics: () => shareAnalytics,
 }));
 
-import { getDb } from "../persistence/db-connection.js";
+import { getTelemetryDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { skillLoadedEvents } from "../persistence/schema/index.js";
 import {
@@ -21,13 +21,16 @@ function insertEvent(
   createdAt: number,
   skillName = "web-research",
 ): void {
-  getDb().insert(skillLoadedEvents).values({ id, createdAt, skillName }).run();
+  getTelemetryDb()!
+    .insert(skillLoadedEvents)
+    .values({ id, createdAt, skillName })
+    .run();
 }
 
 describe("skill-loaded-events-store", () => {
   beforeEach(() => {
     shareAnalytics = true;
-    getDb().delete(skillLoadedEvents).run();
+    getTelemetryDb()!.delete(skillLoadedEvents).run();
   });
 
   test("honors the share_analytics opt-out (records nothing)", () => {
