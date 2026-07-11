@@ -112,6 +112,22 @@ export async function evaluateTelephonyTtsPlayability(
     }
   }
 
+  // The vellum secret alone doesn't prove usability: managed speech also
+  // needs the platform assistant identity, or synthesis fails before any
+  // request is made — with allowNativeFallback false, that would mean
+  // silent call failures instead of a BYOK fallback.
+  if (entry.id === "vellum") {
+    const { managedSpeechAvailable } =
+      await import("../platform/managed-speech.js");
+    if (!(await managedSpeechAvailable())) {
+      return {
+        status: "not-playable",
+        providerId: entry.id,
+        reason: "missing-credentials",
+      };
+    }
+  }
+
   if (entry.id === "fish-audio" && !fishAudioReferenceIdConfigured()) {
     return {
       status: "not-playable",

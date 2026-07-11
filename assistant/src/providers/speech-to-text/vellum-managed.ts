@@ -5,8 +5,8 @@
  * connection itself.
  */
 
-import { VellumPlatformClient } from "../../platform/client.js";
 import {
+  managedSpeechAvailable,
   type ManagedSpeechResult,
   managedSpeechTranscribe,
 } from "../../platform/managed-speech.js";
@@ -20,8 +20,7 @@ type ManagedSpeechFailure = Extract<ManagedSpeechResult<never>, { ok: false }>;
  * providers does not apply to `vellum`.
  */
 export async function vellumManagedSpeechAvailable(): Promise<boolean> {
-  const client = await VellumPlatformClient.create();
-  return Boolean(client?.platformAssistantId);
+  return managedSpeechAvailable();
 }
 
 /**
