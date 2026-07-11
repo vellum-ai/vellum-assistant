@@ -143,6 +143,16 @@ function ttsGap(
         clause: `an API key for the text-to-speech provider "${providerId}" (no fallback provider has usable credentials)`,
       };
     }
+    case "missing-platform-connection": {
+      return {
+        gap: {
+          kind: "tts",
+          providerId,
+          reason: `Managed TTS has no usable Vellum platform connection and no playable fallback provider is available`,
+        },
+        clause: `a Vellum platform connection for managed speech (run 'assistant platform connect'; no fallback provider has usable credentials)`,
+      };
+    }
     case "missing-fish-audio-reference-id": {
       return {
         gap: {

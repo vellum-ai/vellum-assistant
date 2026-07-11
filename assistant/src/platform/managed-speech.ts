@@ -69,6 +69,15 @@ async function resolveClient(): Promise<
   return { client };
 }
 
+/**
+ * Whether managed speech can be used at all: a platform connection whose
+ * assistant identity is fully provisioned. A stored API key alone is not
+ * enough — synthesis/transcription would fail before any request is made.
+ */
+export async function managedSpeechAvailable(): Promise<boolean> {
+  return !("error" in (await resolveClient()));
+}
+
 export async function managedSpeechTranscribe(input: {
   audio: Buffer;
   mimeType: string;
