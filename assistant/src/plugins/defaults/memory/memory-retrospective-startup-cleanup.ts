@@ -52,13 +52,14 @@ import {
   sql,
 } from "drizzle-orm";
 
-import { getDb, getMemoryDb } from "../../../persistence/db-connection.js";
+import { getDb } from "../../../persistence/db-connection.js";
 import {
   conversations,
   memoryJobs,
 } from "../../../persistence/schema/index.js";
 import { getMemoryConfig } from "./config.js";
 import { getLogger } from "./logging.js";
+import { getMemoryDb } from "./memory-db.js";
 import { MEMORY_RETROSPECTIVE_SOURCES } from "./memory-retrospective-constants.js";
 import { loadRetrospectiveRunMessages } from "./memory-retrospective-fork-boundary.js";
 
