@@ -9,8 +9,6 @@
  * which sources its reporter instance is constructed with.
  */
 
-import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
-import { getConfig } from "../config/loader.js";
 import { queryUnreportedOnboardingEvents } from "../onboarding/onboarding-events-store.js";
 import { queryUnreportedLifecycleEvents } from "../persistence/lifecycle-events-store.js";
 import { queryUnreportedUsageEvents } from "../persistence/llm-usage-store.js";
@@ -226,16 +224,12 @@ const turnSource: TelemetryEventSource = {
     //
     // Trace eligibility is composed daemon-side to mirror the platform's
     // authoritative owner-based ingest gate, so traces for ineligible owners
-    // never leave the device. Three parts, fail-closed (all must be true):
-    //   1. the `trace-collection` LaunchDarkly flag (delivered via the
-    //      assistant-tagged flag sync, already evaluated server-side for this
-    //      assistant's owner),
-    //   2. the owner's cached `share_diagnostics` consent, and
-    //   3. the owner's cached `share_diagnostics_accepted_version` being at or
+    // never leave the device. Two parts, fail-closed (both must be true):
+    //   1. the owner's cached `share_diagnostics` consent, and
+    //   2. the owner's cached `share_diagnostics_accepted_version` being at or
     //      past the disclosing version — the platform applies the identical
     //      check, so an old consent never yields a trace here or there.
     const traceEligible =
-      isAssistantFeatureFlagEnabled("trace-collection", getConfig()) &&
       getCachedShareDiagnostics() &&
       isDiagnosticsConsentVersionEligible(getCachedShareDiagnosticsVersion());
     let reportableTurnEvents = turnEvents;
@@ -270,10 +264,9 @@ const turnSource: TelemetryEventSource = {
 
     const events = reportableTurnEvents.map((e): TelemetryEvent => {
       // Per-turn trace collection gate. `traceEligible` (computed above)
-      // requires the `trace-collection` flag AND the owner's cached
-      // `share_diagnostics` consent AND an eligible accepted consent
-      // version. Fail-closed: when any is off the trace is omitted and the
-      // trace-free turn row flushes as before. The
+      // requires the owner's cached `share_diagnostics` consent AND an
+      // eligible accepted consent version. Fail-closed: when either is off
+      // the trace is omitted and the trace-free turn row flushes as before. The
       // `share_analytics` gate in the reporter already passed, so this is an
       // additional, independent gate specific to trace PII. Every turn
       // reaching here is settled (the completeness barrier dropped any
