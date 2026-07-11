@@ -20,7 +20,7 @@
 ## Clients
 - [clients/README.md](clients/README.md): Client monorepo overview — shared packages, build tooling, platform targets.
 - [clients/AGENTS.md](clients/AGENTS.md): Client agent configuration — design system conventions, component patterns, routing.
-- [clients/web/AGENTS.md](clients/web/AGENTS.md): Web client specifics — Next.js pages, API routes, rendering strategies.
+- [clients/web/AGENTS.md](clients/web/AGENTS.md): Web client specifics — Vite + React Router v7 SPA, file-based routing, rendering strategies.
 - [clients/chrome-extension/README.md](clients/chrome-extension/README.md): Chrome extension — local sandbox app support, bridge communication.
 
 ## Skills
@@ -33,4 +33,3 @@
 - [GLOSSARY.md](GLOSSARY.md): Glossary of terms — project-specific terminology and acronyms.
 
 ## Code Structure
-- [assistant/docs/architecture/code-graph.md](assistant/docs/architecture/code-graph.md): AST-based code knowledge graph — structural code indexing, tree-sitter extractors, and queryable graph artifact. (Populated by the code-knowledge-graph feature.)
