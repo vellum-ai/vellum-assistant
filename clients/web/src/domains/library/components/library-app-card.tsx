@@ -9,12 +9,15 @@ import {
 import { type MouseEvent, useCallback, useState } from "react";
 
 import { AppPreviewThumbnail } from "@/components/app-card";
+import { SwipeActionReveal } from "@/components/swipe-action-reveal";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import type { AppSummary } from "@/types/app-types";
 import { getCachedAppHtml } from "@/utils/app-html-cache";
 import { formatFriendlyDate } from "@/utils/format-date";
 import { cn } from "@/utils/misc";
 import { shareApp } from "@/utils/share-app";
+import { isPointerCoarse } from "@/utils/pointer";
+import type { SwipeAction } from "@/hooks/use-swipe-to-reveal";
 import {
     BottomSheet,
     Button,
@@ -69,63 +72,97 @@ export function LibraryAppCard({
   const [menuOpen, setMenuOpen] = useState(false);
   const isMobile = useIsMobile();
 
-  return (
-    <div
-      className={cn(
-        "group relative flex flex-col gap-2",
-        justImported && "animate-[card-entrance_400ms_ease-out]",
-      )}
-      onAnimationEnd={justImported ? onAnimationEnd : undefined}
-    >
-      <button
-        type="button"
-        onClick={() => onOpen(app.id)}
-        className={cn(
-          "relative w-full cursor-pointer overflow-hidden rounded-xl",
-          "outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]",
-        )}
-      >
-        <AppPreviewThumbnail
-          name={app.name}
-          icon={app.icon}
-          loadHtml={loadHtml}
-        />
-      </button>
+  // Leading swipe actions are intentionally omitted. On mobile chat-side
+  // routes, ChatLayout enables a document-level drawer edge swipe
+  // (useEdgeSwipe) that captures rightward swipes starting in the left 50vw.
+  // A leading swipe-right on library cards in that zone would conflict with
+  // the drawer-open gesture. Pin/Unpin is moved to the trailing side
+  // (swipe-left) alongside Delete so both actions remain available without
+  // the gesture conflict.
+  const trailingActions: SwipeAction[] = isPointerCoarse()
+    ? [
+        {
+          id: "pin",
+          label: isPinned ? "Unpin" : "Pin",
+          icon: isPinned ? PinOff : Pin,
+          onSelect: () => onPin(app),
+        },
+        ...(onDelete
+          ? [
+              {
+                id: "delete",
+                label: "Delete",
+                icon: Trash2,
+                variant: "destructive" as const,
+                onSelect: () => onDelete(app),
+              },
+            ]
+          : []),
+      ]
+    : [];
 
+  return (
+    <SwipeActionReveal
+      trailingActions={trailingActions}
+      className="rounded-xl"
+    >
       <div
         className={cn(
-          "absolute right-2 top-2 z-20 transition-opacity",
-          "max-md:opacity-100",
-          "md:group-hover:opacity-100 md:group-focus-within:opacity-100",
-          menuOpen ? "opacity-100" : "md:opacity-0",
+          "group relative flex flex-col gap-2",
+          justImported && "animate-[card-entrance_400ms_ease-out]",
         )}
+        onAnimationEnd={justImported ? onAnimationEnd : undefined}
       >
-        <LibraryAppCardActionsMenu
-          appName={app.name}
-          isPinned={isPinned}
-          open={menuOpen}
-          onOpenChange={setMenuOpen}
-          onPin={() => onPin(app)}
-          onDelete={onDelete ? () => onDelete(app) : undefined}
-          onShare={handleShare}
-          onDeploy={onDeploy}
-          isMobile={isMobile}
-        />
-      </div>
+        <button
+          type="button"
+          onClick={() => onOpen(app.id)}
+          className={cn(
+            "relative w-full cursor-pointer overflow-hidden rounded-xl",
+            "outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]",
+          )}
+        >
+          <AppPreviewThumbnail
+            name={app.name}
+            icon={app.icon}
+            loadHtml={loadHtml}
+          />
+        </button>
 
-      <button
-        type="button"
-        onClick={() => onOpen(app.id)}
-        className="flex cursor-pointer flex-col gap-0.5 px-0.5 text-left outline-none"
-      >
-        <span className="truncate text-body-large-default text-[color:var(--content-emphasised)]">
-          {app.name}
-        </span>
-        <span className="text-body-small-default text-[color:var(--content-tertiary)]">
-          {formatFriendlyDate(new Date(app.createdAt))}
-        </span>
-      </button>
-    </div>
+        <div
+          className={cn(
+            "absolute right-2 top-2 z-20 transition-opacity",
+            "max-md:opacity-100",
+            "md:group-hover:opacity-100 md:group-focus-within:opacity-100",
+            menuOpen ? "opacity-100" : "md:opacity-0",
+          )}
+        >
+          <LibraryAppCardActionsMenu
+            appName={app.name}
+            isPinned={isPinned}
+            open={menuOpen}
+            onOpenChange={setMenuOpen}
+            onPin={() => onPin(app)}
+            onDelete={onDelete ? () => onDelete(app) : undefined}
+            onShare={handleShare}
+            onDeploy={onDeploy}
+            isMobile={isMobile}
+          />
+        </div>
+
+        <button
+          type="button"
+          onClick={() => onOpen(app.id)}
+          className="flex cursor-pointer flex-col gap-0.5 px-0.5 text-left outline-none"
+        >
+          <span className="truncate text-body-large-default text-[color:var(--content-emphasised)]">
+            {app.name}
+          </span>
+          <span className="text-body-small-default text-[color:var(--content-tertiary)]">
+            {formatFriendlyDate(new Date(app.createdAt))}
+          </span>
+        </button>
+      </div>
+    </SwipeActionReveal>
   );
 }
 
