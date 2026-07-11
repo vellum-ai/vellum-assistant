@@ -82,4 +82,22 @@ describe("AttachFileButton — composer refocus on picker close", () => {
     // Mounting the button alone must not refocus the composer.
     expect(requestComposerFocusMock).not.toHaveBeenCalled();
   });
+
+  test("refocuses via the one-shot window focus fallback (iOS 15–16.3)", () => {
+    const { getByLabelText } = render(
+      <AttachFileButton onFilesSelected={() => {}} />,
+    );
+    // Opening the picker arms the fallback; a window focus (web view regains
+    // first responder as the picker closes) restores the keyboard on engines
+    // that never fire the input `cancel` event.
+    fireEvent.click(getByLabelText("Attach file"));
+    expect(requestComposerFocusMock).not.toHaveBeenCalled();
+
+    window.dispatchEvent(new Event("focus"));
+    expect(requestComposerFocusMock).toHaveBeenCalledTimes(1);
+
+    // One-shot: a later focus (unrelated) does not refocus again.
+    window.dispatchEvent(new Event("focus"));
+    expect(requestComposerFocusMock).toHaveBeenCalledTimes(1);
+  });
 });

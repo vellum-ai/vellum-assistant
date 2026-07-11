@@ -148,12 +148,16 @@ interface AttachFileButtonProps {
  *
  * - `change` — a file was selected.
  * - `cancel` — the picker was dismissed without a selection (WebKit / Safari
- *   16.4+, well within the Capacitor iOS WKWebView baseline; a no-op on older
- *   engines that never fire it).
+ *   16.4+). Precise: tied to the picker dismissal itself.
+ * - one-shot `window` `focus` — fallback for iOS 15–16.3 WKWebViews (the app's
+ *   deployment target is iOS 15) that predate the `cancel` event. Armed on
+ *   picker open and removed after firing once, so a later real `cancel` on
+ *   newer engines still works and the fallback can't linger. `focus` fires
+ *   when the web view regains first responder as the picker closes.
  *
  * `requestComposerFocus()` is idempotent and a no-op on desktop (the textarea
- * is already focused there and the OS file dialog doesn't steal focus), so the
- * refocus is safe to run unconditionally.
+ * is already focused there and the OS file dialog doesn't steal focus), so
+ * running it from more than one of these paths is harmless.
  */
 export const AttachFileButton: FC<AttachFileButtonProps> = ({
   disabled = false,
@@ -163,6 +167,14 @@ export const AttachFileButton: FC<AttachFileButtonProps> = ({
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   const handleClick = useCallback(() => {
+    // Fallback for iOS 15–16.3 WKWebViews that don't fire the input `cancel`
+    // event: refocus the composer the first time the window regains focus
+    // after the picker opens (the picker resigned it). One-shot so it can't
+    // linger past this picker session; on iOS 16.4+ the `cancel` handler below
+    // is the precise signal and this is a harmless idempotent extra.
+    window.addEventListener("focus", () => requestComposerFocus(), {
+      once: true,
+    });
     inputRef.current?.click();
   }, []);
 
