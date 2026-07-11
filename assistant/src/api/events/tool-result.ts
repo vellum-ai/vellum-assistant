@@ -47,6 +47,7 @@ export const WebSearchProviderIdSchema = z.enum([
   "brave",
   "perplexity",
   "tavily",
+  "keenable",
   "firecrawl",
 ]);
 
