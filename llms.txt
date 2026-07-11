@@ -1,0 +1,36 @@
+# Vellum Assistant
+> Self-knowledge index for the Vellum Assistant monorepo — curated documentation links for LLM consumption.
+
+## Architecture
+- [ARCHITECTURE.md](ARCHITECTURE.md): Monorepo overview — repositories, directory layout, and build system.
+- [assistant/ARCHITECTURE.md](assistant/ARCHITECTURE.md): Assistant runtime internals — conversation loop, tool dispatch, memory system.
+- [gateway/ARCHITECTURE.md](gateway/ARCHITECTURE.md): Gateway service — API routing, authentication, WebSocket connections.
+- [assistant/docs/architecture/memory.md](assistant/docs/architecture/memory.md): Memory architecture — PKB, Qdrant, retrieval, segmentation, and background jobs.
+- [assistant/docs/architecture/integrations.md](assistant/docs/architecture/integrations.md): Integration system — OAuth flows, credential management, third-party service connectors.
+- [assistant/docs/architecture/scheduling.md](assistant/docs/architecture/scheduling.md): Schedule and cron system — background task scheduling, watchers, recurring jobs.
+- [assistant/docs/architecture/security.md](assistant/docs/architecture/security.md): Security model — sandboxing, credential isolation, workspace boundaries.
+- [docs/service-communication-matrix.md](docs/service-communication-matrix.md): Service-to-service communication matrix — internal API contracts and data flow.
+
+## Runtime & Services
+- [assistant/AGENTS.md](assistant/AGENTS.md): Assistant agent capabilities — loaded skills, tool inventory, system prompt patterns.
+- [assistant/CLAUDE.md](assistant/CLAUDE.md): Assistant runtime conventions — startup sequence, dependency management, testing patterns.
+- [gateway/AGENTS.md](gateway/AGENTS.md): Gateway agent configuration — middleware stack, rate limiting, auth providers.
+- [cli/AGENTS.md](cli/AGENTS.md): CLI agent configuration — subcommand structure, credential injection, platform management.
+
+## Clients
+- [clients/README.md](clients/README.md): Client monorepo overview — shared packages, build tooling, platform targets.
+- [clients/AGENTS.md](clients/AGENTS.md): Client agent configuration — design system conventions, component patterns, routing.
+- [clients/web/AGENTS.md](clients/web/AGENTS.md): Web client specifics — Next.js pages, API routes, rendering strategies.
+- [clients/chrome-extension/README.md](clients/chrome-extension/README.md): Chrome extension — local sandbox app support, bridge communication.
+
+## Skills
+- [skills/AGENTS.md](skills/AGENTS.md): Skills system — skill lifecycle, loading, plugin architecture.
+- [skills/vellum-self-knowledge/SKILL.md](skills/vellum-self-knowledge/SKILL.md): Self-knowledge skill — documentation-aware routing between docs site, PKB, and source code.
+
+## Development
+- [AGENTS.md](AGENTS.md): Root agent configuration — monorepo-wide conventions, dependency rules, architectural principles.
+- [CONTRIBUTING.md](CONTRIBUTING.md): Contribution guide — PR workflow, review expectations, commit conventions.
+- [GLOSSARY.md](GLOSSARY.md): Glossary of terms — project-specific terminology and acronyms.
+
+## Code Structure
+- [assistant/docs/architecture/code-graph.md](assistant/docs/architecture/code-graph.md): AST-based code knowledge graph — structural code indexing, tree-sitter extractors, and queryable graph artifact. (Populated by the code-knowledge-graph feature.)
