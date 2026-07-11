@@ -1,12 +1,11 @@
 import { AlertCircle, Folder, Paperclip, X } from "lucide-react";
 import type { ChangeEvent, FC } from "react";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Button } from "@vellumai/design-library";
 
 import { requestComposerFocus } from "@/domains/chat/composer-focus";
 import { AttachmentChip } from "@/domains/chat/components/chat-attachments/attachment-chip";
-import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import { AttachmentLoadingChip } from "@/domains/chat/components/chat-attachments/attachment-loading-chip";
 import { AttachmentPreviewModal } from "@/domains/chat/components/chat-attachments/attachment-preview-modal";
 import type {
@@ -142,9 +141,16 @@ interface AttachFileButtonProps {
  * keyboard-aware layout (`root-layout.tsx` sizes the shell from
  * `visualViewport`). The native picker and the keyboard are mutually
  * exclusive first responders, so the keyboard cannot stay up *during* the
- * picker. Instead we re-focus the composer the moment the picker closes —
- * on both file-select (`handleChange`) and cancel (which fires no `change`
- * event, so we lean on the app foregrounding/visibility signal instead).
+ * picker. Instead we re-focus the composer the moment the picker closes,
+ * keyed off the file input's own events so the signal is tied to the picker
+ * (not to app foregrounding, which also fires when the app is backgrounded
+ * and returned to while the picker is still open):
+ *
+ * - `change` — a file was selected.
+ * - `cancel` — the picker was dismissed without a selection (WebKit / Safari
+ *   16.4+, well within the Capacitor iOS WKWebView baseline; a no-op on older
+ *   engines that never fire it).
+ *
  * `requestComposerFocus()` is idempotent and a no-op on desktop (the textarea
  * is already focused there and the OS file dialog doesn't steal focus), so the
  * refocus is safe to run unconditionally.
@@ -155,37 +161,13 @@ export const AttachFileButton: FC<AttachFileButtonProps> = ({
   title = "Attach file",
 }) => {
   const inputRef = useRef<HTMLInputElement | null>(null);
-  // Set while the native picker is open so the next app-resume signal (fired
-  // when the web view regains first responder) knows to restore the keyboard.
-  const pickerPendingRef = useRef(false);
-
-  // Cancel path: the native picker fires no `change` event when dismissed
-  // without a selection, so restore the keyboard when the app foregrounds
-  // again. `app.resume` is the sanctioned single source for visibility /
-  // Capacitor app-state signals (see docs/EVENT_BUS.md) — subscribing here
-  // instead of registering our own `visibilitychange` listener keeps that
-  // lifecycle in one place. `app.resume` also fires when a file *is* selected
-  // (handleChange refocuses first; this is idempotent), and network-online
-  // resumes are ignored since they don't follow a picker.
-  useBusSubscription("app.resume", ({ signal }) => {
-    if (signal === "online") {
-      return;
-    }
-    if (!pickerPendingRef.current) {
-      return;
-    }
-    pickerPendingRef.current = false;
-    requestComposerFocus();
-  });
 
   const handleClick = useCallback(() => {
-    pickerPendingRef.current = true;
     inputRef.current?.click();
   }, []);
 
   const handleChange = useCallback(
     (event: ChangeEvent<HTMLInputElement>) => {
-      pickerPendingRef.current = false;
       const { files } = event.target;
       if (files && files.length > 0) {
         onFilesSelected(files);
@@ -193,11 +175,26 @@ export const AttachFileButton: FC<AttachFileButtonProps> = ({
       // Reset so selecting the same file twice still fires onChange.
       event.target.value = "";
       // Restore the keyboard/layout after the picker closes on selection.
-      // (The cancel path is handled by the app.resume subscription above.)
       requestComposerFocus();
     },
     [onFilesSelected],
   );
+
+  // Cancel path: the native picker fires `cancel` (not `change`) when
+  // dismissed without a selection. Refocusing here restores the keyboard
+  // without relying on app-foreground signals, which would misfire if the app
+  // is backgrounded and resumed while the picker is still open. Attached
+  // imperatively because the installed React typings don't yet expose the
+  // `onCancel` prop for `<input>` (the DOM event exists in WebKit 16.4+).
+  useEffect(() => {
+    const input = inputRef.current;
+    if (!input) {
+      return;
+    }
+    const onCancel = () => requestComposerFocus();
+    input.addEventListener("cancel", onCancel);
+    return () => input.removeEventListener("cancel", onCancel);
+  }, []);
 
   return (
     <div className="relative">
