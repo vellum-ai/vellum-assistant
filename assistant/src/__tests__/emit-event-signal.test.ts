@@ -36,7 +36,7 @@ describe("handleEmitEventSignal", () => {
   test("reads a ServerMessage from the signal file and publishes it to the event hub", async () => {
     mkdirSync(getSignalsDir(), { recursive: true });
 
-    const payload: ServerMessage = { type: "tasks_changed" };
+    const payload: ServerMessage = { type: "contacts_changed" };
 
     writeFileSync(signalPath(), JSON.stringify(payload), "utf-8");
 

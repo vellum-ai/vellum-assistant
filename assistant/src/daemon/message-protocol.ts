@@ -45,7 +45,6 @@ export * from "./message-types/surfaces.js";
 export * from "./message-types/sync.js";
 export * from "./message-types/upgrades.js";
 export * from "./message-types/web-activity.js";
-export * from "./message-types/work-items.js";
 export * from "./message-types/workflows.js";
 export * from "./message-types/workspace.js";
 
@@ -134,10 +133,6 @@ import type {
 } from "./message-types/surfaces.js";
 import type { _SyncInvalidationServerMessages } from "./message-types/sync.js";
 import type { _UpgradesServerMessages } from "./message-types/upgrades.js";
-import type {
-  _WorkItemsClientMessages,
-  _WorkItemsServerMessages,
-} from "./message-types/work-items.js";
 import type { _WorkflowsServerMessages } from "./message-types/workflows.js";
 import type {
   _WorkspaceClientMessages,
@@ -165,7 +160,6 @@ export type ClientMessage =
   | _IntegrationsClientMessages
   | _ComputerUseClientMessages
   | _ContactsClientMessages
-  | _WorkItemsClientMessages
   | _HostBrowserClientMessages
   | _SubagentsClientMessages
   | _DocumentsClientMessages
@@ -188,7 +182,6 @@ export type ServerMessage =
   | _IntegrationsServerMessages
   | _ComputerUseServerMessages
   | _ContactsServerMessages
-  | _WorkItemsServerMessages
   | _SubagentsServerMessages
   | _DocumentsServerMessages
   | _DocumentCommentsServerMessages
