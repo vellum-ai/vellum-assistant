@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { CodeGraphConfigSchema } from "./memory-code-graph.js";
 import {
   MemoryCleanupConfigSchema,
   MemoryJobsConfigSchema,
@@ -63,6 +64,7 @@ export const MemoryConfigSchema = z
     retrospective: MemoryRetrospectiveConfigSchema.default(
       MemoryRetrospectiveConfigSchema.parse({}),
     ),
+    codeGraph: CodeGraphConfigSchema.default(CodeGraphConfigSchema.parse({})),
   })
   .describe(
     "Long-term memory system — stores, retrieves, and manages persistent knowledge across conversations",
