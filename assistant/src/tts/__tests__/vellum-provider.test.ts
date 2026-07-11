@@ -1,10 +1,18 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 let mockSynthesizeResult: unknown;
-let synthesizeCalls: Array<{ text: string; format: string }> = [];
+let synthesizeCalls: Array<{
+  text: string;
+  format: string;
+  signal?: AbortSignal;
+}> = [];
 
 mock.module("../../platform/managed-speech.js", () => ({
-  managedSpeechSynthesize: async (input: { text: string; format: string }) => {
+  managedSpeechSynthesize: async (input: {
+    text: string;
+    format: string;
+    signal?: AbortSignal;
+  }) => {
     synthesizeCalls.push(input);
     return mockSynthesizeResult;
   },
@@ -51,7 +59,19 @@ describe("vellum TTS adapter", () => {
     await provider.synthesize(request({ outputFormat: "pcm" }));
 
     expect(synthesizeCalls[0].format).toBe("pcm_16000");
-    expect(provider.resolveOutputSampleRateHz?.(request())).toBe(16000);
+    expect(
+      provider.resolveOutputSampleRateHz?.(request({ outputFormat: "pcm" })),
+    ).toBe(16000);
+    // Contract: undefined for non-PCM output.
+    expect(provider.resolveOutputSampleRateHz?.(request())).toBeUndefined();
+  });
+
+  test("forwards the abort signal to the platform call", async () => {
+    const controller = new AbortController();
+    const provider = createVellumProvider();
+    await provider.synthesize(request({ signal: controller.signal }));
+
+    expect(synthesizeCalls[0].signal).toBe(controller.signal);
   });
 
   test("insufficient balance throws a top-up message", async () => {

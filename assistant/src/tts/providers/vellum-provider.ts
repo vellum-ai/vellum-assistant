@@ -61,6 +61,7 @@ async function performSynthesis(
   const result = await managedSpeechSynthesize({
     text: request.text,
     format: resolveManagedFormat(request),
+    signal: request.signal,
   });
   if (!result.ok) {
     throw synthesisError(result);
@@ -80,7 +81,10 @@ export function createVellumProvider(): TtsProvider {
   return {
     id: "vellum",
     capabilities,
-    resolveOutputSampleRateHz: () => VELLUM_PCM_SAMPLE_RATE_HZ,
+    // Per the TtsProvider contract this returns undefined for non-PCM
+    // output; the platform's PCM format is pinned to 16 kHz.
+    resolveOutputSampleRateHz: (request) =>
+      request.outputFormat === "pcm" ? VELLUM_PCM_SAMPLE_RATE_HZ : undefined,
     synthesize: performSynthesis,
   };
 }
