@@ -638,7 +638,7 @@ describe("OpenAIResponsesProvider", () => {
   // -----------------------------------------------------------------------
   // Effort → reasoning param
   // -----------------------------------------------------------------------
-  test('effort: "high" maps to reasoning: { effort: "high" }', async () => {
+  test('effort: "high" maps to reasoning: { effort: "high", summary: "auto" }', async () => {
     fakeStreamEvents = [textDeltaEvent("OK"), completedEvent(10, 2)];
 
     await provider.sendMessage(
@@ -646,10 +646,13 @@ describe("OpenAIResponsesProvider", () => {
       { config: { effort: "high" } },
     );
 
-    expect(lastStreamParams!.reasoning).toEqual({ effort: "high" });
+    expect(lastStreamParams!.reasoning).toEqual({
+      effort: "high",
+      summary: "auto",
+    });
   });
 
-  test('effort: "max" maps to reasoning: { effort: "xhigh" }', async () => {
+  test('effort: "max" maps to reasoning: { effort: "xhigh", summary: "auto" }', async () => {
     fakeStreamEvents = [textDeltaEvent("OK"), completedEvent(10, 2)];
 
     await provider.sendMessage(
@@ -657,10 +660,13 @@ describe("OpenAIResponsesProvider", () => {
       { config: { effort: "max" } },
     );
 
-    expect(lastStreamParams!.reasoning).toEqual({ effort: "xhigh" });
+    expect(lastStreamParams!.reasoning).toEqual({
+      effort: "xhigh",
+      summary: "auto",
+    });
   });
 
-  test('effort: "xhigh" maps to reasoning: { effort: "xhigh" }', async () => {
+  test('effort: "xhigh" maps to reasoning: { effort: "xhigh", summary: "auto" }', async () => {
     fakeStreamEvents = [textDeltaEvent("OK"), completedEvent(10, 2)];
 
     await provider.sendMessage(
@@ -668,7 +674,10 @@ describe("OpenAIResponsesProvider", () => {
       { config: { effort: "xhigh" } },
     );
 
-    expect(lastStreamParams!.reasoning).toEqual({ effort: "xhigh" });
+    expect(lastStreamParams!.reasoning).toEqual({
+      effort: "xhigh",
+      summary: "auto",
+    });
   });
 
   test("no effort config means no reasoning in params", async () => {
@@ -685,7 +694,8 @@ describe("OpenAIResponsesProvider", () => {
   test('effort: "none" is sent explicitly as reasoning: { effort: "none" }', async () => {
     // The OpenAI Responses API defaults `reasoning.effort` to "medium" when
     // the field is omitted, so the user's opt-out is only honored when we
-    // send the explicit "none" value on the wire.
+    // send the explicit "none" value on the wire. No summary is requested
+    // for a non-reasoning request.
     fakeStreamEvents = [textDeltaEvent("OK"), completedEvent(10, 2)];
 
     await provider.sendMessage(
@@ -694,6 +704,50 @@ describe("OpenAIResponsesProvider", () => {
     );
 
     expect(lastStreamParams!.reasoning).toEqual({ effort: "none" });
+  });
+
+  // -----------------------------------------------------------------------
+  // Reasoning summaries → visible thinking
+  // -----------------------------------------------------------------------
+  test("reasoning summary deltas become thinking events and a thinking block", async () => {
+    fakeStreamEvents = [
+      { type: "response.reasoning_summary_text.delta", delta: "Consider " },
+      { type: "response.reasoning_summary_text.delta", delta: "the input." },
+      { type: "response.reasoning_summary_part.done" },
+      { type: "response.reasoning_summary_text.delta", delta: "Then answer." },
+      { type: "response.reasoning_summary_part.done" },
+      textDeltaEvent("Hello"),
+      completedEvent(10, 5),
+    ];
+
+    const events: Array<{ type: string; thinking?: string }> = [];
+    const result = await provider.sendMessage(
+      [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+      { config: { effort: "high" }, onEvent: (e) => events.push(e) },
+    );
+
+    expect(
+      events
+        .filter((e) => e.type === "thinking_delta")
+        .map((e) => e.thinking)
+        .join(""),
+    ).toBe("Consider the input.Then answer.");
+    expect(result.content[0]).toEqual({
+      type: "thinking",
+      thinking: "Consider the input.\n\nThen answer.",
+      signature: "",
+    });
+    expect(result.content[1]).toEqual({ type: "text", text: "Hello" });
+  });
+
+  test("no thinking block when the stream carries no summary events", async () => {
+    fakeStreamEvents = [textDeltaEvent("Hello"), completedEvent(10, 5)];
+
+    const result = await provider.sendMessage([
+      { role: "user", content: [{ type: "text", text: "Hi" }] },
+    ]);
+
+    expect(result.content.map((b) => b.type)).toEqual(["text"]);
   });
 
   // -----------------------------------------------------------------------
