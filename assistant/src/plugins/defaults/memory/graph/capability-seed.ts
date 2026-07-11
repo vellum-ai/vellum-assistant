@@ -5,9 +5,9 @@
 // semantic retrieval.
 // ---------------------------------------------------------------------------
 
+import { CLI_COMMAND_HELP } from "@vellumai/plugin-api";
 import { and, eq, like, sql } from "drizzle-orm";
 
-import { buildCliProgram } from "../../../../cli/program.js";
 import { isAssistantFeatureFlagEnabled } from "../../../../config/assistant-feature-flags.js";
 import { getConfig } from "../../../../config/loader.js";
 import { resolveSkillStates } from "../../../../config/skill-state.js";
@@ -189,12 +189,10 @@ export function seedSkillGraphNodes(): void {
  */
 export async function seedCliGraphNodes(): Promise<void> {
   try {
-    const program = await buildCliProgram();
-
     const seenKeys = new Set<string>();
-    for (const cmd of program.commands) {
-      upsertCliCapabilityNode(cmd.name(), cmd.description());
-      seenKeys.add(`${CLI_SOURCE_PREFIX}${cmd.name()}`);
+    for (const help of CLI_COMMAND_HELP) {
+      upsertCliCapabilityNode(help.name, help.description);
+      seenKeys.add(`${CLI_SOURCE_PREFIX}${help.name}`);
     }
 
     pruneStaleCapabilities(CLI_SOURCE_PREFIX, seenKeys);

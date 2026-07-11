@@ -18,7 +18,7 @@ type CliCommandHelp = (typeof CLI_COMMAND_HELP)[number];
 /** Subcommand element type — recursive via its own `subcommands` field. */
 type CliSubcommandHelp = NonNullable<CliCommandHelp["subcommands"]>[number];
 
-export function buildCliCommandContent(
+function buildCliCommandContent(
   name: string,
   description: string,
   helpText: string,
