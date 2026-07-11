@@ -128,7 +128,8 @@ class MyViewController: CAPBridgeViewController {
     /// paints the wrong token whenever the two disagree (e.g. app set to Light
     /// while iOS is Dark), and never matches `velvet` at all. Instead the web
     /// layer reports its computed `--surface-overlay` value on load and whenever
-    /// `data-theme` changes, and native paints exactly that. The `SurfaceOverlay`
+    /// `data-theme`, `class`, or inline `style` (workspace themes write the
+    /// token via `element.style.setProperty`) changes, and native paints that. The `SurfaceOverlay`
     /// asset catalog color remains the first-paint fallback until the first
     /// message arrives, avoiding a flash.
     private func installSurfaceOverlayThemeSync() {
@@ -153,7 +154,7 @@ class MyViewController: CAPBridgeViewController {
           report();
           try {
             new MutationObserver(report).observe(document.documentElement, {
-              attributes: true, attributeFilter: ['data-theme', 'class'],
+              attributes: true, attributeFilter: ['data-theme', 'class', 'style'],
             });
           } catch (e) {}
         })();
