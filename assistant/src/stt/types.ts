@@ -24,7 +24,8 @@ export type SttProviderId =
   | "openai-whisper"
   | "deepgram"
   | "google-gemini"
-  | "xai";
+  | "xai"
+  | "vellum";
 
 /**
  * Telephony-specific STT capability class.
