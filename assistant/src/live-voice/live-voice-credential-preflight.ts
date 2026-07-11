@@ -20,6 +20,7 @@ import { effectiveSttProvider } from "../config/schemas/stt.js";
 import { getProviderEntry } from "../providers/speech-to-text/provider-catalog.js";
 import {
   resolveStreamingTranscriber,
+  sttCredentialGapReason,
   sttProviderKeyResolves,
 } from "../providers/speech-to-text/resolve.js";
 import type { SttProviderId } from "../stt/types.js";
@@ -124,9 +125,12 @@ async function resolveSttGap(): Promise<GapWithClause | null> {
       gap: {
         kind: "stt",
         providerId: entry.id,
-        reason: `No API key configured for credential provider "${entry.credentialProvider}"`,
+        reason: sttCredentialGapReason(entry.credentialProvider),
       },
-      clause: `an API key for the speech-to-text provider "${entry.id}"`,
+      clause:
+        entry.credentialProvider === "vellum"
+          ? `a Vellum platform connection for managed speech (run 'assistant platform connect')`
+          : `an API key for the speech-to-text provider "${entry.id}"`,
     };
   }
 

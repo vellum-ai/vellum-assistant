@@ -145,6 +145,7 @@ mock.module("../xai-realtime.js", () => ({
 
 const {
   resolveBatchTranscriber,
+  sttCredentialGapReason,
   resolveConversationStreamingSttCapability,
   resolveStreamingTranscriber,
   resolveTelephonySttCapability,
@@ -1012,5 +1013,13 @@ describe("vellum managed resolution", () => {
       expect(capability.reason).toContain("platform connect");
       expect(capability.reason).not.toContain("API key");
     }
+  });
+});
+
+describe("sttCredentialGapReason", () => {
+  test("vellum gets connection copy; API-key providers keep key copy", () => {
+    expect(sttCredentialGapReason("vellum")).toContain("platform connect");
+    expect(sttCredentialGapReason("vellum")).not.toContain("API key");
+    expect(sttCredentialGapReason("deepgram")).toContain("API key");
   });
 });
