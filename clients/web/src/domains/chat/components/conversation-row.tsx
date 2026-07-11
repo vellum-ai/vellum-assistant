@@ -12,7 +12,12 @@
  */
 
 import { Archive, ArchiveRestore, Pin, PinOff } from "lucide-react";
-import { useState } from "react";
+import {
+  useCallback,
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+} from "react";
 
 import { ContextMenu, PanelItem } from "@vellumai/design-library";
 import { cn } from "@vellumai/design-library/utils/cn";
@@ -209,7 +214,30 @@ export function ConversationRow({
   // the transcript message long-press pattern. Radix ContextMenu renders a
   // pointer-positioned popover on touch, which is the wrong surface on mobile.
   const [longPressOpen, setLongPressOpen] = useState(false);
-  const longPressHandlers = useLongPress(() => setLongPressOpen(true));
+  // After a long-press fires, the browser still emits a compatibility click on
+  // touchend. Without suppression that click reaches PanelItem.onSelect and
+  // navigates to the conversation *behind* the sheet. Mirror the transcript
+  // long-press guard: set a flag on activation, swallow the next click in a
+  // capture-phase handler, and clear it when the sheet closes (in case the
+  // compat click never reaches this wrapper — e.g. routed to the sheet).
+  const longPressFiredRef = useRef(false);
+  const longPressHandlers = useLongPress(() => {
+    longPressFiredRef.current = true;
+    setLongPressOpen(true);
+  });
+  const handleLongPressOpenChange = useCallback((open: boolean) => {
+    setLongPressOpen(open);
+    if (!open) {
+      longPressFiredRef.current = false;
+    }
+  }, []);
+  const handleClickCapture = useCallback((event: ReactMouseEvent) => {
+    if (longPressFiredRef.current) {
+      longPressFiredRef.current = false;
+      event.preventDefault();
+      event.stopPropagation();
+    }
+  }, []);
 
   const status = {
     isProcessing,
@@ -265,6 +293,7 @@ export function ConversationRow({
     return (
       <div
         className="contents"
+        onClickCapture={handleClickCapture}
         onTouchStart={longPressHandlers.onTouchStart}
         onTouchMove={longPressHandlers.onTouchMove}
         onTouchEnd={longPressHandlers.onTouchEnd}
@@ -274,7 +303,7 @@ export function ConversationRow({
         <ConversationActionsSheet
           {...menuProps}
           open={longPressOpen}
-          onOpenChange={setLongPressOpen}
+          onOpenChange={handleLongPressOpenChange}
         />
       </div>
     );
