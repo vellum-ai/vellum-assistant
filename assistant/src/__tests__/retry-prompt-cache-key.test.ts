@@ -5,15 +5,8 @@
  * into wire request bodies (Anthropic 400s unknown fields).
  */
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 
-let mockLlmConfig: Record<string, unknown> = {};
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({ llm: mockLlmConfig }),
-}));
-
-import { LLMSchema } from "../config/schemas/llm.js";
 import { RetryProvider } from "../providers/retry.js";
 import type {
   Message,
@@ -21,9 +14,10 @@ import type {
   ProviderResponse,
   SendMessageOptions,
 } from "../providers/types.js";
+import { setConfig } from "./helpers/set-config.js";
 
 beforeEach(() => {
-  mockLlmConfig = LLMSchema.parse({}) as Record<string, unknown>;
+  setConfig("llm", {});
 });
 
 function makePipeline(providerName: string): {
@@ -109,9 +103,9 @@ describe("retry normalization for promptCacheKey", () => {
   });
 
   test("callSite resolution still runs and the key survives it", async () => {
-    mockLlmConfig = LLMSchema.parse({
+    setConfig("llm", {
       default: { provider: "openai", model: "gpt-5.6-sol" },
-    }) as Record<string, unknown>;
+    });
     const { provider, lastConfig } = makePipeline("openai");
     await provider.sendMessage([userMessage], {
       config: { callSite: "mainAgent", selectionSeed: "conv-1" },
