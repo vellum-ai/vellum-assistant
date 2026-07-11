@@ -168,7 +168,27 @@ export function TranscriptMessageBody({
   const longPressHandlers = useLongPress(() => {
     longPressFiredRef.current = true;
     setLongPressOpen(true);
+    // Safety net: the flag is normally cleared by the compatibility click that
+    // follows the long-press (see handleBubbleClick) or when the sheet closes
+    // (handleLongPressOpenChange). But that click can be swallowed by native
+    // long-press handling or delivered to the portaled sheet instead of this
+    // wrapper, in which case neither path fires and the flag would otherwise
+    // stay set — eating the next legitimate tap. Clear it after the browser's
+    // synthetic click window so a stranded flag can't suppress a real tap.
+    window.setTimeout(() => {
+      longPressFiredRef.current = false;
+    }, 700);
   });
+
+  const handleLongPressOpenChange = useCallback((open: boolean) => {
+    setLongPressOpen(open);
+    // Once the sheet closes, the long-press interaction is over; clear the
+    // suppression flag so the next genuine tap on the message is honored even
+    // if the post-long-press compatibility click never reached this wrapper.
+    if (!open) {
+      longPressFiredRef.current = false;
+    }
+  }, []);
 
   useEffect(() => {
     if (!revealed) return;
@@ -823,7 +843,7 @@ export function TranscriptMessageBody({
               onSummarizeUpToHere={summarizeHandler}
               onInspect={inspectHandler}
               open={longPressOpen}
-              onOpenChange={setLongPressOpen}
+              onOpenChange={handleLongPressOpenChange}
             />
           </div>
         )}
@@ -865,7 +885,7 @@ export function TranscriptMessageBody({
             onSummarizeUpToHere={summarizeHandler}
             onInspect={inspectHandler}
             open={longPressOpen}
-            onOpenChange={setLongPressOpen}
+            onOpenChange={handleLongPressOpenChange}
           />
         </div>
       )}
