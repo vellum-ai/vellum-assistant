@@ -114,6 +114,21 @@ function applyConnectionPragmas(sqlite: Database): void {
   sqlite.exec("PRAGMA journal_size_limit=67108864");
 }
 
+/**
+ * When set, `getDb()` opens the main database read-only. Enabled by
+ * worker processes (the resource monitor) that observe the daemon's main DB
+ * — WAL permits cross-process readers — and must never write to it: the
+ * daemon is the main DB's sole writer, and a read-only connection makes an
+ * accidental worker-side write fail loudly instead of contending for the
+ * write lock. Must be enabled before anything touches `getDb()`; the flag
+ * does not reopen an already-open connection.
+ */
+let mainDbReadOnly = false;
+
+export function enableMainDbReadOnly(): void {
+  mainDbReadOnly = true;
+}
+
 export function getDb(): DrizzleDb {
   const existing = getStoredDb<DrizzleDb>("main");
   if (existing) {
@@ -122,6 +137,17 @@ export function getDb(): DrizzleDb {
 
   assertTestDbIsIsolated();
   ensureDataDir();
+  if (mainDbReadOnly) {
+    // Read-only connections skip the standard PRAGMAs: journal_mode /
+    // journal_size_limit write to the database file, and synchronous /
+    // foreign_keys only affect writes. busy_timeout still applies so reads
+    // wait out a checkpoint instead of failing with SQLITE_BUSY.
+    const sqlite = new Database(getDbPath(), { readonly: true });
+    sqlite.exec(`PRAGMA busy_timeout=${SQLITE_BUSY_TIMEOUT_MS}`);
+    const db = drizzle(sqlite, { schema });
+    setStoredDb("main", db, () => sqlite.close());
+    return db;
+  }
   const sqlite = new Database(getDbPath());
   applyConnectionPragmas(sqlite);
   wrapSqliteForSlowQueryLogging(sqlite);

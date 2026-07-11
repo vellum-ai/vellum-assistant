@@ -9,6 +9,15 @@
  * `(createdAt, id)` watermark cursor per source in the telemetry DB's
  * `flush_checkpoints` table after each successful upload.
  *
+ * Flushing is split across two processes, each running its own reporter
+ * instance over a disjoint source partition: the daemon flushes turn events
+ * (their completeness barrier and consented traces read live in-memory
+ * conversation state), and the resource monitor process flushes everything
+ * else off the daemon's event loop — see `monitoring/worker.ts`. The
+ * per-source watermark cursors live in the telemetry DB, which both
+ * processes open read-write; each instance only touches its own sources'
+ * cursors, so the split shares no flush state.
+ *
  * Authenticated-only: events are sent via the managed proxy context
  * (Api-Key header). When no platform credentials are available, or when
  * platform features are disabled (VELLUM_DISABLE_PLATFORM in local mode), the
@@ -27,7 +36,8 @@ import {
   telemetryDbFlushCheckpointStore,
 } from "./flush-checkpoints.js";
 import {
-  ALL_TELEMETRY_EVENT_SOURCES,
+  DAEMON_TELEMETRY_EVENT_SOURCES,
+  MONITOR_TELEMETRY_EVENT_SOURCES,
   type TelemetryEventSource,
   type TelemetryEventSourceBatch,
   TOOL_EXECUTED_SOURCE_ID,
@@ -61,33 +71,56 @@ export function getUsageTelemetryReporter(): UsageTelemetryReporter | null {
   return _instance;
 }
 
-/**
- * Construct and start the singleton usage telemetry reporter. No-op in dev mode
- * (VELLUM_DEV=1) and idempotent if already started.
- *
- * Started even when share_analytics consent is opted out: flush() re-checks
- * consent each cycle and, when opted out, sends nothing but advances all
- * watermarks (including the final flush in stop()). New opted-out
- * tool_invocations rows are already unreportable by construction — the audit
- * listener persists NULL telemetry columns for them, which the tool_executed
- * projection filters out — so the opted-out flushes are defense in depth there
- * (covering rows recorded under builds that predate that write-time gate) and
- * remain the primary guard for the always-on tables without a write-time gate
- * (llm_usage, turn events). Not gated on DB readiness: getDb() can still work
- * when initializeDb() failed mid-migration, in which case the audit listener
- * keeps writing rows the opt-out branch must keep covered. The reporter is
- * degraded-mode safe — its constructor and flush() treat DB errors as non-fatal.
- */
-export function startUsageTelemetryReporter(): void {
+function startReporterWithSources(
+  sources: readonly TelemetryEventSource[],
+  label: string,
+): void {
   if (process.env.VELLUM_DEV === "1") {
     return;
   }
   if (_instance) {
     return;
   }
-  _instance = new UsageTelemetryReporter();
+  _instance = new UsageTelemetryReporter(sources);
   _instance.start();
-  log.info("Usage telemetry reporter started");
+  log.info(`${label} telemetry reporter started`);
+}
+
+/**
+ * Construct and start the daemon's singleton telemetry reporter, flushing
+ * the daemon-owned sources (turn events). No-op in dev mode (VELLUM_DEV=1)
+ * and idempotent if already started.
+ *
+ * Started even when share_analytics consent is opted out: flush() re-checks
+ * consent each cycle and, when opted out, sends nothing but advances its
+ * sources' watermarks (including the final flush in stop()). Not gated on DB
+ * readiness: getDb() can still work when initializeDb() failed mid-migration,
+ * in which case message writes keep producing rows the opt-out branch must
+ * keep covered. The reporter is degraded-mode safe — flush() treats DB errors
+ * as non-fatal.
+ *
+ * Also initializes the tool_executed absent-watermark epoch even though that
+ * source is flushed by the monitor process: the "no flush has ever advanced
+ * it" guard needs the before-any-tool-runs ordering only daemon startup can
+ * provide (the monitor boots concurrently with the daemon serving turns).
+ */
+export function startUsageTelemetryReporter(): void {
+  if (process.env.VELLUM_DEV === "1") {
+    return;
+  }
+  initToolExecutedWatermarkIfAbsent(telemetryDbFlushCheckpointStore);
+  startReporterWithSources(DAEMON_TELEMETRY_EVENT_SOURCES, "Daemon");
+}
+
+/**
+ * Construct and start the resource monitor process's singleton telemetry
+ * reporter, flushing every non-turn source off the daemon's event loop.
+ * No-op in dev mode (VELLUM_DEV=1) and idempotent if already started. The
+ * caller (monitoring/worker.ts) is responsible for the process-level
+ * prerequisites: read-only main-DB mode and the consent refresh loop.
+ */
+export function startMonitorUsageTelemetryReporter(): void {
+  startReporterWithSources(MONITOR_TELEMETRY_EVENT_SOURCES, "Monitor");
 }
 
 /**
@@ -105,6 +138,42 @@ export async function stopUsageTelemetryReporter(): Promise<void> {
   }
 }
 
+/**
+ * Initialize the tool_executed flush watermark to "now" when absent.
+ *
+ * `tool_invocations` is an always-on audit table that predates the reporter
+ * shipping its rows: an absent watermark means no flush (opted in or out) has
+ * ever advanced it, so rows recorded before this build — including any
+ * opted-out period under older builds that gated the reporter on the
+ * usage-data opt-out — would otherwise ship retroactively. Runs at daemon
+ * startup, before any tool can run, so no legitimate row falls behind the
+ * epoch; the checkpoint persists immediately so a crash can't leave it absent
+ * and re-initialize later. An EXISTING watermark is never touched: opted-out
+ * sessions keep it advancing via the opt-out flush branch, and overwriting it
+ * would drop a legitimate unshipped backlog. The other sources need no init:
+ * their recording is either consent-gated at write time (opt-out rows never
+ * exist) or covered by the same watermark discipline from first boot.
+ *
+ * Best-effort: DB init failures are tolerated at daemon startup (degraded
+ * mode), so this never throws — matching flush(), which treats DB errors as
+ * non-fatal.
+ */
+export function initToolExecutedWatermarkIfAbsent(
+  checkpoints: FlushCheckpointStore,
+): void {
+  try {
+    const key = watermarkKeysForSource(TOOL_EXECUTED_SOURCE_ID).at;
+    if (checkpoints.get(key) == null) {
+      checkpoints.set(key, String(Date.now()));
+    }
+  } catch (err) {
+    log.warn(
+      { err },
+      "tool_executed watermark init failed — non-fatal; a later run with a working DB re-runs the absent-checkpoint init",
+    );
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Reporter
 // ---------------------------------------------------------------------------
@@ -117,42 +186,19 @@ export class UsageTelemetryReporter {
   private readonly checkpoints: FlushCheckpointStore;
 
   constructor(
-    sources: readonly TelemetryEventSource[] = ALL_TELEMETRY_EVENT_SOURCES,
+    sources: readonly TelemetryEventSource[],
     checkpoints: FlushCheckpointStore = telemetryDbFlushCheckpointStore,
   ) {
     this.sources = sources;
     this.checkpoints = checkpoints;
-    // `tool_invocations` is an always-on audit table that predates this
-    // reporter shipping its rows: an absent watermark means no flush (opted
-    // in or out) has ever advanced it, so rows recorded before this build —
-    // including any opted-out period under older builds that gated the
-    // reporter on the usage-data opt-out — would otherwise ship retroactively.
-    // Initialize an absent watermark to "now" at construction. Construction
-    // happens during daemon startup before any tool runs, so no legitimate
-    // row falls behind the watermark — initializing at first FLUSH instead
-    // would drop tools used during the 30s+ flush delay. The checkpoint is
-    // persisted immediately so a crash before the first flush can't leave it
-    // absent and re-initialize later. An EXISTING watermark is never touched:
-    // opted-out sessions keep it advancing via the opt-out flush branch, and
-    // overwriting it here would drop a legitimate unshipped backlog.
-    // `skill_loaded` needs no init: recording is gated on share_analytics
-    // consent, so opt-out rows never exist and its standard 0 default is safe.
-    //
-    // Best-effort: DB init failures are tolerated at daemon startup (degraded
-    // mode), so this must never throw out of the constructor — matching
-    // flush(), which treats DB errors as non-fatal.
+    // Backstop for the tool_executed absent-watermark epoch (see
+    // initToolExecutedWatermarkIfAbsent) — the authoritative init runs at
+    // daemon startup, which alone guarantees the before-any-tool-runs
+    // ordering; constructing an instance that flushes the source re-runs the
+    // guarded init in case that never happened (e.g. a standalone monitor
+    // started out of band).
     if (this.sources.some((s) => s.id === TOOL_EXECUTED_SOURCE_ID)) {
-      try {
-        const key = watermarkKeysForSource(TOOL_EXECUTED_SOURCE_ID).at;
-        if (this.checkpoints.get(key) == null) {
-          this.checkpoints.set(key, String(Date.now()));
-        }
-      } catch (err) {
-        log.warn(
-          { err },
-          "tool_executed watermark init failed at construction — non-fatal; a later construction with a working DB re-runs the absent-checkpoint init",
-        );
-      }
+      initToolExecutedWatermarkIfAbsent(this.checkpoints);
     }
   }
 

@@ -2,18 +2,24 @@
  * Standalone entry point for the resource monitor as its own OS process.
  *
  * Spawned at every daemon startup (and on demand by `assistant monitoring
- * start`). Loads config, starts the sampling loop, writes a PID file, and
- * stays alive until SIGTERM/SIGINT.
+ * start`). Loads config, starts the sampling loop and the non-turn telemetry
+ * reporter, writes a PID file, and stays alive until SIGTERM/SIGINT.
  *
  * Running as a separate process — off the assistant's main event loop — is the
- * whole point: the sampler keeps recording during a main-thread freeze, and its
- * on-disk ring buffer survives the OOM SIGKILL that resets all in-VM state.
+ * whole point: the sampler keeps recording during a main-thread freeze, its
+ * on-disk ring buffer survives the OOM SIGKILL that resets all in-VM state,
+ * and telemetry keeps flushing while the daemon is busy or stalled.
  */
 
 import { existsSync, mkdirSync, unlinkSync, writeFileSync } from "node:fs";
 
 import { getConfig } from "../config/loader.js";
-import { resetDb } from "../persistence/db-connection.js";
+import {
+  enableMainDbReadOnly,
+  resetDb,
+} from "../persistence/db-connection.js";
+import { startConsentRefresh } from "../platform/consent-cache.js";
+import { startMonitorUsageTelemetryReporter } from "../telemetry/usage-telemetry-reporter.js";
 import { getLogger } from "../util/logger.js";
 import {
   getMonitoringDataDir,
@@ -42,6 +48,12 @@ function cleanupPidFile(): void {
 }
 
 async function main(): Promise<void> {
+  // The monitor observes the daemon's main DB but must never write to it —
+  // the daemon is its sole writer. Enabled before anything can open the
+  // connection so telemetry queries (and any future main-DB reads) fail
+  // loudly on an accidental write instead of contending for the write lock.
+  enableMainDbReadOnly();
+
   const config = getConfig();
   const pidPath = getMonitoringPidPath();
 
@@ -66,6 +78,15 @@ async function main(): Promise<void> {
   const sourceWatch: PluginSourceWatchHandle = startPluginSourceWatch(
     config.monitoring.pluginSourceScanIntervalMs,
   );
+
+  // Flush the non-turn telemetry sources from this process, off the daemon's
+  // event loop. The reporter's share_analytics gate reads the consent cache,
+  // so this process runs its own refresh loop. Deliberately no flush on
+  // shutdown: event rows and watermarks are durable, so any backlog ships on
+  // the next boot — an interrupted mid-flight POST just re-ships next cycle
+  // and dedupes downstream on daemon_event_id.
+  startConsentRefresh();
+  startMonitorUsageTelemetryReporter();
 
   const shutdown = (signal: string) => {
     log.info({ signal }, "Resource monitor process shutting down");

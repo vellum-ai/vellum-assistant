@@ -241,7 +241,15 @@ import {
 } from "./activation-funnel.js";
 import { recordConfigSettingEvent } from "./config-setting-events-store.js";
 import { recordSkillLoadedEvent } from "./skill-loaded-events-store.js";
-import { UsageTelemetryReporter } from "./usage-telemetry-reporter.js";
+import {
+  ALL_TELEMETRY_EVENT_SOURCES,
+  DAEMON_TELEMETRY_EVENT_SOURCES,
+  MONITOR_TELEMETRY_EVENT_SOURCES,
+} from "./telemetry-event-sources.js";
+import {
+  initToolExecutedWatermarkIfAbsent,
+  UsageTelemetryReporter,
+} from "./usage-telemetry-reporter.js";
 
 /**
  * Construct a reporter wired to the in-memory checkpoint fake. All tests go
@@ -249,7 +257,10 @@ import { UsageTelemetryReporter } from "./usage-telemetry-reporter.js";
  * without process-global module mocking of the real telemetry-DB store.
  */
 function makeReporter(): UsageTelemetryReporter {
-  return new UsageTelemetryReporter(undefined, fakeFlushCheckpointStore);
+  return new UsageTelemetryReporter(
+    ALL_TELEMETRY_EVENT_SOURCES,
+    fakeFlushCheckpointStore,
+  );
 }
 
 await initializeDb();
@@ -2397,6 +2408,46 @@ describe("UsageTelemetryReporter", () => {
     expect(
       body.events.map((e: { daemon_event_id: string }) => e.daemon_event_id),
     ).toEqual(["ti-after-opt-in"]);
+  });
+
+  test("a turn-only (daemon) reporter never touches the tool_executed watermark", () => {
+    new UsageTelemetryReporter(
+      DAEMON_TELEMETRY_EVENT_SOURCES,
+      fakeFlushCheckpointStore,
+    );
+    expect(mockGetFlushCheckpoint).not.toHaveBeenCalled();
+    expect(mockSetFlushCheckpoint).not.toHaveBeenCalled();
+  });
+
+  test("a monitor reporter re-runs the guarded tool_executed watermark init as a backstop", () => {
+    new UsageTelemetryReporter(
+      MONITOR_TELEMETRY_EVENT_SOURCES,
+      fakeFlushCheckpointStore,
+    );
+    expect(mockGetFlushCheckpoint).toHaveBeenCalledWith(
+      "telemetry:tool_executed:last_reported_at",
+    );
+    expect(mockSetFlushCheckpoint).toHaveBeenCalledTimes(1);
+  });
+
+  test("initToolExecutedWatermarkIfAbsent sets the epoch once and never overwrites", () => {
+    const checkpoints = useStatefulCheckpoints();
+    initToolExecutedWatermarkIfAbsent(fakeFlushCheckpointStore);
+    const epoch = checkpoints.get("telemetry:tool_executed:last_reported_at");
+    expect(epoch).toBeString();
+
+    initToolExecutedWatermarkIfAbsent(fakeFlushCheckpointStore);
+    expect(checkpoints.get("telemetry:tool_executed:last_reported_at")).toBe(
+      epoch!,
+    );
+
+    // A store failure is non-fatal (degraded-DB daemons still start).
+    mockGetFlushCheckpoint.mockImplementation(() => {
+      throw new Error("database disk image is malformed");
+    });
+    expect(() =>
+      initToolExecutedWatermarkIfAbsent(fakeFlushCheckpointStore),
+    ).not.toThrow();
   });
 
   test("checkpoint store failure during construction is non-fatal — degraded-DB daemons still start", () => {
