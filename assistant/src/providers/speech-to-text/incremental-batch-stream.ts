@@ -24,15 +24,25 @@
  * Subclasses implement only {@link IncrementalBatchStreamingTranscriber.runBatchTranscription}.
  */
 
-import type {
-  StreamingTranscriber,
-  SttProviderId,
-  SttStreamServerEvent,
+import {
+  type StreamingTranscriber,
+  SttError,
+  type SttProviderId,
+  type SttStreamServerEvent,
 } from "../../stt/types.js";
 import { encodePcm16LeToWav } from "../../stt/wav-encoder.js";
 import { getLogger } from "../../util/logger.js";
 
 const log = getLogger("incremental-batch-stream");
+
+/**
+ * Preserve a normalized SttError's category on emitted error events —
+ * clients treat auth/rate-limit/invalid-audio differently from generic
+ * provider failures (live voice retries provider-error, for example).
+ */
+function sttCategoryOf(err: unknown): SttError["category"] {
+  return err instanceof SttError ? err.category : "provider-error";
+}
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -273,7 +283,7 @@ export abstract class IncrementalBatchStreamingTranscriber implements StreamingT
       log.warn({ error: err }, "Incremental poll request failed");
       if (!this.stopped) {
         const message = err instanceof Error ? err.message : String(err);
-        this.emit({ type: "error", category: "provider-error", message });
+        this.emit({ type: "error", category: sttCategoryOf(err), message });
       }
     } finally {
       // Record poll completion time in both success and error paths so
@@ -316,7 +326,7 @@ export abstract class IncrementalBatchStreamingTranscriber implements StreamingT
     } catch (err) {
       log.error({ error: err }, "Final transcription request failed");
       const message = err instanceof Error ? err.message : String(err);
-      this.emit({ type: "error", category: "provider-error", message });
+      this.emit({ type: "error", category: sttCategoryOf(err), message });
       // Still emit a best-effort final from the last known partial.
       this.emit({ type: "final", text: this.lastEmittedText });
     } finally {

@@ -77,4 +77,16 @@ describe("VellumManagedStreamingTranscriber", () => {
     expect(events.some((e) => e.type === "final")).toBe(true);
     expect(events.at(-1)?.type).toBe("closed");
   });
+
+  test("normalized categories survive into error events", async () => {
+    mockResult = {
+      ok: false,
+      kind: "platform-error",
+      status: 401,
+      message: "expired",
+    };
+    const events = await collectSession(Buffer.from([1]), "audio/webm");
+    const error = events.find((e) => e.type === "error");
+    expect(error && "category" in error && error.category).toBe("auth");
+  });
 });
