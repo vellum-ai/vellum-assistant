@@ -275,6 +275,7 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "ui",
   "ui request",
   "ui confirm",
+  "ui snapshot",
   "usage",
   "usage totals",
   "usage daily",
