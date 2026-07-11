@@ -17,9 +17,12 @@
  *     route → assistant → route cycles.
  */
 
+import { v7 as uuidv7 } from "uuid";
+
 import type { InterfaceId } from "../channels/types.js";
 import { getConversation } from "../persistence/conversation-crud.js";
 import { getLogger } from "../util/logger.js";
+import { getOrCreateConversation } from "./conversation-store.js";
 import { processMessageInBackground } from "./process-message.js";
 
 const log = getLogger("route-conversation-post");
@@ -106,6 +109,42 @@ export async function postRouteConversationMessage(
   // post as a human interface. Trust and auth contexts are intentionally
   // omitted: the turn inherits the conversation's existing trust context and a
   // route cannot elevate privilege by posting.
+
+  // Honor the standard send contract: queue when the conversation is mid-turn
+  // rather than dropping the event. A bursty integration (webhook, cron) that
+  // fires during an active turn would otherwise hit CONVERSATION_BUSY_MESSAGE
+  // and be lost. The queued turn carries the same `route` attribution via
+  // metadata so its drain is stamped correctly.
+  const conversation = await getOrCreateConversation(conversationId);
+  if (conversation.isProcessing()) {
+    const requestId = uuidv7();
+    const result = conversation.enqueueMessage({
+      content: text,
+      requestId,
+      metadata: {
+        userMessageChannel: "vellum",
+        assistantMessageChannel: "vellum",
+        userMessageInterface: ROUTE_SOURCE_INTERFACE,
+        assistantMessageInterface: ROUTE_SOURCE_INTERFACE,
+      },
+    });
+    if (result.rejected) {
+      throw new RouteMessageError(
+        "conversation queue is full; retry shortly",
+        "rate_limited",
+      );
+    }
+    if (result.queued) {
+      log.info(
+        { conversationId, requestId },
+        "Route message queued behind an active turn",
+      );
+      return { messageId: requestId };
+    }
+    // The turn finished between the check and the enqueue — fall through and
+    // process immediately.
+  }
+
   const { messageId } = await processMessageInBackground(conversationId, text, {
     sourceChannel: "vellum",
     sourceInterface: ROUTE_SOURCE_INTERFACE,
