@@ -13688,6 +13688,57 @@ paths:
           description:
             Submitting client does not match the targeted client, or the submitting actor's principal does not match
             the target client's actor.
+  /v1/host-ui-snapshot-result:
+    post:
+      operationId: hostuisnapshotresult_post
+      summary: Submit host UI-snapshot result
+      description:
+        Resolve a pending UI-snapshot request by requestId. Returns 200 even when no pending interaction matches
+        (late delivery is tolerated).
+      tags:
+        - host
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                requestId:
+                  type: string
+                  description: Pending UI-snapshot request ID
+                pngBase64:
+                  type: string
+                  description: Base64 PNG capture of the staged view
+                widthPx:
+                  type: number
+                heightPx:
+                  type: number
+                isError:
+                  type: boolean
+                errorMessage:
+                  type: string
+              required:
+                - requestId
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  accepted:
+                    type: boolean
+                required:
+                  - accepted
+                additionalProperties: false
+        "400":
+          description: x-vellum-client-id header is missing for a targeted UI-snapshot request.
+        "403":
+          description:
+            Submitting client does not match the targeted client, or the submitting actor's principal does not match
+            the target client's actor.
   /v1/identity:
     get:
       operationId: identity_get
@@ -29952,6 +30003,71 @@ paths:
       responses:
         "200":
           description: Successful response
+  /v1/ui/snapshot:
+    post:
+      operationId: ui_snapshot_post
+      summary: Capture a staged UI snapshot
+      description:
+        Ask the connected desktop client to render a staged view of the app (sampler or chat) with the current
+        workspace-theme tokens applied and return a PNG capture. The staged views contain only fixed generic content.
+        Blocks until the client responds or the timeout elapses.
+      tags:
+        - host
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                view:
+                  default: sampler
+                  description: Which staged composition to capture
+                  type: string
+                  enum:
+                    - sampler
+                    - chat
+                timeoutMs:
+                  description: How long to wait for the client capture
+                  type: integer
+                  exclusiveMinimum: 0
+                  maximum: 120000
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  pngBase64:
+                    type: string
+                    description: Base64 PNG capture of the staged view
+                  widthPx:
+                    type: number
+                  heightPx:
+                    type: number
+                  themeSource:
+                    type: string
+                    enum:
+                      - workspace
+                      - invalid
+                      - none
+                  themeIssues:
+                    type: array
+                    items:
+                      type: string
+                  timedOut:
+                    type: boolean
+                  error:
+                    type: string
+                required:
+                  - ok
+                  - themeSource
+                  - themeIssues
+                additionalProperties: false
   /v1/usage/breakdown:
     get:
       operationId: usage_breakdown_get

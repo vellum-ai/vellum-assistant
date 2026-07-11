@@ -7,10 +7,15 @@
  *     describing the surface (via `--payload` or stdin).
  *   - `assistant ui confirm`  — Convenience wrapper that presents a yes/no
  *     confirmation prompt and exits 0 on confirm, 1 on deny/cancel/timeout.
+ *   - `assistant ui snapshot` — Capture a PNG of a staged app view (via the
+ *     desktop client) with the current workspace theme applied.
  *
- * Both commands delegate to the daemon's `ui_request` IPC method, which
- * manages the surface lifecycle on the active conversation.
+ * `request` and `confirm` delegate to the daemon's `ui_request` IPC method,
+ * which manages the surface lifecycle on the active conversation; `snapshot`
+ * delegates to `ui_snapshot`, which is conversation-agnostic.
  */
+
+import { writeFileSync } from "node:fs";
 
 import type { Command } from "commander";
 
@@ -19,6 +24,7 @@ import type {
   InteractiveUiAction,
   InteractiveUiResult,
 } from "../../runtime/interactive-ui-types.js";
+import type { UiSnapshotResult } from "../../runtime/routes/ui-snapshot-routes.js";
 import { readStdinSync } from "../../util/read-stdin.js";
 import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
@@ -39,6 +45,12 @@ const DEFAULT_REQUEST_TIMEOUT_MS = 5 * 60 * 1000; // 5m
  * surface and send the response.
  */
 const IPC_TIMEOUT_BUFFER_MS = 10_000; // 10s
+
+/**
+ * Default timeout for `ui snapshot` (30s). Sized for a hidden-window render
+ * and capture, not a human response.
+ */
+const DEFAULT_SNAPSHOT_TIMEOUT_MS = 30_000;
 
 const CONV_ID_HELP =
   "No conversation ID available.\n" +
@@ -656,6 +668,157 @@ Examples:
 
             if (!confirmed) {
               process.exitCode = 1;
+            }
+          },
+        );
+
+      // ── ui snapshot ─────────────────────────────────────────────────
+
+      ui.command("snapshot")
+        .description(
+          "Capture a PNG of a staged app view with the current workspace theme applied",
+        )
+        .option(
+          "--view <view>",
+          'Staged composition to capture: "sampler" or "chat"',
+          "sampler",
+        )
+        .option("--out <path>", "File path to write the PNG to")
+        .option(
+          "--timeout <ms>",
+          "How long to wait for the desktop client capture",
+          String(DEFAULT_SNAPSHOT_TIMEOUT_MS),
+        )
+        .option(
+          "--json",
+          "Output result as machine-readable JSON (PNG inline as base64)",
+        )
+        .addHelpText(
+          "after",
+          `
+Asks the connected desktop app to render a staged view of its own UI —
+fixed generic content, no user data — with the workspace theme from
+ui/theme.json applied, capture it offscreen, and return the PNG. Use it
+to see theming work without asking the user for screenshots.
+
+Views:
+  sampler  Dense style sheet: text ramp, accent, buttons, card, inputs,
+           borders, chat bubbles. Answers "does the palette read".
+  chat     A staged conversation with a composer. Answers "does it feel
+           like the app".
+
+Requires the desktop app to be running. If the workspace theme file is
+invalid, the capture shows the built-in theme and the validation issues
+are printed.
+
+Examples:
+  $ assistant ui snapshot --view sampler --out /tmp/theme-sampler.png
+  $ assistant ui snapshot --view chat --out /tmp/theme-chat.png`,
+        )
+        .action(
+          async (opts: {
+            view?: string;
+            out?: string;
+            timeout?: string;
+            json?: boolean;
+          }) => {
+            const emitError = (msg: string): void => {
+              if (opts.json) {
+                process.stdout.write(
+                  JSON.stringify({ ok: false, error: msg }) + "\n",
+                );
+              } else {
+                log.error(msg);
+              }
+              process.exitCode = 1;
+            };
+
+            const view = opts.view ?? "sampler";
+            if (view !== "sampler" && view !== "chat") {
+              emitError(
+                `Invalid --view value "${view}". Must be "sampler" or "chat".`,
+              );
+              return;
+            }
+
+            if (!opts.out && !opts.json) {
+              emitError(
+                "Provide --out <path> to write the PNG (or --json for inline base64 output).",
+              );
+              return;
+            }
+
+            const rawTimeout =
+              opts.timeout ?? String(DEFAULT_SNAPSHOT_TIMEOUT_MS);
+            const requestTimeoutMs = parseStrictPositiveInt(rawTimeout);
+            if (isNaN(requestTimeoutMs) || requestTimeoutMs <= 0) {
+              emitError(
+                `Invalid --timeout value "${opts.timeout}". Must be a positive integer (milliseconds).`,
+              );
+              return;
+            }
+
+            const result = await cliIpcCall<UiSnapshotResult>(
+              "ui_snapshot",
+              { body: { view, timeoutMs: requestTimeoutMs } },
+              { timeoutMs: requestTimeoutMs + IPC_TIMEOUT_BUFFER_MS },
+            );
+
+            if (!result.ok) {
+              emitError(`Error: ${result.error}`);
+              return;
+            }
+
+            const snapshot = result.result!;
+
+            if (snapshot.themeSource === "invalid" && !opts.json) {
+              log.warn(
+                "The workspace theme file is invalid — the capture shows the built-in theme.",
+              );
+              for (const issue of snapshot.themeIssues) {
+                log.warn(`  - ${issue}`);
+              }
+            }
+
+            if (!snapshot.ok || !snapshot.pngBase64) {
+              emitError(snapshot.error ?? "The capture returned no image.");
+              return;
+            }
+
+            if (opts.out) {
+              try {
+                writeFileSync(
+                  String(opts.out),
+                  Buffer.from(snapshot.pngBase64, "base64"),
+                );
+              } catch (err) {
+                const msg = err instanceof Error ? err.message : String(err);
+                emitError(`Failed to write PNG to ${opts.out}: ${msg}`);
+                return;
+              }
+            }
+
+            if (opts.json) {
+              const jsonOut: Record<string, unknown> = {
+                ok: true,
+                view,
+                widthPx: snapshot.widthPx,
+                heightPx: snapshot.heightPx,
+                themeSource: snapshot.themeSource,
+                themeIssues: snapshot.themeIssues,
+              };
+              if (opts.out) {
+                jsonOut.out = opts.out;
+              } else {
+                jsonOut.pngBase64 = snapshot.pngBase64;
+              }
+              process.stdout.write(JSON.stringify(jsonOut) + "\n");
+            } else {
+              const dims =
+                snapshot.widthPx && snapshot.heightPx
+                  ? ` (${snapshot.widthPx}x${snapshot.heightPx})`
+                  : "";
+              log.info(`Snapshot saved to ${opts.out}${dims}`);
             }
           },
         );
