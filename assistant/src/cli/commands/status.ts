@@ -6,7 +6,9 @@ import { cliIpcCall } from "../../ipc/cli-client.js";
 import { getAssistantSocketPath } from "../../ipc/socket-path.js";
 import { getWorkspaceDirDisplay } from "../../util/platform.js";
 import { APP_VERSION } from "../../version.js";
+import { applyCommandHelp } from "../lib/cli-command-help.js";
 import { registerCommand } from "../lib/register-command.js";
+import { statusHelp } from "./status.help.js";
 
 interface HealthResponse {
   version: string;
@@ -21,17 +23,21 @@ function fmtMb(mb: number): string {
 
 export function registerStatusCommand(program: Command): void {
   registerCommand(program, {
-    name: "status",
+    name: statusHelp.name,
     transport: "ipc",
-    description: "Show assistant version, workspace, and runtime health",
+    description: statusHelp.description,
     build: (cmd) => {
+      applyCommandHelp(cmd, statusHelp);
+
       cmd.action(async () => {
         const result = await cliIpcCall<HealthResponse>("health");
 
         if (!result.ok) {
           // Only ENOENT/ECONNREFUSED/connect-timeout produce this prefix; other
           // failures (daemon-side error, framing error, abort) are real failures.
-          if (result.error?.startsWith("Could not connect to the assistant at ")) {
+          if (
+            result.error?.startsWith("Could not connect to the assistant at ")
+          ) {
             const socketPath = getAssistantSocketPath();
             const socketExists = existsSync(socketPath);
             const workspace = getWorkspaceDirDisplay();

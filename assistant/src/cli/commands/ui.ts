@@ -26,18 +26,17 @@ import type {
 } from "../../runtime/interactive-ui-types.js";
 import type { UiSnapshotResult } from "../../runtime/routes/ui-snapshot-routes.js";
 import { readStdinSync } from "../../util/read-stdin.js";
+import { applyCommandHelp, subcommand } from "../lib/cli-command-help.js";
 import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
 import { resolveConversationId } from "../utils/conversation-id.js";
+import {
+  DEFAULT_REQUEST_TIMEOUT_MS,
+  DEFAULT_SNAPSHOT_TIMEOUT_MS,
+  uiHelp,
+} from "./ui.help.js";
 
 // ── Constants ─────────────────────────────────────────────────────────
-
-/**
- * Default request timeout in milliseconds (5 minutes). This is the time
- * the daemon will wait for the user to respond before the surface
- * auto-cancels with `status: "timed_out"`.
- */
-const DEFAULT_REQUEST_TIMEOUT_MS = 5 * 60 * 1000; // 5m
 
 /**
  * Extra buffer added to the IPC call timeout beyond the request timeout
@@ -45,12 +44,6 @@ const DEFAULT_REQUEST_TIMEOUT_MS = 5 * 60 * 1000; // 5m
  * surface and send the response.
  */
 const IPC_TIMEOUT_BUFFER_MS = 10_000; // 10s
-
-/**
- * Default timeout for `ui snapshot` (30s). Sized for a hidden-window render
- * and capture, not a human response.
- */
-const DEFAULT_SNAPSHOT_TIMEOUT_MS = 30_000;
 
 const CONV_ID_HELP =
   "No conversation ID available.\n" +
@@ -256,572 +249,400 @@ function parseStrictPositiveInt(value: string): number {
 
 export function registerUiCommand(program: Command): void {
   registerCommand(program, {
-    name: "ui",
+    name: uiHelp.name,
     transport: "ipc",
-    description: "Present interactive UI surfaces to the user",
+    description: uiHelp.description,
     build: (ui) => {
-      ui.addHelpText(
-        "after",
-        `
-Script-facing commands that present interactive surfaces (confirmations,
-forms) to the user via the running assistant and block until the user
-responds or the request times out.
-
-The conversation ID is resolved automatically when running inside a skill
-or bash tool context (__SKILL_CONTEXT_JSON or __CONVERSATION_ID).
-Override with --conversation-id if needed.
-
-Examples:
-  $ echo '{"message":"Delete all logs?"}' | assistant ui request --json
-  $ assistant ui confirm --title "Deploy to production?" --message "This will push to prod."
-  $ assistant ui confirm --message "Are you sure?" --json`,
-      );
+      applyCommandHelp(ui, uiHelp);
 
       // ── ui request ───────────────────────────────────────────────────
 
-      ui.command("request")
-        .description(
-          "Present an interactive surface and block until the user responds",
-        )
-        .option("--payload <json>", "JSON object describing the surface data")
-        .option(
-          "--surface-type <type>",
-          'Surface type: "confirmation" or "form"',
-          "confirmation",
-        )
-        .option("--title <title>", "Title displayed on the surface")
-        .option(
-          "--actions <json>",
-          "JSON array of action objects defining custom buttons/options",
-        )
-        .option(
-          "--conversation-id <id>",
-          "Conversation ID — run 'assistant conversations list' to find it (auto-resolved from skill or bash tool context if omitted)",
-        )
-        .option(
-          "--timeout <ms>",
-          "Request timeout in milliseconds",
-          String(DEFAULT_REQUEST_TIMEOUT_MS),
-        )
-        .option("--json", "Output result as machine-readable JSON")
-        .addHelpText(
-          "after",
-          `
-Sends a UI interaction request to the running assistant and blocks until
-the user responds or the timeout elapses. The payload describes the
-surface content and can be provided via --payload or piped through stdin.
-
-The response includes the user's action (submitted, cancelled, timed_out)
-and any submitted data.
-
-Custom actions can be defined via --actions to control the buttons shown
-on the surface. Each action requires an "id" and "label", with an optional
-"variant" hint ("primary", "danger", or "secondary").
-
-Arguments:
-  (none — payload via --payload flag or stdin)
-
-Options:
-  --payload <json>         JSON object with surface data
-  --surface-type <type>    "confirmation" (default) or "form"
-  --title <title>          Surface title
-  --actions <json>         JSON array of custom action objects
-  --conversation-id <id>   Explicit conversation ID
-  --timeout <ms>           Request timeout in milliseconds (default: 300000)
-  --json                   Output as JSON
-
-Examples:
-  $ echo '{"message":"Proceed?"}' | assistant ui request
-  $ assistant ui request --payload '{"message":"Proceed?"}' --json
-  $ assistant ui request --payload '{"fields":[]}' --surface-type form --json
-  $ assistant ui request --payload '{"message":"Choose an option"}' \\
-      --actions '[{"id":"approve","label":"Approve","variant":"primary"},{"id":"reject","label":"Reject","variant":"danger"}]'`,
-        )
-        .action(
-          async (opts: {
-            payload?: string;
-            surfaceType?: string;
-            title?: string;
-            actions?: string;
-            conversationId?: string;
-            timeout?: string;
-            json?: boolean;
-          }) => {
-            // Parse payload
-            let data: Record<string, unknown>;
-            try {
-              data = readPayload(opts.payload);
-            } catch (err) {
-              const msg = err instanceof Error ? err.message : String(err);
-              if (opts.json) {
-                process.stdout.write(
-                  JSON.stringify({ ok: false, error: msg }) + "\n",
-                );
-              } else {
-                log.error(msg);
-              }
-              process.exitCode = 1;
-              return;
-            }
-
-            // Resolve conversation ID
-            let conversationId: string;
-            try {
-              conversationId = resolveConversationId({
-                explicit: opts.conversationId,
-                failureHelp: CONV_ID_HELP,
-              });
-            } catch (err) {
-              const msg = err instanceof Error ? err.message : String(err);
-              if (opts.json) {
-                process.stdout.write(
-                  JSON.stringify({ ok: false, error: msg }) + "\n",
-                );
-              } else {
-                log.error(msg);
-              }
-              process.exitCode = 1;
-              return;
-            }
-
-            // Parse actions (if provided)
-            let actions: InteractiveUiAction[] | undefined;
-            if (opts.actions !== undefined) {
-              try {
-                actions = parseActions(opts.actions);
-              } catch (err) {
-                const msg = err instanceof Error ? err.message : String(err);
-                if (opts.json) {
-                  process.stdout.write(
-                    JSON.stringify({ ok: false, error: msg }) + "\n",
-                  );
-                } else {
-                  log.error(msg);
-                }
-                process.exitCode = 1;
-                return;
-              }
-            }
-
-            // Parse timeout
-            const rawTimeout =
-              opts.timeout ?? String(DEFAULT_REQUEST_TIMEOUT_MS);
-            const requestTimeoutMs = parseStrictPositiveInt(rawTimeout);
-            if (isNaN(requestTimeoutMs) || requestTimeoutMs <= 0) {
-              const msg = `Invalid --timeout value "${opts.timeout}". Must be a positive integer (milliseconds).`;
-              if (opts.json) {
-                process.stdout.write(
-                  JSON.stringify({ ok: false, error: msg }) + "\n",
-                );
-              } else {
-                log.error(msg);
-              }
-              process.exitCode = 1;
-              return;
-            }
-
-            // Build IPC params
-            const ipcParams: Record<string, unknown> = {
-              conversationId,
-              surfaceType: opts.surfaceType ?? "confirmation",
-              data,
-              timeoutMs: requestTimeoutMs,
-            };
-            if (opts.title) {
-              ipcParams.title = opts.title;
-            }
-            if (actions) {
-              ipcParams.actions = actions;
-            }
-
-            // Call IPC with timeout budget = request timeout + buffer
-            const ipcTimeoutMs = requestTimeoutMs + IPC_TIMEOUT_BUFFER_MS;
-            const result = await cliIpcCall<InteractiveUiResult>(
-              "ui_request",
-              { body: ipcParams },
-              {
-                timeoutMs: ipcTimeoutMs,
-              },
-            );
-
-            if (!result.ok) {
-              if (opts.json) {
-                process.stdout.write(
-                  JSON.stringify({ ok: false, error: result.error }) + "\n",
-                );
-              } else {
-                log.error(`Error: ${result.error}`);
-              }
-              process.exitCode = 1;
-              return;
-            }
-
+      subcommand(ui, "request").action(
+        async (opts: {
+          payload?: string;
+          surfaceType?: string;
+          title?: string;
+          actions?: string;
+          conversationId?: string;
+          timeout?: string;
+          json?: boolean;
+        }) => {
+          // Parse payload
+          let data: Record<string, unknown>;
+          try {
+            data = readPayload(opts.payload);
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
             if (opts.json) {
               process.stdout.write(
-                JSON.stringify({ ok: true, ...result.result }) + "\n",
+                JSON.stringify({ ok: false, error: msg }) + "\n",
               );
             } else {
-              const r = result.result!;
-              if (r.status === "submitted") {
-                log.info(
-                  `User responded: ${r.actionId ?? "submitted"}${r.summary ? ` — ${r.summary}` : ""}`,
-                );
-              } else if (r.status === "timed_out") {
-                log.info("Request timed out without a response.");
-              } else {
-                log.info("Request was cancelled.");
-              }
+              log.error(msg);
             }
-          },
-        );
+            process.exitCode = 1;
+            return;
+          }
+
+          // Resolve conversation ID
+          let conversationId: string;
+          try {
+            conversationId = resolveConversationId({
+              explicit: opts.conversationId,
+              failureHelp: CONV_ID_HELP,
+            });
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            if (opts.json) {
+              process.stdout.write(
+                JSON.stringify({ ok: false, error: msg }) + "\n",
+              );
+            } else {
+              log.error(msg);
+            }
+            process.exitCode = 1;
+            return;
+          }
+
+          // Parse actions (if provided)
+          let actions: InteractiveUiAction[] | undefined;
+          if (opts.actions !== undefined) {
+            try {
+              actions = parseActions(opts.actions);
+            } catch (err) {
+              const msg = err instanceof Error ? err.message : String(err);
+              if (opts.json) {
+                process.stdout.write(
+                  JSON.stringify({ ok: false, error: msg }) + "\n",
+                );
+              } else {
+                log.error(msg);
+              }
+              process.exitCode = 1;
+              return;
+            }
+          }
+
+          // Parse timeout
+          const rawTimeout = opts.timeout ?? String(DEFAULT_REQUEST_TIMEOUT_MS);
+          const requestTimeoutMs = parseStrictPositiveInt(rawTimeout);
+          if (isNaN(requestTimeoutMs) || requestTimeoutMs <= 0) {
+            const msg = `Invalid --timeout value "${opts.timeout}". Must be a positive integer (milliseconds).`;
+            if (opts.json) {
+              process.stdout.write(
+                JSON.stringify({ ok: false, error: msg }) + "\n",
+              );
+            } else {
+              log.error(msg);
+            }
+            process.exitCode = 1;
+            return;
+          }
+
+          // Build IPC params
+          const ipcParams: Record<string, unknown> = {
+            conversationId,
+            surfaceType: opts.surfaceType ?? "confirmation",
+            data,
+            timeoutMs: requestTimeoutMs,
+          };
+          if (opts.title) {
+            ipcParams.title = opts.title;
+          }
+          if (actions) {
+            ipcParams.actions = actions;
+          }
+
+          // Call IPC with timeout budget = request timeout + buffer
+          const ipcTimeoutMs = requestTimeoutMs + IPC_TIMEOUT_BUFFER_MS;
+          const result = await cliIpcCall<InteractiveUiResult>(
+            "ui_request",
+            { body: ipcParams },
+            {
+              timeoutMs: ipcTimeoutMs,
+            },
+          );
+
+          if (!result.ok) {
+            if (opts.json) {
+              process.stdout.write(
+                JSON.stringify({ ok: false, error: result.error }) + "\n",
+              );
+            } else {
+              log.error(`Error: ${result.error}`);
+            }
+            process.exitCode = 1;
+            return;
+          }
+
+          if (opts.json) {
+            process.stdout.write(
+              JSON.stringify({ ok: true, ...result.result }) + "\n",
+            );
+          } else {
+            const r = result.result!;
+            if (r.status === "submitted") {
+              log.info(
+                `User responded: ${r.actionId ?? "submitted"}${r.summary ? ` — ${r.summary}` : ""}`,
+              );
+            } else if (r.status === "timed_out") {
+              log.info("Request timed out without a response.");
+            } else {
+              log.info("Request was cancelled.");
+            }
+          }
+        },
+      );
 
       // ── ui confirm ──────────────────────────────────────────────────
 
-      ui.command("confirm")
-        .description(
-          "Present a yes/no confirmation prompt; exits 0 on confirm, 1 on deny/cancel/timeout",
-        )
-        .option("--title <title>", "Title displayed on the confirmation prompt")
-        .option(
-          "--message <message>",
-          "Message body shown in the confirmation prompt",
-        )
-        .option(
-          "--confirm-label <label>",
-          'Label for the confirm button (default: "Confirm")',
-          "Confirm",
-        )
-        .option(
-          "--deny-label <label>",
-          'Label for the deny button (default: "Deny")',
-          "Deny",
-        )
-        .option(
-          "--conversation-id <id>",
-          "Conversation ID — run 'assistant conversations list' to find it (auto-resolved from skill or bash tool context if omitted)",
-        )
-        .option(
-          "--timeout <ms>",
-          "Request timeout in milliseconds",
-          String(DEFAULT_REQUEST_TIMEOUT_MS),
-        )
-        .option("--json", "Output result as machine-readable JSON")
-        .addHelpText(
-          "after",
-          `
-Ergonomic wrapper around "ui request" for binary yes/no gating. Presents
-a confirmation surface to the user and blocks until they respond.
-
-Exit codes:
-  0  — User confirmed
-  1  — User denied, cancelled, or the request timed out
-
-The --json flag outputs the full interaction result for scripts that need
-to inspect the response details.
-
-Options:
-  --title <title>            Prompt title
-  --message <message>        Prompt body text
-  --confirm-label <label>    Confirm button label (default: "Confirm")
-  --deny-label <label>       Deny button label (default: "Deny")
-  --conversation-id <id>     Explicit conversation ID
-  --timeout <ms>             Request timeout in ms (default: 300000)
-  --json                     Output as JSON
-
-Examples:
-  $ assistant ui confirm --message "Delete all data?"
-  $ assistant ui confirm --title "Deploy" --message "Push to prod?" --json
-  $ assistant ui confirm --message "Proceed?" --confirm-label "Yes" --deny-label "No"`,
-        )
-        .action(
-          async (opts: {
-            title?: string;
-            message?: string;
-            confirmLabel?: string;
-            denyLabel?: string;
-            conversationId?: string;
-            timeout?: string;
-            json?: boolean;
-          }) => {
-            // Resolve conversation ID
-            let conversationId: string;
-            try {
-              conversationId = resolveConversationId({
-                explicit: opts.conversationId,
-                failureHelp: CONV_ID_HELP,
-              });
-            } catch (err) {
-              const msg = err instanceof Error ? err.message : String(err);
-              if (opts.json) {
-                process.stdout.write(
-                  JSON.stringify({ ok: false, error: msg }) + "\n",
-                );
-              } else {
-                log.error(msg);
-              }
-              process.exitCode = 1;
-              return;
-            }
-
-            // Parse timeout
-            const rawTimeout =
-              opts.timeout ?? String(DEFAULT_REQUEST_TIMEOUT_MS);
-            const requestTimeoutMs = parseStrictPositiveInt(rawTimeout);
-            if (isNaN(requestTimeoutMs) || requestTimeoutMs <= 0) {
-              const msg = `Invalid --timeout value "${opts.timeout}". Must be a positive integer (milliseconds).`;
-              if (opts.json) {
-                process.stdout.write(
-                  JSON.stringify({ ok: false, error: msg }) + "\n",
-                );
-              } else {
-                log.error(msg);
-              }
-              process.exitCode = 1;
-              return;
-            }
-
-            // Build confirmation surface data
-            const confirmLabel = opts.confirmLabel ?? "Confirm";
-            const denyLabel = opts.denyLabel ?? "Deny";
-            const data: Record<string, unknown> = {};
-            if (opts.message) data.message = opts.message;
-            // Pass custom labels via data payload so the renderer reads them
-            // from ConfirmationSurfaceData.confirmLabel / .cancelLabel.
-            data.confirmLabel = confirmLabel;
-            data.cancelLabel = denyLabel;
-
-            // Build IPC params
-            const ipcParams: Record<string, unknown> = {
-              conversationId,
-              surfaceType: "confirmation",
-              data,
-              actions: [
-                {
-                  id: "confirm",
-                  label: confirmLabel,
-                  variant: "primary",
-                },
-                {
-                  id: "deny",
-                  label: denyLabel,
-                  variant: "secondary",
-                },
-              ],
-              timeoutMs: requestTimeoutMs,
-            };
-            if (opts.title) {
-              ipcParams.title = opts.title;
-            }
-
-            // Call IPC with timeout budget
-            const ipcTimeoutMs = requestTimeoutMs + IPC_TIMEOUT_BUFFER_MS;
-            const result = await cliIpcCall<InteractiveUiResult>(
-              "ui_request",
-              { body: ipcParams },
-              {
-                timeoutMs: ipcTimeoutMs,
-              },
-            );
-
-            if (!result.ok) {
-              if (opts.json) {
-                process.stdout.write(
-                  JSON.stringify({ ok: false, error: result.error }) + "\n",
-                );
-              } else {
-                log.error(`Error: ${result.error}`);
-              }
-              process.exitCode = 1;
-              return;
-            }
-
-            const r = result.result!;
-            const confirmed =
-              r.status === "submitted" && r.actionId === "confirm";
-
+      subcommand(ui, "confirm").action(
+        async (opts: {
+          title?: string;
+          message?: string;
+          confirmLabel?: string;
+          denyLabel?: string;
+          conversationId?: string;
+          timeout?: string;
+          json?: boolean;
+        }) => {
+          // Resolve conversation ID
+          let conversationId: string;
+          try {
+            conversationId = resolveConversationId({
+              explicit: opts.conversationId,
+              failureHelp: CONV_ID_HELP,
+            });
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
             if (opts.json) {
-              const jsonOut: Record<string, unknown> = {
-                ok: true,
-                confirmed,
-                status: r.status,
-                actionId: r.actionId,
-                surfaceId: r.surfaceId,
-              };
-              if (r.decisionToken !== undefined) {
-                jsonOut.decisionToken = r.decisionToken;
-              }
-              if (r.summary !== undefined) {
-                jsonOut.summary = r.summary;
-              }
-              process.stdout.write(JSON.stringify(jsonOut) + "\n");
+              process.stdout.write(
+                JSON.stringify({ ok: false, error: msg }) + "\n",
+              );
             } else {
-              if (confirmed) {
-                log.info("Confirmed.");
-              } else if (r.status === "timed_out") {
-                log.info("Confirmation timed out.");
-              } else if (r.status === "cancelled") {
-                log.info("Confirmation cancelled.");
-              } else {
-                log.info("Denied.");
-              }
+              log.error(msg);
             }
+            process.exitCode = 1;
+            return;
+          }
 
-            if (!confirmed) {
-              process.exitCode = 1;
+          // Parse timeout
+          const rawTimeout = opts.timeout ?? String(DEFAULT_REQUEST_TIMEOUT_MS);
+          const requestTimeoutMs = parseStrictPositiveInt(rawTimeout);
+          if (isNaN(requestTimeoutMs) || requestTimeoutMs <= 0) {
+            const msg = `Invalid --timeout value "${opts.timeout}". Must be a positive integer (milliseconds).`;
+            if (opts.json) {
+              process.stdout.write(
+                JSON.stringify({ ok: false, error: msg }) + "\n",
+              );
+            } else {
+              log.error(msg);
             }
-          },
-        );
+            process.exitCode = 1;
+            return;
+          }
+
+          // Build confirmation surface data
+          const confirmLabel = opts.confirmLabel ?? "Confirm";
+          const denyLabel = opts.denyLabel ?? "Deny";
+          const data: Record<string, unknown> = {};
+          if (opts.message) data.message = opts.message;
+          // Pass custom labels via data payload so the renderer reads them
+          // from ConfirmationSurfaceData.confirmLabel / .cancelLabel.
+          data.confirmLabel = confirmLabel;
+          data.cancelLabel = denyLabel;
+
+          // Build IPC params
+          const ipcParams: Record<string, unknown> = {
+            conversationId,
+            surfaceType: "confirmation",
+            data,
+            actions: [
+              {
+                id: "confirm",
+                label: confirmLabel,
+                variant: "primary",
+              },
+              {
+                id: "deny",
+                label: denyLabel,
+                variant: "secondary",
+              },
+            ],
+            timeoutMs: requestTimeoutMs,
+          };
+          if (opts.title) {
+            ipcParams.title = opts.title;
+          }
+
+          // Call IPC with timeout budget
+          const ipcTimeoutMs = requestTimeoutMs + IPC_TIMEOUT_BUFFER_MS;
+          const result = await cliIpcCall<InteractiveUiResult>(
+            "ui_request",
+            { body: ipcParams },
+            {
+              timeoutMs: ipcTimeoutMs,
+            },
+          );
+
+          if (!result.ok) {
+            if (opts.json) {
+              process.stdout.write(
+                JSON.stringify({ ok: false, error: result.error }) + "\n",
+              );
+            } else {
+              log.error(`Error: ${result.error}`);
+            }
+            process.exitCode = 1;
+            return;
+          }
+
+          const r = result.result!;
+          const confirmed =
+            r.status === "submitted" && r.actionId === "confirm";
+
+          if (opts.json) {
+            const jsonOut: Record<string, unknown> = {
+              ok: true,
+              confirmed,
+              status: r.status,
+              actionId: r.actionId,
+              surfaceId: r.surfaceId,
+            };
+            if (r.decisionToken !== undefined) {
+              jsonOut.decisionToken = r.decisionToken;
+            }
+            if (r.summary !== undefined) {
+              jsonOut.summary = r.summary;
+            }
+            process.stdout.write(JSON.stringify(jsonOut) + "\n");
+          } else {
+            if (confirmed) {
+              log.info("Confirmed.");
+            } else if (r.status === "timed_out") {
+              log.info("Confirmation timed out.");
+            } else if (r.status === "cancelled") {
+              log.info("Confirmation cancelled.");
+            } else {
+              log.info("Denied.");
+            }
+          }
+
+          if (!confirmed) {
+            process.exitCode = 1;
+          }
+        },
+      );
 
       // ── ui snapshot ─────────────────────────────────────────────────
 
-      ui.command("snapshot")
-        .description(
-          "Capture a PNG of a staged app view with the current workspace theme applied",
-        )
-        .option(
-          "--view <view>",
-          'Staged composition to capture: "sampler" or "chat"',
-          "sampler",
-        )
-        .option("--out <path>", "File path to write the PNG to")
-        .option(
-          "--timeout <ms>",
-          "How long to wait for the desktop client capture",
-          String(DEFAULT_SNAPSHOT_TIMEOUT_MS),
-        )
-        .option(
-          "--json",
-          "Output result as machine-readable JSON (PNG inline as base64)",
-        )
-        .addHelpText(
-          "after",
-          `
-Asks the connected desktop app to render a staged view of its own UI —
-fixed generic content, no user data — with the workspace theme from
-ui/theme.json applied, capture it offscreen, and return the PNG. Use it
-to see theming work without asking the user for screenshots.
-
-Views:
-  sampler  Dense style sheet: text ramp, accent, buttons, card, inputs,
-           borders, chat bubbles. Answers "does the palette read".
-  chat     A staged conversation with a composer. Answers "does it feel
-           like the app".
-
-Requires the desktop app to be running. If the workspace theme file is
-invalid, the capture shows the built-in theme and the validation issues
-are printed.
-
-Examples:
-  $ assistant ui snapshot --view sampler --out /tmp/theme-sampler.png
-  $ assistant ui snapshot --view chat --out /tmp/theme-chat.png`,
-        )
-        .action(
-          async (opts: {
-            view?: string;
-            out?: string;
-            timeout?: string;
-            json?: boolean;
-          }) => {
-            const emitError = (msg: string): void => {
-              if (opts.json) {
-                process.stdout.write(
-                  JSON.stringify({ ok: false, error: msg }) + "\n",
-                );
-              } else {
-                log.error(msg);
-              }
-              process.exitCode = 1;
-            };
-
-            const view = opts.view ?? "sampler";
-            if (view !== "sampler" && view !== "chat") {
-              emitError(
-                `Invalid --view value "${view}". Must be "sampler" or "chat".`,
-              );
-              return;
-            }
-
-            if (!opts.out && !opts.json) {
-              emitError(
-                "Provide --out <path> to write the PNG (or --json for inline base64 output).",
-              );
-              return;
-            }
-
-            const rawTimeout =
-              opts.timeout ?? String(DEFAULT_SNAPSHOT_TIMEOUT_MS);
-            const requestTimeoutMs = parseStrictPositiveInt(rawTimeout);
-            if (isNaN(requestTimeoutMs) || requestTimeoutMs <= 0) {
-              emitError(
-                `Invalid --timeout value "${opts.timeout}". Must be a positive integer (milliseconds).`,
-              );
-              return;
-            }
-
-            const result = await cliIpcCall<UiSnapshotResult>(
-              "ui_snapshot",
-              { body: { view, timeoutMs: requestTimeoutMs } },
-              { timeoutMs: requestTimeoutMs + IPC_TIMEOUT_BUFFER_MS },
-            );
-
-            if (!result.ok) {
-              emitError(`Error: ${result.error}`);
-              return;
-            }
-
-            const snapshot = result.result!;
-
-            if (snapshot.themeSource === "invalid" && !opts.json) {
-              log.warn(
-                "The workspace theme file is invalid — the capture shows the built-in theme.",
-              );
-              for (const issue of snapshot.themeIssues) {
-                log.warn(`  - ${issue}`);
-              }
-            }
-
-            if (!snapshot.ok || !snapshot.pngBase64) {
-              emitError(snapshot.error ?? "The capture returned no image.");
-              return;
-            }
-
-            if (opts.out) {
-              try {
-                writeFileSync(
-                  String(opts.out),
-                  Buffer.from(snapshot.pngBase64, "base64"),
-                );
-              } catch (err) {
-                const msg = err instanceof Error ? err.message : String(err);
-                emitError(`Failed to write PNG to ${opts.out}: ${msg}`);
-                return;
-              }
-            }
-
+      subcommand(ui, "snapshot").action(
+        async (opts: {
+          view?: string;
+          out?: string;
+          timeout?: string;
+          json?: boolean;
+        }) => {
+          const emitError = (msg: string): void => {
             if (opts.json) {
-              const jsonOut: Record<string, unknown> = {
-                ok: true,
-                view,
-                widthPx: snapshot.widthPx,
-                heightPx: snapshot.heightPx,
-                themeSource: snapshot.themeSource,
-                themeIssues: snapshot.themeIssues,
-              };
-              if (opts.out) {
-                jsonOut.out = opts.out;
-              } else {
-                jsonOut.pngBase64 = snapshot.pngBase64;
-              }
-              process.stdout.write(JSON.stringify(jsonOut) + "\n");
+              process.stdout.write(
+                JSON.stringify({ ok: false, error: msg }) + "\n",
+              );
             } else {
-              const dims =
-                snapshot.widthPx && snapshot.heightPx
-                  ? ` (${snapshot.widthPx}x${snapshot.heightPx})`
-                  : "";
-              log.info(`Snapshot saved to ${opts.out}${dims}`);
+              log.error(msg);
             }
-          },
-        );
+            process.exitCode = 1;
+          };
+
+          const view = opts.view ?? "sampler";
+          if (view !== "sampler" && view !== "chat") {
+            emitError(
+              `Invalid --view value "${view}". Must be "sampler" or "chat".`,
+            );
+            return;
+          }
+
+          if (!opts.out && !opts.json) {
+            emitError(
+              "Provide --out <path> to write the PNG (or --json for inline base64 output).",
+            );
+            return;
+          }
+
+          const rawTimeout =
+            opts.timeout ?? String(DEFAULT_SNAPSHOT_TIMEOUT_MS);
+          const requestTimeoutMs = parseStrictPositiveInt(rawTimeout);
+          if (isNaN(requestTimeoutMs) || requestTimeoutMs <= 0) {
+            emitError(
+              `Invalid --timeout value "${opts.timeout}". Must be a positive integer (milliseconds).`,
+            );
+            return;
+          }
+
+          const result = await cliIpcCall<UiSnapshotResult>(
+            "ui_snapshot",
+            { body: { view, timeoutMs: requestTimeoutMs } },
+            { timeoutMs: requestTimeoutMs + IPC_TIMEOUT_BUFFER_MS },
+          );
+
+          if (!result.ok) {
+            emitError(`Error: ${result.error}`);
+            return;
+          }
+
+          const snapshot = result.result!;
+
+          if (snapshot.themeSource === "invalid" && !opts.json) {
+            log.warn(
+              "The workspace theme file is invalid — the capture shows the built-in theme.",
+            );
+            for (const issue of snapshot.themeIssues) {
+              log.warn(`  - ${issue}`);
+            }
+          }
+
+          if (!snapshot.ok || !snapshot.pngBase64) {
+            emitError(snapshot.error ?? "The capture returned no image.");
+            return;
+          }
+
+          if (opts.out) {
+            try {
+              writeFileSync(
+                String(opts.out),
+                Buffer.from(snapshot.pngBase64, "base64"),
+              );
+            } catch (err) {
+              const msg = err instanceof Error ? err.message : String(err);
+              emitError(`Failed to write PNG to ${opts.out}: ${msg}`);
+              return;
+            }
+          }
+
+          if (opts.json) {
+            const jsonOut: Record<string, unknown> = {
+              ok: true,
+              view,
+              widthPx: snapshot.widthPx,
+              heightPx: snapshot.heightPx,
+              themeSource: snapshot.themeSource,
+              themeIssues: snapshot.themeIssues,
+            };
+            if (opts.out) {
+              jsonOut.out = opts.out;
+            } else {
+              jsonOut.pngBase64 = snapshot.pngBase64;
+            }
+            process.stdout.write(JSON.stringify(jsonOut) + "\n");
+          } else {
+            const dims =
+              snapshot.widthPx && snapshot.heightPx
+                ? ` (${snapshot.widthPx}x${snapshot.heightPx})`
+                : "";
+            log.info(`Snapshot saved to ${opts.out}${dims}`);
+          }
+        },
+      );
     },
   });
 }

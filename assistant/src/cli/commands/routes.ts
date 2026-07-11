@@ -7,8 +7,10 @@
 import type { Command } from "commander";
 
 import { cliIpcCall, exitFromIpcResult } from "../../ipc/cli-client.js";
+import { applyCommandHelp, subcommand } from "../lib/cli-command-help.js";
 import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
+import { routesHelp } from "./routes.help.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -46,138 +48,86 @@ function formatMethods(methods: string[]): string {
 
 export function registerRoutesCommand(program: Command): void {
   registerCommand(program, {
-    name: "routes",
+    name: routesHelp.name,
     transport: "ipc",
-    description:
-      "Manage user-defined authenticated HTTP route handlers under /x/*",
+    description: routesHelp.description,
     build: (routes) => {
-      routes.addHelpText(
-        "after",
-        `
-User-defined routes let you expose custom HTTP endpoints by dropping handler
-files into /workspace/routes/. Each file exports named HTTP method functions
-(GET, POST, etc.) and becomes reachable at /x/<path>.
+      applyCommandHelp(routes, routesHelp);
 
-These routes require edge authentication — they are intended for
-assistant-internal or user-facing endpoints, not for unauthenticated provider
-webhooks.
+      subcommand(routes, "list").action(async (opts: { json?: boolean }) => {
+        const r = await cliIpcCall<{ routes: DiscoveredRoute[] }>(
+          "user_routes_list",
+        );
+        if (!r.ok) return exitFromIpcResult(r);
 
-Routes are managed by creating and deleting files — no add/remove commands
-needed.
+        const discovered = r.result!.routes;
 
-Examples:
-  $ assistant routes list
-  $ assistant routes list --json
-  $ assistant routes inspect my-dashboard-api/submit`,
-      );
+        if (opts.json) {
+          console.log(JSON.stringify({ ok: true, routes: discovered }));
+          return;
+        }
 
-      routes
-        .command("list")
-        .description(
-          "List all user-defined route handlers and their public URLs",
-        )
-        .option("--json", "Machine-readable JSON output")
-        .addHelpText(
-          "after",
-          `
-Scans /workspace/routes/ for handler files (.ts, .js) and displays the route
-path, exported HTTP methods, optional description, and file location.
-
-Examples:
-  $ assistant routes list
-  $ assistant routes list --json`,
-        )
-        .action(async (opts: { json?: boolean }) => {
-          const r = await cliIpcCall<{ routes: DiscoveredRoute[] }>(
-            "user_routes_list",
+        if (discovered.length === 0) {
+          log.info("No route handlers found in /workspace/routes/.");
+          log.info(
+            "Create a .ts or .js file exporting named HTTP method functions (GET, POST, etc.).",
           );
-          if (!r.ok) return exitFromIpcResult(r);
+          return;
+        }
 
-          const discovered = r.result!.routes;
+        log.info("");
+        const routeCol = "ROUTE PATH";
+        const methodsCol = "METHODS";
+        const descCol = "DESCRIPTION";
+        const fileCol = "FILE";
 
-          if (opts.json) {
-            console.log(JSON.stringify({ ok: true, routes: discovered }));
-            return;
-          }
+        const routeWidth = Math.max(
+          routeCol.length,
+          ...discovered.map((r) => r.routePath.length),
+        );
+        const methodsWidth = Math.max(
+          methodsCol.length,
+          ...discovered.map((r) => formatMethods(r.methods).length),
+        );
+        const descWidth = Math.max(
+          descCol.length,
+          ...discovered.map((r) => (r.description ?? "").length),
+        );
 
-          if (discovered.length === 0) {
-            log.info("No route handlers found in /workspace/routes/.");
-            log.info(
-              "Create a .ts or .js file exporting named HTTP method functions (GET, POST, etc.).",
-            );
-            return;
-          }
+        const header = [
+          routeCol.padEnd(routeWidth),
+          methodsCol.padEnd(methodsWidth),
+          descCol.padEnd(descWidth),
+          fileCol,
+        ].join("    ");
 
-          log.info("");
-          const routeCol = "ROUTE PATH";
-          const methodsCol = "METHODS";
-          const descCol = "DESCRIPTION";
-          const fileCol = "FILE";
+        log.info(`  ${header}`);
 
-          const routeWidth = Math.max(
-            routeCol.length,
-            ...discovered.map((r) => r.routePath.length),
-          );
-          const methodsWidth = Math.max(
-            methodsCol.length,
-            ...discovered.map((r) => formatMethods(r.methods).length),
-          );
-          const descWidth = Math.max(
-            descCol.length,
-            ...discovered.map((r) => (r.description ?? "").length),
-          );
-
-          const header = [
-            routeCol.padEnd(routeWidth),
-            methodsCol.padEnd(methodsWidth),
-            descCol.padEnd(descWidth),
-            fileCol,
+        for (const route of discovered) {
+          const cols = [
+            route.routePath.padEnd(routeWidth),
+            formatMethods(route.methods).padEnd(methodsWidth),
+            (route.description ?? "").padEnd(descWidth),
+            `routes/${route.filePath}`,
           ].join("    ");
+          log.info(`  ${cols}`);
+        }
 
-          log.info(`  ${header}`);
+        log.info("");
+        const countLabel = discovered.length === 1 ? "route" : "routes";
+        const summary = `${discovered.length} ${countLabel}`;
+        const firstPublicUrl = discovered.find((r) => r.publicUrl)?.publicUrl;
+        if (firstPublicUrl) {
+          const publicBase = firstPublicUrl.replace(/\/x\/.*$/, "");
+          log.info(`  ${summary} • Public base: ${publicBase}`);
+        } else {
+          log.info(`  ${summary}`);
+        }
+        log.info("");
+      });
 
-          for (const route of discovered) {
-            const cols = [
-              route.routePath.padEnd(routeWidth),
-              formatMethods(route.methods).padEnd(methodsWidth),
-              (route.description ?? "").padEnd(descWidth),
-              `routes/${route.filePath}`,
-            ].join("    ");
-            log.info(`  ${cols}`);
-          }
-
-          log.info("");
-          const countLabel = discovered.length === 1 ? "route" : "routes";
-          const summary = `${discovered.length} ${countLabel}`;
-          const firstPublicUrl = discovered.find((r) => r.publicUrl)?.publicUrl;
-          if (firstPublicUrl) {
-            const publicBase = firstPublicUrl.replace(/\/x\/.*$/, "");
-            log.info(`  ${summary} • Public base: ${publicBase}`);
-          } else {
-            log.info(`  ${summary}`);
-          }
-          log.info("");
-        });
-
-      routes
-        .command("inspect <path>")
-        .description("Show details of a specific user-defined route handler")
-        .option("--json", "Machine-readable JSON output")
-        .addHelpText(
-          "after",
-          `
-Arguments:
-  path   Route path relative to /x/ (e.g. "my-dashboard-api/submit").
-         Do not include the /x/ prefix.
-
-Loads the handler file and displays exported methods, description, file path,
-public URL, file size, and last modified time.
-
-Examples:
-  $ assistant routes inspect my-dashboard-api/submit
-  $ assistant routes inspect items --json`,
-        )
-        .action(async (routePath: string, opts: { json?: boolean }) => {
+      subcommand(routes, "inspect").action(
+        async (routePath: string, opts: { json?: boolean }) => {
           const r = await cliIpcCall<{ route: InspectedRoute }>(
             "user_routes_inspect",
             { path: routePath },
@@ -213,7 +163,8 @@ Examples:
           log.info(`  File Size:   ${route.fileSize} bytes`);
           log.info(`  Modified:    ${route.modifiedAt}`);
           log.info("");
-        });
+        },
+      );
     },
   });
 }
