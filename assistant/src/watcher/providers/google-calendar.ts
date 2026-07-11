@@ -204,10 +204,11 @@ async function incrementalSync(
   let nextSyncToken: string | undefined;
 
   do {
-    // maxResults mirrors fetchInitialSyncToken's page size. Google's sync guide
-    // asks that paging params match between the initial and incremental requests;
-    // maxResults/pageToken are the only params allowed alongside syncToken.
-    const query: Record<string, string> = { syncToken, maxResults: "250" };
+    // Match fetchInitialSyncToken's query shape. Google's sync guide asks that
+    // allowed params stay consistent between initial and incremental requests;
+    // singleEvents is not forbidden alongside syncToken and prevents recurring
+    // events from being returned as collapsed series.
+    const query: Record<string, string> = { syncToken, maxResults: "250", singleEvents: "true" };
     if (pageToken) query.pageToken = pageToken;
 
     const resp = await connection.request({
@@ -244,14 +245,15 @@ async function incrementalSync(
 /**
  * Establish the initial syncToken (stored as the watermark).
  *
- * Sends a paging-only request (maxResults + pageToken) with no filter params.
- * The Calendar API enforces two rules this satisfies:
- *   1. It withholds nextSyncToken when the request carries any filter param
- *      (timeMin/timeMax/orderBy/q/updatedMin/...), so those must be absent for
- *      the token to be returned.
- *   2. Incremental syncs must reuse the same query params as this initial
- *      request; incrementalSync() sends the same { syncToken, maxResults }
- *      shape, keeping the two consistent.
+ * Sends a paging-only request (maxResults + pageToken + singleEvents) with
+ * the params that are allowed alongside syncToken. The Calendar API
+ * only forbids timeMin/timeMax/orderBy/q/updatedMin/iCalUID with syncToken;
+ * singleEvents is permitted and mirrors the fallback's expanded-instance view.
+ *   1. Filter params (timeMin/timeMax/orderBy/q/...) are omitted because they
+ *      would cause Google to withhold nextSyncToken.
+ *   2. All non-forbidden params match between the initial and incremental
+ *      requests to avoid undefined behavior; incrementalSync() sends the
+ *      same { syncToken, maxResults, singleEvents } shape.
  *
  * Returns no items; the watermark marks the current point so the first
  * incremental sync picks up everything that changes afterward.
@@ -263,7 +265,7 @@ async function fetchInitialSyncToken(
   let syncToken: string | undefined;
 
   do {
-    const query: Record<string, string> = { maxResults: "250" };
+    const query: Record<string, string> = { maxResults: "250", singleEvents: "true" };
     if (pageToken) query.pageToken = pageToken;
 
     const resp = await connection.request({
@@ -389,3 +391,4 @@ async function fallbackFetch(
 
   return { items, watermark: syncToken ?? "" };
 }
+

@@ -45,11 +45,13 @@ mock.module("../util/logger.js", () => ({
 const { googleCalendarProvider } =
   await import("../watcher/providers/google-calendar.js");
 
+// Params that Google forbids alongside syncToken (per events.list docs).
+// singleEvents is NOT forbidden; it's passed in both init and incremental reqs
+// so recurring events are returned as expanded instances.
 const FILTER_PARAMS = [
   "timeMin",
   "timeMax",
   "orderBy",
-  "singleEvents",
   "q",
   "updatedMin",
 ] as const;
@@ -61,10 +63,11 @@ beforeEach(() => {
 });
 
 describe("googleCalendarProvider — initial syncToken", () => {
-  test("getInitialWatermark sends a bare request and returns the token", async () => {
-    // Google withholds nextSyncToken when the request carries any filter param,
-    // so the initial sync must be bare. This is the exact regression that
-    // auto-disabled the watcher (5x "did not return a syncToken").
+  test("getInitialWatermark sends a no-filter request and returns the token", async () => {
+    // Google withholds nextSyncToken when the request carries a filter param
+    // (timeMin/timeMax/orderBy/q/...). singleEvents is not a filter and is sent
+    // alongside maxResults to expand recurring events. This is the exact
+    // regression that auto-disabled the watcher (5x "did not return a syncToken").
     responses = [{ status: 200, body: { items: [], nextSyncToken: "tok_1" } }];
 
     const watermark =
@@ -72,6 +75,7 @@ describe("googleCalendarProvider — initial syncToken", () => {
 
     expect(watermark).toBe("tok_1");
     expect(recorded).toHaveLength(1);
+    expect(recorded[0]!.query.singleEvents).toBe("true");
     for (const param of FILTER_PARAMS) {
       expect(recorded[0]!.query).not.toHaveProperty(param);
     }
@@ -88,8 +92,9 @@ describe("googleCalendarProvider — initial syncToken", () => {
 
     expect(watermark).toBe("tok_final");
     expect(recorded).toHaveLength(2);
-    // Page 2 must carry the pageToken and still no filters.
+    // Page 2 must carry the pageToken and singleEvents but no filters.
     expect(recorded[1]!.query.pageToken).toBe("p2");
+    expect(recorded[1]!.query.singleEvents).toBe("true");
     for (const param of FILTER_PARAMS) {
       expect(recorded[1]!.query).not.toHaveProperty(param);
     }
@@ -116,6 +121,7 @@ describe("googleCalendarProvider — initial syncToken", () => {
     expect(recorded).toHaveLength(1);
     expect(recorded[0]!.query.syncToken).toBe("existing-token");
     expect(recorded[0]!.query.maxResults).toBe("250");
+    expect(recorded[0]!.query.singleEvents).toBe("true");
     for (const param of FILTER_PARAMS) {
       expect(recorded[0]!.query).not.toHaveProperty(param);
     }
@@ -133,8 +139,10 @@ describe("googleCalendarProvider — initial syncToken", () => {
 
     expect(result.items).toHaveLength(0);
     expect(result.watermark).toBe("tok_2");
+    expect(recorded[0]!.query.singleEvents).toBe("true");
     for (const param of FILTER_PARAMS) {
       expect(recorded[0]!.query).not.toHaveProperty(param);
     }
   });
 });
+
