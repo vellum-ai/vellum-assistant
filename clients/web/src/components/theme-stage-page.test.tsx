@@ -114,4 +114,15 @@ describe("ThemeStagePage", () => {
       expect(document.title).toBe(THEME_STAGE_READY_TITLE);
     });
   });
+
+  test("de-arms a stale ready sentinel while a new composition paints", async () => {
+    document.title = THEME_STAGE_READY_TITLE;
+    renderStage("/assistant/theme-stage/sampler");
+    // Synchronously after mount the sentinel must be gone; it re-arms only
+    // once the new composition's fonts + frames settle.
+    expect(document.title).not.toBe(THEME_STAGE_READY_TITLE);
+    await waitFor(() => {
+      expect(document.title).toBe(THEME_STAGE_READY_TITLE);
+    });
+  });
 });

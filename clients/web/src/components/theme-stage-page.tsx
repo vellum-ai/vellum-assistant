@@ -304,8 +304,11 @@ export function ThemeStagePage() {
 
   // Signal readiness only after fonts have loaded and two frames have
   // painted, so the capture never races the font swap or the first paint.
+  // De-arm first: on a view/tokens change the previous ready sentinel must
+  // not be observable while the new composition is still painting.
   useEffect(() => {
     let cancelled = false;
+    document.title = "theme-stage";
     const fontsReady: Promise<unknown> =
       document.fonts?.ready ?? Promise.resolve();
     void fontsReady.then(() => {
