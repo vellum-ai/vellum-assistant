@@ -13,7 +13,7 @@
  * @see {@link @/utils/sandbox-bridge} for the in-iframe bridge that sends these messages
  */
 
-import { type RefObject, useEffect } from "react";
+import { type RefObject, useEffect, useRef } from "react";
 
 import { client } from "@/generated/api/client.gen";
 import { subscribe as busSubscribe } from "@/lib/event-bus";
@@ -64,10 +64,16 @@ export function useSandboxFetchProxy(
     onOpenVellumLink,
   } = options;
 
+  // subId → the sync tags the sandboxed app asked to hear about. Held in a ref,
+  // not effect-local state, so it survives effect restarts: a dependency change
+  // (e.g. assistantId resolving, or a new callback identity) re-runs the effect
+  // while the iframe stays mounted and never re-sends vellum_subscribe — a local
+  // map would be wiped and later matching events silently dropped. The ref is
+  // discarded with the component on unmount.
+  const subscriptionsRef = useRef<Map<string, Set<string>>>(new Map());
+
   useEffect(() => {
-    // subId → the sync tags the sandboxed app asked to hear about. Populated
-    // by vellum_subscribe messages, read by the bus forwarder below.
-    const subscriptions = new Map<string, Set<string>>();
+    const subscriptions = subscriptionsRef.current;
 
     const handler = async (event: MessageEvent) => {
       const msg = event.data;
@@ -303,7 +309,9 @@ export function useSandboxFetchProxy(
     return () => {
       window.removeEventListener("message", handler);
       busUnsubscribe();
-      subscriptions.clear();
+      // Deliberately not clearing `subscriptions`: it must survive effect
+      // re-runs so subscriptions registered before a dependency change keep
+      // receiving events. It is discarded with the component on unmount.
     };
   }, [
     frameId,
