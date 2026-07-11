@@ -42,6 +42,11 @@ const USAGE_ATTRIBUTION_HEADER_NAMES = {
   resolvedMixArm: "X-Vellum-Resolved-Mix-Arm",
 } as const;
 
+/** Providers whose transports consume `promptCacheKey` (OpenAI Responses
+ *  `prompt_cache_key`); `RetryProvider` derives it from `selectionSeed` for
+ *  these only. */
+const PROMPT_CACHE_KEY_PROVIDERS = new Set(["openai", "openrouter"]);
+
 /** Providers that support the `effort` config (extended thinking / reasoning). */
 const EFFORT_SUPPORTED_PROVIDERS = new Set([
   "anthropic",
@@ -279,13 +284,15 @@ function normalizeSendMessageOptions(
   delete nextConfig.usageTracking;
 
   // Preserve the per-conversation prompt-cache key before `selectionSeed` is
-  // stripped below. Gated to the `openai` provider (the Responses client
-  // consumes it as `prompt_cache_key`); creating it for other providers would
-  // leak a non-wire field through clients that spread config into request
-  // bodies (AnthropicProvider's `...restConfig` → 400 "Extra inputs are not
-  // permitted"). An explicit caller-set value wins.
+  // stripped below. Gated to providers whose Responses transport consumes it
+  // as `prompt_cache_key` (direct OpenAI, and OpenRouter's `openai/*`
+  // Responses delegate); creating it elsewhere would leak a non-wire field
+  // through clients that spread config into request bodies. The Anthropic
+  // client strips `promptCacheKey` from its wire config, which also covers
+  // OpenRouter's `anthropic/*` delegation path. An explicit caller-set value
+  // wins.
   if (
-    providerName === "openai" &&
+    PROMPT_CACHE_KEY_PROVIDERS.has(providerName) &&
     nextConfig.promptCacheKey === undefined &&
     typeof config.selectionSeed === "string" &&
     config.selectionSeed.length > 0

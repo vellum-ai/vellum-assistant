@@ -7,7 +7,7 @@ import { getLogger } from "../../util/logger.js";
 import { extractRetryAfterMs } from "../../util/retry.js";
 import { escapeXmlAttr } from "../../util/xml.js";
 import { base64Source, resolveMediaReferences } from "../media-resolve.js";
-import { PROVIDER_CATALOG } from "../model-catalog.js";
+import { PROMPT_CACHE_BREAKPOINT_MODEL_IDS } from "../model-catalog.js";
 import { createStreamTimeout } from "../stream-timeout.js";
 import { createToolProgressEmitter } from "../tool-progress-events.js";
 import type {
@@ -37,6 +37,9 @@ export interface OpenAIResponsesProviderOptions {
   /** When true, target the Codex subscription endpoint and strip fields it
    *  rejects (`max_output_tokens`). */
   codexSubscription?: boolean;
+  /** Static HTTP headers sent with every request (e.g. OpenRouter app
+   *  attribution). Merged under any per-request attribution headers. */
+  requestHeaders?: Record<string, string>;
 }
 
 /** Map our internal effort values to the Responses API reasoning.effort parameter.
@@ -145,15 +148,6 @@ const OPENAI_SUPPORTED_IMAGE_TYPES = new Set([
   "image/webp",
 ]);
 
-/** Direct-OpenAI models that use explicit prompt-cache breakpoints (GPT-5.6+).
- *  Built once from the catalog, mirroring the Fireworks effort-ceiling map
- *  (fireworks/client.ts). */
-const PROMPT_CACHE_BREAKPOINT_MODELS: ReadonlySet<string> = new Set(
-  PROVIDER_CATALOG.find((p) => p.id === "openai")?.models.flatMap((m) =>
-    m.supportsPromptCacheBreakpoints ? [m.id] : [],
-  ) ?? [],
-);
-
 /** Content-part types that accept a `prompt_cache_breakpoint` marker. */
 const STAMPABLE_PART_TYPES = new Set([
   "input_text",
@@ -187,6 +181,7 @@ export class OpenAIResponsesProvider implements Provider {
   private streamTimeoutMs: number;
   private useNativeWebSearch: boolean;
   private codexSubscription: boolean;
+  private readonly requestHeaders: Record<string, string>;
 
   constructor(
     apiKey: string,
@@ -196,6 +191,7 @@ export class OpenAIResponsesProvider implements Provider {
     this.name = options.providerName ?? "openai";
     this.providerLabel = options.providerLabel ?? "OpenAI";
     this.codexSubscription = options.codexSubscription ?? false;
+    this.requestHeaders = options.requestHeaders ?? {};
     this.streamTimeoutMs = options.streamTimeoutMs ?? 1_800_000;
     // Keep the SDK deadline behind our provider stream timeout so
     // createStreamTimeout owns the user-facing timeout error.
@@ -271,7 +267,7 @@ export class OpenAIResponsesProvider implements Provider {
       // rejects extra params, so cache params are skipped entirely there.
       if (
         !this.codexSubscription &&
-        PROMPT_CACHE_BREAKPOINT_MODELS.has(effectiveModel)
+        PROMPT_CACHE_BREAKPOINT_MODEL_IDS.has(effectiveModel)
       ) {
         params.prompt_cache_options = { mode: "explicit" };
         if (promptCacheKey) {
@@ -364,6 +360,8 @@ export class OpenAIResponsesProvider implements Provider {
         }
       }
 
+      Object.assign(params, this.buildExtraCreateParams(options));
+
       const { signal: timeoutSignal, cleanup: cleanupTimeout } =
         createStreamTimeout(this.streamTimeoutMs, signal);
 
@@ -401,12 +399,16 @@ export class OpenAIResponsesProvider implements Provider {
             o?: { signal?: AbortSignal; headers?: Record<string, string> },
           ): Promise<AsyncIterable<ResponsesStreamEvent>>;
         };
+        const requestHeaders = {
+          ...this.requestHeaders,
+          ...(usageAttributionHeaders ?? {}),
+        };
         const stream = await responsesApi.create(
           { ...params, stream: true },
           {
             signal: timeoutSignal,
-            ...(usageAttributionHeaders
-              ? { headers: usageAttributionHeaders }
+            ...(Object.keys(requestHeaders).length > 0
+              ? { headers: requestHeaders }
               : {}),
           },
         );
@@ -704,6 +706,17 @@ export class OpenAIResponsesProvider implements Provider {
         abortReason ? { cause: error, abortReason } : { cause: error },
       );
     }
+  }
+
+  /**
+   * Extra request-body params merged into the create call after the standard
+   * params are assembled (subclass values win). Mirrors the chat-completions
+   * transport's hook of the same name; base implementation adds nothing.
+   */
+  protected buildExtraCreateParams(
+    _options?: SendMessageOptions,
+  ): Record<string, unknown> {
+    return {};
   }
 
   /**
