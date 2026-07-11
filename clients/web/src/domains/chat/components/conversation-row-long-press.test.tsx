@@ -63,11 +63,26 @@ mock.module("@/components/swipe-action-reveal", () => ({
   SwipeActionReveal: ({ children }: { children: ReactNode }) => children,
 }));
 
+let sheetActionSpy: (() => void) | null = null;
 mock.module("@/domains/chat/components/conversation-actions-menu", () => ({
   ConversationActionsMenu: () =>
     createElement("div", { "data-testid": "ellipsis" }),
   ConversationActionsSheet: ({ open }: { open: boolean }) =>
-    open ? createElement("div", { "data-testid": "actions-sheet" }) : null,
+    open
+      ? createElement(
+          "div",
+          { "data-testid": "actions-sheet" },
+          createElement(
+            "button",
+            {
+              type: "button",
+              "data-testid": "sheet-action",
+              onClick: () => sheetActionSpy?.(),
+            },
+            "Pin",
+          ),
+        )
+      : null,
   renderConversationMenuItems: () => null,
 }));
 
@@ -128,6 +143,7 @@ afterEach(() => {
 });
 beforeEach(() => {
   longPressActivate = null;
+  sheetActionSpy = null;
   // Drive the coarse-pointer branch via matchMedia (what isPointerCoarse
   // reads) rather than mocking the module — module mocks are process-global
   // in bun and would leak into sibling suites' fine-pointer assertions.
@@ -185,5 +201,19 @@ describe("ConversationRow — touch long-press", () => {
     // The guard is one-shot: the next real tap selects normally.
     fireEvent.click(getByTestId("panel-item"));
     expect(onSelect).toHaveBeenCalledTimes(1);
+  });
+
+  test("a tap on a sheet action is not swallowed by the row's compat-click guard", () => {
+    const spy = mock(() => {});
+    sheetActionSpy = spy;
+    const { getByTestId } = renderRow(() => {});
+
+    // Long-press opens the sheet and arms the compat-click guard. If the
+    // post-long-press compat click is suppressed/rerouted by the browser, the
+    // guard stays armed — but because the sheet is a sibling of the capture
+    // wrapper (not a child), the user's tap on a sheet action still runs.
+    act(() => longPressActivate?.());
+    fireEvent.click(getByTestId("sheet-action"));
+    expect(spy).toHaveBeenCalledTimes(1);
   });
 });

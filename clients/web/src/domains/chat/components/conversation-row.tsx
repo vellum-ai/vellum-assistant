@@ -297,30 +297,35 @@ export function ConversationRow({
   );
 
   // Touch: replace the right-click ContextMenu with a long-press → bottom sheet.
-  // The long-press touch handlers wrap the row; the gesture arms on the row
-  // itself (see `ignoreInteractiveTarget` above) and its `shouldSkip` avoids
-  // the nested ellipsis / swipe buttons, so they don't double-trigger. The
-  // wrapper adds no layout box (contents display) so the swipe-to-reveal
-  // geometry is unaffected. Gated on `withContextMenu` so the rail flyout —
-  // which opts out of the row menu on desktop — stays consistent on touch (its
-  // rows are reached via the trailing ellipsis).
+  // The long-press touch handlers + compat-click capture wrap only the row; the
+  // gesture arms on the row itself (see `ignoreInteractiveTarget` above) and its
+  // `shouldSkip` avoids the nested ellipsis / swipe buttons, so they don't
+  // double-trigger. The wrapper adds no layout box (contents display) so the
+  // swipe-to-reveal geometry is unaffected. The sheet is rendered as a *sibling*
+  // of that wrapper, not a child: React propagates events through the React
+  // tree even for portaled content, so keeping the sheet outside the capture
+  // boundary stops `handleClickCapture` from swallowing the first tap on a sheet
+  // action. Gated on `withContextMenu` so the rail flyout — which opts out of
+  // the row menu on desktop — stays consistent on touch.
   if (isTouch && withContextMenu) {
     return (
-      <div
-        className="contents"
-        onClickCapture={handleClickCapture}
-        onTouchStart={longPressHandlers.onTouchStart}
-        onTouchMove={longPressHandlers.onTouchMove}
-        onTouchEnd={longPressHandlers.onTouchEnd}
-        onTouchCancel={longPressHandlers.onTouchCancel}
-      >
-        {panelItem}
+      <>
+        <div
+          className="contents"
+          onClickCapture={handleClickCapture}
+          onTouchStart={longPressHandlers.onTouchStart}
+          onTouchMove={longPressHandlers.onTouchMove}
+          onTouchEnd={longPressHandlers.onTouchEnd}
+          onTouchCancel={longPressHandlers.onTouchCancel}
+        >
+          {panelItem}
+        </div>
         <ConversationActionsSheet
           {...menuProps}
           open={longPressOpen}
           onOpenChange={handleLongPressOpenChange}
         />
-      </div>
+      </>
     );
   }
 
