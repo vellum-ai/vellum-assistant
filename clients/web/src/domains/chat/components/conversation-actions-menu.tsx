@@ -1,29 +1,29 @@
 import {
-    Archive,
-    ArchiveRestore,
-    Circle,
-    CircleCheck,
-    Copy,
-    ExternalLink,
-    GitBranch,
-    MessageCircle,
-    Microscope,
-    MoreHorizontal,
-    Pencil,
-    Pin,
-    PinOff,
-    RefreshCw,
-    type LucideIcon,
+  Archive,
+  ArchiveRestore,
+  Circle,
+  CircleCheck,
+  Copy,
+  ExternalLink,
+  GitBranch,
+  MessageCircle,
+  Microscope,
+  MoreHorizontal,
+  Pencil,
+  Pin,
+  PinOff,
+  RefreshCw,
+  type LucideIcon,
 } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import {
-    BottomSheet,
-    ContextMenu,
-    Menu,
-    PanelItem,
+  BottomSheet,
+  ContextMenu,
+  Menu,
+  PanelItem,
 } from "@vellumai/design-library";
 
 /**
@@ -200,15 +200,14 @@ export function renderConversationMenuItems({
       </Primitive.Item>
     ) : null;
 
-  const openInNewWindowItem =
-    onOpenInNewWindow ? (
-      <Primitive.Item
-        leftIcon={<ExternalLink size={14} />}
-        onSelect={onOpenInNewWindow}
-      >
-        {variant === "header" ? "Open in new window" : "Open in New Window"}
-      </Primitive.Item>
-    ) : null;
+  const openInNewWindowItem = onOpenInNewWindow ? (
+    <Primitive.Item
+      leftIcon={<ExternalLink size={14} />}
+      onSelect={onOpenInNewWindow}
+    >
+      {variant === "header" ? "Open in new window" : "Open in New Window"}
+    </Primitive.Item>
+  ) : null;
 
   const inspectItem = onInspect ? (
     <Primitive.Item leftIcon={<Microscope size={14} />} onSelect={onInspect}>
@@ -293,10 +292,7 @@ export function renderConversationMenuItems({
  */
 function MobileMenuDivider() {
   return (
-    <div
-      aria-hidden="true"
-      className="my-1 h-px bg-[var(--border-overlay)]"
-    />
+    <div aria-hidden="true" className="my-1 h-px bg-[var(--border-overlay)]" />
   );
 }
 
@@ -354,7 +350,7 @@ function buildPanelItem({
  * conceptual item set as `renderConversationMenuItems` but flattened into
  * `PanelItem` rows.
  */
-function renderConversationMenuItemsAsPanelItems({
+export function renderConversationMenuItemsAsPanelItems({
   isPinned = false,
   isArchived = false,
   onPinToggle,
@@ -533,6 +529,49 @@ function renderConversationMenuItemsAsPanelItems({
   );
 }
 
+/**
+ * Controlled bottom-sheet surface for a conversation's actions. Extracted so
+ * both the trailing ellipsis menu and the row long-press gesture open the same
+ * sheet with an identical item set (via the shared
+ * `renderConversationMenuItemsAsPanelItems` builder) — no drift between the two
+ * entry points. `open` / `onOpenChange` are controlled by the caller.
+ *
+ * When `trigger` is provided it is wired through `BottomSheet.Trigger` (used by
+ * the ellipsis menu, whose custom triggers must open the sheet on tap). The row
+ * long-press omits `trigger` and drives `open` directly from the gesture.
+ */
+export function ConversationActionsSheet({
+  open,
+  onOpenChange,
+  trigger,
+  ...itemProps
+}: ConversationMenuItemsProps & {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  trigger?: ReactNode;
+}) {
+  const isNativePlatform = useIsNativePlatform();
+  return (
+    <BottomSheet.Root open={open} onOpenChange={onOpenChange}>
+      {trigger ? (
+        <BottomSheet.Trigger asChild>{trigger}</BottomSheet.Trigger>
+      ) : null}
+      <BottomSheet.Content aria-describedby={undefined}>
+        <BottomSheet.Header className="sr-only">
+          <BottomSheet.Title>Conversation actions</BottomSheet.Title>
+        </BottomSheet.Header>
+        <BottomSheet.Body className="pt-0">
+          {renderConversationMenuItemsAsPanelItems({
+            ...itemProps,
+            onClose: () => onOpenChange(false),
+            isNativePlatform,
+          })}
+        </BottomSheet.Body>
+      </BottomSheet.Content>
+    </BottomSheet.Root>
+  );
+}
+
 export interface ConversationActionsMenuProps extends ConversationMenuItemsProps {
   /**
    * Override the default hover-revealed ellipsis button with a custom
@@ -555,7 +594,6 @@ export function ConversationActionsMenu({
   ...itemProps
 }: ConversationActionsMenuProps) {
   const isMobile = useIsMobile();
-  const isNativePlatform = useIsNativePlatform();
   const [open, setOpen] = useState(false);
 
   const defaultTrigger = (
@@ -576,22 +614,17 @@ export function ConversationActionsMenu({
   const resolvedTrigger = trigger ?? defaultTrigger;
 
   if (isMobile) {
+    // The sheet body is the shared controlled surface (ConversationActionsSheet
+    // uses the same builder), so the trailing-ellipsis menu and the row
+    // long-press never drift. The trigger stays wired through BottomSheet so a
+    // custom `trigger` (e.g. the topbar thread-name dropdown) keeps working.
     return (
-      <BottomSheet.Root open={open} onOpenChange={setOpen}>
-        <BottomSheet.Trigger asChild>{resolvedTrigger}</BottomSheet.Trigger>
-        <BottomSheet.Content aria-describedby={undefined}>
-          <BottomSheet.Header className="sr-only">
-            <BottomSheet.Title>Conversation actions</BottomSheet.Title>
-          </BottomSheet.Header>
-          <BottomSheet.Body className="pt-0">
-            {renderConversationMenuItemsAsPanelItems({
-              ...itemProps,
-              onClose: () => setOpen(false),
-              isNativePlatform,
-            })}
-          </BottomSheet.Body>
-        </BottomSheet.Content>
-      </BottomSheet.Root>
+      <ConversationActionsSheet
+        {...itemProps}
+        open={open}
+        onOpenChange={setOpen}
+        trigger={resolvedTrigger}
+      />
     );
   }
 

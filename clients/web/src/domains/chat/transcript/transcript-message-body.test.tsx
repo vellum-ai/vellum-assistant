@@ -1236,6 +1236,91 @@ describe("TranscriptMessageBody", () => {
     ).toBeNull();
   });
 
+  test("suppresses native text selection on user bubbles for coarse pointers", () => {
+    const originalMatchMedia = window.matchMedia;
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      writable: true,
+      value: mock((query: string) => ({
+        matches: query === "(pointer: coarse)",
+        media: query,
+        onchange: null,
+        addListener: mock(() => {}),
+        removeListener: mock(() => {}),
+        addEventListener: mock(() => {}),
+        removeEventListener: mock(() => {}),
+        dispatchEvent: mock(() => false),
+      })),
+    });
+
+    try {
+      const { container } = render(
+        <TranscriptMessageBody
+          message={{
+            id: "u-touch",
+            role: "user",
+            contentBlocks: [textBlock("hold me")],
+          }}
+          onSurfaceAction={noop}
+        />,
+      );
+      const bubble = container.querySelector("[class*='user-bubble-bg']");
+      expect(bubble).not.toBeNull();
+      // The long-press sheet owns the gesture on touch; native selection must
+      // not race it, so the bubble carries select-none + touch-callout:none.
+      expect(bubble!.className).toContain("select-none");
+      expect(bubble!.className).toContain("[-webkit-touch-callout:none]");
+    } finally {
+      Object.defineProperty(window, "matchMedia", {
+        configurable: true,
+        writable: true,
+        value: originalMatchMedia,
+      });
+    }
+  });
+
+  test("keeps user-bubble text selectable on fine pointers (desktop)", () => {
+    const originalMatchMedia = window.matchMedia;
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      writable: true,
+      value: mock((query: string) => ({
+        // Fine pointer: no coarse-pointer match.
+        matches: false,
+        media: query,
+        onchange: null,
+        addListener: mock(() => {}),
+        removeListener: mock(() => {}),
+        addEventListener: mock(() => {}),
+        removeEventListener: mock(() => {}),
+        dispatchEvent: mock(() => false),
+      })),
+    });
+
+    try {
+      const { container } = render(
+        <TranscriptMessageBody
+          message={{
+            id: "u-mouse",
+            role: "user",
+            contentBlocks: [textBlock("select me")],
+          }}
+          onSurfaceAction={noop}
+        />,
+      );
+      const bubble = container.querySelector("[class*='user-bubble-bg']");
+      expect(bubble).not.toBeNull();
+      expect(bubble!.className).not.toContain("select-none");
+      expect(bubble!.className).not.toContain("[-webkit-touch-callout:none]");
+    } finally {
+      Object.defineProperty(window, "matchMedia", {
+        configurable: true,
+        writable: true,
+        value: originalMatchMedia,
+      });
+    }
+  });
+
   test("renders a user-message surface outside the user bubble", () => {
     const { container } = render(
       <TranscriptMessageBody
