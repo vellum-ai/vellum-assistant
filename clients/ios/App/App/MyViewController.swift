@@ -46,6 +46,7 @@ class MyViewController: CAPBridgeViewController {
     /// Name of the script-message handler the web layer posts selection
     /// context to. Must match `NATIVE_SELECTION_HANDLER` on the web side.
     private static let textSelectionHandlerName = "vellumTextSelection"
+    private static let surfaceOverlayHandlerName = "vellumSurfaceOverlay"
 
     /// Substitute the quote-and-reply-aware web view subclass. This is the
     /// Capacitor-supported hook for providing a custom `WKWebView` class.
@@ -85,6 +86,7 @@ class MyViewController: CAPBridgeViewController {
         installInputZoomPreventionUserScript()
         installViewportZoomLockUserScript()
         installTextSelectionHandler()
+        installSurfaceOverlayThemeSync()
         installQuoteReplyCapabilityMarker()
     }
 
@@ -117,6 +119,51 @@ class MyViewController: CAPBridgeViewController {
             WeakScriptMessageHandler(self),
             name: Self.textSelectionHandlerName
         )
+    }
+
+    /// Keep the native safe-area backdrop in sync with the *effective web theme*
+    /// rather than the OS appearance. The web UI's theme is an in-app preference
+    /// (light / dark / velvet) chosen independently of iOS Dark Mode, so a static
+    /// `UIColor(named:)` — which resolves against the system trait collection —
+    /// paints the wrong token whenever the two disagree (e.g. app set to Light
+    /// while iOS is Dark), and never matches `velvet` at all. Instead the web
+    /// layer reports its computed `--surface-overlay` value on load and whenever
+    /// `data-theme` changes, and native paints exactly that. The `SurfaceOverlay`
+    /// asset catalog color remains the first-paint fallback until the first
+    /// message arrives, avoiding a flash.
+    private func installSurfaceOverlayThemeSync() {
+        guard let contentController = webView?.configuration.userContentController
+        else { return }
+        contentController.add(
+            WeakScriptMessageHandler(self),
+            name: Self.surfaceOverlayHandlerName
+        )
+        let source = """
+        (function() {
+          function report() {
+            try {
+              var c = getComputedStyle(document.documentElement)
+                .getPropertyValue('--surface-overlay').trim();
+              if (c) {
+                window.webkit.messageHandlers.\(Self.surfaceOverlayHandlerName)
+                  .postMessage({ color: c });
+              }
+            } catch (e) {}
+          }
+          report();
+          try {
+            new MutationObserver(report).observe(document.documentElement, {
+              attributes: true, attributeFilter: ['data-theme', 'class'],
+            });
+          } catch (e) {}
+        })();
+        """
+        let script = WKUserScript(
+            source: source,
+            injectionTime: .atDocumentEnd,
+            forMainFrameOnly: true
+        )
+        contentController.addUserScript(script)
     }
 
     // MARK: - Rotation zoom reset
@@ -191,6 +238,16 @@ extension MyViewController: WKScriptMessageHandler {
         _ userContentController: WKUserContentController,
         didReceive message: WKScriptMessage
     ) {
+        if message.name == Self.surfaceOverlayHandlerName {
+            guard let body = message.body as? [String: Any],
+                  let hex = body["color"] as? String,
+                  let color = UIColor(cssHex: hex)
+            else { return }
+            view.backgroundColor = color
+            webView?.backgroundColor = color
+            webView?.scrollView.backgroundColor = color
+            return
+        }
         guard message.name == Self.textSelectionHandlerName,
               let body = message.body as? [String: Any],
               let canReply = body["canReply"] as? Bool
@@ -263,5 +320,38 @@ private final class WeakScriptMessageHandler: NSObject, WKScriptMessageHandler {
         didReceive message: WKScriptMessage
     ) {
         delegate?.userContentController(userContentController, didReceive: message)
+    }
+}
+
+// MARK: - CSS hex color parsing
+
+extension UIColor {
+    /// Parse a CSS hex color string (`#RGB`, `#RRGGBB`, or `#RRGGBBAA`) as
+    /// reported by `getComputedStyle().getPropertyValue()` for the web theme's
+    /// `--surface-overlay` token. Returns `nil` for any unrecognised format so
+    /// the caller can fall back to the asset-catalog color.
+    convenience init?(cssHex: String) {
+        var s = cssHex.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard s.hasPrefix("#") else { return nil }
+        s.removeFirst()
+        if s.count == 3 {
+            s = s.map { "\($0)\($0)" }.joined()
+        }
+        guard s.count == 6 || s.count == 8,
+              let value = UInt64(s, radix: 16)
+        else { return nil }
+        let r, g, b, a: CGFloat
+        if s.count == 8 {
+            r = CGFloat((value & 0xFF00_0000) >> 24) / 255
+            g = CGFloat((value & 0x00FF_0000) >> 16) / 255
+            b = CGFloat((value & 0x0000_FF00) >> 8) / 255
+            a = CGFloat(value & 0x0000_00FF) / 255
+        } else {
+            r = CGFloat((value & 0xFF0000) >> 16) / 255
+            g = CGFloat((value & 0x00FF00) >> 8) / 255
+            b = CGFloat(value & 0x0000FF) / 255
+            a = 1
+        }
+        self.init(red: r, green: g, blue: b, alpha: a)
     }
 }
