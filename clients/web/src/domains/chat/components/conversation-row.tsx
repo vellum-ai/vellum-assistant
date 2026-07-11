@@ -221,10 +221,24 @@ export function ConversationRow({
   // capture-phase handler, and clear it when the sheet closes (in case the
   // compat click never reaches this wrapper — e.g. routed to the sheet).
   const longPressFiredRef = useRef(false);
-  const longPressHandlers = useLongPress(() => {
-    longPressFiredRef.current = true;
-    setLongPressOpen(true);
-  });
+  const longPressHandlers = useLongPress(
+    () => {
+      longPressFiredRef.current = true;
+      setLongPressOpen(true);
+    },
+    undefined,
+    {
+      // The row itself is the interactive target (PanelItem renders
+      // `role="button"` for its `onSelect`), so the default interactive-target
+      // skip would suppress the gesture entirely. Opt out of it and instead
+      // skip only nested *real* controls — the trailing actions ellipsis and
+      // the swipe-reveal action buttons (Pin/Archive) are `<button>`/`<a>`
+      // elements that own their own taps. The row `role="button"` div is not a
+      // real `<button>`, so this selector arms on the row but not those.
+      ignoreInteractiveTarget: true,
+      shouldSkip: (target) => Boolean(target?.closest("button, a")),
+    },
+  );
   const handleLongPressOpenChange = useCallback((open: boolean) => {
     setLongPressOpen(open);
     if (!open) {
@@ -283,12 +297,13 @@ export function ConversationRow({
   );
 
   // Touch: replace the right-click ContextMenu with a long-press → bottom sheet.
-  // The long-press touch handlers wrap the row; `useLongPress` already skips
-  // interactive targets (the trailing ellipsis button) so the two don't
-  // double-trigger. The wrapper adds no layout box (contents display) so the
-  // swipe-to-reveal geometry is unaffected. Gated on `withContextMenu` so the
-  // rail flyout — which opts out of the row menu on desktop — stays consistent
-  // on touch (its rows are reached via the trailing ellipsis).
+  // The long-press touch handlers wrap the row; the gesture arms on the row
+  // itself (see `ignoreInteractiveTarget` above) and its `shouldSkip` avoids
+  // the nested ellipsis / swipe buttons, so they don't double-trigger. The
+  // wrapper adds no layout box (contents display) so the swipe-to-reveal
+  // geometry is unaffected. Gated on `withContextMenu` so the rail flyout —
+  // which opts out of the row menu on desktop — stays consistent on touch (its
+  // rows are reached via the trailing ellipsis).
   if (isTouch && withContextMenu) {
     return (
       <div
