@@ -37,11 +37,27 @@ import { inferenceHelp, llmHelp } from "./commands/inference.help.js";
 import { keysHelp } from "./commands/keys.help.js";
 import { mcpHelp } from "./commands/mcp.help.js";
 import { memoryHelp } from "./commands/memory/index.help.js";
+import { monitoringHelp } from "./commands/monitoring.help.js";
 import { notificationsHelp } from "./commands/notifications.help.js";
 import { oauthHelp } from "./commands/oauth/index.help.js";
 import { pendingHelp } from "./commands/pending.help.js";
 import { platformHelp } from "./commands/platform/index.help.js";
 import { pluginsHelp } from "./commands/plugins.help.js";
+import { psHelp } from "./commands/ps.help.js";
+import { routesHelp } from "./commands/routes.help.js";
+import { schedulesHelp } from "./commands/schedules.help.js";
+import { sequenceHelp } from "./commands/sequence.help.js";
+import { skillsHelp } from "./commands/skills.help.js";
+import { statusHelp } from "./commands/status.help.js";
+import { sttHelp } from "./commands/stt.help.js";
+import { telemetryHelp } from "./commands/telemetry.help.js";
+import { toolsHelp } from "./commands/tools.help.js";
+import { trustHelp } from "./commands/trust.help.js";
+import { ttsHelp } from "./commands/tts.help.js";
+import { uiHelp } from "./commands/ui.help.js";
+import { usageHelp } from "./commands/usage.help.js";
+import { watchersHelp } from "./commands/watchers.help.js";
+import { webhooksHelp } from "./commands/webhooks.help.js";
 import type { CliCommandHelp } from "./lib/cli-command-help.js";
 
 export const CLI_COMMAND_HELP: readonly CliCommandHelp[] = [
@@ -77,4 +93,20 @@ export const CLI_COMMAND_HELP: readonly CliCommandHelp[] = [
   pendingHelp,
   platformHelp,
   pluginsHelp,
+  monitoringHelp,
+  psHelp,
+  routesHelp,
+  schedulesHelp,
+  sequenceHelp,
+  skillsHelp,
+  statusHelp,
+  sttHelp,
+  telemetryHelp,
+  toolsHelp,
+  trustHelp,
+  ttsHelp,
+  uiHelp,
+  usageHelp,
+  watchersHelp,
+  webhooksHelp,
 ];
