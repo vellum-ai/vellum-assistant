@@ -584,4 +584,6 @@ export const DAEMON_TELEMETRY_EVENT_SOURCES: readonly TelemetryEventSource[] = [
  * one process.
  */
 export const MONITOR_TELEMETRY_EVENT_SOURCES: readonly TelemetryEventSource[] =
-  ALL_TELEMETRY_EVENT_SOURCES.filter((source) => source.id !== "turns");
+  ALL_TELEMETRY_EVENT_SOURCES.filter(
+    (source) => !DAEMON_TELEMETRY_EVENT_SOURCES.includes(source),
+  );

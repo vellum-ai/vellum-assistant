@@ -14,12 +14,12 @@
 import { existsSync, mkdirSync, unlinkSync, writeFileSync } from "node:fs";
 
 import { getConfig } from "../config/loader.js";
-import {
-  enableMainDbReadOnly,
-  resetDb,
-} from "../persistence/db-connection.js";
+import { resetDb } from "../persistence/db-connection.js";
 import { startConsentRefresh } from "../platform/consent-cache.js";
-import { startMonitorUsageTelemetryReporter } from "../telemetry/usage-telemetry-reporter.js";
+import {
+  startMonitorUsageTelemetryReporter,
+  stopUsageTelemetryReporter,
+} from "../telemetry/usage-telemetry-reporter.js";
 import { getLogger } from "../util/logger.js";
 import {
   getMonitoringDataDir,
@@ -48,12 +48,6 @@ function cleanupPidFile(): void {
 }
 
 async function main(): Promise<void> {
-  // The monitor observes the daemon's main DB but must never write to it —
-  // the daemon is its sole writer. Enabled before anything can open the
-  // connection so telemetry queries (and any future main-DB reads) fail
-  // loudly on an accidental write instead of contending for the write lock.
-  enableMainDbReadOnly();
-
   const config = getConfig();
   const pidPath = getMonitoringPidPath();
 
@@ -81,23 +75,39 @@ async function main(): Promise<void> {
 
   // Flush the non-turn telemetry sources from this process, off the daemon's
   // event loop. The reporter's share_analytics gate reads the consent cache,
-  // so this process runs its own refresh loop. Deliberately no flush on
-  // shutdown: event rows and watermarks are durable, so any backlog ships on
-  // the next boot — an interrupted mid-flight POST just re-ships next cycle
-  // and dedupes downstream on daemon_event_id.
+  // so this process runs its own refresh loop.
   startConsentRefresh();
   startMonitorUsageTelemetryReporter();
 
-  const shutdown = (signal: string) => {
+  let shuttingDown = false;
+  const shutdown = async (signal: string) => {
+    if (shuttingDown) {
+      return;
+    }
+    shuttingDown = true;
     log.info({ signal }, "Resource monitor process shutting down");
     sourceWatch.stop();
     sampler.stop();
+    // Bounded final telemetry flush, mirroring the daemon's shutdown. This
+    // is load-bearing for the opt-out contract: when share_analytics is
+    // off, flush() is what advances this process's watermarks past rows
+    // recorded during the opt-out window — without it, rows since the last
+    // 5-minute cycle would ship after a later opt-in. When opted in, it
+    // ships the tail instead of leaving it for the next boot.
+    try {
+      const timeout = new Promise<void>((_, reject) =>
+        setTimeout(() => reject(new Error("Telemetry flush timed out")), 3_000),
+      );
+      await Promise.race([stopUsageTelemetryReporter(), timeout]);
+    } catch (err) {
+      log.warn({ err }, "Telemetry reporter shutdown failed (non-fatal)");
+    }
     cleanupPidFile();
     process.exit(0);
   };
 
-  process.on("SIGTERM", () => shutdown("SIGTERM"));
-  process.on("SIGINT", () => shutdown("SIGINT"));
+  process.on("SIGTERM", () => void shutdown("SIGTERM"));
+  process.on("SIGINT", () => void shutdown("SIGINT"));
 
   process.on("SIGUSR1", () => {
     log.info("Received SIGUSR1 — refreshing database connections");

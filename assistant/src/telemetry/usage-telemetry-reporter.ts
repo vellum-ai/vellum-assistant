@@ -43,6 +43,7 @@ import {
   TOOL_EXECUTED_SOURCE_ID,
   watermarkKeysForSource,
 } from "./telemetry-event-sources.js";
+import { useReadOnlyMainDbForTelemetry } from "./telemetry-main-db.js";
 
 const log = getLogger("usage-telemetry");
 
@@ -115,11 +116,19 @@ export function startUsageTelemetryReporter(): void {
 /**
  * Construct and start the resource monitor process's singleton telemetry
  * reporter, flushing every non-turn source off the daemon's event loop.
- * No-op in dev mode (VELLUM_DEV=1) and idempotent if already started. The
- * caller (monitoring/worker.ts) is responsible for the process-level
- * prerequisites: read-only main-DB mode and the consent refresh loop.
+ * No-op in dev mode (VELLUM_DEV=1) and idempotent if already started.
+ *
+ * Switches this process's telemetry main-DB reads to the dedicated
+ * read-only connection first: the monitor observes the daemon's main DB
+ * (WAL permits cross-process readers) and must never write to it or create
+ * it. The caller (monitoring/worker.ts) is responsible for the consent
+ * refresh loop the share_analytics gate reads.
  */
 export function startMonitorUsageTelemetryReporter(): void {
+  if (process.env.VELLUM_DEV === "1") {
+    return;
+  }
+  useReadOnlyMainDbForTelemetry();
   startReporterWithSources(MONITOR_TELEMETRY_EVENT_SOURCES, "Monitor");
 }
 
