@@ -95,13 +95,6 @@ mock.module("../config/skills.js", () => ({
   loadSkillCatalog: () => mockResolvedSkills.map((r) => r.summary),
 }));
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({}),
-  invalidateConfigCache: () => {},
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-}));
-
 mock.module("../config/skill-state.js", () => ({
   resolveSkillStates: () => mockResolvedSkills,
   skillFlagKey: () => null,

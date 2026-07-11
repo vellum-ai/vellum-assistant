@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { setConfig } from "../__tests__/helpers/set-config.js";
 import type { OwnerConsent } from "./client.js";
 
 // ---------------------------------------------------------------------------
@@ -11,9 +12,6 @@ let mockClient: {
   getOwnerConsent: () => Promise<OwnerConsent | null>;
 } | null = null;
 let createCallCount = 0;
-// Legacy fail-closed opt-out marker surfaced via getConfigReadOnly(). Default
-// off/absent so existing behavior is unchanged.
-let mockLegacyTelemetryOptOut: boolean | undefined = false;
 
 // ---------------------------------------------------------------------------
 // Module mocks (must precede the import under test)
@@ -26,12 +24,6 @@ mock.module("./client.js", () => ({
       return mockClient;
     },
   },
-}));
-
-mock.module("../config/loader.js", () => ({
-  getConfigReadOnly: () => ({
-    legacyTelemetryOptOut: mockLegacyTelemetryOptOut,
-  }),
 }));
 
 // ---------------------------------------------------------------------------
@@ -74,7 +66,9 @@ describe("consent-cache", () => {
   beforeEach(() => {
     mockClient = null;
     createCallCount = 0;
-    mockLegacyTelemetryOptOut = false;
+    // Legacy fail-closed opt-out marker read via getConfigReadOnly(). Default
+    // off so existing behavior is unchanged.
+    setConfig("legacyTelemetryOptOut", false);
     __setCachedShareAnalyticsForTest(false);
     __setCachedShareDiagnosticsForTest(false);
     __setCachedShareDiagnosticsVersionForTest("");
@@ -129,7 +123,7 @@ describe("consent-cache", () => {
   });
 
   test("legacy opt-out marker keeps analytics off despite platform opt-in", async () => {
-    mockLegacyTelemetryOptOut = true;
+    setConfig("legacyTelemetryOptOut", true);
     mockClient = makeClient(makeConsent({ shareAnalytics: true }));
     await refreshConsentCache();
     // Platform reports opt-in, but the fail-closed marker forces off.

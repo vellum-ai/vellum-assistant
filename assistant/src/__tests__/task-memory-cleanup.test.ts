@@ -2,8 +2,6 @@ import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { eq } from "drizzle-orm";
 
-import { DEFAULT_CONFIG } from "../config/defaults.js";
-
 mock.module("../persistence/embeddings/qdrant-client.js", () => ({
   getQdrantClient: () => ({
     searchWithFilter: async () => [],
@@ -12,25 +10,6 @@ mock.module("../persistence/embeddings/qdrant-client.js", () => ({
   }),
   initQdrantClient: () => {},
   resolveQdrantUrl: () => "http://127.0.0.1:6333",
-}));
-
-const TEST_CONFIG = {
-  ...DEFAULT_CONFIG,
-  memory: {
-    ...DEFAULT_CONFIG.memory,
-    extraction: {
-      ...DEFAULT_CONFIG.memory.extraction,
-      useLLM: false,
-    },
-  },
-};
-
-mock.module("../config/loader.js", () => ({
-  loadConfig: () => TEST_CONFIG,
-  getConfig: () => TEST_CONFIG,
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-  invalidateConfigCache: () => {},
 }));
 
 import { getDb, getMemoryDb } from "../persistence/db-connection.js";

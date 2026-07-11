@@ -1,18 +1,24 @@
 /**
  * Tests for the live-voice credential-readiness preflight resolver.
  *
- * The STT streaming-transcriber resolver, secure-keys lookups, and config
- * loader are mocked so the readiness combination logic is exercised in
- * isolation (the real TTS provider catalog is used — every catalog provider
- * supports streaming, so the non-streaming TTS case shadows the "xai"
- * adapter via the catalog's `_setTtsProviderForTests` override seam).
- * `mock.module` is process-global in Bun and leaks into sibling files that
- * run later in the same `bun test` invocation, so each stub delegates to
- * the real implementation unless this file's tests are active
- * (`preflightMocksActive`, toggled in beforeAll/afterAll). The real exports
- * are snapshotted into plain objects NOW, before the stubs register — a
- * module namespace is a live view, so reading the real export after the
- * stub installs would resolve back to the stub (infinite recursion).
+ * The STT streaming-transcriber resolver and secure-keys lookups are mocked
+ * so the readiness combination logic is exercised in isolation (the real TTS
+ * provider catalog is used — every catalog provider supports streaming, so
+ * the non-streaming TTS case shadows the "xai" adapter via the catalog's
+ * `_setTtsProviderForTests` override seam). `mock.module` is process-global
+ * in Bun and leaks into sibling files that run later in the same `bun test`
+ * invocation, so each stub delegates to the real implementation unless this
+ * file's tests are active (`preflightMocksActive`, toggled in
+ * beforeAll/afterAll). The real exports are snapshotted into plain objects
+ * NOW, before the stubs register — a module namespace is a live view, so
+ * reading the real export after the stub installs would resolve back to the
+ * stub (infinite recursion).
+ *
+ * The `services.stt`/`services.tts` provider selection is seeded for real via
+ * `setConfig`. Because two tests configure provider ids the enum schema would
+ * strip ("acme-stt"/"acme-tts"), `runReadiness` seeds a schema-valid baseline
+ * and then overwrites `services` on the live cached config object so those
+ * unrecognized ids reach the resolver unchanged.
  */
 
 import {
@@ -33,9 +39,6 @@ const realSttResolveModule = {
 };
 const realSecureKeysModule = {
   ...(await import("../../security/secure-keys.js")),
-};
-const realConfigLoaderModule = {
-  ...(await import("../../config/loader.js")),
 };
 
 // -- Mutable stub state --------------------------------------------------------
@@ -68,25 +71,35 @@ mock.module("../../security/secure-keys.js", () => ({
       : realSecureKeysModule.getSecureKeyAsync(account),
 }));
 
-mock.module("../../config/loader.js", () => ({
-  ...realConfigLoaderModule,
-  getConfig: () =>
-    preflightMocksActive
-      ? ({
-          services: {
-            stt: { provider: sttProvider },
-            tts: { provider: ttsProvider, providers: ttsProviders },
-          },
-        } as unknown as ReturnType<typeof realConfigLoaderModule.getConfig>)
-      : realConfigLoaderModule.getConfig(),
-}));
-
+import { setConfig } from "../../__tests__/helpers/set-config.js";
+import { getConfig } from "../../config/loader.js";
 import {
   _resetTtsProviderOverridesForTests,
   _setTtsProviderForTests,
   getTtsProvider,
 } from "../../tts/provider-catalog.js";
 import { resolveLiveVoiceCredentialReadiness } from "../live-voice-credential-preflight.js";
+
+// Seed the current stt/tts provider selection for real, then run the resolver.
+// A schema-valid baseline is seeded first so the loader caches a config
+// object; `services` is then overwritten on that live cached object so
+// provider ids the enum schema would strip (the "acme-*" cases) reach the
+// resolver unchanged.
+async function runReadiness(): Promise<
+  Awaited<ReturnType<typeof resolveLiveVoiceCredentialReadiness>>
+> {
+  setConfig("services", {
+    stt: { provider: "deepgram", providers: {} },
+    tts: { provider: "fish-audio", providers: {} },
+  });
+  const services = getConfig().services as {
+    stt: unknown;
+    tts: unknown;
+  };
+  services.stt = { provider: sttProvider, providers: {} };
+  services.tts = { provider: ttsProvider, providers: ttsProviders };
+  return resolveLiveVoiceCredentialReadiness();
+}
 
 beforeAll(() => {
   preflightMocksActive = true;
@@ -123,7 +136,7 @@ function expectNotReady(
 
 describe("resolveLiveVoiceCredentialReadiness", () => {
   test("streaming STT + streaming TTS with credentials → ready", async () => {
-    const readiness = await resolveLiveVoiceCredentialReadiness();
+    const readiness = await runReadiness();
     expect(readiness).toEqual({ status: "ready" });
   });
 
@@ -131,9 +144,7 @@ describe("resolveLiveVoiceCredentialReadiness", () => {
     streamingTranscriber = null;
     delete providerKeys.deepgram;
 
-    const readiness = expectNotReady(
-      await resolveLiveVoiceCredentialReadiness(),
-    );
+    const readiness = expectNotReady(await runReadiness());
     expect(readiness.missing).toEqual([
       {
         kind: "stt",
@@ -149,9 +160,7 @@ describe("resolveLiveVoiceCredentialReadiness", () => {
     streamingTranscriber = null;
     sttProvider = "acme-stt";
 
-    const readiness = expectNotReady(
-      await resolveLiveVoiceCredentialReadiness(),
-    );
+    const readiness = expectNotReady(await runReadiness());
     expect(readiness.missing).toEqual([
       {
         kind: "stt",
@@ -165,9 +174,7 @@ describe("resolveLiveVoiceCredentialReadiness", () => {
   test("keyed STT provider that resolves no streaming transcriber → not-ready with a capability gap", async () => {
     streamingTranscriber = null;
 
-    const readiness = expectNotReady(
-      await resolveLiveVoiceCredentialReadiness(),
-    );
+    const readiness = expectNotReady(await runReadiness());
     expect(readiness.missing).toEqual([
       {
         kind: "stt",
@@ -188,9 +195,7 @@ describe("resolveLiveVoiceCredentialReadiness", () => {
       capabilities: { ...realXai.capabilities, supportsStreaming: false },
     });
 
-    const readiness = expectNotReady(
-      await resolveLiveVoiceCredentialReadiness(),
-    );
+    const readiness = expectNotReady(await runReadiness());
     expect(readiness.missing).toEqual([
       {
         kind: "tts",
@@ -205,9 +210,7 @@ describe("resolveLiveVoiceCredentialReadiness", () => {
   test("streaming TTS provider missing credentials → not-ready naming the missing key", async () => {
     delete providerKeys["fish-audio"];
 
-    const readiness = expectNotReady(
-      await resolveLiveVoiceCredentialReadiness(),
-    );
+    const readiness = expectNotReady(await runReadiness());
     expect(readiness.missing).toEqual([
       {
         kind: "tts",
@@ -224,9 +227,7 @@ describe("resolveLiveVoiceCredentialReadiness", () => {
   test("fish-audio keyed but referenceId-less → not-ready naming the reference ID", async () => {
     ttsProviders = {};
 
-    const readiness = expectNotReady(
-      await resolveLiveVoiceCredentialReadiness(),
-    );
+    const readiness = expectNotReady(await runReadiness());
     expect(readiness.missing).toEqual([
       {
         kind: "tts",
@@ -244,9 +245,7 @@ describe("resolveLiveVoiceCredentialReadiness", () => {
   test("unknown TTS provider → not-ready with a catalog gap naming the configured id", async () => {
     ttsProvider = "acme-tts";
 
-    const readiness = expectNotReady(
-      await resolveLiveVoiceCredentialReadiness(),
-    );
+    const readiness = expectNotReady(await runReadiness());
     expect(readiness.missing).toEqual([
       {
         kind: "tts",
@@ -262,9 +261,7 @@ describe("resolveLiveVoiceCredentialReadiness", () => {
     delete providerKeys.deepgram;
     delete providerKeys["fish-audio"];
 
-    const readiness = expectNotReady(
-      await resolveLiveVoiceCredentialReadiness(),
-    );
+    const readiness = expectNotReady(await runReadiness());
     expect(readiness.missing.map((gap) => gap.kind)).toEqual(["stt", "tts"]);
     expect(readiness.userMessage).toContain('"deepgram"');
     expect(readiness.userMessage).toContain('"fish-audio"');

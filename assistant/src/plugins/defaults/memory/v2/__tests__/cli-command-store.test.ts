@@ -90,15 +90,6 @@ function setCommands(...commands: CliCommandHelp[]): void {
   state.commands.push(...commands);
 }
 
-mock.module("../../../../../config/loader.js", () => ({
-  getConfig: () => ({
-    memory: {
-      qdrant: { url: "http://127.0.0.1:6333", vectorSize: 3, onDisk: false },
-      v2: { bm25_k1: 1.2, bm25_b: 0.75 },
-    },
-  }),
-}));
-
 // Stage the declarative command list per test. The store imports
 // `CLI_COMMAND_HELP` from `@vellumai/plugin-api`, which re-exports it from
 // `cli/index.help.js` — mocking that module drives the seed with pure data,

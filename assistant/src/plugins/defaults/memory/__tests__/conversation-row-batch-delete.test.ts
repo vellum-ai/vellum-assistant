@@ -1,15 +1,10 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 
-mock.module("../../../../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-    model: "test",
-    provider: "test",
-    memory: { enabled: false },
-    rateLimit: { maxRequestsPerMinute: 0 },
-    secretDetection: { enabled: false },
-  }),
-}));
+import { setConfig } from "../../../../__tests__/helpers/set-config.js";
+
+// Disable memory so `addMessage` does not index into the real memory
+// pipeline (both flags default true under the real loader).
+setConfig("memory", { enabled: false, v2: { enabled: false } });
 
 import {
   addMessage,

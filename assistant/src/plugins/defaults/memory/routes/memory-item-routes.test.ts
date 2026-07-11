@@ -14,16 +14,7 @@ import {
   test,
 } from "bun:test";
 
-// Stub config loader — return a config with memory.v2.enabled=false so the
-// v1 paths under test stay active.
-mock.module("../../../../config/loader.js", () => ({
-  loadConfig: () => mockConfig,
-  getConfig: () => mockConfig,
-  invalidateConfigCache: () => {},
-}));
-
 // ── Controllable mocks for semantic search ─────────────────────────────
-const mockConfig: unknown = { memory: { v2: { enabled: false } } };
 
 let mockBackendStatus: {
   enabled: boolean;
@@ -70,6 +61,7 @@ mock.module(
 
 import { eq } from "drizzle-orm";
 
+import { setConfig } from "../../../../__tests__/helpers/set-config.js";
 import {
   getDb,
   getMemoryDb,
@@ -195,6 +187,8 @@ describe("Memory Item Routes", () => {
   });
 
   beforeEach(() => {
+    // Keep memory v2 disabled so the v1 paths under test stay active.
+    setConfig("memory", { v2: { enabled: false } });
     const db = getDb();
     db.run("DELETE FROM memory_graph_node_edits");
     db.run("DELETE FROM memory_graph_triggers");
@@ -922,14 +916,13 @@ describe("Memory Item Routes", () => {
   // ── Memory nodes (content-addressed) ──────────────────────────────────────
 
   describe("memory nodes routes", () => {
-    const cfg = mockConfig as { memory: { v2: { enabled: boolean } } };
-
+    // These routes require memory v2 enabled.
     beforeEach(() => {
-      cfg.memory.v2.enabled = true;
+      setConfig("memory", { v2: { enabled: true } });
     });
 
     afterEach(() => {
-      cfg.memory.v2.enabled = false;
+      setConfig("memory", { v2: { enabled: false } });
     });
 
     interface NodesListBody {
@@ -975,7 +968,7 @@ describe("Memory Item Routes", () => {
     });
 
     test("listMemoryNodes reports memory v2 disabled as a business failure", async () => {
-      cfg.memory.v2.enabled = false;
+      setConfig("memory", { v2: { enabled: false } });
       const body = (await (
         await callHandler(getRoute("memory-nodes", "GET"), { queryParams: {} })
       ).json()) as NodesListBody;

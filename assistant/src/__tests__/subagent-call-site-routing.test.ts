@@ -18,6 +18,7 @@
 import { beforeAll, describe, expect, mock, test } from "bun:test";
 
 import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
+import { setConfig } from "./helpers/set-config.js";
 
 // Legacy-shaped fixtures (llm.default-centric resolution): pinned to the
 // flag-off cascade. Override-or-default (flag-on) semantics are pinned by
@@ -173,19 +174,8 @@ mock.module("../persistence/db-connection.js", () => ({
   getDb: () => ({}),
 }));
 
-// Mutable LLM config — tests rewrite this per-case.
-let mockLlmConfig: Record<string, unknown> = {};
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    llm: mockLlmConfig,
-    rateLimit: { maxRequestsPerMinute: 0 },
-  }),
-}));
-
 // ── Imports (after mocks) ───────────────────────────────────────────────────
 
-import { LLMSchema } from "../config/schemas/llm.js";
 import {
   clearConversations,
   setConversation,
@@ -193,8 +183,10 @@ import {
 import { CallSiteRoutingProvider } from "../providers/call-site-routing.js";
 import { SubagentManager } from "../subagent/manager.js";
 
+// Seed the workspace `llm` config per-case. The real loader schema-merges the
+// raw fragment over defaults exactly as the code path reads it.
 function setLlmConfig(raw: unknown): void {
-  mockLlmConfig = LLMSchema.parse(raw) as Record<string, unknown>;
+  setConfig("llm", raw);
 }
 
 describe("SubagentManager — provider call-site routing", () => {

@@ -17,18 +17,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ── Module mocks (must come before imports) ──────────────────────────────────
 
-let fakeConfig: Record<string, unknown> = { llm: {} };
-let savedRawConfig: Record<string, unknown> | null = null;
 let initializeProvidersCalls = 0;
-mock.module("../../../config/loader.js", () => ({
-  getConfig: () => structuredClone(savedRawConfig ?? fakeConfig),
-  getConfigReadOnly: () => structuredClone(fakeConfig),
-  loadRawConfig: () => structuredClone(fakeConfig),
-  saveRawConfig: (raw: Record<string, unknown>) => {
-    savedRawConfig = raw;
-  },
-  invalidateConfigCache: () => {},
-}));
 
 // commitConfigWrite (reached by the happy-path delete/active-set) reinitializes
 // the provider registry and clears the embedding backend cache; stub both.
@@ -44,6 +33,8 @@ mock.module("../../../persistence/embeddings/embedding-backend.js", () => ({
 
 // ── Real imports (after mocks) ────────────────────────────────────────────────
 
+import { setConfig } from "../../../__tests__/helpers/set-config.js";
+import { loadRawConfig } from "../../../config/loader.js";
 import { getDb } from "../../../persistence/db-connection.js";
 import { initializeDb } from "../../../persistence/db-init.js";
 import { providerConnections } from "../../../persistence/schema/inference.js";
@@ -84,8 +75,7 @@ function seedConnection(name: string, provider: string): void {
 
 beforeEach(() => {
   getDb().delete(providerConnections).run();
-  fakeConfig = { llm: {} };
-  savedRawConfig = null;
+  setConfig("llm", {});
   initializeProvidersCalls = 0;
 });
 
@@ -146,17 +136,15 @@ describe("POST inference/profiles (create) validation", () => {
 
 describe("PATCH inference/profiles/:name (update) validation", () => {
   test("rejects editing a managed default profile", async () => {
-    fakeConfig = {
-      llm: {
-        profiles: {
-          balanced: {
-            source: "managed",
-            provider: "fireworks",
-            model: "accounts/fireworks/models/glm-5p2",
-          },
+    setConfig("llm", {
+      profiles: {
+        balanced: {
+          source: "managed",
+          provider: "fireworks",
+          model: "accounts/fireworks/models/glm-5p2",
         },
       },
-    };
+    });
     await expect(
       call("inference_profiles_update", {
         pathParams: { name: "balanced" },
@@ -179,16 +167,14 @@ describe("PATCH inference/profiles/:name (update) validation", () => {
 
 describe("DELETE inference/profiles/:name protection", () => {
   test("rejects deleting a managed default profile", async () => {
-    fakeConfig = {
-      llm: { profiles: { balanced: { source: "managed" } } },
-    };
+    setConfig("llm", { profiles: { balanced: { source: "managed" } } });
     await expect(
       call("inference_profiles_delete", { pathParams: { name: "balanced" } }),
     ).rejects.toThrow(/managed profile/);
   });
 
   test("404s an unknown profile", async () => {
-    fakeConfig = { llm: { profiles: {} } };
+    setConfig("llm", { profiles: {} });
     await expect(
       call("inference_profiles_delete", { pathParams: { name: "ghost" } }),
     ).rejects.toBeInstanceOf(NotFoundError);
@@ -200,11 +186,9 @@ describe("DELETE inference/profiles/:name protection", () => {
 describe("POST inference/profiles create conflict", () => {
   test("409s when a profile with the name already exists", async () => {
     seedConnection("anthropic-personal", "anthropic");
-    fakeConfig = {
-      llm: {
-        profiles: { existing: { source: "user", provider: "anthropic" } },
-      },
-    };
+    setConfig("llm", {
+      profiles: { existing: { source: "user", provider: "anthropic" } },
+    });
     await expect(
       call("inference_profiles_create", {
         body: {
@@ -259,12 +243,10 @@ describe("collectProfileReferences", () => {
 
 describe("DELETE inference/profiles/:name reference guard", () => {
   test("rejects deletion referenced by activeProfile with the reference list", async () => {
-    fakeConfig = {
-      llm: {
-        activeProfile: "my-fast",
-        profiles: { "my-fast": { source: "user", provider: "anthropic" } },
-      },
-    };
+    setConfig("llm", {
+      activeProfile: "my-fast",
+      profiles: { "my-fast": { source: "user", provider: "anthropic" } },
+    });
     const promise = call("inference_profiles_delete", {
       pathParams: { name: "my-fast" },
     });
@@ -274,48 +256,42 @@ describe("DELETE inference/profiles/:name reference guard", () => {
   });
 
   test("rejects deletion referenced by a mix arm", async () => {
-    fakeConfig = {
-      llm: {
-        profiles: {
-          "my-fast": { source: "user", provider: "anthropic" },
-          "my-mix": {
-            source: "user",
-            mix: [{ profile: "my-fast", weight: 1 }],
-          },
+    setConfig("llm", {
+      profiles: {
+        "my-fast": { source: "user", provider: "anthropic" },
+        "my-mix": {
+          source: "user",
+          mix: [{ profile: "my-fast", weight: 1 }],
         },
       },
-    };
+    });
     await expect(
       call("inference_profiles_delete", { pathParams: { name: "my-fast" } }),
     ).rejects.toThrow(/llm\.profiles\.my-mix\.mix/);
   });
 
   test("rejects deletion referenced by a call site", async () => {
-    fakeConfig = {
-      llm: {
-        callSites: { memoryExtraction: { profile: "my-fast" } },
-        profiles: { "my-fast": { source: "user", provider: "anthropic" } },
-      },
-    };
+    setConfig("llm", {
+      callSites: { memoryExtraction: { profile: "my-fast" } },
+      profiles: { "my-fast": { source: "user", provider: "anthropic" } },
+    });
     await expect(
       call("inference_profiles_delete", { pathParams: { name: "my-fast" } }),
     ).rejects.toThrow(/llm\.callSites\.memoryExtraction/);
   });
 
   test("deletes an unreferenced custom profile", async () => {
-    fakeConfig = {
-      llm: {
-        activeProfile: "balanced",
-        profiles: { "my-fast": { source: "user", provider: "anthropic" } },
-      },
-    };
+    setConfig("llm", {
+      activeProfile: "balanced",
+      profiles: { "my-fast": { source: "user", provider: "anthropic" } },
+    });
     const result = (await call("inference_profiles_delete", {
       pathParams: { name: "my-fast" },
     })) as { ok: true; name: string };
     expect(result).toEqual({ ok: true, name: "my-fast" });
-    expect(savedRawConfig?.llm).toBeDefined();
+    expect(loadRawConfig().llm).toBeDefined();
     expect(
-      (savedRawConfig?.llm as { profiles?: Record<string, unknown> }).profiles,
+      (loadRawConfig().llm as { profiles?: Record<string, unknown> }).profiles,
     ).toEqual({});
     expect(initializeProvidersCalls).toBe(1);
   });
@@ -325,12 +301,10 @@ describe("DELETE inference/profiles/:name reference guard", () => {
 
 describe("GET inference/profiles honors llm.defaultProvider", () => {
   test("expands balanced through a BYOK default provider, not the vellum column", async () => {
-    fakeConfig = {
-      llm: {
-        defaultProvider: { provider: "anthropic" },
-        profiles: {},
-      },
-    };
+    setConfig("llm", {
+      defaultProvider: { provider: "anthropic" },
+      profiles: {},
+    });
     const listed = (await call("inference_profiles_list", {})) as {
       profiles: Array<{ name: string; provider: string | null }>;
     };
@@ -351,29 +325,27 @@ describe("GET inference/profiles honors llm.defaultProvider", () => {
 
 describe("PUT inference/active-profile validation", () => {
   test("sets a valid profile", async () => {
-    fakeConfig = {
-      llm: {
-        profiles: {
-          "my-fast": {
-            source: "user",
-            provider: "anthropic",
-            model: "claude-opus-4-8",
-            status: "active",
-          },
+    setConfig("llm", {
+      profiles: {
+        "my-fast": {
+          source: "user",
+          provider: "anthropic",
+          model: "claude-opus-4-8",
+          status: "active",
         },
       },
-    };
+    });
     const result = (await call("inference_profiles_set_active", {
       body: { name: "my-fast" },
     })) as { ok: true; activeProfile: string };
     expect(result).toEqual({ ok: true, activeProfile: "my-fast" });
     expect(
-      (savedRawConfig?.llm as { activeProfile?: string }).activeProfile,
+      (loadRawConfig().llm as { activeProfile?: string }).activeProfile,
     ).toBe("my-fast");
   });
 
   test("rejects a typo'd name with the valid-name list", async () => {
-    fakeConfig = { llm: { profiles: {} } };
+    setConfig("llm", { profiles: {} });
     const promise = call("inference_profiles_set_active", {
       body: { name: "balancd" },
     });
@@ -384,18 +356,16 @@ describe("PUT inference/active-profile validation", () => {
   });
 
   test("rejects a disabled profile", async () => {
-    fakeConfig = {
-      llm: {
-        profiles: {
-          "my-fast": {
-            source: "user",
-            provider: "anthropic",
-            model: "claude-opus-4-8",
-            status: "disabled",
-          },
+    setConfig("llm", {
+      profiles: {
+        "my-fast": {
+          source: "user",
+          provider: "anthropic",
+          model: "claude-opus-4-8",
+          status: "disabled",
         },
       },
-    };
+    });
     await expect(
       call("inference_profiles_set_active", { body: { name: "my-fast" } }),
     ).rejects.toThrow(/disabled/);

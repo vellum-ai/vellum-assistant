@@ -5,20 +5,12 @@
  *   GET /v1/inference/callsites/:site  — 400 on an unknown site
  */
 
-import { describe, expect, mock, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 
-let fakeLlm: Record<string, unknown> = {};
-mock.module("../../../config/loader.js", () => ({
-  getConfigReadOnly: () => ({ llm: fakeLlm }),
-  getConfig: () => ({ llm: fakeLlm }),
-}));
-
-import { LLMCallSiteEnum, LLMSchema } from "../../../config/schemas/llm.js";
+import { LLMCallSiteEnum } from "../../../config/schemas/llm.js";
 import { BadRequestError } from "../errors.js";
 import { ROUTES } from "../inference-callsites-routes.js";
 import type { RouteDefinition, RouteHandlerArgs } from "../types.js";
-
-fakeLlm = LLMSchema.parse({});
 
 function handler(operationId: string): RouteDefinition["handler"] {
   const route = ROUTES.find((r) => r.operationId === operationId);

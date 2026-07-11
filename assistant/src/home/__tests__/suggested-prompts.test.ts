@@ -28,10 +28,6 @@ mock.module("../../schedule/integration-status.js", () => ({
   formatIntegrationSummary: async () => mockIntegrationSummary,
 }));
 
-mock.module("../../config/loader.js", () => ({
-  getConfig: () => ({ llm: {} }),
-}));
-
 mock.module("../../config/llm-resolver.js", () => ({
   resolveCallSiteConfig: () => ({ provider: "mock", maxTokens: 256 }),
 }));

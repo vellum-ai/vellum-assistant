@@ -4,27 +4,18 @@
  * the queue) while every memory job stays pending — the slow and embed lanes
  * get no budget and the fast lane is restricted to the lexical types.
  */
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 
 import { eq } from "drizzle-orm";
 
-import { DEFAULT_CONFIG } from "../../../../config/defaults.js";
-import type { AssistantConfig } from "../../../../config/types.js";
+import { setConfig } from "../../../../__tests__/helpers/set-config.js";
 
-let memoryEnabled = false;
-const testConfig = (): AssistantConfig => ({
-  ...DEFAULT_CONFIG,
-  memory: {
-    ...DEFAULT_CONFIG.memory,
-    enabled: memoryEnabled,
-  },
-});
-
-mock.module("../../../../config/loader.js", () => ({
-  getConfig: () => testConfig(),
-  loadConfig: () => testConfig(),
-  invalidateConfigCache: () => {},
-}));
+// Seed only `memory.enabled`; the schema fills the rest of the memory block
+// (including `v2.enabled`, default true) with its defaults, matching the
+// full-default config these tests ran under.
+function seedMemoryEnabled(enabled: boolean): void {
+  setConfig("memory", { enabled });
+}
 
 import { getMemoryDb } from "../../../../persistence/db-connection.js";
 import { initializeDb } from "../../../../persistence/db-init.js";
@@ -32,6 +23,7 @@ import { enqueueMemoryJob } from "../../../../persistence/jobs-store.js";
 import { memoryJobs } from "../../../../persistence/schema/index.js";
 import { registerJobHandler, runMemoryJobsOnce } from "../jobs-worker.js";
 
+seedMemoryEnabled(false);
 await initializeDb();
 
 const processed: string[] = [];
@@ -55,7 +47,7 @@ describe("runMemoryJobsOnce with memory disabled", () => {
   beforeEach(() => {
     getMemoryDb()!.delete(memoryJobs).run();
     processed.length = 0;
-    memoryEnabled = false;
+    seedMemoryEnabled(false);
   });
 
   test("drains lexical jobs while leaving memory jobs pending", async () => {
@@ -76,7 +68,7 @@ describe("runMemoryJobsOnce with memory disabled", () => {
     enqueueMemoryJob("index_message_lexical", { messageId: "msg-2" });
     enqueueMemoryJob("memory_v2_activation_recompute", {});
 
-    memoryEnabled = true;
+    seedMemoryEnabled(true);
     const ran = await runMemoryJobsOnce();
 
     expect(ran).toBe(2);

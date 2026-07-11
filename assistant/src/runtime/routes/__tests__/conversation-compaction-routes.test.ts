@@ -11,27 +11,9 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-// Mutable so a test can flip the master switch off and assert the guard.
-let llmRequestLoggingEnabled = true;
-mock.module("../../../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-    model: "test",
-    provider: "test",
-    memory: { enabled: false },
-    rateLimit: { maxRequestsPerMinute: 0 },
-    secretDetection: { enabled: false },
-    llmRequestLogs: {
-      readSource: "local" as const,
-      enabled: llmRequestLoggingEnabled,
-    },
-  }),
-}));
-
 // ---------------------------------------------------------------------
 // Source + conversation-crud module mocks
 // ---------------------------------------------------------------------
-
 import type { CompactionLogEvent } from "../../../persistence/compaction-log-store-clickhouse.js";
 import type {
   CompactionAgentLogRow,
@@ -142,6 +124,7 @@ mock.module("../../../persistence/llm-request-log-source.js", () => ({
 }));
 
 // Imported AFTER the mocks so the handler picks up the fakes.
+import { setConfig } from "../../../__tests__/helpers/set-config.js";
 import {
   projectCompactionLogEventToTrailEvent,
   projectLogRowToCompactionTrailEvent,
@@ -220,7 +203,9 @@ function fakeCompactionLogEvent(
 }
 
 beforeEach(() => {
-  llmRequestLoggingEnabled = true;
+  // The compaction-trail guard reads `llmRequestLogs.enabled` (the master
+  // switch); seed the default-on state and let a test flip it off.
+  setConfig("llmRequestLogs", { enabled: true });
   state.conversation = null;
   state.selectedCall = null;
   state.previousNonCompactionCallCreatedAt = null;
@@ -267,7 +252,7 @@ describe("handleGetCompactionTrail — request-shape errors", () => {
   test("throws LlmRequestLogsDisabledError when logging is disabled", async () => {
     // Even with a valid conversation + call, the guard short-circuits before
     // any log source read — the compaction trail is inspector-only LLM data.
-    llmRequestLoggingEnabled = false;
+    setConfig("llmRequestLogs", { enabled: false });
     state.conversation = { id: "conv-1" };
     state.selectedCall = fakeLogMetaRow({
       id: "call-1",

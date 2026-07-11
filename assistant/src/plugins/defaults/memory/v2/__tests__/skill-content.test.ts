@@ -2,8 +2,9 @@
  * Tests for `memory/v2/skill-content.ts` — v2-owned port of v1's
  * `buildSkillContent` plus the `mcp-setup` description augmentation.
  */
-import { describe, expect, mock, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 
+import { setConfig } from "../../../../../__tests__/helpers/set-config.js";
 import type { SkillCapabilityInput } from "../skill-content.js";
 
 describe("buildSkillContent", () => {
@@ -89,17 +90,22 @@ describe("augmentMcpSetupDescription", () => {
   });
 
   test("appends 'Configured: <names>' for mcp-setup with enabled servers", async () => {
-    mock.module("../../../../../config/loader.js", () => ({
-      getConfig: () => ({
-        mcp: {
-          servers: {
-            "example-server": { enabled: true },
-            "another-server": { enabled: true },
-            "disabled-server": { enabled: false },
-          },
+    setConfig("mcp", {
+      servers: {
+        "example-server": {
+          transport: { type: "stdio", command: "example-cmd" },
+          enabled: true,
         },
-      }),
-    }));
+        "another-server": {
+          transport: { type: "stdio", command: "another-cmd" },
+          enabled: true,
+        },
+        "disabled-server": {
+          transport: { type: "stdio", command: "disabled-cmd" },
+          enabled: false,
+        },
+      },
+    });
     const { augmentMcpSetupDescription } = await import("../skill-content.js");
     const input: SkillCapabilityInput = {
       id: "mcp-setup",

@@ -39,29 +39,6 @@ mock.module("../skills/catalog-install.js", () => ({
   resolveCatalog: (_skillId?: string) => Promise.resolve([]),
 }));
 
-interface TestConfig {
-  permissions: { autoApproveUpTo?: "none" | "low" | "medium" | "high" };
-  skills: { load: { extraDirs: string[] } };
-  sandbox: { enabled: boolean };
-  [key: string]: unknown;
-}
-
-const testConfig: TestConfig = {
-  permissions: {},
-  skills: { load: { extraDirs: [] } },
-  sandbox: { enabled: true },
-};
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => testConfig,
-  loadConfig: () => testConfig,
-  invalidateConfigCache: () => {},
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-  getNestedValue: () => undefined,
-  setNestedValue: () => {},
-}));
-
 // ── Imports (after mocks) ────────────────────────────────────────────────
 
 const { skillLoadTool } = await import("../tools/skills/load.js");
@@ -96,7 +73,6 @@ describe("vellum-self-knowledge skill", () => {
     mkdirSync(join(TEST_DIR, "skills"), { recursive: true });
     mockAutoInstall.mockReset();
     mockAutoInstall.mockImplementation(() => Promise.resolve(false));
-    testConfig.skills = { load: { extraDirs: [] } };
     installSelfKnowledgeSkill();
   });
 

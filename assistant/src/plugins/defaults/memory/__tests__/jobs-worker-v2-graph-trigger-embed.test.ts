@@ -21,23 +21,9 @@ import {
 
 import { eq } from "drizzle-orm";
 
-import { DEFAULT_CONFIG } from "../../../../config/defaults.js";
-import type { AssistantConfig } from "../../../../config/types.js";
-
-const TEST_CONFIG: AssistantConfig = {
-  ...DEFAULT_CONFIG,
-  memory: {
-    ...DEFAULT_CONFIG.memory,
-    enabled: true,
-    v2: { ...DEFAULT_CONFIG.memory.v2, enabled: true },
-  },
-};
-
-mock.module("../../../../config/loader.js", () => ({
-  getConfig: () => TEST_CONFIG,
-  loadConfig: () => TEST_CONFIG,
-  invalidateConfigCache: () => {},
-}));
+// `memory.enabled` and `memory.v2.enabled` both default true, so the real
+// loader reading this file's (empty) workspace config already yields the
+// v2-enabled state this regression needs — no seeding required.
 
 let triggerHandlerCalls = 0;
 

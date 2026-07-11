@@ -10,8 +10,6 @@ import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
 
 const TEST_DIR = process.env.VELLUM_WORKSPACE_DIR!;
 
-let currentConfig: Record<string, unknown> = {};
-
 const DECLARED_SKILL_ID = "a2a-channel";
 const DECLARED_FLAG_KEY = "a2a-channel";
 
@@ -28,30 +26,6 @@ mock.module("../util/logger.js", () => ({
   truncateForLog: (value: string) => value,
   initLogger: () => {},
   pruneOldLogFiles: () => 0,
-}));
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => currentConfig,
-  getConfigReadOnly: () => currentConfig,
-  loadConfig: () => currentConfig,
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-  invalidateConfigCache: () => {},
-  getNestedValue: () => undefined,
-  setNestedValue: () => {},
-  deepMergeOverwrite: (a: unknown) => a,
-  mergeDefaultWorkspaceConfig: () => {},
-  API_KEY_PROVIDERS: [
-    "anthropic",
-    "openai",
-    "gemini",
-    "ollama",
-    "fireworks",
-    "openrouter",
-    "brave",
-    "perplexity",
-    "tavily",
-  ],
 }));
 
 const { skillLoadTool } = await import("../tools/skills/load.js");
@@ -86,7 +60,6 @@ async function executeSkillLoad(
 describe("skill_load feature flag enforcement", () => {
   beforeEach(() => {
     mkdirSync(join(TEST_DIR, "skills"), { recursive: true });
-    currentConfig = {};
     setOverridesForTesting({});
   });
 

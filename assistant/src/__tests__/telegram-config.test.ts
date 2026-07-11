@@ -9,14 +9,6 @@ let oauthConnectionStore: Record<
 > = {};
 const syncCalls: Array<{ provider: string; accountInfo?: string }> = [];
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({ telegram: {}, ui: {} }),
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-  invalidateConfigCache: () => {},
-  setNestedValue: () => {},
-}));
-
 mock.module("../inbound/platform-callback-registration.js", () => ({
   registerCallbackRoute: async () => {},
 }));
