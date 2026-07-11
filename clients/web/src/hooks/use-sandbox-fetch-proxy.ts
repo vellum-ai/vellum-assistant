@@ -16,7 +16,9 @@
 import { type RefObject, useEffect } from "react";
 
 import { client } from "@/generated/api/client.gen";
+import { subscribe as busSubscribe } from "@/lib/event-bus";
 import { FETCH_PROXY_PATH_RE } from "@/utils/sandbox-bridge";
+import { forwardableSyncTags } from "@/utils/sandbox-sync-filter";
 
 export interface SandboxFetchProxyOptions {
   /** Unique identifier matching the bridge's `frameId`. */
@@ -63,10 +65,34 @@ export function useSandboxFetchProxy(
   } = options;
 
   useEffect(() => {
+    // subId → the sync tags the sandboxed app asked to hear about. Populated
+    // by vellum_subscribe messages, read by the bus forwarder below.
+    const subscriptions = new Map<string, Set<string>>();
+
     const handler = async (event: MessageEvent) => {
       const msg = event.data;
       if (!msg || msg.frameId !== frameId) {return;}
       if (event.source !== iframeRef.current?.contentWindow) {return;}
+
+      if (msg.type === "vellum_subscribe") {
+        if (!enabled) {return;}
+        const { subId, tags } = msg as { subId: string; tags: unknown };
+        if (typeof subId === "string" && Array.isArray(tags)) {
+          subscriptions.set(
+            subId,
+            new Set(tags.filter((t): t is string => typeof t === "string")),
+          );
+        }
+        return;
+      }
+
+      if (msg.type === "vellum_unsubscribe") {
+        const { subId } = msg as { subId: string };
+        if (typeof subId === "string") {
+          subscriptions.delete(subId);
+        }
+        return;
+      }
 
       if (msg.type === "vellum_surface_action") {
         onAction?.(msg.actionId, msg.data);
@@ -235,7 +261,50 @@ export function useSandboxFetchProxy(
     };
 
     window.addEventListener("message", handler);
-    return () => window.removeEventListener("message", handler);
+
+    // Forward host `sync_changed` invalidations to any sandbox subscription
+    // whose tags match, scoped by `forwardableSyncTags` (reserved host
+    // namespaces are never delivered). Only `sync_changed` is forwarded — no
+    // event carrying a payload crosses into the sandbox.
+    const busUnsubscribe = busSubscribe("sse.event", (envelope) => {
+      const message = envelope.message as
+        | { type?: string; tags?: unknown }
+        | undefined;
+      if (
+        !message ||
+        message.type !== "sync_changed" ||
+        !Array.isArray(message.tags)
+      ) {
+        return;
+      }
+      const contentWindow = iframeRef.current?.contentWindow;
+      if (!contentWindow || subscriptions.size === 0) {
+        return;
+      }
+      const eventTags = message.tags.filter(
+        (t): t is string => typeof t === "string",
+      );
+      for (const [subId, wanted] of subscriptions) {
+        const tags = forwardableSyncTags([...wanted], eventTags);
+        if (tags.length > 0) {
+          contentWindow.postMessage(
+            {
+              type: "vellum_event",
+              frameId,
+              subId,
+              event: { type: "sync_changed", tags },
+            },
+            "*",
+          );
+        }
+      }
+    });
+
+    return () => {
+      window.removeEventListener("message", handler);
+      busUnsubscribe();
+      subscriptions.clear();
+    };
   }, [
     frameId,
     assistantId,
