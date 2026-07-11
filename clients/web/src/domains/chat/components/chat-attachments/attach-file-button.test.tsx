@@ -17,6 +17,7 @@ mock.module("@/domains/chat/composer-focus", () => ({
   requestComposerFocus: requestComposerFocusMock,
 }));
 
+import { publish } from "@/lib/event-bus";
 import { AttachFileButton } from "@/domains/chat/components/chat-attachments/chat-attachments";
 
 afterAll(() => {
@@ -63,38 +64,43 @@ describe("AttachFileButton — composer refocus on picker close", () => {
     expect(requestComposerFocusMock).toHaveBeenCalled();
   });
 
-  test("refocuses the composer when the picker is cancelled (window regains focus)", () => {
+  test("refocuses the composer when the picker is cancelled (app.resume)", () => {
     const { getByLabelText } = render(
       <AttachFileButton onFilesSelected={() => {}} />,
     );
 
-    // Tapping the button arms the one-shot focus/visibility listeners and opens
-    // the (native) picker. A cancel fires no `change`, only a window `focus`
-    // when the web view regains first responder.
+    // Tapping the button arms the picker-pending flag and opens the (native)
+    // picker. A cancel fires no `change`; the keyboard is restored when the app
+    // foregrounds again, delivered as `app.resume` on the event bus.
     fireEvent.click(getByLabelText("Attach file"));
     expect(requestComposerFocusMock).not.toHaveBeenCalled();
 
-    window.dispatchEvent(new Event("focus"));
+    publish("app.resume", { signal: "visibility" });
     expect(requestComposerFocusMock).toHaveBeenCalledTimes(1);
 
-    // The listener is one-shot — a second focus event does not refocus again.
-    window.dispatchEvent(new Event("focus"));
+    // The pending flag is one-shot — a second resume does not refocus again.
+    publish("app.resume", { signal: "visibility" });
     expect(requestComposerFocusMock).toHaveBeenCalledTimes(1);
   });
 
-  test("refocuses via visibilitychange when the document becomes visible again", () => {
+  test("ignores app.resume when no picker is pending", () => {
+    render(<AttachFileButton onFilesSelected={() => {}} />);
+    // A resume that isn't preceded by a picker open must not refocus.
+    publish("app.resume", { signal: "visibility" });
+    expect(requestComposerFocusMock).not.toHaveBeenCalled();
+  });
+
+  test("ignores network-online resumes even while a picker is pending", () => {
     const { getByLabelText } = render(
       <AttachFileButton onFilesSelected={() => {}} />,
     );
-
     fireEvent.click(getByLabelText("Attach file"));
+    // A network blip resume is not a picker dismissal — do not refocus, and
+    // keep the pending flag armed for the real foregrounding resume.
+    publish("app.resume", { signal: "online" });
+    expect(requestComposerFocusMock).not.toHaveBeenCalled();
 
-    Object.defineProperty(document, "visibilityState", {
-      configurable: true,
-      value: "visible",
-    });
-    document.dispatchEvent(new Event("visibilitychange"));
-
+    publish("app.resume", { signal: "visibility" });
     expect(requestComposerFocusMock).toHaveBeenCalledTimes(1);
   });
 });

@@ -6,6 +6,7 @@ import { Button } from "@vellumai/design-library";
 
 import { requestComposerFocus } from "@/domains/chat/composer-focus";
 import { AttachmentChip } from "@/domains/chat/components/chat-attachments/attachment-chip";
+import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import { AttachmentLoadingChip } from "@/domains/chat/components/chat-attachments/attachment-loading-chip";
 import { AttachmentPreviewModal } from "@/domains/chat/components/chat-attachments/attachment-preview-modal";
 import type {
@@ -142,8 +143,8 @@ interface AttachFileButtonProps {
  * `visualViewport`). The native picker and the keyboard are mutually
  * exclusive first responders, so the keyboard cannot stay up *during* the
  * picker. Instead we re-focus the composer the moment the picker closes —
- * on both file-select (`handleChange`) and cancel (which does not fire
- * `change`, so we arm a one-shot window `focus`/`visibilitychange` listener).
+ * on both file-select (`handleChange`) and cancel (which fires no `change`
+ * event, so we lean on the app foregrounding/visibility signal instead).
  * `requestComposerFocus()` is idempotent and a no-op on desktop (the textarea
  * is already focused there and the OS file dialog doesn't steal focus), so the
  * refocus is safe to run unconditionally.
@@ -154,30 +155,37 @@ export const AttachFileButton: FC<AttachFileButtonProps> = ({
   title = "Attach file",
 }) => {
   const inputRef = useRef<HTMLInputElement | null>(null);
+  // Set while the native picker is open so the next app-resume signal (fired
+  // when the web view regains first responder) knows to restore the keyboard.
+  const pickerPendingRef = useRef(false);
+
+  // Cancel path: the native picker fires no `change` event when dismissed
+  // without a selection, so restore the keyboard when the app foregrounds
+  // again. `app.resume` is the sanctioned single source for visibility /
+  // Capacitor app-state signals (see docs/EVENT_BUS.md) — subscribing here
+  // instead of registering our own `visibilitychange` listener keeps that
+  // lifecycle in one place. `app.resume` also fires when a file *is* selected
+  // (handleChange refocuses first; this is idempotent), and network-online
+  // resumes are ignored since they don't follow a picker.
+  useBusSubscription("app.resume", ({ signal }) => {
+    if (signal === "online") {
+      return;
+    }
+    if (!pickerPendingRef.current) {
+      return;
+    }
+    pickerPendingRef.current = false;
+    requestComposerFocus();
+  });
 
   const handleClick = useCallback(() => {
-    // Arm a one-shot listener so a *cancelled* picker (which fires no
-    // `change` event) still restores the keyboard when the web view regains
-    // first responder. `focus` and `visibilitychange` both fire when the
-    // native modal dismisses; whichever lands first refocuses and disarms.
-    const restore = () => {
-      window.removeEventListener("focus", restore);
-      document.removeEventListener("visibilitychange", onVisible);
-      requestComposerFocus();
-    };
-    const onVisible = () => {
-      if (document.visibilityState === "visible") {
-        restore();
-      }
-    };
-    window.addEventListener("focus", restore, { once: true });
-    document.addEventListener("visibilitychange", onVisible);
-
+    pickerPendingRef.current = true;
     inputRef.current?.click();
   }, []);
 
   const handleChange = useCallback(
     (event: ChangeEvent<HTMLInputElement>) => {
+      pickerPendingRef.current = false;
       const { files } = event.target;
       if (files && files.length > 0) {
         onFilesSelected(files);
@@ -185,7 +193,7 @@ export const AttachFileButton: FC<AttachFileButtonProps> = ({
       // Reset so selecting the same file twice still fires onChange.
       event.target.value = "";
       // Restore the keyboard/layout after the picker closes on selection.
-      // (The cancel path is handled by the one-shot listener in handleClick.)
+      // (The cancel path is handled by the app.resume subscription above.)
       requestComposerFocus();
     },
     [onFilesSelected],
