@@ -44,6 +44,33 @@ export interface UserRouteContext {
   readonly assistantEventHub: AssistantEventHub;
   /** The logical assistant ID used by the daemon (typically "self"). */
   readonly assistantId: string;
+  /** Conversation operations available to route handlers (e.g. posting integration events as turns). */
+  readonly conversations: RouteConversationsApi;
+}
+
+/**
+ * Conversation operations exposed to route handlers. Lets integration routes
+ * (webhook receivers, cron jobs, device/service callbacks) surface an inbound
+ * event as a real assistant turn rather than only a client-side event.
+ */
+export interface RouteConversationsApi {
+  /**
+   * Post a message into an existing conversation as a real assistant turn.
+   *
+   * The turn is attributed to a dedicated integration interface (never a human
+   * surface) and runs under the conversation's existing trust context — a
+   * route cannot impersonate a user or elevate privilege by posting. Unknown
+   * conversation ids are rejected (a route never silently creates one), and
+   * posts are rate-limited per conversation to backstop runaway loops.
+   *
+   * Rejects with a `RouteMessageError` carrying `code`
+   * (`"not_found" | "rate_limited" | "invalid"`) — catch it to map to an HTTP
+   * status, or let it surface as a 500.
+   */
+  postMessage(
+    conversationId: string,
+    text: string,
+  ): Promise<{ messageId: string }>;
 }
 
 // ---------------------------------------------------------------------------

@@ -19,6 +19,9 @@ function makeContext(overrides?: Partial<UserRouteContext>): UserRouteContext {
   return {
     assistantEventHub: new AssistantEventHub(),
     assistantId: "test-assistant",
+    conversations: {
+      postMessage: async () => ({ messageId: "test-msg" }),
+    },
     ...overrides,
   };
 }
