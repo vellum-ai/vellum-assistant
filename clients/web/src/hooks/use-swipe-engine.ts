@@ -88,12 +88,8 @@ interface SwipeEngineResult {
  *
  * The axis-specific hooks ({@link use-swipe-horizontal}, `use-swipe-vertical`)
  * thin-wrap this engine, mapping the signed commit delta to direction callbacks
- * (left/right, down/up) and supplying haptics.
- *
- * @todo `use-gallery-swipe` and `use-swipe-vertical` still carry their own copies
- *   of this state machine. They live on other in-flight branches and can't be
- *   touched here; migrate them to this engine in follow-up PRs once those
- *   branches land.
+ * (left/right, down/up) and supplying haptics. `use-gallery-swipe` keeps its own
+ * copy of the state machine and is not yet routed through this engine.
  */
 export function useSwipeEngine({
   enabled,
@@ -128,6 +124,10 @@ export function useSwipeEngine({
     // touchmove's state update, and a fast flick's final delta can arrive only
     // on touchend.
     lastDelta: number;
+    // Latest raw delta (px) on the escape axis, tracked so the commit decision
+    // can re-apply the same escape-ratio guard used during touchmove when the
+    // released touch isn't in `changedTouches` (see onTouchEnd).
+    lastEscape: number;
   } | null>(null);
 
   const reset = useCallback(() => {
@@ -154,6 +154,7 @@ export function useSwipeEngine({
         startY: t.clientY,
         resolved: "undecided",
         lastDelta: 0,
+        lastEscape: 0,
       };
     },
     [enabled, touchOnly, isTouch, reset],
@@ -178,6 +179,7 @@ export function useSwipeEngine({
       const primary = axis === "horizontal" ? dx : dy;
       const escape = axis === "horizontal" ? dy : dx;
       g.lastDelta = primary;
+      g.lastEscape = escape;
 
       if (g.resolved === "undecided") {
         if (Math.abs(primary) < deadzonePx && Math.abs(escape) < deadzonePx) {
@@ -247,21 +249,38 @@ export function useSwipeEngine({
       }
       // Decide from the true final delta, not the rendered `dragOffset`: prefer
       // the released touch's position (a fast flick's final move can land only
-      // on `changedTouches`), and fall back to the last delta seen in touchmove.
+      // on `changedTouches`), and fall back to the last deltas seen in
+      // touchmove.
       const released = Array.from(e.changedTouches).find(
         (t) => t.identifier === g.touchId,
       );
-      const finalDelta = released
-        ? axis === "horizontal"
-          ? released.clientX - g.startX
-          : released.clientY - g.startY
-        : g.lastDelta;
-      if (Math.abs(finalDelta) >= commitThresholdPx) {
-        onCommit?.(finalDelta);
+      const finalDx = released ? released.clientX - g.startX : null;
+      const finalDy = released ? released.clientY - g.startY : null;
+      const finalPrimary =
+        finalDx !== null && finalDy !== null
+          ? axis === "horizontal"
+            ? finalDx
+            : finalDy
+          : g.lastDelta;
+      const finalEscape =
+        finalDx !== null && finalDy !== null
+          ? axis === "horizontal"
+            ? finalDy
+            : finalDx
+          : g.lastEscape;
+      // Re-apply the escape-axis guard used during touchmove: a gesture that
+      // ends mostly on the escape axis (e.g. a mostly-horizontal move that only
+      // grazed the vertical threshold) must not commit just because its primary
+      // delta crossed the threshold. This mirrors the in-drag bail so the final
+      // frame — which may only arrive on touchend — can't sneak past it.
+      const escapeDominant =
+        Math.abs(finalEscape) > Math.abs(finalPrimary) * escapeRatio;
+      if (!escapeDominant && Math.abs(finalPrimary) >= commitThresholdPx) {
+        onCommit?.(finalPrimary);
       }
       reset();
     },
-    [axis, commitThresholdPx, onCommit, reset],
+    [axis, commitThresholdPx, escapeRatio, onCommit, reset],
   );
 
   return {
