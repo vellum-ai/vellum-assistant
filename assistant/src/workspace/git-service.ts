@@ -1070,16 +1070,28 @@ export class WorkspaceGitService {
 
   /**
    * Expire all reflogs and prune unreachable objects so dropped blobs are
-   * physically deleted from .git. Must be called with the mutex lock held.
+   * physically deleted from .git. Hooks are disabled for the same reason as
+   * in {@link buildSafeCommitArgs} — workspace hooks are model-writable and
+   * untrusted, and gc's pack-refs would otherwise run the branch guard
+   * against legacy refs. Must be called with the mutex lock held.
    */
   private async expireReflogsAndPruneLocked(): Promise<void> {
     await this.execGit(
-      ["reflog", "expire", "--expire=now", "--expire-unreachable=now", "--all"],
+      [
+        "-c",
+        "core.hooksPath=/dev/null",
+        "reflog",
+        "expire",
+        "--expire=now",
+        "--expire-unreachable=now",
+        "--all",
+      ],
       { timeoutMs: HISTORY_COMPACTION_TIMEOUT_MS },
     );
-    await this.execGit(["gc", "--prune=now", "--quiet"], {
-      timeoutMs: HISTORY_COMPACTION_TIMEOUT_MS,
-    });
+    await this.execGit(
+      ["-c", "core.hooksPath=/dev/null", "gc", "--prune=now", "--quiet"],
+      { timeoutMs: HISTORY_COMPACTION_TIMEOUT_MS },
+    );
   }
 
   /**
@@ -1110,9 +1122,11 @@ export class WorkspaceGitService {
 
   /**
    * Whether any of the given oversized blobs is actionable for compaction:
-   * unreachable from main (prunable now) or reachable at a non-exempt path.
-   * Blobs whose only reachable use is exempt canonical state (e.g. a
-   * conversation disk view) are tracked on purpose — they must neither
+   * reachable from main at a non-exempt path (a rewrite removes it), or
+   * referenced by no ref at all (a prune removes it). Blobs whose only
+   * main-reachable use is exempt canonical state (e.g. a conversation disk
+   * view), and blobs retained solely by other refs (legacy pre-guard
+   * branches, notes) that rewriting main can never reclaim, must neither
    * trigger a rewrite nor keep compaction retrying.
    */
   private async hasActionableOversizedBlobLocked(
@@ -1122,12 +1136,12 @@ export class WorkspaceGitService {
       return false;
     }
     // Lines are "<oid>" for commits and "<oid> <path>" for trees/blobs.
-    const reachable = await this.execGitStreaming(
+    const fromMain = await this.execGitStreaming(
       ["rev-list", "--objects", "main"],
       { timeoutMs: HISTORY_COMPACTION_TIMEOUT_MS },
     );
     const remaining = new Set(oversized);
-    for (const line of reachable.stdout.split("\n")) {
+    for (const line of fromMain.stdout.split("\n")) {
       if (!line) {
         continue;
       }
@@ -1143,7 +1157,20 @@ export class WorkspaceGitService {
         return true;
       }
     }
-    // Anything never seen in rev-list is unreachable, hence prunable.
+    if (remaining.size === 0) {
+      return false;
+    }
+    // Drop blobs retained by any other ref — gc keeps them regardless of
+    // what happens to main. Whatever is left is truly unreferenced, hence
+    // prunable.
+    const fromAll = await this.execGitStreaming(
+      ["rev-list", "--objects", "--all"],
+      { timeoutMs: HISTORY_COMPACTION_TIMEOUT_MS },
+    );
+    for (const line of fromAll.stdout.split("\n")) {
+      const spaceIdx = line.indexOf(" ");
+      remaining.delete(spaceIdx === -1 ? line : line.substring(0, spaceIdx));
+    }
     return remaining.size > 0;
   }
 
@@ -1298,7 +1325,14 @@ export class WorkspaceGitService {
     // Compare-and-swap against the tip we read, in case an external git
     // process moved main while we rewrote.
     const oldHead = commits[commits.length - 1]?.sha ?? "";
-    await this.execGit(["update-ref", "refs/heads/main", newHead, oldHead]);
+    await this.execGit([
+      "-c",
+      "core.hooksPath=/dev/null",
+      "update-ref",
+      "refs/heads/main",
+      newHead,
+      oldHead,
+    ]);
     await this.expireReflogsAndPruneLocked();
 
     // Blobs referenced by a replayed kept commit survive the prune (the

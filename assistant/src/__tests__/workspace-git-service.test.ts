@@ -2121,6 +2121,63 @@ describe("WorkspaceGitService", () => {
       ).toThrow();
     });
 
+    test("history compaction converges when a legacy branch retains the blob", async () => {
+      const gitEnvAt = (daysAgo: number) => {
+        const date = new Date(Date.now() - daysAgo * 86400_000).toISOString();
+        return {
+          ...process.env,
+          GIT_AUTHOR_DATE: date,
+          GIT_COMMITTER_DATE: date,
+        };
+      };
+      execFileSync("git", ["init", "-b", "main"], { cwd: testDir });
+      execFileSync("git", ["config", "user.name", "Test"], { cwd: testDir });
+      execFileSync("git", ["config", "user.email", "user@example.com"], {
+        cwd: testDir,
+      });
+      writeFileSync(join(testDir, "keep.txt"), "v1");
+      writeFileSync(join(testDir, "legacy.bin"), bigContent());
+      execFileSync("git", ["add", "-A"], { cwd: testDir });
+      execFileSync("git", ["commit", "--no-verify", "-m", "old with blob"], {
+        cwd: testDir,
+        env: gitEnvAt(30),
+      });
+      // Legacy pre-guard branch pins the blob commit forever
+      execFileSync("git", ["branch", "legacy-branch"], { cwd: testDir });
+      execFileSync("git", ["rm", "--cached", "-q", "legacy.bin"], {
+        cwd: testDir,
+      });
+      execFileSync("git", ["commit", "--no-verify", "-m", "untrack blob"], {
+        cwd: testDir,
+        env: gitEnvAt(20),
+      });
+      writeFileSync(join(testDir, "recent.txt"), "recent");
+      execFileSync("git", ["add", "recent.txt"], { cwd: testDir });
+      execFileSync("git", ["commit", "--no-verify", "-m", "recent change"], {
+        cwd: testDir,
+      });
+
+      const blobSha = execFileSync("git", ["hash-object", "--stdin"], {
+        cwd: testDir,
+        input: bigContent(),
+        encoding: "utf-8",
+      }).trim();
+
+      const service = new WorkspaceGitService(testDir);
+      const result = await service.compactHistoryNow();
+
+      // Main history is rewritten, but the branch-retained blob is not
+      // reclaimable — so no retry loop is started for it.
+      expect(result.rewrote).toBe(true);
+      expect(result.retryAfterMs).toBeUndefined();
+      execFileSync("git", ["cat-file", "-e", blobSha], { cwd: testDir });
+
+      // A follow-up run sees nothing actionable at all
+      const second = await service.compactHistoryNow();
+      expect(second.rewrote).toBe(false);
+      expect(second.retryAfterMs).toBeUndefined();
+    });
+
     test("history compaction defers with a retry when blobs are within retention", async () => {
       const service = new WorkspaceGitService(testDir);
       await service.ensureInitialized();
