@@ -866,6 +866,21 @@ export function readAppFile(appId: string, path: string): string {
 }
 
 /**
+ * Read a file from the app directory as raw bytes.
+ * Path is validated to prevent traversal. Use for binary assets (images,
+ * audio, video, fonts) where {@link readAppFile}'s utf-8 decoding corrupts
+ * the data.
+ */
+export function readAppFileBytes(appId: string, path: string): Buffer {
+  validateId(appId);
+  const resolved = validateFilePath(appId, path);
+  if (!existsSync(resolved)) {
+    throw new Error(`File not found: ${path}`);
+  }
+  return readFileSync(resolved);
+}
+
+/**
  * Write a file to the app directory.
  * Auto-creates intermediate directories. Path is validated to prevent traversal.
  */
