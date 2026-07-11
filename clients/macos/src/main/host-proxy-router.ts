@@ -26,6 +26,7 @@ import { onLockfileChange, getWatchedLockfile } from "./lockfile-watcher";
 import { HostBrowserExecutor } from "./executors/host-browser-executor";
 import { hostCuExecutor } from "./executors/host-cu-executor";
 import { hostAppControlExecutor } from "./executors/host-app-control-executor";
+import { hostUiSnapshotExecutor } from "./executors/host-ui-snapshot-executor";
 import { shutdownSharedCuHelper } from "./sidecar/shared-cu-helper";
 import { getSessionToken } from "./session-token-store";
 import log from "./logger";
@@ -77,7 +78,7 @@ export function removeExecutor(kind: string): void {
 // Message dispatch
 // ---------------------------------------------------------------------------
 
-const EXECUTOR_KINDS = ["host_bash", "host_file", "host_transfer", "host_browser", "host_cu", "host_app_control"] as const;
+const EXECUTOR_KINDS = ["host_bash", "host_file", "host_transfer", "host_browser", "host_cu", "host_app_control", "host_ui_snapshot"] as const;
 
 /** Route type → executor kind. Returns null for unknown types. */
 function executorKindForType(type: string): { kind: string; action: "request" | "cancel" } | null {
@@ -158,6 +159,13 @@ function dispatchMessage(message: HostProxySseMessage, poster: HostProxyPoster):
         requestId,
         state: "missing",
         executionError: "Executor not yet implemented",
+      });
+      break;
+    case "host_ui_snapshot":
+      void poster.postUiSnapshotResult({
+        requestId,
+        isError: true,
+        errorMessage: "Executor not yet implemented",
       });
       break;
   }
@@ -395,6 +403,7 @@ export function installHostProxyBridge(
   setExecutor("host_transfer", hostTransferExecutor);
   setExecutor("host_cu", hostCuExecutor);
   setExecutor("host_app_control", hostAppControlExecutor);
+  setExecutor("host_ui_snapshot", hostUiSnapshotExecutor);
   unsubscribe = onLockfileChange(handleLockfileChange);
 
   // Seed from any assistants already present in the lockfile
