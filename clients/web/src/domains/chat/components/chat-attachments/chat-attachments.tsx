@@ -1,14 +1,17 @@
-
 import { AlertCircle, Folder, Paperclip, X } from "lucide-react";
 import type { ChangeEvent, FC } from "react";
 import { useCallback, useRef, useState } from "react";
 
 import { Button } from "@vellumai/design-library";
 
+import { requestComposerFocus } from "@/domains/chat/composer-focus";
 import { AttachmentChip } from "@/domains/chat/components/chat-attachments/attachment-chip";
 import { AttachmentLoadingChip } from "@/domains/chat/components/chat-attachments/attachment-loading-chip";
 import { AttachmentPreviewModal } from "@/domains/chat/components/chat-attachments/attachment-preview-modal";
-import type { ChatAttachment, UploadedAttachment } from "@/domains/chat/composer-store";
+import type {
+  ChatAttachment,
+  UploadedAttachment,
+} from "@/domains/chat/composer-store";
 import { middleTruncate } from "@/domains/chat/components/chat-attachments/utils";
 
 interface ChatAttachmentsStripProps {
@@ -24,7 +27,8 @@ export const ChatAttachmentsStrip: FC<ChatAttachmentsStripProps> = ({
   attachments,
   onRemove,
 }) => {
-  const [previewAttachment, setPreviewAttachment] = useState<UploadedAttachment | null>(null);
+  const [previewAttachment, setPreviewAttachment] =
+    useState<UploadedAttachment | null>(null);
   const handleClosePreview = useCallback(() => setPreviewAttachment(null), []);
 
   if (attachments.length === 0) {
@@ -130,6 +134,19 @@ interface AttachFileButtonProps {
 /**
  * Paperclip button that triggers a hidden file input. Lives in the lower-left
  * of the composer action bar to match the macOS layout.
+ *
+ * On iOS (Capacitor WKWebView), clicking the hidden `<input type="file">`
+ * presents the native document/photo picker, which resigns the web view's
+ * first responder — dismissing the soft keyboard and collapsing the
+ * keyboard-aware layout (`root-layout.tsx` sizes the shell from
+ * `visualViewport`). The native picker and the keyboard are mutually
+ * exclusive first responders, so the keyboard cannot stay up *during* the
+ * picker. Instead we re-focus the composer the moment the picker closes —
+ * on both file-select (`handleChange`) and cancel (which does not fire
+ * `change`, so we arm a one-shot window `focus`/`visibilitychange` listener).
+ * `requestComposerFocus()` is idempotent and a no-op on desktop (the textarea
+ * is already focused there and the OS file dialog doesn't steal focus), so the
+ * refocus is safe to run unconditionally.
  */
 export const AttachFileButton: FC<AttachFileButtonProps> = ({
   disabled = false,
@@ -139,6 +156,23 @@ export const AttachFileButton: FC<AttachFileButtonProps> = ({
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   const handleClick = useCallback(() => {
+    // Arm a one-shot listener so a *cancelled* picker (which fires no
+    // `change` event) still restores the keyboard when the web view regains
+    // first responder. `focus` and `visibilitychange` both fire when the
+    // native modal dismisses; whichever lands first refocuses and disarms.
+    const restore = () => {
+      window.removeEventListener("focus", restore);
+      document.removeEventListener("visibilitychange", onVisible);
+      requestComposerFocus();
+    };
+    const onVisible = () => {
+      if (document.visibilityState === "visible") {
+        restore();
+      }
+    };
+    window.addEventListener("focus", restore, { once: true });
+    document.addEventListener("visibilitychange", onVisible);
+
     inputRef.current?.click();
   }, []);
 
@@ -150,6 +184,9 @@ export const AttachFileButton: FC<AttachFileButtonProps> = ({
       }
       // Reset so selecting the same file twice still fires onChange.
       event.target.value = "";
+      // Restore the keyboard/layout after the picker closes on selection.
+      // (The cancel path is handled by the one-shot listener in handleClick.)
+      requestComposerFocus();
     },
     [onFilesSelected],
   );
