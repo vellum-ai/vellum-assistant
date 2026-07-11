@@ -24,11 +24,13 @@ mock.module("../../../../ipc/cli-client.js", () => ({
 }));
 
 const { registerPlatformConnectCommand } = await import("../connect.js");
+const { applyCommandHelp } = await import("../../../lib/cli-command-help.js");
+const { platformHelp } = await import("../index.help.js");
 
 function buildProgram(): Command {
   const program = new Command();
   program.exitOverride();
-  program.option("--json", "JSON output");
+  applyCommandHelp(program, platformHelp);
   registerPlatformConnectCommand(program);
   return program;
 }

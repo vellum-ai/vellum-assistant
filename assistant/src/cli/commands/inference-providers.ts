@@ -18,6 +18,7 @@ import type { Command } from "commander";
 
 import { cliIpcCall } from "../../ipc/cli-client.js";
 import type { OAuth2Config } from "../../security/oauth2.js";
+import { subcommand } from "../lib/cli-command-help.js";
 import { writeCliError } from "../lib/cli-output.js";
 import { attachDefaultProviderSubcommand } from "./inference-providers-default.js";
 
@@ -64,12 +65,8 @@ function formatAuth(auth: AuthInfo): string {
 // ---------------------------------------------------------------------------
 
 function attachListSubcommand(connections: Command): void {
-  connections
-    .command("list")
-    .description("List all provider connections")
-    .option("--provider <p>", "Filter by provider")
-    .option("--json", "Output as JSON")
-    .action(async (opts: { provider?: string; json?: boolean }) => {
+  subcommand(connections, "list").action(
+    async (opts: { provider?: string; json?: boolean }) => {
       const ipcResult = await cliIpcCall<{ connections: ProviderConnection[] }>(
         "inference_provider_connections_list",
         {
@@ -101,7 +98,8 @@ function attachListSubcommand(connections: Command): void {
           `${conn.name}  provider=${conn.provider}  auth=${formatAuth(conn.auth)}\n`,
         );
       }
-    });
+    },
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -109,11 +107,8 @@ function attachListSubcommand(connections: Command): void {
 // ---------------------------------------------------------------------------
 
 function attachGetSubcommand(connections: Command): void {
-  connections
-    .command("get <name>")
-    .description("Show a single provider connection")
-    .option("--json", "Output as JSON")
-    .action(async (name: string, opts: { json?: boolean }) => {
+  subcommand(connections, "get").action(
+    async (name: string, opts: { json?: boolean }) => {
       const ipcResult = await cliIpcCall<ProviderConnection>(
         "inference_provider_connections_get",
         {
@@ -144,7 +139,8 @@ function attachGetSubcommand(connections: Command): void {
       process.stdout.write(
         `updated:  ${new Date(conn.updatedAt).toISOString()}\n`,
       );
-    });
+    },
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -216,22 +212,10 @@ function buildCustomProviderFields(opts: {
 // ---------------------------------------------------------------------------
 
 function attachCreateSubcommand(connections: Command): void {
-  connections
-    .command("create <name>")
-    .description("Create a new provider connection")
-    .requiredOption(
-      "--provider <p>",
-      "Provider (anthropic|openai|gemini|ollama|...)",
-    )
-    .requiredOption("--auth <type>", "Auth type: api_key|platform|none")
-    .option(
-      "--credential <vault-key>",
-      "Vault credential name (required for --auth api_key)",
-    )
-    .option(
-      "--base-url <url>",
-      "Endpoint base URL (required for --provider openai-compatible)",
-    )
+  // `--model` uses an array-accumulating collector, which the declarative
+  // help contract cannot express — it is registered imperatively here (with
+  // the trailing `--json` after it, preserving option order).
+  subcommand(connections, "create")
     .option(
       "--model <id>",
       "Model id offered by this connection (repeatable; required for openai-compatible)",
@@ -303,18 +287,8 @@ function attachCreateSubcommand(connections: Command): void {
 // ---------------------------------------------------------------------------
 
 function attachUpdateSubcommand(connections: Command): void {
-  connections
-    .command("update <name>")
-    .description("Update a connection's auth")
-    .requiredOption("--auth <type>", "Auth type: api_key|platform|none")
-    .option(
-      "--credential <vault-key>",
-      "Vault credential name (required for --auth api_key)",
-    )
-    .option(
-      "--base-url <url>",
-      "Endpoint base URL (openai-compatible connections)",
-    )
+  // `--model` collector registered imperatively — see the note on `create`.
+  subcommand(connections, "update")
     .option(
       "--model <id>",
       "Model id offered by this connection (repeatable; openai-compatible)",
@@ -373,11 +347,8 @@ function attachUpdateSubcommand(connections: Command): void {
 // ---------------------------------------------------------------------------
 
 function attachDeleteSubcommand(connections: Command): void {
-  connections
-    .command("delete <name>")
-    .description("Delete a provider connection")
-    .option("--json", "Output as JSON")
-    .action(async (name: string, opts: { json?: boolean }) => {
+  subcommand(connections, "delete").action(
+    async (name: string, opts: { json?: boolean }) => {
       const ipcResult = await cliIpcCall<{ ok: true }>(
         "inference_provider_connections_delete",
         {
@@ -395,7 +366,8 @@ function attachDeleteSubcommand(connections: Command): void {
       } else {
         process.stdout.write(`Deleted connection "${name}"\n`);
       }
-    });
+    },
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -416,11 +388,8 @@ const OPENAI_CODEX_OAUTH_CONFIG: OAuth2Config = {
 // ---------------------------------------------------------------------------
 
 function attachLoginChatgptSubcommand(providers: Command): void {
-  providers
-    .command("login-chatgpt")
-    .description("Authenticate with ChatGPT via browser OAuth flow")
-    .option("--json", "Output as JSON")
-    .action(async (opts: { json?: boolean }) => {
+  subcommand(providers, "login-chatgpt").action(
+    async (opts: { json?: boolean }) => {
       try {
         // Deferred: loads the OAuth and secure-key graphs on demand.
         const [{ startOAuth2Flow }, { setSecureKeyAsync }] = await Promise.all([
@@ -529,7 +498,8 @@ function attachLoginChatgptSubcommand(providers: Command): void {
         const message = err instanceof Error ? err.message : String(err);
         writeCliError(message, opts.json);
       }
-    });
+    },
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -537,40 +507,8 @@ function attachLoginChatgptSubcommand(providers: Command): void {
 // ---------------------------------------------------------------------------
 
 export function attachProvidersSubcommand(inference: Command): void {
-  const providers = inference
-    .command("providers")
-    .description("Inference provider admin commands");
-
-  const connections = providers
-    .command("connections")
-    .description("Manage provider connections (auth configs for inference)");
-
-  connections.addHelpText(
-    "after",
-    `
-Provider connections map a name to a (provider, auth) pair.
-Profiles reference connections via the 'provider_connection' field.
-
-Canonical connections (seeded on every boot):
-  anthropic-managed  → provider=anthropic, auth=platform
-  openai-managed     → provider=openai,    auth=platform
-  gemini-managed     → provider=gemini,    auth=platform
-
-Examples:
-  $ assistant inference providers connections list
-  $ assistant inference providers connections get anthropic-managed
-  $ assistant inference providers connections create anthropic-personal \\
-      --provider anthropic --auth api_key --credential credential/anthropic/api_key
-  $ assistant inference providers connections create local-llm \\
-      --provider openai-compatible --auth none \\
-      --base-url http://localhost:1234/v1 --model my-model
-  $ assistant inference providers connections update anthropic-personal --auth platform
-  $ assistant inference providers connections delete anthropic-personal
-
-After creating or updating a connection, validate it with a live call through
-a profile that uses it:
-  $ assistant inference send --profile <profile> "Reply with OK"`,
-  );
+  const providers = subcommand(inference, "providers");
+  const connections = subcommand(providers, "connections");
 
   attachListSubcommand(connections);
   attachGetSubcommand(connections);

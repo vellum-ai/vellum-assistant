@@ -26,6 +26,22 @@ import { clientsHelp } from "./commands/clients.help.js";
 import { completionsHelp } from "./commands/completions.help.js";
 import { configHelp } from "./commands/config.help.js";
 import { contactsHelp } from "./commands/contacts.help.js";
+import { conversationsHelp } from "./commands/conversations.help.js";
+import { credentialsHelp } from "./commands/credentials.help.js";
+import { dbHelp } from "./commands/db/index.help.js";
+import { domainHelp } from "./commands/domain.help.js";
+import { emailHelp } from "./commands/email.help.js";
+import { gatewayHelp } from "./commands/gateway.help.js";
+import { imageGenerationHelp } from "./commands/image-generation.help.js";
+import { inferenceHelp, llmHelp } from "./commands/inference.help.js";
+import { keysHelp } from "./commands/keys.help.js";
+import { mcpHelp } from "./commands/mcp.help.js";
+import { memoryHelp } from "./commands/memory/index.help.js";
+import { notificationsHelp } from "./commands/notifications.help.js";
+import { oauthHelp } from "./commands/oauth/index.help.js";
+import { pendingHelp } from "./commands/pending.help.js";
+import { platformHelp } from "./commands/platform/index.help.js";
+import { pluginsHelp } from "./commands/plugins.help.js";
 import type { CliCommandHelp } from "./lib/cli-command-help.js";
 
 export const CLI_COMMAND_HELP: readonly CliCommandHelp[] = [
@@ -44,4 +60,21 @@ export const CLI_COMMAND_HELP: readonly CliCommandHelp[] = [
   completionsHelp,
   configHelp,
   contactsHelp,
+  conversationsHelp,
+  credentialsHelp,
+  dbHelp,
+  domainHelp,
+  emailHelp,
+  gatewayHelp,
+  imageGenerationHelp,
+  inferenceHelp,
+  keysHelp,
+  llmHelp,
+  mcpHelp,
+  memoryHelp,
+  notificationsHelp,
+  oauthHelp,
+  pendingHelp,
+  platformHelp,
+  pluginsHelp,
 ];
