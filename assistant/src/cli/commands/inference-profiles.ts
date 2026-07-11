@@ -16,6 +16,7 @@
 import type { Command } from "commander";
 
 import { cliIpcCall } from "../../ipc/cli-client.js";
+import { subcommand } from "../lib/cli-command-help.js";
 import { renderTable, writeCliError, writeLine } from "../lib/cli-output.js";
 
 interface ProfileSummary {
@@ -122,90 +123,45 @@ function printWriteResult(
   );
 }
 
-function addWriteFlags(cmd: Command): Command {
-  return cmd
-    .option("--provider <p>", "LLM provider (e.g. anthropic, openai)")
-    .option("--model <id>", "Model id (see 'assistant inference models list')")
-    .option("--connection <name>", "Provider connection name to use")
-    .option("--label <text>", "Human-readable label")
-    .option(
-      "--effort <tier>",
-      "Reasoning effort (none|low|medium|high|xhigh|max)",
-    )
-    .option("--max-tokens <n>", "Max response tokens")
-    .option("--temperature <x>", "Sampling temperature")
-    .option("--thinking <on|off>", "Enable or disable thinking")
-    .option("--description <text>", "Profile description")
-    .option("--allow-unlisted", "Allow a model not in the catalog (warns)")
-    .option("--json", "Output as machine-readable JSON");
-}
-
 export function attachProfilesSubcommand(inference: Command): void {
-  const profiles = inference
-    .command("profiles")
-    .description("Manage inference profiles (named model configurations)");
-
-  profiles.addHelpText(
-    "after",
-    `
-Profiles are named model configurations. Managed defaults (balanced,
-quality-optimized, cost-optimized) are read-only; create your own to
-customize provider, model, and tuning.
-
-Examples:
-  $ assistant inference profiles list
-  $ assistant inference profiles create my-fast --provider anthropic \\
-      --model claude-haiku-4-5 --connection anthropic-personal --effort low
-  $ assistant inference profiles update my-fast --effort high
-  $ assistant inference profiles active my-fast
-  $ assistant inference profiles delete my-fast`,
-  );
+  const profiles = subcommand(inference, "profiles");
 
   // ── list ────────────────────────────────────────────────────────────
-  profiles
-    .command("list")
-    .description("List the effective profile catalog")
-    .option("--json", "Output as machine-readable JSON")
-    .action(async (opts: { json?: boolean }) => {
-      const ipcResult = await cliIpcCall<{ profiles: ProfileSummary[] }>(
-        "inference_profiles_list",
-        {},
-      );
-      if (!ipcResult.ok) {
-        writeCliError(ipcResult.error ?? "Unknown error", opts.json);
-        return;
-      }
-      const rows = ipcResult.result!.profiles;
-      if (opts.json) {
-        process.stdout.write(
-          JSON.stringify({ ok: true, profiles: rows }) + "\n",
-        );
-        return;
-      }
-      if (rows.length === 0) {
-        writeLine("No profiles found.");
-        return;
-      }
-      renderTable(
-        ["NAME", "LABEL", "PROVIDER", "MODEL", "STATUS", "SOURCE", "AVAIL"],
-        rows.map((p) => [
-          p.name,
-          p.label ?? "-",
-          p.provider ?? "-",
-          p.model ?? "-",
-          p.status,
-          p.source,
-          p.availability ? p.availability.status : "-",
-        ]),
-      );
-    });
+  subcommand(profiles, "list").action(async (opts: { json?: boolean }) => {
+    const ipcResult = await cliIpcCall<{ profiles: ProfileSummary[] }>(
+      "inference_profiles_list",
+      {},
+    );
+    if (!ipcResult.ok) {
+      writeCliError(ipcResult.error ?? "Unknown error", opts.json);
+      return;
+    }
+    const rows = ipcResult.result!.profiles;
+    if (opts.json) {
+      process.stdout.write(JSON.stringify({ ok: true, profiles: rows }) + "\n");
+      return;
+    }
+    if (rows.length === 0) {
+      writeLine("No profiles found.");
+      return;
+    }
+    renderTable(
+      ["NAME", "LABEL", "PROVIDER", "MODEL", "STATUS", "SOURCE", "AVAIL"],
+      rows.map((p) => [
+        p.name,
+        p.label ?? "-",
+        p.provider ?? "-",
+        p.model ?? "-",
+        p.status,
+        p.source,
+        p.availability ? p.availability.status : "-",
+      ]),
+    );
+  });
 
   // ── get ─────────────────────────────────────────────────────────────
-  profiles
-    .command("get <name>")
-    .description("Show a single effective profile")
-    .option("--json", "Output as machine-readable JSON")
-    .action(async (name: string, opts: { json?: boolean }) => {
+  subcommand(profiles, "get").action(
+    async (name: string, opts: { json?: boolean }) => {
       const ipcResult = await cliIpcCall<{
         name: string;
         entry: Record<string, unknown>;
@@ -230,73 +186,67 @@ Examples:
           writeLine(`    ${result.availability.message}`);
         }
       }
-    });
+    },
+  );
 
   // ── create ──────────────────────────────────────────────────────────
-  addWriteFlags(
-    profiles
-      .command("create <name>")
-      .description("Create a validated custom profile"),
-  ).action(async (name: string, opts: WriteFlags) => {
-    if (!opts.provider) {
-      writeCliError("--provider is required.", opts.json);
-      return;
-    }
-    if (!opts.model) {
-      writeCliError("--model is required.", opts.json);
-      return;
-    }
-    const built = buildWriteBody(opts);
-    if (!built.ok) {
-      writeCliError(built.error, opts.json);
-      return;
-    }
-    const ipcResult = await cliIpcCall<ProfileWriteResult>(
-      "inference_profiles_create",
-      { body: { ...built.body, name } },
-    );
-    if (!ipcResult.ok) {
-      writeCliError(ipcResult.error ?? "Unknown error", opts.json);
-      return;
-    }
-    printWriteResult("created", ipcResult.result!, opts.json);
-  });
+  subcommand(profiles, "create").action(
+    async (name: string, opts: WriteFlags) => {
+      if (!opts.provider) {
+        writeCliError("--provider is required.", opts.json);
+        return;
+      }
+      if (!opts.model) {
+        writeCliError("--model is required.", opts.json);
+        return;
+      }
+      const built = buildWriteBody(opts);
+      if (!built.ok) {
+        writeCliError(built.error, opts.json);
+        return;
+      }
+      const ipcResult = await cliIpcCall<ProfileWriteResult>(
+        "inference_profiles_create",
+        { body: { ...built.body, name } },
+      );
+      if (!ipcResult.ok) {
+        writeCliError(ipcResult.error ?? "Unknown error", opts.json);
+        return;
+      }
+      printWriteResult("created", ipcResult.result!, opts.json);
+    },
+  );
 
   // ── update ──────────────────────────────────────────────────────────
-  addWriteFlags(
-    profiles
-      .command("update <name>")
-      .description("Partially update a custom profile"),
-  ).action(async (name: string, opts: WriteFlags) => {
-    const built = buildWriteBody(opts);
-    if (!built.ok) {
-      writeCliError(built.error, opts.json);
-      return;
-    }
-    if (Object.keys(built.body).length === 0) {
-      writeCliError(
-        "Nothing to update — pass at least one field flag.",
-        opts.json,
+  subcommand(profiles, "update").action(
+    async (name: string, opts: WriteFlags) => {
+      const built = buildWriteBody(opts);
+      if (!built.ok) {
+        writeCliError(built.error, opts.json);
+        return;
+      }
+      if (Object.keys(built.body).length === 0) {
+        writeCliError(
+          "Nothing to update — pass at least one field flag.",
+          opts.json,
+        );
+        return;
+      }
+      const ipcResult = await cliIpcCall<ProfileWriteResult>(
+        "inference_profiles_update",
+        { pathParams: { name }, body: built.body },
       );
-      return;
-    }
-    const ipcResult = await cliIpcCall<ProfileWriteResult>(
-      "inference_profiles_update",
-      { pathParams: { name }, body: built.body },
-    );
-    if (!ipcResult.ok) {
-      writeCliError(ipcResult.error ?? "Unknown error", opts.json);
-      return;
-    }
-    printWriteResult("updated", ipcResult.result!, opts.json);
-  });
+      if (!ipcResult.ok) {
+        writeCliError(ipcResult.error ?? "Unknown error", opts.json);
+        return;
+      }
+      printWriteResult("updated", ipcResult.result!, opts.json);
+    },
+  );
 
   // ── delete ──────────────────────────────────────────────────────────
-  profiles
-    .command("delete <name>")
-    .description("Delete a custom profile")
-    .option("--json", "Output as machine-readable JSON")
-    .action(async (name: string, opts: { json?: boolean }) => {
+  subcommand(profiles, "delete").action(
+    async (name: string, opts: { json?: boolean }) => {
       const ipcResult = await cliIpcCall<{ ok: true; name: string }>(
         "inference_profiles_delete",
         { pathParams: { name } },
@@ -312,24 +262,12 @@ Examples:
         return;
       }
       writeLine(`profile ${name} deleted`);
-    });
+    },
+  );
 
   // ── active ──────────────────────────────────────────────────────────
-  profiles
-    .command("active [name]")
-    .description("Read or set the active (chat) profile")
-    .option("--json", "Output as machine-readable JSON")
-    .addHelpText(
-      "after",
-      `
-With no argument, prints the active profile. With a name, sets it — the
-same deep-merge write the model picker performs.
-
-Examples:
-  $ assistant inference profiles active
-  $ assistant inference profiles active balanced`,
-    )
-    .action(async (name: string | undefined, opts: { json?: boolean }) => {
+  subcommand(profiles, "active").action(
+    async (name: string | undefined, opts: { json?: boolean }) => {
       if (name === undefined) {
         const ipcResult = await cliIpcCall<{
           llm?: { activeProfile?: string };
@@ -367,5 +305,6 @@ Examples:
         return;
       }
       writeLine(`active profile set to ${activeProfile}`);
-    });
+    },
+  );
 }

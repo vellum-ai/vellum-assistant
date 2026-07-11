@@ -2,8 +2,10 @@ import { createRequire } from "node:module";
 
 import type { Command } from "commander";
 
+import { applyCommandHelp, subcommand } from "../lib/cli-command-help.js";
 import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
+import { keysHelp } from "./keys.help.js";
 
 const loadModule = createRequire(import.meta.url);
 
@@ -21,10 +23,15 @@ function apiKeyProviders(): readonly string[] {
 
 export function registerKeysCommand(program: Command): void {
   registerCommand(program, {
-    name: "keys",
+    name: keysHelp.name,
     transport: "local",
-    description: "Manage API keys in secure storage",
+    description: keysHelp.description,
     build: (keys) => {
+      applyCommandHelp(keys, keysHelp);
+
+      // These help texts interpolate the lazily-loaded provider catalog at
+      // render time, so they stay imperative here rather than in the
+      // declarative help module.
       keys.addHelpText(
         "after",
         () => `
@@ -39,9 +46,7 @@ Examples:
   $ assistant keys delete openai`,
       );
 
-      keys
-        .command("list")
-        .description("List all stored API key names")
+      subcommand(keys, "list")
         .addHelpText(
           "after",
           () => `
@@ -75,73 +80,34 @@ Examples:
           }
         });
 
-      keys
-        .command("set <provider> <key>")
-        .description(
-          "Store an API key (e.g. assistant keys set anthropic sk-ant-...)",
-        )
-        .addHelpText(
-          "after",
-          `
-Arguments:
-  provider   Provider name (e.g. anthropic, openai, gemini)
-  key        The API key value to store
+      subcommand(keys, "set").action(async (provider: string, key: string) => {
+        const { setSecureKeyViaDaemon } =
+          await import("../lib/daemon-credential-client.js");
+        const setResult = await setSecureKeyViaDaemon("api_key", provider, key);
+        if (setResult.ok) {
+          log.info(`Stored API key for "${provider}"`);
+        } else {
+          const detail = setResult.error ? `: ${setResult.error}` : "";
+          log.error(`Failed to store API key for "${provider}"${detail}`);
+          process.exit(1);
+        }
+      });
 
-If a key already exists for the given provider, it is silently overwritten.
-
-Examples:
-  $ assistant keys set anthropic sk-ant-abc123
-  $ assistant keys set openai sk-proj-xyz789
-  $ assistant keys set fireworks fw-abc123`,
-        )
-        .action(async (provider: string, key: string) => {
-          const { setSecureKeyViaDaemon } =
-            await import("../lib/daemon-credential-client.js");
-          const setResult = await setSecureKeyViaDaemon(
-            "api_key",
-            provider,
-            key,
-          );
-          if (setResult.ok) {
-            log.info(`Stored API key for "${provider}"`);
-          } else {
-            const detail = setResult.error ? `: ${setResult.error}` : "";
-            log.error(`Failed to store API key for "${provider}"${detail}`);
-            process.exit(1);
-          }
-        });
-
-      keys
-        .command("delete <provider>")
-        .description("Delete a stored API key")
-        .addHelpText(
-          "after",
-          `
-Arguments:
-  provider   Provider name whose key should be removed from secure storage
-
-Removes the API key for the given provider from secure local storage. If
-no key exists for the provider, exits with an error.
-
-Examples:
-  $ assistant keys delete openai
-  $ assistant keys delete anthropic`,
-        )
-        .action(async (provider: string) => {
-          const { deleteSecureKeyViaDaemon } =
-            await import("../lib/daemon-credential-client.js");
-          const delResult = await deleteSecureKeyViaDaemon("api_key", provider);
-          if (delResult.result === "deleted") {
-            log.info(`Deleted API key for "${provider}"`);
-          } else if (delResult.result === "error") {
-            const detail = delResult.error ? `: ${delResult.error}` : "";
-            log.error(`Failed to delete API key for "${provider}"${detail}`);
-            process.exit(1);
-          } else {
-            log.error(`No API key found for "${provider}"`);
-            process.exit(1);
-          }
-        });
+      subcommand(keys, "delete").action(async (provider: string) => {
+        const { deleteSecureKeyViaDaemon } =
+          await import("../lib/daemon-credential-client.js");
+        const delResult = await deleteSecureKeyViaDaemon("api_key", provider);
+        if (delResult.result === "deleted") {
+          log.info(`Deleted API key for "${provider}"`);
+        } else if (delResult.result === "error") {
+          const detail = delResult.error ? `: ${delResult.error}` : "";
+          log.error(`Failed to delete API key for "${provider}"${detail}`);
+          process.exit(1);
+        } else {
+          log.error(`No API key found for "${provider}"`);
+          process.exit(1);
+        }
+      });
     },
   });
 }

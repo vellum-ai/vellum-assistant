@@ -31,6 +31,8 @@ mock.module("../../../util/logger.js", () => ({
 }));
 
 const { attachProfilesSubcommand } = await import("../inference-profiles.js");
+const { applyCommandHelp } = await import("../../lib/cli-command-help.js");
+const { inferenceHelp } = await import("../inference.help.js");
 
 beforeEach(() => {
   lastIpcCall = null;
@@ -58,6 +60,7 @@ async function run(
     const program = new Command();
     program.exitOverride();
     const inference = program.command("inference");
+    applyCommandHelp(inference, inferenceHelp);
     attachProfilesSubcommand(inference);
     await program.parseAsync(["node", "assistant", "inference", ...args]);
   } catch (err: unknown) {

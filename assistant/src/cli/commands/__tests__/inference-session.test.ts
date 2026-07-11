@@ -50,7 +50,9 @@ mock.module("../../../util/logger.js", () => ({
 
 mock.module("../../../config/loader.js", () => ({
   loadConfig: () => ({ llm: { profileSession: { defaultTtlSeconds: 1800 } } }),
-  getConfigReadOnly: () => ({ llm: { profileSession: { defaultTtlSeconds: 1800 } } }),
+  getConfigReadOnly: () => ({
+    llm: { profileSession: { defaultTtlSeconds: 1800 } },
+  }),
 }));
 
 // ---------------------------------------------------------------------------
@@ -58,6 +60,8 @@ mock.module("../../../config/loader.js", () => ({
 // ---------------------------------------------------------------------------
 
 const { attachSessionSubcommand } = await import("../inference-session.js");
+const { applyCommandHelp } = await import("../../lib/cli-command-help.js");
+const { inferenceHelp } = await import("../inference.help.js");
 
 // ---------------------------------------------------------------------------
 // Env var helpers
@@ -115,6 +119,7 @@ async function runCommand(
     const program = new Command();
     program.exitOverride();
     const inferenceCmd = program.command("inference");
+    applyCommandHelp(inferenceCmd, inferenceHelp);
     attachSessionSubcommand(inferenceCmd);
     await program.parseAsync(["node", "assistant", "inference", ...args]);
   } catch (err: unknown) {
@@ -373,12 +378,7 @@ describe("session list", () => {
       result: { sessions: [] },
     };
 
-    await runCommand([
-      "session",
-      "list",
-      "--conversation-id",
-      "conv-xyz",
-    ]);
+    await runCommand(["session", "list", "--conversation-id", "conv-xyz"]);
 
     expect(lastIpcCall).not.toBeNull();
     expect(lastIpcCall!.params).toEqual({
