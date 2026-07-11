@@ -1,20 +1,11 @@
 import { useCallback, useRef, type TouchEvent as ReactTouchEvent } from "react";
 
 import { haptic } from "@/utils/haptics";
+import { isInteractiveTarget } from "@/utils/interactive-target";
 import { isPointerCoarse } from "@/utils/pointer";
 
 const DEFAULT_THRESHOLD_MS = 500;
 const MOVE_TOLERANCE_PX = 10;
-
-/**
- * Selector matching interactive elements that should NOT trigger the
- * long-press action sheet — inline links, buttons, form controls, and
- * other [role="button"] controls. Mirrors the `isInteractiveClickTarget`
- * check used by `handleBubbleClick` in transcript-message-body so the
- * touchstart guard and the click guard agree on what counts as interactive.
- */
-const INTERACTIVE_SELECTOR =
-  'a, button, [role="button"], input, textarea, select';
 
 export interface UseLongPressHandlers {
   onTouchStart: (e: ReactTouchEvent) => void;
@@ -74,7 +65,7 @@ export function useLongPress(
       // is to interact with that control, not to open the long-press
       // action sheet. Mirrors the `isInteractiveClickTarget` guard in
       // `handleBubbleClick` (transcript-message-body.tsx).
-      if (target?.closest(INTERACTIVE_SELECTOR)) return;
+      if (isInteractiveTarget(target)) return;
       // Skip where another gesture owns the long-press for this target (e.g.
       // assistant-message text, which long-presses into a quote-reply
       // selection). Evaluated here at touchstart so the timer never arms —

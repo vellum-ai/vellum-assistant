@@ -17,6 +17,7 @@ import type {
   ScopeOption,
 } from "@/types/interaction-ui-types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
+import { isInteractiveTarget } from "@/utils/interactive-target";
 
 export interface OpenRuleEditorContext {
   toolName: string;
@@ -473,9 +474,7 @@ function getSlackSenderLabel(
 }
 
 export function isInteractiveClickTarget(target: Element | null): boolean {
-  return Boolean(
-    target?.closest('a, button, [role="button"], input, textarea, select'),
-  );
+  return isInteractiveTarget(target);
 }
 
 export function SlackMessageAttribution({
