@@ -144,6 +144,7 @@ import { ROUTES as TRUST_RULES_ROUTES } from "./trust-rules-routes.js";
 import { ROUTES as TTS_ROUTES } from "./tts-routes.js";
 import type { RouteDefinition } from "./types.js";
 import { ROUTES as UI_REQUEST_ROUTES } from "./ui-request-routes.js";
+import { ROUTES as UI_SNAPSHOT_ROUTES } from "./ui-snapshot-routes.js";
 import { ROUTES as UPGRADE_BROADCAST_ROUTES } from "./upgrade-broadcast-routes.js";
 import { ROUTES as USAGE_ROUTES } from "./usage-routes.js";
 import { ROUTES as USER_ROUTES } from "./user-routes.js";
@@ -289,6 +290,7 @@ export const ROUTES: RouteDefinition[] = [
   ...TRUST_RULES_ROUTES,
   ...TTS_ROUTES,
   ...UI_REQUEST_ROUTES,
+  ...UI_SNAPSHOT_ROUTES,
   ...UPGRADE_BROADCAST_ROUTES,
   ...USAGE_ROUTES,
   ...VERCEL_ROUTES,
