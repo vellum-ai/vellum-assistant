@@ -165,18 +165,32 @@ export const AttachFileButton: FC<AttachFileButtonProps> = ({
   title = "Attach file",
 }) => {
   const inputRef = useRef<HTMLInputElement | null>(null);
+  // Cleanup for the armed iOS 15–16.3 focus fallback (see handleClick). Held
+  // in a ref so every picker-close path (change, cancel, unmount) can disarm
+  // it, not just a window focus event.
+  const disarmFocusFallbackRef = useRef<(() => void) | null>(null);
+
+  const refocusComposer = useCallback(() => {
+    // Any picker-close path lands here: disarm the pending focus fallback so it
+    // can't fire on a later unrelated window focus, then restore the keyboard.
+    disarmFocusFallbackRef.current?.();
+    disarmFocusFallbackRef.current = null;
+    requestComposerFocus();
+  }, []);
 
   const handleClick = useCallback(() => {
     // Fallback for iOS 15–16.3 WKWebViews that don't fire the input `cancel`
     // event: refocus the composer the first time the window regains focus
-    // after the picker opens (the picker resigned it). One-shot so it can't
-    // linger past this picker session; on iOS 16.4+ the `cancel` handler below
-    // is the precise signal and this is a harmless idempotent extra.
-    window.addEventListener("focus", () => requestComposerFocus(), {
-      once: true,
-    });
+    // after the picker opens (the picker resigned it). On iOS 16.4+ the
+    // `cancel`/`change` paths fire first and disarm this via refocusComposer,
+    // so it never lingers past the picker session.
+    disarmFocusFallbackRef.current?.();
+    const onFocus = () => refocusComposer();
+    window.addEventListener("focus", onFocus, { once: true });
+    disarmFocusFallbackRef.current = () =>
+      window.removeEventListener("focus", onFocus);
     inputRef.current?.click();
-  }, []);
+  }, [refocusComposer]);
 
   const handleChange = useCallback(
     (event: ChangeEvent<HTMLInputElement>) => {
@@ -187,9 +201,9 @@ export const AttachFileButton: FC<AttachFileButtonProps> = ({
       // Reset so selecting the same file twice still fires onChange.
       event.target.value = "";
       // Restore the keyboard/layout after the picker closes on selection.
-      requestComposerFocus();
+      refocusComposer();
     },
-    [onFilesSelected],
+    [onFilesSelected, refocusComposer],
   );
 
   // Cancel path: the native picker fires `cancel` (not `change`) when
@@ -197,16 +211,18 @@ export const AttachFileButton: FC<AttachFileButtonProps> = ({
   // without relying on app-foreground signals, which would misfire if the app
   // is backgrounded and resumed while the picker is still open. Attached
   // imperatively because the installed React typings don't yet expose the
-  // `onCancel` prop for `<input>` (the DOM event exists in WebKit 16.4+).
+  // `onCancel` prop for `<input>` (the DOM event exists in WebKit 16.4+). The
+  // effect cleanup also disarms any pending focus fallback on unmount.
   useEffect(() => {
     const input = inputRef.current;
-    if (!input) {
-      return;
-    }
-    const onCancel = () => requestComposerFocus();
-    input.addEventListener("cancel", onCancel);
-    return () => input.removeEventListener("cancel", onCancel);
-  }, []);
+    const onCancel = () => refocusComposer();
+    input?.addEventListener("cancel", onCancel);
+    return () => {
+      input?.removeEventListener("cancel", onCancel);
+      disarmFocusFallbackRef.current?.();
+      disarmFocusFallbackRef.current = null;
+    };
+  }, [refocusComposer]);
 
   return (
     <div className="relative">

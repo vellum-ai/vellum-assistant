@@ -100,4 +100,45 @@ describe("AttachFileButton — composer refocus on picker close", () => {
     window.dispatchEvent(new Event("focus"));
     expect(requestComposerFocusMock).toHaveBeenCalledTimes(1);
   });
+
+  test("disarms the focus fallback once the picker closes via cancel", () => {
+    const { getByLabelText, container } = render(
+      <AttachFileButton onFilesSelected={() => {}} />,
+    );
+    const input = container.querySelector(
+      'input[type="file"]',
+    ) as HTMLInputElement;
+
+    // Open the picker (arms the fallback), then close it via `cancel`.
+    fireEvent.click(getByLabelText("Attach file"));
+    fireEvent(input, new Event("cancel"));
+    expect(requestComposerFocusMock).toHaveBeenCalledTimes(1);
+
+    // A later unrelated window focus must NOT refocus — the fallback was
+    // disarmed by the cancel path, not left registered.
+    window.dispatchEvent(new Event("focus"));
+    expect(requestComposerFocusMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("disarms the focus fallback once the picker closes via file select", () => {
+    const { getByLabelText, container } = render(
+      <AttachFileButton onFilesSelected={() => {}} />,
+    );
+    const input = container.querySelector(
+      'input[type="file"]',
+    ) as HTMLInputElement;
+
+    fireEvent.click(getByLabelText("Attach file"));
+    const file = new File(["hi"], "note.txt", { type: "text/plain" });
+    Object.defineProperty(input, "files", {
+      configurable: true,
+      value: makeFileList([file]),
+    });
+    fireEvent.change(input);
+    expect(requestComposerFocusMock).toHaveBeenCalledTimes(1);
+
+    // Fallback disarmed by the change path — a later focus does not refocus.
+    window.dispatchEvent(new Event("focus"));
+    expect(requestComposerFocusMock).toHaveBeenCalledTimes(1);
+  });
 });
