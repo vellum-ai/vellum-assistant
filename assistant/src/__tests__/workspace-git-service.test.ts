@@ -2121,6 +2121,55 @@ describe("WorkspaceGitService", () => {
       ).toThrow();
     });
 
+    test("loose blobs in a repo with old history are pruned without a rewrite", async () => {
+      const gitEnvAt = (daysAgo: number) => {
+        const date = new Date(Date.now() - daysAgo * 86400_000).toISOString();
+        return {
+          ...process.env,
+          GIT_AUTHOR_DATE: date,
+          GIT_COMMITTER_DATE: date,
+        };
+      };
+      execFileSync("git", ["init", "-b", "main"], { cwd: testDir });
+      execFileSync("git", ["config", "user.name", "Test"], { cwd: testDir });
+      execFileSync("git", ["config", "user.email", "user@example.com"], {
+        cwd: testDir,
+      });
+      // Clean history with commits well past retention — no big blobs in it
+      writeFileSync(join(testDir, "keep.txt"), "v1");
+      execFileSync("git", ["add", "keep.txt"], { cwd: testDir });
+      execFileSync("git", ["commit", "--no-verify", "-m", "ancient"], {
+        cwd: testDir,
+        env: gitEnvAt(30),
+      });
+      const headBefore = execFileSync("git", ["rev-parse", "HEAD"], {
+        cwd: testDir,
+        encoding: "utf-8",
+      }).trim();
+
+      // Loose unreachable oversized blob
+      const blobSha = execFileSync("git", ["hash-object", "-w", "--stdin"], {
+        cwd: testDir,
+        input: bigContent(),
+        encoding: "utf-8",
+      }).trim();
+
+      const service = new WorkspaceGitService(testDir);
+      const result = await service.compactHistoryNow();
+
+      // gc suffices — history is untouched (same hashes), blob reclaimed
+      expect(result.rewrote).toBe(false);
+      expect(result.retryAfterMs).toBeUndefined();
+      expect(() =>
+        execFileSync("git", ["cat-file", "-e", blobSha], { cwd: testDir }),
+      ).toThrow();
+      const headAfter = execFileSync("git", ["rev-parse", "HEAD"], {
+        cwd: testDir,
+        encoding: "utf-8",
+      }).trim();
+      expect(headAfter).toBe(headBefore);
+    });
+
     test("history compaction converges when a legacy branch retains the blob", async () => {
       const gitEnvAt = (daysAgo: number) => {
         const date = new Date(Date.now() - daysAgo * 86400_000).toISOString();

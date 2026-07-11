@@ -1121,19 +1121,21 @@ export class WorkspaceGitService {
   }
 
   /**
-   * Whether any of the given oversized blobs is actionable for compaction:
-   * reachable from main at a non-exempt path (a rewrite removes it), or
-   * referenced by no ref at all (a prune removes it). Blobs whose only
-   * main-reachable use is exempt canonical state (e.g. a conversation disk
-   * view), and blobs retained solely by other refs (legacy pre-guard
-   * branches, notes) that rewriting main can never reclaim, must neither
-   * trigger a rewrite nor keep compaction retrying.
+   * Classify the given oversized blobs for compaction:
+   * - "rewrite": at least one is reachable from main at a non-exempt path —
+   *   only a history rewrite removes it.
+   * - "prunable": none require a rewrite, but at least one is referenced by
+   *   no ref at all — reflog expiry + gc reclaims it without touching
+   *   history (no hash changes, no orphaned notes).
+   * - "none": everything is exempt canonical state (conversation disk
+   *   views) or retained by non-main refs that rewriting main can never
+   *   free — nothing to do and nothing to retry.
    */
-  private async hasActionableOversizedBlobLocked(
+  private async classifyOversizedBlobsLocked(
     oversized: Set<string>,
-  ): Promise<boolean> {
+  ): Promise<"none" | "prunable" | "rewrite"> {
     if (oversized.size === 0) {
-      return false;
+      return "none";
     }
     // Lines are "<oid>" for commits and "<oid> <path>" for trees/blobs.
     const fromMain = await this.execGitStreaming(
@@ -1154,11 +1156,11 @@ export class WorkspaceGitService {
       if (isSizeGuardExempt(path)) {
         remaining.delete(oid);
       } else {
-        return true;
+        return "rewrite";
       }
     }
     if (remaining.size === 0) {
-      return false;
+      return "none";
     }
     // Drop blobs retained by any other ref — gc keeps them regardless of
     // what happens to main. Whatever is left is truly unreferenced, hence
@@ -1171,7 +1173,7 @@ export class WorkspaceGitService {
       const spaceIdx = line.indexOf(" ");
       remaining.delete(spaceIdx === -1 ? line : line.substring(0, spaceIdx));
     }
-    return remaining.size > 0;
+    return remaining.size > 0 ? "prunable" : "none";
   }
 
   private async compactHistoryLocked(): Promise<{
@@ -1230,10 +1232,19 @@ export class WorkspaceGitService {
       return noop;
     }
 
-    // Exempt canonical state (conversation disk views, avatars) is allowed
-    // to exceed the limit — when it accounts for every oversized blob,
-    // there is nothing to reclaim and nothing to retry.
-    if (!(await this.hasActionableOversizedBlobLocked(oversizedOids))) {
+    const verdict = await this.classifyOversizedBlobsLocked(oversizedOids);
+    if (verdict === "none") {
+      // Exempt canonical state or ref-retained only — nothing to reclaim.
+      return { ...noop, keptCommits: commits.length };
+    }
+    if (verdict === "prunable") {
+      // Only unreachable blobs (e.g. an external add that stageAllLocked
+      // reset) — prune reclaims them without rewriting any history.
+      await this.expireReflogsAndPruneLocked();
+      log.info(
+        { workspaceDir: this.workspaceDir },
+        "Pruned unreachable oversized blobs from workspace git",
+      );
       return { ...noop, keptCommits: commits.length };
     }
 
@@ -1246,14 +1257,12 @@ export class WorkspaceGitService {
       splitIdx = commits.length;
     }
     if (splitIdx === 0) {
-      // Nothing is old enough to squash — but the oversized blobs may
-      // already be unreachable (e.g. an external `git add` hashed a blob
-      // that stageAllLocked then reset out of the index). Prune those right
-      // away; only blobs still reachable from recent commits must wait out
-      // retention.
+      // Main holds the blobs, but only in commits still within retention.
+      // A mixed case can also carry unreachable blobs — prune those now,
+      // and re-check in case they were all that remained actionable.
       await this.expireReflogsAndPruneLocked();
       const afterPrune = await this.collectOversizedBlobOidsLocked(limit);
-      if (!(await this.hasActionableOversizedBlobLocked(afterPrune))) {
+      if ((await this.classifyOversizedBlobsLocked(afterPrune)) === "none") {
         log.info(
           { workspaceDir: this.workspaceDir },
           "Pruned unreachable oversized blobs from workspace git",
@@ -1341,7 +1350,7 @@ export class WorkspaceGitService {
     // reclaimed without waiting for a daemon restart.
     let retryAfterMs: number | undefined;
     const afterGc = await this.collectOversizedBlobOidsLocked(limit);
-    if (await this.hasActionableOversizedBlobLocked(afterGc)) {
+    if ((await this.classifyOversizedBlobsLocked(afterGc)) !== "none") {
       const oldestKeptSec =
         kept[0]?.committedAtSec ?? Math.floor(Date.now() / 1000);
       retryAfterMs = Math.max(
