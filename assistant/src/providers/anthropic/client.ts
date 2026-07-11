@@ -76,7 +76,8 @@ function readAnthropicErrorType(
   error: InstanceType<typeof Anthropic.APIError>,
 ): string | undefined {
   const body = error.error as
-    { type?: string; error?: { type?: string; code?: string } } | undefined;
+    | { type?: string; error?: { type?: string; code?: string } }
+    | undefined;
   return body?.error?.type ?? body?.type;
 }
 
@@ -96,7 +97,8 @@ function readAnthropicMessage(
   error: InstanceType<typeof Anthropic.APIError>,
 ): string | undefined {
   const body = error.error as
-    { message?: string; error?: { message?: string } } | undefined;
+    | { message?: string; error?: { message?: string } }
+    | undefined;
   const inner = body?.error?.message ?? body?.message;
   return typeof inner === "string" && inner.length > 0 ? inner : undefined;
 }
@@ -885,7 +887,8 @@ export class AnthropicProvider implements Provider {
     const { tools, systemPrompt, config, onEvent, signal } = options ?? {};
     const cacheTtl: "5m" | "1h" =
       ((config as Record<string, unknown> | undefined)?.cacheTtl as
-        "5m" | "1h") ?? "1h";
+        | "5m"
+        | "1h") ?? "1h";
     // Opt-out for callers (e.g. the memory router) that send a single
     // user message per call with content that changes every time. The
     // turn-start cache breakpoint below is only useful when the same
@@ -924,6 +927,9 @@ export class AnthropicProvider implements Provider {
         disableTurnStartCache: _disableTurnStartCache,
         mutableLatestUserMessage: _mutableLatestUserMessage,
         disableCache: _disableCache,
+        // OpenAI-transport prompt-cache key; reaches this client on
+        // OpenRouter's anthropic/* delegation path and must not hit the wire.
+        promptCacheKey: _promptCacheKey,
         max_tokens: callerMaxTokens,
         usageAttributionHeaders,
         // Pulled out of `restConfig` so they are forwarded conditionally below:

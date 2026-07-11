@@ -250,10 +250,12 @@ export interface SendMessageConfig {
    * Per-conversation prompt-cache key for providers with explicit prompt
    * caching (sent as the OpenAI `prompt_cache_key` request param). Set by
    * `RetryProvider` from `selectionSeed` (the durable conversation id) for
-   * the `openai` provider only — GPT-5.6+ requires the key for reliable
-   * breakpoint matching, and OpenAI's ~15 req/min-per-key routing guidance
-   * is satisfied by per-conversation ids. A non-wire field for every other
-   * provider client; the request param is omitted when absent.
+   * the `openai` and `openrouter` providers — GPT-5.6+ requires the key for
+   * reliable breakpoint matching, and OpenAI's ~15 req/min-per-key routing
+   * guidance is satisfied by per-conversation ids. A non-wire field for
+   * every other provider client (the Anthropic client strips it, covering
+   * OpenRouter's `anthropic/*` delegation); the request param is omitted
+   * when absent.
    */
   promptCacheKey?: string;
   /**

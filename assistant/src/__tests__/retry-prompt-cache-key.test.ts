@@ -78,15 +78,18 @@ describe("retry normalization for promptCacheKey", () => {
     expect(lastConfig()?.selectionSeed).toBeUndefined();
   });
 
-  test("does not create promptCacheKey for openrouter", async () => {
-    // OpenRouter delegates anthropic/* models into AnthropicProvider with the
-    // config intact, so the key must not be created there either.
+  test("copies selectionSeed into promptCacheKey for openrouter", async () => {
+    // OpenRouter's openai/* Responses delegate consumes the key. Its
+    // anthropic/* delegation path receives the same config, so the Anthropic
+    // client strips `promptCacheKey` from the wire (see
+    // anthropic-provider.test.ts "promptCacheKey is not forwarded").
     const { provider, lastConfig } = makePipeline("openrouter");
     await provider.sendMessage([userMessage], {
       config: { selectionSeed: "conv-1" },
     });
 
-    expect(lastConfig()?.promptCacheKey).toBeUndefined();
+    expect(lastConfig()?.promptCacheKey).toBe("conv-1");
+    expect(lastConfig()?.selectionSeed).toBeUndefined();
   });
 
   test("no selectionSeed → no promptCacheKey", async () => {

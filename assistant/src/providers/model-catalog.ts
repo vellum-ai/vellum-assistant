@@ -1125,6 +1125,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
+        supportsPromptCacheBreakpoints: true,
         pricing: {
           inputPer1mTokens: 5.0,
           outputPer1mTokens: 30.0,
@@ -1152,6 +1153,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
+        supportsPromptCacheBreakpoints: true,
         pricing: {
           inputPer1mTokens: 5.0,
           outputPer1mTokens: 30.0,
@@ -1179,6 +1181,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
+        supportsPromptCacheBreakpoints: true,
         pricing: {
           inputPer1mTokens: 2.5,
           outputPer1mTokens: 15.0,
@@ -1206,6 +1209,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
+        supportsPromptCacheBreakpoints: true,
         pricing: {
           inputPer1mTokens: 2.5,
           outputPer1mTokens: 15.0,
@@ -1233,6 +1237,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
+        supportsPromptCacheBreakpoints: true,
         pricing: {
           inputPer1mTokens: 1.0,
           outputPer1mTokens: 6.0,
@@ -1260,6 +1265,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
+        supportsPromptCacheBreakpoints: true,
         pricing: {
           inputPer1mTokens: 1.0,
           outputPer1mTokens: 6.0,
@@ -1957,6 +1963,20 @@ export function isModelInCatalog(provider: string, modelId: string): boolean {
   const entry = PROVIDER_CATALOG.find((p) => p.id === provider);
   return entry?.models.some((m) => m.id === modelId) ?? false;
 }
+
+/**
+ * Model IDs (across all catalog providers) flagged
+ * `supportsPromptCacheBreakpoints`. Consumed by the OpenAI Responses
+ * transport to gate explicit prompt-cache params, and by the OpenRouter
+ * client to route flagged `openai/*` models onto that transport. IDs are
+ * provider-shaped (bare for direct OpenAI, `openai/`-prefixed for
+ * OpenRouter), so a single set serves both consumers without collisions.
+ */
+export const PROMPT_CACHE_BREAKPOINT_MODEL_IDS: ReadonlySet<string> = new Set(
+  PROVIDER_CATALOG.flatMap((p) =>
+    p.models.flatMap((m) => (m.supportsPromptCacheBreakpoints ? [m.id] : [])),
+  ),
+);
 
 /**
  * Return the catalog provider that owns a model ID, if known. When multiple
