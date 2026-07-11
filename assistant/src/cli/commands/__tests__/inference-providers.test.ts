@@ -29,6 +29,8 @@ mock.module("../../../util/logger.js", () => ({
 }));
 
 const { attachProvidersSubcommand } = await import("../inference-providers.js");
+const { applyCommandHelp } = await import("../../lib/cli-command-help.js");
+const { inferenceHelp } = await import("../inference.help.js");
 
 const CONNECTION_RESULT = {
   name: "local-llm",
@@ -64,6 +66,7 @@ async function run(
     const program = new Command();
     program.exitOverride();
     const inference = program.command("inference");
+    applyCommandHelp(inference, inferenceHelp);
     attachProvidersSubcommand(inference);
     await program.parseAsync(["node", "assistant", "inference", ...args]);
   } catch {
