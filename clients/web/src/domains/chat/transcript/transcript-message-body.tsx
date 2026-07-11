@@ -165,20 +165,31 @@ export function TranscriptMessageBody({
   const [longPressOpen, setLongPressOpen] = useState(false);
   const longPressFiredRef = useRef(false);
 
-  const longPressHandlers = useLongPress(() => {
-    longPressFiredRef.current = true;
-    setLongPressOpen(true);
-    // Safety net: the flag is normally cleared by the compatibility click that
-    // follows the long-press (see handleBubbleClick) or when the sheet closes
-    // (handleLongPressOpenChange). But that click can be swallowed by native
-    // long-press handling or delivered to the portaled sheet instead of this
-    // wrapper, in which case neither path fires and the flag would otherwise
-    // stay set — eating the next legitimate tap. Clear it after the browser's
-    // synthetic click window so a stranded flag can't suppress a real tap.
-    window.setTimeout(() => {
-      longPressFiredRef.current = false;
-    }, 700);
-  });
+  // Assistant messages own the long-press for quote-reply text selection
+  // (see resolve-assistant-selection.ts / useNativeQuoteReply). Suppressing the
+  // action sheet there — rather than racing it at the long-press threshold —
+  // keeps the two from competing: a long-press on assistant text selects it for
+  // Reply, and the sheet never opens. The sheet still arms on user/tool
+  // messages, which have no selection affordance.
+  const isAssistant = message.role === "assistant";
+  const longPressHandlers = useLongPress(
+    () => {
+      longPressFiredRef.current = true;
+      setLongPressOpen(true);
+      // Safety net: the flag is normally cleared by the compatibility click that
+      // follows the long-press (see handleBubbleClick) or when the sheet closes
+      // (handleLongPressOpenChange). But that click can be swallowed by native
+      // long-press handling or delivered to the portaled sheet instead of this
+      // wrapper, in which case neither path fires and the flag would otherwise
+      // stay set — eating the next legitimate tap. Clear it after the browser's
+      // synthetic click window so a stranded flag can't suppress a real tap.
+      window.setTimeout(() => {
+        longPressFiredRef.current = false;
+      }, 700);
+    },
+    undefined,
+    { shouldSkip: () => isAssistant },
+  );
 
   const handleLongPressOpenChange = useCallback((open: boolean) => {
     setLongPressOpen(open);
@@ -875,7 +886,7 @@ export function TranscriptMessageBody({
         )}
         {trailer}
       </div>
-      {isTouch && (
+      {isTouch && !isAssistant && (
         <div onClick={(e) => e.stopPropagation()}>
           <MessageLongPressActions
             message={message}

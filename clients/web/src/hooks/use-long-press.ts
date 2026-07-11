@@ -23,6 +23,19 @@ export interface UseLongPressHandlers {
   onTouchCancel: () => void;
 }
 
+export interface UseLongPressOptions {
+  /**
+   * Optional predicate evaluated against the touch target at touchstart. When
+   * it returns `true`, the long-press is not armed for that touch. Use it to
+   * suppress the action sheet where another gesture owns the long-press — e.g.
+   * assistant-message text, where a long-press starts a quote-reply text
+   * selection and the two must not compete. Evaluated at touchstart (not at
+   * the threshold) so the timer is never armed, avoiding the race where the
+   * text selection settles only after the threshold fires.
+   */
+  shouldSkip?: (target: Element | null) => boolean;
+}
+
 /**
  * Long-press gesture hook for touch devices. Returns touch event handlers
  * that fire `callback` after the user holds for `threshold` ms without
@@ -37,7 +50,9 @@ export interface UseLongPressHandlers {
 export function useLongPress(
   callback: () => void,
   threshold: number = DEFAULT_THRESHOLD_MS,
+  options: UseLongPressOptions = {},
 ): UseLongPressHandlers {
+  const { shouldSkip } = options;
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const startPosRef = useRef<{ x: number; y: number } | null>(null);
 
@@ -53,13 +68,19 @@ export function useLongPress(
       if (!isPointerCoarse()) return;
       const touch = e.touches[0];
       if (!touch) return;
+      const target = e.target as Element | null;
       // Skip if the touch landed on an interactive element (inline link,
       // button, form control, [role="button"], etc.) — the user's intent
       // is to interact with that control, not to open the long-press
       // action sheet. Mirrors the `isInteractiveClickTarget` guard in
       // `handleBubbleClick` (transcript-message-body.tsx).
-      const target = e.target as Element | null;
       if (target?.closest(INTERACTIVE_SELECTOR)) return;
+      // Skip where another gesture owns the long-press for this target (e.g.
+      // assistant-message text, which long-presses into a quote-reply
+      // selection). Evaluated here at touchstart so the timer never arms —
+      // deciding at the threshold would race the text selection, which on iOS
+      // often settles only after the threshold fires.
+      if (shouldSkip?.(target)) return;
       startPosRef.current = { x: touch.clientX, y: touch.clientY };
       clearTimer();
       timerRef.current = setTimeout(() => {
@@ -76,7 +97,7 @@ export function useLongPress(
         callback();
       }, threshold);
     },
-    [callback, threshold, clearTimer],
+    [callback, threshold, clearTimer, shouldSkip],
   );
 
   const onTouchMove = useCallback(

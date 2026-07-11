@@ -182,6 +182,32 @@ describe("useLongPress", () => {
     expect(callback).not.toHaveBeenCalled();
   });
 
+  test("does not fire when shouldSkip returns true for the target", async () => {
+    const callback = mock(() => {});
+    const { result } = renderHook(() =>
+      useLongPress(callback, 100, { shouldSkip: () => true }),
+    );
+
+    result.current.onTouchStart(makeTouchEvent(100, 200));
+
+    await new Promise((r) => setTimeout(r, 150));
+
+    expect(callback).not.toHaveBeenCalled();
+  });
+
+  test("fires when shouldSkip returns false for the target", async () => {
+    const callback = mock(() => {});
+    const { result } = renderHook(() =>
+      useLongPress(callback, 100, { shouldSkip: () => false }),
+    );
+
+    result.current.onTouchStart(makeTouchEvent(100, 200));
+
+    await new Promise((r) => setTimeout(r, 150));
+
+    expect(callback).toHaveBeenCalledTimes(1);
+  });
+
   test("does not fire when the target has role=button", async () => {
     const callback = mock(() => {});
     const { result } = renderHook(() => useLongPress(callback, 100));
