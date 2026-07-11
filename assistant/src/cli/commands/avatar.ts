@@ -1,11 +1,3 @@
-/**
- * `assistant avatar` CLI namespace.
- *
- * The command's help structure lives in `avatar.help.ts` (import-safe for
- * the memory capability indexer); this module applies it and attaches the
- * action handlers.
- */
-
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";

@@ -17,6 +17,13 @@ export interface CliCommandHelp {
    */
   args?: string;
   description: string;
+  /**
+   * Positional arguments that carry their own description, applied via
+   * Commander's `argument(name, description)` (rendered in the generated
+   * `Arguments:` help section). Use `args` instead when the positional needs
+   * no description.
+   */
+  arguments?: CliArgumentHelp[];
   /** Options declared directly on the top-level command. */
   options?: CliOptionHelp[];
   /** Extra help appended after the option list (`addHelpText("after", …)`). */
@@ -29,11 +36,26 @@ export interface CliSubcommandHelp {
   /** Positional-argument spec, e.g. `"<path>"` — see {@link CliCommandHelp.args}. */
   args?: string;
   description: string;
+  /**
+   * Positional arguments that carry their own description, applied via
+   * Commander's `argument(name, description)` (rendered in the generated
+   * `Arguments:` help section). Use `args` instead when the positional needs
+   * no description.
+   */
+  arguments?: CliArgumentHelp[];
   options?: CliOptionHelp[];
   /** Extra help appended after the option list (`addHelpText("after", …)`). */
   helpText?: string;
+  /** When true, this subcommand runs when the parent is invoked without one. */
+  isDefault?: boolean;
   /** Nested subcommand groups (e.g. `avatar character update`). */
   subcommands?: CliSubcommandHelp[];
+}
+
+export interface CliArgumentHelp {
+  /** Commander argument spec, e.g. `"<channel>"` or `"[value]"`. */
+  name: string;
+  description: string;
 }
 
 export interface CliOptionHelp {
@@ -43,7 +65,7 @@ export interface CliOptionHelp {
   /** When true, applied via `requiredOption` (missing → error) rather than `option`. */
   required?: boolean;
   /** Default value passed to `option(flags, description, defaultValue)`. */
-  defaultValue?: string;
+  defaultValue?: string | number | boolean;
   /** Allowed values, applied via Commander's `Option.choices()` (invalid → error). */
   choices?: readonly string[];
 }
@@ -64,7 +86,11 @@ function applyOptions(command: Command, options?: CliOptionHelp[]): void {
     } else if (option.required) {
       command.requiredOption(option.flags, option.description);
     } else if (option.defaultValue !== undefined) {
-      command.option(option.flags, option.description, option.defaultValue);
+      command.addOption(
+        new Option(option.flags, option.description).default(
+          option.defaultValue,
+        ),
+      );
     } else {
       command.option(option.flags, option.description);
     }
@@ -79,6 +105,9 @@ function applyOptions(command: Command, options?: CliOptionHelp[]): void {
  * those to the command or its subcommands.
  */
 export function applyCommandHelp(command: Command, help: CliCommandHelp): void {
+  for (const argument of help.arguments ?? []) {
+    command.argument(argument.name, argument.description);
+  }
   applyOptions(command, help.options);
   if (help.helpText) {
     command.addHelpText("after", help.helpText);
@@ -88,7 +117,12 @@ export function applyCommandHelp(command: Command, help: CliCommandHelp): void {
 
 function applySubcommands(parent: Command, subs?: CliSubcommandHelp[]): void {
   for (const sub of subs ?? []) {
-    const child = parent.command(commandSpec(sub)).description(sub.description);
+    const child = parent
+      .command(commandSpec(sub), { isDefault: sub.isDefault ?? false })
+      .description(sub.description);
+    for (const argument of sub.arguments ?? []) {
+      child.argument(argument.name, argument.description);
+    }
     applyOptions(child, sub.options);
     if (sub.helpText) {
       child.addHelpText("after", sub.helpText);
