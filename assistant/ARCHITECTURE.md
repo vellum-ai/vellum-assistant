@@ -870,7 +870,6 @@ graph LR
         SCHED_RUNS["cron_runs (schedule runs)<br/>───────────────<br/>Execution history per schedule<br/>job_id (FK → cron_jobs)<br/>status: ok | error<br/>duration_ms, output, error<br/>Legacy alias: scheduleRuns"]
         TASKS["tasks<br/>───────────────<br/>Reusable prompt templates<br/>title, Handlebars template<br/>inputSchema, contextFlags<br/>requiredTools, status"]
         TASK_RUNS["task_runs<br/>───────────────<br/>Execution history per task<br/>taskId (FK → tasks)<br/>conversationId, status<br/>startedAt, finishedAt, error"]
-        WORK_ITEMS["work_items<br/>───────────────<br/>Task Queue entries<br/>taskId (FK → tasks)<br/>title, notes, status<br/>priority_tier (0-3), sort_index<br/>last_run_id, last_run_status<br/>source_type, source_id"]
     end
 
     subgraph "~/.vellum/ (Root Files)"
@@ -1908,12 +1907,11 @@ When a new vellum notification conversation is created (strategy `start_new_conv
 
 ### Conversation-Created Events
 
-Two SSE push events surface new conversations in the macOS client sidebar:
+An SSE push event surfaces new conversations in the macOS client sidebar:
 
 - **`notification_conversation_created`** — Emitted by `broadcaster.ts` when a notification delivery **creates** a new vellum conversation (strategy `start_new_conversation`, `createdNewConversation: true`). **Not** emitted when a conversation is reused. Payload: `{ conversationId, title, sourceEventName }`.
-- **`task_run_conversation_created`** — Emitted by `work-item-runner.ts` when a task run creates a conversation. Payload: `{ conversationId, workItemId, title }`.
 
-All events follow the same pattern: the daemon creates a server-side conversation, persists an initial message, and broadcasts the SSE event so the macOS `ConversationManager` can create a visible conversation in the sidebar.
+The event follows this pattern: the daemon creates a server-side conversation, persists an initial message, and broadcasts the SSE event so the macOS `ConversationManager` can create a visible conversation in the sidebar.
 
 ### Conversation Routing Decision Flow
 

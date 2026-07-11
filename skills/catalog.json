@@ -911,20 +911,6 @@
       "updatedAt": "2026-06-15T21:08:24.000Z"
     },
     {
-      "id": "time-based-actions",
-      "name": "time-based-actions",
-      "description": "Unified routing guide for reminders, schedules, notifications, and tasks - prevents common misrouting",
-      "metadata": {
-        "emoji": "⏰",
-        "vellum": {
-          "category": "productivity",
-          "display-name": "Time-Based Actions"
-        }
-      },
-      "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-03T03:10:07.000Z"
-    },
-    {
       "id": "twilio-setup",
       "name": "twilio-setup",
       "description": "Configure Twilio credentials and phone numbers for voice calls",
@@ -1199,7 +1185,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-07-11T00:41:02.000Z"
+      "updatedAt": "2026-07-11T00:56:00.000Z"
     },
     {
       "id": "vercel-token-setup",

@@ -137,7 +137,6 @@ import { ROUTES as SUBAGENT_ROUTES } from "./subagents-routes.js";
 import { ROUTES as SUGGEST_TRUST_RULE_ROUTES } from "./suggest-trust-rule-routes.js";
 import { ROUTES as SURFACE_ACTION_ROUTES } from "./surface-action-routes.js";
 import { ROUTES as SURFACE_CONTENT_ROUTES } from "./surface-content-routes.js";
-import { ROUTES as TASK_ROUTES } from "./task-routes.js";
 import { ROUTES as TELEMETRY_ROUTES } from "./telemetry-routes.js";
 import { ROUTES as THEME_ROUTES } from "./theme-routes.js";
 import { ROUTES as TRUST_RULES_ROUTES } from "./trust-rules-routes.js";
@@ -284,7 +283,6 @@ export const ROUTES: RouteDefinition[] = [
   ...SURFACE_CONTENT_ROUTES,
   ...TELEGRAM_ROUTES,
   ...TWILIO_ROUTES,
-  ...TASK_ROUTES,
   ...TELEMETRY_ROUTES,
   ...THEME_ROUTES,
   ...TRUST_RULES_ROUTES,

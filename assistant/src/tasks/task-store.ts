@@ -1,7 +1,7 @@
-import { desc, eq, inArray } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 
 import { getDb } from "../persistence/db-connection.js";
-import { taskRuns, tasks, workItems } from "../persistence/schema/index.js";
+import { taskRuns, tasks } from "../persistence/schema/index.js";
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -66,33 +66,6 @@ export function getTask(id: string): Task | undefined {
   return db.select().from(tasks).where(eq(tasks.id, id)).get();
 }
 
-export function listTasks(): Task[] {
-  const db = getDb();
-  return db.select().from(tasks).orderBy(desc(tasks.createdAt)).all();
-}
-
-export function deleteTask(id: string): boolean {
-  const db = getDb();
-  const existing = db.select().from(tasks).where(eq(tasks.id, id)).get();
-  if (!existing) return false;
-  db.delete(workItems).where(eq(workItems.taskId, id)).run();
-  db.delete(taskRuns).where(eq(taskRuns.taskId, id)).run();
-  db.delete(tasks).where(eq(tasks.id, id)).run();
-  return true;
-}
-
-export function deleteTasks(ids: string[]): number {
-  if (ids.length === 0) return 0;
-  const db = getDb();
-  const existing = db.select().from(tasks).where(inArray(tasks.id, ids)).all();
-  if (existing.length === 0) return 0;
-  const foundIds = existing.map((t) => t.id);
-  db.delete(workItems).where(inArray(workItems.taskId, foundIds)).run();
-  db.delete(taskRuns).where(inArray(taskRuns.taskId, foundIds)).run();
-  db.delete(tasks).where(inArray(tasks.id, foundIds)).run();
-  return existing.length;
-}
-
 // ── TaskRun CRUD ─────────────────────────────────────────────────────
 
 export function createTaskRun(taskId: string): TaskRun {
@@ -130,24 +103,4 @@ export function updateTaskRun(
 ): void {
   const db = getDb();
   db.update(taskRuns).set(updates).where(eq(taskRuns.id, id)).run();
-}
-
-export function getTaskRun(id: string): TaskRun | undefined {
-  const db = getDb();
-  return db.select().from(taskRuns).where(eq(taskRuns.id, id)).get();
-}
-
-// ── Brief Helpers ─────────────────────────────────────────────────────
-
-/**
- * Lightweight read-only projection of a work item used by the brief compiler.
- * Avoids pulling the full WorkItem type with all its tool/approval fields.
- */
-export interface ActionableWorkItem {
-  id: string;
-  taskId: string;
-  title: string;
-  status: string;
-  priorityTier: number;
-  updatedAt: number;
 }

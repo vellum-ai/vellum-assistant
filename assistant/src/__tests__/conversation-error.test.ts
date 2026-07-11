@@ -1065,7 +1065,6 @@ describe("classifyConversationError", () => {
       "subagent_aborted",
       "signal_cancel",
       "voice_session_aborted",
-      "work_item_aborted",
     ];
 
     for (const kind of taggedKinds) {
