@@ -435,6 +435,7 @@ import { migrateMessageFinalizedColumn } from "./migrations/324-message-finalize
 import { createConfigSettingEventsTable } from "./migrations/325-create-config-setting-events.js";
 import { migrateMoveInjectionEventsToMemoryDb } from "./migrations/326-move-injection-events-to-memory-db.js";
 import { createFlushCheckpointsTable } from "./migrations/327-create-flush-checkpoints.js";
+import { migrateDropMemoryV3LearnedEdgeTables } from "./migrations/328-drop-memory-v3-learned-edge-tables.js";
 import type { MigrationStep } from "./migrations/run-migrations.js";
 
 export const migrationSteps: MigrationStep[] = [
@@ -1341,4 +1342,5 @@ export const migrationSteps: MigrationStep[] = [
   createConfigSettingEventsTable,
   migrateMoveInjectionEventsToMemoryDb,
   createFlushCheckpointsTable,
+  migrateDropMemoryV3LearnedEdgeTables,
 ];
