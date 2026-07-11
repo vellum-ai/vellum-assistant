@@ -161,6 +161,10 @@ const STAMPABLE_PART_TYPES = new Set([
   "input_file",
 ]);
 
+/** OpenAI considers up to the latest 50 breakpoints for cache reads; markers
+ *  beyond that budget are dead weight, so the marker ladder stops there. */
+const PROMPT_CACHE_MAX_BREAKPOINTS = 50;
+
 /** Minimal structural view of a Responses `input` message item. */
 interface ResponsesMessageItem {
   type?: string;
@@ -684,114 +688,96 @@ export class OpenAIResponsesProvider implements Provider {
 
   /**
    * Stamp explicit prompt-cache breakpoints onto the built Responses input
-   * items. Mirrors the Anthropic client's anchor placement
-   * (anthropic/client.ts): a turn-start anchor, a previous-turn anchor on
-   * first-of-turn requests, and an advancing tail — all sharing OpenAI's
-   * fixed 30m TTL (no long-vs-short TTL split, so no `ttl` field is sent).
-   * Operates on the provider-local wire items only; the caller's Message[]
-   * objects are never touched.
+   * items: the last stampable part of every user item carrying real text,
+   * newest first, up to {@link PROMPT_CACHE_MAX_BREAKPOINTS}.
+   *
+   * Cache reads only consider markers present in the *current* request —
+   * boundaries written by earlier requests match only if re-marked here
+   * (verified empirically against gpt-5.6: a previously-written boundary
+   * left unmarked produces zero reads). Marking the full ladder of
+   * historical user-message boundaries makes the newest still-matching one
+   * the read point; in the volatile-latest-message flow that is typically
+   * the previous turn's user message once it re-renders without its
+   * injected block. Marking the volatile latest item itself prepays its
+   * write so in-turn tool-loop iterations read it back. The ladder is
+   * cost-safe: OpenAI writes at most the latest four unmatched marked
+   * boundaries per request and considers up to the latest 50 markers for
+   * reads. All breakpoints share the fixed 30m TTL (no `ttl` field is
+   * sent). Operates on the provider-local wire items only; the caller's
+   * Message[] objects are never touched.
    *
    * Placement constraints on this API: breakpoints attach only to
    * input_text / input_image / input_file parts of user message items —
-   * function_call / function_call_output items cannot carry one, so during a
-   * pure tool loop the tail cannot advance past the most recent user item
-   * with parts (the loop delta is re-billed as plain input until a text- or
-   * image-bearing user item appears).
+   * function_call / function_call_output items cannot carry one, so during
+   * a pure tool loop the newest markable boundary stays at the most recent
+   * user item with parts (the loop delta is re-billed as plain input until
+   * a text-bearing user item appears).
    *
    * The system prompt rides the `instructions` request param and cannot
    * carry a block marker, but it precedes `input` in the cached prefix, so
-   * the first stamped message covers instructions and tools implicitly. Any
+   * every marked boundary covers instructions and tools implicitly. Any
    * instructions/tools change invalidates all previously written prefixes
    * (exact-prefix matching) — the same blast radius implicit mode has.
-   *
-   * At most 2 positions are marked per request (turn-start + prev-turn, or
-   * prev-turn + tail, or turn-start + tail), within OpenAI's 4 write slots;
-   * positions matching an already-written prefix are reads, not new writes.
    */
   private applyPromptCacheBreakpoints(
     input: unknown[],
     opts: { mutableLatestUserMessage: boolean; disableTurnStartCache: boolean },
   ): void {
     const items = input as ResponsesMessageItem[];
-    const isUserMessageItem = (it: ResponsesMessageItem | undefined): boolean =>
+    // Marker candidates need a real text part (mirror of the Anthropic
+    // client's findUserTextMsgIdx).
+    const isUserTextItem = (it: ResponsesMessageItem | undefined): boolean =>
       it?.type === "message" &&
       it.role === "user" &&
       Array.isArray(it.content) &&
-      it.content.length > 0;
-    // Anchor candidates need a real text part (mirror of the Anthropic
-    // client's findUserTextMsgIdx).
-    const findUserTextItemIdx = (startIdx: number): number => {
-      for (let i = startIdx; i >= 0; i--) {
-        const it = items[i];
-        if (!isUserMessageItem(it)) {
-          continue;
-        }
-        const hasText = it.content!.some(
-          (p) =>
-            p.type === "input_text" &&
-            typeof p.text === "string" &&
-            p.text.length > 0,
-        );
-        if (hasText) {
-          return i;
-        }
+      it.content.some(
+        (p) =>
+          p.type === "input_text" &&
+          typeof p.text === "string" &&
+          p.text.length > 0,
+      );
+
+    const candidates: number[] = [];
+    for (
+      let i = items.length - 1;
+      i >= 0 && candidates.length < PROMPT_CACHE_MAX_BREAKPOINTS;
+      i--
+    ) {
+      if (isUserTextItem(items[i])) {
+        candidates.push(i);
       }
-      return -1;
-    };
-    const stampLastPart = (itemIdx: number): void => {
-      const content = items[itemIdx]?.content;
+    }
+    if (candidates.length === 0) {
+      return;
+    }
+
+    // A volatile latest user message with no prior user message to anchor
+    // on: every marker would be a write whose prefix never recurs across
+    // turns — skip caching entirely for this request.
+    if (
+      opts.mutableLatestUserMessage &&
+      candidates.length === 1 &&
+      candidates[0] === items.length - 1
+    ) {
+      return;
+    }
+
+    for (const idx of candidates) {
+      // `disableTurnStartCache` suppresses the marker on the turn-start
+      // (newest user-text) item — one-shot call sites whose prompts never
+      // recur would otherwise pay a write with no future read. Older
+      // boundaries stay marked, matching the Anthropic client's semantics
+      // (its previous-turn anchor is not gated by this flag).
+      if (opts.disableTurnStartCache && idx === candidates[0]) {
+        continue;
+      }
+      const content = items[idx]?.content;
       if (!Array.isArray(content) || content.length === 0) {
-        return;
+        continue;
       }
       const last = content[content.length - 1];
       if (last && STAMPABLE_PART_TYPES.has(last.type as string)) {
         last.prompt_cache_breakpoint = { mode: "explicit" };
-      }
-    };
-
-    const turnStartIdx = findUserTextItemIdx(items.length - 1);
-    // Volatile latest user message that is itself the turn start: skip the
-    // anchor — it would write a prefix that never recurs across turns.
-    const skipVolatileTurnStartAnchor =
-      opts.mutableLatestUserMessage && turnStartIdx === items.length - 1;
-
-    // Turn-start anchor: stable within the turn; tool-loop iterations re-send
-    // this exact prefix and read it.
-    if (
-      turnStartIdx >= 0 &&
-      !opts.disableTurnStartCache &&
-      !skipVolatileTurnStartAnchor
-    ) {
-      stampLastPart(turnStartIdx);
-    }
-
-    // Previous-turn anchor (first-of-turn only): the durable cross-turn
-    // boundary. In the volatile flow this is the primary stable breakpoint
-    // (the turn-start anchor above was skipped); in the stable flow it
-    // usually coincides with an already-written prefix and is a read.
-    if (turnStartIdx === items.length - 1 && turnStartIdx > 0) {
-      const prevIdx = findUserTextItemIdx(turnStartIdx - 1);
-      if (prevIdx >= 0) {
-        stampLastPart(prevIdx);
-      }
-    }
-
-    // Advancing tail: the latest stampable user item. Fires during tool
-    // loops and on volatile first-of-turn requests (prepaying the volatile
-    // segment so in-turn tool iterations read it). May resolve to the
-    // turn-start item itself in a pure tool loop — re-stamping is a no-op.
-    if (
-      turnStartIdx >= 0 &&
-      (turnStartIdx < items.length - 1 ||
-        (skipVolatileTurnStartAnchor &&
-          turnStartIdx > 0 &&
-          !opts.disableTurnStartCache))
-    ) {
-      for (let i = items.length - 1; i >= 0; i--) {
-        if (isUserMessageItem(items[i])) {
-          stampLastPart(i);
-          break;
-        }
       }
     }
   }

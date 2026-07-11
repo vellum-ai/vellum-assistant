@@ -131,26 +131,63 @@ describe("OpenAIResponsesProvider explicit prompt caching (GPT-5.6+)", () => {
     expect(breakpointedItemIndexes()).toEqual([0]);
   });
 
-  test("multi-turn first-of-turn: turn-start and previous-turn anchors", async () => {
+  test("multi-turn: every user message is marked (the anchor ladder)", async () => {
     const provider = makeProvider("gpt-5.6-sol");
     await provider.sendMessage(
       [userMsg("t1"), assistantMsg("r1"), userMsg("t2")],
       { config: { promptCacheKey: "conv-1" } },
     );
 
-    // Wire items: [user t1, assistant r1, user t2].
+    // Wire items: [user t1, assistant r1, user t2]. Reads only consider
+    // markers in the current request, so historical boundaries must be
+    // re-marked every turn for their cached prefixes to stay reachable.
     expect(breakpointedItemIndexes()).toEqual([0, 2]);
   });
 
-  test("volatile latest message: anchor moves to the previous stable user message, tail covers the latest", async () => {
+  test("longer history: the ladder marks all user messages", async () => {
+    const provider = makeProvider("gpt-5.6-sol");
+    await provider.sendMessage(
+      [
+        userMsg("t1"),
+        assistantMsg("r1"),
+        userMsg("t2"),
+        assistantMsg("r2"),
+        userMsg("t3"),
+      ],
+      { config: { promptCacheKey: "conv-1" } },
+    );
+
+    expect(breakpointedItemIndexes()).toEqual([0, 2, 4]);
+  });
+
+  test("marker ladder caps at 50 boundaries, dropping the oldest", async () => {
+    const provider = makeProvider("gpt-5.6-sol");
+    const messages: Message[] = [];
+    for (let i = 0; i < 55; i++) {
+      messages.push(userMsg(`t${i}`));
+      messages.push(assistantMsg(`r${i}`));
+    }
+    await provider.sendMessage(messages, {
+      config: { promptCacheKey: "conv-1" },
+    });
+
+    const marked = breakpointedItemIndexes();
+    expect(marked).toHaveLength(50);
+    // User items sit at even indexes; the 5 oldest (0..8) fall off the ladder.
+    expect(marked[0]).toBe(10);
+    expect(marked[marked.length - 1]).toBe(108);
+  });
+
+  test("volatile latest message: the previous stable user message stays reachable, the latest is prepaid", async () => {
     const provider = makeProvider("gpt-5.6-sol");
     await provider.sendMessage(
       [userMsg("t1"), assistantMsg("r1"), userMsg("t2 + <memory>")],
       { config: { mutableLatestUserMessage: true, promptCacheKey: "conv-1" } },
     );
 
-    // Previous-turn anchor on item 0; the advancing tail prepays the volatile
-    // latest item so in-turn tool iterations can read it.
+    // Item 0 is the durable cross-turn boundary (next turn re-marks it and
+    // reads its prefix); marking the volatile latest item prepays its write
+    // so in-turn tool iterations read it.
     expect(breakpointedItemIndexes()).toEqual([0, 2]);
   });
 
@@ -177,9 +214,9 @@ describe("OpenAIResponsesProvider explicit prompt caching (GPT-5.6+)", () => {
       { config: { promptCacheKey: "conv-1" } },
     );
 
-    // Wire items: [user message, function_call, function_call_output]. The
-    // tail walk cannot land on the tool output (no stampable parts) and
-    // dedupes onto the turn-start item.
+    // Wire items: [user message, function_call, function_call_output]. Tool
+    // outputs cannot carry markers, so the only user-text item is the sole
+    // rung on the ladder.
     const input = (lastStreamParams?.input ?? []) as WireItem[];
     expect(input.map((i) => i.type)).toEqual([
       "message",
@@ -190,7 +227,7 @@ describe("OpenAIResponsesProvider explicit prompt caching (GPT-5.6+)", () => {
     expect(JSON.stringify(input[2])).not.toContain("prompt_cache_breakpoint");
   });
 
-  test("tool loop with trailing user text: advancing tail lands on the latest user-text item", async () => {
+  test("tool loop with trailing user text: the reminder item joins the ladder", async () => {
     const provider = makeProvider("gpt-5.6-sol");
     const reminderTurn: Message = {
       role: "user",
@@ -205,8 +242,7 @@ describe("OpenAIResponsesProvider explicit prompt caching (GPT-5.6+)", () => {
     );
 
     // Wire items: [message, function_call, function_call_output,
-    // message(reminder)] — the reminder is the latest user-text item and
-    // becomes the turn-start anchor; item 0 gets the previous-turn anchor.
+    // message(reminder)] — both user-text items are marked.
     expect(breakpointedItemIndexes()).toEqual([0, 3]);
   });
 
@@ -223,6 +259,16 @@ describe("OpenAIResponsesProvider explicit prompt caching (GPT-5.6+)", () => {
       mode: "explicit",
     });
     expect(breakpointedItemIndexes()).toEqual([]);
+  });
+
+  test("disableTurnStartCache multi-turn: suppresses only the newest marker", async () => {
+    const provider = makeProvider("gpt-5.6-sol");
+    await provider.sendMessage(
+      [userMsg("t1"), assistantMsg("r1"), userMsg("t2")],
+      { config: { disableTurnStartCache: true, promptCacheKey: "conv-1" } },
+    );
+
+    expect(breakpointedItemIndexes()).toEqual([0]);
   });
 
   test("disableTurnStartCache one-shot: no markers", async () => {
