@@ -129,8 +129,15 @@ export function MobileAppOverlay({
             "pointer-events-auto shadow-[0_-4px_16px_rgba(0,0,0,0.15)]",
         )}
         // Claim vertical gestures for the swipe; let the browser handle
-        // horizontal pans natively. Touches inside the sandboxed app iframe
-        // are governed by the iframe's own document and are unaffected.
+        // horizontal pans natively. NOTE: touch events do not bubble out of
+        // iframes, and AppViewerContainer renders the app content as a
+        // sandboxed iframe, so the swipe-down-to-minimize / swipe-up-to-restore
+        // gesture only fires on touches that land on the overlay chrome (nav
+        // bar / header) — touches over the app content itself are handled by
+        // the iframe's own document and never reach these parent handlers. An
+        // invisible overlay layer on top of the iframe would capture those
+        // touches but would also block all app interaction, so we scope the
+        // gesture to the chrome and accept this as the right trade-off.
         style={{ touchAction: "pan-x" }}
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}
