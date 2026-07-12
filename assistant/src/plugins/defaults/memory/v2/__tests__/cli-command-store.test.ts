@@ -2,9 +2,8 @@
  * Tests for `assistant/src/memory/v2/cli-command-store.ts`.
  *
  * Coverage matrix:
- *   - `seedV2CliCommandEntries` enumerates the program tree and upserts one
- *     `cli-commands/<name>` point per top-level subcommand.
- *   - It skips the auto-injected `help` builtin.
+ *   - `seedV2CliCommandEntries` renders one `cli-commands/<name>` point per
+ *     declarative command entry (`CLI_COMMAND_HELP`) and upserts it.
  *   - It calls `pruneSlugsWithPrefixExcept("cli-commands/", ...)` with the
  *     current id list under the `cli-command` kind so stale rows clear.
  *   - The legacy `kind` backfill runs once per process before pruning.
@@ -13,13 +12,14 @@
  *   - It swallows embedding-backend errors and leaves prior cache intact.
  *   - Stale in-flight results yield to the latest requested generation.
  *
- * Hermetic by design: the embedding backend, Qdrant module, and CLI program
- * tree are module-mocked so the suite never touches a real backend or the
- * full Commander wire-up.
+ * Hermetic by design: the embedding backend and Qdrant module are
+ * module-mocked, and the declarative command list is staged per test — the
+ * seed reads pure data from `@vellumai/plugin-api`, so it never imports the
+ * CLI's action graph.
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { Command } from "commander";
+import type { CliCommandHelp } from "../../../../../cli/lib/cli-command-help.js";
 
 // ---------------------------------------------------------------------------
 // Programmable test state
@@ -45,14 +45,8 @@ interface BackfillCall {
   allowedSuffixes: ReadonlySet<string>;
 }
 
-interface CommandSpec {
-  name: string;
-  description: string;
-  helpText: string;
-}
-
 interface TestState {
-  commands: CommandSpec[];
+  commands: CliCommandHelp[];
   embedThrows: Error | null;
   embedReturn: number[][];
   sparseReturn: { indices: number[]; values: number[] };
@@ -77,6 +71,25 @@ const state: TestState = {
   callSequence: [],
 };
 
+/** Build a minimal declarative help fixture. */
+function help(
+  name: string,
+  description: string,
+  helpText?: string,
+): CliCommandHelp {
+  return { name, description, ...(helpText ? { helpText } : {}) };
+}
+
+/**
+ * Stage the declarative command list. Mutates `state.commands` in place so the
+ * stable array reference captured by the `cli/index.help.js` mock (below) sees
+ * the update — reassigning `state.commands` would not propagate.
+ */
+function setCommands(...commands: CliCommandHelp[]): void {
+  state.commands.length = 0;
+  state.commands.push(...commands);
+}
+
 mock.module("../../../../../config/loader.js", () => ({
   getConfig: () => ({
     memory: {
@@ -86,27 +99,12 @@ mock.module("../../../../../config/loader.js", () => ({
   }),
 }));
 
-// Stub the CLI program tree so tests don't need to wire the entire Commander
-// registration graph. Each test stages `state.commands`; the mock returns a
-// fresh `Command` tree whose children carry the staged help text.
-mock.module("../../../../../cli/program.js", () => ({
-  buildCliProgramTree: () => {
-    const program = new Command();
-    program.name("assistant");
-    for (const spec of state.commands) {
-      const child = program.command(spec.name).description(spec.description);
-      // helpInformation() is built from Commander state — stub it directly so
-      // the seeded content matches the test fixture verbatim.
-      child.helpInformation = () => spec.helpText;
-    }
-    return program;
-  },
-}));
-
-// Keep the suite driven entirely by the mocked program tree above: no commands
-// are sourced from the declarative `cli/index.help.ts` aggregate.
+// Stage the declarative command list per test. The store imports
+// `CLI_COMMAND_HELP` from `@vellumai/plugin-api`, which re-exports it from
+// `cli/index.help.js` — mocking that module drives the seed with pure data,
+// so no test wires the Commander action graph.
 mock.module("../../../../../cli/index.help.js", () => ({
-  CLI_COMMAND_HELP: [],
+  CLI_COMMAND_HELP: state.commands,
 }));
 
 mock.module(
@@ -171,7 +169,7 @@ const {
 } = await import("../cli-command-store.js");
 
 function resetState(): void {
-  state.commands = [];
+  state.commands.length = 0;
   state.embedThrows = null;
   state.embedReturn = [];
   state.sparseReturn = { indices: [1], values: [1] };
@@ -188,19 +186,11 @@ beforeEach(resetState);
 afterEach(resetState);
 
 describe("seedV2CliCommandEntries", () => {
-  test("upserts each top-level command under cli-commands/<name>", async () => {
-    state.commands = [
-      {
-        name: "attachment",
-        description: "Manage file attachments for conversations",
-        helpText: "Usage: assistant attachment ...",
-      },
-      {
-        name: "browser",
-        description: "Control the browser via the running assistant.",
-        helpText: "Usage: assistant browser ...",
-      },
-    ];
+  test("upserts each declarative command under cli-commands/<name>", async () => {
+    setCommands(
+      help("attachment", "Manage file attachments for conversations"),
+      help("browser", "Control the browser via the running assistant."),
+    );
     state.embedReturn = [
       [0.1, 0.2, 0.3],
       [0.4, 0.5, 0.6],
@@ -214,36 +204,8 @@ describe("seedV2CliCommandEntries", () => {
     expect(state.upsertCalls.every((c) => c.kind === "cli-command")).toBe(true);
   });
 
-  test("skips Commander's auto-injected `help` builtin", async () => {
-    state.commands = [
-      {
-        name: "attachment",
-        description: "Manage file attachments",
-        helpText: "Usage: assistant attachment ...",
-      },
-      {
-        name: "help",
-        description: "display help for command",
-        helpText: "Usage: assistant help ...",
-      },
-    ];
-    state.embedReturn = [[0.1, 0.2, 0.3]];
-
-    await seedV2CliCommandEntries();
-
-    expect(state.upsertCalls.map((c) => c.slug)).toEqual([
-      "cli-commands/attachment",
-    ]);
-  });
-
   test("calls pruneSlugsWithPrefixExcept with kind: 'cli-command'", async () => {
-    state.commands = [
-      {
-        name: "config",
-        description: "Manage configuration",
-        helpText: "...",
-      },
-    ];
+    setCommands(help("config", "Manage configuration"));
     state.embedReturn = [[0.1, 0.2, 0.3]];
 
     await seedV2CliCommandEntries();
@@ -255,13 +217,7 @@ describe("seedV2CliCommandEntries", () => {
   });
 
   test("runs backfill before prune so legacy kindless points are reachable", async () => {
-    state.commands = [
-      {
-        name: "config",
-        description: "Manage configuration",
-        helpText: "...",
-      },
-    ];
+    setCommands(help("config", "Manage configuration"));
     state.embedReturn = [[0.1, 0.2, 0.3]];
 
     await seedV2CliCommandEntries();
@@ -277,9 +233,7 @@ describe("seedV2CliCommandEntries", () => {
   });
 
   test("backfill only runs once across repeated seeds in the same process", async () => {
-    state.commands = [
-      { name: "config", description: "Manage configuration", helpText: "..." },
-    ];
+    setCommands(help("config", "Manage configuration"));
     state.embedReturn = [[0.1, 0.2, 0.3]];
 
     await seedV2CliCommandEntries();
@@ -291,13 +245,13 @@ describe("seedV2CliCommandEntries", () => {
   });
 
   test("populates the entries cache so getCliCommandCapability resolves both forms", async () => {
-    state.commands = [
-      {
-        name: "attachment",
-        description: "Manage file attachments",
-        helpText: "Usage: assistant attachment ...",
-      },
-    ];
+    setCommands(
+      help(
+        "attachment",
+        "Manage file attachments",
+        "Register a file-backed attachment with the assistant",
+      ),
+    );
     state.embedReturn = [[0.1, 0.2, 0.3]];
 
     expect(getCliCommandCapability("attachment")).toBeNull();
@@ -311,7 +265,9 @@ describe("seedV2CliCommandEntries", () => {
     expect(byId?.description).toBe("Manage file attachments");
     expect(byId?.content).toContain('"assistant attachment"');
     expect(byId?.content).toContain("Manage file attachments");
-    expect(byId?.content).toContain("Usage: assistant attachment ...");
+    expect(byId?.content).toContain(
+      "Register a file-backed attachment with the assistant",
+    );
     expect(bySlug).toEqual(byId);
 
     expect(getCliCommandCapability("unknown-command")).toBeNull();
@@ -325,10 +281,10 @@ describe("seedV2CliCommandEntries", () => {
   });
 
   test("listCliCommandEntries returns frozen sorted snapshots", async () => {
-    state.commands = [
-      { name: "browser", description: "Control browser", helpText: "..." },
-      { name: "attachment", description: "Manage attachments", helpText: "." },
-    ];
+    setCommands(
+      help("browser", "Control browser"),
+      help("attachment", "Manage attachments"),
+    );
     state.embedReturn = [
       [0.1, 0.2, 0.3],
       [0.4, 0.5, 0.6],
@@ -342,9 +298,7 @@ describe("seedV2CliCommandEntries", () => {
   });
 
   test("swallows embedWithBackend errors and leaves prior cache intact", async () => {
-    state.commands = [
-      { name: "config", description: "Manage configuration", helpText: "..." },
-    ];
+    setCommands(help("config", "Manage configuration"));
     state.embedReturn = [[0.1, 0.2, 0.3]];
 
     await seedV2CliCommandEntries();
@@ -364,9 +318,7 @@ describe("seedV2CliCommandEntries", () => {
   });
 
   test("propagates embedding errors when throwOnError is set", async () => {
-    state.commands = [
-      { name: "config", description: "Manage configuration", helpText: "..." },
-    ];
+    setCommands(help("config", "Manage configuration"));
     state.embedThrows = new Error("backend exploded");
 
     await expect(
@@ -374,15 +326,13 @@ describe("seedV2CliCommandEntries", () => {
     ).rejects.toThrow("backend exploded");
   });
 
-  test("populates the cache from the Commander tree on the first seed even when the embedding backend is unavailable (cold-start needle resilience)", async () => {
+  test("populates the cache from the declarative help on the first seed even when the embedding backend is unavailable (cold-start needle resilience)", async () => {
     // Cold-start race: the startup seed runs before the managed embedding
     // credential is provisioned, so the first `embedWithBackend` throws. The
     // in-memory cache (read by the v3 needle lane and the page index) must
-    // still populate from the local Commander tree so CLI commands are
+    // still populate from the declarative help so CLI commands are
     // discoverable from first boot; only the dense Qdrant upsert is deferred.
-    state.commands = [
-      { name: "config", description: "Manage configuration", helpText: "..." },
-    ];
+    setCommands(help("config", "Manage configuration"));
     state.embedThrows = new Error(
       'Embedding backend "gemini" is not configured',
     );
@@ -400,15 +350,11 @@ describe("seedV2CliCommandEntries", () => {
   });
 
   test("skips stale in-flight seed results when a newer refresh is requested", async () => {
-    state.commands = [
-      { name: "config", description: "Manage configuration", helpText: "..." },
-    ];
+    setCommands(help("config", "Manage configuration"));
     state.embedReturn = [[0.1, 0.2, 0.3]];
 
     const firstSeed = seedV2CliCommandEntries();
-    state.commands = [
-      { name: "browser", description: "Control browser", helpText: "..." },
-    ];
+    setCommands(help("browser", "Control browser"));
     const secondSeed = seedV2CliCommandEntries();
 
     await Promise.all([firstSeed, secondSeed]);
@@ -421,7 +367,7 @@ describe("seedV2CliCommandEntries", () => {
   });
 
   test("empty command set still calls prune to clear stale rows", async () => {
-    state.commands = [];
+    setCommands();
 
     await seedV2CliCommandEntries();
 
