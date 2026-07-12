@@ -13,19 +13,19 @@
 
 import { z } from "zod";
 
-import { getConfigReadOnly } from "../../config/loader.js";
-import { getMemoryBackendStatus } from "../../persistence/embeddings/embedding-backend.js";
+import { getConfigReadOnly } from "../../../../config/loader.js";
+import { getMemoryBackendStatus } from "../../../../persistence/embeddings/embedding-backend.js";
+import { ACTOR_PRINCIPALS } from "../../../../runtime/auth/route-policy.js";
+import { InternalError } from "../../../../runtime/routes/errors.js";
+import type { RouteDefinition } from "../../../../runtime/routes/types.js";
+import { getLogger } from "../../../../util/logger.js";
+import { getMemoryWorkerPidPath } from "../../../../util/platform.js";
 import {
   MemoryWorkerSpawnError,
   probeMemoryWorker,
   spawnMemoryWorkerProcess,
   stopMemoryWorkerProcess,
-} from "../../plugins/defaults/memory/worker-control.js";
-import { getLogger } from "../../util/logger.js";
-import { getMemoryWorkerPidPath } from "../../util/platform.js";
-import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
-import { InternalError } from "./errors.js";
-import type { RouteDefinition } from "./types.js";
+} from "../worker-control.js";
 
 const log = getLogger("memory-worker-routes");
 

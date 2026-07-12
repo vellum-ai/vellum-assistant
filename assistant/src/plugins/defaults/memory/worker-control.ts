@@ -51,7 +51,7 @@ export async function spawnMemoryWorkerProcess(
   try {
     return await spawnWorkerProcess({
       pidPath: getMemoryWorkerPidPath(),
-      entry: new URL("../plugins/defaults/memory/worker.ts", import.meta.url),
+      entry: new URL("./worker.ts", import.meta.url),
       workerLabel: "Memory worker",
       options: opts,
     });

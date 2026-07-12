@@ -11,7 +11,7 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { getMemoryWorkerPidPath } from "../../../util/platform.js";
+import { getMemoryWorkerPidPath } from "../../../../../util/platform.js";
 
 class FakeSpawnError extends Error {}
 
@@ -35,7 +35,7 @@ let backendStatus: {
   reason: null,
 };
 
-mock.module("../../../plugins/defaults/memory/worker-control.js", () => ({
+mock.module("../../worker-control.js", () => ({
   MemoryWorkerSpawnError: FakeSpawnError,
   spawnMemoryWorkerProcess: async (opts: {
     detached?: boolean;
@@ -48,9 +48,12 @@ mock.module("../../../plugins/defaults/memory/worker-control.js", () => ({
   probeMemoryWorker: () => workerProbe,
 }));
 
-mock.module("../../../persistence/embeddings/embedding-backend.js", () => ({
-  getMemoryBackendStatus: async () => backendStatus,
-}));
+mock.module(
+  "../../../../../persistence/embeddings/embedding-backend.js",
+  () => ({
+    getMemoryBackendStatus: async () => backendStatus,
+  }),
+);
 
 const { ROUTES, embeddingStatusSchema } =
   await import("../memory-worker-routes.js");
