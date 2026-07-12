@@ -453,16 +453,32 @@ export async function startVoiceTurn(
   // control markers (ASK_GUARDIAN, END_CALL, etc.) and recognize opener turns.
   const isCallerGuardian = opts.trustContext?.trustClass === "guardian";
 
-  const voiceCallControlPrompt =
-    opts.voiceControlPrompt === undefined
-      ? buildVoiceCallControlPrompt({
-          isInbound: opts.isInbound,
-          task: opts.task,
-          isCallerGuardian,
-          skipDisclosure: opts.skipDisclosure,
-          routingLeg: opts.routingLeg,
-        })
-      : opts.voiceControlPrompt;
+  let voiceCallControlPrompt: string | null;
+  if (opts.voiceControlPrompt === undefined) {
+    voiceCallControlPrompt = buildVoiceCallControlPrompt({
+      isInbound: opts.isInbound,
+      task: opts.task,
+      isCallerGuardian,
+      skipDisclosure: opts.skipDisclosure,
+      routingLeg: opts.routingLeg,
+    });
+  } else {
+    // A caller-supplied prompt (e.g. live-voice) bypasses
+    // buildVoiceCallControlPrompt, which is where the triage-and-escalate rule
+    // is normally injected from `routingLeg`. Append it here too — without it
+    // the front-door leg would run on the fast profile but never be told to
+    // emit [ESCALATE], so it could not hand off to the escalated leg.
+    voiceCallControlPrompt = opts.voiceControlPrompt;
+    const routingLegRule =
+      opts.routingLeg === "front-door"
+        ? frontDoorTriageRule()
+        : opts.routingLeg === "escalated"
+          ? escalatedContinuationRule()
+          : null;
+    if (voiceCallControlPrompt != null && routingLegRule) {
+      voiceCallControlPrompt = `${voiceCallControlPrompt}\n\n${routingLegRule}`;
+    }
+  }
 
   // Get or create the conversation
   const conversation = await getOrCreateConversation(opts.conversationId);
