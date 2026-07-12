@@ -30,8 +30,17 @@
  * `app-control` tools end up in the LLM tool list.
  */
 
-import * as realFs from "node:fs";
+import { createRequire } from "node:module";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
+
+// Freeze the real node:fs exports before `mock.module("node:fs", ...)` below
+// registers. A live `import * as` namespace would be remapped to the mock
+// itself once the factory runs, turning the pass-through fallback into
+// unbounded self-recursion; the synchronous require + spread pins the real
+// function references.
+const realFs = {
+  ...(createRequire(import.meta.url)("node:fs") as typeof import("node:fs")),
+};
 
 import type { InterfaceId } from "../channels/types.js";
 import { supportsHostProxy } from "../channels/types.js";
@@ -57,16 +66,6 @@ mock.module("../config/assistant-feature-flags.js", () => ({
 mock.module("../config/skill-state.js", () => ({
   skillFlagKey: (skill: { featureFlag?: string }) =>
     skill.featureFlag ?? undefined,
-}));
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    skills: { entries: {}, allowBundled: null },
-  }),
-  loadConfig: () => ({
-    skills: { entries: {}, allowBundled: null },
-  }),
-  invalidateConfigCache: () => {},
 }));
 
 let mockCatalog: SkillSummary[] = [];

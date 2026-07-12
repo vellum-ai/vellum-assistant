@@ -54,33 +54,6 @@ mock.module("node:child_process", () => ({
   spawn: mock(() => makeFakeChild()),
 }));
 
-const mockConfig = {
-  provider: "anthropic",
-  model: "test",
-  maxTokens: 4096,
-  dataDir: "/tmp",
-  timeouts: {
-    shellDefaultTimeoutSec: 120,
-    shellMaxTimeoutSec: 600,
-    permissionTimeoutSec: 300,
-  },
-  rateLimit: { maxRequestsPerMinute: 0 },
-  secretDetection: {
-    enabled: true,
-  },
-  auditLog: { retentionDays: 0 },
-};
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => mockConfig,
-  loadConfig: () => mockConfig,
-  invalidateConfigCache: () => {},
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-  getNestedValue: () => undefined,
-  setNestedValue: () => {},
-}));
-
 // Mock HostBashProxy singleton — proxy delegation tests configure this.
 let mockProxyAvailable = false;
 let mockProxyRequestImpl: (

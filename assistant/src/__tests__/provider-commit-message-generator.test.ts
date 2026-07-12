@@ -9,8 +9,6 @@ beforeAll(() => {
   setOverridesForTesting({ "override-or-default-resolution": false });
 });
 
-import { DEFAULT_CONFIG } from "../config/defaults.js";
-import type { AssistantConfig } from "../config/types.js";
 import type {
   Message,
   Provider,
@@ -18,6 +16,7 @@ import type {
   SendMessageOptions,
 } from "../providers/types.js";
 import type { CommitContext } from "../workspace/commit-message-provider.js";
+import { setConfig } from "./helpers/set-config.js";
 
 // ---------------------------------------------------------------------------
 // Mock secure keys — controls what getSecureKeyAsync returns per provider
@@ -30,41 +29,34 @@ mock.module("../security/secure-keys.js", () => ({
 }));
 
 // ---------------------------------------------------------------------------
-// Deep-clone a base config so each test can tweak fields independently
+// Seed the LLM commit-message settings for real. `setConfig` replaces the
+// whole `workspaceGit` key, so every seed spells out the full block; tests
+// pass overrides to diverge from the enabled/5s-timeout baseline.
 // ---------------------------------------------------------------------------
-function cloneConfig(): AssistantConfig {
-  const cfg = structuredClone(DEFAULT_CONFIG);
-  cfg.llm.default.provider = "anthropic";
-  cfg.workspaceGit.commitMessageLLM = {
-    ...cfg.workspaceGit.commitMessageLLM,
-    enabled: true,
-    timeoutMs: 5000,
-    maxFilesInPrompt: 30,
-    maxDiffBytes: 12000,
-    minRemainingTurnBudgetMs: 1000,
-    breaker: {
-      openAfterFailures: 3,
-      backoffBaseMs: 2000,
-      backoffMaxMs: 60000,
+function seedCommitMessageLLM(
+  overrides: {
+    enabled?: boolean;
+    timeoutMs?: number;
+    breaker?: { openAfterFailures?: number };
+  } = {},
+): void {
+  setConfig("workspaceGit", {
+    commitMessageLLM: {
+      enabled: true,
+      timeoutMs: 5000,
+      maxFilesInPrompt: 30,
+      maxDiffBytes: 12000,
+      minRemainingTurnBudgetMs: 1000,
+      ...overrides,
+      breaker: {
+        openAfterFailures: 3,
+        backoffBaseMs: 2000,
+        backoffMaxMs: 60000,
+        ...overrides.breaker,
+      },
     },
-  };
-  return cfg;
+  });
 }
-
-let currentConfig = cloneConfig();
-
-// ---------------------------------------------------------------------------
-// Mock: config/loader
-// ---------------------------------------------------------------------------
-mock.module("../config/loader.js", () => ({
-  getConfig: () => currentConfig,
-  loadConfig: () => currentConfig,
-  invalidateConfigCache: () => {},
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-  getNestedValue: () => undefined,
-  setNestedValue: () => {},
-}));
 
 // ---------------------------------------------------------------------------
 // Mock: providers/registry
@@ -122,7 +114,8 @@ function makeSuccessResponse(text: string): ProviderResponse {
 describe("ProviderCommitMessageGenerator", () => {
   beforeEach(() => {
     _resetCommitMessageGenerator();
-    currentConfig = cloneConfig();
+    seedCommitMessageLLM();
+    setConfig("llm", {});
     mockSecureKeys = { anthropic: "sk-test-key" };
     mockSendMessage.mockReset();
     resolvedProvider = {
@@ -133,7 +126,7 @@ describe("ProviderCommitMessageGenerator", () => {
 
   // 1. disabled
   test('disabled → returns deterministic, reason "disabled"', async () => {
-    currentConfig.workspaceGit.commitMessageLLM.enabled = false;
+    seedCommitMessageLLM({ enabled: false });
     const gen = getCommitMessageGenerator();
     const result = await gen.generateCommitMessage(baseContext, {
       changedFiles: baseContext.changedFiles,
@@ -170,11 +163,12 @@ describe("ProviderCommitMessageGenerator", () => {
   // 3c. No resolvable provider despite keys
   test('no resolvable provider with keys present → returns deterministic, reason "provider_not_initialized"', async () => {
     mockSecureKeys = { anthropic: "sk-test-key" };
-    currentConfig.llm.profiles = {
-      ...currentConfig.llm.profiles,
-      // Disable the catalog default so resolution lands on llm.default.
-      "cost-optimized": { source: "managed", status: "disabled" },
-    };
+    setConfig("llm", {
+      profiles: {
+        // Disable the catalog default so resolution lands on llm.default.
+        "cost-optimized": { source: "managed", status: "disabled" },
+      },
+    });
     resolvedProvider = null;
     const gen = getCommitMessageGenerator();
     const result = await gen.generateCommitMessage(baseContext, {
@@ -188,7 +182,7 @@ describe("ProviderCommitMessageGenerator", () => {
   // 4. breaker open
   test('breaker open → returns deterministic, reason "breaker_open"', async () => {
     // Force the breaker open by simulating enough failures
-    currentConfig.workspaceGit.commitMessageLLM.breaker.openAfterFailures = 1;
+    seedCommitMessageLLM({ breaker: { openAfterFailures: 1 } });
     const gen = getCommitMessageGenerator();
 
     // Trigger a failure to open the breaker — provider throws
@@ -238,7 +232,7 @@ describe("ProviderCommitMessageGenerator", () => {
   // 8. LLM timeout
   test('LLM timeout → returns deterministic, reason "timeout"', async () => {
     // Set a very short timeout and make sendMessage take too long
-    currentConfig.workspaceGit.commitMessageLLM.timeoutMs = 1;
+    seedCommitMessageLLM({ timeoutMs: 1 });
     mockSendMessage.mockImplementationOnce(
       (_msgs: Message[], options?: SendMessageOptions) => {
         // Wait until the abort signal fires
@@ -314,7 +308,7 @@ describe("ProviderCommitMessageGenerator", () => {
   // a stored secret, then succeeds because the call-site resolver supplies
   // the model from `llm.default`/`llm.callSites.commitMessage`.
   test("Ollama (keyless) — succeeds because call-site resolver supplies the model", async () => {
-    currentConfig.llm.default.provider = "ollama";
+    setConfig("llm", { default: { provider: "ollama" } });
     mockSecureKeys = {};
     resolvedProvider = {
       provider: mockProvider,

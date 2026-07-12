@@ -76,29 +76,6 @@ mock.module("../skills/catalog-install.js", () => ({
   resolveCatalog: (_skillId?: string) => Promise.resolve([]),
 }));
 
-interface TestConfig {
-  permissions: { autoApproveUpTo?: "none" | "low" | "medium" | "high" };
-  skills: { load: { extraDirs: string[] } };
-  sandbox: { enabled: boolean };
-  [key: string]: unknown;
-}
-
-const testConfig: TestConfig = {
-  permissions: {},
-  skills: { load: { extraDirs: [] } },
-  sandbox: { enabled: true },
-};
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => testConfig,
-  loadConfig: () => testConfig,
-  invalidateConfigCache: () => {},
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-  getNestedValue: () => undefined,
-  setNestedValue: () => {},
-}));
-
 // ── Imports (after mocks) ─────────────────────────────────────────────────
 
 const { skillLoadTool } = await import("../tools/skills/load.js");
@@ -167,8 +144,6 @@ describe("skill_load inline command expansion for included skills", () => {
         _options?: unknown,
       ) => mockRunInlineCommand(command, workingDir),
     }));
-
-    testConfig.skills = { load: { extraDirs: [] } };
   });
 
   // ── Single inline-command child ──────────────────────────────────────

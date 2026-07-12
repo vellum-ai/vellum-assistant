@@ -11,18 +11,6 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ── Module mocks (must come before imports) ──────────────────────────────────
 
-let fakeConfig: Record<string, unknown> = {};
-let savedRawConfig: Record<string, unknown> | null = null;
-mock.module("../../../config/loader.js", () => ({
-  getConfigReadOnly: () => fakeConfig,
-  getConfig: () => fakeConfig,
-  loadRawConfig: () => fakeConfig,
-  saveRawConfig: (config: Record<string, unknown>) => {
-    savedRawConfig = config;
-  },
-  invalidateConfigCache: () => {},
-}));
-
 let managedProxyEnabled = false;
 let managedProxyBaseUrl = "https://platform.example";
 mock.module("../../../providers/platform-proxy/context.js", () => ({
@@ -44,12 +32,20 @@ mock.module("../../../security/secure-keys.js", () => ({
 
 // ── Real imports (after mocks) ────────────────────────────────────────────────
 
+import { setConfig } from "../../../__tests__/helpers/set-config.js";
+import { loadRawConfig } from "../../../config/loader.js";
 import { getDb } from "../../../persistence/db-connection.js";
 import { initializeDb } from "../../../persistence/db-init.js";
 import { providerConnections } from "../../../persistence/schema/inference.js";
 import { ROUTES } from "../default-provider-routes.js";
 import { BadRequestError } from "../errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "../types.js";
+
+/** Read `llm.defaultProvider` back from the real workspace config file. */
+function persistedDefaultProvider(): unknown {
+  const llm = loadRawConfig().llm as Record<string, unknown> | undefined;
+  return llm?.defaultProvider;
+}
 
 // ── DB bootstrap ──────────────────────────────────────────────────────────────
 
@@ -113,8 +109,7 @@ function seedCanonicalVellumConnection(): void {
 
 beforeEach(() => {
   getDb().delete(providerConnections).run();
-  fakeConfig = { llm: {} };
-  savedRawConfig = null;
+  setConfig("llm", {});
   managedProxyEnabled = false;
   managedProxyBaseUrl = "https://platform.example";
   secureKeyResults = {};
@@ -133,7 +128,7 @@ describe("GET config/llm/default-provider", () => {
 
   test("vellum + authenticated → ok", async () => {
     seedCanonicalVellumConnection();
-    fakeConfig = { llm: { defaultProvider: { provider: "vellum" } } };
+    setConfig("llm", { defaultProvider: { provider: "vellum" } });
     managedProxyEnabled = true;
     const result = await get();
     expect(result.provider).toBe("vellum");
@@ -142,7 +137,7 @@ describe("GET config/llm/default-provider", () => {
 
   test("vellum + unauthenticated → vellum_unauthenticated naming the fix", async () => {
     seedCanonicalVellumConnection();
-    fakeConfig = { llm: { defaultProvider: { provider: "vellum" } } };
+    setConfig("llm", { defaultProvider: { provider: "vellum" } });
     const result = await get();
     expect(availability(result).status).toBe("vellum_unauthenticated");
     expect(availability(result).message).toContain("Log in");
@@ -150,7 +145,7 @@ describe("GET config/llm/default-provider", () => {
 
   test("vellum + no platform URL → vellum_unauthenticated naming the URL", async () => {
     seedCanonicalVellumConnection();
-    fakeConfig = { llm: { defaultProvider: { provider: "vellum" } } };
+    setConfig("llm", { defaultProvider: { provider: "vellum" } });
     managedProxyBaseUrl = "";
     const result = await get();
     expect(availability(result).status).toBe("vellum_unauthenticated");
@@ -159,7 +154,7 @@ describe("GET config/llm/default-provider", () => {
 
   test("vellum default with no canonical row → missing_connection", async () => {
     managedProxyEnabled = true;
-    fakeConfig = { llm: { defaultProvider: { provider: "vellum" } } };
+    setConfig("llm", { defaultProvider: { provider: "vellum" } });
     const result = await get();
     expect(availability(result).status).toBe("missing_connection");
   });
@@ -178,7 +173,7 @@ describe("GET config/llm/default-provider", () => {
       unreachable: false,
     };
     managedProxyEnabled = true;
-    fakeConfig = { llm: { defaultProvider: { provider: "vellum" } } };
+    setConfig("llm", { defaultProvider: { provider: "vellum" } });
 
     const result = await get();
     expect(availability(result).status).toBe("provider_mismatch");
@@ -191,7 +186,7 @@ describe("GET config/llm/default-provider", () => {
       auth: { type: "platform" },
     });
     managedProxyEnabled = true;
-    fakeConfig = { llm: { defaultProvider: { provider: "openrouter" } } };
+    setConfig("llm", { defaultProvider: { provider: "openrouter" } });
 
     const result = await get();
     expect(availability(result).status).toBe("unsupported_auth");
@@ -208,7 +203,7 @@ describe("GET config/llm/default-provider", () => {
       value: "sk-ant",
       unreachable: false,
     };
-    fakeConfig = { llm: { defaultProvider: { provider: "anthropic" } } };
+    setConfig("llm", { defaultProvider: { provider: "anthropic" } });
 
     const result = await get();
     expect(result.resolvedConnectionName).toBe("anthropic-personal");
@@ -226,11 +221,9 @@ describe("GET config/llm/default-provider", () => {
       value: "sk-oai",
       unreachable: false,
     };
-    fakeConfig = {
-      llm: {
-        defaultProvider: { provider: "openai", connectionName: "work-openai" },
-      },
-    };
+    setConfig("llm", {
+      defaultProvider: { provider: "openai", connectionName: "work-openai" },
+    });
 
     const result = await get();
     expect(result.connectionName).toBe("work-openai");
@@ -239,7 +232,7 @@ describe("GET config/llm/default-provider", () => {
   });
 
   test("no connection row → missing_connection naming connection and provider", async () => {
-    fakeConfig = { llm: { defaultProvider: { provider: "openai" } } };
+    setConfig("llm", { defaultProvider: { provider: "openai" } });
     const result = await get();
     expect(availability(result).status).toBe("missing_connection");
     expect(availability(result).message).toContain('"openai-personal"');
@@ -252,7 +245,7 @@ describe("GET config/llm/default-provider", () => {
       provider: "anthropic",
       auth: { type: "api_key", credential: "credential/anthropic/api_key" },
     });
-    fakeConfig = { llm: { defaultProvider: { provider: "anthropic" } } };
+    setConfig("llm", { defaultProvider: { provider: "anthropic" } });
 
     const result = await get();
     expect(availability(result).status).toBe("missing_credential");
@@ -270,7 +263,7 @@ describe("GET config/llm/default-provider", () => {
       value: undefined,
       unreachable: true,
     };
-    fakeConfig = { llm: { defaultProvider: { provider: "anthropic" } } };
+    setConfig("llm", { defaultProvider: { provider: "anthropic" } });
 
     const result = await get();
     expect(availability(result).status).toBe("unknown");
@@ -279,7 +272,7 @@ describe("GET config/llm/default-provider", () => {
 
   test("vellum + credential store unreachable → unknown, not logged-out", async () => {
     seedCanonicalVellumConnection();
-    fakeConfig = { llm: { defaultProvider: { provider: "vellum" } } };
+    setConfig("llm", { defaultProvider: { provider: "vellum" } });
     secureKeyResults["credential/vellum/assistant_api_key"] = {
       value: undefined,
       unreachable: true,
@@ -290,11 +283,9 @@ describe("GET config/llm/default-provider", () => {
   });
 
   test("vellum with a dangling explicit connectionName → missing_connection", async () => {
-    fakeConfig = {
-      llm: {
-        defaultProvider: { provider: "vellum", connectionName: "ghost" },
-      },
-    };
+    setConfig("llm", {
+      defaultProvider: { provider: "vellum", connectionName: "ghost" },
+    });
     const result = await get();
     expect(availability(result).status).toBe("missing_connection");
   });
@@ -309,14 +300,12 @@ describe("GET config/llm/default-provider", () => {
       value: "sk-ant",
       unreachable: false,
     };
-    fakeConfig = {
-      llm: {
-        defaultProvider: {
-          provider: "vellum",
-          connectionName: "anthropic-personal",
-        },
+    setConfig("llm", {
+      defaultProvider: {
+        provider: "vellum",
+        connectionName: "anthropic-personal",
       },
-    };
+    });
     const result = await get();
     expect(availability(result).status).toBe("provider_mismatch");
   });
@@ -327,7 +316,7 @@ describe("GET config/llm/default-provider", () => {
       provider: "openai",
       auth: { type: "none" },
     });
-    fakeConfig = { llm: { defaultProvider: { provider: "openai" } } };
+    setConfig("llm", { defaultProvider: { provider: "openai" } });
 
     const result = await get();
     expect(availability(result).status).toBe("unsupported_auth");
@@ -344,14 +333,12 @@ describe("GET config/llm/default-provider", () => {
       value: "sk-ant",
       unreachable: false,
     };
-    fakeConfig = {
-      llm: {
-        defaultProvider: {
-          provider: "openai",
-          connectionName: "anthropic-personal",
-        },
+    setConfig("llm", {
+      defaultProvider: {
+        provider: "openai",
+        connectionName: "anthropic-personal",
       },
-    };
+    });
 
     const result = await get();
     expect(availability(result).status).toBe("provider_mismatch");
@@ -365,11 +352,9 @@ describe("GET config/llm/default-provider", () => {
       provider: "vellum",
       auth: { type: "platform" },
     });
-    fakeConfig = {
-      llm: {
-        defaultProvider: { provider: "anthropic", connectionName: "vellum" },
-      },
-    };
+    setConfig("llm", {
+      defaultProvider: { provider: "anthropic", connectionName: "vellum" },
+    });
 
     expect(availability(await get()).status).toBe("vellum_unauthenticated");
     managedProxyEnabled = true;
@@ -383,11 +368,9 @@ describe("GET config/llm/default-provider", () => {
       auth: { type: "platform" },
     });
     managedProxyEnabled = true;
-    fakeConfig = {
-      llm: {
-        defaultProvider: { provider: "openrouter", connectionName: "vellum" },
-      },
-    };
+    setConfig("llm", {
+      defaultProvider: { provider: "openrouter", connectionName: "vellum" },
+    });
 
     const result = await get();
     expect(availability(result).status).toBe("provider_mismatch");
@@ -404,7 +387,7 @@ describe("GET config/llm/default-provider", () => {
       value: "{}",
       unreachable: false,
     };
-    fakeConfig = { llm: { defaultProvider: { provider: "gemini" } } };
+    setConfig("llm", { defaultProvider: { provider: "gemini" } });
 
     const result = await get();
     expect(availability(result).status).toBe("unsupported_auth");
@@ -417,7 +400,7 @@ describe("GET config/llm/default-provider", () => {
       provider: "anthropic",
       auth: { type: "platform" },
     });
-    fakeConfig = { llm: { defaultProvider: { provider: "anthropic" } } };
+    setConfig("llm", { defaultProvider: { provider: "anthropic" } });
 
     expect(availability(await get()).status).toBe("vellum_unauthenticated");
     managedProxyEnabled = true;
@@ -444,18 +427,17 @@ describe("PUT config/llm/default-provider", () => {
       unknown
     >;
 
-    expect(
-      (savedRawConfig?.llm as Record<string, unknown>).defaultProvider,
-    ).toEqual({ provider: "openai" });
+    expect(persistedDefaultProvider()).toEqual({ provider: "openai" });
     expect(result.provider).toBe("openai");
     expect(availability(result)).toEqual({ status: "ok" });
   });
 
   test("persists an explicit connectionName", async () => {
     await put({ provider: "openai", connectionName: "work-openai" });
-    expect(
-      (savedRawConfig?.llm as Record<string, unknown>).defaultProvider,
-    ).toEqual({ provider: "openai", connectionName: "work-openai" });
+    expect(persistedDefaultProvider()).toEqual({
+      provider: "openai",
+      connectionName: "work-openai",
+    });
   });
 
   test("dangling connection is accepted and reported via availability", async () => {
@@ -463,7 +445,7 @@ describe("PUT config/llm/default-provider", () => {
       string,
       unknown
     >;
-    expect(savedRawConfig).not.toBeNull();
+    expect(persistedDefaultProvider()).toEqual({ provider: "gemini" });
     expect(availability(result).status).toBe("missing_connection");
   });
 
@@ -474,14 +456,12 @@ describe("PUT config/llm/default-provider", () => {
     expect(err).toBeInstanceOf(BadRequestError);
     expect((err as BadRequestError).message).toContain("anthropic");
     expect((err as BadRequestError).message).toContain("vellum");
-    expect(savedRawConfig).toBeNull();
+    expect(persistedDefaultProvider()).toBeUndefined();
   });
 
   test("unknown keys are stripped from the persisted value", async () => {
     await put({ provider: "anthropic", extra: "nope" });
-    expect(
-      (savedRawConfig?.llm as Record<string, unknown>).defaultProvider,
-    ).toEqual({ provider: "anthropic" });
+    expect(persistedDefaultProvider()).toEqual({ provider: "anthropic" });
   });
 });
 

@@ -30,10 +30,6 @@ mock.module("../config/assistant-feature-flags.js", () => ({
     key === "summarize-up-to-here" && summarizeFlagEnabled,
 }));
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({}),
-}));
-
 const formatSummarizeUpToResultMock = mock(
   (result: { compactedMessages: number }) =>
     `**Conversation summarized**\nSummarized ${result.compactedMessages} earlier messages.`,

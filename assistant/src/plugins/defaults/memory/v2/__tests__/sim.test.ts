@@ -23,25 +23,6 @@ import type { AssistantConfig } from "../../../../../config/types.js";
 // Module-level mocks (registered before `await import("../sim.js")`).
 // ---------------------------------------------------------------------------
 
-// Stub both `getConfig` and `loadConfig`. `loadConfig` is reached by code
-// paths transitively imported during teardown (e.g. dynamic imports inside
-// `oauth2.ts`); leaving it undefined here would break sibling test files
-// run in the same Bun process because `mock.module` replacements persist
-// across files.
-const STUB_QDRANT_CONFIG = {
-  memory: {
-    qdrant: {
-      url: "http://127.0.0.1:6333",
-      vectorSize: 384,
-      onDisk: true,
-    },
-  },
-};
-mock.module("../../../../../config/loader.js", () => ({
-  getConfig: () => STUB_QDRANT_CONFIG,
-  loadConfig: () => STUB_QDRANT_CONFIG,
-}));
-
 // Same partial-mock pattern as for the embedding backend: re-export the
 // real symbols and override only `resolveQdrantUrl` so the v2 qdrant
 // client picks up our test URL.

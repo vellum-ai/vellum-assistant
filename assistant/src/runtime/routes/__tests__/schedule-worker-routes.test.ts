@@ -12,7 +12,8 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import * as actualLoader from "../../../config/loader.js";
+import { setConfig } from "../../../__tests__/helpers/set-config.js";
+import { loadRawConfig } from "../../../config/loader.js";
 import { getScheduleWorkerPidPath } from "../../../util/platform.js";
 
 class FakeSpawnError extends Error {}
@@ -20,12 +21,23 @@ class FakeSpawnError extends Error {}
 let spawnImpl: () => Promise<{ pid: number; alreadyRunning: boolean }>;
 let spawnArgs: Array<{ detached?: boolean; terminateOnTimeout?: boolean }> = [];
 let stopImpl: () => { status: "running" | "not_running"; pid?: number };
-/** Records the `schedules.worker.enabled` values written via saveRawConfig. */
-let enabledCalls: boolean[] = [];
 let workerProbe: { status: "running" | "not_running"; pid?: number } = {
   status: "not_running",
 };
 let configEnabled = false;
+
+/** Seed the schedule-worker flag the routes read into the real config.json. */
+function seedSchedules(): void {
+  setConfig("schedules", { worker: { enabled: configEnabled } });
+}
+
+/** Read the persisted `schedules.worker.enabled` flag back from the file. */
+function persistedWorkerEnabled(): boolean {
+  const schedules = loadRawConfig().schedules as
+    | { worker?: { enabled?: boolean } }
+    | undefined;
+  return schedules?.worker?.enabled === true;
+}
 
 mock.module("../../../schedule/worker-control.js", () => ({
   ScheduleWorkerSpawnError: FakeSpawnError,
@@ -40,17 +52,6 @@ mock.module("../../../schedule/worker-control.js", () => ({
   probeScheduleWorker: () => workerProbe,
 }));
 
-mock.module("../../../config/loader.js", () => ({
-  ...actualLoader,
-  getConfigReadOnly: () => ({
-    schedules: { worker: { enabled: configEnabled } },
-  }),
-  loadRawConfig: () => ({}),
-  saveRawConfig: (cfg: { schedules?: { worker?: { enabled?: boolean } } }) => {
-    enabledCalls.push(cfg.schedules?.worker?.enabled === true);
-  },
-}));
-
 const { ROUTES } = await import("../schedule-worker-routes.js");
 
 function handler(operationId: string) {
@@ -63,11 +64,11 @@ function handler(operationId: string) {
 
 beforeEach(() => {
   spawnArgs = [];
-  enabledCalls = [];
   spawnImpl = async () => ({ pid: 4242, alreadyRunning: false });
   stopImpl = () => ({ status: "not_running" });
   workerProbe = { status: "not_running" };
   configEnabled = false;
+  seedSchedules();
 });
 
 describe("schedules_worker_start", () => {
@@ -77,7 +78,7 @@ describe("schedules_worker_start", () => {
     const res = await handler("schedules_worker_start")();
 
     expect(spawnArgs).toEqual([{ detached: false, terminateOnTimeout: true }]);
-    expect(enabledCalls).toEqual([true]);
+    expect(persistedWorkerEnabled()).toBe(true);
     expect(res).toEqual({
       pid: 4242,
       alreadyRunning: false,
@@ -92,7 +93,7 @@ describe("schedules_worker_start", () => {
     const res = await handler("schedules_worker_start")();
 
     expect(res).toMatchObject({ pid: 99, alreadyRunning: true });
-    expect(enabledCalls).toEqual([true]);
+    expect(persistedWorkerEnabled()).toBe(true);
   });
 
   test("throws and leaves the flag untouched when the spawn fails", async () => {
@@ -103,17 +104,21 @@ describe("schedules_worker_start", () => {
     await expect(handler("schedules_worker_start")()).rejects.toThrow(
       "worker exited during startup",
     );
-    expect(enabledCalls).toEqual([]);
+    // A failed spawn leaves the seeded flag untouched (never enabled).
+    expect(persistedWorkerEnabled()).toBe(false);
   });
 });
 
 describe("schedules_worker_stop", () => {
   test("disables the flag and reports a signalled running worker", async () => {
+    // Start from an enabled flag so the disable is observable.
+    configEnabled = true;
+    seedSchedules();
     stopImpl = () => ({ status: "running", pid: 555 });
 
     const res = await handler("schedules_worker_stop")();
 
-    expect(enabledCalls).toEqual([false]);
+    expect(persistedWorkerEnabled()).toBe(false);
     expect(res).toEqual({
       workerWasRunning: true,
       pid: 555,
@@ -122,11 +127,14 @@ describe("schedules_worker_stop", () => {
   });
 
   test("disables the flag and succeeds when no worker is running", async () => {
+    // Start from an enabled flag so the disable is observable.
+    configEnabled = true;
+    seedSchedules();
     stopImpl = () => ({ status: "not_running" });
 
     const res = await handler("schedules_worker_stop")();
 
-    expect(enabledCalls).toEqual([false]);
+    expect(persistedWorkerEnabled()).toBe(false);
     expect(res).toEqual({ workerWasRunning: false, workerEnabled: false });
   });
 });
@@ -135,6 +143,7 @@ describe("schedules_worker_status", () => {
   test("reports a running worker with the flag on and the in-process scheduler standing down", async () => {
     workerProbe = { status: "running", pid: 321 };
     configEnabled = true;
+    seedSchedules();
 
     const res = await handler("schedules_worker_status")();
 
@@ -149,6 +158,7 @@ describe("schedules_worker_status", () => {
   test("reports the daemon as the schedule runner when the flag is off", async () => {
     workerProbe = { status: "not_running" };
     configEnabled = false;
+    seedSchedules();
 
     const res = await handler("schedules_worker_status")();
 

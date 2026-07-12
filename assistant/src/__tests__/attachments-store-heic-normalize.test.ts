@@ -11,12 +11,6 @@
 
 import { beforeAll, describe, expect, mock, test } from "bun:test";
 
-mock.module("../config/loader.js", () => ({
-  loadConfig: () => ({}),
-  getConfig: () => ({}),
-  invalidateConfigCache: () => {},
-}));
-
 mock.module("../config/env.js", () => ({
   isHttpAuthDisabled: () => true,
   getAssistantDomain: () => "vellum.me",

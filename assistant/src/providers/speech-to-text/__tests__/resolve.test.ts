@@ -1,5 +1,8 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { setConfig } from "../../../__tests__/helpers/set-config.js";
+import { getConfig } from "../../../config/loader.js";
+
 // ---------------------------------------------------------------------------
 // Mocks — must be declared before any subject imports
 // ---------------------------------------------------------------------------
@@ -34,15 +37,6 @@ mock.module("../../../util/logger.js", () => ({
       fatal: () => {},
     }),
   }),
-}));
-
-// -- Config mock ----------------------------------------------------------
-
-let mockConfig: Record<string, unknown> = {};
-
-mock.module("../../../config/loader.js", () => ({
-  getConfig: () => mockConfig,
-  loadConfig: () => mockConfig,
 }));
 
 // -- Credential mock ------------------------------------------------------
@@ -155,22 +149,26 @@ const {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function buildConfig(overrides: {
-  provider?: string;
-  mode?: string;
-}): Record<string, unknown> {
-  return {
-    services: {
-      stt: {
-        mode: overrides.mode ?? "your-own",
-        provider: overrides.provider ?? "openai-whisper",
-        providers: {
-          "openai-whisper": {},
-          deepgram: {},
-        },
+function applyConfig(overrides: { provider?: string; mode?: string }): void {
+  const provider = overrides.provider ?? "openai-whisper";
+  const mode = overrides.mode ?? "your-own";
+  // Seed a schema-valid base so the loader caches a fresh config object, then
+  // set the provider under test on that live cached object. `services.stt.
+  // provider` is a strict enum, so the "unconfigured" cases (empty string /
+  // non-catalog ids) can't round-trip through the validated file — resolve.ts
+  // reads the live cached config, so a direct mutation drives the same code
+  // path the raw mock did.
+  setConfig("services", {
+    stt: {
+      mode,
+      provider: "openai-whisper",
+      providers: {
+        "openai-whisper": {},
+        deepgram: {},
       },
     },
-  };
+  });
+  (getConfig().services.stt as { provider: string }).provider = provider;
 }
 
 // ---------------------------------------------------------------------------
@@ -179,13 +177,13 @@ function buildConfig(overrides: {
 
 describe("resolveBatchTranscriber", () => {
   beforeEach(() => {
-    mockConfig = buildConfig({});
+    applyConfig({});
     mockProviderKeys = {};
   });
 
   test("returns a BatchTranscriber when openai-whisper is configured and credentials are available", async () => {
     mockProviderKeys["openai"] = "sk-test-key";
-    mockConfig = buildConfig({ provider: "openai-whisper" });
+    applyConfig({ provider: "openai-whisper" });
 
     const transcriber = await resolveBatchTranscriber();
 
@@ -196,7 +194,7 @@ describe("resolveBatchTranscriber", () => {
 
   test("returns null when credentials are missing for the configured provider", async () => {
     mockProviderKeys = {}; // no keys at all
-    mockConfig = buildConfig({ provider: "openai-whisper" });
+    applyConfig({ provider: "openai-whisper" });
 
     const transcriber = await resolveBatchTranscriber();
 
@@ -207,7 +205,7 @@ describe("resolveBatchTranscriber", () => {
     // Force an unknown provider past the type system to simulate a future
     // provider that hasn't been wired into the daemon-batch boundary yet.
     mockProviderKeys["some-provider"] = "key";
-    mockConfig = buildConfig({ provider: "unknown-provider" as string });
+    applyConfig({ provider: "unknown-provider" as string });
 
     const transcriber = await resolveBatchTranscriber();
 
@@ -218,7 +216,7 @@ describe("resolveBatchTranscriber", () => {
     // Verify the resolver reads from config rather than always using "openai".
     // If the config says openai-whisper, we expect credential lookup for "openai".
     mockProviderKeys["openai"] = "sk-config-driven";
-    mockConfig = buildConfig({ provider: "openai-whisper" });
+    applyConfig({ provider: "openai-whisper" });
 
     const transcriber = await resolveBatchTranscriber();
 
@@ -228,7 +226,7 @@ describe("resolveBatchTranscriber", () => {
 
   test("resolved transcriber has stable provider identity", async () => {
     mockProviderKeys["openai"] = "sk-identity-test";
-    mockConfig = buildConfig({ provider: "openai-whisper" });
+    applyConfig({ provider: "openai-whisper" });
 
     const transcriber = await resolveBatchTranscriber();
 
@@ -243,7 +241,7 @@ describe("resolveBatchTranscriber", () => {
 
   test("returns a BatchTranscriber when deepgram is configured and credentials are available", async () => {
     mockProviderKeys["deepgram"] = "dg-test-key";
-    mockConfig = buildConfig({ provider: "deepgram" });
+    applyConfig({ provider: "deepgram" });
 
     const transcriber = await resolveBatchTranscriber();
 
@@ -254,7 +252,7 @@ describe("resolveBatchTranscriber", () => {
 
   test("returns null when deepgram is configured but no credentials exist", async () => {
     mockProviderKeys = {}; // no keys
-    mockConfig = buildConfig({ provider: "deepgram" });
+    applyConfig({ provider: "deepgram" });
 
     const transcriber = await resolveBatchTranscriber();
 
@@ -264,7 +262,7 @@ describe("resolveBatchTranscriber", () => {
   test("deepgram uses 'deepgram' credential key, not 'openai'", async () => {
     // Only openai key is set — deepgram should NOT resolve
     mockProviderKeys["openai"] = "sk-test-key";
-    mockConfig = buildConfig({ provider: "deepgram" });
+    applyConfig({ provider: "deepgram" });
 
     const transcriber = await resolveBatchTranscriber();
 
@@ -273,7 +271,7 @@ describe("resolveBatchTranscriber", () => {
 
   test("resolved deepgram transcriber has stable provider identity", async () => {
     mockProviderKeys["deepgram"] = "dg-identity-test";
-    mockConfig = buildConfig({ provider: "deepgram" });
+    applyConfig({ provider: "deepgram" });
 
     const transcriber = await resolveBatchTranscriber();
 
@@ -287,7 +285,7 @@ describe("resolveBatchTranscriber", () => {
 
   test("returns a BatchTranscriber when google-gemini is configured and credentials are available", async () => {
     mockProviderKeys["gemini"] = "gemini-test-key";
-    mockConfig = buildConfig({ provider: "google-gemini" });
+    applyConfig({ provider: "google-gemini" });
 
     const transcriber = await resolveBatchTranscriber();
 
@@ -298,7 +296,7 @@ describe("resolveBatchTranscriber", () => {
 
   test("returns null when google-gemini is configured but no credentials exist", async () => {
     mockProviderKeys = {}; // no keys
-    mockConfig = buildConfig({ provider: "google-gemini" });
+    applyConfig({ provider: "google-gemini" });
 
     const transcriber = await resolveBatchTranscriber();
 
@@ -308,7 +306,7 @@ describe("resolveBatchTranscriber", () => {
   test("google-gemini uses 'gemini' credential key, not 'openai' or 'deepgram'", async () => {
     // Only openai key is set — google-gemini should NOT resolve
     mockProviderKeys["openai"] = "sk-test-key";
-    mockConfig = buildConfig({ provider: "google-gemini" });
+    applyConfig({ provider: "google-gemini" });
 
     const transcriber = await resolveBatchTranscriber();
 
@@ -317,7 +315,7 @@ describe("resolveBatchTranscriber", () => {
 
   test("resolved google-gemini transcriber has stable provider identity", async () => {
     mockProviderKeys["gemini"] = "gemini-identity-test";
-    mockConfig = buildConfig({ provider: "google-gemini" });
+    applyConfig({ provider: "google-gemini" });
 
     const transcriber = await resolveBatchTranscriber();
 
@@ -332,13 +330,13 @@ describe("resolveBatchTranscriber", () => {
 
 describe("resolveTelephonySttCapability", () => {
   beforeEach(() => {
-    mockConfig = buildConfig({});
+    applyConfig({});
     mockProviderKeys = {};
   });
 
   test("returns 'supported' when provider is telephony-eligible and credentials exist", async () => {
     mockProviderKeys["openai"] = "sk-telephony-test";
-    mockConfig = buildConfig({ provider: "openai-whisper" });
+    applyConfig({ provider: "openai-whisper" });
 
     const result = await resolveTelephonySttCapability();
 
@@ -352,7 +350,7 @@ describe("resolveTelephonySttCapability", () => {
 
   test("returns 'unconfigured' when provider is not in the catalog", async () => {
     mockProviderKeys["unknown-provider"] = "key-doesnt-matter";
-    mockConfig = buildConfig({ provider: "unknown-provider" as string });
+    applyConfig({ provider: "unknown-provider" as string });
 
     const result = await resolveTelephonySttCapability();
 
@@ -365,7 +363,7 @@ describe("resolveTelephonySttCapability", () => {
 
   test("returns 'missing-credentials' when provider is eligible but has no API key", async () => {
     mockProviderKeys = {}; // no keys
-    mockConfig = buildConfig({ provider: "openai-whisper" });
+    applyConfig({ provider: "openai-whisper" });
 
     const result = await resolveTelephonySttCapability();
 
@@ -380,7 +378,7 @@ describe("resolveTelephonySttCapability", () => {
   test("uses config-driven provider, not a hardcoded default", async () => {
     // Use a provider that IS in the catalog to verify config is read
     mockProviderKeys["openai"] = "sk-config-test";
-    mockConfig = buildConfig({ provider: "openai-whisper" });
+    applyConfig({ provider: "openai-whisper" });
 
     const result = await resolveTelephonySttCapability();
 
@@ -391,7 +389,7 @@ describe("resolveTelephonySttCapability", () => {
   });
 
   test("returns 'unconfigured' for empty-string provider", async () => {
-    mockConfig = buildConfig({ provider: "" as string });
+    applyConfig({ provider: "" as string });
 
     const result = await resolveTelephonySttCapability();
 
@@ -404,7 +402,7 @@ describe("resolveTelephonySttCapability", () => {
 
   test("returns 'supported' for google-gemini with batch-only telephonyMode", async () => {
     mockProviderKeys["gemini"] = "gemini-telephony-test";
-    mockConfig = buildConfig({ provider: "google-gemini" });
+    applyConfig({ provider: "google-gemini" });
 
     const result = await resolveTelephonySttCapability();
 
@@ -417,7 +415,7 @@ describe("resolveTelephonySttCapability", () => {
 
   test("returns 'missing-credentials' for google-gemini without a gemini key", async () => {
     mockProviderKeys = {};
-    mockConfig = buildConfig({ provider: "google-gemini" });
+    applyConfig({ provider: "google-gemini" });
 
     const result = await resolveTelephonySttCapability();
 
@@ -521,7 +519,7 @@ describe("telephony capability catalog alignment", () => {
 
       mockVellumAvailable = id === "vellum";
       mockProviderKeys = id === "vellum" ? {} : { [credKey]: `test-key-${id}` };
-      mockConfig = buildConfig({ provider: id });
+      applyConfig({ provider: id });
 
       const result = await resolveTelephonySttCapability();
       expect(result.status).toBe("supported");
@@ -538,7 +536,7 @@ describe("telephony capability catalog alignment", () => {
 
 describe("resolveConversationStreamingSttCapability", () => {
   beforeEach(() => {
-    mockConfig = buildConfig({});
+    applyConfig({});
     mockProviderKeys = {};
   });
 
@@ -548,7 +546,7 @@ describe("resolveConversationStreamingSttCapability", () => {
 
   test("returns 'supported' with realtime-ws mode for deepgram", async () => {
     mockProviderKeys["deepgram"] = "dg-stream-key";
-    mockConfig = buildConfig({ provider: "deepgram" });
+    applyConfig({ provider: "deepgram" });
 
     const result = await resolveConversationStreamingSttCapability();
 
@@ -561,7 +559,7 @@ describe("resolveConversationStreamingSttCapability", () => {
 
   test("returns 'missing-credentials' for deepgram without an API key", async () => {
     mockProviderKeys = {};
-    mockConfig = buildConfig({ provider: "deepgram" });
+    applyConfig({ provider: "deepgram" });
 
     const result = await resolveConversationStreamingSttCapability();
 
@@ -579,7 +577,7 @@ describe("resolveConversationStreamingSttCapability", () => {
 
   test("returns 'supported' with realtime-ws mode for google-gemini", async () => {
     mockProviderKeys["gemini"] = "gemini-stream-key";
-    mockConfig = buildConfig({ provider: "google-gemini" });
+    applyConfig({ provider: "google-gemini" });
 
     const result = await resolveConversationStreamingSttCapability();
 
@@ -592,7 +590,7 @@ describe("resolveConversationStreamingSttCapability", () => {
 
   test("returns 'missing-credentials' for google-gemini without a gemini key", async () => {
     mockProviderKeys = {};
-    mockConfig = buildConfig({ provider: "google-gemini" });
+    applyConfig({ provider: "google-gemini" });
 
     const result = await resolveConversationStreamingSttCapability();
 
@@ -609,7 +607,7 @@ describe("resolveConversationStreamingSttCapability", () => {
 
   test("returns 'supported' with incremental-batch mode for openai-whisper", async () => {
     mockProviderKeys["openai"] = "sk-stream-test";
-    mockConfig = buildConfig({ provider: "openai-whisper" });
+    applyConfig({ provider: "openai-whisper" });
 
     const result = await resolveConversationStreamingSttCapability();
 
@@ -622,7 +620,7 @@ describe("resolveConversationStreamingSttCapability", () => {
 
   test("returns 'missing-credentials' for openai-whisper without an API key", async () => {
     mockProviderKeys = {};
-    mockConfig = buildConfig({ provider: "openai-whisper" });
+    applyConfig({ provider: "openai-whisper" });
 
     const result = await resolveConversationStreamingSttCapability();
 
@@ -640,7 +638,7 @@ describe("resolveConversationStreamingSttCapability", () => {
 
   test("returns 'unconfigured' when provider is not in the catalog", async () => {
     mockProviderKeys["unknown-provider"] = "key-doesnt-matter";
-    mockConfig = buildConfig({ provider: "unknown-provider" as string });
+    applyConfig({ provider: "unknown-provider" as string });
 
     const result = await resolveConversationStreamingSttCapability();
 
@@ -652,7 +650,7 @@ describe("resolveConversationStreamingSttCapability", () => {
   });
 
   test("returns 'unconfigured' for empty-string provider", async () => {
-    mockConfig = buildConfig({ provider: "" as string });
+    applyConfig({ provider: "" as string });
 
     const result = await resolveConversationStreamingSttCapability();
 
@@ -665,7 +663,7 @@ describe("resolveConversationStreamingSttCapability", () => {
 
   test("uses config-driven provider, not a hardcoded default", async () => {
     mockProviderKeys["deepgram"] = "dg-config-test";
-    mockConfig = buildConfig({ provider: "deepgram" });
+    applyConfig({ provider: "deepgram" });
 
     const result = await resolveConversationStreamingSttCapability();
 
@@ -682,7 +680,7 @@ describe("resolveConversationStreamingSttCapability", () => {
 
 describe("resolveStreamingTranscriber diarize preference", () => {
   beforeEach(() => {
-    mockConfig = buildConfig({});
+    applyConfig({});
     mockProviderKeys = {};
     deepgramCtorCalls.length = 0;
     geminiCtorCalls.length = 0;
@@ -693,7 +691,7 @@ describe("resolveStreamingTranscriber diarize preference", () => {
 
   test("default (no diarize option) constructs Deepgram without the diarize flag", async () => {
     mockProviderKeys["deepgram"] = "dg-key";
-    mockConfig = buildConfig({ provider: "deepgram" });
+    applyConfig({ provider: "deepgram" });
 
     const transcriber = await resolveStreamingTranscriber();
 
@@ -705,7 +703,7 @@ describe("resolveStreamingTranscriber diarize preference", () => {
 
   test("diarize: 'off' constructs Deepgram without the diarize flag", async () => {
     mockProviderKeys["deepgram"] = "dg-key";
-    mockConfig = buildConfig({ provider: "deepgram" });
+    applyConfig({ provider: "deepgram" });
 
     const transcriber = await resolveStreamingTranscriber({ diarize: "off" });
 
@@ -717,7 +715,7 @@ describe("resolveStreamingTranscriber diarize preference", () => {
 
   test("diarize: 'preferred' with Deepgram constructs the transcriber with diarize: true", async () => {
     mockProviderKeys["deepgram"] = "dg-key";
-    mockConfig = buildConfig({ provider: "deepgram" });
+    applyConfig({ provider: "deepgram" });
 
     const transcriber = await resolveStreamingTranscriber({
       diarize: "preferred",
@@ -731,7 +729,7 @@ describe("resolveStreamingTranscriber diarize preference", () => {
 
   test("diarize: 'preferred' with Gemini silently skips diarization (no error, no diarize arg)", async () => {
     mockProviderKeys["gemini"] = "gemini-key";
-    mockConfig = buildConfig({ provider: "google-gemini" });
+    applyConfig({ provider: "google-gemini" });
 
     const transcriber = await resolveStreamingTranscriber({
       diarize: "preferred",
@@ -748,7 +746,7 @@ describe("resolveStreamingTranscriber diarize preference", () => {
 
   test("diarize: 'required' with Gemini returns null and logs a warning identifying the provider", async () => {
     mockProviderKeys["gemini"] = "gemini-key";
-    mockConfig = buildConfig({ provider: "google-gemini" });
+    applyConfig({ provider: "google-gemini" });
 
     const transcriber = await resolveStreamingTranscriber({
       diarize: "required",
@@ -771,7 +769,7 @@ describe("resolveStreamingTranscriber diarize preference", () => {
 
   test("diarize: 'required' with Deepgram constructs the transcriber with diarize: true", async () => {
     mockProviderKeys["deepgram"] = "dg-key";
-    mockConfig = buildConfig({ provider: "deepgram" });
+    applyConfig({ provider: "deepgram" });
 
     const transcriber = await resolveStreamingTranscriber({
       diarize: "required",
@@ -787,7 +785,7 @@ describe("resolveStreamingTranscriber diarize preference", () => {
 
   test("sampleRate is still forwarded when diarize is enabled", async () => {
     mockProviderKeys["deepgram"] = "dg-key";
-    mockConfig = buildConfig({ provider: "deepgram" });
+    applyConfig({ provider: "deepgram" });
 
     await resolveStreamingTranscriber({
       diarize: "preferred",
@@ -806,7 +804,7 @@ describe("resolveStreamingTranscriber diarize preference", () => {
 
   test("resolves a non-null xai transcriber when xai is configured and credentials are available", async () => {
     mockProviderKeys["xai"] = "xai-key";
-    mockConfig = buildConfig({ provider: "xai" });
+    applyConfig({ provider: "xai" });
 
     const transcriber = await resolveStreamingTranscriber();
 
@@ -818,7 +816,7 @@ describe("resolveStreamingTranscriber diarize preference", () => {
 
   test("diarize: 'required' with xai constructs the transcriber (does not reject)", async () => {
     mockProviderKeys["xai"] = "xai-key";
-    mockConfig = buildConfig({ provider: "xai" });
+    applyConfig({ provider: "xai" });
 
     const transcriber = await resolveStreamingTranscriber({
       diarize: "required",
@@ -834,7 +832,7 @@ describe("resolveStreamingTranscriber diarize preference", () => {
 
   test("returns null for xai when no credential is set", async () => {
     mockProviderKeys = {};
-    mockConfig = buildConfig({ provider: "xai" });
+    applyConfig({ provider: "xai" });
 
     const transcriber = await resolveStreamingTranscriber();
 
@@ -848,7 +846,7 @@ describe("resolveStreamingTranscriber diarize preference", () => {
 
   test("utteranceBoundaryFinals with xai returns null with a warning (per-segment finals cannot be boundary-gated)", async () => {
     mockProviderKeys["xai"] = "xai-key";
-    mockConfig = buildConfig({ provider: "xai" });
+    applyConfig({ provider: "xai" });
 
     const transcriber = await resolveStreamingTranscriber({
       utteranceBoundaryFinals: true,
@@ -865,7 +863,7 @@ describe("resolveStreamingTranscriber diarize preference", () => {
 
   test("utteranceBoundaryFinals with Deepgram forwards the gating options", async () => {
     mockProviderKeys["deepgram"] = "dg-key";
-    mockConfig = buildConfig({ provider: "deepgram" });
+    applyConfig({ provider: "deepgram" });
 
     const transcriber = await resolveStreamingTranscriber({
       utteranceBoundaryFinals: true,
@@ -880,7 +878,7 @@ describe("resolveStreamingTranscriber diarize preference", () => {
 
   test("utteranceBoundaryFinals with Deepgram forwards a caller-supplied utteranceEndMs", async () => {
     mockProviderKeys["deepgram"] = "dg-key";
-    mockConfig = buildConfig({ provider: "deepgram" });
+    applyConfig({ provider: "deepgram" });
 
     const transcriber = await resolveStreamingTranscriber({
       utteranceBoundaryFinals: true,
@@ -896,7 +894,7 @@ describe("resolveStreamingTranscriber diarize preference", () => {
 
   test("utteranceEndMs without utteranceBoundaryFinals does not reach the Deepgram constructor", async () => {
     mockProviderKeys["deepgram"] = "dg-key";
-    mockConfig = buildConfig({ provider: "deepgram" });
+    applyConfig({ provider: "deepgram" });
 
     const transcriber = await resolveStreamingTranscriber({
       utteranceEndMs: 2500,
@@ -911,7 +909,7 @@ describe("resolveStreamingTranscriber diarize preference", () => {
 
   test("utteranceBoundaryFinals with google-gemini returns null (catalog telephonyMode is batch-only)", async () => {
     mockProviderKeys["gemini"] = "gemini-key";
-    mockConfig = buildConfig({ provider: "google-gemini" });
+    applyConfig({ provider: "google-gemini" });
 
     const transcriber = await resolveStreamingTranscriber({
       utteranceBoundaryFinals: true,
@@ -927,7 +925,7 @@ describe("resolveStreamingTranscriber diarize preference", () => {
 
   test("utteranceBoundaryFinals with openai-whisper returns null with a warning (finals fire only on stop — end-of-stream, not utterance boundary)", async () => {
     mockProviderKeys["openai"] = "openai-key";
-    mockConfig = buildConfig({ provider: "openai-whisper" });
+    applyConfig({ provider: "openai-whisper" });
 
     const transcriber = await resolveStreamingTranscriber({
       utteranceBoundaryFinals: true,
@@ -944,7 +942,7 @@ describe("resolveStreamingTranscriber diarize preference", () => {
 
   test("openai-whisper still resolves a streaming transcriber without utteranceBoundaryFinals", async () => {
     mockProviderKeys["openai"] = "openai-key";
-    mockConfig = buildConfig({ provider: "openai-whisper" });
+    applyConfig({ provider: "openai-whisper" });
 
     const transcriber = await resolveStreamingTranscriber();
 
@@ -962,7 +960,7 @@ describe("vellum managed resolution", () => {
 
   test("managed mode resolves the vellum batch transcriber when the platform connection exists", async () => {
     mockVellumAvailable = true;
-    mockConfig = buildConfig({ provider: "deepgram", mode: "managed" });
+    applyConfig({ provider: "deepgram", mode: "managed" });
 
     const transcriber = await resolveBatchTranscriber();
     expect(transcriber?.providerId).toBe("vellum");
@@ -970,7 +968,7 @@ describe("vellum managed resolution", () => {
 
   test("managed mode resolves null without a platform connection", async () => {
     mockVellumAvailable = false;
-    mockConfig = buildConfig({ provider: "deepgram", mode: "managed" });
+    applyConfig({ provider: "deepgram", mode: "managed" });
 
     expect(await resolveBatchTranscriber()).toBeNull();
   });
@@ -978,7 +976,7 @@ describe("vellum managed resolution", () => {
   test("managed mode preserves the BYOK provider choice (effective provider is vellum)", async () => {
     mockVellumAvailable = true;
     mockProviderKeys = { deepgram: "dg-key" };
-    mockConfig = buildConfig({ provider: "deepgram", mode: "managed" });
+    applyConfig({ provider: "deepgram", mode: "managed" });
 
     const capability = await resolveConversationStreamingSttCapability();
     expect(capability.status).toBe("supported");
@@ -990,7 +988,7 @@ describe("vellum managed resolution", () => {
 
   test("streaming resolver constructs the vellum adapter with the sample rate", async () => {
     mockVellumAvailable = true;
-    mockConfig = buildConfig({ provider: "openai-whisper", mode: "managed" });
+    applyConfig({ provider: "openai-whisper", mode: "managed" });
 
     const transcriber = await resolveStreamingTranscriber({
       sampleRate: 24000,
@@ -1003,7 +1001,7 @@ describe("vellum managed resolution", () => {
 
   test("conversation streaming capability reports missing credentials without a connection", async () => {
     mockVellumAvailable = false;
-    mockConfig = buildConfig({ provider: "deepgram", mode: "managed" });
+    applyConfig({ provider: "deepgram", mode: "managed" });
 
     const capability = await resolveConversationStreamingSttCapability();
     expect(capability.status).toBe("missing-credentials");

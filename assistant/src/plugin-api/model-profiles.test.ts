@@ -1,6 +1,9 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 
-// ─── Mock config ────────────────────────────────────────────────────────────
+import { setConfig } from "../__tests__/helpers/set-config.js";
+import { getConfig } from "../config/loader.js";
+
+// ─── Fixture state ──────────────────────────────────────────────────────────
 
 interface MockProfileEntry {
   label?: string;
@@ -15,27 +18,25 @@ let mockProfiles: Record<string, MockProfileEntry> = {};
 let mockActiveProfile: string | undefined;
 let mockProfileOrder: string[] | undefined;
 
-const realConfigLoader = await import("../config/loader.js");
-
-mock.module("../config/loader.js", () => ({
-  ...realConfigLoader,
-  getConfig: () => ({
-    llm: {
-      profiles: mockProfiles,
-      activeProfile: mockActiveProfile,
-      profileOrder: mockProfileOrder,
-    },
-  }),
-  getConfigReadOnly: () => ({
-    llm: {
-      profiles: mockProfiles,
-      activeProfile: mockActiveProfile,
-      profileOrder: mockProfileOrder,
-    },
-  }),
-}));
-
 const { getModelProfiles } = await import("./model-profiles.js");
+
+/**
+ * Seed the fixture profiles for real, then list them. A schema-valid baseline
+ * is seeded first so the loader caches a config object; `llm` is then
+ * overwritten on that live cached object so fixtures the schema would strip
+ * (single-arm mix profiles, metadata-only entries) reach getModelProfiles
+ * exactly as authored.
+ */
+function listProfiles(): ReturnType<typeof getModelProfiles> {
+  setConfig("llm", { profiles: {} });
+  const config = getConfig() as { llm: unknown };
+  config.llm = {
+    profiles: mockProfiles,
+    activeProfile: mockActiveProfile,
+    profileOrder: mockProfileOrder,
+  };
+  return getModelProfiles();
+}
 
 // ─── Setup ──────────────────────────────────────────────────────────────────
 
@@ -55,7 +56,7 @@ describe("getModelProfiles", () => {
     };
     mockProfileOrder = ["balanced", "quality-optimized"];
 
-    const result = getModelProfiles();
+    const result = listProfiles();
     // The code-catalog defaults are always present; the two workspace
     // entries shadow their catalog counterparts, and the remaining catalog
     // default sorts after the explicit order.
@@ -76,7 +77,7 @@ describe("getModelProfiles", () => {
       },
     };
 
-    const result = getModelProfiles();
+    const result = listProfiles();
     expect(result.map((p) => p.key).sort()).toEqual([
       "balanced",
       "cost-optimized",
@@ -95,7 +96,7 @@ describe("getModelProfiles", () => {
       },
     };
 
-    const result = getModelProfiles();
+    const result = listProfiles();
     expect(result.find((p) => p.key === "mix-profile")?.isMix).toBe(true);
   });
 
@@ -111,7 +112,7 @@ describe("getModelProfiles", () => {
     };
     mockProfileOrder = ["metadata", "model-only", "provider-only", "mix"];
 
-    const result = getModelProfiles();
+    const result = listProfiles();
     expect(result.map((p) => p.key)).toEqual([
       "model-only",
       "provider-only",
@@ -123,7 +124,7 @@ describe("getModelProfiles", () => {
   });
 
   test("lists the code-catalog defaults when the workspace has no profiles", () => {
-    const result = getModelProfiles();
+    const result = listProfiles();
     expect(result.map((p) => p.key).sort()).toEqual([
       "balanced",
       "cost-optimized",
@@ -142,7 +143,7 @@ describe("getModelProfiles", () => {
     };
     mockActiveProfile = "balanced";
 
-    const result = getModelProfiles();
+    const result = listProfiles();
     expect(result.find((p) => p.key === "balanced")?.isActive).toBe(true);
     expect(result.find((p) => p.key === "quality-optimized")?.isActive).toBe(
       false,

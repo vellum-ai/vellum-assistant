@@ -24,6 +24,7 @@ import { registerPlugin } from "../plugins/registry.js";
 import type { Message, Provider, ToolDefinition } from "../providers/types.js";
 import { ContextOverflowError } from "../providers/types.js";
 import { getWorkspaceDir } from "../util/platform.js";
+import { setConfig } from "./helpers/set-config.js";
 
 const conversationCrudRealSnapshot = {
   ...(createRequire(import.meta.url)(
@@ -35,15 +36,48 @@ const conversationDiskViewRealSnapshot = {
     "../persistence/conversation-disk-view.js",
   ) as Record<string, unknown>),
 };
-let mockUiConfig: { userTimezone?: string; detectedTimezone?: string } = {};
 // Disable the catalog default so resolution lands on llm.default.
 const disabledCatalogDefaultProfiles: Record<string, unknown> = {
   balanced: { source: "managed", status: "disabled" },
 };
-let mockLlmProfiles: Record<string, unknown> = {
-  ...disabledCatalogDefaultProfiles,
-};
-let mockLlmActiveProfile: string | undefined;
+
+/**
+ * Seed the workspace `llm` config for real. `setConfig` replaces the top-level
+ * key wholesale, so every call carries the mainAgent call-site tweak: it
+ * applies under BOTH resolution semantics (the legacy cascade layers it over
+ * llm.default; override-or-default applies it over the winner), so the small
+ * context window that the overflow/compaction tests depend on holds
+ * regardless of the override-or-default-resolution flag.
+ */
+function seedLlmConfig(options?: {
+  profiles?: Record<string, unknown>;
+  activeProfile?: string;
+}): void {
+  setConfig("llm", {
+    callSites: {
+      mainAgent: {
+        contextWindow: {
+          enabled: true,
+          maxInputTokens: 100000,
+          targetBudgetRatio: 0.3,
+          compactThreshold: 0.8,
+          summaryBudgetRatio: 0.05,
+          overflowRecovery: {
+            enabled: true,
+            safetyMarginRatio: 0.05,
+            maxAttempts: 3,
+            interactiveLatestTurnCompression: "summarize",
+            nonInteractiveLatestTurnCompression: "truncate",
+          },
+        },
+      },
+    },
+    profiles: options?.profiles ?? { ...disabledCatalogDefaultProfiles },
+    ...(options?.activeProfile !== undefined
+      ? { activeProfile: options.activeProfile }
+      : {}),
+  });
+}
 
 // ── Module mocks (must precede imports of the module under test) ─────
 
@@ -61,70 +95,10 @@ mock.module("../plugins/defaults/compaction/manager-store.js", () => ({
   },
 }));
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    llm: {
-      default: {
-        provider: "mock-provider",
-        model: "mock-model",
-        maxTokens: 4096,
-        effort: "max" as const,
-        speed: "standard" as const,
-        temperature: null,
-        thinking: { enabled: false, streamThinking: true },
-        contextWindow: {
-          enabled: true,
-          maxInputTokens: 100000,
-          targetBudgetRatio: 0.3,
-          compactThreshold: 0.8,
-          summaryBudgetRatio: 0.05,
-          overflowRecovery: {
-            enabled: true,
-            safetyMarginRatio: 0.05,
-            maxAttempts: 3,
-            interactiveLatestTurnCompression: "summarize",
-            nonInteractiveLatestTurnCompression: "truncate",
-          },
-        },
-      },
-      profiles: mockLlmProfiles,
-      // The call-site tweak applies under BOTH resolution semantics (the
-      // legacy cascade layers it over llm.default; override-or-default
-      // applies it over the winner), so the small context window that the
-      // overflow/compaction tests depend on holds regardless of the
-      // override-or-default-resolution flag.
-      callSites: {
-        mainAgent: {
-          contextWindow: {
-            enabled: true,
-            maxInputTokens: 100000,
-            targetBudgetRatio: 0.3,
-            compactThreshold: 0.8,
-            summaryBudgetRatio: 0.05,
-            overflowRecovery: {
-              enabled: true,
-              safetyMarginRatio: 0.05,
-              maxAttempts: 3,
-              interactiveLatestTurnCompression: "summarize",
-              nonInteractiveLatestTurnCompression: "truncate",
-            },
-          },
-        },
-      },
-      activeProfile: mockLlmActiveProfile,
-      pricingOverrides: [],
-    },
-    rateLimit: { maxRequestsPerMinute: 0 },
-    workspaceGit: { turnCommitMaxWaitMs: 10 },
-    memory: { retrieval: { scratchpadInjection: { enabled: true } } },
-    ui: mockUiConfig,
-    compaction: { enabled: true, autoThreshold: 0.7 },
-    conversations: { skipAutoRetitling: true },
-  }),
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-  invalidateConfigCache: () => {},
-}));
+// Keep the turn-boundary commit wait short and skip second-pass retitling so
+// loop teardown stays fast and deterministic across these orchestrator tests.
+setConfig("workspaceGit", { turnCommitMaxWaitMs: 10 });
+setConfig("conversations", { skipAutoRetitling: true });
 
 // ── Overflow recovery mocks ──────────────────────────────────────────
 
@@ -900,9 +874,8 @@ function makeCompactionResult(
 // ── Tests ────────────────────────────────────────────────────────────
 
 beforeEach(() => {
-  mockUiConfig = {};
-  mockLlmProfiles = { ...disabledCatalogDefaultProfiles };
-  mockLlmActiveProfile = undefined;
+  setConfig("ui", {});
+  seedLlmConfig();
   mockEstimateTokens = 1000;
   mockReducerStepFn = null;
   mockOverflowAction = "fail_gracefully";
@@ -975,14 +948,16 @@ beforeEach(() => {
 describe("session-agent-loop", () => {
   describe("user-prompt-submit hook failures", () => {
     test("passes the effective profile to hooks even when it was already announced", async () => {
-      mockLlmProfiles = {
-        balanced: {
-          label: "Balanced",
-          model: "accounts/fireworks/models/glm-5p2",
+      seedLlmConfig({
+        profiles: {
+          balanced: {
+            label: "Balanced",
+            model: "accounts/fireworks/models/glm-5p2",
+          },
+          quality: { label: "Quality", model: "claude-opus-4-8" },
         },
-        quality: { label: "Quality", model: "claude-opus-4-8" },
-      };
-      mockLlmActiveProfile = "quality";
+        activeProfile: "quality",
+      });
       const observedProfileKeys: string[] = [];
       registerPlugin({
         manifest: {
@@ -1122,10 +1097,10 @@ describe("session-agent-loop", () => {
 
   describe("timezone turn context", () => {
     test("passes ctx.clientTimezone and ui.detectedTimezone into timezone resolution", async () => {
-      mockUiConfig = {
+      setConfig("ui", {
         userTimezone: "America/New_York",
         detectedTimezone: "America/Chicago",
-      };
+      });
       const ctx = makeCtx({ clientTimezone: "America/Los_Angeles" });
 
       await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
@@ -1140,10 +1115,10 @@ describe("session-agent-loop", () => {
     });
 
     test("freezes the client timezone snapshot on the conversation, not the options bag", async () => {
-      mockUiConfig = {
+      setConfig("ui", {
         userTimezone: "US/Eastern",
         detectedTimezone: "US/Central",
-      };
+      });
       resolveTurnTimezoneContextMock.mockImplementationOnce(() => ({
         configuredUserTimezone: "America/New_York",
         clientTimezone: "America/Los_Angeles",

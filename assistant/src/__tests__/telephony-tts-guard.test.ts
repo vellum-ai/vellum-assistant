@@ -47,7 +47,6 @@ let guardMocksActive = false;
 const realProviderCatalogModule = {
   ...(await import("../tts/provider-catalog.js")),
 };
-const realConfigLoaderModule = { ...(await import("../config/loader.js")) };
 const realSecureKeysModule = {
   ...(await import("../security/secure-keys.js")),
 };
@@ -141,29 +140,19 @@ mock.module("../tts/provider-catalog.js", () => ({
 
 // -- Mutable config ------------------------------------------------------------
 
-const testConfig = {
+// Alias the loader's live cached config so each test's mutations write straight
+// through to what `getConfig()` returns. Some assigned provider ids
+// ("compressed-only") are fictional catalog entries the schema enum cannot
+// express, so mutating the cached object is the only way to drive them. No test
+// in this file writes the config file, so the mutations persist for the suite.
+const testConfig = getConfig() as unknown as {
   services: {
     tts: {
-      provider: "elevenlabs",
-      providers: {
-        elevenlabs: {},
-        "fish-audio": { referenceId: "", format: "mp3" },
-        deepgram: { format: "mp3" },
-        "compressed-only": { format: "mp3" },
-      } as Record<string, { referenceId?: string; format?: string }>,
-    },
-  },
+      provider: string;
+      providers: Record<string, { referenceId?: string; format?: string }>;
+    };
+  };
 };
-
-mock.module("../config/loader.js", () => ({
-  ...realConfigLoaderModule,
-  loadConfig: () =>
-    guardMocksActive ? testConfig : realConfigLoaderModule.loadConfig(),
-  getConfig: () =>
-    guardMocksActive ? testConfig : realConfigLoaderModule.getConfig(),
-  getConfigReadOnly: () =>
-    guardMocksActive ? testConfig : realConfigLoaderModule.getConfigReadOnly(),
-}));
 
 // -- Mutable credential store --------------------------------------------------
 
@@ -229,6 +218,7 @@ import {
   evaluateTelephonyTtsPlayability,
   resolveTelephonyTtsCapability,
 } from "../calls/telephony-tts-capability.js";
+import { getConfig } from "../config/loader.js";
 import type { TtsProvider } from "../tts/types.js";
 
 // ---------------------------------------------------------------------------

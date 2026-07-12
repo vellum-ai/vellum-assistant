@@ -6,12 +6,9 @@
  */
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
-// Logging stays enabled; `getConfigReadOnly` is only consulted by the store.s
-// disabled gate here (the sink factory itself is mocked below).
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({ llmRequestLogs: { readSource: "local" } }),
-  getConfigReadOnly: () => ({ llmRequestLogs: { readSource: "local" } }),
-}));
+// Logging stays enabled and writes stay on local SQLite — both are the
+// schema defaults, so no config seeding is needed (the sink factory itself
+// is mocked below).
 
 // Mutable fake sink: when non-null, the store must route to it. Mirrors the
 // `LlmRequestLogWriter` surface the store dispatches through.

@@ -12,17 +12,6 @@ mock.module("../permissions/trust-store.js", () => ({
   clearCache: () => {},
 }));
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-
-    provider: "mock-provider",
-    timeouts: { permissionTimeoutSec: 5 },
-    permissions: { mode: "workspace" },
-    skills: { load: { extraDirs: [] } },
-  }),
-}));
-
 mock.module("../security/redaction.js", () => ({
   redactSensitiveFields: (input: Record<string, unknown>) => input,
 }));

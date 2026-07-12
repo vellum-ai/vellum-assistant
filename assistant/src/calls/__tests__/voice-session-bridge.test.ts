@@ -17,13 +17,6 @@ import { describe, expect, mock, setSystemTime, test } from "bun:test";
 // Mocks — declared before importing voice-session-bridge
 // ---------------------------------------------------------------------------
 
-mock.module("../../config/loader.js", () => ({
-  getConfig: () => ({
-    workspaceGit: { turnCommitMaxWaitMs: 100 },
-    calls: {},
-  }),
-}));
-
 // Swapped per-test to hand startVoiceTurn a scripted fake conversation.
 let fakeConversation: FakeConversation;
 
@@ -31,9 +24,14 @@ mock.module("../../daemon/conversation-store.js", () => ({
   getOrCreateConversation: async () => fakeConversation,
 }));
 
+import { setConfig } from "../../__tests__/helpers/set-config.js";
 import { ABORT_WATCHDOG_MS } from "../../daemon/abort-watchdog.js";
 import { CALL_OPENING_MARKER } from "../voice-control-protocol.js";
 import { startVoiceTurn } from "../voice-session-bridge.js";
+
+// `resolveProcessingWaitMs` reads `workspaceGit.turnCommitMaxWaitMs`; seed it
+// so the wait-budget assertions below get a fixed, known value.
+setConfig("workspaceGit", { turnCommitMaxWaitMs: 100 });
 
 // ---------------------------------------------------------------------------
 // Fake conversation

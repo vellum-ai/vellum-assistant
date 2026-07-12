@@ -14,7 +14,7 @@
 
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 // ── Mock setup (must be before any imports from the project) ──────────────
 
@@ -22,27 +22,6 @@ const testDir = process.env.VELLUM_WORKSPACE_DIR!;
 
 // Point the file-based trust backend at the test temp dir.
 process.env.GATEWAY_SECURITY_DIR = join(testDir, "protected");
-
-interface TestConfig {
-  skills: { load: { extraDirs: string[] } };
-  sandbox: { enabled: boolean };
-  [key: string]: unknown;
-}
-
-const testConfig: TestConfig = {
-  skills: { load: { extraDirs: [] } },
-  sandbox: { enabled: true },
-};
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => testConfig,
-  loadConfig: () => testConfig,
-  invalidateConfigCache: () => {},
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-  getNestedValue: () => undefined,
-  setNestedValue: () => {},
-}));
 
 import {
   installIpcMock,
@@ -114,7 +93,6 @@ describe("inline-command skill_load permissions", () => {
       autonomous: "medium",
       headless: "none",
     });
-    testConfig.skills = { load: { extraDirs: [] } };
     try {
       rmSync(join(testDir, "protected", "trust.json"));
     } catch {

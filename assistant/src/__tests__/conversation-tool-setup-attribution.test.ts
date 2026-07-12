@@ -7,7 +7,7 @@
  * attribution resolution failures must never break tool execution.
  */
 
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 
 import type { ToolSetupContext } from "../daemon/conversation-tool-setup.js";
 import type { SurfaceData, SurfaceType } from "../daemon/message-protocol.js";
@@ -19,40 +19,6 @@ import type { ToolContext, ToolExecutionResult } from "../tools/types.js";
 // ---------------------------------------------------------------------------
 // Module mocks (must precede the import of the module under test)
 // ---------------------------------------------------------------------------
-
-let mockLlmConfig: Record<string, unknown> = {};
-let configThrows = false;
-
-// Non-llm fields used by other conversation-tool-setup consumers (e.g.
-// createResolveToolsCallback reads `tools.exclude`), so test files sharing
-// this process keep working against the mocked loader.
-const baseConfig = {
-  tools: { exclude: [] as string[] },
-  timeouts: {
-    shellDefaultTimeoutSec: 120,
-    shellMaxTimeoutSec: 600,
-    permissionTimeoutSec: 300,
-    toolExecutionTimeoutSec: 600,
-  },
-  services: {},
-};
-
-function mockGetConfig() {
-  if (configThrows) {
-    throw new Error("config unavailable");
-  }
-  return { ...baseConfig, llm: mockLlmConfig };
-}
-
-mock.module("../config/loader.js", () => ({
-  getConfig: mockGetConfig,
-  loadConfig: mockGetConfig,
-  invalidateConfigCache: () => {},
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-  getNestedValue: () => undefined,
-  setNestedValue: () => {},
-}));
 
 mock.module("../runtime/assistant-event-hub.js", () => ({
   broadcastMessage: mock(() => {}),
@@ -100,18 +66,31 @@ mock.module("../persistence/external-conversation-store.js", () => ({
 // Imports after mocks are in place
 // ---------------------------------------------------------------------------
 
-import { LLMSchema } from "../config/schemas/llm.js";
+import * as configLoader from "../config/loader.js";
 import {
   createToolExecutor,
   resolveConversationAttribution,
 } from "../daemon/conversation-tool-setup.js";
+import { setConfig } from "./helpers/set-config.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 function setLlmConfig(raw: unknown): void {
-  mockLlmConfig = LLMSchema.parse(raw) as Record<string, unknown>;
+  setConfig("llm", raw);
+}
+
+/**
+ * Make the config loader throw for the failure-path tests: attribution
+ * resolution must degrade to `null` on any error. The real loader never
+ * throws on its own (it falls back to defaults), so this injects the fault
+ * at the read site.
+ */
+function makeGetConfigThrow(): ReturnType<typeof spyOn> {
+  return spyOn(configLoader, "getConfig").mockImplementation(() => {
+    throw new Error("config unavailable");
+  });
 }
 
 /** Build a minimal ToolSetupContext stub. */
@@ -168,14 +147,7 @@ function makeToolFn(executor: ToolExecutor, ctx: ToolSetupContext) {
   return createToolExecutor(executor, noopPrompter, noopSecretPrompter, ctx);
 }
 
-// The module mock outlives this file when multiple test files share a
-// process, so leave the config in a working (non-throwing) state.
-afterEach(() => {
-  configThrows = false;
-});
-
 beforeEach(() => {
-  configThrows = false;
   setLlmConfig({
     default: { provider: "anthropic", model: "model-default" },
     profiles: {
@@ -240,11 +212,14 @@ describe("resolveConversationAttribution", () => {
   });
 
   test("returns null instead of throwing when resolution fails", () => {
-    configThrows = true;
-
-    expect(
-      resolveConversationAttribution({ conversationId: "conv-test" }),
-    ).toBeNull();
+    const getConfigSpy = makeGetConfigThrow();
+    try {
+      expect(
+        resolveConversationAttribution({ conversationId: "conv-test" }),
+      ).toBeNull();
+    } finally {
+      getConfigSpy.mockRestore();
+    }
   });
 });
 
@@ -318,16 +293,19 @@ describe("createToolExecutor attribution threading", () => {
   });
 
   test("attribution resolution failure yields null and does not break tool execution", async () => {
-    configThrows = true;
+    const getConfigSpy = makeGetConfigThrow();
+    try {
+      const { executor, calls } = makeCapturingExecutor();
+      const toolFn = makeToolFn(executor, makeCtx());
 
-    const { executor, calls } = makeCapturingExecutor();
-    const toolFn = makeToolFn(executor, makeCtx());
+      const result = await toolFn("file_read", { path: "/tmp/a" });
 
-    const result = await toolFn("file_read", { path: "/tmp/a" });
-
-    expect(result).toMatchObject({ content: "ok", isError: false });
-    expect(calls).toHaveLength(1);
-    expect(calls[0].context.attribution).toBeNull();
+      expect(result).toMatchObject({ content: "ok", isError: false });
+      expect(calls).toHaveLength(1);
+      expect(calls[0].context.attribution).toBeNull();
+    } finally {
+      getConfigSpy.mockRestore();
+    }
   });
 });
 

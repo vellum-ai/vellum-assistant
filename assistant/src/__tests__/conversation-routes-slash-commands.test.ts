@@ -19,6 +19,7 @@ import {
 } from "bun:test";
 
 import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
+import { setConfig } from "./helpers/set-config.js";
 
 // Legacy-shaped fixtures (llm.default-centric resolution): pinned to the
 // flag-off cascade. Override-or-default (flag-on) semantics are pinned by
@@ -36,62 +37,18 @@ const formatCompactResultMock = mock(
     )} tokens`,
 );
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-    model: "claude-opus-4-7",
-    provider: "anthropic",
-    memory: { enabled: false },
-    rateLimit: { maxRequestsPerMinute: 0 },
-    secretDetection: { enabled: false },
-    contextWindow: { maxInputTokens: 200000 },
-    llm: {
-      default: {
-        provider: "anthropic",
-        model: "claude-opus-4-7",
-        maxTokens: 64000,
-        effort: "max" as const,
-        speed: "standard" as const,
-        temperature: null,
-        thinking: { enabled: true, streamThinking: true },
-        contextWindow: {
-          enabled: true,
-          maxInputTokens: 200000,
-          targetBudgetRatio: 0.3,
-          compactThreshold: 0.8,
-          summaryBudgetRatio: 0.05,
-          overflowRecovery: {
-            enabled: true,
-            safetyMarginRatio: 0.05,
-            maxAttempts: 3,
-            interactiveLatestTurnCompression: "summarize",
-            nonInteractiveLatestTurnCompression: "truncate",
-          },
-        },
-      },
-      profiles: {
-        "short-context": {
-          contextWindow: { maxInputTokens: 150000 },
-        },
-      },
-      callSites: {},
-      pricingOverrides: [],
+// The /context and /compact branches resolve the conversation's override
+// profile ("short-context", via the mocked getConversationOverrideProfile)
+// against the real workspace config, so seed the profile plus the default
+// model the assertions render.
+setConfig("llm", {
+  default: { model: "claude-opus-4-7" },
+  profiles: {
+    "short-context": {
+      contextWindow: { maxInputTokens: 150000 },
     },
-    services: {
-      inference: {
-        mode: "your-own",
-        provider: "anthropic",
-        model: "claude-opus-4-7",
-      },
-      "image-generation": {
-        mode: "your-own",
-        provider: "gemini",
-        model: "gemini-3.1-flash-image-preview",
-      },
-      "web-search": { mode: "your-own", provider: "inference-provider-native" },
-    },
-  }),
-}));
+  },
+});
 
 const addMessageMock = mock(
   async (

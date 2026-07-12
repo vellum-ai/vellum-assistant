@@ -8,16 +8,7 @@
  * content the actor was never allowed to see. `collectImageManifest` applies
  * the identical trust filter so this cannot happen.
  */
-import { beforeEach, describe, expect, mock, test } from "bun:test";
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-    model: "test",
-    provider: "test",
-    memory: { enabled: false },
-  }),
-}));
+import { beforeEach, describe, expect, test } from "bun:test";
 
 import { collectImageManifest } from "../context/compactor.js";
 import { attachInlineAttachmentToMessage } from "../persistence/attachments-store.js";

@@ -1,9 +1,8 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { credentialKey } from "../security/credential-key.js";
+import { setConfig } from "./helpers/set-config.js";
 
-let mockTwilioPhoneNumber: string | undefined;
-let mockRawConfig: Record<string, unknown> | undefined;
 let mockSecureKeys: Record<string, string>;
 let mockHasTwilioCredentials: boolean;
 let mockGetIsPlatform: boolean;
@@ -19,29 +18,6 @@ mock.module("../calls/twilio-rest.js", () => ({
 
 mock.module("../config/env.js", () => ({
   getIngressPublicBaseUrl: () => undefined,
-}));
-
-mock.module("../config/loader.js", () => ({
-  loadRawConfig: () => mockRawConfig ?? {},
-  loadConfig: () => ({
-    twilio: { phoneNumber: mockTwilioPhoneNumber ?? "" },
-    whatsapp: { phoneNumber: "" },
-  }),
-  getConfig: () => ({
-    twilio: { phoneNumber: mockTwilioPhoneNumber ?? "" },
-    whatsapp: { phoneNumber: "" },
-  }),
-  getNestedValue: (obj: Record<string, unknown>, path: string) => {
-    const keys = path.split(".");
-    let current: unknown = obj;
-    for (const key of keys) {
-      if (current == null || typeof current !== "object") return undefined;
-      current = (current as Record<string, unknown>)[key];
-    }
-    return current;
-  },
-  saveRawConfig: () => {},
-  setNestedValue: () => {},
 }));
 
 mock.module("../config/env-registry.js", () => ({
@@ -103,8 +79,9 @@ describe("ChannelReadinessService", () => {
 
   beforeEach(() => {
     service = new ChannelReadinessService();
-    mockTwilioPhoneNumber = undefined;
-    mockRawConfig = undefined;
+    // Reset the seeded config sections to their empty (all-defaults) state.
+    setConfig("twilio", {});
+    setConfig("ingress", {});
     mockSecureKeys = {};
     mockHasTwilioCredentials = false;
     mockGetIsPlatform = false;
@@ -288,7 +265,7 @@ describe("ChannelReadinessService", () => {
   test("phone readiness accepts managed callback routing when ingress is absent", async () => {
     mockGetIsPlatform = true;
     mockHasTwilioCredentials = true;
-    mockTwilioPhoneNumber = "+15550123";
+    setConfig("twilio", { phoneNumber: "+15550123" });
 
     const readiness = createReadinessService();
     const [snapshot] = await readiness.getReadiness("phone");
@@ -303,12 +280,8 @@ describe("ChannelReadinessService", () => {
 
   test("phone readiness accepts configured public ingress", async () => {
     mockHasTwilioCredentials = true;
-    mockTwilioPhoneNumber = "+15550123";
-    mockRawConfig = {
-      ingress: {
-        publicBaseUrl: "https://twilio.example.com",
-      },
-    };
+    setConfig("twilio", { phoneNumber: "+15550123" });
+    setConfig("ingress", { publicBaseUrl: "https://twilio.example.com" });
 
     const readiness = createReadinessService();
     const [snapshot] = await readiness.getReadiness("phone");
@@ -323,12 +296,11 @@ describe("ChannelReadinessService", () => {
 
   test("phone readiness fails when publicBaseUrl is whitespace only", async () => {
     mockHasTwilioCredentials = true;
-    mockTwilioPhoneNumber = "+15550123";
-    mockRawConfig = {
-      ingress: {
-        publicBaseUrl: "   ",
-      },
-    };
+    setConfig("twilio", { phoneNumber: "+15550123" });
+    // Schema-invalid on purpose: the ingress probe reads the RAW config file
+    // (loadRawConfig), which is exactly where a hand-edited whitespace URL
+    // would live. The validated getConfig() view strips it back to "".
+    setConfig("ingress", { publicBaseUrl: "   " });
 
     const readiness = createReadinessService();
     const [snapshot] = await readiness.getReadiness("phone");
@@ -343,11 +315,7 @@ describe("ChannelReadinessService", () => {
   test("telegram readiness fails when publicBaseUrl is empty", async () => {
     mockSecureKeys[credentialKey("telegram", "bot_token")] = "123:abc";
     mockSecureKeys[credentialKey("telegram", "webhook_secret")] = "secret";
-    mockRawConfig = {
-      ingress: {
-        publicBaseUrl: "",
-      },
-    };
+    setConfig("ingress", { publicBaseUrl: "" });
 
     const readiness = createReadinessService();
     const [snapshot] = await readiness.getReadiness("telegram");

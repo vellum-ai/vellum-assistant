@@ -20,12 +20,6 @@ mock.module("../daemon/conversation-registry.js", () => ({
   }),
 }));
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    compaction: { enabled: true, autoThreshold: 0.7, prompt: null },
-  }),
-}));
-
 mock.module("../persistence/conversation-crud.js", () => ({
   setConversationProcessingStartedAt: () => {},
   isConversationProcessing: () => false,

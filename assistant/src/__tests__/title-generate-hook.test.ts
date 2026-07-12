@@ -69,13 +69,6 @@ mock.module("../persistence/conversation-crud.js", () => ({
   getConversation: mockGetConversation,
 }));
 
-// The `stop` hook reads `conversations.skipAutoRetitling`; stub the loader so
-// the opt-out is controllable per test.
-let skipAutoRetitling = false;
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({ conversations: { skipAutoRetitling } }),
-}));
-
 import { HOOKS } from "../plugin-api/constants.js";
 import type {
   PluginLogger,
@@ -91,6 +84,14 @@ import {
   resetPluginRegistryForTests,
 } from "../plugins/registry.js";
 import type { Message } from "../providers/types.js";
+import { setConfig } from "./helpers/set-config.js";
+
+// The `stop` hook reads `conversations.skipAutoRetitling`; seed it for real so
+// the opt-out is controllable per test.
+/** Seed the retitling opt-out into the workspace config. */
+function setSkipAutoRetitling(skipAutoRetitling: boolean): void {
+  setConfig("conversations", { skipAutoRetitling });
+}
 
 const noopLogger: PluginLogger = {
   info: () => {},
@@ -254,7 +255,7 @@ describe("title-generate stop hook", () => {
           conversationType: string;
         },
     );
-    skipAutoRetitling = false;
+    setSkipAutoRetitling(false);
   });
 
   test("regenerates the title on the third user turn", async () => {
@@ -311,7 +312,7 @@ describe("title-generate stop hook", () => {
   });
 
   test("fallback title retry is not blocked by the retitling opt-out", async () => {
-    skipAutoRetitling = true;
+    setSkipAutoRetitling(true);
     mockGetConversation.mockReturnValueOnce({
       title: "Generating title...",
       isAutoTitle: 1,
@@ -409,7 +410,7 @@ describe("title-generate stop hook", () => {
 
   test("respects the skipAutoRetitling opt-out", async () => {
     // GIVEN the user opted out of second-pass retitling
-    skipAutoRetitling = true;
+    setSkipAutoRetitling(true);
     const ctx = makeStopCtx({ messages: historyWithUserTurns(3) });
 
     // WHEN the stop hook runs on the third user turn and any work flushes
