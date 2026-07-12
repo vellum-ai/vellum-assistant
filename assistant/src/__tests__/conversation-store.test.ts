@@ -11,6 +11,7 @@ import {
   clearAll,
   createConversation,
   deleteConversation,
+  deleteConversationGently,
   deleteLastExchange,
   getConversation,
   getMessages,
@@ -424,6 +425,35 @@ describe("attachment orphan cleanup", () => {
     expect(
       getTelemetryDb()!.select().from(skillLoadedEvents).all(),
     ).toHaveLength(0);
+  });
+
+  test("deleteConversationGently removes that conversation's skill_loaded_events", async () => {
+    getTelemetryDb()!.delete(skillLoadedEvents).run();
+    const conv = createConversation("doomed");
+    await addMessage(conv.id, "user", "hello");
+    const other = createConversation("kept");
+    getTelemetryDb()!
+      .insert(skillLoadedEvents)
+      .values([
+        {
+          id: "sle-gentle-1",
+          createdAt: 1000,
+          conversationId: conv.id,
+          skillName: "web-research",
+        },
+        {
+          id: "sle-gentle-2",
+          createdAt: 2000,
+          conversationId: other.id,
+          skillName: "tasks",
+        },
+      ])
+      .run();
+
+    await deleteConversationGently(conv.id);
+
+    const remaining = getTelemetryDb()!.select().from(skillLoadedEvents).all();
+    expect(remaining.map((r) => r.id)).toEqual(["sle-gentle-2"]);
   });
 
   test("deleteLastExchange does not delete unlinked user uploads", async () => {
