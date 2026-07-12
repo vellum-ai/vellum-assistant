@@ -106,46 +106,23 @@ describe("escalation continuation content", () => {
   });
 });
 
-// Controller-level orchestration in CallController.streamTtsTokens is not
-// covered by unit tests here — CallController needs a live transport,
-// conversation, and TTS provider to instantiate. These document the intended
-// integration coverage (a harnessed call-controller test or the manual
-// cli-testing flow) for the two-leg escalation path.
-describe("call-controller escalation orchestration (integration — TODO)", () => {
+// This module is the surface-agnostic escalation *policy* (profiles, prompt
+// rules, the fallback-bridge decision, the flag gate). The two-leg *routing*
+// runs on the in-app Voice Mode surface (LiveVoiceSession), gated behind both
+// the voice-mode and voice-triage-escalate flags — see
+// live-voice/__tests__/live-voice-triage-escalate.test.ts for the orchestration
+// coverage (flag gating, front-door → escalated hand-off, marker suppression,
+// fallback bridge, barge-in). What remains for the manual cli-testing flow is
+// true end-to-end audio: real TTS timing across the bridge, and the residual
+// broadcast/persist raw-marker leak (issue #37850, shared by both voice
+// surfaces) once that is addressed.
+describe("live-voice escalation orchestration (end-to-end — TODO)", () => {
   test.todo(
-    "flag OFF: a single leg runs on the call-site default profile, no [ESCALATE] rule in the prompt",
+    "an unpunctuated fallback bridge is force-flushed so the caller hears audio during the escalated model's call, not silence",
     () => {},
   );
   test.todo(
-    "flag ON, simple turn: the front-door (cost-optimized) leg answers and no escalation leg runs",
-    () => {},
-  );
-  test.todo(
-    "flag ON, tricky turn: [ESCALATE] triggers a second (quality-optimized) leg that shares the TTS stream and end-of-turn signal",
-    () => {},
-  );
-  test.todo(
-    "front-door text after [ESCALATE] is suppressed and never spoken; only the bridge before the marker reaches TTS",
-    () => {},
-  );
-  test.todo(
-    "post-[ESCALATE] front-door text is dropped from the completion text — no spurious [END_CALL]/[ASK_GUARDIAN], no transcript pollution",
-    () => {},
-  );
-  test.todo(
-    "the front-door leg is aborted on [ESCALATE] so a model that keeps generating does not delay the escalated leg",
-    () => {},
-  );
-  test.todo(
-    "an unpunctuated bridge is force-synthesized before the escalated leg so the caller is not left in silence during the strong-model call",
-    () => {},
-  );
-  test.todo(
-    "bare [ESCALATE] with no holding phrase injects the fallback bridge before the quality leg so there is no dead air",
-    () => {},
-  );
-  test.todo(
-    "barge-in during the bridge or hand-off aborts both legs via runSignal",
+    "the escalated answer's TTS follows the bridge audio with no listening window between them",
     () => {},
   );
 });

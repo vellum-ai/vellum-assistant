@@ -28,7 +28,11 @@ import { setConfig } from "../../__tests__/helpers/set-config.js";
 import { ABORT_WATCHDOG_MS } from "../../daemon/abort-watchdog.js";
 import { CALL_OPENING_MARKER } from "../voice-control-protocol.js";
 import { startVoiceTurn } from "../voice-session-bridge.js";
-import { ESCALATION_CONTINUATION_CONTENT } from "../voice-triage-escalate.js";
+import {
+  escalatedContinuationRule,
+  ESCALATION_CONTINUATION_CONTENT,
+  frontDoorTriageRule,
+} from "../voice-triage-escalate.js";
 
 // `resolveProcessingWaitMs` reads `workspaceGit.turnCommitMaxWaitMs`; seed it
 // so the wait-budget assertions below get a fixed, known value.
@@ -287,6 +291,57 @@ describe("startVoiceTurn escalation-continuation persistence", () => {
     await startVoiceTurn(makeTurnOptions()); // content: CALL_OPENING_MARKER
 
     expect(fake.lastPersistOpts()?.metadata).toBeUndefined();
+  });
+});
+
+describe("startVoiceTurn triage-and-escalate control prompt", () => {
+  // Live-voice supplies its own voiceControlPrompt, bypassing
+  // buildVoiceCallControlPrompt where the routing-leg rule is normally injected.
+  // The rule must still be appended, or the front-door model is never told to
+  // emit [ESCALATE] and can't hand off.
+  const LIVE_VOICE_PROMPT = "You are speaking in a local live voice session.";
+
+  // The turn installs its resolved control prompt, then cleanup resets it to
+  // null — so capture every applied value and read the installed (non-null) one.
+  function captureInstalledPrompt(): () => string | undefined {
+    const fake = makeFakeConversation({ processing: false });
+    fakeConversation = fake.conversation;
+    const applied: Array<string | null> = [];
+    fake.conversation.setVoiceCallControlPrompt = (prompt) => {
+      applied.push(prompt);
+    };
+    return () => applied.find((p): p is string => typeof p === "string");
+  }
+
+  test("appends the front-door triage rule to a caller-supplied prompt", async () => {
+    const installed = captureInstalledPrompt();
+    await startVoiceTurn({
+      ...makeTurnOptions(),
+      voiceControlPrompt: LIVE_VOICE_PROMPT,
+      routingLeg: "front-door",
+    });
+    expect(installed()).toContain(LIVE_VOICE_PROMPT);
+    expect(installed()).toContain(frontDoorTriageRule());
+  });
+
+  test("appends the escalated continuation rule to a caller-supplied prompt", async () => {
+    const installed = captureInstalledPrompt();
+    await startVoiceTurn({
+      ...makeTurnOptions(),
+      voiceControlPrompt: LIVE_VOICE_PROMPT,
+      routingLeg: "escalated",
+    });
+    expect(installed()).toContain(LIVE_VOICE_PROMPT);
+    expect(installed()).toContain(escalatedContinuationRule());
+  });
+
+  test("leaves a caller-supplied prompt verbatim when no routing leg is set", async () => {
+    const installed = captureInstalledPrompt();
+    await startVoiceTurn({
+      ...makeTurnOptions(),
+      voiceControlPrompt: LIVE_VOICE_PROMPT,
+    });
+    expect(installed()).toBe(LIVE_VOICE_PROMPT);
   });
 });
 

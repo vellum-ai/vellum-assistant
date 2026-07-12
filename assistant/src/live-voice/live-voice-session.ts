@@ -6,10 +6,25 @@ import {
   type TurnDetectorConfig,
 } from "../calls/media-turn-detector.js";
 import { sanitizeForTts } from "../calls/tts-text-sanitizer.js";
+import {
+  couldBeControlMarker,
+  ESCALATE_MARKER,
+  stripInternalSpeechMarkers,
+} from "../calls/voice-control-protocol.js";
 import type {
   VoiceTurnHandle,
   VoiceTurnOptions,
 } from "../calls/voice-session-bridge.js";
+import {
+  ESCALATION_CONTINUATION_CONTENT,
+  ESCALATION_PROFILE,
+  FALLBACK_ESCALATION_BRIDGE,
+  FRONT_DOOR_PROFILE,
+  isVoiceTriageEscalateEnabled,
+  needsFallbackBridge,
+  type VoiceRoutingLeg,
+} from "../calls/voice-triage-escalate.js";
+import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getConfig } from "../config/loader.js";
 import { ensureConversationExists } from "../persistence/conversation-crud.js";
 import {
@@ -248,6 +263,11 @@ interface ActiveAssistantTurn {
   // speech only cancels a turn that has audibly started speaking.
   ttsAudioStarted: boolean;
   finalized: boolean;
+  // Triage-and-escalate (Voice Mode): the front-door leg emitted [ESCALATE]
+  // and the strong "escalated" leg has taken over this same turn. Guards the
+  // front-door leg's trailing completion from finalizing the turn, and makes
+  // the hand-off idempotent.
+  escalationHandedOff: boolean;
   ttsBuffer: string;
   // A non-empty speakable segment reached the TTS queue — gates the eager
   // first-segment flush that trades clause quality for speech onset.
@@ -1440,7 +1460,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     const turnId = this.ensureTurnId(utterance);
     this.startMetricsTurnIfNeeded(utterance, turnId);
     const abortController = new AbortController();
-    this.activeAssistantTurn = {
+    const activeTurn: ActiveAssistantTurn = {
       token,
       turnId,
       utterance,
@@ -1450,6 +1470,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       ttsDone: false,
       ttsAudioStarted: false,
       finalized: false,
+      escalationHandedOff: false,
       ttsBuffer: "",
       ttsSegmentEnqueued: false,
       ttsJobs: [],
@@ -1458,11 +1479,113 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       assistantAudioChunks: [],
       assistantAudioMimeType: "audio/pcm",
     };
+    this.activeAssistantTurn = activeTurn;
 
     await this.sendFrame({ type: "thinking", turnId });
     if (!this.isActiveAssistantTurn(token)) {
       return;
     }
+
+    // Triage-and-escalate (Voice Mode): active only when BOTH the voice-mode
+    // surface flag and the voice-triage-escalate routing flag are on. A
+    // live-voice session already implies voice-mode client-side; the explicit
+    // check keeps the "gated behind both flags" contract true server-side.
+    const cfg = getConfig();
+    const escalateEnabled =
+      isAssistantFeatureFlagEnabled("voice-mode", cfg) &&
+      isVoiceTriageEscalateEnabled(cfg);
+
+    // Front-door leg: with routing on, a fast profile fronts the turn and may
+    // hand off to the strong profile on [ESCALATE]; with it off, a single leg
+    // runs on the call-site default — byte-for-byte the prior behavior.
+    await this.startAssistantLeg(
+      activeTurn,
+      escalateEnabled
+        ? {
+            content,
+            overrideProfile: FRONT_DOOR_PROFILE,
+            routingLeg: "front-door",
+            frontDoor: true,
+          }
+        : { content },
+    );
+  }
+
+  /**
+   * Drive one model leg of an assistant turn through the session bridge,
+   * streaming its deltas to the live-voice client and TTS. Returns once the
+   * leg's turn handle is acquired (or the start fails) — turn completion stays
+   * callback-driven via message_complete, exactly as the single-leg path did.
+   *
+   * A turn runs one leg normally. Under triage-and-escalate the front-door leg
+   * (`frontDoor: true`) may emit [ESCALATE]; the marker and everything after it
+   * are held back from the live-voice transcript and TTS here at the source,
+   * and `escalateTurn` starts a second "escalated" leg that shares this same
+   * ActiveAssistantTurn. (The shared conversation-hub broadcast and persisted
+   * assistant message still carry the raw marker — see issue #37850.)
+   */
+  private async startAssistantLeg(
+    activeTurn: ActiveAssistantTurn,
+    leg: {
+      content: string;
+      overrideProfile?: string;
+      routingLeg?: VoiceRoutingLeg;
+      frontDoor?: boolean;
+    },
+  ): Promise<void> {
+    if (!this.startVoiceTurn) {
+      return;
+    }
+    const { token, utterance, turnId } = activeTurn;
+
+    // Front-door marker gate. `rawText` accumulates this leg's full stream (for
+    // marker detection and the fallback-bridge decision); `frontDoorEmitted`
+    // tracks how much of it has been forwarded, so a trailing partial marker
+    // held back on one delta is released once a later delta disproves it.
+    let rawText = "";
+    let frontDoorEmitted = 0;
+
+    const emitFrontDoor = (chunk: string): void => {
+      if (chunk.length === 0) {
+        return;
+      }
+      this.markFirstAssistantDelta(utterance, turnId);
+      void this.sendFrame({ type: "assistant_text_delta", text: chunk });
+      this.bufferAssistantTextForTts(token, chunk);
+    };
+
+    // Forward the marker-free, non-partial-marker prefix that has not been
+    // emitted yet. Returns true once the complete [ESCALATE] marker arrives.
+    const flushFrontDoor = (): boolean => {
+      const markerIdx = rawText.indexOf(ESCALATE_MARKER, frontDoorEmitted);
+      if (markerIdx !== -1) {
+        emitFrontDoor(
+          stripInternalSpeechMarkers(
+            rawText.slice(frontDoorEmitted, markerIdx),
+          ),
+        );
+        // Suppress the marker and anything the model streams after it.
+        frontDoorEmitted = rawText.length;
+        return true;
+      }
+      let safeEnd = rawText.length;
+      const lastOpen = rawText.lastIndexOf("[");
+      if (lastOpen >= frontDoorEmitted) {
+        const tail = rawText.slice(lastOpen);
+        // Hold back a trailing "[…" that could still become a control marker;
+        // a real partial that never completes is simply never spoken.
+        if (!tail.includes("]") && couldBeControlMarker(tail)) {
+          safeEnd = lastOpen;
+        }
+      }
+      if (safeEnd > frontDoorEmitted) {
+        emitFrontDoor(
+          stripInternalSpeechMarkers(rawText.slice(frontDoorEmitted, safeEnd)),
+        );
+        frontDoorEmitted = safeEnd;
+      }
+      return false;
+    };
 
     try {
       const handle = await this.startVoiceTurn({
@@ -1475,12 +1598,26 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         voiceControlPrompt:
           "You are speaking in a local live voice session. Keep replies brief and conversational.",
         approvalMode: "local-live-voice",
-        content,
+        content: leg.content,
         isInbound: true,
-        signal: abortController.signal,
+        signal: activeTurn.abortController.signal,
+        ...(leg.overrideProfile != null
+          ? { overrideProfile: leg.overrideProfile }
+          : {}),
+        ...(leg.routingLeg != null ? { routingLeg: leg.routingLeg } : {}),
         callbacks: {
           assistant_text_delta: (msg) => {
             if (!this.isForwardingAssistantText(token)) {
+              return;
+            }
+            if (leg.frontDoor) {
+              rawText += msg.text;
+              if (activeTurn.escalationHandedOff) {
+                return;
+              }
+              if (flushFrontDoor()) {
+                this.escalateTurn(activeTurn, rawText);
+              }
               return;
             }
             this.markFirstAssistantDelta(utterance, turnId);
@@ -1491,48 +1628,56 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
             this.bufferAssistantTextForTts(token, msg.text);
           },
           message_complete: (msg) => {
-            const activeTurn = this.activeAssistantTurn;
+            const current = this.activeAssistantTurn;
             if (
-              activeTurn?.token !== token ||
-              activeTurn.assistantCompleted ||
+              current?.token !== token ||
+              current.assistantCompleted ||
               // A barged-in turn finalizes through cancelAssistantTurn.
-              activeTurn.abortController.signal.aborted ||
+              current.abortController.signal.aborted ||
               this.isClosed
             ) {
               return;
             }
-            activeTurn.assistantCompleted = true;
+            // A front-door leg that handed off is finished; the escalated leg
+            // drives completion. The front-door leg's own trailing completion
+            // (including the generation_cancelled from its abort) is a no-op.
+            if (leg.frontDoor && current.escalationHandedOff) {
+              return;
+            }
+            current.assistantCompleted = true;
             if (msg.type === "generation_cancelled") {
               void this.finalizeAssistantTurn(
-                activeTurn,
+                current,
                 "cancelled",
                 "generation_cancelled",
               );
               return;
             }
-            activeTurn.assistantMessageId = msg.messageId ?? null;
+            current.assistantMessageId = msg.messageId ?? null;
             this.completeTtsForTurn(token);
           },
           persisted_user_message_id: (messageId) => {
-            const activeTurn = this.activeAssistantTurn;
-            if (activeTurn?.token !== token) {
+            const current = this.activeAssistantTurn;
+            // Only the first leg's user row is the real caller utterance; the
+            // escalated leg persists a hidden synthetic continuation prompt.
+            if (current?.token !== token || leg.routingLeg === "escalated") {
               return;
             }
-            activeTurn.utterance.userMessageId = messageId;
+            current.utterance.userMessageId = messageId;
           },
           persisted_assistant_message_id: (messageId) => {
-            const activeTurn = this.activeAssistantTurn;
-            if (activeTurn?.token !== token) {
+            const current = this.activeAssistantTurn;
+            if (current?.token !== token) {
               return;
             }
-            activeTurn.assistantMessageId = messageId;
+            current.assistantMessageId = messageId;
           },
         },
         onError: (message) => {
-          const activeTurn = this.activeAssistantTurn;
+          const current = this.activeAssistantTurn;
           if (
             !this.isActiveAssistantTurn(token) ||
-            activeTurn?.assistantCompleted
+            current?.assistantCompleted
           ) {
             return;
           }
@@ -1551,17 +1696,23 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         },
       });
 
-      const activeTurn = this.activeAssistantTurn;
-      if (activeTurn?.token !== token) {
+      const current = this.activeAssistantTurn;
+      if (current?.token !== token) {
         handle.abort();
         return;
       }
-      if (activeTurn.finalized) {
+      if (current.finalized) {
         this.activeAssistantTurn = null;
         return;
       }
+      // The front-door leg may have handed off before its handle resolved;
+      // abort it rather than exposing it as the turn's live handle.
+      if (leg.frontDoor && current.escalationHandedOff) {
+        handle.abort();
+        return;
+      }
 
-      activeTurn.handle = handle;
+      current.handle = handle;
     } catch (err) {
       if (!this.isActiveAssistantTurn(token)) {
         return;
@@ -1578,6 +1729,47 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       await this.finalizePendingUtterance(utterance, "assistant_start_error");
       this.scheduleRearmAfterTurn();
     }
+  }
+
+  /**
+   * Hand the turn from the front-door leg to the strong "escalated" leg after
+   * [ESCALATE]. Speaks a holding phrase (the front-door leg's own pre-marker
+   * text, or a canned fallback when that was too short) and force-flushes it so
+   * it plays during the strong-model call, then starts the escalated leg on the
+   * same ActiveAssistantTurn. Idempotent.
+   */
+  private escalateTurn(
+    activeTurn: ActiveAssistantTurn,
+    frontDoorText: string,
+  ): void {
+    if (activeTurn.escalationHandedOff || activeTurn.finalized) {
+      return;
+    }
+    activeTurn.escalationHandedOff = true;
+    // Abort the front-door leg so a model that keeps generating past the marker
+    // adds no latency before the escalated leg starts.
+    activeTurn.handle?.abort();
+    activeTurn.handle = null;
+
+    // Speak a bridge so the strong-model call has no dead air. Fall back to a
+    // canned phrase only when the front-door leg spoke too little before the
+    // marker (measured pre-marker, so suppressed post-marker text can't count).
+    if (needsFallbackBridge(frontDoorText)) {
+      this.bufferAssistantTextForTts(
+        activeTurn.token,
+        `${FALLBACK_ESCALATION_BRIDGE} `,
+      );
+    }
+    // Force-flush now: on the TTS path an unpunctuated bridge would otherwise
+    // sit buffered until a sentence boundary and leave the caller in silence
+    // during the escalated model's call.
+    this.flushTtsBuffer(activeTurn.token, true);
+
+    void this.startAssistantLeg(activeTurn, {
+      content: ESCALATION_CONTINUATION_CONTENT,
+      overrideProfile: ESCALATION_PROFILE,
+      routingLeg: "escalated",
+    });
   }
 
   private async cancelAssistantTurn(reason: string): Promise<void> {
