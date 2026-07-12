@@ -31,14 +31,12 @@ mock.module("../persistence/checkpoints.js", () => ({
 import {
   POLL_INTERVAL_MAX_MS,
   POLL_INTERVAL_MIN_MS,
-  startMemoryJobsWorker,
+  startMemoryJobsWorkerLoop,
 } from "../plugins/defaults/memory/jobs-worker.js";
 import { setConfig } from "./helpers/set-config.js";
 
-// Memory disabled so each idle tick stays on the mocked-store fast path, and
-// the worker flag off so the supervisor neither spawns the out-of-process
-// worker nor stands the in-process runner down at the slow-poll cap.
-setConfig("memory", { enabled: false, worker: { enabled: false } });
+// Memory disabled so each idle tick stays on the mocked-store fast path.
+setConfig("memory", { enabled: false });
 
 describe("memory jobs worker adaptive poll interval", () => {
   test("exports expected poll interval constants", () => {
@@ -86,7 +84,7 @@ describe("memory jobs worker adaptive poll interval", () => {
     globalThis.clearTimeout = (() => {}) as typeof clearTimeout;
 
     try {
-      const worker = startMemoryJobsWorker();
+      const worker = startMemoryJobsWorkerLoop();
 
       // Wait for the initial tick() promise to settle
       await new Promise((resolve) => originalSetTimeout(resolve, 20));

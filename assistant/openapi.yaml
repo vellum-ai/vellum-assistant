@@ -17603,43 +17603,13 @@ paths:
                 required:
                   - ok
                 additionalProperties: false
-  /v1/memory/worker/start:
-    post:
-      operationId: memory_worker_start_post
-      summary: Start the memory worker
-      description: Spawns (or reuses) the memory worker process as a child of the daemon and enables memory.worker.enabled.
-      tags:
-        - system
-      responses:
-        "200":
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  pid:
-                    type: number
-                  alreadyRunning:
-                    type: boolean
-                  workerEnabled:
-                    type: boolean
-                    const: true
-                  pidPath:
-                    type: string
-                required:
-                  - pid
-                  - alreadyRunning
-                  - workerEnabled
-                  - pidPath
-                additionalProperties: false
   /v1/memory/worker/status:
     get:
       operationId: memory_worker_status_get
       summary: Memory worker status
       description:
-        Reports the memory worker process state, memory.worker.enabled, the synchronous in-process runner, and the
-        embedding-backend status (including a degraded flag and reason when no backend resolves).
+        Reports the memory worker process liveness and the embedding-backend status (including a degraded flag and
+        reason when no backend resolves).
       tags:
         - system
       responses:
@@ -17657,21 +17627,6 @@ paths:
                       - not_running
                   pid:
                     type: number
-                  workerEnabled:
-                    type: boolean
-                  syncRunner:
-                    type: object
-                    properties:
-                      status:
-                        type: string
-                        enum:
-                          - running
-                          - not_running
-                      pid:
-                        type: number
-                    required:
-                      - status
-                    additionalProperties: false
                   embedding:
                     type: object
                     properties:
@@ -17705,35 +17660,7 @@ paths:
                     additionalProperties: false
                 required:
                   - status
-                  - workerEnabled
-                  - syncRunner
                   - embedding
-                additionalProperties: false
-  /v1/memory/worker/stop:
-    post:
-      operationId: memory_worker_stop_post
-      summary: Stop the memory worker
-      description: Disables memory.worker.enabled and SIGTERMs the memory worker process if it is running.
-      tags:
-        - system
-      responses:
-        "200":
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  workerWasRunning:
-                    type: boolean
-                  pid:
-                    type: number
-                  workerEnabled:
-                    type: boolean
-                    const: false
-                required:
-                  - workerWasRunning
-                  - workerEnabled
                 additionalProperties: false
   /v1/messages:
     get:
@@ -25518,45 +25445,11 @@ paths:
                 required:
                   - summaries
                 additionalProperties: false
-  /v1/schedules/worker/start:
-    post:
-      operationId: schedules_worker_start_post
-      summary: Start the schedule worker
-      description:
-        Spawns (or reuses) the schedule worker process as a child of the daemon and enables
-        schedules.worker.enabled, so scheduled jobs run out of process.
-      tags:
-        - system
-      responses:
-        "200":
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  pid:
-                    type: number
-                  alreadyRunning:
-                    type: boolean
-                  workerEnabled:
-                    type: boolean
-                    const: true
-                  pidPath:
-                    type: string
-                required:
-                  - pid
-                  - alreadyRunning
-                  - workerEnabled
-                  - pidPath
-                additionalProperties: false
   /v1/schedules/worker/status:
     get:
       operationId: schedules_worker_status_get
       summary: Schedule worker status
-      description:
-        Reports the schedule worker process state, schedules.worker.enabled, and whether the daemon's in-process
-        scheduler is currently executing schedules.
+      description: Reports the schedule worker process liveness.
       tags:
         - system
       responses:
@@ -25574,53 +25467,8 @@ paths:
                       - not_running
                   pid:
                     type: number
-                  workerEnabled:
-                    type: boolean
-                  inProcessScheduler:
-                    type: object
-                    properties:
-                      status:
-                        type: string
-                        enum:
-                          - running
-                          - not_running
-                      pid:
-                        type: number
-                    required:
-                      - status
-                    additionalProperties: false
                 required:
                   - status
-                  - workerEnabled
-                  - inProcessScheduler
-                additionalProperties: false
-  /v1/schedules/worker/stop:
-    post:
-      operationId: schedules_worker_stop_post
-      summary: Stop the schedule worker
-      description:
-        Disables schedules.worker.enabled (handing schedule execution back to the in-process scheduler) and
-        SIGTERMs the schedule worker process if it is running.
-      tags:
-        - system
-      responses:
-        "200":
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  workerWasRunning:
-                    type: boolean
-                  pid:
-                    type: number
-                  workerEnabled:
-                    type: boolean
-                    const: false
-                required:
-                  - workerWasRunning
-                  - workerEnabled
                 additionalProperties: false
   /v1/search:
     get:

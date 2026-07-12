@@ -14,8 +14,8 @@ and manual one-time execution. One documented exception: 'create' is limited
 to 'execute' mode — notify/script/wake schedules are created via the
 in-assistant schedule_create tool, but can be inspected and updated here.
 
-The 'worker' subgroup manages the schedule worker process, which runs
-scheduled jobs in a separate OS process when enabled.
+The 'worker' subgroup reports the schedule worker process, which runs
+scheduled jobs in a separate OS process.
 
 Examples:
   $ assistant schedules list
@@ -23,7 +23,7 @@ Examples:
   $ assistant schedules update <schedule-id> --expression '0 9 * * *'
   $ assistant schedules runs <schedule-id> --limit 25 --json
   $ assistant schedules execute <schedule-id>
-  $ assistant schedules worker start`,
+  $ assistant schedules worker status`,
   subcommands: [
     {
       name: "list",
@@ -464,48 +464,18 @@ Examples:
     },
     {
       name: "worker",
-      description: "Manage the schedule worker process (start/stop/status)",
+      description: "Report the schedule worker process (status)",
       helpText: `
 The schedule worker runs scheduled jobs in a separate OS process so expensive
 scheduled work executes off the assistant's main event loop. The assistant
-owns the process, so it is spawned as a child of the assistant and shows up
-in \`assistant ps\`.
-
-\`start\` enables schedules.worker.enabled and \`stop\` disables it, so the
-assistant's scheduler hands schedule execution to the worker (start) or takes
-it back (stop) without a restart.
+spawns it as a child process at startup, so it shows up in \`assistant ps\`.
 
 Examples:
-  $ assistant schedules worker start
-  $ assistant schedules worker status
-  $ assistant schedules worker stop`,
+  $ assistant schedules worker status`,
       subcommands: [
         {
-          name: "start",
-          description:
-            "Start the schedule worker process and enable schedules.worker.enabled",
-          options: [
-            {
-              flags: "--json",
-              description: "Emit raw JSON instead of a formatted summary",
-            },
-          ],
-        },
-        {
-          name: "stop",
-          description:
-            "Stop the schedule worker process and disable schedules.worker.enabled",
-          options: [
-            {
-              flags: "--json",
-              description: "Emit raw JSON instead of a formatted summary",
-            },
-          ],
-        },
-        {
           name: "status",
-          description:
-            "Report worker process state, schedules.worker.enabled, and the in-process scheduler",
+          description: "Report the schedule worker process liveness",
           options: [
             {
               flags: "--json",

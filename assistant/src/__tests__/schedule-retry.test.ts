@@ -56,7 +56,6 @@ mock.module("../notifications/emit-signal.js", () => ({
     emitNotificationSignalImpl(payload),
 }));
 
-import { loadRawConfig, saveRawConfig } from "../config/loader.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { applyRetryDecision, decideRetry } from "../schedule/retry-policy.js";
@@ -72,15 +71,19 @@ import {
   scheduleRetry,
 } from "../schedule/schedule-store.js";
 import type { SchedulerHandle } from "../schedule/scheduler.js";
-import { startScheduler as startSchedulerReal } from "../schedule/scheduler.js";
+import {
+  runDueSchedulesOnce,
+  runScheduleDueWorkOnce,
+} from "../schedule/scheduler.js";
 import type { ScheduleMessageProcessor } from "../schedule/scheduler-types.js";
 
 /**
- * Wrap `startScheduler` so a single per-test `processMessage` callback drives
- * both scheduler dispatch paths: the conversation-reuse path (which calls the
- * mocked `daemon/process-message`) and the fresh-bootstrap path (which calls
- * the mocked `runBackgroundJob`). Tests exercise both deterministically through
- * this one callback.
+ * Wire a single per-test `processMessage` callback into both schedule dispatch
+ * paths — the conversation-reuse path (mocked `daemon/process-message`) and the
+ * fresh-bootstrap path (mocked `runBackgroundJob`) — and return a handle that
+ * drives schedule execution directly via `runDueSchedulesOnce` (the schedule
+ * worker's path). Avoids spawning the real worker process in tests while
+ * exercising the exact execution + retry logic.
  */
 function startScheduler(
   processMessage: ScheduleMessageProcessor,
@@ -92,17 +95,21 @@ function startScheduler(
   };
   processMessageImpl = dispatch;
   injectedProcessMessageForRunner = dispatch;
-  return startSchedulerReal();
+  // Mimic the real scheduler's immediate startup tick that fires due
+  // schedules once; tests await a short delay for it to settle before
+  // asserting or driving further runs via `runOnce`.
+  void runDueSchedulesOnce();
+  return {
+    async runOnce(): Promise<number> {
+      const r = await runDueSchedulesOnce();
+      return r.completed + r.failed + r.skipped;
+    },
+    runDueWorkOnce: (options) => runScheduleDueWorkOnce(options),
+    stop(): void {},
+  };
 }
 
 await initializeDb();
-
-// The schedule worker is on by default, which stands the daemon's in-process
-// scheduler down. These tests exercise that in-process execution path directly,
-// so pin the worker flag off for this test process.
-const rawConfig = loadRawConfig();
-rawConfig.schedules = { worker: { enabled: false } };
-saveRawConfig(rawConfig);
 
 /** Access the underlying bun:sqlite Database for raw parameterized queries. */
 function getRawDb(): import("bun:sqlite").Database {

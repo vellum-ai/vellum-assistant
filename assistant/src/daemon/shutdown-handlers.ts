@@ -164,10 +164,9 @@ async function shutdown(): Promise<void> {
   cleanupShellOutputTempFiles();
   stopScheduler();
 
-  // Stop the out-of-process memory worker if it's actually running. This is
-  // keyed off live state rather than config: the worker may have been
-  // spawned at startup (memory.worker.enabled = true) or out of band via
-  // `assistant memory worker start`, so we stop whatever is actually there.
+  // Stop the memory worker process if it's actually running. Keyed off live
+  // state (the PID file); the memory plugin's shutdown hook may already have
+  // signalled it, so this is an idempotent belt-and-suspenders.
   try {
     const workerStatus = stopMemoryWorkerProcess();
     if (workerStatus.status === "running") {

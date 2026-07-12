@@ -32,7 +32,6 @@ import {
   deferClaimedSchedule,
   failOneShotPermanently,
   getLastScheduleConversationId,
-  listSchedules,
   resetRetryCount,
   retryOneShot,
   type RoutingIntent,
@@ -40,10 +39,7 @@ import {
   scheduleRetry,
   setScheduleRunConversationId,
 } from "./schedule-store.js";
-import {
-  startScheduleWorkerIfEnabled,
-  stopScheduleWorker,
-} from "./worker-control.js";
+import { startScheduleWorker, stopScheduleWorker } from "./worker-control.js";
 
 const log = getLogger("scheduler");
 
@@ -179,10 +175,8 @@ export interface SchedulerHandle {
 }
 
 export interface SchedulerRunDueWorkOptions {
-  now?: number;
   deadlineAt?: number;
   minStartBudgetMs?: number;
-  includeStillPending?: boolean;
 }
 
 export interface SchedulerDueWorkResult {
@@ -190,7 +184,6 @@ export interface SchedulerDueWorkResult {
   completed: number;
   failed: number;
   skipped: number;
-  stillPending: number;
 }
 
 const TICK_INTERVAL_MS = 15_000;
@@ -237,11 +230,11 @@ async function handleExecutionFailure(params: {
 let instance: SchedulerHandle | null = null;
 
 export function startScheduler(): SchedulerHandle {
-  // When the schedule worker owns schedule execution, spawn it now as a child
-  // of the daemon so it is running immediately. Fire-and-forget — a worker
-  // failure must never block boot, and every tick below re-reads the flag so
-  // ownership stays consistent either way.
-  startScheduleWorkerIfEnabled();
+  // Schedule execution is owned by the schedule worker process; spawn it now as
+  // a child of the daemon so it is running immediately. Fire-and-forget — a
+  // worker failure must never block boot. The daemon's own tick below runs only
+  // watchers and sequences.
+  startScheduleWorker();
 
   let stopped = false;
   let tickRunning = false;
@@ -290,9 +283,7 @@ export function startScheduler(): SchedulerHandle {
 
 /**
  * Stop the running scheduler if one was started, and SIGTERM the schedule
- * worker process if one is running. The worker stop is keyed off live state
- * rather than config: it may have been spawned at startup or out of band via
- * `assistant schedules worker start`.
+ * worker process if one is running.
  */
 export function stopScheduler(): void {
   stopScheduleWorker();
@@ -314,44 +305,26 @@ export async function runScheduleOnce(): Promise<number> {
 }
 
 /**
- * True while the schedule worker process owns schedule execution. Read from
- * config on every call so a runtime `assistant schedules worker start`/`stop`
- * switches ownership without a restart.
+ * Run the daemon's due background work: watchers and sequences. Schedule
+ * execution is owned by the schedule worker process (see `runDueSchedulesOnce`,
+ * driven by `worker.ts`), so this daemon-side path never claims schedules and
+ * reports none of them as its own pending work.
  */
-function scheduleWorkerOwnsSchedules(): boolean {
-  return getConfig().schedules?.worker?.enabled === true;
-}
-
 export async function runScheduleDueWorkOnce(
   options: SchedulerRunDueWorkOptions = {},
 ): Promise<SchedulerDueWorkResult> {
-  const now = options.now ?? Date.now();
   const minStartBudgetMs = options.minStartBudgetMs ?? 0;
-  // While `schedules.worker.enabled` is set, the schedule worker process owns
-  // schedule execution: this process leaves every due schedule unclaimed so
-  // exactly one process runs them, and reports none of them as its own
-  // pending work. The flag is re-read from config every tick, so `assistant
-  // schedules worker start`/`stop` switch ownership without a restart.
-  // Watchers and sequences below always run in the daemon.
-  const workerOwnsSchedules = scheduleWorkerOwnsSchedules();
-  const countStillPending = (at: number): number =>
-    options.includeStillPending && !workerOwnsSchedules
-      ? countDueScheduleJobs(at)
-      : 0;
   const result: SchedulerDueWorkResult = {
     claimed: 0,
     completed: 0,
     failed: 0,
     skipped: 0,
-    stillPending: 0,
   };
 
   if (
     options.deadlineAt != null &&
     options.deadlineAt - Date.now() < minStartBudgetMs
   ) {
-    result.stillPending = countStillPending(now);
-    result.skipped = result.stillPending;
     return result;
   }
 
@@ -366,17 +339,7 @@ export async function runScheduleDueWorkOnce(
         "Schedule tick skipped during disk pressure cleanup mode",
       );
     }
-    result.stillPending = countStillPending(now);
     return result;
-  }
-
-  // ── Schedules (recurring cron/RRULE + one-shot) ─────────────────────
-  if (!workerOwnsSchedules) {
-    const schedules = await runDueSchedulesOnce(now);
-    result.claimed = schedules.claimed;
-    result.completed += schedules.completed;
-    result.failed += schedules.failed;
-    result.skipped += schedules.skipped;
   }
 
   // ── Watchers (event-driven polling) ────────────────────────────────
@@ -395,7 +358,6 @@ export async function runScheduleDueWorkOnce(
     log.error({ err }, "Sequence engine tick failed");
   }
 
-  result.stillPending = countStillPending(Date.now());
   const processed = result.completed + result.failed + result.skipped;
   if (processed > 0) {
     log.info({ processed }, "Schedule tick complete");
@@ -405,16 +367,19 @@ export async function runScheduleDueWorkOnce(
 
 /**
  * Claim and execute every due schedule (all modes: notify, script, wake,
- * workflow, execute). Called from the daemon's tick while
- * `schedules.worker.enabled` is off, and from the schedule worker process's
- * tick while it is on. Claims are atomic in the schedule store, so a process
- * whose view of the flag lags a tick behind cannot double-run a job another
- * process already claimed.
+ * workflow, execute). Driven by the schedule worker process's tick
+ * (`worker.ts`). Claims are atomic in the schedule store, so overlapping ticks
+ * cannot double-run a job another claim already took.
  */
 export async function runDueSchedulesOnce(
   now: number = Date.now(),
-): Promise<Omit<SchedulerDueWorkResult, "stillPending">> {
-  const result = { claimed: 0, completed: 0, failed: 0, skipped: 0 };
+): Promise<SchedulerDueWorkResult> {
+  const result: SchedulerDueWorkResult = {
+    claimed: 0,
+    completed: 0,
+    failed: 0,
+    skipped: 0,
+  };
   const mark = (status: "completed" | "failed" | "skipped") => {
     result[status] += 1;
   };
@@ -929,16 +894,6 @@ export async function runDueSchedulesOnce(
   }
 
   return result;
-}
-
-function countDueScheduleJobs(now: number): number {
-  return listSchedules({ enabledOnly: true }).filter(
-    (job) =>
-      job.status === "active" &&
-      Number.isFinite(job.nextRunAt) &&
-      job.nextRunAt > 0 &&
-      job.nextRunAt <= now,
-  ).length;
 }
 
 /**

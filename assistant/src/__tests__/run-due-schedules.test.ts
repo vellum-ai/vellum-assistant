@@ -1,8 +1,8 @@
 /**
- * Scheduler ↔ schedule-worker ownership: while `schedules.worker.enabled` is
- * set, the daemon's in-process scheduler must leave every due schedule
- * unclaimed (the worker process owns schedule execution), while
- * `runDueSchedulesOnce` — the worker's tick — claims and executes them.
+ * `runDueSchedulesOnce` — the schedule worker's tick — claims and executes
+ * every due schedule across modes. Schedule execution is owned by the schedule
+ * worker process; the daemon's own scheduler tick runs only watchers and
+ * sequences.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -44,16 +44,7 @@ mock.module("../notifications/emit-signal.js", () => ({
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { createSchedule } from "../schedule/schedule-store.js";
-import {
-  runDueSchedulesOnce,
-  runScheduleDueWorkOnce,
-} from "../schedule/scheduler.js";
-import { setConfig } from "./helpers/set-config.js";
-
-/** Seed `schedules.worker.enabled` for real; the scheduler re-reads it per tick. */
-function setWorkerEnabled(enabled: boolean): void {
-  setConfig("schedules", { worker: { enabled } });
-}
+import { runDueSchedulesOnce } from "../schedule/scheduler.js";
 
 await initializeDb();
 
@@ -63,7 +54,6 @@ function rawDb(): import("bun:sqlite").Database {
 }
 
 beforeEach(() => {
-  setWorkerEnabled(false);
   mockEmitNotificationSignal.mockClear();
   const db = getDb();
   db.run("DELETE FROM cron_runs");
@@ -95,48 +85,8 @@ function runsFor(jobId: string): Array<{ status: string }> {
     .all(jobId) as Array<{ status: string }>;
 }
 
-describe("scheduler stand-down for the schedule worker", () => {
-  test("flag on: leaves every due schedule unclaimed and reports none pending", async () => {
-    setWorkerEnabled(true);
-    const { script } = await createDueScriptAndNotifyJobs();
-    const dueBefore = rawDb()
-      .query("SELECT id, next_run_at FROM cron_jobs")
-      .all() as Array<{ id: string; next_run_at: number }>;
-
-    const result = await runScheduleDueWorkOnce({
-      includeStillPending: true,
-    });
-
-    expect(result.claimed).toBe(0);
-    expect(result.stillPending).toBe(0);
-    expect(mockEmitNotificationSignal).not.toHaveBeenCalled();
-    expect(runsFor(script.id)).toHaveLength(0);
-    // Nothing advanced — every schedule stays due for the worker to claim.
-    const dueAfter = rawDb()
-      .query("SELECT id, next_run_at FROM cron_jobs")
-      .all() as Array<{ id: string; next_run_at: number }>;
-    expect(dueAfter).toEqual(dueBefore);
-  });
-
-  test("flag off: the in-process scheduler claims and runs due schedules itself", async () => {
-    setWorkerEnabled(false);
-    const { script } = await createDueScriptAndNotifyJobs();
-
-    const result = await runScheduleDueWorkOnce();
-
-    expect(result.claimed).toBe(2);
-    const scriptRuns = runsFor(script.id);
-    expect(scriptRuns).toHaveLength(1);
-    expect(scriptRuns[0].status).toBe("ok");
-    expect(mockEmitNotificationSignal).toHaveBeenCalled();
-  });
-});
-
 describe("runDueSchedulesOnce (the schedule worker's tick)", () => {
   test("claims and executes due schedules across modes", async () => {
-    // The worker runs with the flag on; runDueSchedulesOnce itself does not
-    // consult the flag — its caller owns schedule execution.
-    setWorkerEnabled(true);
     const { script } = await createDueScriptAndNotifyJobs();
 
     const result = await runDueSchedulesOnce();

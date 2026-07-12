@@ -78,17 +78,6 @@ export const MemoryJobsConfigSchema = MemoryJobsConfigInputSchema.transform(
   },
 ).describe("Memory background job processing configuration");
 
-export const MemoryWorkerConfigSchema = z
-  .object({
-    enabled: z
-      .boolean({ error: "memory.worker.enabled must be a boolean" })
-      .default(true)
-      .describe(
-        "Whether the memory jobs worker runs as a separate OS process instead of the assistant's synchronous in-process runner. The assistant's worker supervisor re-reads this flag on every poll: while it is set (the default), the in-process runner stands down (the out-of-process worker, spawned at startup when set, owns the queue); while it is unset, the in-process runner drains the queue. `assistant memory worker start`/`stop` flip the flag (and spawn/stop the worker process) to switch modes at runtime without a restart.",
-      ),
-  })
-  .describe("Memory jobs worker process configuration");
-
 export const MemoryRetentionConfigSchema = z
   .object({
     keepRawForever: z
@@ -186,7 +175,6 @@ export const MemoryMaintenanceConfigSchema = z
   );
 
 export type MemoryJobsConfig = z.infer<typeof MemoryJobsConfigSchema>;
-export type MemoryWorkerConfig = z.infer<typeof MemoryWorkerConfigSchema>;
 export type MemoryRetentionConfig = z.infer<typeof MemoryRetentionConfigSchema>;
 export type MemoryCleanupConfig = z.infer<typeof MemoryCleanupConfigSchema>;
 export type MemoryMaintenanceConfig = z.infer<

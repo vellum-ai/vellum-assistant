@@ -17,7 +17,7 @@ import { rehydratePlatformCredentials } from "../../../config/platform-rehydrati
 import { resetDb } from "../../../persistence/db-connection.js";
 import { initializeTools } from "../../../tools/registry.js";
 import { registerMemoryPluginJobHandlers } from "./job-handler-registration.js";
-import { startInProcessMemoryJobsWorker } from "./jobs-worker.js";
+import { startMemoryJobsWorkerLoop } from "./jobs-worker.js";
 import { getLogger } from "./logging.js";
 import { getMemoryWorkerPidPath } from "./paths.js";
 
@@ -79,7 +79,7 @@ async function main(): Promise<void> {
     );
   }
 
-  const worker = startInProcessMemoryJobsWorker();
+  const worker = startMemoryJobsWorkerLoop();
 
   // Keep-alive: the worker's setTimeout timers are unref'd, so without
   // this interval the process would exit immediately.

@@ -1,11 +1,10 @@
 /**
  * Standalone entry point for the schedule worker as its own OS process.
  *
- * Spawned by `assistant schedules worker start` (and at daemon startup when
- * `schedules.worker.enabled` is set). Loads config, writes a PID file, and
+ * Spawned by the daemon at startup. Loads config, writes a PID file, and
  * claims + executes due schedules (all modes) on a fixed tick until
- * SIGTERM/SIGINT. While the flag is set, the daemon's in-process scheduler
- * leaves schedules to this process.
+ * SIGTERM/SIGINT. This process is the sole runner of schedule execution; the
+ * daemon's own scheduler tick runs only watchers and sequences.
  *
  * Running as a separate process — off the assistant's main event loop — is
  * the point: expensive scheduled jobs execute here without competing with
