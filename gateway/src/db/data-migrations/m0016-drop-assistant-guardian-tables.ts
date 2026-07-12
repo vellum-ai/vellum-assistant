@@ -9,7 +9,9 @@
  * the m0015 copy pass reruns as a final catch-up — rows written to the
  * assistant tables between the backfill checkpoint and the daemon's flip to
  * the gateway client would otherwise be dropped with their source tables.
- * INSERT OR IGNORE keeps the rerun idempotent and gateway rows authoritative.
+ * INSERT OR IGNORE keeps the rerun idempotent and gateway rows authoritative,
+ * and a decision-carry pass then copies terminal statuses onto gateway rows
+ * the earlier backfill left pending (never overwriting a gateway decision).
  *
  * Drops, in FK order (children before parents):
  * - `canonical_guardian_deliveries`, `canonical_guardian_requests` — moved to
@@ -28,7 +30,7 @@ import { Database } from "bun:sqlite";
 
 import { getGatewayDb } from "../connection.js";
 import { getLogger } from "../../logger.js";
-import { assistantDbRun } from "../assistant-db-proxy.js";
+import { assistantDbQuery, assistantDbRun } from "../assistant-db-proxy.js";
 import { up as runGuardianRequestsCopyPass } from "./m0015-guardian-requests-backfill.js";
 
 import type { MigrationResult } from "./index.js";
@@ -71,6 +73,68 @@ export async function up(): Promise<MigrationResult> {
   if ((await runGuardianRequestsCopyPass()) !== "done") {
     log.warn(
       "m0016: catch-up guardian-request copy did not complete — deferring drops to next startup",
+    );
+    return "skip";
+  }
+
+  // Decision catch-up: INSERT OR IGNORE cannot propagate a decision made
+  // assistant-side AFTER the backfill copied the row as pending. Carry the
+  // decision fields onto gateway rows that are still pending — a gateway-side
+  // decision always wins over the assistant copy.
+  try {
+    const sourcePresent = await assistantDbQuery(
+      `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?`,
+      ["canonical_guardian_requests"],
+    );
+    if (sourcePresent.length > 0) {
+      const decided = await assistantDbQuery<{
+        id: string;
+        status: string;
+        answer_text: string | null;
+        decided_by_external_user_id: string | null;
+        decided_by_principal_id: string | null;
+        followup_state: string | null;
+        updated_at: number;
+      }>(
+        `SELECT id, status, answer_text, decided_by_external_user_id,
+                decided_by_principal_id, followup_state, updated_at
+           FROM canonical_guardian_requests
+          WHERE status != 'pending'`,
+      );
+
+      if (decided.length > 0) {
+        const carryDecision = gwDb.prepare(
+          `UPDATE guardian_requests
+              SET status = ?, answer_text = ?, decided_by_external_user_id = ?,
+                  decided_by_principal_id = ?, followup_state = ?, updated_at = ?
+            WHERE id = ? AND status = 'pending'`,
+        );
+        let carried = 0;
+        gwDb.transaction(() => {
+          for (const row of decided) {
+            carried += carryDecision.run(
+              row.status,
+              row.answer_text,
+              row.decided_by_external_user_id,
+              row.decided_by_principal_id,
+              row.followup_state,
+              row.updated_at,
+              row.id,
+            ).changes;
+          }
+        })();
+        if (carried > 0) {
+          log.info(
+            { carried },
+            "m0016: carried late assistant-side decisions onto pending gateway rows",
+          );
+        }
+      }
+    }
+  } catch (err) {
+    log.warn(
+      { err },
+      "m0016: decision catch-up failed — deferring drops to next startup",
     );
     return "skip";
   }

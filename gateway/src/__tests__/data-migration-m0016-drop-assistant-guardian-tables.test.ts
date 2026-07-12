@@ -106,7 +106,12 @@ mock.module("../db/assistant-db-proxy.js", () => ({
       return fakeAssistantDb.tables.has(String(bind?.[0])) ? [{ "1": 1 }] : [];
     }
     if (lower.includes("from canonical_guardian_requests")) {
-      return Array.from(fakeAssistantDb.requests.values());
+      const rows = Array.from(fakeAssistantDb.requests.values());
+      // The decision-carry pass selects only terminal rows.
+      if (lower.includes("status != 'pending'")) {
+        return rows.filter((row) => row.status !== "pending");
+      }
+      return rows;
     }
     if (lower.includes("from canonical_guardian_deliveries")) {
       return Array.from(fakeAssistantDb.deliveries.values());
@@ -322,6 +327,64 @@ describe("m0016-drop-assistant-guardian-tables", () => {
 
     const row = gatewayRequest("req-1")!;
     expect(row.status).toBe("approved");
+    expect(row.updated_at).toBe(900);
+  });
+
+  test("carries a late assistant-side decision onto a still-pending gateway row", async () => {
+    getGatewayDb()
+      .insert(guardianRequests)
+      .values({
+        id: "req-decided-late",
+        kind: "access_request",
+        sourceChannel: "telegram",
+        status: "pending",
+        createdAt: 100,
+        updatedAt: 200,
+      })
+      .run();
+    seedAssistantRequest({
+      id: "req-decided-late",
+      status: "approved",
+      answer_text: "yes",
+      decided_by_external_user_id: "guardian-1",
+      decided_by_principal_id: "principal-1",
+      followup_state: "notified",
+      updated_at: 500,
+    });
+
+    expect(await m0016Up()).toBe("done");
+
+    const row = gatewayRequest("req-decided-late")!;
+    expect(row.status).toBe("approved");
+    expect(row.answer_text).toBe("yes");
+    expect(row.decided_by_external_user_id).toBe("guardian-1");
+    expect(row.decided_by_principal_id).toBe("principal-1");
+    expect(row.followup_state).toBe("notified");
+    expect(row.updated_at).toBe(500);
+  });
+
+  test("never carries an assistant decision over a decided gateway row", async () => {
+    getGatewayDb()
+      .insert(guardianRequests)
+      .values({
+        id: "req-gw-decided",
+        kind: "access_request",
+        sourceChannel: "telegram",
+        status: "denied",
+        createdAt: 100,
+        updatedAt: 900,
+      })
+      .run();
+    seedAssistantRequest({
+      id: "req-gw-decided",
+      status: "approved",
+      updated_at: 950,
+    });
+
+    expect(await m0016Up()).toBe("done");
+
+    const row = gatewayRequest("req-gw-decided")!;
+    expect(row.status).toBe("denied");
     expect(row.updated_at).toBe(900);
   });
 
