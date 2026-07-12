@@ -271,9 +271,6 @@ mock.module("../../../../persistence/jobs-store.js", () => ({
   ) => {
     retrospectiveJobUpserts.push({ payload, runAfter });
   },
-  // The skill-card module's mid-turn deferral path; exercised in
-  // memory-retrospective-skill-card.test.ts, inert here.
-  upsertSkillCardInsertJob: () => {},
 }));
 
 // proc-to-skills gate. Drives both `buildForkInstruction`'s skill-authoring

@@ -17,6 +17,36 @@ mock.module("../daemon/skill-memory-refresh.js", () => ({
   refreshSkillCapabilityMemories: mockRefreshSkillCapabilityMemories,
 }));
 
+// Skill-card enqueue recorder. Snapshot + override (rather than a full module
+// replacement) because other modules in this import graph (e.g. the managed
+// store's capability seeding) import sibling jobs-store exports that must
+// keep working.
+import * as realJobsStore from "../persistence/jobs-store.js";
+
+let skillCardJobUpserts: Array<{
+  payload: {
+    sourceConversationId: string;
+    runConversationId: string;
+  } & Record<string, unknown>;
+  runAfter: number | undefined;
+}> = [];
+let skillCardUpsertThrows = false;
+mock.module("../persistence/jobs-store.js", () => ({
+  ...realJobsStore,
+  upsertSkillCardInsertJob: (
+    payload: {
+      sourceConversationId: string;
+      runConversationId: string;
+    } & Record<string, unknown>,
+    runAfter?: number,
+  ) => {
+    if (skillCardUpsertThrows) {
+      throw new Error("jobs db unavailable");
+    }
+    skillCardJobUpserts.push({ payload, runAfter });
+  },
+}));
+
 /**
  * Build the injected catalog seam for the ownership-backstop tests. Seeds the
  * given non-managed (bundled / plugin / workspace) or managed entry so the
@@ -56,6 +86,8 @@ function installMetaFor(skillId: string) {
 beforeEach(() => {
   mkdirSync(join(TEST_DIR, "skills"), { recursive: true });
   mockRefreshSkillCapabilityMemories.mockClear();
+  skillCardJobUpserts = [];
+  skillCardUpsertThrows = false;
 });
 
 afterEach(() => {
@@ -1092,5 +1124,234 @@ describe("scaffold_managed_skill tool", () => {
     expect(existsSync(join(TEST_DIR, "skills", "fresh-proc", "SKILL.md"))).toBe(
       true,
     );
+  });
+
+  // ── Skill-card enqueue at the creation site ─────────────────────────────
+
+  /** Lineage seam resolving the fork parent of the retrospective run. */
+  function lineageSeam() {
+    return {
+      getConversation: (id: string) =>
+        id === "retro-run-conv"
+          ? { forkParentConversationId: "source-conv" }
+          : null,
+    };
+  }
+
+  test("retrospective CREATE enqueues one skill_card_insert job with the normalized payload and resolved source id", async () => {
+    const result = await executeScaffoldManagedSkill(
+      {
+        skill_id: " card-skill ",
+        name: "  Card\nSkill  ",
+        description: " Does\r\ncard things ",
+        body_markdown: "Do the procedure.",
+        emoji: " 🧭 ",
+      },
+      makeRetrospectiveContext({ conversationId: "retro-run-conv" }),
+      lineageSeam(),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(skillCardJobUpserts).toHaveLength(1);
+    // The payload carries the executor's post-normalization values — the
+    // same trimmed/newline-collapsed strings persisted to the frontmatter —
+    // so the card links and labels the skill exactly as it exists on disk.
+    expect(skillCardJobUpserts[0]!.payload).toEqual({
+      sourceConversationId: "source-conv",
+      runConversationId: "retro-run-conv",
+      skills: [
+        {
+          skillId: "card-skill",
+          name: "Card Skill",
+          description: "Does card things",
+          emoji: "🧭",
+        },
+      ],
+    });
+  });
+
+  test("a whitespace-only emoji is omitted from the card payload", async () => {
+    const result = await executeScaffoldManagedSkill(
+      {
+        skill_id: "no-emoji-card",
+        name: "No Emoji",
+        description: "Card without an emoji",
+        body_markdown: "Do the procedure.",
+        emoji: " \n ",
+      },
+      makeRetrospectiveContext({ conversationId: "retro-run-conv" }),
+      lineageSeam(),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(skillCardJobUpserts).toHaveLength(1);
+    const skill = (
+      skillCardJobUpserts[0]!.payload.skills as Record<string, unknown>[]
+    )[0]!;
+    expect(skill.skillId).toBe("no-emoji-card");
+    expect("emoji" in skill).toBe(false);
+  });
+
+  test("retrospective CREATE with an unresolvable fork parent skips the enqueue but the scaffold still succeeds", async () => {
+    // Three unresolvable shapes: the run row is gone, the run is not a fork,
+    // and the lineage lookup throws.
+    const cases: Array<{
+      skillId: string;
+      lookup: () => { forkParentConversationId: string | null } | null;
+    }> = [
+      { skillId: "no-card-no-row", lookup: () => null },
+      {
+        skillId: "no-card-no-parent",
+        lookup: () => ({ forkParentConversationId: null }),
+      },
+      {
+        skillId: "no-card-throwing-lookup",
+        lookup: () => {
+          throw new Error("db unavailable");
+        },
+      },
+    ];
+
+    for (const { skillId, lookup } of cases) {
+      const result = await executeScaffoldManagedSkill(
+        {
+          skill_id: skillId,
+          name: "No Card",
+          description: "Fork parent not resolvable",
+          body_markdown: "Do the procedure.",
+        },
+        makeRetrospectiveContext({ conversationId: "retro-run-conv" }),
+        { getConversation: lookup },
+      );
+
+      expect(result.isError).toBe(false);
+      expect(existsSync(join(TEST_DIR, "skills", skillId, "SKILL.md"))).toBe(
+        true,
+      );
+    }
+    expect(skillCardJobUpserts).toHaveLength(0);
+  });
+
+  test("retrospective overwrite of an EXISTING skill (a refinement) does not enqueue a card", async () => {
+    // First pass: genuine create — enqueues.
+    await executeScaffoldManagedSkill(
+      {
+        skill_id: "refined-skill",
+        name: "Refined Skill",
+        description: "First pass",
+        body_markdown: "V1 procedure.",
+      },
+      makeRetrospectiveContext({ conversationId: "retro-run-conv" }),
+      lineageSeam(),
+    );
+    expect(skillCardJobUpserts).toHaveLength(1);
+    skillCardJobUpserts = [];
+
+    // Second pass: overwrite of the pre-existing skill — a refinement, no card.
+    const result = await executeScaffoldManagedSkill(
+      {
+        skill_id: "refined-skill",
+        name: "Refined Skill",
+        description: "Refined",
+        body_markdown: "V2 procedure.",
+        overwrite: true,
+      },
+      makeRetrospectiveContext({ conversationId: "retro-run-conv" }),
+      lineageSeam(),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(skillCardJobUpserts).toHaveLength(0);
+  });
+
+  test("retrospective overwrite:true on a skill that did NOT previously exist is still a create and enqueues", async () => {
+    const result = await executeScaffoldManagedSkill(
+      {
+        skill_id: "overwrite-fresh",
+        name: "Overwrite Fresh",
+        description: "Overwrite flag on a fresh id",
+        body_markdown: "Do the procedure.",
+        overwrite: true,
+      },
+      makeRetrospectiveContext({ conversationId: "retro-run-conv" }),
+      lineageSeam(),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(skillCardJobUpserts).toHaveLength(1);
+    expect(skillCardJobUpserts[0]!.payload.skills).toEqual([
+      {
+        skillId: "overwrite-fresh",
+        name: "Overwrite Fresh",
+        description: "Overwrite flag on a fresh id",
+      },
+    ]);
+  });
+
+  test("user-origin create never enqueues a card, even with resolvable lineage", async () => {
+    const result = await executeScaffoldManagedSkill(
+      {
+        skill_id: "user-no-card",
+        name: "User No Card",
+        description: "Authored interactively",
+        body_markdown: "Do the thing.",
+      },
+      makeContext({ conversationId: "retro-run-conv" }),
+      lineageSeam(),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(skillCardJobUpserts).toHaveLength(0);
+  });
+
+  test("a throwing enqueue never fails the scaffold — the skill is already created", async () => {
+    skillCardUpsertThrows = true;
+
+    const result = await executeScaffoldManagedSkill(
+      {
+        skill_id: "enqueue-throws",
+        name: "Enqueue Throws",
+        description: "Jobs DB unavailable at enqueue time",
+        body_markdown: "Do the procedure.",
+      },
+      makeRetrospectiveContext({ conversationId: "retro-run-conv" }),
+      lineageSeam(),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(
+      existsSync(join(TEST_DIR, "skills", "enqueue-throws", "SKILL.md")),
+    ).toBe(true);
+    expect(installMetaFor("enqueue-throws")?.author).toBe("assistant");
+  });
+
+  test("two creates in the same run enqueue one upsert per skill under the same run id (merge happens in the jobs store)", async () => {
+    for (const skillId of ["run-skill-a", "run-skill-b"]) {
+      const result = await executeScaffoldManagedSkill(
+        {
+          skill_id: skillId,
+          name: `Skill ${skillId}`,
+          description: `Does ${skillId}`,
+          body_markdown: "Do the procedure.",
+        },
+        makeRetrospectiveContext({ conversationId: "retro-run-conv" }),
+        lineageSeam(),
+      );
+      expect(result.isError).toBe(false);
+    }
+
+    // One upsert per created skill, all keyed to the same run + source — the
+    // jobs-store upsert coalesces them into a single pending payload (covered
+    // by jobs-store-skill-card-upsert.test.ts).
+    expect(skillCardJobUpserts).toHaveLength(2);
+    for (const upsert of skillCardJobUpserts) {
+      expect(upsert.payload.sourceConversationId).toBe("source-conv");
+      expect(upsert.payload.runConversationId).toBe("retro-run-conv");
+    }
+    expect(
+      skillCardJobUpserts.flatMap((u) =>
+        (u.payload.skills as Array<{ skillId: string }>).map((s) => s.skillId),
+      ),
+    ).toEqual(["run-skill-a", "run-skill-b"]);
   });
 });
