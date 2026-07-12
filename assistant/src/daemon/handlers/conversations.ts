@@ -1,5 +1,5 @@
 import { peekAcpSessionManager } from "../../acp/index.js";
-import { resolveCanonicalGuardianRequest } from "../../contacts/canonical-guardian-store.js";
+import { decideGuardianRequest } from "../../channels/gateway-guardian-requests.js";
 import {
   clearAll,
   getConversation,
@@ -373,16 +373,17 @@ export function steerOnEnqueuedMessageIfQuestionParked(
  * is enqueued for a busy conversation. Centralized so every ingress path (the
  * HTTP send handler and the CLI signal path) gets identical handling:
  *
- *  1. Auto-deny pending confirmations — notify the client and sync the
- *     canonical guardian record *before* clearing the prompter-owned
+ *  1. Auto-deny pending confirmations — notify the client and issue the
+ *     gateway request-status sync *before* clearing the prompter-owned
  *     confirmations, so a later guardian reply can't match a stale "pending"
  *     record and fail with `pending_interaction_not_found`.
  *  2. Supersede a parked ask_question by steering to the enqueued message.
  *
  * Order matters: the steer aborts the turn, which denies the prompter's
- * confirmations as a side effect, so the canonical/notification sync must run
- * first. `removeByConversation` preserves `question` entries, so the parked
- * question is still registered for the steer even after the confirmation sweep.
+ * confirmations as a side effect, so the status/notification sync must be
+ * issued first. `removeByConversation` preserves `question` entries, so the
+ * parked question is still registered for the steer even after the
+ * confirmation sweep.
  */
 export function supersedePendingInteractionsOnEnqueue(
   conversationId: string,
@@ -403,10 +404,19 @@ export function supersedePendingInteractionsOnEnqueue(
           state: "denied" as const,
           source: "auto_deny" as const,
         });
-        // Sync the canonical guardian record so stale "pending" rows aren't
-        // matched by later guardian reply routing.
-        resolveCanonicalGuardianRequest(interaction.requestId, "pending", {
+        // Sync the gateway request so stale "pending" rows aren't matched
+        // by later guardian reply routing. Fire-and-forget from this sync
+        // path: the in-memory denial is authoritative, and a CAS miss
+        // (already decided elsewhere) is expected and harmless.
+        void decideGuardianRequest({
+          id: interaction.requestId,
+          expectedStatus: "pending",
           status: "denied",
+        }).catch((err) => {
+          log.warn(
+            { err, requestId: interaction.requestId },
+            "Auto-deny guardian request status sync failed",
+          );
         });
       }
     }

@@ -144,12 +144,14 @@ export function expireInteractionBoundRequests(): ExpireInteractionBoundIpcRespo
 
 /**
  * Deadline sweep: CAS-expires past-`expiresAt` pending requests and returns
- * their ids for daemon-side card-withdrawal / notification fan-out.
+ * the expired rows for daemon-side card-withdrawal / notification fan-out.
  */
 export function sweepExpiredRequests(
   now?: number,
 ): SweepExpiredGuardianRequestsIpcResponse {
-  return { expired: sweepExpiredGuardianRequests(now) };
+  return {
+    expired: sweepExpiredGuardianRequests(now).map(toGuardianRequestWire),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -455,8 +457,10 @@ function applyContactSeedOutcome(
 ): OutcomeGatewayWrites & { contactId: string; canonicalAddress: string } {
   const store = contactStore;
   const canonicalAddress =
-    canonicalizeInboundIdentity(outcome.sourceChannel, outcome.externalUserId) ??
-    outcome.externalUserId.trim();
+    canonicalizeInboundIdentity(
+      outcome.sourceChannel,
+      outcome.externalUserId,
+    ) ?? outcome.externalUserId.trim();
 
   const { contactId, mirrorParams } = store.upsertContactGatewayWrites({
     displayName: outcome.displayName,
@@ -472,7 +476,8 @@ function applyContactSeedOutcome(
   return {
     contactId,
     canonicalAddress,
-    postCommit: () => store.mirrorContactUpsertBestEffort(contactId, mirrorParams),
+    postCommit: () =>
+      store.mirrorContactUpsertBestEffort(contactId, mirrorParams),
   };
 }
 

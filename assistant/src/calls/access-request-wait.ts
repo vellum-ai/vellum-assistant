@@ -5,7 +5,7 @@
  * decoupled from any transport's WebSocket lifecycle.
  */
 
-import { getCanonicalGuardianRequest } from "../contacts/canonical-guardian-store.js";
+import { getGuardianRequestOrNull } from "../channels/gateway-guardian-requests.js";
 import { findContactChannel } from "../contacts/contact-store.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import { getCachedMemberAcl } from "../runtime/member-verdict-cache.js";
@@ -238,11 +238,6 @@ export function emitAccessRequestCallbackHandoff(
 
   const fromNumber = params.accessRequestFromNumber ?? null;
 
-  // Resolve canonical request for requestCode and conversationId
-  const canonicalRequest = params.accessRequestId
-    ? getCanonicalGuardianRequest(params.accessRequestId)
-    : null;
-
   // Resolve trusted-contact member reference when possible. Sync teardown
   // path: reads the member-verdict cache warmed by this call's setup-time
   // verdict fetch rather than awaiting a fresh gateway read.
@@ -269,36 +264,41 @@ export function emitAccessRequestCallbackHandoff(
   }
 
   const dedupeKey = `access-request-callback-handoff:${params.accessRequestId}`;
-  const sourceContextId =
-    canonicalRequest?.conversationId ??
-    `access-req-callback-${params.accessRequestId}`;
 
-  void emitNotificationSignal({
-    sourceEventName: "ingress.access_request.callback_handoff",
-    sourceChannel: "phone",
-    sourceContextId,
-    attentionHints: {
-      requiresAction: false,
-      urgency: "medium",
-      isAsyncBackground: true,
-      visibleInSourceNow: false,
-    },
-    contextPayload: {
-      requestId: params.accessRequestId,
-      requestCode: canonicalRequest?.requestCode ?? null,
-      callSessionId: params.callSessionId,
-      sourceChannel: "phone",
-      reason: params.reason,
-      callbackOptIn: true,
-      callerPhoneNumber: fromNumber,
-      callerName: params.accessRequestCallerName ?? null,
-      requesterExternalUserId: fromNumber,
-      requesterChatId: fromNumber,
-      requesterMemberId,
-      requesterMemberSourceChannel: requesterMemberId ? "phone" : null,
-    },
-    dedupeKey,
-  })
+  // The request row only enriches the notification (requestCode + source
+  // conversation), so the gateway read degrades to null on failure and the
+  // handoff still goes out.
+  void getGuardianRequestOrNull(params.accessRequestId)
+    .then((request) =>
+      emitNotificationSignal({
+        sourceEventName: "ingress.access_request.callback_handoff",
+        sourceChannel: "phone",
+        sourceContextId:
+          request?.sourceConversationId ??
+          `access-req-callback-${params.accessRequestId}`,
+        attentionHints: {
+          requiresAction: false,
+          urgency: "medium",
+          isAsyncBackground: true,
+          visibleInSourceNow: false,
+        },
+        contextPayload: {
+          requestId: params.accessRequestId,
+          requestCode: request?.requestCode ?? null,
+          callSessionId: params.callSessionId,
+          sourceChannel: "phone",
+          reason: params.reason,
+          callbackOptIn: true,
+          callerPhoneNumber: fromNumber,
+          callerName: params.accessRequestCallerName ?? null,
+          requesterExternalUserId: fromNumber,
+          requesterChatId: fromNumber,
+          requesterMemberId,
+          requesterMemberSourceChannel: requesterMemberId ? "phone" : null,
+        },
+        dedupeKey,
+      }),
+    )
     .then(() => {
       recordCallEvent(params.callSessionId, "callback_handoff_notified", {
         requestId: params.accessRequestId,

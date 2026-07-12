@@ -472,7 +472,7 @@ describe("expireAllPendingInteractionBound", () => {
 // ---------------------------------------------------------------------------
 
 describe("sweepExpiredGuardianRequests", () => {
-  test("expires past-deadline pending rows and returns their ids", () => {
+  test("expires past-deadline pending rows and returns their rows", () => {
     const stale1 = createRequest({ expiresAt: PAST() });
     const stale2 = createRequest({
       kind: "tool_approval",
@@ -485,7 +485,12 @@ describe("sweepExpiredGuardianRequests", () => {
 
     const expired = sweepExpiredGuardianRequests();
 
-    expect(expired.sort()).toEqual([stale1.id, stale2.id].sort());
+    expect(expired.map((row) => row.id).sort()).toEqual(
+      [stale1.id, stale2.id].sort(),
+    );
+    for (const row of expired) {
+      expect(row.status).toBe("expired");
+    }
     expect(getGuardianRequest(stale1.id)?.status).toBe("expired");
     expect(getGuardianRequest(stale2.id)?.status).toBe("expired");
     expect(getGuardianRequest(fresh.id)?.status).toBe("pending");

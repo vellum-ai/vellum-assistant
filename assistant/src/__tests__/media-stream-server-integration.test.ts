@@ -392,11 +392,13 @@ mock.module("../runtime/access-request-helper.js", () => ({
   notifyGuardianOfAccessRequest: mockNotifyGuardianOfAccessRequest,
 }));
 
-// Canonical guardian-request store polled by the guardian wait controller.
+// Gateway guardian-request client polled by the guardian wait controller.
 let mockCanonicalRequest: { status: string } | null = null;
-const mockGetCanonicalGuardianRequest = jest.fn(() => mockCanonicalRequest);
-mock.module("../contacts/canonical-guardian-store.js", () => ({
-  getCanonicalGuardianRequest: mockGetCanonicalGuardianRequest,
+const mockGetCanonicalGuardianRequest = jest.fn(
+  async () => mockCanonicalRequest,
+);
+mock.module("../channels/gateway-guardian-requests.js", () => ({
+  getGuardianRequestOrNull: mockGetCanonicalGuardianRequest,
 }));
 
 // Wait-state helpers: no heartbeats in tests; capture callback handoffs.
@@ -445,7 +447,9 @@ function createMockWs() {
   return {
     ws: {
       send(data: string) {
-        if (closed) {throw new Error("WebSocket is closed");}
+        if (closed) {
+          throw new Error("WebSocket is closed");
+        }
         sent.push(data);
       },
       close(code?: number, reason?: string) {

@@ -13,9 +13,9 @@
  * affordances (it does not delete the message/card) so each surface keeps an
  * audit trail of what was decided.
  *
- * It is driven off `canonical_guardian_deliveries` — the per-request registry of
- * where each card was sent — so it stays correct as surfaces are added and is
- * agnostic to which surface originated the decision.
+ * It is driven off the gateway's `guardian_request_deliveries` — the
+ * per-request registry of where each card was sent — so it stays correct as
+ * surfaces are added and is agnostic to which surface originated the decision.
  *
  * Best-effort by contract: the request is already resolved (CAS committed)
  * before this runs, so a failed edit must never surface as a decision failure.
@@ -23,10 +23,10 @@
  */
 
 import {
-  type CanonicalGuardianDelivery,
-  type CanonicalRequestStatus,
-  listCanonicalGuardianDeliveries,
-} from "../contacts/canonical-guardian-store.js";
+  type GuardianRequestDeliveryWire,
+  type GuardianRequestStatus,
+  listGuardianRequestDeliveries,
+} from "../channels/gateway-guardian-requests.js";
 import { completeSurfaceAndNotify } from "../daemon/conversation-surfaces.js";
 import { withdrawSlackApprovalCard } from "../messaging/providers/slack/withdraw.js";
 import { approvalCardSurfaceId } from "../notifications/approval-card-data.js";
@@ -35,17 +35,14 @@ import { getLogger } from "../util/logger.js";
 const log = getLogger("guardian-card-withdrawal");
 
 /** Completion-summary label shown on an in-app card for a resolved request. */
-const SURFACE_STATUS_LABELS: Partial<Record<CanonicalRequestStatus, string>> = {
+const SURFACE_STATUS_LABELS: Partial<Record<GuardianRequestStatus, string>> = {
   approved: "Approved",
   denied: "Denied",
   expired: "Expired",
   cancelled: "Cancelled",
 };
 
-/**
- * The request fields withdrawal reads — structural so both assistant-store
- * rows and gateway wire rows satisfy it.
- */
+/** The request fields withdrawal reads — structural subset of the wire row. */
 export interface WithdrawableGuardianRequest {
   id: string;
   kind: string;
@@ -57,7 +54,7 @@ export interface WithdrawGuardianCardsParams {
   /** The request, already transitioned to its terminal status. */
   request: WithdrawableGuardianRequest;
   /** Terminal status to reflect on each card. */
-  status: CanonicalRequestStatus;
+  status: GuardianRequestStatus;
   /**
    * Channel the decision originated on, when applicable.
    *
@@ -78,9 +75,9 @@ export async function withdrawGuardianRequestCards(
 ): Promise<void> {
   const { request, status, originChannel } = params;
 
-  let deliveries: CanonicalGuardianDelivery[];
+  let deliveries: GuardianRequestDeliveryWire[];
   try {
-    deliveries = listCanonicalGuardianDeliveries(request.id);
+    deliveries = await listGuardianRequestDeliveries(request.id);
   } catch (err) {
     log.warn(
       { err, requestId: request.id },
@@ -119,8 +116,8 @@ export async function withdrawGuardianRequestCards(
  */
 function withdrawVellumCard(
   request: WithdrawableGuardianRequest,
-  delivery: CanonicalGuardianDelivery,
-  status: CanonicalRequestStatus,
+  delivery: GuardianRequestDeliveryWire,
+  status: GuardianRequestStatus,
   originChannel: string | undefined,
 ): void {
   if (originChannel === "vellum") return;
@@ -141,8 +138,8 @@ function withdrawVellumCard(
  */
 async function withdrawSlackCard(
   request: WithdrawableGuardianRequest,
-  delivery: CanonicalGuardianDelivery,
-  status: CanonicalRequestStatus,
+  delivery: GuardianRequestDeliveryWire,
+  status: GuardianRequestStatus,
 ): Promise<void> {
   if (!delivery.destinationChatId || !delivery.destinationMessageId) return;
   await withdrawSlackApprovalCard({

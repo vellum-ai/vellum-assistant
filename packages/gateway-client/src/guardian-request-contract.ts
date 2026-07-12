@@ -186,8 +186,9 @@ export type GuardianRequestLookupIpcResponse = z.infer<
 >;
 
 /** Shared response for request list reads. */
-export const GuardianRequestListIpcResponseSchema =
-  z.array(GuardianRequestSchema);
+export const GuardianRequestListIpcResponseSchema = z.array(
+  GuardianRequestSchema,
+);
 
 export type GuardianRequestListIpcResponse = z.infer<
   typeof GuardianRequestListIpcResponseSchema
@@ -500,11 +501,12 @@ export type SweepExpiredGuardianRequestsIpcParams = z.infer<
 >;
 
 /**
- * Response for `guardian_requests_sweep_expired`: ids of requests the sweep
- * expired, for daemon-side notification/card-withdrawal fan-out.
+ * Response for `guardian_requests_sweep_expired`: the full expired rows, so
+ * the daemon's card-withdrawal/notification fan-out never needs a follow-up
+ * read that could fail after the status flip and strand the side effects.
  */
 export const SweepExpiredGuardianRequestsIpcResponseSchema = z.object({
-  expired: z.array(z.string()),
+  expired: z.array(GuardianRequestSchema),
 });
 
 export type SweepExpiredGuardianRequestsIpcResponse = z.infer<

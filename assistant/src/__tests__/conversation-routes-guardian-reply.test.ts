@@ -50,18 +50,15 @@ mock.module("../channels/gateway-guardian-requests.js", () => ({
     ...params,
     requestCode: "ABC123",
   }),
-}));
-
-mock.module("../contacts/canonical-guardian-store.js", () => ({
-  listPendingCanonicalGuardianRequestsByDestinationConversation: (
-    conversationId: string,
-    sourceChannel?: string,
-  ) => listPendingByDestinationMock(conversationId, sourceChannel),
-  listCanonicalGuardianRequests: (filters?: Record<string, unknown>) =>
+  listGuardianRequestsOrEmpty: async (filters?: Record<string, unknown>) =>
     listCanonicalMock(filters),
-  listPendingRequestsByConversationScope: (conversationId: string) => {
+  expireGuardianRequest: async () => {},
+  listPendingRequestsByScopeOrEmpty: async (conversationId: string) => {
     const byDest = listPendingByDestinationMock(conversationId);
-    const bySrc = listCanonicalMock({ status: "pending", conversationId });
+    const bySrc = listCanonicalMock({
+      status: "pending",
+      sourceConversationId: conversationId,
+    });
     const seen = new Set<string>();
     const result: Array<{ id: string; kind?: string }> = [];
     for (const r of [...bySrc, ...byDest]) {
@@ -91,9 +88,8 @@ mock.module("../persistence/conversation-crud.js", () => ({
   recordConversationPersistedSeq: () => {},
 }));
 
-const realLocalActorIdentity = await import(
-  "../runtime/local-actor-identity.js"
-);
+const realLocalActorIdentity =
+  await import("../runtime/local-actor-identity.js");
 mock.module("../runtime/local-actor-identity.js", () => ({
   ...realLocalActorIdentity,
 }));

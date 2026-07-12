@@ -75,11 +75,11 @@ import {
 } from "./middleware/twilio-validation.js";
 import { ROUTES as APP_ROUTES } from "./routes/app-routes.js";
 import { ROUTES as AUDIO_ROUTES } from "./routes/audio-routes.js";
-import {
-  startCanonicalGuardianExpirySweep,
-  stopCanonicalGuardianExpirySweep,
-} from "./routes/canonical-guardian-expiry-sweep.js";
 import { RouteError } from "./routes/errors.js";
+import {
+  startGuardianExpirySweep,
+  stopGuardianExpirySweep,
+} from "./routes/guardian-expiry-sweep.js";
 import {
   dbMigrationUnavailableResponse,
   handleHealth,
@@ -490,15 +490,15 @@ export class RuntimeHttpServer {
       }, 30_000);
     }
 
-    startCanonicalGuardianExpirySweep();
-    log.info("Canonical guardian request expiry sweep started");
+    startGuardianExpirySweep();
+    log.info("Guardian request expiry sweep started");
 
     startInferenceProfileSessionReaper();
     log.info("Inference profile session reaper started");
   }
 
   async stop(): Promise<void> {
-    stopCanonicalGuardianExpirySweep();
+    stopGuardianExpirySweep();
     stopInferenceProfileSessionReaper();
     if (this.retrySweepTimer) {
       clearInterval(this.retrySweepTimer);

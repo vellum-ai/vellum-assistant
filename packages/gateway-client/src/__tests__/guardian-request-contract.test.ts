@@ -248,9 +248,9 @@ describe("list + update IPC schemas", () => {
       },
     };
     expect(UpdateGuardianRequestIpcParamsSchema.parse(params)).toEqual(params);
-    expect(GuardianRequestMutationIpcResponseSchema.parse({ ok: true })).toEqual(
-      { ok: true },
-    );
+    expect(
+      GuardianRequestMutationIpcResponseSchema.parse({ ok: true }),
+    ).toEqual({ ok: true });
     expect(() =>
       GuardianRequestMutationIpcResponseSchema.parse({ ok: false }),
     ).toThrow();
@@ -434,11 +434,18 @@ describe("reopen + expiry IPC schemas", () => {
       }),
     ).toEqual({ now: 1_700_000_000_000 });
     expect(SweepExpiredGuardianRequestsIpcParamsSchema.parse({})).toEqual({});
+    // The sweep returns full rows so the daemon fan-out never re-reads.
+    const expiredRow = { ...accessRequest, status: "expired" as const };
     expect(
       SweepExpiredGuardianRequestsIpcResponseSchema.parse({
-        expired: ["req-1", "req-2"],
+        expired: [expiredRow],
       }),
-    ).toEqual({ expired: ["req-1", "req-2"] });
+    ).toEqual({ expired: [expiredRow] });
+    expect(() =>
+      SweepExpiredGuardianRequestsIpcResponseSchema.parse({
+        expired: ["req-1"],
+      }),
+    ).toThrow();
 
     expect(
       ExpireInteractionBoundIpcResponseSchema.parse({ expired: 3 }),
