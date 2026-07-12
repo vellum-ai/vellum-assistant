@@ -44,7 +44,7 @@ function proxyExecute(toolName: string) {
 // app_open
 // ---------------------------------------------------------------------------
 
-const appOpenTool = {
+export const appOpenTool = {
   name: "app_open",
   description:
     "Open a persistent app in a dynamic_page surface on the connected client.",
@@ -71,9 +71,3 @@ const appOpenTool = {
 
   execute: proxyExecute("app_open"),
 } satisfies ToolDefinition;
-
-// ---------------------------------------------------------------------------
-// Proxy-only tools registered in the core daemon registry
-// ---------------------------------------------------------------------------
-
-export const coreAppProxyTools: ToolDefinition[] = [appOpenTool];

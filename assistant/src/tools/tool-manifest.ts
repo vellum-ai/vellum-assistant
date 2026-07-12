@@ -7,7 +7,7 @@
  */
 
 import { recallTool, rememberTool } from "../plugins/defaults/memory/tools.js";
-import { coreAppProxyTools } from "./apps/definitions.js";
+import { appOpenTool } from "./apps/definitions.js";
 import { askQuestionTool } from "./ask-question/ask-question-tool.js";
 import { fileEditTool } from "./filesystem/edit.js";
 import { fileListTool } from "./filesystem/list.js";
@@ -27,7 +27,11 @@ import { notifyParentTool } from "./subagent/notify-parent.js";
 import { requestSystemPermissionTool } from "./system/request-permission.js";
 import { shellTool } from "./terminal/shell.js";
 import type { ToolDefinition } from "./types.js";
-import { allUiSurfaceTools } from "./ui-surface/definitions.js";
+import {
+  uiDismissTool,
+  uiShowTool,
+  uiUpdateTool,
+} from "./ui-surface/definitions.js";
 
 // ── Explicit tool instances ─────────────────────────────────────────
 // Core tools registered by initializeTools(). Tool modules only export
@@ -62,6 +66,8 @@ export const explicitTools: ToolDefinition[] = [
   hostFileEditTool,
   hostFileTransferTool,
   hostShellTool,
-  ...allUiSurfaceTools,
-  ...coreAppProxyTools,
+  uiShowTool,
+  uiUpdateTool,
+  uiDismissTool,
+  appOpenTool,
 ];
