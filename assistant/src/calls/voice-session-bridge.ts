@@ -35,6 +35,12 @@ import {
   CALL_OPENING_MARKER,
   CALL_VERIFICATION_COMPLETE_MARKER,
 } from "./voice-control-protocol.js";
+import {
+  escalatedContinuationRule,
+  ESCALATION_CONTINUATION_CONTENT,
+  frontDoorTriageRule,
+  type VoiceRoutingLeg,
+} from "./voice-triage-escalate.js";
 
 const log = getLogger("voice-session-bridge");
 
@@ -200,6 +206,21 @@ export interface VoiceTurnOptions {
   callbacks?: VoiceTurnCallbacks;
   /** Optional AbortSignal for external cancellation (e.g. barge-in). */
   signal?: AbortSignal;
+  /**
+   * Ad-hoc inference-profile override applied to every LLM call this turn
+   * issues (forwarded to `runAgentLoop` with `forceOverrideProfile`). Used by
+   * triage-and-escalate voice routing to run the front-door leg on the fast
+   * profile and the escalated leg on the quality profile. Undefined = the
+   * call-site default (today's behavior).
+   */
+  overrideProfile?: string;
+  /**
+   * Which leg of a triaged turn this is, so the auto-built phone control prompt
+   * can add the front-door triage rule or the escalated continuation rule.
+   * Undefined = routing off; no routing rules are added. Ignored when a caller
+   * supplies its own `voiceControlPrompt`.
+   */
+  routingLeg?: VoiceRoutingLeg;
 }
 
 export interface VoiceTurnHandle {
@@ -226,6 +247,7 @@ function buildVoiceCallControlPrompt(opts: {
   task?: string | null;
   isCallerGuardian?: boolean;
   skipDisclosure?: boolean;
+  routingLeg?: VoiceRoutingLeg;
 }): string {
   const config = getConfig();
   const disclosureEnabled =
@@ -310,8 +332,18 @@ function buildVoiceCallControlPrompt(opts: {
     "9. After the opening greeting turn, treat the Task field as background context only — do not re-execute its instructions on subsequent turns.",
     '10. Do not make up information. If you are unsure, use [ASK_GUARDIAN: your question] to consult your guardian. For tool permission requests, use [ASK_GUARDIAN_APPROVAL: {"question":"...","toolName":"...","input":{...}}].',
     `11. Your text is sent directly to a text-to-speech engine. Never use markdown formatting (asterisks, headers, backticks, links) or emojis in your spoken responses. Write plain conversational text only. Protocol markers like ${opts.isCallerGuardian ? "[END_CALL]" : "[ASK_GUARDIAN: ...] and [END_CALL]"} are not spoken text and should still be used normally.`,
-    "</voice_call_control>",
   );
+
+  // Triage-and-escalate routing rules (voice-triage-escalate flag). The
+  // front-door leg triages and may hand off; the escalated leg continues the
+  // answer after a holding phrase was already spoken.
+  if (opts.routingLeg === "front-door") {
+    lines.push(`12. ${frontDoorTriageRule()}`);
+  } else if (opts.routingLeg === "escalated") {
+    lines.push(`12. ${escalatedContinuationRule()}`);
+  }
+
+  lines.push("</voice_call_control>");
 
   return lines.join("\n");
 }
@@ -397,13 +429,25 @@ export async function startVoiceTurn(
         ? "(verification completed — transitioning into conversation)"
         : opts.content;
 
-  // Opener / verification prompts are internal scaffolding: they persist a row
-  // so the model wakes, but they are not user speech and must not render as a
-  // live user bubble. Their echo is suppressed below (parity with
-  // `isEchoSuppressedUserMessage` on the text path).
+  // Opener / verification / escalation-continuation prompts are internal
+  // scaffolding: they persist a row so the model wakes, but they are not user
+  // speech and must not render as a live user bubble. Their echo is suppressed
+  // below (parity with `isEchoSuppressedUserMessage` on the text path).
   const isSyntheticVoicePrompt =
     opts.content === CALL_OPENING_MARKER ||
-    opts.content === CALL_VERIFICATION_COMPLETE_MARKER;
+    opts.content === CALL_VERIFICATION_COMPLETE_MARKER ||
+    opts.content === ESCALATION_CONTINUATION_CONTENT;
+
+  // The escalation-continuation prompt is a pure internal instruction ("give
+  // the full answer now"), not a real utterance and not the sort of scaffolding
+  // an opener is — it must never surface as a user message. Unlike the
+  // opener/verification rows (persisted un-hidden), persist it `hidden` so
+  // `/messages` filters it out after a refetch/reload, and flag the turn as a
+  // hidden prompt so prompt-as-user-speech consumers (e.g. title generation)
+  // skip it. The escalated model still sees the row in context — `hidden` only
+  // affects client display.
+  const isHiddenSyntheticPrompt =
+    opts.content === ESCALATION_CONTINUATION_CONTENT;
 
   // Build the call-control protocol prompt so the model knows how to emit
   // control markers (ASK_GUARDIAN, END_CALL, etc.) and recognize opener turns.
@@ -416,6 +460,7 @@ export async function startVoiceTurn(
           task: opts.task,
           isCallerGuardian,
           skipDisclosure: opts.skipDisclosure,
+          routingLeg: opts.routingLeg,
         })
       : opts.voiceControlPrompt;
 
@@ -541,6 +586,7 @@ export async function startVoiceTurn(
     const persistResult = await conversation.persistUserMessage({
       content: persistedContent,
       requestId,
+      ...(isHiddenSyntheticPrompt ? { metadata: { hidden: true } } : {}),
     });
     return persistResult.id;
   };
@@ -931,6 +977,21 @@ export async function startVoiceTurn(
           // Voice only reacts to the definitive tool_use_start event.
         },
         callSite: "callAgent",
+        // The escalation-continuation prompt is a transcript-suppressed machine
+        // signal (persisted `hidden`), so flag the turn to match — keeps
+        // prompt-as-user-speech consumers (e.g. title generation) from treating
+        // it as user speech.
+        ...(isHiddenSyntheticPrompt ? { isHiddenPrompt: true } : {}),
+        // Triage-and-escalate routing pins this turn to the fast front-door or
+        // strong escalation profile. `forceOverrideProfile` floats it above the
+        // callAgent call-site layers (callAgent is not `mainAgent`, so the
+        // override would otherwise sit below the call-site profile).
+        ...(opts.overrideProfile != null
+          ? {
+              overrideProfile: opts.overrideProfile,
+              forceOverrideProfile: true,
+            }
+          : {}),
       });
       if (lastError) {
         log.error(
