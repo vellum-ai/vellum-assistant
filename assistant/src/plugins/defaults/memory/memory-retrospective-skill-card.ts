@@ -15,6 +15,19 @@
 // still send a non-empty assistant turn and flat-text consumers (CLI, search,
 // channel replies) see readable content.
 //
+// Enqueues fire at the creation site — one per scaffold call, DURING the
+// retrospective fork run — and the jobs-store upsert coalesces them by run
+// conversation id into a single pending row. Delivery therefore defers while
+// the RUN conversation is still processing: the source conversation is
+// usually idle mid-run, so without this gate the worker could deliver skill
+// A's card before skill B's enqueue lands, and B's job would then dedup
+// against the inserted message (`clientMessageId` is run-derived) and never
+// appear on any card. Holding delivery until the run finishes guarantees
+// every creation from that run has merged into the pending row first — the
+// card is always complete. A run conversation that no longer exists
+// (superseded-fork GC) counts as finished: a fork can't be processing once
+// its row is gone, and the card must still deliver.
+//
 // A source conversation that is MID-TURN never gets the card inserted
 // directly — incremental checkpoint persistence writes tool turns to the DB
 // while the agent loop is still running, so a card row could land between a
@@ -22,9 +35,10 @@
 // history linearly (the OpenAI-compatible chat-completions provider) would
 // then emit `assistant(tool_calls) → assistant(text) → tool(...)`, and strict
 // backends reject `tool` messages that don't directly follow their
-// `tool_calls` message — wedging the conversation. A mid-turn delivery
-// attempt re-upserts the job on a short cadence until the turn ends, so the
-// card is still always delivered (queue-until-turn-end).
+// `tool_calls` message — wedging the conversation. A deferred delivery
+// attempt (run still processing OR source mid-turn) re-upserts the job on a
+// short cadence until both gates clear, so the card is still always
+// delivered (queue-until-run-and-turn-end).
 //
 // The job handler (`skillCardInsertJob`) lets persistence errors propagate so
 // the jobs worker's retry machinery covers transient failures; the
@@ -62,21 +76,22 @@ export interface AuthoredSkill {
 }
 
 /**
- * Delay before a deferred `skill_card_insert` job (re-)checks the source
- * conversation's turn state. Each still-mid-turn attempt re-upserts itself at
- * this cadence, so the loop self-resolves as soon as the turn ends; there is
- * no attempt cap because the exit conditions (turn ended → insert, source
- * deleted → drop) are guaranteed to be reached.
+ * Delay before a deferred `skill_card_insert` job (re-)checks its delivery
+ * gates (run conversation finished, source conversation idle). Each deferred
+ * attempt re-upserts itself at this cadence, so the loop self-resolves as
+ * soon as the gates clear; there is no attempt cap because the exit
+ * conditions (run finished/GC'd and turn ended → insert, source deleted →
+ * drop) are guaranteed to be reached.
  */
 export const SKILL_CARD_INSERT_RETRY_DELAY_MS = 30_000;
 
 /**
  * Best-effort insert-or-defer entry point: insert the skill card into the
- * source conversation — or, when the source is mid-turn, queue a durable
- * `skill_card_insert` job so the card lands after the turn ends (see the
- * module header for why a mid-turn insert must never happen). Failures
- * (insert AND enqueue) are logged and never thrown, so a card problem never
- * fails the caller.
+ * source conversation — or, when the run is still processing or the source
+ * is mid-turn, queue a durable `skill_card_insert` job so the card lands
+ * after both gates clear (see the module header for why an early insert must
+ * never happen). Failures (insert AND enqueue) are logged and never thrown,
+ * so a card problem never fails the caller.
  */
 export async function insertSkillCardMessage(
   sourceConversationId: string,
@@ -111,14 +126,16 @@ interface SkillCardInsertJobPayload {
 
 /**
  * Job handler for `skill_card_insert` (registered in `job-handlers.ts`): the
- * delivery of a retrospective run's authored-skill card. Re-checks the source
- * conversation — deleted → drop with a log; mid-turn → re-upsert itself at
+ * delivery of a retrospective run's authored-skill card. Re-checks the
+ * delivery gates — source deleted → drop with a log; run conversation still
+ * processing OR source mid-turn → re-upsert itself at
  * {@link SKILL_CARD_INSERT_RETRY_DELAY_MS} (the currently claimed row is
- * `running`, so the upsert creates a fresh pending row and the attempt
- * counter never accumulates); idle → insert. A malformed payload is dropped
- * with a warning. Persistence errors PROPAGATE so the jobs worker's standard
- * retry-with-backoff covers transient failures; a retried insert after a
- * success is deduplicated by `clientMessageId`.
+ * `running`, so the upsert creates a fresh pending row that later enqueues
+ * from the same run merge into, and the attempt counter never accumulates);
+ * run finished (or GC'd) and source idle → insert. A malformed payload is
+ * dropped with a warning. Persistence errors PROPAGATE so the jobs worker's
+ * standard retry-with-backoff covers transient failures; a retried insert
+ * after a success is deduplicated by `clientMessageId`.
  */
 export async function skillCardInsertJob(job: MemoryJob): Promise<void> {
   const payload = parseSkillCardInsertPayload(job.payload);
@@ -185,9 +202,9 @@ function parseSkillCardInsertPayload(
 
 /**
  * Shared insert-or-defer core behind both {@link insertSkillCardMessage} and
- * {@link skillCardInsertJob}. When the source is idle, appends the
- * `skill_card` ui_surface message (plus its `_surfaceFallback` text sibling)
- * and notifies connected clients. The `surfaceId` (doubling as the insert's
+ * {@link skillCardInsertJob}. When the run conversation has finished (or was
+ * GC'd) and the source is idle, appends the `skill_card` ui_surface message
+ * (plus its `_surfaceFallback` text sibling) and notifies connected clients. The `surfaceId` (doubling as the insert's
  * idempotency nonce via `clientMessageId`) is derived from the run
  * conversation id, so a retried delivery cannot produce two cards for one
  * run — a deduplicated insert also skips the disk-view sync and client
@@ -209,6 +226,32 @@ async function insertOrDeferSkillCard(
     log.info(
       { sourceConversationId, runConversationId },
       "skill card: source conversation no longer exists; skipping",
+    );
+    return;
+  }
+  // Run still processing: defer rather than insert. Enqueues fire per
+  // scaffold call DURING the fork run, and the jobs-store upsert coalesces
+  // them by run conversation id — delivering before the run finishes could
+  // let a later creation from the same run dedup against this insert's
+  // run-derived `clientMessageId` and never appear on any card (see module
+  // header). A missing run conversation counts as finished: superseded-fork
+  // GC deletes the row, and a fork can't be processing without one, so the
+  // card must still deliver. (`isConversationProcessing` already reads
+  // `false` for a nonexistent id; the explicit existence check pins that
+  // missing-row-wins semantics against its in-memory fast path.)
+  const runConversation = await getConversation(runConversationId);
+  if (runConversation && (await isConversationProcessing(runConversationId))) {
+    upsertSkillCardInsertJob(
+      { sourceConversationId, runConversationId, skills },
+      Date.now() + SKILL_CARD_INSERT_RETRY_DELAY_MS,
+    );
+    log.info(
+      {
+        sourceConversationId,
+        runConversationId,
+        retryDelayMs: SKILL_CARD_INSERT_RETRY_DELAY_MS,
+      },
+      "skill card: run conversation is still processing; deferred via skill_card_insert job",
     );
     return;
   }

@@ -388,21 +388,51 @@ describe("memory-retrospective skill card", () => {
     expect(skillCardJobUpserts).toHaveLength(0);
   });
 
-  test("handler batches a multi-skill payload into ONE card message", async () => {
-    // A run that authors several skills coalesces into one pending job (the
-    // jobs-store upsert merges by runConversationId), so the handler must
-    // render every skill in a single ui_surface block.
+  test("multi-skill run: A's job defers mid-run, B merges, the post-run attempt delivers ONE card with both skills", async () => {
+    // The creation-site sequence end to end. Skill A's enqueue fires DURING
+    // the fork run (the source is idle between turns), so the worker can
+    // claim it before skill B's enqueue lands — delivering there would let
+    // B's job dedup against the inserted message and vanish. The handler
+    // must defer while the run is processing; B then merges into the
+    // re-upserted pending row (the jobs-store coalesce is covered by
+    // jobs-store-skill-card-upsert.test.ts), and the post-run attempt
+    // renders every skill in a single ui_surface block.
+    processingConversationIds = ["run-conv-1"];
+    const skillA = {
+      skillId: "skill-a",
+      name: "Skill A",
+      description: "Does A",
+    };
+    const skillB = {
+      skillId: "skill-b",
+      name: "Skill B",
+      description: "Does B",
+    };
+
+    // Skill A's job is claimed mid-run: no insert, deferral re-upserted.
     await skillCardInsertJob(
       makeInsertJob({
         sourceConversationId: "src-conv-9",
         runConversationId: "run-conv-1",
-        skills: [
-          { skillId: "skill-a", name: "Skill A", description: "Does A" },
-          { skillId: "skill-b", name: "Skill B", description: "Does B" },
-        ],
+        skills: [skillA],
       }),
     );
+    expect(addMessageCalls).toHaveLength(0);
+    expect(skillCardJobUpserts).toHaveLength(1);
+    const deferred = skillCardJobUpserts[0]!.payload;
+    expect(deferred.skills).toEqual([skillA]);
 
+    // Skill B's creation-site enqueue merges into that pending row.
+    const merged = {
+      ...deferred,
+      skills: [...(deferred.skills as unknown[]), skillB],
+    };
+
+    // The run finishes; the deferred job fires with the merged payload.
+    processingConversationIds = [];
+    await skillCardInsertJob(makeInsertJob(merged));
+
+    expect(skillCardJobUpserts).toHaveLength(1); // no further deferral
     expect(addMessageCalls).toHaveLength(1);
     const blocks = JSON.parse(addMessageCalls[0]!.content) as Array<{
       type: string;
@@ -422,6 +452,40 @@ describe("memory-retrospective skill card", () => {
       _surfaceFallback: true,
     });
     expect(publishedConversationIds).toEqual(["src-conv-9"]);
+  });
+
+  test("handler defers while the run conversation is still processing: no insert, re-upsert at the same delay", async () => {
+    // Enqueues fire at the creation site DURING the fork run; the source is
+    // usually idle then, so without the run gate the card would deliver
+    // before later creations from the same run merge in (see module header).
+    processingConversationIds = ["run-conv-1"];
+    const before = Date.now();
+
+    await skillCardInsertJob(makeInsertJob(insertJobPayload()));
+
+    expect(addMessageCalls).toHaveLength(0);
+    expect(publishedConversationIds).toHaveLength(0);
+    expect(skillCardJobUpserts).toHaveLength(1);
+    expect(skillCardJobUpserts[0]!.payload).toEqual(insertJobPayload());
+    expect(skillCardJobUpserts[0]!.runAfter).toBeGreaterThanOrEqual(
+      before + SKILL_CARD_INSERT_RETRY_DELAY_MS,
+    );
+  });
+
+  test("handler delivers when the run conversation is missing: a GC'd fork counts as finished", async () => {
+    // Superseded-fork GC can delete the run conversation before delivery. A
+    // fork can't be processing once its row is gone, so a missing run must
+    // never strand the card — even against a stale processing read (the
+    // explicit getConversation check wins over isConversationProcessing).
+    conversationOverrides["run-conv-1"] = null;
+    processingConversationIds = ["run-conv-1"];
+
+    await skillCardInsertJob(makeInsertJob(insertJobPayload()));
+
+    expect(addMessageCalls).toHaveLength(1);
+    expect(syncedToDisk).toHaveLength(1);
+    expect(publishedConversationIds).toEqual(["src-conv-9"]);
+    expect(skillCardJobUpserts).toHaveLength(0);
   });
 
   test("handler with a still-mid-turn source re-upserts itself at the same delay and inserts nothing", async () => {
