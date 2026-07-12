@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 
 // Toggle for the share_analytics opt-out the real store consults. The store
 // module is intentionally NOT mocked here — it has its own DB-backed tests, and
@@ -28,11 +28,14 @@ mock.module("../telemetry/watchdog-direct-emit.js", () => ({
   },
 }));
 
-import { getTelemetryDb } from "../persistence/db-connection.js";
+import * as dbConnection from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { authFallbackEvents } from "../persistence/schema/index.js";
 import { GATEWAY_PRINCIPALS } from "../runtime/auth/route-policy.js";
-import { RouteError } from "../runtime/routes/errors.js";
+import {
+  RouteError,
+  ServiceUnavailableError,
+} from "../runtime/routes/errors.js";
 import { ROUTES } from "../runtime/routes/internal-telemetry-routes.js";
 import type { RouteHandlerArgs } from "../runtime/routes/types.js";
 import { queryUnreportedAuthFallbackEvents } from "../security/auth-fallback-events-store.js";
@@ -64,7 +67,7 @@ const VALID_BODY = {
 describe("internal-telemetry-routes: auth-fallback", () => {
   beforeEach(() => {
     shareAnalytics = true;
-    getTelemetryDb()!.delete(authFallbackEvents).run();
+    dbConnection.getTelemetryDb()!.delete(authFallbackEvents).run();
   });
 
   test("route is locked to service-token callers (GATEWAY_PRINCIPALS + internal.write)", () => {
@@ -95,6 +98,19 @@ describe("internal-telemetry-routes: auth-fallback", () => {
     shareAnalytics = false;
     expect(call(VALID_BODY)).toEqual({ skipped: true });
     expect(queryUnreportedAuthFallbackEvents(0, undefined, 100).length).toBe(0);
+  });
+
+  test("throws 503 when consent is on but the telemetry DB is unavailable, so the gateway re-queues", () => {
+    const spy = spyOn(dbConnection, "getTelemetryDb").mockReturnValue(null);
+    try {
+      expect(() => call(VALID_BODY)).toThrow(ServiceUnavailableError);
+    } finally {
+      spy.mockRestore();
+    }
+    expect(queryUnreportedAuthFallbackEvents(0, undefined, 100).length).toBe(0);
+
+    // Once the DB is back the same batch records normally.
+    expect(call(VALID_BODY)).toEqual({ recorded: 1 });
   });
 
   test("rejects a malformed body without persisting", () => {
