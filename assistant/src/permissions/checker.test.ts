@@ -53,13 +53,22 @@ mock.module("../config/env-registry.js", () => ({
   getIsContainerized: () => mockIsContainerized,
 }));
 
-// Mock platform utilities.
+// Mock platform utilities. Spread the real module so the config loader's own
+// path helpers keep resolving to the real per-test workspace: `getConfig()`
+// runs for real here (via `buildPolicyContext`/`buildFileContext`), and
+// pinning `getWorkspaceConfigPath` to the temp workspace with `ensureDataDir`
+// as a no-op stops the loader from touching the `/mock` classification paths.
+const realPlatform = await import("../util/platform.js");
 const mockWorkspaceDir = "/mock/workspace";
 mock.module("../util/platform.js", () => ({
+  ...realPlatform,
   getWorkspaceDir: () => mockWorkspaceDir,
   getProtectedDir: () => "/mock/protected",
   getWorkspaceHooksDir: () => "/mock/workspace/hooks",
   getDeprecatedDir: () => "/mock/workspace/deprecated",
+  getWorkspaceConfigPath: () =>
+    join(process.env.VELLUM_WORKSPACE_DIR!, "config.json"),
+  ensureDataDir: () => {},
 }));
 
 // Mock gateway threshold reader — return "low" by default (conversation context default).
