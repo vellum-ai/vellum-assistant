@@ -116,7 +116,6 @@ const BASELINE: Record<string, readonly string[]> = {
     "src/schedule/scheduler.ts",
     "src/skills/managed-store.ts",
     "src/skills/uninstall.ts",
-    "src/tasks/task-runner.ts",
     "src/tools/filesystem/write.ts",
     "src/tools/skills/find-similar-skills.ts",
     "src/tools/skills/scaffold-managed.ts",
