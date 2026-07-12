@@ -168,7 +168,6 @@ mock.module("../config/env.js", () => ({
 // Guardian-request creation, delivery recording, and decisions all go through
 // the gateway client; the sim serves that whole surface.
 import { createGuardianGatewaySim } from "./guardian-gateway-sim.js";
-import { toGuardianRequestWire } from "./helpers/gateway-guardian-requests-store-bridge.js";
 
 const sim = createGuardianGatewaySim();
 // The verification secret transits via the atomic decide's mintedSession.
@@ -178,12 +177,6 @@ mock.module("../channels/gateway-guardian-requests.js", () => sim.module);
 import { applyGuardianDecision } from "../approvals/guardian-decision-primitive.js";
 import type { ActorContext } from "../approvals/guardian-request-resolvers.js";
 import { getResolver } from "../approvals/guardian-request-resolvers.js";
-import {
-  createCanonicalGuardianRequest,
-  getCanonicalGuardianRequest,
-  listCanonicalGuardianRequests,
-  updateCanonicalGuardianRequest,
-} from "../contacts/canonical-guardian-store.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
@@ -205,34 +198,7 @@ function resetTables(): void {
   db.delete(scopedApprovalGrants).run();
   db.run("DELETE FROM messages");
   db.run("DELETE FROM conversations");
-  db.run("DELETE FROM canonical_guardian_deliveries");
-  db.run("DELETE FROM canonical_guardian_requests");
   sim.reset();
-  // Mid-flip seam: `waitForInlineGrant` still polls the assistant store while
-  // decisions commit gateway-side; mirror decided status back so the poll
-  // observes it (PR 9 flips the poll to the gateway client).
-  sim.state.afterDecide = (request) => {
-    updateCanonicalGuardianRequest(request.id, { status: request.status });
-  };
-}
-
-/**
- * Seed the same request in BOTH the gateway sim (where the decision primitive
- * reads/decides) and the assistant store (where the inline-grant wait and the
- * confirmation bridge still read until PR 9).
- */
-function seedRequestInBoth(
-  params: Parameters<typeof createCanonicalGuardianRequest>[0],
-) {
-  const stored = createCanonicalGuardianRequest(params);
-  const { sourceType: _sourceType, conversationId, ...rest } = params;
-  sim.seedRequest({
-    ...rest,
-    id: stored.id,
-    sourceConversationId: conversationId,
-    requestCode: stored.requestCode ?? undefined,
-  });
-  return stored;
 }
 
 // ---------------------------------------------------------------------------
@@ -308,11 +274,11 @@ describe("(a) target flow: trusted-contact inline guardian approval end-to-end",
 
     // Step 2: Verify the inline grant wait primitive works correctly end-to-end.
     // Create a canonical request (as the escalation path would), then approve.
-    const req = seedRequestInBoth({
+    const req = sim.seedRequest({
       kind: "tool_grant_request",
       sourceType: "channel",
       sourceChannel: "telegram",
-      conversationId: "conv-1",
+      sourceConversationId: "conv-1",
       requesterExternalUserId: "requester-1",
       guardianExternalUserId: "guardian-1",
       guardianPrincipalId: "test-principal-id",
@@ -321,9 +287,8 @@ describe("(a) target flow: trusted-contact inline guardian approval end-to-end",
       expiresAt: Date.now() + 60_000,
     });
 
-    // Stamp inline_wait_active (store for the poller, sim for the resolver)
+    // Stamp inline_wait_active
     const waitMarker = "inline_wait_active:" + Date.now();
-    updateCanonicalGuardianRequest(req.id, { followupState: waitMarker });
     await sim.module.updateGuardianRequest(req.id, {
       followupState: waitMarker,
     });
@@ -379,12 +344,12 @@ describe("(b) prompt-path flow: confirmation_request bridges to guardian", () =>
   });
 
   test("trusted-contact confirmation_request emits guardian.question and creates delivery records", async () => {
-    const canonicalRequest = seedRequestInBoth({
+    const canonicalRequest = sim.seedRequest({
       id: `req-bridge-${Date.now()}`,
       kind: "tool_approval",
       sourceType: "channel",
       sourceChannel: "telegram",
-      conversationId: "conv-bridge-1",
+      sourceConversationId: "conv-bridge-1",
       requesterExternalUserId: "requester-1",
       guardianExternalUserId: "guardian-1",
       guardianPrincipalId: "test-principal-id",
@@ -396,7 +361,7 @@ describe("(b) prompt-path flow: confirmation_request bridges to guardian", () =>
     const trustContext = makeTrustedContactTrustContext();
 
     const result = await bridgeConfirmationRequestToGuardian({
-      canonicalRequest: toGuardianRequestWire(canonicalRequest),
+      canonicalRequest,
       trustContext,
       conversationId: "conv-bridge-1",
       toolName: "bash",
@@ -418,12 +383,12 @@ describe("(b) prompt-path flow: confirmation_request bridges to guardian", () =>
     // The confirmation_request bridge and tool_grant_request helper both
     // use 'guardian.question' as the notification signal, ensuring consistent
     // guardian routing regardless of the approval path.
-    const canonicalRequest = seedRequestInBoth({
+    const canonicalRequest = sim.seedRequest({
       id: `req-unified-${Date.now()}`,
       kind: "tool_approval",
       sourceType: "channel",
       sourceChannel: "telegram",
-      conversationId: "conv-unified-1",
+      sourceConversationId: "conv-unified-1",
       requesterExternalUserId: "requester-1",
       guardianExternalUserId: "guardian-1",
       guardianPrincipalId: "test-principal-id",
@@ -435,7 +400,7 @@ describe("(b) prompt-path flow: confirmation_request bridges to guardian", () =>
     const trustContext = makeTrustedContactTrustContext();
 
     await bridgeConfirmationRequestToGuardian({
-      canonicalRequest: toGuardianRequestWire(canonicalRequest),
+      canonicalRequest,
       trustContext,
       conversationId: "conv-unified-1",
       toolName: "bash",
@@ -475,12 +440,12 @@ describe("(c) no-binding flow: trusted contact fails fast without guardian bindi
   });
 
   test("bridge skips when no guardian binding exists for channel", async () => {
-    const canonicalRequest = seedRequestInBoth({
+    const canonicalRequest = sim.seedRequest({
       id: `req-nobinding-${Date.now()}`,
       kind: "tool_approval",
       sourceType: "channel",
       sourceChannel: "telegram",
-      conversationId: "conv-nobinding",
+      sourceConversationId: "conv-nobinding",
       requesterExternalUserId: "requester-1",
       guardianExternalUserId: "guardian-1",
       guardianPrincipalId: "test-principal-id",
@@ -492,7 +457,7 @@ describe("(c) no-binding flow: trusted contact fails fast without guardian bindi
     const trustContext = makeTrustedContactTrustContext();
 
     const result = await bridgeConfirmationRequestToGuardian({
-      canonicalRequest: toGuardianRequestWire(canonicalRequest),
+      canonicalRequest,
       trustContext,
       conversationId: "conv-nobinding",
       toolName: "bash",
@@ -556,8 +521,8 @@ describe("(d) unknown actor flow: fail-closed with no interactive approval", () 
     // Unknown actors get the verified-identity message
     expect(result.result.content).toContain("verified channel identity");
 
-    // No canonical request created — unknown actors don't escalate
-    const requests = listCanonicalGuardianRequests({
+    // No guardian request created — unknown actors don't escalate
+    const requests = await sim.module.listGuardianRequests({
       kind: "tool_grant_request",
       status: "pending",
     });
@@ -585,12 +550,12 @@ describe("(d) unknown actor flow: fail-closed with no interactive approval", () 
   });
 
   test("bridge skips unknown actor sessions entirely", async () => {
-    const canonicalRequest = seedRequestInBoth({
+    const canonicalRequest = sim.seedRequest({
       id: `req-unknown-${Date.now()}`,
       kind: "tool_approval",
       sourceType: "channel",
       sourceChannel: "telegram",
-      conversationId: "conv-unknown",
+      sourceConversationId: "conv-unknown",
       requesterExternalUserId: "unknown-user",
       guardianExternalUserId: "guardian-1",
       guardianPrincipalId: "test-principal-id",
@@ -605,7 +570,7 @@ describe("(d) unknown actor flow: fail-closed with no interactive approval", () 
     };
 
     const result = await bridgeConfirmationRequestToGuardian({
-      canonicalRequest: toGuardianRequestWire(canonicalRequest),
+      canonicalRequest,
       trustContext,
       conversationId: "conv-unknown",
       toolName: "bash",
@@ -728,11 +693,11 @@ describe("(f) timeout/stale flow: stale guardian decision after inline wait time
   test("inline wait timeout clears followupState so later approval sends retry notification", async () => {
     // Test via waitForInlineGrant directly: timeout clears followupState so
     // a later guardian approval sends the retry notification.
-    const req = seedRequestInBoth({
+    const req = sim.seedRequest({
       kind: "tool_grant_request",
       sourceType: "channel",
       sourceChannel: "telegram",
-      conversationId: "conv-1",
+      sourceConversationId: "conv-1",
       requesterExternalUserId: "requester-1",
       requesterChatId: "requester-chat-1",
       guardianExternalUserId: "guardian-1",
@@ -743,7 +708,7 @@ describe("(f) timeout/stale flow: stale guardian decision after inline wait time
     });
 
     // Stamp inline_wait_active (as checkPreExecutionGates would do)
-    updateCanonicalGuardianRequest(req.id, {
+    await sim.module.updateGuardianRequest(req.id, {
       followupState: "inline_wait_active:" + Date.now(),
     });
 
@@ -765,11 +730,10 @@ describe("(f) timeout/stale flow: stale guardian decision after inline wait time
 
     // waitForInlineGrant does NOT clear followupState — the caller (checkPreExecutionGates) does.
     // For this test, manually clear it to simulate what checkPreExecutionGates does after timeout.
-    updateCanonicalGuardianRequest(req.id, { followupState: null });
     await sim.module.updateGuardianRequest(req.id, { followupState: null });
 
     // After followupState is cleared, later guardian approval sends retry notification
-    const freshReq = getCanonicalGuardianRequest(req.id);
+    const freshReq = sim.getRequest(req.id);
     expect(freshReq?.followupState).toBeNull();
 
     const approvalResult = await applyGuardianDecision({
@@ -798,12 +762,12 @@ describe("(f) timeout/stale flow: stale guardian decision after inline wait time
     // Create a canonical request with a stale inline_wait_active marker
     // that simulates a daemon crash during the wait.
     const staleTimestamp = Date.now() - TC_GRANT_WAIT_MAX_MS - 60_000;
-    const req = seedRequestInBoth({
+    const req = sim.seedRequest({
       id: `req-stale-${Date.now()}`,
       kind: "tool_grant_request",
       sourceType: "channel",
       sourceChannel: "telegram",
-      conversationId: "conv-stale-1",
+      sourceConversationId: "conv-stale-1",
       requesterExternalUserId: "requester-1",
       requesterChatId: "requester-chat-1",
       guardianExternalUserId: "guardian-1",
@@ -813,16 +777,13 @@ describe("(f) timeout/stale flow: stale guardian decision after inline wait time
       expiresAt: Date.now() + 60_000,
     });
 
-    // Set a stale inline_wait_active marker (store + sim)
-    updateCanonicalGuardianRequest(req.id, {
-      followupState: `inline_wait_active:${staleTimestamp}`,
-    });
+    // Set a stale inline_wait_active marker
     await sim.module.updateGuardianRequest(req.id, {
       followupState: `inline_wait_active:${staleTimestamp}`,
     });
 
     // Verify marker is stale
-    const freshReq = getCanonicalGuardianRequest(req.id);
+    const freshReq = sim.getRequest(req.id);
     expect(freshReq?.followupState).toContain("inline_wait_active:");
 
     // Guardian approves — the resolver should detect the stale marker
@@ -851,12 +812,12 @@ describe("(f) timeout/stale flow: stale guardian decision after inline wait time
   test("fresh inline_wait_active marker suppresses retry notification", async () => {
     // Create a request with a FRESH inline_wait_active marker
     const freshTimestamp = Date.now();
-    const req = seedRequestInBoth({
+    const req = sim.seedRequest({
       id: `req-fresh-${Date.now()}`,
       kind: "tool_grant_request",
       sourceType: "channel",
       sourceChannel: "telegram",
-      conversationId: "conv-fresh-1",
+      sourceConversationId: "conv-fresh-1",
       requesterExternalUserId: "requester-1",
       requesterChatId: "requester-chat-1",
       guardianExternalUserId: "guardian-1",
@@ -866,9 +827,6 @@ describe("(f) timeout/stale flow: stale guardian decision after inline wait time
       expiresAt: Date.now() + 60_000,
     });
 
-    updateCanonicalGuardianRequest(req.id, {
-      followupState: `inline_wait_active:${freshTimestamp}`,
-    });
     await sim.module.updateGuardianRequest(req.id, {
       followupState: `inline_wait_active:${freshTimestamp}`,
     });
@@ -899,11 +857,11 @@ describe("(f) timeout/stale flow: stale guardian decision after inline wait time
 
   test("denied inline wait produces explicit denial (no false success)", async () => {
     // Test via waitForInlineGrant directly: rejection produces "denied" outcome.
-    const req = seedRequestInBoth({
+    const req = sim.seedRequest({
       kind: "tool_grant_request",
       sourceType: "channel",
       sourceChannel: "telegram",
-      conversationId: "conv-1",
+      sourceConversationId: "conv-1",
       requesterExternalUserId: "requester-1",
       guardianExternalUserId: "guardian-1",
       guardianPrincipalId: "test-principal-id",
@@ -942,11 +900,11 @@ describe("(f) timeout/stale flow: stale guardian decision after inline wait time
 
   test("timeout produces explicit timeout outcome (no false success)", async () => {
     // Test via waitForInlineGrant directly: timeout produces "timeout" outcome.
-    const req = seedRequestInBoth({
+    const req = sim.seedRequest({
       kind: "tool_grant_request",
       sourceType: "channel",
       sourceChannel: "telegram",
-      conversationId: "conv-1",
+      sourceConversationId: "conv-1",
       requesterExternalUserId: "requester-1",
       guardianExternalUserId: "guardian-1",
       guardianPrincipalId: "test-principal-id",
@@ -1016,12 +974,12 @@ describe("cross-milestone integration checks", () => {
     // use the guardian binding's guardianExternalUserId to route notifications.
     // Verify this consistency:
 
-    const canonicalRequest = seedRequestInBoth({
+    const canonicalRequest = sim.seedRequest({
       id: `req-consistency-${Date.now()}`,
       kind: "tool_approval",
       sourceType: "channel",
       sourceChannel: "telegram",
-      conversationId: "conv-consistency",
+      sourceConversationId: "conv-consistency",
       requesterExternalUserId: "requester-1",
       guardianExternalUserId: "guardian-1",
       guardianPrincipalId: "test-principal-id",
@@ -1033,7 +991,7 @@ describe("cross-milestone integration checks", () => {
     const trustContext = makeTrustedContactTrustContext();
 
     const bridgeResult = await bridgeConfirmationRequestToGuardian({
-      canonicalRequest: toGuardianRequestWire(canonicalRequest),
+      canonicalRequest,
       trustContext,
       conversationId: "conv-consistency",
       toolName: "bash",
@@ -1092,11 +1050,11 @@ describe("cross-milestone integration checks", () => {
 
   test("M4: abort signal during inline wait produces aborted outcome", async () => {
     // Test via waitForInlineGrant directly: abort signal produces "aborted" outcome.
-    const req = seedRequestInBoth({
+    const req = sim.seedRequest({
       kind: "tool_grant_request",
       sourceType: "channel",
       sourceChannel: "telegram",
-      conversationId: "conv-1",
+      sourceConversationId: "conv-1",
       requesterExternalUserId: "requester-1",
       guardianExternalUserId: "guardian-1",
       guardianPrincipalId: "test-principal-id",
@@ -1105,9 +1063,8 @@ describe("cross-milestone integration checks", () => {
       expiresAt: Date.now() + 60_000,
     });
 
-    // Stamp inline_wait_active (store for the poller, sim for the resolver)
+    // Stamp inline_wait_active
     const waitMarker = "inline_wait_active:" + Date.now();
-    updateCanonicalGuardianRequest(req.id, { followupState: waitMarker });
     await sim.module.updateGuardianRequest(req.id, {
       followupState: waitMarker,
     });
@@ -1136,11 +1093,10 @@ describe("cross-milestone integration checks", () => {
     expect(elapsed).toBeLessThan(1_000);
 
     // Simulate what checkPreExecutionGates does after abort: clear followupState
-    updateCanonicalGuardianRequest(req.id, { followupState: null });
     await sim.module.updateGuardianRequest(req.id, { followupState: null });
 
     // After followupState is cleared, a later guardian approval should send retry notification
-    const freshReq = getCanonicalGuardianRequest(req.id);
+    const freshReq = sim.getRequest(req.id);
     expect(freshReq?.followupState).toBeNull();
   });
 });
@@ -1160,12 +1116,12 @@ describe("(g) access_request resolver: requester code delivery", () => {
   const GUARDIAN_UID = "U_GUARDIAN";
 
   function createAccessRequest(overrides: Record<string, unknown> = {}) {
-    return seedRequestInBoth({
+    return sim.seedRequest({
       id: `access-req-${Date.now()}-${Math.random().toString(36).slice(2)}`,
       kind: "access_request",
       sourceType: "channel",
       sourceChannel: "slack",
-      conversationId: "conv-access-slack",
+      sourceConversationId: "conv-access-slack",
       requesterExternalUserId: REQUESTER_UID,
       requesterChatId: "C_SHARED_CHANNEL",
       guardianExternalUserId: GUARDIAN_UID,
@@ -1299,7 +1255,7 @@ describe("(g) access_request resolver: requester code delivery", () => {
     const req = createAccessRequest({
       sourceChannel: "email",
       requesterChatId: "requester@example.com",
-      conversationId: "conv-access-email",
+      sourceConversationId: "conv-access-email",
     });
 
     const result = await applyGuardianDecision({
@@ -1333,7 +1289,7 @@ describe("(g) access_request resolver: requester code delivery", () => {
     const req = createAccessRequest({
       sourceChannel: "telegram",
       requesterChatId: "requester-chat-1",
-      conversationId: "conv-access-telegram",
+      sourceConversationId: "conv-access-telegram",
     });
 
     const result = await applyGuardianDecision({

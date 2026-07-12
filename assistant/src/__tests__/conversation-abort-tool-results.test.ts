@@ -282,25 +282,6 @@ mock.module("../agent/loop.js", () => ({
     }
   },
 }));
-mock.module("../contacts/canonical-guardian-store.js", () => ({
-  listPendingCanonicalGuardianRequestsByDestinationConversation: () => [],
-  listCanonicalGuardianRequests: () => [],
-  listPendingRequestsByConversationScope: () => [],
-  createCanonicalGuardianRequest: () => ({
-    id: "mock-cg-id",
-    code: "MOCK",
-    status: "pending",
-  }),
-  getCanonicalGuardianRequest: () => null,
-  getCanonicalGuardianRequestByCode: () => null,
-  updateCanonicalGuardianRequest: () => {},
-  resolveCanonicalGuardianRequest: () => {},
-  createCanonicalGuardianDelivery: () => ({ id: "mock-cgd-id" }),
-  listCanonicalGuardianDeliveries: () => [],
-  listPendingCanonicalGuardianRequestsByDestinationChat: () => [],
-  updateCanonicalGuardianDelivery: () => {},
-  generateCanonicalRequestCode: () => "MOCK-CODE",
-}));
 
 import { Conversation } from "../daemon/conversation.js";
 
@@ -415,17 +396,23 @@ describe("abort tool result persistence", () => {
     // by a user message with matching tool_result
     for (let i = 0; i < messages.length; i++) {
       const msg = messages[i];
-      if (msg.role !== "assistant") continue;
+      if (msg.role !== "assistant") {
+        continue;
+      }
 
       const toolUseBlocks = msg.content.filter((b) => b.type === "tool_use");
-      if (toolUseBlocks.length === 0) continue;
+      if (toolUseBlocks.length === 0) {
+        continue;
+      }
 
       const nextMsg = messages[i + 1];
       expect(nextMsg).toBeDefined();
       expect(nextMsg.role).toBe("user");
 
       for (const tu of toolUseBlocks) {
-        if (tu.type !== "tool_use") continue;
+        if (tu.type !== "tool_use") {
+          continue;
+        }
         const hasResult = nextMsg.content.some(
           (b) => b.type === "tool_result" && b.tool_use_id === tu.id,
         );

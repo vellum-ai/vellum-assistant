@@ -72,7 +72,7 @@ type SeedDeliveryParams = Partial<SimGuardianDelivery> & {
   destinationChannel: string;
 };
 
-interface DecideParams {
+export interface DecideParams {
   id: string;
   expectedStatus: "pending";
   status: "approved" | "denied";
@@ -82,7 +82,7 @@ interface DecideParams {
   aclOutcome?: Record<string, unknown> & { type: string };
 }
 
-interface MintedSession {
+export interface MintedSession {
   sessionId: string;
   secret: string;
   challengeHash: string;
@@ -114,8 +114,6 @@ export function createGuardianGatewaySim() {
     readError: null as Error | null,
     /** Runs at the top of every decide — races a concurrent writer. */
     beforeDecide: null as (() => void) | null,
-    /** Runs after a successful decide with the updated row. */
-    afterDecide: null as ((request: SimGuardianRequest) => void) | null,
     decideCalls: [] as DecideParams[],
     /** ACL outcomes committed by successful decides, in order. */
     appliedOutcomes: [] as Array<Record<string, unknown> & { type: string }>,
@@ -129,7 +127,6 @@ export function createGuardianGatewaySim() {
     state.outcomeError = null;
     state.readError = null;
     state.beforeDecide = null;
-    state.afterDecide = null;
     state.decideCalls = [];
     state.appliedOutcomes = [];
   }
@@ -312,7 +309,6 @@ export function createGuardianGatewaySim() {
         ttlSeconds: 600,
       };
     }
-    state.afterDecide?.({ ...row });
     return {
       applied: true,
       request: { ...row },
@@ -362,9 +358,11 @@ export function createGuardianGatewaySim() {
     return expired;
   }
 
-  async function sweepExpiredGuardianRequests(now?: number): Promise<string[]> {
+  async function sweepExpiredGuardianRequests(
+    now?: number,
+  ): Promise<SimGuardianRequest[]> {
     const cutoff = now ?? Date.now();
-    const expired: string[] = [];
+    const expired: SimGuardianRequest[] = [];
     for (const row of requests.values()) {
       if (
         row.status === "pending" &&
@@ -373,7 +371,7 @@ export function createGuardianGatewaySim() {
       ) {
         row.status = "expired";
         row.updatedAt = cutoff;
-        expired.push(row.id);
+        expired.push({ ...row });
       }
     }
     return expired;
@@ -387,7 +385,9 @@ export function createGuardianGatewaySim() {
 
   async function updateGuardianRequestDelivery(
     id: string,
-    patch: Partial<Pick<SimGuardianDelivery, "status" | "destinationMessageId">>,
+    patch: Partial<
+      Pick<SimGuardianDelivery, "status" | "destinationMessageId">
+    >,
   ): Promise<void> {
     const row = deliveries.find((d) => d.id === id);
     if (!row) throw new Error(`sim: delivery ${id} not found`);
@@ -472,7 +472,10 @@ export function createGuardianGatewaySim() {
       ...(channel ? { channel } : {}),
     });
     for (const row of byDestination) {
-      if (!seen.has(row.id) && !(row.expiresAt !== null && row.expiresAt < now)) {
+      if (
+        !seen.has(row.id) &&
+        !(row.expiresAt !== null && row.expiresAt < now)
+      ) {
         seen.add(row.id);
         result.push(row);
       }
@@ -502,7 +505,9 @@ export function createGuardianGatewaySim() {
   ): Promise<SimGuardianRequest | null> {
     throwIfReadError();
     const rows = [...requests.values()]
-      .filter((r) => r.callSessionId === callSessionId && r.status === "pending")
+      .filter(
+        (r) => r.callSessionId === callSessionId && r.status === "pending",
+      )
       .sort((a, b) => b.createdAt - a.createdAt);
     return rows[0] ? { ...rows[0] } : null;
   }
@@ -578,7 +583,10 @@ export function createGuardianGatewaySim() {
       null,
     ),
     getRequestByPendingQuestion,
-    getRequestByPendingQuestionOrNull: degrade(getRequestByPendingQuestion, null),
+    getRequestByPendingQuestionOrNull: degrade(
+      getRequestByPendingQuestion,
+      null,
+    ),
   };
 
   return {

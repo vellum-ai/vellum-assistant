@@ -21,8 +21,11 @@ mock.module("../messaging/providers/slack/withdraw.js", () => ({
 }));
 
 // The recorder writes through the gateway client; serve that surface from
-// the local canonical store the assertions read.
-import { gatewayGuardianRequestsStoreBridge } from "./helpers/gateway-guardian-requests-store-bridge.js";
+// the in-memory sim the assertions read.
+import {
+  bridgeState,
+  gatewayGuardianRequestsStoreBridge,
+} from "./helpers/gateway-guardian-requests-store-bridge.js";
 
 mock.module(
   "../channels/gateway-guardian-requests.js",
@@ -31,33 +34,20 @@ mock.module(
 
 import { withdrawGuardianRequestCards } from "../approvals/guardian-card-withdrawal.js";
 import {
-  type CanonicalGuardianRequest,
-  createCanonicalGuardianDelivery,
-  createCanonicalGuardianRequest,
-  getPendingCanonicalRequestByDestinationMessage,
-  listCanonicalGuardianDeliveries,
-} from "../contacts/canonical-guardian-store.js";
-import {
   recordApprovalCardDelivery,
   recordGuardianRequestDeliveries,
 } from "../notifications/canonical-delivery-recorder.js";
-import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
+import type { SimGuardianRequest } from "./guardian-gateway-sim.js";
 
 await initializeDb();
 
 const PRINCIPAL_ID = "withdrawal-test-principal";
 
-function resetTables(): void {
-  const db = getDb();
-  db.run("DELETE FROM canonical_guardian_deliveries");
-  db.run("DELETE FROM canonical_guardian_requests");
-}
-
 function makeRequest(
-  overrides: Partial<Parameters<typeof createCanonicalGuardianRequest>[0]> = {},
-): CanonicalGuardianRequest {
-  return createCanonicalGuardianRequest({
+  overrides: Partial<SimGuardianRequest> = {},
+): SimGuardianRequest {
+  return bridgeState.seedRequest({
     kind: "access_request",
     sourceType: "channel",
     sourceChannel: "slack",
@@ -66,16 +56,20 @@ function makeRequest(
   });
 }
 
+function deliveriesFor(requestId: string) {
+  return bridgeState.deliveries.filter((d) => d.requestId === requestId);
+}
+
 describe("withdrawGuardianRequestCards", () => {
   beforeEach(() => {
-    resetTables();
+    bridgeState.reset();
     completeSurfaceAndNotify.mockClear();
     withdrawSlackApprovalCard.mockClear();
   });
 
   test("withdraws + broadcasts the in-app card when the decision came from another surface", async () => {
     const req = makeRequest();
-    createCanonicalGuardianDelivery({
+    bridgeState.seedDelivery({
       requestId: req.id,
       destinationChannel: "vellum",
       destinationConversationId: "conv-1",
@@ -97,7 +91,7 @@ describe("withdrawGuardianRequestCards", () => {
 
   test("skips the in-app card when the decision originated in-app", async () => {
     const req = makeRequest();
-    createCanonicalGuardianDelivery({
+    bridgeState.seedDelivery({
       requestId: req.id,
       destinationChannel: "vellum",
       destinationConversationId: "conv-1",
@@ -115,7 +109,7 @@ describe("withdrawGuardianRequestCards", () => {
 
   test("withdraws the Slack card with decider and decision time", async () => {
     const req = makeRequest({ decidedByExternalUserId: "U-guardian" });
-    createCanonicalGuardianDelivery({
+    bridgeState.seedDelivery({
       requestId: req.id,
       destinationChannel: "slack",
       destinationChatId: "C123",
@@ -143,7 +137,7 @@ describe("withdrawGuardianRequestCards", () => {
 
   test("skips the Slack edit when no channel message id was captured", async () => {
     const req = makeRequest();
-    createCanonicalGuardianDelivery({
+    bridgeState.seedDelivery({
       requestId: req.id,
       destinationChannel: "slack",
       destinationChatId: "C123",
@@ -156,12 +150,12 @@ describe("withdrawGuardianRequestCards", () => {
 
   test("withdraws every surface (including in-app broadcast) when no origin channel", async () => {
     const req = makeRequest();
-    createCanonicalGuardianDelivery({
+    bridgeState.seedDelivery({
       requestId: req.id,
       destinationChannel: "vellum",
       destinationConversationId: "conv-1",
     });
-    createCanonicalGuardianDelivery({
+    bridgeState.seedDelivery({
       requestId: req.id,
       destinationChannel: "slack",
       destinationChatId: "C1",
@@ -180,7 +174,7 @@ describe("withdrawGuardianRequestCards", () => {
 
   test("ignores channels without in-place edit support (telegram)", async () => {
     const req = makeRequest({ sourceChannel: "telegram" });
-    createCanonicalGuardianDelivery({
+    bridgeState.seedDelivery({
       requestId: req.id,
       destinationChannel: "telegram",
       destinationChatId: "T1",
@@ -198,13 +192,13 @@ describe("withdrawGuardianRequestCards", () => {
       throw new Error("slack unavailable");
     });
     const req = makeRequest();
-    createCanonicalGuardianDelivery({
+    bridgeState.seedDelivery({
       requestId: req.id,
       destinationChannel: "slack",
       destinationChatId: "C1",
       destinationMessageId: "1.0",
     });
-    createCanonicalGuardianDelivery({
+    bridgeState.seedDelivery({
       requestId: req.id,
       destinationChannel: "vellum",
       destinationConversationId: "conv-1",
@@ -224,7 +218,7 @@ describe("withdrawGuardianRequestCards", () => {
 
   test("tool-approval cards resolve to the tool-approval surface id", async () => {
     const req = makeRequest({ kind: "tool_approval", toolName: "shell" });
-    createCanonicalGuardianDelivery({
+    bridgeState.seedDelivery({
       requestId: req.id,
       destinationChannel: "vellum",
       destinationConversationId: "conv-1",
@@ -246,7 +240,7 @@ describe("withdrawGuardianRequestCards", () => {
 
 describe("recordApprovalCardDelivery", () => {
   beforeEach(() => {
-    resetTables();
+    bridgeState.reset();
   });
 
   test("records a channel card with its addressing and status", async () => {
@@ -289,18 +283,19 @@ describe("recordApprovalCardDelivery", () => {
       status: "sent",
     });
 
-    const resolved = getPendingCanonicalRequestByDestinationMessage(
-      "slack",
-      "C-guardian",
-      "1700000000.5678",
-    );
+    const resolved =
+      await bridgeState.module.getPendingRequestByDestinationMessage(
+        "slack",
+        "C-guardian",
+        "1700000000.5678",
+      );
     expect(resolved?.id).toBe(req.id);
   });
 });
 
 describe("recordGuardianRequestDeliveries", () => {
   beforeEach(() => {
-    resetTables();
+    bridgeState.reset();
     withdrawSlackApprovalCard.mockClear();
   });
 
@@ -324,7 +319,7 @@ describe("recordGuardianRequestDeliveries", () => {
       ],
     });
 
-    const deliveries = listCanonicalGuardianDeliveries(req.id);
+    const deliveries = deliveriesFor(req.id);
     expect(deliveries).toHaveLength(2);
     const vellum = deliveries.find((d) => d.destinationChannel === "vellum");
     const slack = deliveries.find((d) => d.destinationChannel === "slack");
@@ -358,7 +353,7 @@ describe("recordGuardianRequestDeliveries", () => {
     });
 
     expect(vellumId).toBe(pre?.id);
-    const deliveries = listCanonicalGuardianDeliveries(req.id);
+    const deliveries = deliveriesFor(req.id);
     expect(deliveries).toHaveLength(1);
     expect(deliveries[0].status).toBe("sent");
   });
@@ -371,7 +366,7 @@ describe("recordGuardianRequestDeliveries", () => {
         { channel: "slack", destination: "C1", status: "failed" },
       ],
     });
-    const [delivery] = listCanonicalGuardianDeliveries(req.id);
+    const [delivery] = deliveriesFor(req.id);
     expect(delivery.status).toBe("failed");
   });
 
@@ -381,7 +376,7 @@ describe("recordGuardianRequestDeliveries", () => {
       requestId: req.id,
       deliveryResults: [{ channel: "slack", destination: "", status: "sent" }],
     });
-    const [delivery] = listCanonicalGuardianDeliveries(req.id);
+    const [delivery] = deliveriesFor(req.id);
     expect(delivery.destinationChatId).toBeNull();
   });
 

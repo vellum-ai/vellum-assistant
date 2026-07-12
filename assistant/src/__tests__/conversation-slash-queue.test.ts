@@ -256,26 +256,6 @@ mock.module("../workspace/turn-commit.js", () => ({
   commitTurnChanges: async () => {},
 }));
 
-mock.module("../contacts/canonical-guardian-store.js", () => ({
-  listPendingCanonicalGuardianRequestsByDestinationConversation: () => [],
-  listCanonicalGuardianRequests: () => [],
-  listPendingRequestsByConversationScope: () => [],
-  createCanonicalGuardianRequest: () => ({
-    id: "mock-cg-id",
-    code: "MOCK",
-    status: "pending",
-  }),
-  getCanonicalGuardianRequest: () => null,
-  getCanonicalGuardianRequestByCode: () => null,
-  updateCanonicalGuardianRequest: () => {},
-  resolveCanonicalGuardianRequest: () => {},
-  createCanonicalGuardianDelivery: () => ({ id: "mock-cgd-id" }),
-  listCanonicalGuardianDeliveries: () => [],
-  listPendingCanonicalGuardianRequestsByDestinationChat: () => [],
-  updateCanonicalGuardianDelivery: () => {},
-  generateCanonicalRequestCode: () => "MOCK-CODE",
-}));
-
 // ---------------------------------------------------------------------------
 // Import Conversation AFTER mocks are registered.
 // ---------------------------------------------------------------------------
@@ -337,7 +317,9 @@ async function waitForPendingRun(
 
 async function resolveRun(index: number) {
   const run = pendingRuns[index];
-  if (!run) throw new Error(`No pending run at index ${index}`);
+  if (!run) {
+    throw new Error(`No pending run at index ${index}`);
+  }
   const assistantMsg: Message = {
     role: "assistant",
     content: [{ type: "text", text: `reply-${index}` }],

@@ -35,13 +35,14 @@ import {
   handleChannelInbound,
   setAdapterProcessMessage,
 } from "./helpers/channel-test-adapter.js";
+import { bridgeState } from "./helpers/gateway-guardian-requests-store-bridge.js";
 
 await initializeDb();
 
 function resetTables(): void {
+  bridgeState.reset();
   const db = getDb();
   db.run("DELETE FROM channel_inbound_events");
-  db.run("DELETE FROM canonical_guardian_requests");
   db.run("DELETE FROM conversation_keys");
   db.run("DELETE FROM messages");
   db.run("DELETE FROM conversations");

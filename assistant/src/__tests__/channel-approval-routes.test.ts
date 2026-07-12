@@ -48,7 +48,9 @@ mock.module("../daemon/process-message.js", () => ({
   resolveTurnInterface: () => "telegram",
   prepareConversationForMessage: async () => ({}),
   processMessage: (...args: unknown[]) => {
-    if (_testProcessMessage) return _testProcessMessage(...args);
+    if (_testProcessMessage) {
+      return _testProcessMessage(...args);
+    }
     return Promise.resolve({ messageId: "mock-msg-1" });
   },
   processMessageInBackground: async () => ({ messageId: "mock-bg" }),
@@ -69,11 +71,6 @@ mock.module("../daemon/approval-generators.js", () => ({
   createApprovalConversationGenerator: () => _testApprovalConversationGenerator,
 }));
 
-import {
-  createCanonicalGuardianDelivery,
-  createCanonicalGuardianRequest,
-  getCanonicalGuardianRequest,
-} from "../contacts/canonical-guardian-store.js";
 import type { Conversation } from "../daemon/conversation.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
@@ -91,6 +88,7 @@ import {
 } from "./helpers/channel-test-adapter.js";
 import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
 import { resetGatewayAclStore } from "./helpers/gateway-acl-store.js";
+import { bridgeState } from "./helpers/gateway-guardian-requests-store-bridge.js";
 
 await initializeDb();
 initAuthSigningKey(Buffer.from("test-signing-key-at-least-32-bytes-long"));
@@ -119,10 +117,9 @@ function ensureConversation(conversationId: string): void {
 }
 
 function resetTables(): void {
+  bridgeState.reset();
   resetTestTables(
     "scoped_approval_grants",
-    "canonical_guardian_deliveries",
-    "canonical_guardian_requests",
     "conversation_keys",
     "message_runs",
     "channel_inbound_events",
@@ -1817,11 +1814,11 @@ describe("NL approval routing via destination-scoped canonical requests", () => 
 
     // Create canonical tool_approval request WITHOUT guardianExternalUserId
     // but WITH a conversationId (required by the tool_approval resolver)
-    const canonicalReq = createCanonicalGuardianRequest({
+    const canonicalReq = bridgeState.seedRequest({
       kind: "tool_approval",
       sourceType: "voice",
       sourceChannel: "twilio",
-      conversationId: "conv-voice-nl-1",
+      sourceConversationId: "conv-voice-nl-1",
       toolName: "shell",
       guardianPrincipalId: "test-principal-id",
       expiresAt: Date.now() + 60_000,
@@ -1832,7 +1829,7 @@ describe("NL approval routing via destination-scoped canonical requests", () => 
     registerPendingInteraction(canonicalReq.id, "conv-voice-nl-1", "shell");
 
     // Create canonical delivery row targeting guardian chat
-    createCanonicalGuardianDelivery({
+    bridgeState.seedDelivery({
       requestId: canonicalReq.id,
       destinationChannel: "telegram",
       destinationChatId: guardianChatId,
@@ -1853,7 +1850,7 @@ describe("NL approval routing via destination-scoped canonical requests", () => 
     expect(body.canonicalRouter).toBe("canonical_decision_stale");
 
     // Verify the request remains pending (identity-bound fail-closed).
-    const resolved = getCanonicalGuardianRequest(canonicalReq.id);
+    const resolved = bridgeState.getRequest(canonicalReq.id);
     expect(resolved).not.toBeNull();
     expect(resolved!.status).toBe("pending");
   });
@@ -1873,7 +1870,7 @@ describe("NL approval routing via destination-scoped canonical requests", () => 
     });
 
     // Create canonical pending_question WITHOUT guardianExternalUserId
-    const canonicalReq = createCanonicalGuardianRequest({
+    const canonicalReq = bridgeState.seedRequest({
       kind: "tool_approval",
       sourceType: "voice",
       sourceChannel: "twilio",
@@ -1883,7 +1880,7 @@ describe("NL approval routing via destination-scoped canonical requests", () => 
     });
 
     // Delivery targets the original guardian chat, NOT the different chat
-    createCanonicalGuardianDelivery({
+    bridgeState.seedDelivery({
       requestId: canonicalReq.id,
       destinationChannel: "telegram",
       destinationChatId: guardianChatId,
@@ -1907,7 +1904,7 @@ describe("NL approval routing via destination-scoped canonical requests", () => 
     expect(body.canonicalRouter).toBeUndefined();
 
     // Request should remain pending
-    const unchanged = getCanonicalGuardianRequest(canonicalReq.id);
+    const unchanged = bridgeState.getRequest(canonicalReq.id);
     expect(unchanged).not.toBeNull();
     expect(unchanged!.status).toBe("pending");
   });

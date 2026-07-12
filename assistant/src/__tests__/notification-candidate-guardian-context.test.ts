@@ -3,7 +3,7 @@
  * candidates.
  *
  * `buildConversationCandidates` counts each candidate's pending guardian
- * requests through the canonical store's conversation-scope query, which
+ * requests through the gateway client's conversation-scope query, which
  * matches both a request's source conversation and any conversation its card
  * was delivered to. These tests lock that wiring — in particular that a
  * request delivered to a conversation different from its synthetic source is
@@ -19,20 +19,18 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-// The recorder writes through the gateway client; serve that surface from
-// the local canonical store the candidate builder reads.
-import { gatewayGuardianRequestsStoreBridge } from "./helpers/gateway-guardian-requests-store-bridge.js";
+// The recorder and candidate builder go through the gateway client; serve
+// that surface from the in-memory sim the tests seed.
+import {
+  bridgeState,
+  gatewayGuardianRequestsStoreBridge,
+} from "./helpers/gateway-guardian-requests-store-bridge.js";
 
 mock.module(
   "../channels/gateway-guardian-requests.js",
   () => gatewayGuardianRequestsStoreBridge,
 );
 
-import {
-  createCanonicalGuardianDelivery,
-  createCanonicalGuardianRequest,
-  resolveCanonicalGuardianRequest,
-} from "../contacts/canonical-guardian-store.js";
 import { recordGuardianRequestDeliveries } from "../notifications/canonical-delivery-recorder.js";
 import { buildConversationCandidates } from "../notifications/conversation-candidates.js";
 import { createDecision } from "../notifications/decisions-store.js";
@@ -50,8 +48,7 @@ const CHANNEL = "vellum" as NotificationChannel;
 
 function resetTables(): void {
   const db = getDb();
-  db.run("DELETE FROM canonical_guardian_deliveries");
-  db.run("DELETE FROM canonical_guardian_requests");
+  bridgeState.reset();
   db.run("DELETE FROM notification_deliveries");
   db.run("DELETE FROM notification_decisions");
   db.run("DELETE FROM notification_events");
@@ -131,22 +128,22 @@ describe("buildConversationCandidates guardian enrichment", () => {
     seedCandidateConversation(convId);
 
     // (1) pending request whose SOURCE conversation is the candidate.
-    createCanonicalGuardianRequest({
+    bridgeState.seedRequest({
       kind: "tool_approval",
       sourceType: "channel",
-      conversationId: convId,
+      sourceConversationId: convId,
       guardianPrincipalId: TEST_PRINCIPAL,
     });
 
     // (2) pending request with a synthetic source id whose card was DELIVERED
     // to the candidate conversation (a different conversation than its source).
-    const delivered = createCanonicalGuardianRequest({
+    const delivered = bridgeState.seedRequest({
       kind: "access_request",
       sourceType: "channel",
-      conversationId: "access-req-xyz",
+      sourceConversationId: "access-req-xyz",
       guardianPrincipalId: TEST_PRINCIPAL,
     });
-    createCanonicalGuardianDelivery({
+    bridgeState.seedDelivery({
       requestId: delivered.id,
       destinationChannel: CHANNEL,
       destinationConversationId: convId,
@@ -162,13 +159,15 @@ describe("buildConversationCandidates guardian enrichment", () => {
     const convId = "conv-resolved";
     seedCandidateConversation(convId);
 
-    const req = createCanonicalGuardianRequest({
+    const req = bridgeState.seedRequest({
       kind: "tool_approval",
       sourceType: "channel",
-      conversationId: convId,
+      sourceConversationId: convId,
       guardianPrincipalId: TEST_PRINCIPAL,
     });
-    resolveCanonicalGuardianRequest(req.id, "pending", { status: "approved" });
+    await bridgeState.module.updateGuardianRequest(req.id, {
+      status: "approved",
+    });
 
     // The conversation still surfaces as a candidate (it had a delivery), but
     // with no guardian context since nothing is pending.
@@ -185,11 +184,11 @@ describe("buildConversationCandidates guardian enrichment", () => {
     // Channel-only access request: a synthetic source conversation, card
     // delivered to a Slack chat. The recorder records the card's internal
     // conversation, so the Slack candidate counts it.
-    const req = createCanonicalGuardianRequest({
+    const req = bridgeState.seedRequest({
       kind: "access_request",
       sourceType: "channel",
       sourceChannel: "slack",
-      conversationId: "access-req-synthetic",
+      sourceConversationId: "access-req-synthetic",
       guardianPrincipalId: TEST_PRINCIPAL,
     });
     await recordGuardianRequestDeliveries({

@@ -3,7 +3,7 @@
  *
  * Verifies that:
  * 1. Trusted-contact confirmation_requests emit guardian.question notifications
- * 2. Canonical delivery rows are persisted for guardian destinations
+ * 2. Delivery rows are persisted for guardian destinations
  * 3. Guardian and unknown actor sessions are correctly skipped
  * 4. Missing guardian binding causes a skip
  */
@@ -70,10 +70,10 @@ mock.module("../runtime/channel-verification-service.js", () => ({
 }));
 
 // The bridge records deliveries through the gateway client; serve that
-// surface from the local canonical store the assertions read.
+// surface from the in-memory sim the assertions read.
 import {
+  bridgeState,
   gatewayGuardianRequestsStoreBridge,
-  toGuardianRequestWire,
 } from "./helpers/gateway-guardian-requests-store-bridge.js";
 
 mock.module(
@@ -81,46 +81,32 @@ mock.module(
   () => gatewayGuardianRequestsStoreBridge,
 );
 
-import {
-  createCanonicalGuardianRequest,
-  generateCanonicalRequestCode,
-  listCanonicalGuardianDeliveries,
-} from "../contacts/canonical-guardian-store.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
-import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { bridgeConfirmationRequestToGuardian } from "../runtime/confirmation-request-guardian-bridge.js";
+import type { SimGuardianRequest } from "./guardian-gateway-sim.js";
 
 await initializeDb();
-
-function resetTables(): void {
-  const db = getDb();
-  db.run("DELETE FROM canonical_guardian_deliveries");
-  db.run("DELETE FROM canonical_guardian_requests");
-}
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-function makeCanonicalRequest(overrides: Record<string, unknown> = {}) {
-  return toGuardianRequestWire(
-    createCanonicalGuardianRequest({
-      id: `req-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      kind: "tool_approval",
-      sourceType: "channel",
-      sourceChannel: "telegram",
-      conversationId: "conv-1",
-      requesterExternalUserId: "requester-1",
-      guardianExternalUserId: "guardian-1",
-      guardianPrincipalId: "test-principal-id",
-      toolName: "bash",
-      status: "pending",
-      requestCode: generateCanonicalRequestCode(),
-      expiresAt: Date.now() + 5 * 60 * 1000,
-      ...overrides,
-    }),
-  );
+function makeCanonicalRequest(overrides: Partial<SimGuardianRequest> = {}) {
+  return bridgeState.seedRequest({
+    id: `req-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    kind: "tool_approval",
+    sourceType: "channel",
+    sourceChannel: "telegram",
+    sourceConversationId: "conv-1",
+    requesterExternalUserId: "requester-1",
+    guardianExternalUserId: "guardian-1",
+    guardianPrincipalId: "test-principal-id",
+    toolName: "bash",
+    status: "pending",
+    expiresAt: Date.now() + 5 * 60 * 1000,
+    ...overrides,
+  });
 }
 
 function makeTrustedContactContext(
@@ -144,7 +130,7 @@ function makeTrustedContactContext(
 
 describe("bridgeConfirmationRequestToGuardian", () => {
   beforeEach(() => {
-    resetTables();
+    bridgeState.reset();
     emittedSignals.length = 0;
     mockOnConversationCreatedCallbacks.length = 0;
   });
@@ -313,9 +299,10 @@ describe("bridgeConfirmationRequestToGuardian", () => {
     });
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    const deliveries = listCanonicalGuardianDeliveries(canonicalRequest.id);
-    const vellumDelivery = deliveries.find(
-      (d) => d.destinationChannel === "vellum",
+    const vellumDelivery = bridgeState.deliveries.find(
+      (d) =>
+        d.requestId === canonicalRequest.id &&
+        d.destinationChannel === "vellum",
     );
     expect(vellumDelivery).toBeDefined();
     expect(vellumDelivery?.destinationConversationId).toBe(

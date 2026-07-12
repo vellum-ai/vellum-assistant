@@ -108,11 +108,6 @@ import {
   getRegisteredKinds,
   getResolver,
 } from "../approvals/guardian-request-resolvers.js";
-import {
-  createCanonicalGuardianRequest,
-  listCanonicalGuardianRequests,
-  updateCanonicalGuardianRequest,
-} from "../contacts/canonical-guardian-store.js";
 import { getDb } from "../persistence/db-connection.js";
 import { getSqlite } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
@@ -131,16 +126,8 @@ await initializeDb();
 function resetTables(): void {
   const db = getDb();
   db.delete(scopedApprovalGrants).run();
-  db.run("DELETE FROM canonical_guardian_deliveries");
-  db.run("DELETE FROM canonical_guardian_requests");
   db.run("DELETE FROM conversations");
   sim.reset();
-  // Mid-flip seam: `waitForInlineGrant` still polls the assistant store while
-  // decisions commit gateway-side; mirror decided status back so the poll
-  // observes it (PR 9 flips the poll to the gateway client).
-  sim.state.afterDecide = (request) => {
-    updateCanonicalGuardianRequest(request.id, { status: request.status });
-  };
   const now = Date.now();
   getSqlite().run(
     "INSERT INTO conversations (id, created_at, updated_at) VALUES (?, ?, ?)",
@@ -148,34 +135,19 @@ function resetTables(): void {
   );
 }
 
-/**
- * Seed the same pending tool_grant_request in BOTH the gateway sim (where the
- * decision primitive reads/decides) and the assistant store (where the
- * inline-grant wait still polls until PR 9).
- */
+/** Seed a pending tool_grant_request in the gateway sim. */
 function seedGrantRequest(inputDigest: string) {
-  const params = {
+  return sim.seedRequest({
     kind: "tool_grant_request",
     sourceChannel: "telegram",
+    sourceConversationId: "conv-1",
     requesterExternalUserId: "requester-1",
     guardianExternalUserId: "guardian-1",
     guardianPrincipalId: "test-principal-id",
     toolName: "bash",
     inputDigest,
     expiresAt: Date.now() + 60_000,
-  } as const;
-  const stored = createCanonicalGuardianRequest({
-    ...params,
-    sourceType: "channel",
-    conversationId: "conv-1",
   });
-  sim.seedRequest({
-    ...params,
-    id: stored.id,
-    sourceConversationId: "conv-1",
-    requestCode: stored.requestCode ?? undefined,
-  });
-  return stored;
 }
 
 // ---------------------------------------------------------------------------
@@ -302,8 +274,8 @@ describe("ToolApprovalHandler / grant-miss escalation", () => {
     // Should get the generic denial message, not escalation
     expect(result.result.content).toContain("verified channel identity");
 
-    // No canonical request should have been created
-    const requests = listCanonicalGuardianRequests({
+    // No guardian request should have been created
+    const requests = await sim.module.listGuardianRequests({
       kind: "tool_grant_request",
       status: "pending",
     });
@@ -634,8 +606,8 @@ describe("inline wait-and-resume", () => {
     // Should be near-instant, no waiting
     expect(elapsed).toBeLessThan(200);
 
-    // No canonical request created
-    const requests = listCanonicalGuardianRequests({
+    // No guardian request created
+    const requests = await sim.module.listGuardianRequests({
       kind: "tool_grant_request",
       status: "pending",
     });

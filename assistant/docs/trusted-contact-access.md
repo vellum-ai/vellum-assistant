@@ -4,25 +4,25 @@ Design doc defining how unknown users gain access to a Vellum assistant via chan
 
 ## Roles
 
-| Role              | Description                                                                                                                                                                                                                                            |
-| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `guardian`        | The verified owner/administrator of the assistant on a given channel. Has a record in the gateway DB `contacts` table with `role: 'guardian'` and an active `contact_channels` entry. Approves or denies access requests.                              |
-| `trusted_contact` | An external user who has completed the verification flow and holds a gateway `contact_channels` record with `status: 'active'` and `policy: 'allow'`.                                                                                                  |
-| `gateway`         | The ACL and verification engine. Owns the contact ACL, verification sessions, rate limits, secret minting, code interception, and the validate+consume decision. Stamps a trust verdict on every inbound message.                                      |
-| `assistant`       | The Vellum assistant daemon. Owns the approval workflow (canonical guardian requests), guardian notification, message composition, and channel delivery. It never mints or validates verification secrets.                                             |
+| Role              | Description                                                                                                                                                                                                                                                                                                                                  |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `guardian`        | The verified owner/administrator of the assistant on a given channel. Has a record in the gateway DB `contacts` table with `role: 'guardian'` and an active `contact_channels` entry. Approves or denies access requests.                                                                                                                    |
+| `trusted_contact` | An external user who has completed the verification flow and holds a gateway `contact_channels` record with `status: 'active'` and `policy: 'allow'`.                                                                                                                                                                                        |
+| `gateway`         | The ACL and verification engine. Owns the contact ACL, guardian requests + their delivery records, verification sessions, rate limits, secret minting, code interception, and the validate+consume decision. Commits every guardian decision (status CAS + ACL outcome) in one transaction. Stamps a trust verdict on every inbound message. |
+| `assistant`       | The Vellum assistant daemon. Orchestrates the approval workflow around the gateway-owned requests: guardian notification, message composition, channel delivery, and post-decision side effects (cards, notices, grant minting). It never mints or validates verification secrets.                                                           |
 
 ## Data Ownership
 
-| Store                                                                                                             | Database     |
-| ------------------------------------------------------------------------------------------------------------------- | ------------ |
-| `contacts` / `contact_channels` ACL (role, status, policy, verifiedAt/Via, revoked/blocked reasons), `ingress_invites`, `channel_verification_sessions`, `channel_guardian_rate_limits` | Gateway DB   |
-| `canonical_guardian_requests` / `canonical_guardian_deliveries`, notification pipeline tables, `channel_inbound_events`, contact info + identity mirror (notes, contactType, mirror `contacts`/`contact_channels` without ACL columns) | Assistant DB |
+| Store                                                                                                                                                                                                                                        | Database     |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------ |
+| `contacts` / `contact_channels` ACL (role, status, policy, verifiedAt/Via, revoked/blocked reasons), `guardian_requests` / `guardian_request_deliveries`, `ingress_invites`, `channel_verification_sessions`, `channel_guardian_rate_limits` | Gateway DB   |
+| Notification pipeline tables, `channel_inbound_events`, contact info + identity mirror (notes, contactType, mirror `contacts`/`contact_channels` without ACL columns)                                                                        | Assistant DB |
 
 ## User Journey
 
 1. **Unknown user messages the assistant** on Telegram (or any channel).
 2. **The message is denied at the ingress ACL.** The gateway resolves the actor against its ACL DB and stamps a trust verdict onto the inbound metadata; the daemon's ACL stage (`runtime/routes/inbound-stages/acl-enforcement.ts`) consumes that verdict, finds no active member, replies _"Hmm looks like you don't have access to talk to me. I'll let &lt;guardian&gt; know you tried talking to me and get back to you."_ and returns `{ denied: true, reason: 'not_a_member' }`.
-3. **Notification pipeline alerts the guardian.** The denial triggers `notifyGuardianOfAccessRequest()` (`runtime/access-request-helper.ts`), which creates a canonical access request (`canonical_guardian_requests`, `kind: 'access_request'`, `toolName: 'ingress_access_request'`) and calls `emitNotificationSignal()` with `sourceEventName: 'ingress.access_request'`. The notification routes through the decision engine to the guardian's surfaces (vellum app, Telegram, Slack, etc.). The guardian sees who is requesting access, including a request code for approve/reject and an `open invite flow` option to start the Trusted Contacts invite flow.
+3. **Notification pipeline alerts the guardian.** The denial triggers `notifyGuardianOfAccessRequest()` (`runtime/access-request-helper.ts`), which creates an access request in the gateway (`guardian_requests`, `kind: 'access_request'`, `toolName: 'ingress_access_request'`, via the `channels/gateway-guardian-requests.ts` client) and calls `emitNotificationSignal()` with `sourceEventName: 'ingress.access_request'`. The notification routes through the decision engine to the guardian's surfaces (vellum app, Telegram, Slack, etc.). The guardian sees who is requesting access, including a request code for approve/reject and an `open invite flow` option to start the Trusted Contacts invite flow.
 
    **Access-request copy contract:** Every guardian-facing access-request notification must contain:
    1. **Requester context** — best-available identity (display name, username, external ID, source channel), sanitized to prevent control-character injection.
@@ -39,8 +39,8 @@ Design doc defining how unknown users gain access to a Vellum assistant via chan
 
    This ensures unknown inbound access attempts always trigger guardian notification, even when the requester's source channel has no guardian binding.
 
-4. **Guardian decides.** All decisions route through the canonical decision primitive and the `access_request` resolver (`approvals/guardian-request-resolvers.ts`). The introduction card supports four outcomes: **approve** (start the verification handshake), **trust** (activate directly, no code — used for workspace-vouched identities), **deny** (persist a terminal denial), and **block**.
-5. **On approval the gateway mints a verification session.** The resolver calls the gateway over the `verification_sessions_create_outbound` IPC route; the gateway (`gateway/src/verification/session-service.ts`) generates a 6-digit code, persists only its SHA-256 hash in `channel_verification_sessions` (identity-bound to the requester, `verificationPurpose: 'trusted_contact'`), and returns the raw secret to the daemon for delivery.
+4. **Guardian decides.** All decisions route through the guardian decision primitive (`applyGuardianDecision`, `approvals/guardian-decision-primitive.ts`) and commit via the gateway's `guardian_requests_decide` IPC op: the status CAS and the decision's ACL outcome execute in ONE gateway transaction, so an `approved` request can never exist without its ACL write. The introduction card supports four outcomes: **approve** (start the verification handshake), **trust** (activate directly, no code — used for workspace-vouched identities), **deny** (persist a terminal denial), and **block**.
+5. **On approval the gateway mints a verification session.** The decide op carries a `mint_outbound_session` outcome; inside the decide transaction the gateway (`gateway/src/verification/session-service.ts`) generates a 6-digit code, persists only its SHA-256 hash in `channel_verification_sessions` (identity-bound to the requester, `verificationPurpose: 'trusted_contact'`), and returns the raw secret to the daemon in the decide response for delivery.
 6. **The code is delivered.** The daemon delivers the code to the guardian's verified channel (ephemeral + DM on Slack shared channels so other members never see it). On Slack the code is also DM'd straight to the requester; on other channels the guardian relays it out-of-band (in person, text message, phone call). That out-of-band transfer is the trust anchor: it proves the requester has a real-world relationship with the guardian.
 7. **Requester enters the code** back to the assistant on the same channel. The **gateway** intercepts bare verification codes at ingress (`gateway/src/verification/text-verification.ts`) whenever an interceptable session exists for that channel — the daemon never sees verification code messages.
 8. **Gateway verifies the code and activates the user.** `validateAndConsumeSession()` checks the rate limit, hashes the code, matches it against a live session, verifies identity binding, atomically consumes the session, then applies the trusted-contact side effects: `applyTrustedContactSideEffects()` upserts the verified channel into the gateway ACL with `status: 'active'`, `policy: 'allow'` and mirrors the contact identity to the assistant DB. A blocked/revoked authoritative gateway row rejects the verification even when the code matched. The gateway delivers the deterministic success reply.
@@ -52,24 +52,24 @@ Design doc defining how unknown users gain access to a Vellum assistant via chan
 requested -> pending_guardian -> verification_pending -> active | denied | expired
 ```
 
-| State                  | Description                                                                                                        | Store representation                                                                                                                                                                                          |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `requested`            | Unknown user messaged the assistant and was denied. The system records the access attempt.                         | No member record exists. The inbound is logged in `channel_inbound_events` (assistant DB). A notification signal is emitted via `emitNotificationSignal()`.                                                   |
-| `pending_guardian`     | The guardian has been notified and a decision is pending.                                                          | A `canonical_guardian_requests` record (assistant DB) with `status: 'pending'`, `kind: 'access_request'`.                                                                                                     |
-| `verification_pending` | The guardian approved. A verification session is active with a 6-digit code waiting for the requester to enter.    | Gateway `channel_verification_sessions` record with `status: 'awaiting_response'`, identity-bound to the requester. The canonical request is `status: 'approved'`.                                            |
-| `active`               | The requester entered the correct code (or the guardian chose direct trust). They are now a trusted contact.       | Gateway `contact_channels` record with `status: 'active'`, `policy: 'allow'`; identity mirrored to the assistant DB. The verification session is `status: 'consumed'`.                                        |
-| `denied`               | The guardian explicitly denied the request.                                                                        | The canonical request has `status: 'denied'`. The sender is persisted as an unverified contact and later inbound is suppressed (terminal-deny).                                                               |
-| `expired`              | The guardian never responded (approval TTL elapsed) or the requester never entered the code (session TTL elapsed). | Canonical request: `status: 'expired'` (set by `sweepExpiredCanonicalGuardianRequests()`). Verification session: expires naturally when `expiresAt < Date.now()`.                                             |
+| State                  | Description                                                                                                        | Store representation                                                                                                                                                     |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `requested`            | Unknown user messaged the assistant and was denied. The system records the access attempt.                         | No member record exists. The inbound is logged in `channel_inbound_events` (assistant DB). A notification signal is emitted via `emitNotificationSignal()`.              |
+| `pending_guardian`     | The guardian has been notified and a decision is pending.                                                          | A `guardian_requests` record (gateway DB) with `status: 'pending'`, `kind: 'access_request'`.                                                                            |
+| `verification_pending` | The guardian approved. A verification session is active with a 6-digit code waiting for the requester to enter.    | Gateway `channel_verification_sessions` record with `status: 'awaiting_response'`, identity-bound to the requester. The guardian request is `status: 'approved'`.        |
+| `active`               | The requester entered the correct code (or the guardian chose direct trust). They are now a trusted contact.       | Gateway `contact_channels` record with `status: 'active'`, `policy: 'allow'`; identity mirrored to the assistant DB. The verification session is `status: 'consumed'`.   |
+| `denied`               | The guardian explicitly denied the request.                                                                        | The guardian request has `status: 'denied'`. The sender is persisted as an unverified contact and later inbound is suppressed (terminal-deny).                           |
+| `expired`              | The guardian never responded (approval TTL elapsed) or the requester never entered the code (session TTL elapsed). | Guardian request: `status: 'expired'` (CAS-expired by the gateway via the daemon's expiry sweep). Verification session: expires naturally when `expiresAt < Date.now()`. |
 
 ## Identity Binding Rules
 
 Identity binding ensures the verification code can only be consumed by the intended recipient on the intended channel. The binding fields are set on the gateway `channel_verification_sessions` record when the session is created; the check itself is `checkIdentityMatch` (`gateway/src/verification/identity-match.ts`).
 
-| Channel  | Identity fields                                                                  | Binding behavior                                                                                                                                                                                                       |
-| -------- | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Telegram | `expectedExternalUserId` = Telegram user ID, `expectedChatId` = Telegram chat ID | Both are taken from the original denied message's metadata. The `identityBindingStatus` is `'bound'`. Verification requires the actor's user ID or chat ID to match (user ID required when both are set on a shared chat). |
-| Voice    | `expectedPhoneE164` = phone number in E.164 format                               | Phone-based identity binding. Verification requires the caller's number to match the expected phone.                                                                                                                   |
-| Bootstrap | none yet (`identityBindingStatus: 'pending_bootstrap'`)                          | Unbound deep-link sessions use a 32-byte hex token instead of a numeric code; the identity is bound when the token is redeemed (`verification_sessions_bind_identity`).                                                 |
+| Channel   | Identity fields                                                                  | Binding behavior                                                                                                                                                                                                           |
+| --------- | -------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Telegram  | `expectedExternalUserId` = Telegram user ID, `expectedChatId` = Telegram chat ID | Both are taken from the original denied message's metadata. The `identityBindingStatus` is `'bound'`. Verification requires the actor's user ID or chat ID to match (user ID required when both are set on a shared chat). |
+| Voice     | `expectedPhoneE164` = phone number in E.164 format                               | Phone-based identity binding. Verification requires the caller's number to match the expected phone.                                                                                                                       |
+| Bootstrap | none yet (`identityBindingStatus: 'pending_bootstrap'`)                          | Unbound deep-link sessions use a 32-byte hex token instead of a numeric code; the identity is bound when the token is redeemed (`verification_sessions_bind_identity`).                                                    |
 
 **Anti-oracle invariant:** When identity verification fails, the error message is identical to the "invalid or expired code" message. This prevents attackers from distinguishing between a wrong code and a wrong identity, which would leak information about which identities have pending sessions.
 
@@ -83,72 +83,72 @@ Identity binding ensures the verification code can only be consumed by the inten
 
 ### Stage: `pending_guardian` (guardian notified, awaiting decision)
 
-| Store (assistant DB)              | Table                           | Record                                                                                                                                                                                                                    |
-| --------------------------------- | ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `canonical-guardian-store.ts`     | `canonical_guardian_requests`   | `status: 'pending'`, `kind: 'access_request'`, `toolName: 'ingress_access_request'`, `requesterExternalUserId`, `requesterChatId`, `guardianExternalUserId`/`guardianPrincipalId` (anchored resolution), `requestCode`, `expiresAt` (GUARDIAN_APPROVAL_TTL_MS from now). |
-| `canonical-delivery-recorder.ts`  | `canonical_guardian_deliveries` | Per-surface approval-card delivery records (vellum, Telegram, Slack).                                                                                                                                                     |
-| notification pipeline             | `notification_events`           | Event with `sourceEventName: 'ingress.access_request'`, deduped via `dedupeKey`.                                                                                                                                          |
-| notification pipeline             | `notification_decisions`        | Decision engine output: `shouldNotify`, `selectedChannels`, `confidence`, reasoning.                                                                                                                                      |
-| notification pipeline             | `notification_deliveries`       | Per-channel delivery records, linked via `notificationDecisionId`.                                                                                                                                                        |
+| Store                                                                                                 | Table                                      | Record                                                                                                                                                                                                                                                                   |
+| ----------------------------------------------------------------------------------------------------- | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| gateway `guardian-request-store.ts` (via the daemon's `channels/gateway-guardian-requests.ts` client) | `guardian_requests` (gateway DB)           | `status: 'pending'`, `kind: 'access_request'`, `toolName: 'ingress_access_request'`, `requesterExternalUserId`, `requesterChatId`, `guardianExternalUserId`/`guardianPrincipalId` (anchored resolution), `requestCode`, `expiresAt` (GUARDIAN_APPROVAL_TTL_MS from now). |
+| `canonical-delivery-recorder.ts` (single write sink, relays to the gateway)                           | `guardian_request_deliveries` (gateway DB) | Per-surface approval-card delivery records (vellum, Telegram, Slack).                                                                                                                                                                                                    |
+| notification pipeline (assistant DB)                                                                  | `notification_events`                      | Event with `sourceEventName: 'ingress.access_request'`, deduped via `dedupeKey`.                                                                                                                                                                                         |
+| notification pipeline (assistant DB)                                                                  | `notification_decisions`                   | Decision engine output: `shouldNotify`, `selectedChannels`, `confidence`, reasoning.                                                                                                                                                                                     |
+| notification pipeline (assistant DB)                                                                  | `notification_deliveries`                  | Per-channel delivery records, linked via `notificationDecisionId`.                                                                                                                                                                                                       |
 
 ### Stage: `verification_pending` (guardian approved, code issued)
 
-| Store                                         | Table                           | Record                                                                                                                                                                                                                        |
-| --------------------------------------------- | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `canonical-guardian-store.ts` (assistant DB)  | `canonical_guardian_requests`   | Updated to `status: 'approved'`, `decidedByExternalUserId` set.                                                                                                                                                               |
+| Store                                                  | Table                           | Record                                                                                                                                                                                                                                                                                                                        |
+| ------------------------------------------------------ | ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| gateway `guardian-request-service.ts` (gateway DB)     | `guardian_requests`             | Updated to `status: 'approved'`, `decidedByExternalUserId` set — in the same `guardian_requests_decide` transaction as the session mint below.                                                                                                                                                                                |
 | `session-service.ts` / `session-store.ts` (gateway DB) | `channel_verification_sessions` | New record: `status: 'awaiting_response'`, `identityBindingStatus: 'bound'`, `expectedExternalUserId`/`expectedChatId`/`expectedPhoneE164` set to the requester's identity, `challengeHash` = SHA-256 of the 6-digit code, `expiresAt` = 10 minutes from creation, `codeDigits: 6`, `verificationPurpose: 'trusted_contact'`. |
 
 ### Stage: `active` (code verified, trusted contact created)
 
-| Store                                         | Table                           | Record                                                                                                                                                                                   |
-| --------------------------------------------- | ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `contact-helpers.ts` (gateway DB)             | `contacts` / `contact_channels` | Upserted via `upsertVerifiedContactChannel()`: `status: 'active'`, `policy: 'allow'`, `verifiedAt`/`verifiedVia` stamped. Identity mirrored to the assistant DB (info-only, no ACL columns). |
-| `session-store.ts` (gateway DB)               | `channel_verification_sessions` | Updated to `status: 'consumed'`, `consumedByExternalUserId`, `consumedByChatId` set (status-guarded atomic consume).                                                                     |
-| `rate-limit-helpers.ts` (gateway DB)          | `channel_guardian_rate_limits`  | Reset via `resetRateLimit()` on successful verification.                                                                                                                                 |
+| Store                                | Table                           | Record                                                                                                                                                                                       |
+| ------------------------------------ | ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `contact-helpers.ts` (gateway DB)    | `contacts` / `contact_channels` | Upserted via `upsertVerifiedContactChannel()`: `status: 'active'`, `policy: 'allow'`, `verifiedAt`/`verifiedVia` stamped. Identity mirrored to the assistant DB (info-only, no ACL columns). |
+| `session-store.ts` (gateway DB)      | `channel_verification_sessions` | Updated to `status: 'consumed'`, `consumedByExternalUserId`, `consumedByChatId` set (status-guarded atomic consume).                                                                         |
+| `rate-limit-helpers.ts` (gateway DB) | `channel_guardian_rate_limits`  | Reset via `resetRateLimit()` on successful verification.                                                                                                                                     |
 
 ### Stage: `denied` (guardian rejected)
 
-| Store                                        | Table                         | Record                                                        |
-| -------------------------------------------- | ----------------------------- | ------------------------------------------------------------- |
-| `canonical-guardian-store.ts` (assistant DB) | `canonical_guardian_requests` | Updated to `status: 'denied'`, `decidedByExternalUserId` set. |
+| Store                                              | Table               | Record                                                        |
+| -------------------------------------------------- | ------------------- | ------------------------------------------------------------- |
+| gateway `guardian-request-service.ts` (gateway DB) | `guardian_requests` | Updated to `status: 'denied'`, `decidedByExternalUserId` set. |
 
 No trusted-contact activation happens. The sender is persisted as an unverified contact, and the terminal-deny check suppresses re-prompting the guardian for the same sender.
 
 ### Stage: `expired`
 
-| Store                                        | Table                           | Record                                                                                                        |
-| -------------------------------------------- | ------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| `canonical-guardian-store.ts` (assistant DB) | `canonical_guardian_requests`   | Updated to `status: 'expired'` by `sweepExpiredCanonicalGuardianRequests()` (runs every 60s).                 |
-| `session-store.ts` (gateway DB)              | `channel_verification_sessions` | Expires naturally: `expiresAt < Date.now()` makes it invisible to `findPendingSessionByHash()`.               |
+| Store                                            | Table                           | Record                                                                                                    |
+| ------------------------------------------------ | ------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| gateway `guardian-request-store.ts` (gateway DB) | `guardian_requests`             | Updated to `status: 'expired'` via `guardian_requests_sweep_expired` (the daemon's sweep runs every 60s). |
+| `session-store.ts` (gateway DB)                  | `channel_verification_sessions` | Expires naturally: `expiresAt < Date.now()` makes it invisible to `findPendingSessionByHash()`.           |
 
 ### Invites (alternative path)
 
 Invites are gateway-native: the gateway's `ingress_invites` table is the sole invite store, and its redemption engine (`gateway/src/verification/invite-redemption.ts`) validates the SHA-256 hashed token, atomically claims the row, and activates the channel in the gateway ACL. The daemon only mirrors the contact/channel identity locally via the `invite_redeemed` event. This path is distinct from the trusted contact flow but serves the same end state: an active member channel.
 
-| Table                                 | Purpose in trusted contact flow                                                                                                                                                      |
-| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `ingress_invites` (gateway DB)        | Not used in the guardian-mediated flow. Available as an alternative for direct invite links (e.g., guardian shares a URL instead of going through the approval + verification flow). |
+| Table                          | Purpose in trusted contact flow                                                                                                                                                      |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `ingress_invites` (gateway DB) | Not used in the guardian-mediated flow. Available as an alternative for direct invite links (e.g., guardian shares a URL instead of going through the approval + verification flow). |
 
 ### Voice In-Call Guardian Approval (friend-initiated)
 
-Voice calls have a dedicated in-call guardian approval flow that differs from the text-channel flow. Since the caller is actively on the line, the voice flow captures the caller's name, creates a canonical access request, and holds the call while awaiting the guardian's decision.
+Voice calls have a dedicated in-call guardian approval flow that differs from the text-channel flow. Since the caller is actively on the line, the voice flow captures the caller's name, creates an access request, and holds the call while awaiting the guardian's decision.
 
 **Flow:**
 
 1. Unknown caller dials in. `routeSetup` (`call-setup-router.ts`) resolves trust — caller is `unknown`, no pending challenge, no active invite.
 2. The `CallSetupFlow` enters `capturing_name` state and prompts the caller for their name (with a timeout).
-3. On name capture, `notifyGuardianOfAccessRequest` creates a canonical guardian request (`kind: 'access_request'`) and notifies the guardian.
-4. The flow hands off to a `GuardianWaitController` (`awaiting_guardian_decision`), which speaks hold messaging while polling `canonical_guardian_requests` for status changes.
-5. Guardian approves or denies via any channel. All decisions route through `applyCanonicalGuardianDecision`.
-6. On approval: the `access_request` resolver activates the caller gateway-first via `activateMemberChannel()` (`contacts/member-write-relay.ts`) — the gateway ACL write is authoritative and fail-closed, the assistant DB mirror is best-effort. No verification session is needed since the caller is already authenticated by their phone number.
+3. On name capture, `notifyGuardianOfAccessRequest` creates a guardian request (`kind: 'access_request'`) in the gateway and notifies the guardian.
+4. The flow hands off to a `GuardianWaitController` (`awaiting_guardian_decision`), which speaks hold messaging while polling the request via the gateway client for status changes.
+5. Guardian approves or denies via any channel. All decisions route through `applyGuardianDecision`.
+6. On approval: the decision carries an `activate_member` ACL outcome, so `guardian_requests_decide` commits the status CAS and the gateway ACL activation in one transaction; the assistant DB info mirror is best-effort post-commit. No verification session is needed since the caller is already authenticated by their phone number.
 7. On denial or timeout: the caller hears a denial message and the call ends.
 
 **Key difference from text-channel flow:** Voice approvals skip the verification session step because the caller's phone identity is already known from the active call. Text-channel approvals still mint a 6-digit verification code for out-of-band identity confirmation.
 
-| Store                                        | Table                           | Record                                                                                          |
-| -------------------------------------------- | ------------------------------- | ------------------------------------------------------------------------------------------------- |
-| `canonical-guardian-store.ts` (assistant DB) | `canonical_guardian_requests`   | `kind: 'access_request'`, `status: 'pending'` -> `'approved'` or `'denied'`                     |
-| `member-write-relay.ts` → gateway ACL        | `contacts` / `contact_channels` | On approval: gateway-first activation with `status: 'active'`, `policy: 'allow'`; local mirror. |
+| Store                                              | Table                           | Record                                                                                                                       |
+| -------------------------------------------------- | ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| gateway `guardian-request-service.ts` (gateway DB) | `guardian_requests`             | `kind: 'access_request'`, `status: 'pending'` -> `'approved'` or `'denied'`                                                  |
+| decide `activate_member` outcome → gateway ACL     | `contacts` / `contact_channels` | On approval: activation with `status: 'active'`, `policy: 'allow'` in the decide transaction; local info mirror post-commit. |
 
 ## Sequence Diagram
 
@@ -172,10 +172,10 @@ sequenceDiagram
 
     alt Guardian approves
         G->>A: Approve (inline button / app / plain text)
-        A->>A: applyCanonicalGuardianDecision → access_request resolver
-        A->>GW: verification_sessions_create_outbound (IPC)
-        GW->>GW: Mint 6-digit code, persist SHA-256 hash<br/>(bound to requester identity)
-        GW-->>A: Raw secret for delivery
+        A->>A: applyGuardianDecision → mint_outbound_session outcome
+        A->>GW: guardian_requests_decide (IPC)
+        GW->>GW: One transaction: status CAS + mint 6-digit code,<br/>persist SHA-256 hash (bound to requester identity)
+        GW-->>A: Decide response with raw secret for delivery
         A-->>G: "Approved. Verification code: 847293.<br/>Give this to the requester."
 
         Note over G,U: Out-of-band code transfer<br/>(Slack: code is DM'd to requester directly)
@@ -197,8 +197,9 @@ sequenceDiagram
         A-->>U: (No notification — user only knows<br/>they were denied if they message again)
 
     else Guardian never responds
-        Note over A: sweepExpiredCanonicalGuardianRequests()<br/>runs every 60 seconds
-        A->>A: Approval TTL elapsed → status: 'expired'
+        Note over A: runGuardianExpirySweep()<br/>runs every 60 seconds
+        A->>GW: guardian_requests_sweep_expired (IPC)
+        GW->>GW: Approval TTL elapsed → status: 'expired' (CAS)
         A->>A: Withdraw approval cards on all surfaces
         A-->>U: "Your access request has expired."
 
@@ -213,8 +214,8 @@ sequenceDiagram
 
 ### Guardian never responds
 
-- The `sweepExpiredCanonicalGuardianRequests()` timer (`runtime/routes/canonical-guardian-expiry-sweep.ts`) runs every 60 seconds and CAS-transitions pending requests past their `expiresAt` to `status: 'expired'`.
-- It withdraws the now-stale approval cards on every surface and notifies the requester that the request expired.
+- The `runGuardianExpirySweep()` timer (`runtime/routes/guardian-expiry-sweep.ts`) runs every 60 seconds; the gateway CAS-transitions pending requests past their `expiresAt` to `status: 'expired'` (`guardian_requests_sweep_expired`) and returns the expired rows.
+- The daemon then withdraws the now-stale approval cards on every surface and notifies the requester that the request expired.
 
 ### Verification code expires
 

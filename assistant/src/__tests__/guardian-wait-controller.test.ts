@@ -53,10 +53,10 @@ mock.module("../config/loader.js", () => ({
 }));
 
 // Gateway guardian-request client — in-memory map driven by tests.
-const canonicalRequests = new Map<string, CanonicalGuardianRequest>();
+const guardianRequests = new Map<string, GuardianRequestWire>();
 mock.module("../channels/gateway-guardian-requests.js", () => ({
   getGuardianRequestOrNull: async (id: string) =>
-    canonicalRequests.get(id) ?? null,
+    guardianRequests.get(id) ?? null,
 }));
 
 // Callback handoff helper dependencies — cut the real notification graph.
@@ -92,13 +92,14 @@ mock.module("../calls/call-store.js", () => ({
 
 // ── Source imports (after mocks) ─────────────────────────────────────
 
+import type { GuardianRequestWire } from "@vellumai/gateway-client";
+
 import {
   GuardianWaitController,
   type GuardianWaitControllerDeps,
   type GuardianWaitResolutionContext,
   IN_WAIT_REPLY_COOLDOWN_MS,
 } from "../calls/guardian-wait-controller.js";
-import type { CanonicalGuardianRequest } from "../contacts/canonical-guardian-store.js";
 
 // ── Fixtures ─────────────────────────────────────────────────────────
 
@@ -115,11 +116,11 @@ const START_PARAMS = {
 // cooldown window (lastInWaitReplyAt initializes to 0, matching the relay).
 let nowValue = 1_000_000;
 
-function seedRequest(status: CanonicalGuardianRequest["status"]): void {
-  canonicalRequests.set(REQUEST_ID, {
+function seedRequest(status: GuardianRequestWire["status"]): void {
+  guardianRequests.set(REQUEST_ID, {
     id: REQUEST_ID,
     status,
-  } as CanonicalGuardianRequest);
+  } as GuardianRequestWire);
 }
 
 function createController(overrides?: Partial<GuardianWaitControllerDeps>) {
@@ -181,7 +182,7 @@ function optIntoCallback(controller: GuardianWaitController): void {
 beforeEach(() => {
   jest.useFakeTimers();
   nowValue = 1_000_000;
-  canonicalRequests.clear();
+  guardianRequests.clear();
   emitSignalCalls = [];
   storeEvents = [];
   mockConfig.calls.userConsultTimeoutSeconds = 120;

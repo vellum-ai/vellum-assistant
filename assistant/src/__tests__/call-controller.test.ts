@@ -11,8 +11,11 @@ import {
 mock.module("../config/env.js", () => ({ isHttpAuthDisabled: () => true }));
 
 // Guardian requests/deliveries are created through the gateway client; serve
-// that surface from the local canonical store so dispatch never opens IPC.
-import { gatewayGuardianRequestsStoreBridge } from "./helpers/gateway-guardian-requests-store-bridge.js";
+// that surface from the in-memory sim so dispatch never opens IPC.
+import {
+  bridgeState,
+  gatewayGuardianRequestsStoreBridge,
+} from "./helpers/gateway-guardian-requests-store-bridge.js";
 
 mock.module(
   "../channels/gateway-guardian-requests.js",
@@ -158,7 +161,9 @@ function createMockVoiceTurn(tokens: string[]) {
 
     // Emit text deltas
     for (const token of tokens) {
-      if (opts.signal?.aborted) break;
+      if (opts.signal?.aborted) {
+        break;
+      }
       opts.onTextDelta(token);
     }
 
@@ -285,10 +290,6 @@ import {
 import type { CallTransport } from "../calls/call-transport.js";
 import { resolveCallTtsProvider } from "../calls/resolve-call-tts-provider.js";
 import { loadConfig } from "../config/loader.js";
-import {
-  getCanonicalGuardianRequest,
-  getPendingCanonicalRequestByCallSessionId,
-} from "../contacts/canonical-guardian-store.js";
 import { getMessages } from "../persistence/conversation-crud.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
@@ -350,7 +351,9 @@ function createMockTransport(): MockTransport {
 
 let ensuredConvIds = new Set<string>();
 function ensureConversation(id: string): void {
-  if (ensuredConvIds.has(id)) return;
+  if (ensuredConvIds.has(id)) {
+    return;
+  }
   const db = getDb();
   const now = Date.now();
   db.insert(conversations)
@@ -364,12 +367,19 @@ function ensureConversation(id: string): void {
   ensuredConvIds.add(id);
 }
 
+function pendingRequestByCallSession(callSessionId: string) {
+  return (
+    [...bridgeState.requests.values()]
+      .filter(
+        (r) => r.callSessionId === callSessionId && r.status === "pending",
+      )
+      .sort((a, b) => b.createdAt - a.createdAt)[0] ?? null
+  );
+}
+
 function resetTables() {
+  bridgeState.reset();
   resetTestTables(
-    "canonical_guardian_deliveries",
-    "canonical_guardian_requests",
-    "guardian_action_deliveries",
-    "guardian_action_requests",
     "call_pending_questions",
     "call_events",
     "call_sessions",
@@ -403,8 +413,9 @@ async function pollUntil(
 ): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (!predicate()) {
-    if (Date.now() > deadline)
+    if (Date.now() > deadline) {
       throw new Error(`pollUntil timed out after ${timeoutMs}ms`);
+    }
     await new Promise((r) => setTimeout(r, intervalMs));
   }
 }
@@ -445,7 +456,9 @@ function getLatestAssistantText(conversationId: string): string | null {
   const msgs = getMessages(conversationId).filter(
     (m) => m.role === "assistant",
   );
-  if (msgs.length === 0) return null;
+  if (msgs.length === 0) {
+    return null;
+  }
   const latest = msgs[msgs.length - 1];
   try {
     const parsed = JSON.parse(latest.content) as unknown;
@@ -459,7 +472,9 @@ function getLatestAssistantText(conversationId: string): string | null {
         .map((b) => b.text ?? "")
         .join("");
     }
-    if (typeof parsed === "string") return parsed;
+    if (typeof parsed === "string") {
+      return parsed;
+    }
   } catch {
     /* fall through */
   }
@@ -1875,14 +1890,10 @@ describe("call-controller", () => {
 
       // Poll until the async dispatchGuardianQuestion creates the request
       // (the dispatch is fire-and-forget and may take longer on slow CI)
-      await pollUntil(
-        () => !!getPendingCanonicalRequestByCallSessionId(session.id),
-      );
+      await pollUntil(() => !!pendingRequestByCallSession(session.id));
 
       // Verify a guardian action request was created
-      const pendingRequest = getPendingCanonicalRequestByCallSessionId(
-        session.id,
-      );
+      const pendingRequest = pendingRequestByCallSession(session.id);
       expect(pendingRequest).not.toBeNull();
       expect(pendingRequest!.status).toBe("pending");
 
@@ -1895,7 +1906,7 @@ describe("call-controller", () => {
 
       // Poll until the consultation timeout fires and expires the request
       await pollUntil(() => {
-        const req = getCanonicalGuardianRequest(pendingRequest!.id);
+        const req = bridgeState.getRequest(pendingRequest!.id);
         return req?.status === "expired";
       });
 
@@ -2018,9 +2029,7 @@ describe("call-controller", () => {
     expect(question!.questionText).toBe("Allow send_email to bob@example.com?");
 
     // Verify the guardian action request has tool metadata
-    const pendingRequest = getPendingCanonicalRequestByCallSessionId(
-      session.id,
-    );
+    const pendingRequest = pendingRequestByCallSession(session.id);
     expect(pendingRequest).not.toBeNull();
     expect(pendingRequest!.toolName).toBe("send_email");
     expect(pendingRequest!.inputDigest).not.toBeNull();
@@ -2050,7 +2059,7 @@ describe("call-controller", () => {
     await controller.handleCallerUtterance("Send it");
     await new Promise((r) => setTimeout(r, 10));
 
-    const request1 = getPendingCanonicalRequestByCallSessionId(session.id);
+    const request1 = pendingRequestByCallSession(session.id);
     expect(request1).not.toBeNull();
 
     // Compute expected digest independently using the same utility
@@ -2077,9 +2086,7 @@ describe("call-controller", () => {
     await new Promise((r) => setTimeout(r, 10));
 
     // Verify the guardian action request has NO tool metadata
-    const pendingRequest = getPendingCanonicalRequestByCallSessionId(
-      session.id,
-    );
+    const pendingRequest = pendingRequestByCallSession(session.id);
     expect(pendingRequest).not.toBeNull();
     expect(pendingRequest!.toolName).toBeNull();
     expect(pendingRequest!.inputDigest).toBeNull();
@@ -2141,9 +2148,7 @@ describe("call-controller", () => {
     expect(question!.questionText).toBe("Allow send_message?");
 
     // Verify tool metadata was parsed correctly
-    const pendingRequest = getPendingCanonicalRequestByCallSessionId(
-      session.id,
-    );
+    const pendingRequest = pendingRequestByCallSession(session.id);
     expect(pendingRequest).not.toBeNull();
     expect(pendingRequest!.toolName).toBe("send_message");
     expect(pendingRequest!.inputDigest).not.toBeNull();
@@ -2172,9 +2177,7 @@ describe("call-controller", () => {
     await controller.handleCallerUtterance("Do something");
     await new Promise((r) => setTimeout(r, 10));
 
-    const pendingRequest = getPendingCanonicalRequestByCallSessionId(
-      session.id,
-    );
+    const pendingRequest = pendingRequestByCallSession(session.id);
     expect(pendingRequest).not.toBeNull();
     expect(pendingRequest!.questionText).toBe("Fallback question?");
     // Tool metadata should be null since the approval marker was malformed
@@ -2330,7 +2333,7 @@ describe("call-controller", () => {
 
     const firstQuestionId = controller.getPendingConsultationQuestionId();
     expect(firstQuestionId).not.toBeNull();
-    const firstRequest = getPendingCanonicalRequestByCallSessionId(session.id);
+    const firstRequest = pendingRequestByCallSession(session.id);
     expect(firstRequest).not.toBeNull();
 
     // Repeated ASK_GUARDIAN with same informational question (no tool metadata)
@@ -2342,9 +2345,7 @@ describe("call-controller", () => {
 
     // Should coalesce: same consultation ID, same request
     expect(controller.getPendingConsultationQuestionId()).toBe(firstQuestionId);
-    const currentRequest = getPendingCanonicalRequestByCallSessionId(
-      session.id,
-    );
+    const currentRequest = pendingRequestByCallSession(session.id);
     expect(currentRequest).not.toBeNull();
     expect(currentRequest!.id).toBe(firstRequest!.id);
     expect(currentRequest!.status).toBe("pending");
@@ -2378,7 +2379,7 @@ describe("call-controller", () => {
 
     const firstQuestionId = controller.getPendingConsultationQuestionId();
     expect(firstQuestionId).not.toBeNull();
-    const firstRequest = getPendingCanonicalRequestByCallSessionId(session.id);
+    const firstRequest = pendingRequestByCallSession(session.id);
     expect(firstRequest).not.toBeNull();
 
     // Repeated ASK_GUARDIAN_APPROVAL with same tool/input
@@ -2392,9 +2393,7 @@ describe("call-controller", () => {
 
     // Should coalesce: same consultation, same request
     expect(controller.getPendingConsultationQuestionId()).toBe(firstQuestionId);
-    const currentRequest = getPendingCanonicalRequestByCallSessionId(
-      session.id,
-    );
+    const currentRequest = pendingRequestByCallSession(session.id);
     expect(currentRequest!.id).toBe(firstRequest!.id);
     expect(currentRequest!.status).toBe("pending");
 
@@ -2418,7 +2417,7 @@ describe("call-controller", () => {
     await controller.handleCallerUtterance("Send email");
     await new Promise((r) => setTimeout(r, 10));
 
-    const firstRequest = getPendingCanonicalRequestByCallSessionId(session.id);
+    const firstRequest = pendingRequestByCallSession(session.id);
     expect(firstRequest).not.toBeNull();
     expect(firstRequest!.toolName).toBe("send_email");
 
@@ -2439,13 +2438,13 @@ describe("call-controller", () => {
     await new Promise((r) => setTimeout(r, 10));
 
     // New consultation should be active
-    const secondRequest = getPendingCanonicalRequestByCallSessionId(session.id);
+    const secondRequest = pendingRequestByCallSession(session.id);
     expect(secondRequest).not.toBeNull();
     expect(secondRequest!.id).not.toBe(firstRequest!.id);
     expect(secondRequest!.toolName).toBe("calendar_create");
 
     // Old request should be expired (superseded by the new one)
-    const expiredRequest = getCanonicalGuardianRequest(firstRequest!.id);
+    const expiredRequest = bridgeState.getRequest(firstRequest!.id);
     expect(expiredRequest).not.toBeNull();
     expect(expiredRequest!.status).toBe("expired");
 
@@ -2469,7 +2468,7 @@ describe("call-controller", () => {
     await controller.handleCallerUtterance("Send email to Bob");
     await new Promise((r) => setTimeout(r, 10));
 
-    const firstRequest = getPendingCanonicalRequestByCallSessionId(session.id);
+    const firstRequest = pendingRequestByCallSession(session.id);
     expect(firstRequest).not.toBeNull();
     expect(firstRequest!.toolName).toBe("send_email");
 
@@ -2485,9 +2484,7 @@ describe("call-controller", () => {
     await new Promise((r) => setTimeout(r, 10));
 
     // Should coalesce: the inherited tool metadata matches the existing consultation
-    const currentRequest = getPendingCanonicalRequestByCallSessionId(
-      session.id,
-    );
+    const currentRequest = pendingRequestByCallSession(session.id);
     expect(currentRequest!.id).toBe(firstRequest!.id);
     expect(currentRequest!.status).toBe("pending");
 
@@ -3811,7 +3808,9 @@ describe("call-controller", () => {
       const turnPromise = controller.handleCallerUtterance("Hello");
 
       // Wait for microtasks to settle
-      for (let i = 0; i < 5; i++) await Promise.resolve();
+      for (let i = 0; i < 5; i++) {
+        await Promise.resolve();
+      }
 
       // No outbound audio/tokens yet → still processing.
       expect(controller.getState()).toBe("processing");
@@ -3867,7 +3866,9 @@ describe("call-controller", () => {
 
       const { controller } = setupController();
       const turnPromise = controller.handleCallerUtterance("Hi");
-      for (let i = 0; i < 5; i++) await Promise.resolve();
+      for (let i = 0; i < 5; i++) {
+        await Promise.resolve();
+      }
 
       // Before any token: processing, barge-in ignored (turn not aborted).
       expect(controller.getState()).toBe("processing");
@@ -3876,7 +3877,9 @@ describe("call-controller", () => {
 
       // Release the first token → controller flips to speaking.
       emitFirstToken();
-      for (let i = 0; i < 5; i++) await Promise.resolve();
+      for (let i = 0; i < 5; i++) {
+        await Promise.resolve();
+      }
       expect(controller.getState()).toBe("speaking");
 
       // Now barge-in is accepted and interrupts the turn.
@@ -3919,7 +3922,9 @@ describe("call-controller", () => {
       };
 
       const turnPromise = controller.handleCallerUtterance("Hi");
-      for (let i = 0; i < 10; i++) await Promise.resolve();
+      for (let i = 0; i < 10; i++) {
+        await Promise.resolve();
+      }
 
       // Tokens were emitted (buffered by the transport) but no audio has
       // started — the controller must still be processing.
@@ -3975,7 +3980,9 @@ describe("call-controller", () => {
       };
 
       const turnPromise = controller.handleCallerUtterance("Hi");
-      for (let i = 0; i < 10; i++) await Promise.resolve();
+      for (let i = 0; i < 10; i++) {
+        await Promise.resolve();
+      }
       expect(controller.getState()).toBe("processing");
 
       // Transport reports real outbound audio started → speaking.
@@ -4028,7 +4035,9 @@ describe("call-controller", () => {
       };
 
       const turn1 = controller.handleCallerUtterance("Hi");
-      for (let i = 0; i < 10; i++) await Promise.resolve();
+      for (let i = 0; i < 10; i++) {
+        await Promise.resolve();
+      }
       expect(controller.getState()).toBe("processing");
       expect(cancelledPendingSpeech).toBe(0);
 
@@ -4069,7 +4078,9 @@ describe("call-controller", () => {
       };
 
       const turnPromise = controller.handleCallerUtterance("Hi");
-      for (let i = 0; i < 10; i++) await Promise.resolve();
+      for (let i = 0; i < 10; i++) {
+        await Promise.resolve();
+      }
       const staleCallback = audioStartCallback!;
 
       // Supersede the run (hard interrupt), then fire the stale signal.
@@ -4111,7 +4122,9 @@ describe("call-controller", () => {
       const turnPromise = controller.handleCallerUtterance("Hi");
 
       // Let microtasks settle so onTextDelta runs
-      for (let i = 0; i < 10; i++) await Promise.resolve();
+      for (let i = 0; i < 10; i++) {
+        await Promise.resolve();
+      }
 
       expect(controller.getState()).toBe("speaking");
 

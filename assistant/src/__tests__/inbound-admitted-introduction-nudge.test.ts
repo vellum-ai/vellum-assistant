@@ -63,7 +63,6 @@ mock.module("../contacts/guardian-delivery-reader.js", () => ({
 
 import type { TrustVerdict } from "@vellumai/gateway-client";
 
-import { listCanonicalGuardianRequests } from "../contacts/canonical-guardian-store.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { messages } from "../persistence/schema/index.js";
@@ -72,14 +71,14 @@ import {
   setAdapterProcessMessage,
 } from "./helpers/channel-test-adapter.js";
 import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
+import { bridgeState } from "./helpers/gateway-guardian-requests-store-bridge.js";
 
 await initializeDb();
 
 function resetState(): void {
+  bridgeState.reset();
   const db = getDb();
   db.run("DELETE FROM channel_inbound_events");
-  db.run("DELETE FROM canonical_guardian_requests");
-  db.run("DELETE FROM canonical_guardian_deliveries");
   db.run("DELETE FROM notification_events");
   db.run("DELETE FROM conversation_keys");
   db.run("DELETE FROM messages");
@@ -183,7 +182,9 @@ async function settle(): Promise<void> {
 }
 
 function accessRequests() {
-  return listCanonicalGuardianRequests({ kind: "access_request" });
+  return [...bridgeState.requests.values()].filter(
+    (row) => row.kind === "access_request",
+  );
 }
 
 describe("introduction nudge on first admit", () => {

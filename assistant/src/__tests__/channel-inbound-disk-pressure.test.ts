@@ -62,11 +62,7 @@ mock.module("../daemon/disk-pressure-guard.js", () => ({
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import * as deliveryCrud from "../persistence/delivery-crud.js";
-import {
-  canonicalGuardianRequests,
-  channelInboundEvents,
-  messages,
-} from "../persistence/schema/index.js";
+import { channelInboundEvents, messages } from "../persistence/schema/index.js";
 import { sweepFailedEvents } from "../runtime/channel-retry-sweep.js";
 import {
   handleChannelInbound,
@@ -74,13 +70,14 @@ import {
   setAdapterProcessMessage,
 } from "./helpers/channel-test-adapter.js";
 import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
+import { bridgeState } from "./helpers/gateway-guardian-requests-store-bridge.js";
 
 await initializeDb();
 
 function resetTables(): void {
+  bridgeState.reset();
   const db = getDb();
   db.run("DELETE FROM channel_inbound_events");
-  db.run("DELETE FROM canonical_guardian_requests");
   db.run("DELETE FROM conversation_keys");
   db.run("DELETE FROM messages");
   db.run("DELETE FROM conversations");
@@ -321,7 +318,7 @@ describe("channel inbound disk pressure gate", () => {
     expect(event?.messageId).toBeNull();
     expect(event?.rawPayload).toBeNull();
 
-    expect(db.select().from(canonicalGuardianRequests).all()).toHaveLength(0);
+    expect(bridgeState.requests.size).toBe(0);
     expect(db.select().from(messages).all()).toHaveLength(0);
   });
 
