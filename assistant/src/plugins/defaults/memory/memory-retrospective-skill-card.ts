@@ -1,15 +1,19 @@
 // ---------------------------------------------------------------------------
-// Memory retrospective — skill-authored card insertion.
+// Memory retrospective — skill-authored card delivery.
 // ---------------------------------------------------------------------------
 //
-// When a retrospective run authors NEW managed skills (successful
-// `scaffold_managed_skill` calls without `overwrite: true`), the finalize
-// path surfaces them to the user as a single `skill_card` ui_surface message
-// appended to the SOURCE conversation. The ui_surface block is rendered by
-// the web client's surface router and is paired with a `_surfaceFallback`
-// text block (the approval-card pattern) so providers that drop `ui_surface`
-// blocks still send a non-empty assistant turn and flat-text consumers (CLI,
-// search, channel replies) see readable content.
+// When a retrospective pass genuinely CREATES a managed skill, the scaffold
+// executor (`executeScaffoldManagedSkill`) enqueues a durable
+// `skill_card_insert` job at the creation site — the executor knows
+// created-vs-overwrote, the request origin, and the fork-parent source
+// conversation as facts, so no message archaeology is needed. This module
+// owns the DELIVERY half of that flow: the job handler surfaces the authored
+// skills to the user as a single `skill_card` ui_surface message appended to
+// the SOURCE conversation. The ui_surface block is rendered by the web
+// client's surface router and is paired with a `_surfaceFallback` text block
+// (the approval-card pattern) so providers that drop `ui_surface` blocks
+// still send a non-empty assistant turn and flat-text consumers (CLI, search,
+// channel replies) see readable content.
 //
 // A source conversation that is MID-TURN never gets the card inserted
 // directly — incremental checkpoint persistence writes tool turns to the DB
@@ -18,19 +22,16 @@
 // history linearly (the OpenAI-compatible chat-completions provider) would
 // then emit `assistant(tool_calls) → assistant(text) → tool(...)`, and strict
 // backends reject `tool` messages that don't directly follow their
-// `tool_calls` message — wedging the conversation. Instead, the insert is
-// DEFERRED via a durable `skill_card_insert` job that re-checks on a short
-// cadence and re-upserts itself until the turn ends, so the card is still
-// always delivered (queue-until-turn-end).
+// `tool_calls` message — wedging the conversation. A mid-turn delivery
+// attempt re-upserts the job on a short cadence until the turn ends, so the
+// card is still always delivered (queue-until-turn-end).
 //
-// The finalize entry point (`insertSkillCardMessage`) is best-effort: a card
-// failure must never fail the retrospective job. Once queued, the job handler
-// (`skillCardInsertJob`) lets persistence errors propagate so the jobs
-// worker's retry machinery covers transient failures.
+// The job handler (`skillCardInsertJob`) lets persistence errors propagate so
+// the jobs worker's retry machinery covers transient failures; the
+// message-level `clientMessageId` dedup makes retried deliveries idempotent.
 
 import {
   addMessage,
-  type ContentBlock,
   getConversation,
   isConversationProcessing,
   syncMessageToDisk,
@@ -43,163 +44,21 @@ import {
 import { publishConversationMessagesChanged } from "../../../runtime/sync/resource-sync-events.js";
 import { getLogger } from "./logging.js";
 import { SKILL_CARD_MESSAGE_KIND } from "./memory-retrospective-constants.js";
-import { loadRetrospectiveRunMessages } from "./memory-retrospective-fork-boundary.js";
 
 const log = getLogger("memory-retrospective-skill-card");
 
-/** A newly created skill extracted from a retrospective run's fork tail. */
+/**
+ * A skill authored by a retrospective run, as recorded by the scaffold
+ * executor at creation time. All values are the executor's post-normalization
+ * (trimmed, newline-collapsed) values — exactly what was persisted to the
+ * skill's frontmatter — so the card always links and labels the skill as it
+ * exists on disk.
+ */
 export interface AuthoredSkill {
   skillId: string;
   name: string;
   description: string;
   emoji?: string;
-}
-
-/**
- * Pull the newly created skills out of a retrospective run's own work.
- * Mirrors `extractRetrospectiveRunRemembers`: the run conversation's
- * `source` kind is resolved internally, and `loadRetrospectiveRunMessages`
- * scopes fork-kind rows to the post-fork tail (the copied prefix contains
- * the source conversation's own inline tool calls) and returns `null` on
- * load failure or an undetectable fork boundary — treated here as "the run
- * authored nothing".
- *
- * A `scaffold_managed_skill` call counts only when it is a CREATE
- * (`input.overwrite !== true` — refinements never get a card) and its paired
- * `tool_result` (matched by `tool_use_id` in a later user-role message)
- * exists and is not an error. Robust to malformed content JSON — unparseable
- * rows are skipped, not propagated.
- */
-export async function extractRetrospectiveRunSkillScaffolds(
-  retrospectiveConversationId: string,
-): Promise<AuthoredSkill[]> {
-  const runMessages = await loadRetrospectiveRunMessages(
-    retrospectiveConversationId,
-    (await getConversation(retrospectiveConversationId))?.source ?? null,
-  );
-  if (runMessages == null) {
-    return [];
-  }
-  return extractSuccessfulScaffolds(runMessages);
-}
-
-interface MessageLike {
-  role: string;
-  content: string | ContentBlock[];
-}
-
-function parseBlocks(msg: MessageLike): Array<Record<string, unknown>> {
-  let blocks: unknown = msg.content;
-  if (typeof blocks === "string") {
-    try {
-      blocks = JSON.parse(blocks);
-    } catch {
-      return [];
-    }
-  }
-  if (!Array.isArray(blocks)) {
-    return [];
-  }
-  return blocks.filter(
-    (b): b is Record<string, unknown> => !!b && typeof b === "object",
-  );
-}
-
-/**
- * Single ordered pass: assistant-role `scaffold_managed_skill` tool_use
- * blocks become pending candidates keyed by tool_use id; a later user-role
- * `tool_result` with a matching `tool_use_id` resolves the candidate —
- * success promotes it to the result list, an error discards it. Candidates
- * whose result never arrives (interrupted run) are not verifiably created
- * and are dropped.
- */
-function extractSuccessfulScaffolds(messages: MessageLike[]): AuthoredSkill[] {
-  const pending = new Map<string, AuthoredSkill>();
-  const authored: AuthoredSkill[] = [];
-  for (const msg of messages) {
-    if (msg.role === "assistant") {
-      for (const b of parseBlocks(msg)) {
-        if (b.type !== "tool_use" || b.name !== "scaffold_managed_skill") {
-          continue;
-        }
-        if (typeof b.id !== "string") {
-          continue;
-        }
-        const skill = readScaffoldInput(b.input);
-        if (skill) {
-          pending.set(b.id, skill);
-        }
-      }
-    } else if (msg.role === "user") {
-      for (const b of parseBlocks(msg)) {
-        // guard:allow-tool-result-only — only the local tool executor's
-        // `tool_result` can resolve a `scaffold_managed_skill` candidate; a
-        // `web_search_tool_result` pairs a `server_tool_use`, never a scaffold
-        // call, so it can never match a pending id and is correctly skipped.
-        if (b.type !== "tool_result" || typeof b.tool_use_id !== "string") {
-          continue;
-        }
-        const skill = pending.get(b.tool_use_id);
-        if (!skill) {
-          continue;
-        }
-        pending.delete(b.tool_use_id);
-        if (b.is_error !== true) {
-          authored.push(skill);
-        }
-      }
-    }
-  }
-  return authored;
-}
-
-/**
- * Mirror of the scaffold executor's frontmatter normalization (collapse
- * embedded newlines to a space, trim). Kept local because the executor's
- * `sanitizeFrontmatterValue` is not exported; the two must stay in step so
- * the card shows the values as persisted.
- */
-function normalizeCardText(value: string): string {
-  return value.replace(/[\r\n]+/g, " ").trim();
-}
-
-/**
- * Read a card entry from a `scaffold_managed_skill` tool_use input. Returns
- * `null` for refinements (`overwrite: true`) and for inputs missing a usable
- * `skill_id`/`name` (the web card drops entries without both, so there is
- * nothing to render).
- *
- * Values are NORMALIZED, not stored raw: `executeScaffoldManagedSkill` trims
- * `skill_id` (and newline-collapses + trims name/description/emoji) before
- * persisting, so a successful call with a padded `" my-skill "` creates skill
- * `my-skill` — a card built from the raw input would link `%20my-skill%20`
- * and the detail route would 404 on the skill it just announced.
- */
-function readScaffoldInput(input: unknown): AuthoredSkill | null {
-  if (!input || typeof input !== "object") {
-    return null;
-  }
-  const rec = input as Record<string, unknown>;
-  if (rec.overwrite === true) {
-    return null;
-  }
-  const skillId = typeof rec.skill_id === "string" ? rec.skill_id.trim() : "";
-  const name = typeof rec.name === "string" ? normalizeCardText(rec.name) : "";
-  if (skillId.length === 0 || name.length === 0) {
-    return null;
-  }
-  const description =
-    typeof rec.description === "string"
-      ? normalizeCardText(rec.description)
-      : "";
-  const emoji =
-    typeof rec.emoji === "string" ? normalizeCardText(rec.emoji) : "";
-  return {
-    skillId,
-    name,
-    description,
-    ...(emoji.length > 0 ? { emoji } : {}),
-  };
 }
 
 /**
@@ -212,15 +71,12 @@ function readScaffoldInput(input: unknown): AuthoredSkill | null {
 export const SKILL_CARD_INSERT_RETRY_DELAY_MS = 30_000;
 
 /**
- * Insert the skill card into the source conversation — or, when the source is
- * mid-turn, queue a durable `skill_card_insert` job so the card lands after
- * the turn ends (see the module header for why a mid-turn insert must never
- * happen). Delivery is guaranteed once queued; a card is never dropped except
- * when the source conversation itself no longer exists.
- *
- * This finalize entry point is best-effort — failures (insert AND enqueue)
- * are logged and never thrown, so a card failure never fails the
- * retrospective job.
+ * Best-effort insert-or-defer entry point: insert the skill card into the
+ * source conversation — or, when the source is mid-turn, queue a durable
+ * `skill_card_insert` job so the card lands after the turn ends (see the
+ * module header for why a mid-turn insert must never happen). Failures
+ * (insert AND enqueue) are logged and never thrown, so a card problem never
+ * fails the caller.
  */
 export async function insertSkillCardMessage(
   sourceConversationId: string,
@@ -242,10 +98,10 @@ export async function insertSkillCardMessage(
 }
 
 /**
- * Payload of a deferred `skill_card_insert` job. The authored-skill list is
- * snapshotted at enqueue time: the run conversation may be GC'd as a
- * superseded prior before the job fires, so the handler must not re-extract
- * from it.
+ * Payload of a `skill_card_insert` job. The authored-skill list is recorded
+ * by the scaffold executor at creation time and is self-contained: the run
+ * conversation may be GC'd as a superseded prior before the job fires, so the
+ * handler must never need to read it.
  */
 interface SkillCardInsertJobPayload {
   sourceConversationId: string;
@@ -255,15 +111,14 @@ interface SkillCardInsertJobPayload {
 
 /**
  * Job handler for `skill_card_insert` (registered in `job-handlers.ts`): the
- * deferred half of {@link insertSkillCardMessage}. Re-checks the source
- * conversation — deleted → drop with a log; still mid-turn → re-upsert itself
- * at {@link SKILL_CARD_INSERT_RETRY_DELAY_MS} (the currently claimed row is
+ * delivery of a retrospective run's authored-skill card. Re-checks the source
+ * conversation — deleted → drop with a log; mid-turn → re-upsert itself at
+ * {@link SKILL_CARD_INSERT_RETRY_DELAY_MS} (the currently claimed row is
  * `running`, so the upsert creates a fresh pending row and the attempt
  * counter never accumulates); idle → insert. A malformed payload is dropped
- * with a warning. Unlike the finalize entry point, persistence errors
- * PROPAGATE so the jobs worker's standard retry-with-backoff covers transient
- * failures; a retried insert after a success is deduplicated by
- * `clientMessageId`.
+ * with a warning. Persistence errors PROPAGATE so the jobs worker's standard
+ * retry-with-backoff covers transient failures; a retried insert after a
+ * success is deduplicated by `clientMessageId`.
  */
 export async function skillCardInsertJob(job: MemoryJob): Promise<void> {
   const payload = parseSkillCardInsertPayload(job.payload);
@@ -341,7 +196,7 @@ function parseSkillCardInsertPayload(
  *
  * The retrospective accounting excludes `SKILL_CARD_MESSAGE_KIND` rows from
  * re-trigger counting, so a delivered card never wakes another pass. Errors
- * propagate to the caller — the finalize entry point swallows them, the job
+ * propagate to the caller — `insertSkillCardMessage` swallows them, the job
  * handler surfaces them to the worker's retry machinery.
  */
 async function insertOrDeferSkillCard(

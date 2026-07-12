@@ -54,10 +54,10 @@ export const MEMORY_RETROSPECTIVE_INSTRUCTION_KIND =
 
 /**
  * `metadata.kind` value stamped on the assistant-role message carrying the
- * `skill_card` ui_surface that a retrospective inserts into its SOURCE
- * conversation after authoring new skills. Lets clients and operators
- * identify the card row; the block itself is provider-stripped so it never
- * reaches the model as renderable content.
+ * `skill_card` ui_surface that the `skill_card_insert` delivery job appends
+ * to a retrospective's SOURCE conversation after the run authors new skills.
+ * Lets clients and operators identify the card row; the block itself is
+ * provider-stripped so it never reaches the model as renderable content.
  */
 export const SKILL_CARD_MESSAGE_KIND = "skill-authored-card";
 
