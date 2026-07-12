@@ -399,9 +399,9 @@ beforeEach(() => {
   mockQueryUnreportedOnboardingEvents.mockReset();
   mockQueryUnreportedOnboardingEvents.mockReturnValue([]);
   getDb().delete(toolInvocations).run();
-  getTelemetryDb()?.delete(skillLoadedEvents).run();
-  getTelemetryDb()?.delete(authFallbackEvents).run();
-  getTelemetryDb()?.delete(configSettingEvents).run();
+  getTelemetryDb()!.delete(skillLoadedEvents).run();
+  getTelemetryDb()!.delete(authFallbackEvents).run();
+  getTelemetryDb()!.delete(configSettingEvents).run();
   delete process.env.VELLUM_DISABLE_PLATFORM;
   delete process.env.IS_PLATFORM;
   mockGetPlatformBaseUrl.mockReset();
@@ -1938,11 +1938,7 @@ describe("UsageTelemetryReporter", () => {
 
     // The last row by the reporter's (createdAt, id) cursor order is the one
     // whose watermark should be persisted after a successful upload.
-    const telemetryDb = getTelemetryDb();
-    if (!telemetryDb) {
-      throw new Error("telemetry DB unavailable in test");
-    }
-    const rows = telemetryDb
+    const rows = getTelemetryDb()!
       .select()
       .from(authFallbackEvents)
       .orderBy(authFallbackEvents.createdAt, authFallbackEvents.id)
@@ -2616,9 +2612,7 @@ describe("UsageTelemetryReporter", () => {
 
     // The last row by the reporter's (createdAt, id) cursor order is the one
     // whose watermark should be persisted after a successful upload.
-    const telemetryDb = getTelemetryDb();
-    if (!telemetryDb) throw new Error("telemetry DB unavailable in test");
-    const rows = telemetryDb
+    const rows = getTelemetryDb()!
       .select()
       .from(configSettingEvents)
       .orderBy(configSettingEvents.createdAt, configSettingEvents.id)

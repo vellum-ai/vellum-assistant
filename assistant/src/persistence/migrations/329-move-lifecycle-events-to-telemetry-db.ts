@@ -18,7 +18,7 @@ import {
  * usage telemetry reporter flushes it (and, by design, forever after: the
  * table is never deleted from) — so all rows are copied verbatim.
  */
-export const LIFECYCLE_EVENTS_RELOCATION: RelocationSpec = {
+const LIFECYCLE_EVENTS_RELOCATION: RelocationSpec = {
   table: "lifecycle_events",
   targetDbPath: getTelemetryDbPath,
   columns: ["id", "event_name", "created_at"],

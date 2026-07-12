@@ -274,12 +274,16 @@ export const llmUsageEvents = sqliteTable(
   ],
 );
 
+// Lives on the dedicated telemetry database (assistant-telemetry.db)
+// alongside watchdog_events.
 export const lifecycleEvents = sqliteTable("lifecycle_events", {
   id: text("id").primaryKey(),
   eventName: text("event_name").notNull(), // 'app_open' | 'hatch'
   createdAt: integer("created_at").notNull(),
 });
 
+// Lives on the dedicated telemetry database (assistant-telemetry.db)
+// alongside watchdog_events.
 export const onboardingEvents = sqliteTable("onboarding_events", {
   id: text("id").primaryKey(),
   createdAt: integer("created_at").notNull(),
@@ -301,7 +305,9 @@ export const onboardingEvents = sqliteTable("onboarding_events", {
 // Aggregated legacy-loopback auth-fallback counts forwarded by the gateway.
 // One row per (guard, path, failure_kind) per flush window; `count` is how many
 // requests fell back to the loopback exemption in that window. Flushed to the
-// platform telemetry endpoint by the usage telemetry reporter.
+// platform telemetry endpoint by the usage telemetry reporter. Lives on the
+// dedicated telemetry database (assistant-telemetry.db) alongside
+// watchdog_events.
 export const authFallbackEvents = sqliteTable("auth_fallback_events", {
   id: text("id").primaryKey(),
   createdAt: integer("created_at").notNull(),
@@ -323,7 +329,9 @@ export const activationSessions = sqliteTable("activation_sessions", {
 
 // One row per `skill_loaded` telemetry event, emitted when a Vellum-produced
 // skill is activated in a conversation — see skill-loaded-events-store.ts for
-// the data contract. Flushed by the usage telemetry reporter.
+// the data contract. Flushed by the usage telemetry reporter. Lives on the
+// dedicated telemetry database (assistant-telemetry.db) alongside
+// watchdog_events.
 export const skillLoadedEvents = sqliteTable(
   "skill_loaded_events",
   {

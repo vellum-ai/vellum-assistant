@@ -60,7 +60,8 @@ function handleRecordAuthFallback({ body }: RouteHandlerArgs) {
 
   const recorded = recordAuthFallbackCounts(window_start, window_end, mapped);
   if (recorded === 0) {
-    // share_analytics consent off — counts dropped to honor the opt-out.
+    // Counts dropped: share_analytics consent is off (honoring the opt-out)
+    // or the telemetry database is unavailable (degraded mode).
     return { skipped: true };
   }
   log.debug({ recorded }, "Recorded auth-fallback counts");
