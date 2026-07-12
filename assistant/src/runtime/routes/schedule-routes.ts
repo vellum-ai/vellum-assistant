@@ -1068,6 +1068,22 @@ async function handleRunScheduleNow(id: string) {
     return handleListSchedules({});
   }
 
+  // Legacy task-template schedules (message `run_task:<id>`) reference a
+  // capability that has been removed. Record a failed run instead of forwarding
+  // the raw `run_task:<id>` string to the agent.
+  if (/^run_task:\S+$/.test(schedule.message)) {
+    const runId = await createScheduleRun(schedule.id, null);
+    await completeScheduleRun(runId, {
+      status: "error",
+      error: "Scheduled task templates are no longer supported.",
+    });
+    log.warn(
+      { jobId: schedule.id, name: schedule.name },
+      "Skipped unsupported task-template schedule (run_task, manual run-now)",
+    );
+    return handleListSchedules({});
+  }
+
   // ── Wake mode (resume an existing conversation, no new message) ────
   if (schedule.mode === "wake") {
     if (!schedule.wakeConversationId) {

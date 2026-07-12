@@ -734,6 +734,24 @@ export async function runDueSchedulesOnce(
 
     // ── Execute mode ────────────────────────────────────────────────
 
+    // Legacy task-template schedules stored a `run_task:<id>` message that an
+    // older scheduler special-cased to run a saved task template. That
+    // capability has been removed. Record a failed run so the dead schedule is
+    // visible, and never forward the raw `run_task:<id>` string to the agent.
+    if (/^run_task:\S+$/.test(job.message)) {
+      const runId = await createScheduleRun(job.id, null);
+      await completeScheduleRun(runId, {
+        status: "error",
+        error: "Scheduled task templates are no longer supported.",
+      });
+      log.warn(
+        { jobId: job.id, name: job.name },
+        "Skipped unsupported task-template schedule (run_task)",
+      );
+      mark("failed");
+      continue;
+    }
+
     // Reuse the conversation from the last successful run when the flag is set
     // and a prior conversation still exists; otherwise route through the
     // shared `runBackgroundJob` runner (which bootstraps fresh, applies the

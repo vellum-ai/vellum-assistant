@@ -119,8 +119,6 @@ describe("scheduler RRULE execution", () => {
     const db = getDb();
     db.run("DELETE FROM cron_runs");
     db.run("DELETE FROM cron_jobs");
-    db.run("DELETE FROM task_runs");
-    db.run("DELETE FROM tasks");
     db.run("DELETE FROM messages");
     db.run("DELETE FROM conversations");
     onRunBackgroundJobPrompt = null;
@@ -257,6 +255,35 @@ describe("scheduler RRULE execution", () => {
     const runs = getScheduleRuns(schedule.id);
     expect(runs.length).toBeGreaterThanOrEqual(1);
     expect(runs[0].status).toBe("ok");
+  });
+
+  test("legacy run_task schedules are marked failed and never dispatched", async () => {
+    const schedule = await createSchedule({
+      name: "Legacy task schedule",
+      cronExpression: "* * * * *",
+      message: "run_task:some-task-id",
+      syntax: "cron",
+    });
+
+    forceScheduleDue(schedule.id);
+
+    const dispatched: string[] = [];
+    onRunBackgroundJobPrompt = ({ prompt }) => {
+      dispatched.push(prompt);
+    };
+    processMessageImpl = async (_conversationId, message) => {
+      dispatched.push(message);
+    };
+
+    await runScheduleDueWorkOnce();
+
+    // The raw `run_task:<id>` string must never reach the agent.
+    expect(dispatched).toHaveLength(0);
+
+    // A failed cron_run is recorded so the dead schedule stays visible.
+    const runs = getScheduleRuns(schedule.id);
+    expect(runs.length).toBeGreaterThanOrEqual(1);
+    expect(runs[0].status).toBe("error");
   });
 
   test("RRULE set with EXDATE skips excluded occurrence and advances to next valid date", async () => {
