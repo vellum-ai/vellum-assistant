@@ -237,13 +237,12 @@ export async function expireInteractionBoundGuardianRequests(): Promise<number> 
 
 /**
  * Sweep persistent requests past their `expiresAt` (gateway CAS-expires;
- * `now` defaults gateway-side). Returns the expired ids for daemon-side
- * notification and card-withdrawal fan-out. Throws on any failure
- * (fail-closed).
+ * `now` defaults gateway-side). Returns the expired rows so the daemon fan-out
+ * needs no follow-up read. Throws on any failure (fail-closed).
  */
 export async function sweepExpiredGuardianRequests(
   now?: number,
-): Promise<string[]> {
+): Promise<GuardianRequestWire[]> {
   const response = await callGateway(
     GUARDIAN_REQUESTS_IPC_METHODS.sweepExpired,
     { now },

@@ -7,7 +7,7 @@
  * from either the guardian or the requester.
  *
  * The gateway owns the status transition (the single source of truth); the
- * daemon fans out the side effects for each expired id it returns:
+ * daemon fans out the side effects for each expired row it returns:
  * withdrawing the approval cards on every surface, notifying the requester
  * that their request expired, and releasing any in-memory pending
  * interaction. Requester notices are delivered straight to the requester's
@@ -21,8 +21,8 @@
 import { withdrawGuardianRequestCards } from "../../approvals/guardian-card-withdrawal.js";
 import { notifyExpiredGuardianRequest } from "../../approvals/guardian-expiry-notifier.js";
 import {
-  getGuardianRequestOrNull,
   sweepExpiredGuardianRequests,
+  type GuardianRequestWire,
 } from "../../channels/gateway-guardian-requests.js";
 import { getLogger } from "../../util/logger.js";
 
@@ -44,9 +44,9 @@ let sweepInProgress = false;
  * the count of requests transitioned to expired.
  */
 export async function runGuardianExpirySweep(): Promise<number> {
-  let expiredIds: string[];
+  let expired: GuardianRequestWire[];
   try {
-    expiredIds = await sweepExpiredGuardianRequests();
+    expired = await sweepExpiredGuardianRequests();
   } catch (err) {
     log.warn(
       { err },
@@ -55,19 +55,9 @@ export async function runGuardianExpirySweep(): Promise<number> {
     return 0;
   }
 
-  for (const requestId of expiredIds) {
-    // The side-effect fan-out needs the full row (kind, requester identity,
-    // trigger). The request is already expired, so a failed re-read only
-    // defers the best-effort notices — never the status transition.
-    const request = await getGuardianRequestOrNull(requestId);
-    if (!request) {
-      log.warn(
-        { requestId },
-        "Expired guardian request not re-readable — skipping expiry side effects",
-      );
-      continue;
-    }
-
+  // The sweep returns the full rows, so the side-effect fan-out can never be
+  // stranded by a failed follow-up read after the status flip.
+  for (const request of expired) {
     log.info(
       {
         event: "guardian_request_expired",
@@ -92,17 +82,17 @@ export async function runGuardianExpirySweep(): Promise<number> {
     await notifyExpiredGuardianRequest(request);
   }
 
-  if (expiredIds.length > 0) {
+  if (expired.length > 0) {
     log.info(
       {
         event: "guardian_expiry_sweep_complete",
-        expiredCount: expiredIds.length,
+        expiredCount: expired.length,
       },
-      `Guardian expiry sweep: expired ${expiredIds.length} request(s)`,
+      `Guardian expiry sweep: expired ${expired.length} request(s)`,
     );
   }
 
-  return expiredIds.length;
+  return expired.length;
 }
 
 /**

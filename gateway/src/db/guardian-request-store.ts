@@ -448,8 +448,7 @@ export interface ResolveGuardianRequestDecision {
 }
 
 export type ResolveGuardianRequestResult =
-  | { applied: true; request: GuardianRequest }
-  | { applied: false };
+  { applied: true; request: GuardianRequest } | { applied: false };
 
 /**
  * Compare-and-swap resolve: only transitions the request from
@@ -545,15 +544,17 @@ export function expireAllPendingInteractionBound(): number {
 
 /**
  * Sweep-expire pending requests whose `expiresAt` deadline has passed.
- * Returns the expired request ids so the daemon can fan out card
- * withdrawals and expiry notifications.
+ * Returns the expired rows as written so the daemon's card-withdrawal and
+ * expiry-notification fan-out needs no follow-up read.
  */
-export function sweepExpiredGuardianRequests(now = Date.now()): string[] {
+export function sweepExpiredGuardianRequests(
+  now = Date.now(),
+): GuardianRequest[] {
   const db = getGatewayDb();
 
   return db.transaction(() => {
     const stale = db
-      .select({ id: guardianRequests.id })
+      .select()
       .from(guardianRequests)
       .where(
         and(
@@ -562,24 +563,29 @@ export function sweepExpiredGuardianRequests(now = Date.now()): string[] {
           lt(guardianRequests.expiresAt, now),
         ),
       )
-      .all()
-      .map((row) => row.id);
+      .all();
 
     if (stale.length === 0) {
       return [];
     }
 
+    const updatedAt = Date.now();
     db.update(guardianRequests)
-      .set({ status: "expired", updatedAt: Date.now() })
+      .set({ status: "expired", updatedAt })
       .where(
         and(
-          inArray(guardianRequests.id, stale),
+          inArray(
+            guardianRequests.id,
+            stale.map((row) => row.id),
+          ),
           eq(guardianRequests.status, "pending"),
         ),
       )
       .run();
 
-    return stale;
+    return stale.map((row) =>
+      rowToRequest({ ...row, status: "expired", updatedAt }),
+    );
   });
 }
 

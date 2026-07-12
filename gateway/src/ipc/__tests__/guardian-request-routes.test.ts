@@ -36,7 +36,10 @@ import {
   resetGatewayDb,
 } from "../../db/connection.js";
 import { createGuardianRequest } from "../../db/guardian-request-store.js";
-import { guardianRequestDeliveries, guardianRequests } from "../../db/schema.js";
+import {
+  guardianRequestDeliveries,
+  guardianRequests,
+} from "../../db/schema.js";
 import { guardianRequestRoutes } from "../guardian-request-handlers.js";
 import { GatewayIpcServer } from "../server.js";
 
@@ -153,7 +156,10 @@ describe("route registration", () => {
 
 describe("guardian_requests_decide", () => {
   test("plain CAS decide resolves the request and stamps the decision fields", async () => {
-    const created = await createRequest({ kind: "tool_approval", toolName: "bash" });
+    const created = await createRequest({
+      kind: "tool_approval",
+      toolName: "bash",
+    });
 
     const decided = DecideGuardianRequestIpcResponseSchema.parse(
       await call(METHODS.decide, {
@@ -177,7 +183,10 @@ describe("guardian_requests_decide", () => {
   });
 
   test("a second decide loses the CAS: status_conflict, row untouched", async () => {
-    const created = await createRequest({ kind: "tool_approval", toolName: "bash" });
+    const created = await createRequest({
+      kind: "tool_approval",
+      toolName: "bash",
+    });
     await call(METHODS.decide, {
       id: created.id,
       expectedStatus: "pending",
@@ -457,7 +466,8 @@ describe("guardian_requests_sweep_expired", () => {
     const swept = SweepExpiredGuardianRequestsIpcResponseSchema.parse(
       await call(METHODS.sweepExpired),
     );
-    expect(swept.expired).toEqual([stale.id]);
+    expect(swept.expired.map((row) => row.id)).toEqual([stale.id]);
+    expect(swept.expired[0].status).toBe("expired");
     expect(getRequestRow(stale.id)?.status).toBe("expired");
     expect(getRequestRow(fresh.id)?.status).toBe("pending");
     expect(getRequestRow(noDeadline.id)?.status).toBe("pending");
@@ -469,7 +479,7 @@ describe("guardian_requests_sweep_expired", () => {
     const swept = SweepExpiredGuardianRequestsIpcResponseSchema.parse(
       await call(METHODS.sweepExpired, { now: fresh.expiresAt! + 1 }),
     );
-    expect(swept.expired).toEqual([fresh.id]);
+    expect(swept.expired.map((row) => row.id)).toEqual([fresh.id]);
     expect(getRequestRow(fresh.id)?.status).toBe("expired");
   });
 });
@@ -579,9 +589,7 @@ describe("destination lookups", () => {
         conversationId: "conv-1",
       }),
     );
-    expect(byConversation.map((r) => r.id).sort()).toEqual(
-      [a.id, b.id].sort(),
-    );
+    expect(byConversation.map((r) => r.id).sort()).toEqual([a.id, b.id].sort());
 
     const narrowed = GuardianRequestListIpcResponseSchema.parse(
       await call(METHODS.listPendingByDestination, {
@@ -700,7 +708,10 @@ describe("schema rejection", () => {
         METHODS.create,
         { id: "req-x", kind: "not-a-kind", guardianPrincipalId: "p" },
       ],
-      [METHODS.create, { id: "", kind: "access_request", guardianPrincipalId: "p" }],
+      [
+        METHODS.create,
+        { id: "", kind: "access_request", guardianPrincipalId: "p" },
+      ],
       [METHODS.get, {}],
       [METHODS.getByCode, { code: "" }],
       [METHODS.list, { sourceType: "carrier-pigeon" }],

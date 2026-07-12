@@ -56,26 +56,25 @@ mock.module("../approvals/guardian-card-withdrawal.js", () => ({
 
 // Gateway guardian-request client — in-memory rows driven by tests. The sweep
 // asks the gateway to CAS-expire past-deadline pending rows and fans out
-// notifications from the returned ids.
+// notifications from the returned rows.
 const gatewayRequests = new Map<string, GuardianRequestWire>();
 mock.module("../channels/gateway-guardian-requests.js", () => ({
   sweepExpiredGuardianRequests: async () => {
     const now = Date.now();
-    const expired: string[] = [];
+    const expired: GuardianRequestWire[] = [];
     for (const row of gatewayRequests.values()) {
       if (
         row.status === "pending" &&
         row.expiresAt !== null &&
         row.expiresAt <= now
       ) {
-        gatewayRequests.set(row.id, { ...row, status: "expired" });
-        expired.push(row.id);
+        const flipped = { ...row, status: "expired" as const };
+        gatewayRequests.set(row.id, flipped);
+        expired.push(flipped);
       }
     }
     return expired;
   },
-  getGuardianRequestOrNull: async (id: string) =>
-    gatewayRequests.get(id) ?? null,
 }));
 
 import { notifyExpiredGuardianRequest } from "../approvals/guardian-expiry-notifier.js";
