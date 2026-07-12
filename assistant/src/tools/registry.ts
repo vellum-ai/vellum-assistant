@@ -28,12 +28,12 @@ const DEFAULT_TOOL_OWNER: OwnerInfo = Object.freeze({
   id: "default",
 });
 
-// Snapshot of core tools (with their owners) captured after initializeTools()
-// completes. Lets __resetRegistryForTesting() restore the core baseline — tools
-// and ownership together — synchronously, without re-running the async
-// initializeTools() bootstrap.
-let coreToolsSnapshot: Map<string, { tool: Tool; owner: OwnerInfo }> | null =
-  null;
+// Flips true once initializeTools() has registered the core manifest tools
+// (the read-only baseline: file_read/web_fetch/etc.). Only ever goes
+// false→true, so a true reading is stable for the process lifetime; callers
+// that must not run before the baseline exists gate on it via
+// {@link areCoreToolsInitialized}.
+let coreToolsInitialized = false;
 
 // Cached promise for the one-time tool-registry initialization. `initializeTools`
 // returns this so repeated calls (across entry points, or an eventual
@@ -195,14 +195,14 @@ export function getTool(name: string): Tool | undefined {
 }
 
 /**
- * True once {@link initializeTools} has populated the core registry (the core
- * snapshot is captured at the end of init). Callers that must not run before the
- * read-only baseline (`file_read`/`web_fetch`/etc.) exists — e.g. the scheduler
- * deferring boot-time workflow triggers — gate on this. It only ever flips
- * false→true, so a true reading is stable for the process lifetime.
+ * True once {@link initializeTools} has registered the core manifest tools.
+ * Callers that must not run before the read-only baseline
+ * (`file_read`/`web_fetch`/etc.) exists — e.g. the scheduler deferring
+ * boot-time workflow triggers — gate on this. It only ever flips false→true,
+ * so a true reading is stable for the process lifetime.
  */
 export function areCoreToolsInitialized(): boolean {
-  return coreToolsSnapshot !== null;
+  return coreToolsInitialized;
 }
 
 export function getAllTools(): Tool[] {
@@ -1071,45 +1071,10 @@ export function initializeTools(): Promise<void> {
 }
 
 async function runToolInitialization(): Promise<void> {
-  // Capture tool names already in the registry before any manifest
-  // registrations.  In production this is empty; in tests a non-skill tool
-  // may have been registered before the first initializeTools() call.
-  const preExisting = new Set(tools.keys());
-
   for (const tool of explicitTools) {
     registerTool(tool);
   }
-
-  // Snapshot core tools for __resetRegistryForTesting().  We include every
-  // non-skill tool that was registered by the manifest, while excluding
-  // arbitrary test tools that were registered before init.
-  //
-  // A pre-existing tool is included only if it is a known manifest tool
-  // (declared in explicitTools) — e.g. a test registered a manifest tool
-  // directly before its first initializeTools() call.
-  if (!coreToolsSnapshot) {
-    // Core tool literals always set `name` (verified by `registerTool` —
-    // it throws on missing name). The `!` assertion reflects that
-    // invariant at the iteration site.
-    const manifestToolNames = new Set<string>(
-      explicitTools.map((t) => t.name!),
-    );
-
-    coreToolsSnapshot = new Map<string, { tool: Tool; owner: OwnerInfo }>();
-    for (const [name, tool] of tools) {
-      const owner = ownersByName.get(name);
-      if (owner?.kind === "skill" || owner?.kind === "plugin") {
-        continue;
-      }
-      // Exclude pre-existing tools not declared in the manifest
-      if (preExisting.has(name) && !manifestToolNames.has(name)) {
-        continue;
-      }
-      // Every registered tool carries an owner (built-ins get DEFAULT_TOOL_OWNER
-      // stamped by registerTool), so `owner` is defined here.
-      coreToolsSnapshot.set(name, { tool, owner: owner! });
-    }
-  }
+  coreToolsInitialized = true;
 
   log.info({ count: tools.size }, "Tools initialized");
 
@@ -1118,8 +1083,6 @@ async function runToolInitialization(): Promise<void> {
   // registrations get a chance to claim names. This ordering makes
   // workspace tools the canonical owner per name:
   //   core registrations → workspace tools → MCP → plugins.
-  // Workspace tools land after the core snapshot above so they're never
-  // baked into the test-reset baseline.
   //
   // `loadWorkspaceTools` is idempotent: this is the first reconcile, and
   // conversation reads re-run it later to pick up on-disk edits without a
@@ -1146,9 +1109,11 @@ async function runToolInitialization(): Promise<void> {
  * exclusively for test isolation - prevents cross-file contamination
  * when multiple test suites share a single Bun process.
  *
- * Restores core tools from a snapshot taken after the first
- * initializeTools() call, so the reset is synchronous and does not
- * depend on re-running the async init bootstrap.
+ * Re-registers the core manifest tools synchronously (the async workspace /
+ * plugin reconciles are NOT re-run, so their file-backed tools drop out of
+ * the baseline). `registerTool` reuses the finalized instances memoized on
+ * first init, so restored tools keep their identity. A no-op restore when
+ * init never ran in this process — nothing to re-register yet.
  */
 export function __resetRegistryForTesting(): void {
   tools.clear();
@@ -1156,19 +1121,18 @@ export function __resetRegistryForTesting(): void {
   skillRefCount.clear();
   pluginRefCount.clear();
   pulledPluginFingerprints.clear();
-  // Drop the override stash too — the snapshot already represents the
-  // pre-override baseline, so leaving stashed entries here would let a
-  // later registerWorkspaceTools() falsely report "overridesCore: true"
+  // Drop the override stash too — re-registering the core baseline below
+  // restores the pre-override state, so leaving stashed entries here would let
+  // a later registerWorkspaceTools() falsely report "overridesCore: true"
   // against a fresh registry.
   coreToolOverrides.clear();
   // Clear the cached init promise so a later initializeTools() re-runs against
   // the freshly reset registry rather than returning the previous settled run.
   toolsInitPromise = null;
 
-  if (coreToolsSnapshot) {
-    for (const [name, { tool, owner }] of coreToolsSnapshot) {
-      tools.set(name, tool);
-      ownersByName.set(name, owner);
+  if (coreToolsInitialized) {
+    for (const tool of explicitTools) {
+      registerTool(tool);
     }
   }
 }

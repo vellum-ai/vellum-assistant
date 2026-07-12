@@ -11,6 +11,11 @@ beforeEach(() => {
 });
 
 afterAll(() => {
+  // The test above runs a full initializeTools(), leaving the process-global
+  // registry hot; clear it so a combined `bun test` run doesn't leak this
+  // initialization into a later file that expects to initialize under its own
+  // env/mocks.
+  __clearRegistryForTesting();
   mock.restore();
 });
 

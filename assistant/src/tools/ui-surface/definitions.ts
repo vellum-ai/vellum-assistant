@@ -362,7 +362,7 @@ export const uiUpdateTool = {
 // ui_dismiss
 // ---------------------------------------------------------------------------
 
-const uiDismissTool = {
+export const uiDismissTool = {
   name: "ui_dismiss",
   description: "Dismiss a currently displayed surface.",
   category: "ui-surface",
@@ -382,9 +382,3 @@ const uiDismissTool = {
 
   execute: proxyExecute("ui_dismiss"),
 } satisfies ToolDefinition;
-
-export const allUiSurfaceTools: ToolDefinition[] = [
-  uiShowTool,
-  uiUpdateTool,
-  uiDismissTool,
-];
