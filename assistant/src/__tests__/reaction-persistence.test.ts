@@ -56,7 +56,9 @@ let gatewayGuardians: GatewayGuardian[] = [];
 mock.module("../contacts/guardian-delivery-reader.js", () => ({
   getGuardianDelivery: async () => gatewayGuardians,
   peekCachedGuardianDelivery: (input?: { channelTypes?: string[] }) => {
-    if (!input?.channelTypes) return gatewayGuardians;
+    if (!input?.channelTypes) {
+      return gatewayGuardians;
+    }
     return gatewayGuardians.filter((g) =>
       input.channelTypes!.includes(g.channelType),
     );
@@ -77,11 +79,6 @@ function seedGatewayGuardian(
 
 import { eq } from "drizzle-orm";
 
-import {
-  createCanonicalGuardianDelivery,
-  createCanonicalGuardianRequest,
-  getCanonicalGuardianRequest,
-} from "../contacts/canonical-guardian-store.js";
 import type { Conversation } from "../daemon/conversation.js";
 import { readSlackMetadata } from "../messaging/providers/slack/message-metadata.js";
 import { getDb } from "../persistence/db-connection.js";
@@ -97,6 +94,7 @@ import {
   seedContactChannel,
 } from "./helpers/channel-test-adapter.js";
 import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
+import { bridgeState } from "./helpers/gateway-guardian-requests-store-bridge.js";
 
 await initializeDb();
 
@@ -464,12 +462,12 @@ function seedPendingGuardianApprovalForReaction(
 ): void {
   // Canonical tool_approval request keyed by the confirmation requestId — the
   // same record assistant-event-hub creates for every confirmation.
-  createCanonicalGuardianRequest({
+  bridgeState.seedRequest({
     id: requestId,
     kind: "tool_approval",
     sourceType: "channel",
     sourceChannel: "slack",
-    conversationId,
+    sourceConversationId: conversationId,
     requesterExternalUserId: "requester-user-1",
     requesterChatId: SLACK_CHANNEL_ID,
     guardianExternalUserId: GUARDIAN_USER_ID,
@@ -480,8 +478,8 @@ function seedPendingGuardianApprovalForReaction(
   });
 
   // The delivered approval card → request mapping the reaction resolves
-  // against (destination_message_id = the reacted Slack ts).
-  createCanonicalGuardianDelivery({
+  // against (destination message id = the reacted Slack ts).
+  bridgeState.seedDelivery({
     requestId,
     destinationChannel: "slack",
     destinationChatId: SLACK_CHANNEL_ID,
@@ -519,8 +517,7 @@ describe("guardian approval-by-reaction integration via handleChannelInbound", (
     db.run("DELETE FROM conversations");
     db.run("DELETE FROM contact_channels");
     db.run("DELETE FROM contacts");
-    db.run("DELETE FROM canonical_guardian_requests");
-    db.run("DELETE FROM canonical_guardian_deliveries");
+    bridgeState.reset();
     gatewayGuardians = [];
     pendingInteractions.clear();
     msgCounter = 0;
@@ -601,15 +598,19 @@ describe("guardian approval-by-reaction integration via handleChannelInbound", (
     expect(approvalConversationGenerator).not.toHaveBeenCalled();
 
     // The canonical request is resolved (no longer pending).
-    expect(getCanonicalGuardianRequest(requestId)?.status).toBe("approved");
+    expect(bridgeState.getRequest(requestId)?.status).toBe("approved");
 
     // No transcript row was written for the reaction itself — resolved
     // guardian approval reactions have no transcript representation.
     const reactionRows = readPersistedMessages().filter((row) => {
-      if (!row.metadata) return false;
+      if (!row.metadata) {
+        return false;
+      }
       try {
         const env = JSON.parse(row.metadata) as Record<string, unknown>;
-        if (typeof env.slackMeta !== "string") return false;
+        if (typeof env.slackMeta !== "string") {
+          return false;
+        }
         const meta = readSlackMetadata(env.slackMeta);
         return meta?.eventKind === "reaction";
       } catch {

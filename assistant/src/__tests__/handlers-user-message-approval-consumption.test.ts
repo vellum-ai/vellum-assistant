@@ -7,82 +7,22 @@
  * conversation-routes-guardian-reply.test.ts, send-endpoint-busy.test.ts,
  * and http-user-message-parity.test.ts.
  */
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../config/env.js", () => ({ isHttpAuthDisabled: () => true }));
 
 import type { ConfirmationResponse } from "../daemon/message-protocol.js";
+import { createGuardianGatewaySim } from "./guardian-gateway-sim.js";
 
-const resolveCanonicalGuardianRequestMock = mock(
-  () => null as { id: string } | null,
-);
 const resolveMock = mock(() => undefined as unknown);
 
-// Bun's module mocks are global within the worker, so keep this mock
-// transparent when this file is not actively exercising it.
-const realCanonicalGuardianStore =
-  await import("../contacts/canonical-guardian-store.js");
-(
-  globalThis as Record<string, unknown>
-).__approvalConsumptionUseMockCanonicalStore = false;
-
-mock.module("../contacts/canonical-guardian-store.js", () => ({
-  createCanonicalGuardianRequest: (
-    ...args: Parameters<
-      typeof realCanonicalGuardianStore.createCanonicalGuardianRequest
-    >
-  ) =>
-    (globalThis as Record<string, unknown>)
-      .__approvalConsumptionUseMockCanonicalStore
-      ? resolveCanonicalGuardianRequestMock()
-      : realCanonicalGuardianStore.createCanonicalGuardianRequest(...args),
-  generateCanonicalRequestCode: (
-    ...args: Parameters<
-      typeof realCanonicalGuardianStore.generateCanonicalRequestCode
-    >
-  ) =>
-    (globalThis as Record<string, unknown>)
-      .__approvalConsumptionUseMockCanonicalStore
-      ? "ABC123"
-      : realCanonicalGuardianStore.generateCanonicalRequestCode(...args),
-  listPendingCanonicalGuardianRequestsByDestinationConversation: (
-    ...args: Parameters<
-      typeof realCanonicalGuardianStore.listPendingCanonicalGuardianRequestsByDestinationConversation
-    >
-  ) =>
-    (globalThis as Record<string, unknown>)
-      .__approvalConsumptionUseMockCanonicalStore
-      ? []
-      : realCanonicalGuardianStore.listPendingCanonicalGuardianRequestsByDestinationConversation(
-          ...args,
-        ),
-  listCanonicalGuardianRequests: (
-    ...args: Parameters<
-      typeof realCanonicalGuardianStore.listCanonicalGuardianRequests
-    >
-  ) =>
-    (globalThis as Record<string, unknown>)
-      .__approvalConsumptionUseMockCanonicalStore
-      ? []
-      : realCanonicalGuardianStore.listCanonicalGuardianRequests(...args),
-  resolveCanonicalGuardianRequest: (
-    ...args: Parameters<
-      typeof realCanonicalGuardianStore.resolveCanonicalGuardianRequest
-    >
-  ) =>
-    (globalThis as Record<string, unknown>)
-      .__approvalConsumptionUseMockCanonicalStore
-      ? (
-          resolveCanonicalGuardianRequestMock as unknown as (
-            ...mockArgs: Parameters<
-              typeof realCanonicalGuardianStore.resolveCanonicalGuardianRequest
-            >
-          ) => ReturnType<
-            typeof realCanonicalGuardianStore.resolveCanonicalGuardianRequest
-          >
-        )(...args)
-      : realCanonicalGuardianStore.resolveCanonicalGuardianRequest(...args),
-}));
+// Sim-backed gateway client: `gatewaySim.state.decideCalls` records any
+// guardian-request status writes the handler under test performs.
+const gatewaySim = createGuardianGatewaySim();
+mock.module(
+  "../channels/gateway-guardian-requests.js",
+  () => gatewaySim.module,
+);
 
 mock.module("../runtime/pending-interactions.js", () => ({
   register: mock(() => {}),
@@ -110,9 +50,8 @@ mock.module("../config/loader.js", () => ({
   API_KEY_PROVIDERS: [],
 }));
 
-const realLocalActorIdentity = await import(
-  "../runtime/local-actor-identity.js"
-);
+const realLocalActorIdentity =
+  await import("../runtime/local-actor-identity.js");
 mock.module("../runtime/local-actor-identity.js", () => ({
   ...realLocalActorIdentity,
   resolveLocalAuthContext: () => ({
@@ -145,23 +84,14 @@ import {
 } from "../daemon/conversation-registry.js";
 import { handleConfirmationResponse } from "../daemon/handlers/conversations.js";
 
-describe("handleConfirmationResponse canonical status sync", () => {
+describe("handleConfirmationResponse guardian status sync", () => {
   beforeEach(() => {
     clearConversations();
-    (
-      globalThis as Record<string, unknown>
-    ).__approvalConsumptionUseMockCanonicalStore = true;
-    resolveCanonicalGuardianRequestMock.mockClear();
+    gatewaySim.reset();
     resolveMock.mockClear();
   });
 
-  afterAll(() => {
-    (
-      globalThis as Record<string, unknown>
-    ).__approvalConsumptionUseMockCanonicalStore = false;
-  });
-
-  test("syncs canonical status to approved for allow decisions", () => {
+  test("delegates approval status sync for allow decisions", () => {
     const conversationObj = {
       hasPendingConfirmation: (requestId: string) =>
         requestId === "req-confirm-allow",
@@ -191,10 +121,10 @@ describe("handleConfirmationResponse canonical status sync", () => {
         emissionContext: { source: "button" },
       },
     ]);
-    // Both canonical status sync and pendingInteractions lifecycle are owned
-    // by Conversation.handleConfirmationResponse (mocked above). The IPC
-    // handler delegates fully and does not call either directly.
-    expect(resolveCanonicalGuardianRequestMock).not.toHaveBeenCalled();
+    // Guardian-request status sync and pendingInteractions lifecycle are
+    // owned by Conversation.handleConfirmationResponse (mocked above). The
+    // IPC handler delegates fully and does not call either directly.
+    expect(gatewaySim.state.decideCalls).toHaveLength(0);
     expect(resolveMock).not.toHaveBeenCalled();
   });
 });

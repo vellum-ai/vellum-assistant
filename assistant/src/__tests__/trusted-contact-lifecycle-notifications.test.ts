@@ -88,7 +88,6 @@ const sim = createGuardianGatewaySim();
 mock.module("../channels/gateway-guardian-requests.js", () => sim.module);
 
 import { getResolver } from "../approvals/guardian-request-resolvers.js";
-import { createCanonicalGuardianRequest } from "../contacts/canonical-guardian-store.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import {
@@ -111,8 +110,6 @@ const GUARDIAN_APPROVAL_TTL_MS = 5 * 60 * 1000;
 function resetState(): void {
   resetVerificationSessionsSim();
   const db = getDb();
-  db.run("DELETE FROM canonical_guardian_requests");
-  db.run("DELETE FROM canonical_guardian_deliveries");
   db.run("DELETE FROM channel_inbound_events");
   db.run("DELETE FROM conversations");
   db.run("DELETE FROM notification_events");
@@ -122,25 +119,6 @@ function resetState(): void {
   sim.reset();
   emitSignalCalls.length = 0;
   deliverReplyCalls.length = 0;
-}
-
-/**
- * Seed the same pending request in BOTH the gateway sim (where the decision
- * primitive reads/decides) and the assistant store (which the inbound
- * pipeline's create/dedupe paths still read until PRs 7/9 land together).
- */
-function seedRequestInBoth(
-  params: Parameters<typeof createCanonicalGuardianRequest>[0],
-) {
-  const stored = createCanonicalGuardianRequest(params);
-  const { sourceType: _sourceType, conversationId, ...rest } = params;
-  sim.seedRequest({
-    ...rest,
-    id: stored.id,
-    sourceConversationId: conversationId,
-    requestCode: stored.requestCode ?? undefined,
-  });
-  return stored;
 }
 
 function buildInboundRequest(overrides: Record<string, unknown> = {}): Request {
@@ -209,12 +187,12 @@ describe("trusted contact lifecycle notification signals", () => {
     const testRequestId = `req-deny-${Date.now()}`;
 
     // Create a pending canonical access request
-    seedRequestInBoth({
+    sim.seedRequest({
       id: testRequestId,
       kind: "access_request",
       sourceType: "channel",
       sourceChannel: "telegram",
-      conversationId: "access-req-telegram-requester-user-456",
+      sourceConversationId: "access-req-telegram-requester-user-456",
       requesterExternalUserId: "requester-user-456",
       requesterChatId: "requester-chat-456",
       guardianExternalUserId: "guardian-user-789",
@@ -303,12 +281,12 @@ describe("trusted contact lifecycle notification signals", () => {
     const testRequestId = `req-approve-${Date.now()}`;
 
     // Create a pending canonical access request
-    seedRequestInBoth({
+    sim.seedRequest({
       id: testRequestId,
       kind: "access_request",
       sourceType: "channel",
       sourceChannel: "telegram",
-      conversationId: "access-req-telegram-requester-user-456",
+      sourceConversationId: "access-req-telegram-requester-user-456",
       requesterExternalUserId: "requester-user-456",
       requesterChatId: "requester-chat-456",
       guardianExternalUserId: "guardian-user-789",
@@ -379,12 +357,12 @@ describe("trusted contact lifecycle notification signals", () => {
 
     const testRequestId = `req-dedup-${Date.now()}`;
 
-    const approval = seedRequestInBoth({
+    const approval = sim.seedRequest({
       id: testRequestId,
       kind: "access_request",
       sourceType: "channel",
       sourceChannel: "telegram",
-      conversationId: "access-req-telegram-requester-user-456",
+      sourceConversationId: "access-req-telegram-requester-user-456",
       requesterExternalUserId: "requester-user-456",
       requesterChatId: "requester-chat-456",
       guardianExternalUserId: "guardian-user-789",
@@ -451,12 +429,12 @@ describe("trusted contact lifecycle notification signals", () => {
 
     const testRequestId = `req-noname-${Date.now()}`;
 
-    seedRequestInBoth({
+    sim.seedRequest({
       id: testRequestId,
       kind: "access_request",
       sourceType: "channel",
       sourceChannel: "telegram",
-      conversationId: "access-req-telegram-requester-noname-222",
+      sourceConversationId: "access-req-telegram-requester-noname-222",
       requesterExternalUserId: "requester-noname-222",
       requesterChatId: "requester-chat-222",
       guardianExternalUserId: "guardian-noname-111",

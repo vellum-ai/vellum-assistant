@@ -401,7 +401,9 @@ await initializeDb();
 let ensuredConvIds = new Set<string>();
 
 function ensureConversation(id: string): void {
-  if (ensuredConvIds.has(id)) return;
+  if (ensuredConvIds.has(id)) {
+    return;
+  }
   const db = getDb();
   const now = Date.now();
   db.insert(conversations)
@@ -417,8 +419,6 @@ function ensureConversation(id: string): void {
 
 function resetTables() {
   const db = getDb();
-  db.run("DELETE FROM guardian_action_deliveries");
-  db.run("DELETE FROM guardian_action_requests");
   db.run("DELETE FROM processed_callbacks");
   db.run("DELETE FROM call_pending_questions");
   db.run("DELETE FROM call_events");
@@ -1164,10 +1164,7 @@ describe("twilio webhook routes", () => {
     }
 
     test("Stream TwiML includes auth token as Parameter", async () => {
-      const session = createTestSession(
-        "conv-stt-token-1",
-        "CA_stt_token_1",
-      );
+      const session = createTestSession("conv-stt-token-1", "CA_stt_token_1");
       const req = makeVoiceRequest(session.id, {
         CallSid: "CA_stt_token_1",
       });
@@ -1196,8 +1193,16 @@ describe("twilio webhook routes", () => {
         message: "This number is not authorized.",
         logReason: "Inbound voice ACL: blocked caller",
       },
-      { action: "verification", assistantId: "self", fromNumber: "+14155551234" },
-      { action: "name_capture", assistantId: "self", fromNumber: "+14155551234" },
+      {
+        action: "verification",
+        assistantId: "self",
+        fromNumber: "+14155551234",
+      },
+      {
+        action: "name_capture",
+        assistantId: "self",
+        fromNumber: "+14155551234",
+      },
       {
         action: "invite_redemption",
         assistantId: "self",

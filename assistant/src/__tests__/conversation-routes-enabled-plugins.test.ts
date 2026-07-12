@@ -96,12 +96,6 @@ mock.module("../channels/gateway-guardian-requests.js", () => ({
   }),
 }));
 
-mock.module("../contacts/canonical-guardian-store.js", () => ({
-  listPendingCanonicalGuardianRequestsByDestinationConversation: () => [],
-  listCanonicalGuardianRequests: () => [],
-  listPendingRequestsByConversationScope: () => [],
-}));
-
 mock.module("../runtime/confirmation-request-guardian-bridge.js", () => ({
   bridgeConfirmationRequestToGuardian: async () => undefined,
 }));
@@ -155,9 +149,8 @@ mock.module("../daemon/conversation-process.js", () => ({
   formatCompactResult: () => "",
 }));
 
-const realLocalActorIdentity = await import(
-  "../runtime/local-actor-identity.js"
-);
+const realLocalActorIdentity =
+  await import("../runtime/local-actor-identity.js");
 mock.module("../runtime/local-actor-identity.js", () => ({
   ...realLocalActorIdentity,
 }));

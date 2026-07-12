@@ -434,25 +434,6 @@ mock.module("../agent/loop.js", () => ({
     }
   },
 }));
-mock.module("../contacts/canonical-guardian-store.js", () => ({
-  listPendingCanonicalGuardianRequestsByDestinationConversation: () => [],
-  listCanonicalGuardianRequests: () => [],
-  listPendingRequestsByConversationScope: () => [],
-  createCanonicalGuardianRequest: () => ({
-    id: "mock-cg-id",
-    code: "MOCK",
-    status: "pending",
-  }),
-  getCanonicalGuardianRequest: () => null,
-  getCanonicalGuardianRequestByCode: () => null,
-  updateCanonicalGuardianRequest: () => {},
-  resolveCanonicalGuardianRequest: () => {},
-  createCanonicalGuardianDelivery: () => ({ id: "mock-cgd-id" }),
-  listCanonicalGuardianDeliveries: () => [],
-  listPendingCanonicalGuardianRequestsByDestinationChat: () => [],
-  updateCanonicalGuardianDelivery: () => {},
-  generateCanonicalRequestCode: () => "MOCK-CODE",
-}));
 
 // ---------------------------------------------------------------------------
 // Import Conversation AFTER mocks are registered.
@@ -557,7 +538,9 @@ async function waitForCondition(
  */
 async function resolveRun(index: number) {
   const run = pendingRuns[index];
-  if (!run) throw new Error(`No pending run at index ${index}`);
+  if (!run) {
+    throw new Error(`No pending run at index ${index}`);
+  }
   // Emit the events runAgentLoop expects
   const assistantMsg: Message = {
     role: "assistant",
@@ -2194,7 +2177,9 @@ describe("Conversation checkpoint handoff", () => {
 
     const eventsA: ServerMessage[] = [];
     const makeHandler = (label: string) => (e: ServerMessage) => {
-      if (e.type === "message_dequeued") dequeueOrder.push(label);
+      if (e.type === "message_dequeued") {
+        dequeueOrder.push(label);
+      }
     };
 
     // Start processing message A

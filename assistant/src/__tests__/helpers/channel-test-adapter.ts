@@ -63,7 +63,7 @@ mock.module("../../daemon/approval-generators.js", () => ({
 
 // The inbound pipeline creates guardian requests and delivery rows through
 // the gateway client; tests here have no live gateway, so serve that surface
-// from the local canonical store (which the unflipped read paths still use).
+// from the in-memory bridge fake (seed/inspect/reset via its `bridgeState`).
 import { gatewayGuardianRequestsStoreBridge } from "./gateway-guardian-requests-store-bridge.js";
 
 mock.module(

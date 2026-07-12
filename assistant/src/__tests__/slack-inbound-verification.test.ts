@@ -84,11 +84,11 @@ function seedGatewayGuardian(
   });
 }
 
-import { createCanonicalGuardianRequest } from "../contacts/canonical-guardian-store.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { handleChannelInbound } from "./helpers/channel-test-adapter.js";
 import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
+import { bridgeState } from "./helpers/gateway-guardian-requests-store-bridge.js";
 import {
   createOutboundSession,
   createOutboundSessionGuarded,
@@ -121,12 +121,11 @@ const TEST_BEARER_TOKEN = "test-token";
 
 function resetState(): void {
   resetVerificationSessionsSim();
+  bridgeState.reset();
   const db = getDb();
   db.run("DELETE FROM channel_inbound_events");
   db.run("DELETE FROM conversations");
   db.run("DELETE FROM notification_events");
-  db.run("DELETE FROM canonical_guardian_requests");
-  db.run("DELETE FROM canonical_guardian_deliveries");
   db.run("DELETE FROM contact_channels");
   db.run("DELETE FROM contacts");
   gatewayGuardians = [];
@@ -210,12 +209,12 @@ describe("Slack inbound trusted contact verification", () => {
     // Guardian previously denied this sender (terminal). Seed the denied
     // canonical request under the assistant-scoped conversationId the ingress
     // path derives for (self, slack, U0123UNKNOWN).
-    createCanonicalGuardianRequest({
+    bridgeState.seedRequest({
       id: `denied-${Date.now()}`,
       kind: "access_request",
       sourceType: "channel",
       sourceChannel: "slack",
-      conversationId: "access-req-self-slack-U0123UNKNOWN",
+      sourceConversationId: "access-req-self-slack-U0123UNKNOWN",
       requesterExternalUserId: "U0123UNKNOWN",
       guardianPrincipalId: "guardian-principal",
       toolName: "ingress_access_request",
