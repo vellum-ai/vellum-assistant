@@ -13,13 +13,21 @@ import {
 } from "./helpers/relocation.js";
 
 /**
- * How to drain `skill_loaded_events` from `main` into the telemetry DB. The
- * table is a telemetry outbox — every unflushed row is worth keeping until
- * the usage telemetry reporter ships it — so all rows are copied verbatim.
+ * How to drain `skill_loaded_events` from `main` into the telemetry DB.
+ *
+ * `copyWhere` is a liveness filter: only rows whose conversation still exists
+ * (or that have none) are copied; the rest are purged without copying. The
+ * table has per-conversation redaction semantics, and a drain can span boots —
+ * the redaction paths delete only on the telemetry connection and cannot see
+ * the staging table, so a conversation deleted mid-drain must not have its
+ * staged rows resurrected on the next boot. The staging table and
+ * `conversations` both live in `main`, so the predicate resolves there.
  */
 export const SKILL_LOADED_EVENTS_RELOCATION: RelocationSpec = {
   table: "skill_loaded_events",
   targetDbPath: getTelemetryDbPath,
+  copyWhere:
+    "conversation_id IS NULL OR EXISTS (SELECT 1 FROM conversations WHERE conversations.id = conversation_id)",
   columns: [
     "id",
     "created_at",
@@ -78,7 +86,11 @@ function ensureSkillLoadedEventsSchema(telemetryRaw: Database): void {
  * Unlike the other moved outboxes this table has per-conversation redaction
  * semantics: deleting a conversation (or clearing all) must delete its
  * unshipped rows. Those cleanup paths (`conversation-crud.ts`,
- * `job-handlers/cleanup.ts`) delete over the telemetry connection too.
+ * `job-handlers/cleanup.ts`) delete over the telemetry connection too — which
+ * cannot see rows parked in `main.skill_loaded_events__relocating` while a
+ * drain is interrupted across boots. The spec's `copyWhere` liveness filter
+ * closes that gap: on resume, rows whose conversation no longer exists are
+ * purged instead of copied, so redacted rows never reach the telemetry DB.
  *
  * Like migrations 297/298/326/327/328/329 the move is incremental: create the
  * table (and index) on the telemetry connection, rename any populated
