@@ -17,7 +17,7 @@ import {
  * table is a pure telemetry outbox — every row is worth keeping until the
  * usage telemetry reporter flushes it — so all rows are copied verbatim.
  */
-export const AUTH_FALLBACK_EVENTS_RELOCATION: RelocationSpec = {
+const AUTH_FALLBACK_EVENTS_RELOCATION: RelocationSpec = {
   table: "auth_fallback_events",
   targetDbPath: getTelemetryDbPath,
   columns: [
