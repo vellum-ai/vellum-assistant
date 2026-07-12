@@ -30,7 +30,8 @@ export interface AuthFallbackEvent {
  * one row per count entry, all sharing the same flush window. Returns the
  * number of rows recorded, or 0 when usage data collection is disabled (the
  * counts are dropped to honor the opt-out, matching the rest of telemetry) or
- * the telemetry database is unavailable (degraded mode).
+ * the telemetry database is unavailable (degraded mode). Callers that must
+ * tell those apart check `getCachedShareAnalytics()` themselves.
  */
 export function recordAuthFallbackCounts(
   windowStart: number,
