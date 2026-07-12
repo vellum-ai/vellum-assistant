@@ -14,6 +14,7 @@ import type { Command } from "commander";
 import { applyCommandHelp } from "../../lib/cli-command-help.js";
 import { registerCommand } from "../../lib/register-command.js";
 import { dbHelp } from "./index.help.js";
+import { registerDbRefresh } from "./refresh.js";
 import { registerDbRepair } from "./repair.js";
 import { registerDbStatus } from "./status.js";
 
@@ -26,6 +27,7 @@ export function registerDbCommand(program: Command): void {
       applyCommandHelp(db, dbHelp);
       registerDbStatus(db);
       registerDbRepair(db);
+      registerDbRefresh(db);
     },
   });
 }
