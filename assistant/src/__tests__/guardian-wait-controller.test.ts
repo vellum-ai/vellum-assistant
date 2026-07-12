@@ -52,10 +52,10 @@ mock.module("../config/loader.js", () => ({
   loadConfig: () => mockConfig,
 }));
 
-// Canonical guardian request store — in-memory map driven by tests.
+// Gateway guardian-request client — in-memory map driven by tests.
 const canonicalRequests = new Map<string, CanonicalGuardianRequest>();
-mock.module("../contacts/canonical-guardian-store.js", () => ({
-  getCanonicalGuardianRequest: (id: string) =>
+mock.module("../channels/gateway-guardian-requests.js", () => ({
+  getGuardianRequestOrNull: async (id: string) =>
     canonicalRequests.get(id) ?? null,
 }));
 
@@ -547,7 +547,7 @@ describe("GuardianWaitController", () => {
       expect(timeouts).toHaveLength(1);
     });
 
-    test("disconnect mid-wait with opt-in emits the handoff; a later timeout cannot fire", () => {
+    test("disconnect mid-wait with opt-in emits the handoff; a later timeout cannot fire", async () => {
       seedRequest("pending");
       const { controller, timeouts } = createController({
         consultTimeoutMs: 2000,
@@ -556,6 +556,10 @@ describe("GuardianWaitController", () => {
       optIntoCallback(controller);
 
       controller.dispose("transport_closed");
+      // The handoff enriches from an async gateway read before emitting.
+      for (let i = 0; i < 5; i++) {
+        await Promise.resolve();
+      }
       expect(emitSignalCalls).toHaveLength(1);
       expect(emitSignalCalls[0].contextPayload).toMatchObject({
         reason: "transport_closed",

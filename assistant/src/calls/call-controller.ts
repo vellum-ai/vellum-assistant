@@ -10,11 +10,12 @@
 
 import { revokeScopedApprovalGrantsForContext } from "../approvals/scoped-approval-grants.js";
 import {
-  expireCanonicalGuardianRequest,
-  getCanonicalRequestByPendingQuestionId,
-  getPendingCanonicalRequestByCallSessionId,
-  listCanonicalGuardianDeliveries,
-} from "../contacts/canonical-guardian-store.js";
+  expireGuardianRequest,
+  getPendingRequestByCallSession,
+  getPendingRequestByCallSessionOrNull,
+  getRequestByPendingQuestionOrNull,
+  listGuardianRequestDeliveriesOrEmpty,
+} from "../channels/gateway-guardian-requests.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
@@ -588,7 +589,7 @@ export class CallController {
       );
       if (!this.isCurrentRun(runVersion)) return;
 
-      this.handleTurnCompletion(fullResponseText);
+      await this.handleTurnCompletion(fullResponseText);
     } catch (err: unknown) {
       this.currentTurnHandle = null;
       // Aborted requests are expected (interruptions, rapid utterances)
@@ -1109,7 +1110,7 @@ export class CallController {
    * (ASK_GUARDIAN_APPROVAL / ASK_GUARDIAN), call finalization (END_CALL),
    * and normal idle transition.
    */
-  private handleTurnCompletion(fullResponseText: string): void {
+  private async handleTurnCompletion(fullResponseText: string): Promise<void> {
     const responseText = fullResponseText;
 
     // Record the assistant response event
@@ -1269,13 +1270,13 @@ export class CallController {
             // Expire the previous consultation's storage records so stale
             // guardian answers cannot match the old request.
             expirePendingQuestions(this.callSessionId);
-            const previousRequest = getPendingCanonicalRequestByCallSessionId(
+            const previousRequest = await getPendingRequestByCallSession(
               this.callSessionId,
             );
             if (previousRequest) {
               // Immediately expire with 'superseded' reason to prevent
               // stale answers from resolving the old request.
-              expireCanonicalGuardianRequest(previousRequest.id);
+              await expireGuardianRequest(previousRequest.id);
               log.info(
                 {
                   callSessionId: this.callSessionId,
@@ -1382,12 +1383,18 @@ export class CallController {
     // a completed call with a dangling pendingQuestion, and guardian
     // replies are cleanly rejected instead of hitting answerCall failures.
     expirePendingQuestions(this.callSessionId);
-    const previousRequest = getPendingCanonicalRequestByCallSessionId(
-      this.callSessionId,
-    );
-    if (previousRequest) {
-      expireCanonicalGuardianRequest(previousRequest.id);
-    }
+    // Fire-and-forget: the sync end-call path can't await the gateway
+    // expiry; a failure leaves a pending row the TTL sweep reaps.
+    void getPendingRequestByCallSession(this.callSessionId)
+      .then((previousRequest) =>
+        previousRequest ? expireGuardianRequest(previousRequest.id) : undefined,
+      )
+      .catch((err) => {
+        log.error(
+          { err, callSessionId: this.callSessionId },
+          "Failed to expire guardian request on call end",
+        );
+      });
 
     this.pendingGuardianInput = null;
     return true;
@@ -1539,23 +1546,22 @@ export class CallController {
         pendingQuestion,
         toolName: effectiveToolMeta?.toolName,
         inputDigest: effectiveToolMeta?.inputDigest,
-      }).then(() => {
-        // Backfill supersession chain: now that the new request exists in
-        // the store, link the old request to the new one.
+      }).then(async () => {
+        // Log the supersession chain now that the new request exists.
+        // The old request was already expired above; the read only feeds
+        // the log line, so it degrades to null on gateway failure.
         if (supersededRequestId) {
-          const newRequest = getCanonicalRequestByPendingQuestionId(
+          const newRequest = await getRequestByPendingQuestionOrNull(
             stablePendingQuestionId,
           );
           if (newRequest) {
-            // Canonical store does not track supersession metadata;
-            // the old request was already expired above.
             log.info(
               {
                 callSessionId: this.callSessionId,
                 oldRequestId: supersededRequestId,
                 newRequestId: newRequest.id,
               },
-              "Supersession chain: new canonical request created",
+              "Supersession chain: new guardian request created",
             );
           }
         }
@@ -1580,37 +1586,34 @@ export class CallController {
       // Mark the linked guardian action request as timed out and
       // send expiry notices to guardian destinations. Deliveries
       // must be captured before expiring the request changes
-      // their status.
-      const pendingActionRequest = getPendingCanonicalRequestByCallSessionId(
-        this.callSessionId,
-      );
-      if (pendingActionRequest) {
-        const canonicalDeliveries = listCanonicalGuardianDeliveries(
+      // their status. Fire-and-forget: the timer callback has no
+      // caller to propagate to, so failures are logged.
+      void (async () => {
+        const pendingActionRequest = await getPendingRequestByCallSessionOrNull(
+          this.callSessionId,
+        );
+        if (!pendingActionRequest) {
+          return;
+        }
+        const requestDeliveries = await listGuardianRequestDeliveriesOrEmpty(
           pendingActionRequest.id,
         );
-        // Expire the canonical request and its deliveries
-        expireCanonicalGuardianRequest(pendingActionRequest.id);
+        // Expire the guardian request and its deliveries
+        await expireGuardianRequest(pendingActionRequest.id);
         log.info(
           {
             callSessionId: this.callSessionId,
             requestId: pendingActionRequest.id,
           },
-          "Marked canonical guardian request as timed out",
+          "Marked guardian request as timed out",
         );
-        void sendGuardianExpiryNotices(
-          canonicalDeliveries,
-          this.assistantId,
-        ).catch((err) => {
-          log.error(
-            {
-              err,
-              callSessionId: this.callSessionId,
-              requestId: pendingActionRequest.id,
-            },
-            "Failed to send guardian action expiry notices after call timeout",
-          );
-        });
-      }
+        await sendGuardianExpiryNotices(requestDeliveries, this.assistantId);
+      })().catch((err) => {
+        log.error(
+          { err, callSessionId: this.callSessionId },
+          "Failed to expire guardian request after consultation timeout",
+        );
+      });
 
       // Expire pending questions and update call state
       expirePendingQuestions(this.callSessionId);

@@ -883,7 +883,7 @@ export async function evaluateSignal(
   // so candidate lookup failures do not block the decision path.
   let candidateSet: ConversationCandidateSet | undefined;
   try {
-    candidateSet = buildConversationCandidates(availableChannels);
+    candidateSet = await buildConversationCandidates(availableChannels);
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
     log.warn(

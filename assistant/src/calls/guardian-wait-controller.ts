@@ -2,7 +2,7 @@
  * Transport-agnostic guardian access-request wait controller.
  *
  * Owns the in-call wait for a guardian's decision on a caller access
- * request: the hold message, periodic heartbeat updates, canonical-request
+ * request: the hold message, periodic heartbeat updates, guardian-request
  * polling, the consultation timeout, and wait-state utterance handling
  * (reassurance, impatience, callback offer/opt-in). Resolution is
  * delivered through injected `onApproved` / `onDenied` / `onTimeout`
@@ -16,7 +16,7 @@
  * from access-request-wait.ts.
  */
 
-import { getCanonicalGuardianRequest as getCanonicalGuardianRequestFn } from "../contacts/canonical-guardian-store.js";
+import { getGuardianRequestOrNull } from "../channels/gateway-guardian-requests.js";
 import { getLogger } from "../util/logger.js";
 import {
   classifyWaitUtterance,
@@ -89,8 +89,11 @@ export interface GuardianWaitControllerDeps {
   onApproved(ctx: GuardianWaitResolutionContext): void | Promise<void>;
   onDenied(ctx: GuardianWaitResolutionContext): void | Promise<void>;
   onTimeout(ctx: GuardianWaitResolutionContext): void | Promise<void>;
-  /** Canonical-request reader; defaults to the real store. */
-  getCanonicalGuardianRequest?: typeof getCanonicalGuardianRequestFn;
+  /**
+   * Guardian-request reader; defaults to the gateway client's degrading
+   * read (an unreachable gateway skips the tick and keeps polling).
+   */
+  getGuardianRequest?: typeof getGuardianRequestOrNull;
   /** Clock; defaults to Date.now. */
   now?: () => number;
   /** Overrides the `calls.accessRequestPollIntervalMs` config value. */
@@ -120,6 +123,8 @@ export class GuardianWaitController {
   private waitStartedAt = 0;
   private heartbeatSequence = 0;
   private lastInWaitReplyAt = 0;
+  /** In-flight guard so a slow gateway read never stacks poll ticks. */
+  private pollInFlight = false;
 
   private callbackOfferMade = false;
   private callbackOptIn = false;
@@ -178,7 +183,7 @@ export class GuardianWaitController {
     const pollIntervalMs =
       this.deps.pollIntervalMs ?? getAccessRequestPollIntervalMs();
     this.pollTimer = setInterval(() => {
-      this.pollCanonicalRequest();
+      void this.pollGuardianRequest();
     }, pollIntervalMs);
 
     const timeoutMs =
@@ -338,23 +343,31 @@ export class GuardianWaitController {
 
   // ── Internals ───────────────────────────────────────────────────────
 
-  private pollCanonicalRequest(): void {
+  private async pollGuardianRequest(): Promise<void> {
+    if (this.pollInFlight) {
+      return;
+    }
     if (this.state !== "awaiting_guardian_decision" || !this.params) {
       this.clearTimers();
       return;
     }
-    const read =
-      this.deps.getCanonicalGuardianRequest ?? getCanonicalGuardianRequestFn;
-    const request = read(this.params.requestId);
-    if (!request) {
-      return;
+    this.pollInFlight = true;
+    try {
+      const read = this.deps.getGuardianRequest ?? getGuardianRequestOrNull;
+      const request = await read(this.params.requestId);
+      // Re-check: a timeout or dispose may have resolved the wait mid-read.
+      if (this.state !== "awaiting_guardian_decision" || !request) {
+        return;
+      }
+      if (request.status === "approved") {
+        this.resolve("approved");
+      } else if (request.status === "denied") {
+        this.resolve("denied");
+      }
+      // 'pending' continues polling; 'expired'/'cancelled' handled by timeout.
+    } finally {
+      this.pollInFlight = false;
     }
-    if (request.status === "approved") {
-      this.resolve("approved");
-    } else if (request.status === "denied") {
-      this.resolve("denied");
-    }
-    // 'pending' continues polling; 'expired'/'cancelled' handled by timeout.
   }
 
   private resolve(resolution: GuardianWaitResolution): void {

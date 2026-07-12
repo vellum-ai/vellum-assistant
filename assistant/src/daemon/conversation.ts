@@ -18,6 +18,7 @@
 import type { AgentLoopConfig } from "../agent/loop.js";
 import { AgentLoop } from "../agent/loop.js";
 import type { AssistantActivityStateEvent } from "../api/events/assistant-activity-state.js";
+import { decideGuardianRequest } from "../channels/gateway-guardian-requests.js";
 import type {
   ChannelId,
   InterfaceId,
@@ -33,7 +34,6 @@ import {
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite, Speed } from "../config/schemas/llm.js";
-import { resolveCanonicalGuardianRequest } from "../contacts/canonical-guardian-store.js";
 import { PermissionPrompter } from "../permissions/prompter.js";
 import { SecretPrompter } from "../permissions/secret-prompter.js";
 import type { UserDecision } from "../permissions/types.js";
@@ -1658,17 +1658,22 @@ export class Conversation {
       statusText: "Resuming after approval",
     });
 
-    // Sync the canonical guardian request status so stale "pending" DB
-    // records don't get matched by later guardian reply routing. Best-effort:
-    // CAS may harmlessly fail if the canonical decision primitive already
-    // resolved the request (e.g. channel approval path).
-    try {
-      resolveCanonicalGuardianRequest(requestId, "pending", {
-        status: resolvedState,
-      });
-    } catch {
-      // Canonical request tracking should not break the primary approval flow.
-    }
+    // Sync the gateway request status so stale "pending" records don't get
+    // matched by later guardian reply routing. Fire-and-forget: this method
+    // is sync with many callers (HTTP handlers, /v1/confirm, channel
+    // bridges), the in-memory resolution above is authoritative, and a CAS
+    // miss (the decision primitive already resolved it, e.g. the channel
+    // approval path) is expected and harmless.
+    void decideGuardianRequest({
+      id: requestId,
+      expectedStatus: "pending",
+      status: resolvedState,
+    }).catch((err) => {
+      log.warn(
+        { err, requestId },
+        "Post-confirmation guardian request status sync failed",
+      );
+    });
   }
 
   handleSecretResponse(

@@ -9,11 +9,11 @@
  * Extracted from inbound-message-handler.ts to keep the top-level handler
  * focused on orchestration.
  */
-import type { ChannelId } from "../../../channels/types.js";
 import {
-  listCanonicalGuardianRequests,
-  listPendingCanonicalGuardianRequestsByDestinationChat,
-} from "../../../contacts/canonical-guardian-store.js";
+  listGuardianRequestsOrEmpty,
+  listPendingRequestsByDestinationOrEmpty,
+} from "../../../channels/gateway-guardian-requests.js";
+import type { ChannelId } from "../../../channels/types.js";
 import { getLogger } from "../../../util/logger.js";
 import { deliverChannelReply } from "../../gateway-client.js";
 import {
@@ -133,18 +133,20 @@ export async function handleGuardianReplyIntercept(
   const isReaction = callbackData?.startsWith("reaction:") === true;
   let pendingScope: GuardianPendingScope | undefined;
   if (!isReaction) {
+    // Hint reads degrade to empty on gateway failure: Slack then blocks the
+    // identity fallback (safe), other channels keep it (unchanged posture).
     const deliveryScopedPendingRequests =
-      listPendingCanonicalGuardianRequestsByDestinationChat(
-        sourceChannel,
-        conversationExternalId,
-      );
+      await listPendingRequestsByDestinationOrEmpty({
+        channel: sourceChannel,
+        chatId: conversationExternalId,
+      });
     if (deliveryScopedPendingRequests.length > 0) {
       const deliveryIds = new Set(
         deliveryScopedPendingRequests.map((r) => r.id),
       );
       // Also include identity-based pending requests so we don't hide them
       const identityId = canonicalSenderId ?? rawSenderId!;
-      const identityPending = listCanonicalGuardianRequests({
+      const identityPending = await listGuardianRequestsOrEmpty({
         status: "pending",
         guardianExternalUserId: identityId,
       });

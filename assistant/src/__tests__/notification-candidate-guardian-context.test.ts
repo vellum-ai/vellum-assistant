@@ -113,11 +113,11 @@ function seedCandidateConversation(
   });
 }
 
-function candidateFor(
+async function candidateFor(
   conversationId: string,
   channel: NotificationChannel = CHANNEL,
 ) {
-  const set = buildConversationCandidates([channel]);
+  const set = await buildConversationCandidates([channel]);
   return set[channel]?.find((c) => c.conversationId === conversationId);
 }
 
@@ -126,7 +126,7 @@ describe("buildConversationCandidates guardian enrichment", () => {
     resetTables();
   });
 
-  test("counts pending requests via both source and delivery conversation scope", () => {
+  test("counts pending requests via both source and delivery conversation scope", async () => {
     const convId = "conv-guardian";
     seedCandidateConversation(convId);
 
@@ -153,11 +153,12 @@ describe("buildConversationCandidates guardian enrichment", () => {
     });
 
     expect(
-      candidateFor(convId)?.guardianContext?.pendingUnresolvedRequestCount,
+      (await candidateFor(convId))?.guardianContext
+        ?.pendingUnresolvedRequestCount,
     ).toBe(2);
   });
 
-  test("omits guardian context when the conversation's only request is resolved", () => {
+  test("omits guardian context when the conversation's only request is resolved", async () => {
     const convId = "conv-resolved";
     seedCandidateConversation(convId);
 
@@ -171,7 +172,7 @@ describe("buildConversationCandidates guardian enrichment", () => {
 
     // The conversation still surfaces as a candidate (it had a delivery), but
     // with no guardian context since nothing is pending.
-    const candidate = candidateFor(convId);
+    const candidate = await candidateFor(convId);
     expect(candidate).toBeDefined();
     expect(candidate?.guardianContext).toBeUndefined();
   });
@@ -205,7 +206,7 @@ describe("buildConversationCandidates guardian enrichment", () => {
     });
 
     expect(
-      candidateFor(convId, SLACK)?.guardianContext
+      (await candidateFor(convId, SLACK))?.guardianContext
         ?.pendingUnresolvedRequestCount,
     ).toBe(1);
   });

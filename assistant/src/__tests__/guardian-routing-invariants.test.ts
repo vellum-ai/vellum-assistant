@@ -234,10 +234,10 @@ describe("routing invariant: all decision paths reference applyGuardianDecision"
     expect(source).not.toContain("getPendingDeliveriesByConversation");
   });
 
-  test("daemon/conversation-process.ts seeds router hints via listPendingRequestsByConversationScope", () => {
+  test("daemon/conversation-process.ts seeds router hints via the gateway scope read", () => {
     const fullPath = join(srcRoot, "daemon/conversation-process.ts");
     const source = readFileSync(fullPath, "utf-8");
-    expect(source).toContain("listPendingRequestsByConversationScope");
+    expect(source).toContain("listPendingRequestsByScopeOrEmpty");
   });
 
   test("guardian-reply-router routes all decisions through applyGuardianDecision", () => {
@@ -1927,7 +1927,9 @@ describe("routing invariant: kind-specific action sets in prompt mapping", () =>
       expiresAt: Date.now() + 60_000,
     });
 
-    const prompts = await listGuardianDecisionPrompts({ conversationId: convId });
+    const prompts = await listGuardianDecisionPrompts({
+      conversationId: convId,
+    });
     expect(prompts).toHaveLength(1);
     expect(prompts[0].actions.map((a) => a.action)).toEqual([
       "approve_once",
@@ -1950,7 +1952,9 @@ describe("routing invariant: kind-specific action sets in prompt mapping", () =>
       expiresAt: Date.now() + 60_000,
     });
 
-    const prompts = await listGuardianDecisionPrompts({ conversationId: convId });
+    const prompts = await listGuardianDecisionPrompts({
+      conversationId: convId,
+    });
     expect(prompts).toHaveLength(1);
 
     const actionIds = prompts[0].actions.map((a) => a.action);
@@ -1972,7 +1976,9 @@ describe("routing invariant: kind-specific action sets in prompt mapping", () =>
       expiresAt: Date.now() + 60_000,
     });
 
-    const prompts = await listGuardianDecisionPrompts({ conversationId: convId });
+    const prompts = await listGuardianDecisionPrompts({
+      conversationId: convId,
+    });
     expect(prompts).toHaveLength(1);
 
     const actionIds = prompts[0].actions.map((a) => a.action);
@@ -1993,7 +1999,9 @@ describe("routing invariant: kind-specific action sets in prompt mapping", () =>
       expiresAt: Date.now() + 60_000,
     });
 
-    const prompts = await listGuardianDecisionPrompts({ conversationId: convId });
+    const prompts = await listGuardianDecisionPrompts({
+      conversationId: convId,
+    });
     expect(prompts).toHaveLength(1);
 
     const actionIds = prompts[0].actions.map((a) => a.action);
