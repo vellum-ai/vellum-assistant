@@ -762,16 +762,41 @@ Examples:
     },
     {
       name: "worker",
-      description: "Report the memory jobs worker process (status)",
+      description: "Manage the memory jobs worker process (start/stop/status)",
       helpText: `
 The memory worker processes embedding, consolidation, and cleanup jobs in a
 separate OS process so they do not block the assistant's main event loop. The
 daemon spawns it as a child process at startup, so it shows up in
 \`assistant ps\`.
 
+\`start\` and \`stop\` manage that process on demand (respawn or SIGTERM); the
+worker is spun up by default at startup.
+
 Examples:
-  $ assistant memory worker status`,
+  $ assistant memory worker start
+  $ assistant memory worker status
+  $ assistant memory worker stop`,
       subcommands: [
+        {
+          name: "start",
+          description: "Spawn the memory worker process if it is not running",
+          options: [
+            {
+              flags: "--json",
+              description: "Emit raw JSON instead of a formatted summary",
+            },
+          ],
+        },
+        {
+          name: "stop",
+          description: "SIGTERM the memory worker process",
+          options: [
+            {
+              flags: "--json",
+              description: "Emit raw JSON instead of a formatted summary",
+            },
+          ],
+        },
         {
           name: "status",
           description:

@@ -14,7 +14,7 @@ and manual one-time execution. One documented exception: 'create' is limited
 to 'execute' mode — notify/script/wake schedules are created via the
 in-assistant schedule_create tool, but can be inspected and updated here.
 
-The 'worker' subgroup reports the schedule worker process, which runs
+The 'worker' subgroup manages the schedule worker process, which runs
 scheduled jobs in a separate OS process.
 
 Examples:
@@ -464,15 +464,40 @@ Examples:
     },
     {
       name: "worker",
-      description: "Report the schedule worker process (status)",
+      description: "Manage the schedule worker process (start/stop/status)",
       helpText: `
 The schedule worker runs scheduled jobs in a separate OS process so expensive
 scheduled work executes off the assistant's main event loop. The assistant
 spawns it as a child process at startup, so it shows up in \`assistant ps\`.
 
+\`start\` and \`stop\` manage that process on demand (respawn or SIGTERM); the
+worker is spun up by default at startup.
+
 Examples:
-  $ assistant schedules worker status`,
+  $ assistant schedules worker start
+  $ assistant schedules worker status
+  $ assistant schedules worker stop`,
       subcommands: [
+        {
+          name: "start",
+          description: "Spawn the schedule worker process if it is not running",
+          options: [
+            {
+              flags: "--json",
+              description: "Emit raw JSON instead of a formatted summary",
+            },
+          ],
+        },
+        {
+          name: "stop",
+          description: "SIGTERM the schedule worker process",
+          options: [
+            {
+              flags: "--json",
+              description: "Emit raw JSON instead of a formatted summary",
+            },
+          ],
+        },
         {
           name: "status",
           description: "Report the schedule worker process liveness",

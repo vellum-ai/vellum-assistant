@@ -15,8 +15,8 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mock } from "bun:test";
 
-import * as realLogger from "../../util/logger.js";
-import * as realPlatform from "../../util/platform.js";
+import * as realLogger from "../../../../util/logger.js";
+import * as realPlatform from "../../../../util/platform.js";
 
 let tmpDir: string;
 let pidPath: string;
@@ -24,7 +24,7 @@ let pidPath: string;
 // Spread the real modules and override only what we need: `mock.module` is
 // global across the test process, so a partial mock missing exports that other
 // co-run files import (e.g. jobs-worker's `getWorkspaceDir`) would break them.
-mock.module("../../util/platform.js", () => ({
+mock.module("../../../../util/platform.js", () => ({
   ...realPlatform,
   getMemoryWorkerPidPath: () => pidPath,
 }));
@@ -35,7 +35,7 @@ const noopLogger = {
   error: () => {},
   debug: () => {},
 };
-mock.module("../../util/logger.js", () => ({
+mock.module("../../../../util/logger.js", () => ({
   ...realLogger,
   getLogger: () => noopLogger,
   getCliLogger: () => noopLogger,

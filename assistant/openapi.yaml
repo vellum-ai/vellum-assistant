@@ -17603,6 +17603,32 @@ paths:
                 required:
                   - ok
                 additionalProperties: false
+  /v1/memory/worker/start:
+    post:
+      operationId: memory_worker_start_post
+      summary: Start the memory worker
+      description: Spawns (or reuses) the memory worker process as a child of the daemon.
+      tags:
+        - system
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  pid:
+                    type: number
+                  alreadyRunning:
+                    type: boolean
+                  pidPath:
+                    type: string
+                required:
+                  - pid
+                  - alreadyRunning
+                  - pidPath
+                additionalProperties: false
   /v1/memory/worker/status:
     get:
       operationId: memory_worker_status_get
@@ -17661,6 +17687,28 @@ paths:
                 required:
                   - status
                   - embedding
+                additionalProperties: false
+  /v1/memory/worker/stop:
+    post:
+      operationId: memory_worker_stop_post
+      summary: Stop the memory worker
+      description: SIGTERMs the memory worker process if it is running.
+      tags:
+        - system
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  workerWasRunning:
+                    type: boolean
+                  pid:
+                    type: number
+                required:
+                  - workerWasRunning
                 additionalProperties: false
   /v1/messages:
     get:
@@ -25445,6 +25493,32 @@ paths:
                 required:
                   - summaries
                 additionalProperties: false
+  /v1/schedules/worker/start:
+    post:
+      operationId: schedules_worker_start_post
+      summary: Start the schedule worker
+      description: Spawns (or reuses) the schedule worker process as a child of the daemon.
+      tags:
+        - system
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  pid:
+                    type: number
+                  alreadyRunning:
+                    type: boolean
+                  pidPath:
+                    type: string
+                required:
+                  - pid
+                  - alreadyRunning
+                  - pidPath
+                additionalProperties: false
   /v1/schedules/worker/status:
     get:
       operationId: schedules_worker_status_get
@@ -25469,6 +25543,28 @@ paths:
                     type: number
                 required:
                   - status
+                additionalProperties: false
+  /v1/schedules/worker/stop:
+    post:
+      operationId: schedules_worker_stop_post
+      summary: Stop the schedule worker
+      description: SIGTERMs the schedule worker process if it is running.
+      tags:
+        - system
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  workerWasRunning:
+                    type: boolean
+                  pid:
+                    type: number
+                required:
+                  - workerWasRunning
                 additionalProperties: false
   /v1/search:
     get:

@@ -1,11 +1,11 @@
 /**
  * Tests for the `assistant memory worker` CLI subgroup.
  *
- * The subgroup is a thin IPC client over the daemon's memory-worker status
- * route, so these validate:
- *   - Subcommand registration (status) under `memory worker`.
- *   - `status` calls exactly one IPC method and renders its response (`--json`
- *     emits the raw route payload).
+ * The subgroup is a thin IPC client over the daemon's memory-worker routes, so
+ * these validate:
+ *   - Subcommand registration (start, stop, status) under `memory worker`.
+ *   - Each subcommand calls exactly one IPC method and renders its response
+ *     (`--json` emits the raw route payload).
  *   - IPC failures surface a non-zero exit.
  */
 
@@ -120,12 +120,88 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("subcommand registration", () => {
-  test("registers worker under memory with status", () => {
+  test("registers worker under memory with start/stop/status", () => {
     const program = buildProgram();
     const memory = program.commands.find((c) => c.name() === "memory");
     const worker = memory!.commands.find((c) => c.name() === "worker");
     expect(worker).toBeDefined();
-    expect(worker!.commands.map((c) => c.name()).sort()).toEqual(["status"]);
+    expect(worker!.commands.map((c) => c.name()).sort()).toEqual([
+      "start",
+      "status",
+      "stop",
+    ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// start
+// ---------------------------------------------------------------------------
+
+describe("memory worker start", () => {
+  test("calls memory_worker_start and renders the PID", async () => {
+    responses.set("memory_worker_start", {
+      ok: true,
+      result: {
+        pid: 4242,
+        alreadyRunning: false,
+        pidPath: "/x/memory-worker.pid",
+      },
+    });
+
+    const { exitCode } = await runCommand(["memory", "worker", "start"]);
+
+    expect(exitCode).toBe(0);
+    expect(ipcCalls).toEqual(["memory_worker_start"]);
+    expect(logOutput.join("\n")).toContain("Memory worker started (PID 4242)");
+  });
+
+  test("--json emits the raw route payload", async () => {
+    const result = {
+      pid: 7,
+      alreadyRunning: true,
+      pidPath: "/x/p.pid",
+    };
+    responses.set("memory_worker_start", { ok: true, result });
+
+    const { exitCode, stdout } = await runCommand([
+      "memory",
+      "worker",
+      "start",
+      "--json",
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(JSON.parse(stdout)).toEqual(result);
+  });
+
+  test("exits non-zero when the daemon reports a spawn failure", async () => {
+    responses.set("memory_worker_start", { ok: false, error: "spawn failed" });
+
+    const { exitCode } = await runCommand(["memory", "worker", "start"]);
+
+    expect(exitCode).toBe(1);
+    expect(ipcCalls).toEqual(["memory_worker_start"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// stop
+// ---------------------------------------------------------------------------
+
+describe("memory worker stop", () => {
+  test("calls memory_worker_stop and renders the signalled PID", async () => {
+    responses.set("memory_worker_stop", {
+      ok: true,
+      result: { workerWasRunning: true, pid: 555 },
+    });
+
+    const { exitCode } = await runCommand(["memory", "worker", "stop"]);
+
+    expect(exitCode).toBe(0);
+    expect(ipcCalls).toEqual(["memory_worker_stop"]);
+    expect(logOutput.join("\n")).toContain(
+      "Memory worker stop signal sent (PID 555)",
+    );
   });
 });
 
@@ -134,32 +210,7 @@ describe("subcommand registration", () => {
 // ---------------------------------------------------------------------------
 
 describe("memory worker status", () => {
-  test("calls memory_worker_status and renders the running PID", async () => {
-    responses.set("memory_worker_status", {
-      ok: true,
-      result: {
-        status: "running",
-        pid: 321,
-        embedding: {
-          enabled: true,
-          degraded: false,
-          provider: "local",
-          model: "Xenova/all-MiniLM-L6-v2",
-          reason: null,
-        },
-      },
-    });
-
-    const { exitCode } = await runCommand(["memory", "worker", "status"]);
-
-    expect(exitCode).toBe(0);
-    expect(ipcCalls).toEqual(["memory_worker_status"]);
-    expect(logOutput.join("\n")).toContain(
-      "Memory worker process is running (PID 321)",
-    );
-  });
-
-  test("emits the raw payload with --json", async () => {
+  test("calls memory_worker_status and emits the raw payload with --json", async () => {
     const result = {
       status: "running",
       pid: 321,
@@ -183,14 +234,5 @@ describe("memory worker status", () => {
     expect(exitCode).toBe(0);
     expect(ipcCalls).toEqual(["memory_worker_status"]);
     expect(JSON.parse(stdout)).toEqual(result);
-  });
-
-  test("exits non-zero when the daemon reports a failure", async () => {
-    responses.set("memory_worker_status", { ok: false, error: "ipc failed" });
-
-    const { exitCode } = await runCommand(["memory", "worker", "status"]);
-
-    expect(exitCode).toBe(1);
-    expect(ipcCalls).toEqual(["memory_worker_status"]);
   });
 });

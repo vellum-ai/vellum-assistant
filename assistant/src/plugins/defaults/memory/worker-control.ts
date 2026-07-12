@@ -8,7 +8,7 @@
  * path and entry point.
  */
 
-import { getMemoryWorkerPidPath } from "../util/platform.js";
+import { getMemoryWorkerPidPath } from "../../../util/platform.js";
 import {
   probeWorkerPidFile,
   spawnWorkerProcess,
@@ -16,7 +16,7 @@ import {
   stopWorkerProcess,
   WorkerProcessSpawnError,
   type WorkerProcessStatus,
-} from "../util/worker-process.js";
+} from "../../../util/worker-process.js";
 
 /**
  * Inspect the PID file to determine whether the worker process is alive.

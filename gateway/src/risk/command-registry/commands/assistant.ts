@@ -186,6 +186,8 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "memory retrospective",
   "memory retrospective run",
   "memory worker",
+  "memory worker start",
+  "memory worker stop",
   "memory worker status",
   "notifications",
   "notifications send",
@@ -238,6 +240,8 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "schedules delete",
   "schedules execute",
   "schedules worker",
+  "schedules worker start",
+  "schedules worker stop",
   "schedules worker status",
   "sequence",
   "sequence list",
@@ -637,6 +641,16 @@ const riskOverrides: AssistantRiskOverride[] = [
       "Forks a conversation and wakes a retrospective agent that calls remember on uncovered facts",
   },
   {
+    path: "memory worker start",
+    risk: "medium",
+    reason: "Spawns a background process that processes memory jobs",
+  },
+  {
+    path: "memory worker stop",
+    risk: "low",
+    reason: "Sends SIGTERM to the memory worker process",
+  },
+  {
     path: "memory worker status",
     risk: "low",
     reason: "Read-only liveness probe via PID file",
@@ -719,6 +733,16 @@ const riskOverrides: AssistantRiskOverride[] = [
       "Triggers immediate schedule execution. Script-mode schedules shell out " +
       "via sh -c on the host, and the schedule ID arg is opaque to the " +
       "classifier — must conservatively assume host shell execution",
+  },
+  {
+    path: "schedules worker start",
+    risk: "medium",
+    reason: "Spawns a background process that runs scheduled jobs",
+  },
+  {
+    path: "schedules worker stop",
+    risk: "medium",
+    reason: "Sends SIGTERM to the schedule worker process",
   },
   {
     path: "schedules worker status",

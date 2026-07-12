@@ -9,7 +9,7 @@
 
 import type { HookFunction, ShutdownContext } from "@vellumai/plugin-api";
 
-import { stopMemoryWorkerProcess } from "../../../../persistence/worker-control.js";
+import { stopMemoryWorkerProcess } from "../worker-control.js";
 
 const shutdown: HookFunction<ShutdownContext> = async () => {
   stopMemoryWorkerProcess();

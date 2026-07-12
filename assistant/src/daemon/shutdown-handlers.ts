@@ -11,7 +11,6 @@ import {
 } from "../persistence/db-async-query.js";
 import { getSqlite, isDbOpen, resetDb } from "../persistence/db-connection.js";
 import { stopQdrantManager } from "../persistence/embeddings/qdrant-manager.js";
-import { stopMemoryWorkerProcess } from "../persistence/worker-control.js";
 import { stopConsentRefresh } from "../platform/consent-cache.js";
 import { HOOKS } from "../plugin-api/constants.js";
 import { runHook } from "../plugins/pipeline.js";
@@ -164,20 +163,9 @@ async function shutdown(): Promise<void> {
   cleanupShellOutputTempFiles();
   stopScheduler();
 
-  // Stop the memory worker process if it's actually running. Keyed off live
-  // state (the PID file); the memory plugin's shutdown hook may already have
-  // signalled it, so this is an idempotent belt-and-suspenders.
-  try {
-    const workerStatus = stopMemoryWorkerProcess();
-    if (workerStatus.status === "running") {
-      log.info(
-        { pid: workerStatus.pid },
-        "Sent SIGTERM to memory worker process",
-      );
-    }
-  } catch (err) {
-    log.warn({ err }, "Failed to stop memory worker process (non-fatal)");
-  }
+  // The memory jobs worker process is SIGTERM'd by the memory plugin's own
+  // `shutdown` hook (fired via runHook(HOOKS.SHUTDOWN) above), which owns that
+  // plugin's process lifecycle.
 
   // Stop the resource monitor process if it's actually running.
   stopMonitoring();

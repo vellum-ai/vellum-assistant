@@ -7,7 +7,7 @@
 import { describe, expect, mock, test } from "bun:test";
 
 const stopCalls = { count: 0 };
-mock.module("../../../../persistence/worker-control.js", () => ({
+mock.module("../worker-control.js", () => ({
   stopMemoryWorkerProcess: () => {
     stopCalls.count += 1;
     return { status: "not_running" as const };

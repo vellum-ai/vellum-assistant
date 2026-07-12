@@ -1,5 +1,11 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 let daemonConfig: { memory?: { enabled?: boolean } } | undefined;
@@ -35,6 +41,18 @@ mock.module("@/assistant/use-active-assistant-id", () => ({
   useActiveAssistantId: () => "assistant-1",
 }));
 
+// The worker toggle has its own unit test (memory-worker-toggle.test.tsx); stub
+// it here so these tests stay focused on the memory.enabled control and don't
+// need the worker status/start/stop query mocks.
+mock.module("@/domains/settings/components/memory-worker-toggle", () => ({
+  MemoryWorkerToggle: ({ memoryEnabled }: { memoryEnabled: boolean }) => (
+    <div
+      data-testid="memory-worker-toggle"
+      data-memory-enabled={memoryEnabled}
+    />
+  ),
+}));
+
 mock.module("@/generated/daemon/sdk.gen", () => ({
   configGet: mock(async () => ({ data: daemonConfig })),
   configPatch: async () => {
@@ -51,7 +69,11 @@ mock.module("@/generated/daemon/@tanstack/react-query.gen", () => ({
     queryKey: [{ _id: "configGet", baseUrl: undefined, path: options.path }],
     queryFn: async () => daemonConfig,
   }),
-  configGetSetQueryData: (_client: unknown, _opts: unknown, _data: unknown) => {},
+  configGetSetQueryData: (
+    _client: unknown,
+    _opts: unknown,
+    _data: unknown,
+  ) => {},
   useConfigPatchMutation: () => ({
     mutateAsync: async (_opts: { body: unknown }) => {
       await configPatchMock();
@@ -61,7 +83,8 @@ mock.module("@/generated/daemon/@tanstack/react-query.gen", () => ({
   }),
 }));
 
-const { configGetQueryKey } = await import("@/generated/daemon/@tanstack/react-query.gen");
+const { configGetQueryKey } =
+  await import("@/generated/daemon/@tanstack/react-query.gen");
 const { AdvancedPage } = await import("./advanced-page");
 
 function renderWithQuery(ui: React.ReactElement) {
@@ -93,11 +116,14 @@ describe("AdvancedPage memory settings", () => {
     const toggle = screen.getByRole("switch", { name: "Enable memory" });
     expect(toggle.getAttribute("aria-checked")).toBe("true");
 
+    // The background-worker sub-control renders inside the memory card and is
+    // told memory is currently enabled.
+    const workerToggle = screen.getByTestId("memory-worker-toggle");
+    expect(workerToggle.getAttribute("data-memory-enabled")).toBe("true");
+
     fireEvent.click(toggle);
 
-    await waitFor(() =>
-      expect(configPatchMock).toHaveBeenCalled(),
-    );
+    await waitFor(() => expect(configPatchMock).toHaveBeenCalled());
   });
 
   test("treats missing memory.enabled as enabled and can patch it off", async () => {
@@ -109,9 +135,7 @@ describe("AdvancedPage memory settings", () => {
 
     fireEvent.click(toggle);
 
-    await waitFor(() =>
-      expect(configPatchMock).toHaveBeenCalled(),
-    );
+    await waitFor(() => expect(configPatchMock).toHaveBeenCalled());
   });
 
   test("hides memory settings when the assistant does not report opt-out support", () => {
@@ -120,8 +144,6 @@ describe("AdvancedPage memory settings", () => {
     renderWithQuery(<AdvancedPage />);
 
     expect(screen.queryByText("Memory")).toBeNull();
-    expect(
-      screen.queryByRole("switch", { name: "Enable memory" }),
-    ).toBeNull();
+    expect(screen.queryByRole("switch", { name: "Enable memory" })).toBeNull();
   });
 });

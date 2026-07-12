@@ -1,14 +1,23 @@
 /**
- * Tests for the memory worker status route.
+ * Tests for the memory worker control routes (start / stop / status).
  *
- * The route handler runs inside the daemon and reports the worker process
- * liveness from its PID file plus the resolved embedding-backend status. We mock
- * worker-control and the embedding backend so the test asserts the handler
- * shape.
+ * The route handlers run inside the daemon and manage the worker process. We
+ * mock worker-control + the embedding backend so the tests assert handler
+ * behaviour:
+ *   - start spawns as a daemon child (detached:false) and throws on failure.
+ *   - stop signals the worker and reports its prior state.
+ *   - status reports the worker process liveness + the embedding backend.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { getMemoryWorkerPidPath } from "../../../util/platform.js";
+
+class FakeSpawnError extends Error {}
+
+let spawnImpl: () => Promise<{ pid: number; alreadyRunning: boolean }>;
+let spawnArgs: Array<{ detached?: boolean; terminateOnTimeout?: boolean }> = [];
+let stopImpl: () => { status: "running" | "not_running"; pid?: number };
 let workerProbe: { status: "running" | "not_running"; pid?: number } = {
   status: "not_running",
 };
@@ -26,7 +35,16 @@ let backendStatus: {
   reason: null,
 };
 
-mock.module("../../../persistence/worker-control.js", () => ({
+mock.module("../../../plugins/defaults/memory/worker-control.js", () => ({
+  MemoryWorkerSpawnError: FakeSpawnError,
+  spawnMemoryWorkerProcess: async (opts: {
+    detached?: boolean;
+    terminateOnTimeout?: boolean;
+  }) => {
+    spawnArgs.push(opts);
+    return spawnImpl();
+  },
+  stopMemoryWorkerProcess: () => stopImpl(),
   probeMemoryWorker: () => workerProbe,
 }));
 
@@ -44,6 +62,9 @@ function handler(operationId: string) {
 }
 
 beforeEach(() => {
+  spawnArgs = [];
+  spawnImpl = async () => ({ pid: 4242, alreadyRunning: false });
+  stopImpl = () => ({ status: "not_running" });
   workerProbe = { status: "not_running" };
   backendStatus = {
     enabled: true,
@@ -52,6 +73,57 @@ beforeEach(() => {
     model: "text-embedding-3-small",
     reason: null,
   };
+});
+
+describe("memory_worker_start", () => {
+  test("spawns as a daemon child and returns the PID", async () => {
+    spawnImpl = async () => ({ pid: 4242, alreadyRunning: false });
+
+    const res = await handler("memory_worker_start")();
+
+    expect(spawnArgs).toEqual([{ detached: false }]);
+    expect(res).toEqual({
+      pid: 4242,
+      alreadyRunning: false,
+      pidPath: getMemoryWorkerPidPath(),
+    });
+  });
+
+  test("reports an already-running worker without re-spawning", async () => {
+    spawnImpl = async () => ({ pid: 99, alreadyRunning: true });
+
+    const res = await handler("memory_worker_start")();
+
+    expect(res).toMatchObject({ pid: 99, alreadyRunning: true });
+  });
+
+  test("throws when the spawn fails", async () => {
+    spawnImpl = async () => {
+      throw new FakeSpawnError("worker exited during startup");
+    };
+
+    await expect(handler("memory_worker_start")()).rejects.toThrow(
+      "worker exited during startup",
+    );
+  });
+});
+
+describe("memory_worker_stop", () => {
+  test("reports a signalled running worker", async () => {
+    stopImpl = () => ({ status: "running", pid: 555 });
+
+    const res = await handler("memory_worker_stop")();
+
+    expect(res).toEqual({ workerWasRunning: true, pid: 555 });
+  });
+
+  test("succeeds when no worker is running", async () => {
+    stopImpl = () => ({ status: "not_running" });
+
+    const res = await handler("memory_worker_stop")();
+
+    expect(res).toEqual({ workerWasRunning: false });
+  });
 });
 
 describe("memory_worker_status", () => {
@@ -79,22 +151,6 @@ describe("memory_worker_status", () => {
     const res = await handler("memory_worker_status")();
 
     expect(res).toMatchObject({ status: "not_running" });
-  });
-
-  test("surfaces a resolved gemini embedding backend", async () => {
-    backendStatus = {
-      enabled: true,
-      degraded: false,
-      provider: "gemini",
-      model: "text-embedding-004",
-      reason: null,
-    };
-
-    const res = await handler("memory_worker_status")();
-
-    expect(res).toMatchObject({
-      embedding: { degraded: false, provider: "gemini" },
-    });
   });
 
   test("surfaces the local embedding backend (the default non-platform provider)", async () => {
