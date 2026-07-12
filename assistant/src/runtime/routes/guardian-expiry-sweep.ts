@@ -21,8 +21,8 @@
 import { withdrawGuardianRequestCards } from "../../approvals/guardian-card-withdrawal.js";
 import { notifyExpiredGuardianRequest } from "../../approvals/guardian-expiry-notifier.js";
 import {
-  sweepExpiredGuardianRequests,
   type GuardianRequestWire,
+  sweepExpiredGuardianRequests,
 } from "../../channels/gateway-guardian-requests.js";
 import { getLogger } from "../../util/logger.js";
 
@@ -100,9 +100,13 @@ export async function runGuardianExpirySweep(): Promise<number> {
  * multiple times reuses the same timer.
  */
 export function startGuardianExpirySweep(): void {
-  if (sweepTimer) return;
+  if (sweepTimer) {
+    return;
+  }
   sweepTimer = setInterval(() => {
-    if (sweepInProgress) return;
+    if (sweepInProgress) {
+      return;
+    }
     sweepInProgress = true;
     void runGuardianExpirySweep()
       .catch((err) => {

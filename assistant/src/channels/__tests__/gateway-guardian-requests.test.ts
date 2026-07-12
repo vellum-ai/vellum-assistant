@@ -528,11 +528,12 @@ describe("expiry lifecycle", () => {
     ]);
   });
 
-  test("sweepExpiredGuardianRequests passes now and returns the expired ids", async () => {
-    ipcResponse = { expired: ["req-1", "req-2"] };
+  test("sweepExpiredGuardianRequests passes now and returns the expired rows", async () => {
+    const expiredRow = makeWireRequest({ status: "expired" });
+    ipcResponse = { expired: [expiredRow] };
     expect(
       await client.sweepExpiredGuardianRequests(1_700_000_500_000),
-    ).toEqual(["req-1", "req-2"]);
+    ).toEqual([expiredRow]);
     expect(ipcCalls).toEqual([
       {
         method: "guardian_requests_sweep_expired",
