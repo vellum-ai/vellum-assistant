@@ -29,6 +29,7 @@ import {
   type PluginSourceWatchHandle,
   startPluginSourceWatch,
 } from "./plugin-source-watch.js";
+import { type RecoveryHandle, startRecovery } from "./recovery/run-recovery.js";
 import {
   type ResourceSamplerHandle,
   startResourceSampler,
@@ -72,6 +73,8 @@ async function main(): Promise<void> {
   const sourceWatch: PluginSourceWatchHandle = startPluginSourceWatch(
     config.monitoring.pluginSourceScanIntervalMs,
   );
+  // Crash recovery runs here, off the daemon's boot path and event loop.
+  const recovery: RecoveryHandle = startRecovery();
 
   // Flush the non-turn telemetry sources from this process, off the daemon's
   // event loop. The reporter's share_analytics gate reads the consent cache,
@@ -86,6 +89,7 @@ async function main(): Promise<void> {
     }
     shuttingDown = true;
     log.info({ signal }, "Resource monitor process shutting down");
+    recovery.stop();
     sourceWatch.stop();
     sampler.stop();
     // Bounded final telemetry flush, mirroring the daemon's shutdown. This
@@ -116,6 +120,7 @@ async function main(): Promise<void> {
 
   process.on("uncaughtException", (err) => {
     log.error({ err }, "Uncaught exception in resource monitor process");
+    recovery.stop();
     sourceWatch.stop();
     sampler.stop();
     cleanupPidFile();
@@ -124,6 +129,7 @@ async function main(): Promise<void> {
 
   process.on("unhandledRejection", (reason) => {
     log.error({ reason }, "Unhandled rejection in resource monitor process");
+    recovery.stop();
     sourceWatch.stop();
     sampler.stop();
     cleanupPidFile();
@@ -131,6 +137,7 @@ async function main(): Promise<void> {
   });
 
   process.on("exit", () => {
+    recovery.stop();
     sourceWatch.stop();
     sampler.stop();
     cleanupPidFile();

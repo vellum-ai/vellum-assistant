@@ -71,7 +71,7 @@ export type ContentDeltaLine = z.infer<typeof contentDeltaLineSchema>;
  * inline content. The charCode fast path keeps the overwhelmingly common
  * inline-array case to a single character check.
  */
-function parseContentRef(raw: string): MessageContentRef | null {
+export function parseContentRef(raw: string): MessageContentRef | null {
   if (raw.charCodeAt(0) !== 0x7b /* '{' */) {
     return null;
   }
