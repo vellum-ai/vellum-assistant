@@ -42,11 +42,25 @@ function resetState(): void {
   getSqlite().exec(
     `DROP TABLE IF EXISTS main."skill_loaded_events__relocating"`,
   );
+  getSqlite().exec(
+    `DELETE FROM conversations WHERE id IN ('conv-a', 'conv-b', 'conv-live')`,
+  );
+}
+
+/** The drain only copies rows whose conversation is live (or NULL). */
+function seedConversation(id: string): void {
+  getSqlite()
+    .prepare(
+      `INSERT OR IGNORE INTO conversations (id, created_at, updated_at) VALUES (?, 0, 0)`,
+    )
+    .run(id);
 }
 
 function seedSourceTable(): void {
   const sqlite = getSqlite();
   sqlite.exec(`CREATE TABLE main.skill_loaded_events (${SOURCE_COLUMNS})`);
+  seedConversation("conv-a");
+  seedConversation("conv-b");
   const insert = sqlite.prepare(
     `INSERT INTO main.skill_loaded_events (id, created_at, conversation_id, skill_name)
      VALUES (?, ?, ?, ?)`,
@@ -140,6 +154,35 @@ describe("migration 330: move skill_loaded_events to the telemetry DB", () => {
     expect(existsInMain("skill_loaded_events")).toBe(false);
     expect(existsInMain("skill_loaded_events__relocating")).toBe(false);
     expect(queryUnreportedSkillLoadedEvents(0, undefined, 10)).toHaveLength(0);
+  });
+
+  test("the drain purges rows whose conversation no longer exists (redaction across boots)", async () => {
+    resetState();
+    const sqlite = getSqlite();
+    sqlite.exec(`CREATE TABLE main.skill_loaded_events (${SOURCE_COLUMNS})`);
+    seedConversation("conv-live");
+    const insert = sqlite.prepare(
+      `INSERT INTO main.skill_loaded_events (id, created_at, conversation_id, skill_name)
+       VALUES (?, ?, ?, ?)`,
+    );
+    insert.run("live-1", 1000, "conv-live", "web-research");
+    insert.run("null-1", 2000, null, "tasks");
+    // Simulates a conversation deleted while its rows sat staged between boots:
+    // the redaction paths only delete on the telemetry connection, so the drain
+    // itself must purge this row rather than resurrect it.
+    insert.run("dead-1", 3000, "conv-deleted", "calendar");
+
+    await migrateMoveSkillLoadedEventsToTelemetryDb(getDb());
+
+    expect(existsInMain("skill_loaded_events")).toBe(false);
+    expect(existsInMain("skill_loaded_events__relocating")).toBe(false);
+
+    const moved = queryUnreportedSkillLoadedEvents(0, undefined, 10);
+    expect(moved.map((r) => r.id)).toEqual(["live-1", "null-1"]);
+    const dead = getTelemetrySqlite()!
+      .query(`SELECT 1 FROM skill_loaded_events WHERE id = 'dead-1'`)
+      .get();
+    expect(dead).toBeNull();
   });
 
   test("per-conversation redaction deletes rows on the telemetry connection", () => {
