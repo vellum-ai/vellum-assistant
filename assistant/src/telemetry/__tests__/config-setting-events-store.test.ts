@@ -42,20 +42,24 @@ describe("config-setting-events-store", () => {
 
   test("honors the share_analytics opt-out (records nothing)", () => {
     shareAnalytics = false;
-    recordConfigSettingEvent({
-      configKey: "memory.enabled",
-      configValue: "true",
-    });
+    expect(
+      recordConfigSettingEvent({
+        configKey: "memory.enabled",
+        configValue: "true",
+      }),
+    ).toBe(false);
     expect(queryUnreportedConfigSettingEvents(0, undefined, 10)).toHaveLength(
       0,
     );
   });
 
   test("record + query round-trips the key/value pair", () => {
-    recordConfigSettingEvent({
-      configKey: "memory.v2.enabled",
-      configValue: "false",
-    });
+    expect(
+      recordConfigSettingEvent({
+        configKey: "memory.v2.enabled",
+        configValue: "false",
+      }),
+    ).toBe(true);
 
     const rows = queryUnreportedConfigSettingEvents(0, undefined, 10);
     expect(rows).toHaveLength(1);

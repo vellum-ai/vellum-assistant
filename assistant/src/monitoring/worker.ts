@@ -18,6 +18,10 @@ import { rehydratePlatformCredentials } from "../config/platform-rehydration.js"
 import { resetDb } from "../persistence/db-connection.js";
 import { startConsentRefresh } from "../platform/consent-cache.js";
 import {
+  startConfigSnapshotReporter,
+  stopConfigSnapshotReporter,
+} from "../telemetry/config-setting-snapshot.js";
+import {
   startMonitorUsageTelemetryReporter,
   stopUsageTelemetryReporter,
 } from "../telemetry/usage-telemetry-reporter.js";
@@ -90,6 +94,10 @@ async function main(): Promise<void> {
   startConsentRefresh();
   startMonitorUsageTelemetryReporter();
 
+  // Emit the tracked config settings into the config_setting pipeline this
+  // process flushes.
+  startConfigSnapshotReporter();
+
   let shuttingDown = false;
   const shutdown = async (signal: string) => {
     if (shuttingDown) {
@@ -98,6 +106,7 @@ async function main(): Promise<void> {
     shuttingDown = true;
     log.info({ signal }, "Resource monitor process shutting down");
     recovery.stop();
+    stopConfigSnapshotReporter();
     sourceWatch.stop();
     sampler.stop();
     // Bounded final telemetry flush, mirroring the daemon's shutdown. This
