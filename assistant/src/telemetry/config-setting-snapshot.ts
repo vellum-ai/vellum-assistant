@@ -1,8 +1,19 @@
+import { getConfigReadOnly } from "../config/loader.js";
 import type { AssistantConfig } from "../config/schema.js";
+import { getCachedShareAnalytics } from "../platform/consent-cache.js";
 import { getLogger } from "../util/logger.js";
 import { recordConfigSettingEvent } from "./config-setting-events-store.js";
 
 const log = getLogger("config-setting-snapshot");
+
+/**
+ * How often the config snapshot re-records the tracked settings. The snapshot
+ * memoizes per key, so a steady-state tick records nothing; the cadence
+ * exists so the first opted-in tick (consent resolves asynchronously after
+ * boot) lands and a live config edit is captured within one window. Hourly is
+ * ample — these values change rarely and every boot re-asserts them.
+ */
+const CONFIG_SNAPSHOT_INTERVAL_MS = 60 * 60 * 1000;
 
 /**
  * The explicit allowlist of settings reported as `config_setting` telemetry,
@@ -40,16 +51,26 @@ const lastRecorded = new Map<string, string>();
  * Record a `config_setting` event for every tracked setting whose effective
  * value differs from what this process last recorded.
  *
- * Consent-gated and retry-friendly: `recordConfigSettingEvent` drops the
- * event (returning false) when `share_analytics` consent is off — including
- * the default-off window before the first successful consent fetch — or when
- * the telemetry DB is unavailable, and the memo is only advanced on a real
- * persist. So a caller that re-invokes this each cycle records the snapshot
- * on its first opted-in cycle with a resolvable DB, then stays quiet until a
+ * Consent-gated with a memo reset on opt-out. While `share_analytics` is off,
+ * nothing is recorded and the memo is cleared: the reporter's opt-out flush
+ * discards any config_setting rows still pending upload, so a memo entry from
+ * before the opt-out no longer corresponds to a delivered row. Clearing it
+ * means a later re-opt-in (in the same process, unchanged config) re-records
+ * the full current snapshot rather than skipping memoized keys — consumers
+ * that expect a complete snapshot after re-opt-in stay correct.
+ *
+ * Retry-friendly when opted in: `recordConfigSettingEvent` returns false when
+ * the telemetry DB is momentarily unavailable, and the memo is only advanced
+ * on a real persist, so a caller that re-invokes this each cycle records the
+ * snapshot on its first cycle with a resolvable DB, then stays quiet until a
  * value changes. Never throws — a storage failure is logged and the key
  * retries on the next invocation.
  */
 export function recordConfigSettingSnapshot(config: AssistantConfig): void {
+  if (!getCachedShareAnalytics()) {
+    lastRecorded.clear();
+    return;
+  }
   for (const [configKey, configValue] of trackedConfigSettings(config)) {
     if (lastRecorded.get(configKey) === configValue) {
       continue;
@@ -64,6 +85,47 @@ export function recordConfigSettingSnapshot(config: AssistantConfig): void {
         "Failed to record config_setting telemetry event — will retry on the next snapshot",
       );
     }
+  }
+}
+
+let snapshotTimer: ReturnType<typeof setInterval> | null = null;
+
+function recordSnapshotFromConfig(): void {
+  try {
+    // `getConfigReadOnly()` re-reads config.json on change (capturing live
+    // edits) and never writes to disk — safe for the monitor process.
+    recordConfigSettingSnapshot(getConfigReadOnly());
+  } catch (err) {
+    log.warn({ err }, "Config-setting snapshot failed (non-fatal)");
+  }
+}
+
+/**
+ * Start the config-setting snapshot loop in the resource monitor process:
+ * record the tracked settings once at boot, then hourly. No-op in dev mode
+ * (VELLUM_DEV=1) and idempotent if already started. Mirrors
+ * {@link import("./usage-telemetry-reporter.js").startMonitorUsageTelemetryReporter}
+ * — the snapshot feeds the same config_setting pipeline the monitor flushes.
+ */
+export function startConfigSnapshotReporter(): void {
+  if (process.env.VELLUM_DEV === "1") {
+    return;
+  }
+  if (snapshotTimer) {
+    return;
+  }
+  recordSnapshotFromConfig();
+  snapshotTimer = setInterval(
+    recordSnapshotFromConfig,
+    CONFIG_SNAPSHOT_INTERVAL_MS,
+  );
+}
+
+/** Stop the config-setting snapshot loop. Idempotent. */
+export function stopConfigSnapshotReporter(): void {
+  if (snapshotTimer) {
+    clearInterval(snapshotTimer);
+    snapshotTimer = null;
   }
 }
 

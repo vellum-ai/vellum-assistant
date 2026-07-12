@@ -13,10 +13,13 @@
 
 import { existsSync, mkdirSync, unlinkSync, writeFileSync } from "node:fs";
 
-import { getConfig, getConfigReadOnly } from "../config/loader.js";
+import { getConfig } from "../config/loader.js";
 import { resetDb } from "../persistence/db-connection.js";
 import { startConsentRefresh } from "../platform/consent-cache.js";
-import { recordConfigSettingSnapshot } from "../telemetry/config-setting-snapshot.js";
+import {
+  startConfigSnapshotReporter,
+  stopConfigSnapshotReporter,
+} from "../telemetry/config-setting-snapshot.js";
 import {
   startMonitorUsageTelemetryReporter,
   stopUsageTelemetryReporter,
@@ -37,31 +40,6 @@ import {
 } from "./resource-sampler.js";
 
 const log = getLogger("monitoring-worker");
-
-/**
- * How often the monitor re-records the tracked config settings. The snapshot
- * memoizes per key, so a steady-state tick records nothing; the cadence
- * exists so the first opted-in tick (consent resolves asynchronously after
- * boot) lands promptly and a live config edit is captured within one window.
- * Matched to the reporter's flush interval so a fresh row is picked up on the
- * next flush.
- */
-const CONFIG_SNAPSHOT_INTERVAL_MS = 5 * 60 * 1000;
-
-/**
- * Record the tracked config settings from the current effective config.
- * `getConfigReadOnly()` re-reads config.json on change (capturing live
- * edits) and never writes to disk; the snapshot itself is consent-gated and
- * deduped per key, so this is a no-op once every tracked value has been
- * recorded and is unchanged.
- */
-function recordConfigSnapshot(): void {
-  try {
-    recordConfigSettingSnapshot(getConfigReadOnly());
-  } catch (err) {
-    log.warn({ err }, "Config-setting snapshot failed (non-fatal)");
-  }
-}
 
 function cleanupPidFile(): void {
   const pidPath = getMonitoringPidPath();
@@ -109,13 +87,8 @@ async function main(): Promise<void> {
   startMonitorUsageTelemetryReporter();
 
   // Emit the tracked config settings into the config_setting pipeline this
-  // process flushes. Record once at boot, then on an interval so the first
-  // opted-in tick lands after consent resolves and live edits are captured.
-  recordConfigSnapshot();
-  const configSnapshotTimer = setInterval(
-    recordConfigSnapshot,
-    CONFIG_SNAPSHOT_INTERVAL_MS,
-  );
+  // process flushes.
+  startConfigSnapshotReporter();
 
   let shuttingDown = false;
   const shutdown = async (signal: string) => {
@@ -125,7 +98,7 @@ async function main(): Promise<void> {
     shuttingDown = true;
     log.info({ signal }, "Resource monitor process shutting down");
     recovery.stop();
-    clearInterval(configSnapshotTimer);
+    stopConfigSnapshotReporter();
     sourceWatch.stop();
     sampler.stop();
     // Bounded final telemetry flush, mirroring the daemon's shutdown. This

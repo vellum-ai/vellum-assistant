@@ -88,6 +88,28 @@ describe("config-setting-snapshot", () => {
     expect(recordedPairs()).toHaveLength(2);
   });
 
+  test("re-opt-in after an opt-out re-records the full snapshot", () => {
+    // Recorded while opted in.
+    recordConfigSettingSnapshot(makeConfig(true, true));
+    expect(recordedPairs()).toHaveLength(2);
+    clearEvents();
+
+    // Opt out: the reporter's opt-out flush discards any pending rows, so the
+    // memo must be cleared here too.
+    shareAnalytics = false;
+    recordConfigSettingSnapshot(makeConfig(true, true));
+    expect(recordedPairs()).toHaveLength(0);
+
+    // Re-opt-in with the SAME config: the full snapshot re-records rather than
+    // being skipped by a stale memo.
+    shareAnalytics = true;
+    recordConfigSettingSnapshot(makeConfig(true, true));
+    expect(recordedPairs().sort()).toEqual([
+      ["memory.enabled", "true"],
+      ["memory.v2.enabled", "true"],
+    ]);
+  });
+
   test("a partial config skips missing keys instead of throwing", () => {
     recordConfigSettingSnapshot({} as AssistantConfig);
     expect(recordedPairs()).toHaveLength(0);
