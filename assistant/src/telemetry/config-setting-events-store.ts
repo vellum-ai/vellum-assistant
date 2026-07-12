@@ -37,17 +37,20 @@ export interface ConfigSettingEvent {
  * Record a `config_setting` telemetry event. No-ops when usage data
  * collection is disabled (the event is dropped to honor the opt-out,
  * matching the rest of telemetry) — so opt-out rows never exist and the
- * reporter's standard 0 watermark default is safe.
+ * reporter's standard 0 watermark default is safe. Returns whether a row
+ * was persisted, so a caller with its own dedupe memo
+ * (config-setting-snapshot.ts) only advances the memo on a real write and
+ * keeps retrying while consent is off or the telemetry DB is unavailable.
  */
 export function recordConfigSettingEvent(
   record: ConfigSettingEventRecord,
-): void {
+): boolean {
   if (!getCachedShareAnalytics()) {
-    return;
+    return false;
   }
   const db = getTelemetryDb();
   if (!db) {
-    return;
+    return false;
   }
   db.insert(configSettingEvents)
     .values({
@@ -57,6 +60,7 @@ export function recordConfigSettingEvent(
       configValue: record.configValue.slice(0, MAX_CONFIG_VALUE_CHARS),
     })
     .run();
+  return true;
 }
 
 /**
