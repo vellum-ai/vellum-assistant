@@ -7,6 +7,7 @@
  */
 
 import { recallTool, rememberTool } from "../plugins/defaults/memory/tools.js";
+import { coreAppProxyTools } from "./apps/definitions.js";
 import { askQuestionTool } from "./ask-question/ask-question-tool.js";
 import { fileEditTool } from "./filesystem/edit.js";
 import { fileListTool } from "./filesystem/list.js";
@@ -26,6 +27,7 @@ import { notifyParentTool } from "./subagent/notify-parent.js";
 import { requestSystemPermissionTool } from "./system/request-permission.js";
 import { shellTool } from "./terminal/shell.js";
 import type { ToolDefinition } from "./types.js";
+import { allUiSurfaceTools } from "./ui-surface/definitions.js";
 
 // ── Explicit tool instances ─────────────────────────────────────────
 // Core tools registered by initializeTools(). Tool modules only export
@@ -55,12 +57,11 @@ export const explicitTools: ToolDefinition[] = [
   recallTool,
   notifyParentTool,
   askQuestionTool,
-  // Host tools — executed on the desktop host via the client proxy rather
-  // than in the daemon's sandbox. Listed after the sandbox tools so
-  // registration order (and thus tools.json ordering) is stable.
   hostFileReadTool,
   hostFileWriteTool,
   hostFileEditTool,
   hostFileTransferTool,
   hostShellTool,
+  ...allUiSurfaceTools,
+  ...coreAppProxyTools,
 ];

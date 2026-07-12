@@ -1,14 +1,9 @@
 import { isPluginDisabled } from "../plugins/disabled-state.js";
 import { getLogger } from "../util/logger.js";
-import { coreAppProxyTools } from "./apps/definitions.js";
-import { registerAppTools } from "./apps/registry.js";
 import { toProviderSafeToolName } from "./provider-tool-name.js";
-import { registerSystemTools } from "./system/register.js";
 import { finalizeTool } from "./tool-defaults.js";
 import { explicitTools } from "./tool-manifest.js";
 import type { OwnerInfo, Tool, ToolDefinition } from "./types.js";
-import { allUiSurfaceTools } from "./ui-surface/definitions.js";
-import { registerUiSurfaceTools } from "./ui-surface/registry.js";
 
 const log = getLogger("tool-registry");
 
@@ -1085,10 +1080,6 @@ async function runToolInitialization(): Promise<void> {
     registerTool(tool);
   }
 
-  registerUiSurfaceTools();
-  registerAppTools();
-  registerSystemTools();
-
   // Snapshot core tools for __resetRegistryForTesting().  We include every
   // non-skill tool that was registered by the manifest, while excluding
   // arbitrary test tools that were registered before init.
@@ -1098,13 +1089,11 @@ async function runToolInitialization(): Promise<void> {
   // directly before its first initializeTools() call.
   if (!coreToolsSnapshot) {
     // Core tool literals always set `name` (verified by `registerTool` —
-    // it throws on missing name). The `!` assertions reflect that
-    // invariant at the iteration sites.
-    const manifestToolNames = new Set<string>([
-      ...explicitTools.map((t) => t.name!),
-      ...allUiSurfaceTools.map((t) => t.name!),
-      ...coreAppProxyTools.map((t) => t.name!),
-    ]);
+    // it throws on missing name). The `!` assertion reflects that
+    // invariant at the iteration site.
+    const manifestToolNames = new Set<string>(
+      explicitTools.map((t) => t.name!),
+    );
 
     coreToolsSnapshot = new Map<string, { tool: Tool; owner: OwnerInfo }>();
     for (const [name, tool] of tools) {
