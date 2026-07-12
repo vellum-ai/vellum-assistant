@@ -4,6 +4,7 @@ import { v4 as uuid } from "uuid";
 import { getDb } from "../persistence/db-connection.js";
 import { authFallbackEvents } from "../persistence/schema/index.js";
 import { getCachedShareAnalytics } from "../platform/consent-cache.js";
+import { getTelemetryMainDb } from "../telemetry/telemetry-main-db.js";
 
 /** A single aggregated auth-fallback count for one (guard, path, failure_kind). */
 export interface AuthFallbackCount {
@@ -36,8 +37,12 @@ export function recordAuthFallbackCounts(
   windowEnd: number,
   counts: AuthFallbackCount[],
 ): number {
-  if (!getCachedShareAnalytics()) return 0;
-  if (counts.length === 0) return 0;
+  if (!getCachedShareAnalytics()) {
+    return 0;
+  }
+  if (counts.length === 0) {
+    return 0;
+  }
   const db = getDb();
   const createdAt = Date.now();
   const rows = counts.map((c) => ({
@@ -63,7 +68,7 @@ export function queryUnreportedAuthFallbackEvents(
   afterId: string | undefined,
   limit: number,
 ): AuthFallbackEvent[] {
-  const db = getDb();
+  const db = getTelemetryMainDb();
   const rows = db
     .select({
       id: authFallbackEvents.id,

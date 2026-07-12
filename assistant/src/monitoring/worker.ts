@@ -2,18 +2,24 @@
  * Standalone entry point for the resource monitor as its own OS process.
  *
  * Spawned at every daemon startup (and on demand by `assistant monitoring
- * start`). Loads config, starts the sampling loop, writes a PID file, and
- * stays alive until SIGTERM/SIGINT.
+ * start`). Loads config, starts the sampling loop and the non-turn telemetry
+ * reporter, writes a PID file, and stays alive until SIGTERM/SIGINT.
  *
  * Running as a separate process — off the assistant's main event loop — is the
- * whole point: the sampler keeps recording during a main-thread freeze, and its
- * on-disk ring buffer survives the OOM SIGKILL that resets all in-VM state.
+ * whole point: the sampler keeps recording during a main-thread freeze, its
+ * on-disk ring buffer survives the OOM SIGKILL that resets all in-VM state,
+ * and telemetry keeps flushing while the daemon is busy or stalled.
  */
 
 import { existsSync, mkdirSync, unlinkSync, writeFileSync } from "node:fs";
 
 import { getConfig } from "../config/loader.js";
 import { resetDb } from "../persistence/db-connection.js";
+import { startConsentRefresh } from "../platform/consent-cache.js";
+import {
+  startMonitorUsageTelemetryReporter,
+  stopUsageTelemetryReporter,
+} from "../telemetry/usage-telemetry-reporter.js";
 import { getLogger } from "../util/logger.js";
 import {
   getMonitoringDataDir,
@@ -67,16 +73,41 @@ async function main(): Promise<void> {
     config.monitoring.pluginSourceScanIntervalMs,
   );
 
-  const shutdown = (signal: string) => {
+  // Flush the non-turn telemetry sources from this process, off the daemon's
+  // event loop. The reporter's share_analytics gate reads the consent cache,
+  // so this process runs its own refresh loop.
+  startConsentRefresh();
+  startMonitorUsageTelemetryReporter();
+
+  let shuttingDown = false;
+  const shutdown = async (signal: string) => {
+    if (shuttingDown) {
+      return;
+    }
+    shuttingDown = true;
     log.info({ signal }, "Resource monitor process shutting down");
     sourceWatch.stop();
     sampler.stop();
+    // Bounded final telemetry flush, mirroring the daemon's shutdown. This
+    // is load-bearing for the opt-out contract: when share_analytics is
+    // off, flush() is what advances this process's watermarks past rows
+    // recorded during the opt-out window — without it, rows since the last
+    // 5-minute cycle would ship after a later opt-in. When opted in, it
+    // ships the tail instead of leaving it for the next boot.
+    try {
+      const timeout = new Promise<void>((_, reject) =>
+        setTimeout(() => reject(new Error("Telemetry flush timed out")), 3_000),
+      );
+      await Promise.race([stopUsageTelemetryReporter(), timeout]);
+    } catch (err) {
+      log.warn({ err }, "Telemetry reporter shutdown failed (non-fatal)");
+    }
     cleanupPidFile();
     process.exit(0);
   };
 
-  process.on("SIGTERM", () => shutdown("SIGTERM"));
-  process.on("SIGINT", () => shutdown("SIGINT"));
+  process.on("SIGTERM", () => void shutdown("SIGTERM"));
+  process.on("SIGINT", () => void shutdown("SIGINT"));
 
   process.on("SIGUSR1", () => {
     log.info("Received SIGUSR1 — refreshing database connections");

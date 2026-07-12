@@ -65,6 +65,7 @@ mock.module("../../v2/injection-events.js", () => ({
 // sentinel object is sufficient.
 mock.module("../../../../../persistence/db-connection.js", () => ({
   getDb: () => ({ __stub: true }),
+  getMainDbReadOnly: () => ({ __stub: true }),
   getSqlite: () => ({ __stub: true }),
   getSqliteFrom: () => ({ __stub: true }),
   getMemoryDb: () => ({ __stub: true }),

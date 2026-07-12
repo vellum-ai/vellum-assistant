@@ -131,6 +131,48 @@ export function getDb(): DrizzleDb {
 }
 
 /**
+ * A dedicated read-only connection to the main database, opened lazily in
+ * its own singleton slot — never shared with `getDb()`'s read-write
+ * connection. For worker processes (the resource monitor) that observe the
+ * daemon's main DB: WAL permits cross-process readers, the daemon stays the
+ * main DB's sole writer, and a read-only connection makes an accidental
+ * worker-side write fail loudly instead of contending for the write lock.
+ *
+ * Read-only connections skip the standard PRAGMAs: journal_mode /
+ * journal_size_limit write to the database file, and synchronous /
+ * foreign_keys only affect writes. busy_timeout still applies so reads wait
+ * out a checkpoint instead of failing with SQLITE_BUSY.
+ *
+ * Fail-soft: returns `null` when the file cannot be opened (e.g. a fresh
+ * install where the daemon has not created it yet) — never falls back to a
+ * read-write open, which would make this process a second writer and could
+ * create the file before the daemon does. Callers tolerate `null` and retry
+ * on a later cycle.
+ */
+export function getMainDbReadOnly(): DrizzleDb | null {
+  const existing = getStoredDb<DrizzleDb>("main-readonly");
+  if (existing) {
+    return existing;
+  }
+  assertTestDbIsIsolated();
+  try {
+    const sqlite = new Database(getDbPath(), { readonly: true });
+    sqlite.exec(`PRAGMA busy_timeout=${SQLITE_BUSY_TIMEOUT_MS}`);
+    const db = drizzle(sqlite, { schema });
+    setStoredDb("main-readonly", db, () => sqlite.close());
+    return db;
+  } catch (err) {
+    void import("../util/logger.js").then(({ getLogger }) =>
+      getLogger("db-connection").warn(
+        { err },
+        "Failed to open the main database read-only; retried on next access",
+      ),
+    );
+    return null;
+  }
+}
+
+/**
  * Whether the main assistant DB connection is currently open. Lets exit paths
  * decide between DB teardown work and skipping it entirely — `getDb()` /
  * `getSqlite()` lazily open the connection, so probing with those would
@@ -265,6 +307,7 @@ export function getTelemetrySqlite(): Database | null {
  */
 export function resetDb(): void {
   clearStoredDb("main");
+  clearStoredDb("main-readonly");
   clearStoredDb("logs");
   clearStoredDb("memory");
   clearStoredDb("telemetry");

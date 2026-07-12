@@ -542,14 +542,15 @@ const configSettingSource = simpleSource(
 
 /**
  * Watermark key namespace of the tool_executed source — referenced by the
- * reporter's constructor-time absent-watermark init.
+ * absent-watermark init that runs at daemon startup.
  */
 export const TOOL_EXECUTED_SOURCE_ID = toolExecutedSource.id;
 
 /**
  * Every telemetry event source, in payload order. The order is part of the
  * observable wire behavior (events of different types appear in this order
- * within one batch), so keep it stable.
+ * within one batch), so keep it stable. This is the test/reference list;
+ * production reporters run the daemon/monitor partitions below.
  */
 export const ALL_TELEMETRY_EVENT_SOURCES: readonly TelemetryEventSource[] = [
   usageSource,
@@ -562,3 +563,27 @@ export const ALL_TELEMETRY_EVENT_SOURCES: readonly TelemetryEventSource[] = [
   watchdogSource,
   configSettingSource,
 ];
+
+/**
+ * Sources flushed by the daemon's reporter. Turns only: the completeness
+ * barrier (`isProcessing()`) and consented trace assembly (cached system
+ * prompt, registered tool definitions) read the daemon's live in-memory
+ * conversation state, so this source cannot leave the daemon process.
+ */
+export const DAEMON_TELEMETRY_EVENT_SOURCES: readonly TelemetryEventSource[] = [
+  turnSource,
+];
+
+/**
+ * Sources flushed by the resource monitor process's reporter. Everything
+ * except turns: pure durable-table projections over the main and telemetry
+ * databases, which the monitor reads cross-process (main DB read-only via
+ * WAL; telemetry DB read-write, since the monitor owns flush state).
+ * Together with {@link DAEMON_TELEMETRY_EVENT_SOURCES} this partitions
+ * {@link ALL_TELEMETRY_EVENT_SOURCES} — every source is flushed by exactly
+ * one process.
+ */
+export const MONITOR_TELEMETRY_EVENT_SOURCES: readonly TelemetryEventSource[] =
+  ALL_TELEMETRY_EVENT_SOURCES.filter(
+    (source) => !DAEMON_TELEMETRY_EVENT_SOURCES.includes(source),
+  );
