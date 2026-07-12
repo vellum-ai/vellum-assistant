@@ -13,7 +13,6 @@ let secretResult: SecretPromptResult = {
   value: "secret-value",
   delivery: "store",
 };
-let allowOneTimeSend = true;
 let existingMetadata: Record<string, unknown> | undefined;
 let slackConfigResult: SlackChannelConfigResult;
 let slackConfigArgs: Array<(string | undefined)[]>;
@@ -28,13 +27,6 @@ let syncedServices: string[];
 // ---------------------------------------------------------------------------
 // Mocks for the route's collaborators
 // ---------------------------------------------------------------------------
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
 
 mock.module("../daemon/handlers/shared.js", () => ({
   requestSecretStandalone: mock(
@@ -72,10 +64,6 @@ mock.module("../oauth/manual-token-connection.js", () => ({
   }),
 }));
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({ secretDetection: { allowOneTimeSend } }),
-}));
-
 mock.module("../daemon/handlers/config-slack-channel.js", () => ({
   setSlackChannelConfig: mock(
     async (
@@ -98,8 +86,14 @@ mock.module("../tools/credentials/broker.js", () => ({
 }));
 
 import { ROUTES } from "../runtime/routes/credential-prompt-routes.js";
+import { setConfig } from "./helpers/set-config.js";
 
 const promptRoute = ROUTES.find((r) => r.operationId === "credentials_prompt");
+
+/** Seed the real workspace config's one-time-send gate. */
+function setAllowOneTimeSend(enabled: boolean): void {
+  setConfig("secretDetection", { allowOneTimeSend: enabled });
+}
 
 function slackResult(
   overrides: Partial<SlackChannelConfigResult>,
@@ -129,7 +123,7 @@ describe("credentials/prompt route", () => {
     capturedSecretParams = undefined;
     capturedMetadata = undefined;
     secretResult = { value: "secret-value", delivery: "store" };
-    allowOneTimeSend = true;
+    setAllowOneTimeSend(true);
     existingMetadata = undefined;
     slackConfigResult = slackResult({});
     slackConfigArgs = [];
@@ -299,7 +293,7 @@ describe("credentials/prompt route", () => {
      * operation and must never write it to secure storage.
      */
     // GIVEN one-time send is enabled and the user chose transient delivery
-    allowOneTimeSend = true;
+    setAllowOneTimeSend(true);
     secretResult = { value: "secret-value", delivery: "transient_send" };
 
     // WHEN a non-slack credential is submitted for one-time use
@@ -324,7 +318,7 @@ describe("credentials/prompt route", () => {
      * flag; otherwise the value is rejected rather than injected.
      */
     // GIVEN one-time send is disabled and the user chose transient delivery
-    allowOneTimeSend = false;
+    setAllowOneTimeSend(false);
     secretResult = { value: "secret-value", delivery: "transient_send" };
 
     // WHEN a credential is submitted for one-time use

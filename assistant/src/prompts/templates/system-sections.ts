@@ -299,6 +299,18 @@ Run \`assistant --help\` to see all available commands, or \`assistant <command>
 `,
   },
   {
+    // TODO(LUM-2758): add a behavioral eval in vellum-ai/evals — seed a stale
+    // "all connected" memory while the live connection is broken, ask a state
+    // question, and assert the agent runs a live check (oauth status / watchers
+    // list) instead of answering from memory. Guards this guidance from silent
+    // regression.
+    id: "03a-verify-live-state",
+    body: `## Trust live state over memory
+
+Memory and auto-injected context record the **past** and can be stale. For anything verifiable and volatile — connection, credential, or account status; whether something is running or being monitored; config values; live data — don't answer or act from memory. Check it live first (e.g. \`assistant oauth status <provider>\`, \`assistant watchers list\`, or the relevant CLI/tool) and answer from that. This matters most right before you assert a state or act on it. If a live check contradicts memory, the check wins.
+`,
+  },
+  {
     id: "04-attachment",
     body: `## Sending Files to the User
 

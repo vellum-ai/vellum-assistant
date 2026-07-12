@@ -4,25 +4,7 @@
  * `LogRow.callSite`. Historical rows (pre-migration 264) stay NULL —
  * "we don't know" rather than guessing `mainAgent`.
  */
-import { beforeEach, describe, expect, mock, test } from "bun:test";
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-    model: "test",
-    provider: "test",
-    memory: { enabled: false },
-    rateLimit: { maxRequestsPerMinute: 0 },
-    secretDetection: { enabled: false },
-  }),
-}));
+import { beforeEach, describe, expect, test } from "bun:test";
 
 import { getLogsDb, getSqliteFrom } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
@@ -52,14 +34,14 @@ describe("recordRequestLog call_site stamping", () => {
       "anthropic",
       "mainAgent",
     );
-    const row = getRequestLogById(id);
+    const row = getRequestLogById(id!);
     expect(row).not.toBeNull();
     expect(row!.callSite).toBe("mainAgent");
   });
 
   test("leaves callSite NULL when omitted (backward compat)", () => {
     const id = recordRequestLog("conv-1", '{"req":1}', '{"res":1}');
-    const row = getRequestLogById(id);
+    const row = getRequestLogById(id!);
     expect(row).not.toBeNull();
     expect(row!.callSite).toBeNull();
   });
@@ -73,7 +55,7 @@ describe("recordRequestLog call_site stamping", () => {
       "anthropic",
       "compactionAgent",
     );
-    expect(getRequestLogById(id)?.callSite).toBe("compactionAgent");
+    expect(getRequestLogById(id!)?.callSite).toBe("compactionAgent");
   });
 
   test("two rows in the same conversation can carry different callSites", () => {
@@ -93,8 +75,8 @@ describe("recordRequestLog call_site stamping", () => {
       "anthropic",
       "compactionAgent",
     );
-    expect(getRequestLogById(mainId)?.callSite).toBe("mainAgent");
-    expect(getRequestLogById(compactId)?.callSite).toBe("compactionAgent");
+    expect(getRequestLogById(mainId!)?.callSite).toBe("mainAgent");
+    expect(getRequestLogById(compactId!)?.callSite).toBe("compactionAgent");
   });
 });
 

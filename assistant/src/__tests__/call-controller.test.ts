@@ -10,85 +10,11 @@ import {
 
 mock.module("../config/env.js", () => ({ isHttpAuthDisabled: () => true }));
 
-// ── Logger mock (must come before any source imports) ────
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
-// ── Config mock ─────────────────────────────────────────────────────
-
-mock.module("../config/loader.js", () => {
-  const config = {
-    ui: {},
-
-    provider: "anthropic",
-    calls: {
-      enabled: true,
-      provider: "twilio",
-      maxDurationSeconds: 12 * 60,
-      userConsultTimeoutSeconds: 90,
-      userConsultationTimeoutSeconds: 90,
-      silenceTimeoutSeconds: 30,
-      disclosure: { enabled: false, text: "" },
-      safety: { denyCategories: [] },
-    },
-    memory: { enabled: false },
-    notifications: {},
-    ingress: {
-      enabled: true,
-      publicBaseUrl: "https://generic.example.com",
-    },
-    services: {
-      tts: {
-        mode: "your-own" as const,
-        provider: "elevenlabs",
-        providers: {
-          elevenlabs: {
-            voiceId: "ZF6FPAbjXT4488VcRRnw",
-            voiceModelId: "",
-            speed: 1.0,
-            stability: 0.5,
-            similarityBoost: 0.75,
-            conversationTimeoutSeconds: 30,
-          },
-          "fish-audio": {
-            referenceId: "",
-            chunkLength: 200,
-            format: "mp3",
-            latency: "normal",
-            speed: 1.0,
-          },
-          deepgram: {
-            model: "aura-2-theia-en",
-            format: "mp3",
-          },
-        },
-      },
-    },
-    elevenlabs: {
-      voiceId: "ZF6FPAbjXT4488VcRRnw",
-    },
-    fishAudio: {
-      referenceId: "",
-      format: "mp3",
-    },
-  };
-  return {
-    getConfig: () => config,
-    loadConfig: () => config,
-    loadRawConfig: () => ({}),
-    saveRawConfig: () => {},
-    invalidateConfigCache: () => {},
-    applyNestedDefaults: (c: unknown) => c,
-    getNestedValue: () => undefined,
-    setNestedValue: () => {},
-    API_KEY_PROVIDERS: [],
-  };
-});
+// ── Config ──────────────────────────────────────────────────────────
+// These tests run against the real config loader. `loadConfig()` returns the
+// loader's live cached object, so tests set TTS/ingress fields by mutating it
+// in place; `beforeEach` restores the fields the tests touch. The workspace
+// config file itself is seeded once below (memory off, ingress base URL).
 
 // ── Credential mock (prevents real key lookups) ──────────────────────
 
@@ -149,7 +75,9 @@ function createMockVoiceTurn(tokens: string[]) {
 
     // Emit text deltas
     for (const token of tokens) {
-      if (opts.signal?.aborted) break;
+      if (opts.signal?.aborted) {
+        break;
+      }
       opts.onTextDelta(token);
     }
 
@@ -287,6 +215,15 @@ import { resetTestTables } from "../persistence/raw-query.js";
 import { conversations } from "../persistence/schema/index.js";
 import { resetDbForTesting } from "./db-test-helpers.js";
 import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
+import { setConfig } from "./helpers/set-config.js";
+
+// Disable memory so persisted call messages skip background indexing, and
+// seed the ingress base URL used for synthesized-audio play URLs.
+setConfig("memory", { enabled: false });
+setConfig("ingress", {
+  enabled: true,
+  publicBaseUrl: "https://generic.example.com",
+});
 
 await initializeDb();
 
@@ -394,8 +331,9 @@ async function pollUntil(
 ): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (!predicate()) {
-    if (Date.now() > deadline)
+    if (Date.now() > deadline) {
       throw new Error(`pollUntil timed out after ${timeoutMs}ms`);
+    }
     await new Promise((r) => setTimeout(r, intervalMs));
   }
 }
@@ -438,23 +376,13 @@ function getLatestAssistantText(conversationId: string): string | null {
   );
   if (msgs.length === 0) return null;
   const latest = msgs[msgs.length - 1];
-  try {
-    const parsed = JSON.parse(latest.content) as unknown;
-    if (Array.isArray(parsed)) {
-      return parsed
-        .filter(
-          (b): b is { type: string; text?: string } =>
-            typeof b === "object" && b != null,
-        )
-        .filter((b) => b.type === "text")
-        .map((b) => b.text ?? "")
-        .join("");
-    }
-    if (typeof parsed === "string") return parsed;
-  } catch {
-    /* fall through */
-  }
-  return latest.content;
+  return latest.content
+    .filter(
+      (b): b is { type: "text"; text: string } =>
+        b.type === "text" && typeof (b as { text?: unknown }).text === "string",
+    )
+    .map((b) => b.text)
+    .join("");
 }
 
 function setupControllerWithOrigin(task?: string) {
@@ -3493,6 +3421,117 @@ describe("call-controller", () => {
     controller.destroy();
   });
 
+  // ── Eager first segment (synthesized-play path) ─────────────────────
+
+  test("synthesized provider: the turn's first segment flushes eagerly at a clause boundary before any sentence ends", async () => {
+    const { synthesizedTexts } = registerFishAudioSegmentRecorder();
+    const { relay, controller } = setupController();
+
+    let segmentsBeforeSentenceEnd = -1;
+    mockStartVoiceTurn.mockImplementation(
+      async (opts: {
+        onTextDelta: (t: string) => void;
+        onComplete: () => void;
+      }) => {
+        opts.onTextDelta("Let me take a look at that, ");
+        // The clause-bounded prefix must reach synthesis while no sentence
+        // has ended yet — full-sentence rules would still be buffering.
+        await pollUntil(() => synthesizedTexts.length > 0);
+        segmentsBeforeSentenceEnd = synthesizedTexts.length;
+        opts.onTextDelta("and get right back to you.");
+        opts.onComplete();
+        return { turnId: "run-eager", abort: () => {} };
+      },
+    );
+
+    await controller.handleCallerUtterance("Hi");
+
+    expect(segmentsBeforeSentenceEnd).toBe(1);
+    expect(synthesizedTexts).toEqual([
+      "Let me take a look at that,",
+      "and get right back to you.",
+    ]);
+    expect(relay.sentPlayUrls.length).toBe(2);
+
+    controller.destroy();
+  });
+
+  test("synthesized provider: eager mode applies only to the first segment — later clauses wait for sentence ends", async () => {
+    const { synthesizedTexts } = registerFishAudioSegmentRecorder();
+    mockStartVoiceTurn.mockImplementation(
+      createMockVoiceTurn([
+        "Let me take a look at that, and then, after checking, I will confirm.",
+      ]),
+    );
+    const { controller } = setupController();
+
+    await controller.handleCallerUtterance("Hi");
+
+    expect(synthesizedTexts).toEqual([
+      "Let me take a look at that,",
+      "and then, after checking, I will confirm.",
+    ]);
+
+    controller.destroy();
+  });
+
+  test("synthesized provider: a long unpunctuated opening flushes at the eager 60-char cap; the force-flushed tail is unaffected", async () => {
+    const { synthesizedTexts } = registerFishAudioSegmentRecorder();
+    mockStartVoiceTurn.mockImplementation(
+      createMockVoiceTurn([
+        "The quick brown fox jumps over the lazy dog near the quiet river bank",
+      ]),
+    );
+    const { controller } = setupController();
+
+    await controller.handleCallerUtterance("Hi");
+
+    // First segment splits at the last whitespace under the 60-char eager
+    // cap (the default cap is 180); the short remainder never reaches a
+    // boundary and force-flushes at turn completion.
+    expect(synthesizedTexts).toEqual([
+      "The quick brown fox jumps over the lazy dog near the quiet",
+      "river bank",
+    ]);
+
+    controller.destroy();
+  });
+
+  test("synthesized provider: a short reply below every eager threshold only force-flushes at turn completion", async () => {
+    const { synthesizedTexts } = registerFishAudioSegmentRecorder();
+    mockStartVoiceTurn.mockImplementation(createMockVoiceTurn(["Quick note"]));
+    const { relay, controller } = setupController();
+
+    await controller.handleCallerUtterance("Hi");
+
+    expect(synthesizedTexts).toEqual(["Quick note"]);
+    expect(relay.sentPlayUrls.length).toBe(1);
+
+    controller.destroy();
+  });
+
+  test("synthesized provider: each turn's first segment is eager again", async () => {
+    const { synthesizedTexts } = registerFishAudioSegmentRecorder();
+    mockStartVoiceTurn.mockImplementation(
+      createMockVoiceTurn(["Let me take a look at that, one moment."]),
+    );
+    const { controller } = setupController();
+
+    await controller.handleCallerUtterance("Hi");
+    await controller.handleCallerUtterance("Thanks");
+
+    expect(synthesizedTexts).toEqual([
+      "Let me take a look at that,",
+      "one moment.",
+      "Let me take a look at that,",
+      "one moment.",
+    ]);
+
+    controller.destroy();
+  });
+
+  // ── Per-segment fallback on WAV-requiring transports ────────────────
+
   // ── Per-segment fallback on PCM-requiring transports ────────────────
 
   /**
@@ -3696,6 +3735,8 @@ describe("call-controller", () => {
     });
 
     test("returns fallback when the configured provider is not in the catalog", async () => {
+      // The schema enum rejects unknown providers, so this state can only be
+      // produced by mutating the loader's cached config directly.
       const cfg = loadConfig();
       (cfg.services.tts as { provider: string }).provider =
         "not-a-real-provider";
@@ -3802,7 +3843,9 @@ describe("call-controller", () => {
       const turnPromise = controller.handleCallerUtterance("Hello");
 
       // Wait for microtasks to settle
-      for (let i = 0; i < 5; i++) await Promise.resolve();
+      for (let i = 0; i < 5; i++) {
+        await Promise.resolve();
+      }
 
       // No outbound audio/tokens yet → still processing.
       expect(controller.getState()).toBe("processing");
@@ -3858,7 +3901,9 @@ describe("call-controller", () => {
 
       const { controller } = setupController();
       const turnPromise = controller.handleCallerUtterance("Hi");
-      for (let i = 0; i < 5; i++) await Promise.resolve();
+      for (let i = 0; i < 5; i++) {
+        await Promise.resolve();
+      }
 
       // Before any token: processing, barge-in ignored (turn not aborted).
       expect(controller.getState()).toBe("processing");
@@ -3867,7 +3912,9 @@ describe("call-controller", () => {
 
       // Release the first token → controller flips to speaking.
       emitFirstToken();
-      for (let i = 0; i < 5; i++) await Promise.resolve();
+      for (let i = 0; i < 5; i++) {
+        await Promise.resolve();
+      }
       expect(controller.getState()).toBe("speaking");
 
       // Now barge-in is accepted and interrupts the turn.
@@ -3910,7 +3957,9 @@ describe("call-controller", () => {
       };
 
       const turnPromise = controller.handleCallerUtterance("Hi");
-      for (let i = 0; i < 10; i++) await Promise.resolve();
+      for (let i = 0; i < 10; i++) {
+        await Promise.resolve();
+      }
 
       // Tokens were emitted (buffered by the transport) but no audio has
       // started — the controller must still be processing.
@@ -3966,7 +4015,9 @@ describe("call-controller", () => {
       };
 
       const turnPromise = controller.handleCallerUtterance("Hi");
-      for (let i = 0; i < 10; i++) await Promise.resolve();
+      for (let i = 0; i < 10; i++) {
+        await Promise.resolve();
+      }
       expect(controller.getState()).toBe("processing");
 
       // Transport reports real outbound audio started → speaking.
@@ -4019,7 +4070,9 @@ describe("call-controller", () => {
       };
 
       const turn1 = controller.handleCallerUtterance("Hi");
-      for (let i = 0; i < 10; i++) await Promise.resolve();
+      for (let i = 0; i < 10; i++) {
+        await Promise.resolve();
+      }
       expect(controller.getState()).toBe("processing");
       expect(cancelledPendingSpeech).toBe(0);
 
@@ -4060,7 +4113,9 @@ describe("call-controller", () => {
       };
 
       const turnPromise = controller.handleCallerUtterance("Hi");
-      for (let i = 0; i < 10; i++) await Promise.resolve();
+      for (let i = 0; i < 10; i++) {
+        await Promise.resolve();
+      }
       const staleCallback = audioStartCallback!;
 
       // Supersede the run (hard interrupt), then fire the stale signal.
@@ -4102,7 +4157,9 @@ describe("call-controller", () => {
       const turnPromise = controller.handleCallerUtterance("Hi");
 
       // Let microtasks settle so onTextDelta runs
-      for (let i = 0; i < 10; i++) await Promise.resolve();
+      for (let i = 0; i < 10; i++) {
+        await Promise.resolve();
+      }
 
       expect(controller.getState()).toBe("speaking");
 

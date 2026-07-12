@@ -33,11 +33,11 @@ import {
 import { archiveResearchConversation } from "@/domains/onboarding/archive-research-conversation";
 import { invalidateConversationQueries } from "@/utils/conversation-cache";
 import type {
-  MessagesGetResponses,
   MessagesPostData,
   PluginsSearchGetResponses,
 } from "@/generated/daemon/types.gen";
 import { captureError } from "@/lib/sentry/capture-error";
+import { latestAssistantText } from "@/domains/onboarding/latest-assistant-text";
 import { detectClientOs } from "@/runtime/platform-detection";
 import {
   buildResearchPrompt,
@@ -282,8 +282,6 @@ export interface UseResearchRunner extends ResearchRunnerState {
   ) => void;
 }
 
-type GetMessage = MessagesGetResponses[200]["messages"][number];
-
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -302,25 +300,6 @@ export function resolveOnboardingPluginInstalls({
       ...modelPlugins.filter((name) => validNames.has(name)),
     ]),
   ];
-}
-
-/** Latest assistant reply text from a messages list (text blocks, then legacy flat content). */
-function latestAssistantText(messages: GetMessage[]): string {
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const m = messages[i];
-    if (!m || m.role !== "assistant") continue;
-    const blocks = m.contentBlocks;
-    if (blocks && blocks.length > 0) {
-      const text = blocks
-        .filter((b): b is Extract<typeof b, { type: "text" }> => b.type === "text")
-        .map((b) => b.text)
-        .join("\n")
-        .trim();
-      if (text) return text;
-    }
-    return (m.content ?? "").trim();
-  }
-  return "";
 }
 
 export function useResearchRunner(): UseResearchRunner {

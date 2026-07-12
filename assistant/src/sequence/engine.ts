@@ -35,7 +35,9 @@ const STEP_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes per step
 export async function runSequencesOnce(): Promise<number> {
   const now = Date.now();
   const claimed = claimDueEnrollments(now, BATCH_SIZE);
-  if (claimed.length === 0) return 0;
+  if (claimed.length === 0) {
+    return 0;
+  }
 
   let processed = 0;
   for (const enrollment of claimed) {
@@ -202,8 +204,9 @@ async function processEnrollment(
   // null so it won't be re-claimed. The approval/send flow is responsible
   // for advancing the enrollment once the draft is approved.
   if (step.requireApproval) {
-    if (extractedConversationId)
+    if (extractedConversationId) {
       updateEnrollmentConversationId(enrollment.id, extractedConversationId);
+    }
     log.info(
       {
         enrollmentId: enrollment.id,
@@ -322,8 +325,10 @@ function extractThreadIdFromConversation(
     // is the one we want.
     for (let i = msgs.length - 1; i >= 0; i--) {
       const msg = msgs[i];
-      const threadId = extractThreadIdFromContent(msg.content);
-      if (threadId) return threadId;
+      const threadId = extractThreadIdFromContent(JSON.stringify(msg.content));
+      if (threadId) {
+        return threadId;
+      }
     }
   } catch (err) {
     log.warn(
@@ -338,11 +343,15 @@ function extractThreadIdFromConversation(
 function extractThreadIdFromContent(content: string): string | null {
   // Pattern 1: JSON field like "threadId": "..." or "thread_id": "..."
   const jsonMatch = content.match(/"(?:threadId|thread_id)"\s*:\s*"([^"]+)"/);
-  if (jsonMatch) return jsonMatch[1];
+  if (jsonMatch) {
+    return jsonMatch[1];
+  }
 
   // Pattern 2: Prose like "Thread ID: <id>" (from tool result text)
   const proseMatch = content.match(/[Tt]hread\s+(?:ID|id):\s*(\S+)/);
-  if (proseMatch) return proseMatch[1];
+  if (proseMatch) {
+    return proseMatch[1];
+  }
 
   return null;
 }

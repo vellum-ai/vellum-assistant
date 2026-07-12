@@ -10,20 +10,22 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import type { ContentBlock, ImageContent, Message } from "@vellumai/plugin-api";
-import { getConfiguredProvider } from "@vellumai/plugin-api";
+import {
+  getConfiguredProvider,
+  getConversationDirPath,
+} from "@vellumai/plugin-api";
 import { and, asc, desc, eq, gt } from "drizzle-orm";
 
 import type { AssistantConfig } from "../../../../config/types.js";
-import { getConversationDirPath } from "../../../../persistence/conversation-disk-view.js";
 import { getDb } from "../../../../persistence/db-connection.js";
 import {
   conversations,
   messages,
 } from "../../../../persistence/schema/index.js";
-import { BackendUnavailableError } from "../../../../util/errors.js";
-import { getLogger } from "../../../../util/logger.js";
+import { BackendUnavailableError } from "../host-utils.js";
 import { buildIdentityContext } from "../identity-context.js";
 import { extractToolUse, userMessage } from "../llm-helpers.js";
+import { getLogger } from "../logging.js";
 import {
   enqueueGraphNodeEmbed,
   enqueueGraphTriggerEmbed,
@@ -583,7 +585,6 @@ export interface DeferredEdge {
 export function parseExtractionResponse(
   input: Record<string, unknown>,
   conversationId: string,
-  scopeId: string,
   candidateNodeIds: Set<string>,
   /** Epoch ms — when the conversation happened (not extraction time). */
   conversationTimestamp: number,
@@ -672,7 +673,6 @@ export function parseExtractionResponse(
       narrativeRole: null,
       partOfStory: null,
       imageRefs: null,
-      scopeId,
     };
 
     // Prospective nodes (tasks, plans, upcoming events) are inherently transient.
@@ -989,7 +989,6 @@ export interface ExtractionResult {
  */
 export async function runGraphExtraction(
   conversationId: string,
-  scopeId: string,
   config: AssistantConfig,
   opts?: {
     /** Pre-loaded transcript text (skips disk read). Used by bootstrap. */
@@ -1029,7 +1028,8 @@ export async function runGraphExtraction(
   let transcript = opts?.transcript;
   if (!transcript) {
     transcript =
-      loadTranscriptFromDisk(conversationId, opts?.afterTimestamp) ?? undefined;
+      (await loadTranscriptFromDisk(conversationId, opts?.afterTimestamp)) ??
+      undefined;
     if (!transcript) {
       // If we have a multimodal result but no disk transcript, extract text
       // from the multimodal message content blocks for candidate search.
@@ -1065,7 +1065,6 @@ export async function runGraphExtraction(
   // 3. Find candidate existing nodes
   const candidateNodes = await findCandidateNodes(
     transcript,
-    scopeId,
     config,
     opts?.activeContextNodeIds,
     opts?.skipQdrant,
@@ -1137,7 +1136,6 @@ export async function runGraphExtraction(
   const { diff, deferredEdges, deferredTriggers } = parseExtractionResponse(
     toolBlock.input as Record<string, unknown>,
     conversationId,
-    scopeId,
     candidateNodeIds,
     conversationTimestamp,
   );
@@ -1295,6 +1293,7 @@ function resolveImageRefMimeType(
       and(
         eq(messages.id, messageId),
         eq(messages.conversationId, conversationId),
+        eq(messages.finalized, 1),
       ),
     )
     .get();
@@ -1317,10 +1316,10 @@ function resolveImageRefMimeType(
   }
 }
 
-function loadTranscriptFromDisk(
+async function loadTranscriptFromDisk(
   conversationId: string,
   afterTimestamp?: number,
-): string | null {
+): Promise<string | null> {
   const db = getDb();
   const conv = db
     .select({ createdAt: conversations.createdAt })
@@ -1333,7 +1332,10 @@ function loadTranscriptFromDisk(
   }
 
   try {
-    const dirPath = getConversationDirPath(conversationId, conv.createdAt);
+    const dirPath = await getConversationDirPath(
+      conversationId,
+      conv.createdAt,
+    );
     const messagesPath = join(dirPath, "messages.jsonl");
     const content = readFileSync(messagesPath, "utf-8");
 
@@ -1393,7 +1395,10 @@ function loadTranscriptWithImages(
   const db = getDb();
 
   // Build query conditions
-  const conditions = [eq(messages.conversationId, conversationId)];
+  const conditions = [
+    eq(messages.conversationId, conversationId),
+    eq(messages.finalized, 1),
+  ];
   if (afterTimestamp !== undefined) {
     conditions.push(gt(messages.createdAt, afterTimestamp));
   }
@@ -1482,7 +1487,6 @@ function loadTranscriptWithImages(
 
 async function findCandidateNodes(
   transcript: string,
-  scopeId: string,
   config: AssistantConfig,
   activeContextNodeIds?: string[],
   skipQdrant?: boolean,
@@ -1493,7 +1497,6 @@ async function findCandidateNodes(
     // Bootstrap mode: load candidates directly from DB (embeddings may not be ready).
     // Get the most recent and most significant non-gone nodes.
     const dbCandidates = queryNodes({
-      scopeId,
       fidelityNot: ["gone"],
       limit: 100,
     });

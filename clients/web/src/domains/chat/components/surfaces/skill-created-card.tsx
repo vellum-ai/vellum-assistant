@@ -9,7 +9,6 @@ import {
   str,
 } from "@/domains/chat/components/surfaces/surface-parse-helpers";
 import { useIsMobile } from "@/hooks/use-is-mobile";
-import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useViewerStore } from "@/stores/viewer-store";
 import { routes } from "@/utils/routes";
 
@@ -68,11 +67,6 @@ function parseSkills(skills: unknown): SkillCardEntry[] {
 export function SkillCreatedCard({ surface, onAction }: SkillCreatedCardProps) {
   const navigate = useNavigate();
   const isMobile = useIsMobile();
-  // Client-side half of the `skill-creation-card` flag (scope "both"): the
-  // assistant side gates card *insertion*, this gates *rendering*, so
-  // flipping the flag off also hides cards already persisted in transcripts
-  // (a true kill-switch).
-  const skillCardEnabled = useClientFeatureFlagStore.use.skillCreationCard();
   const skills = parseSkills(surface.data.skills);
 
   // Desktop: open the skill detail sidepanel in place, keeping the
@@ -87,7 +81,7 @@ export function SkillCreatedCard({ surface, onAction }: SkillCreatedCardProps) {
     useViewerStore.getState().openSkillDetail(skillId);
   };
 
-  if (!skillCardEnabled || skills.length === 0) {
+  if (skills.length === 0) {
     return null;
   }
 

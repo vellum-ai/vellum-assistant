@@ -1,15 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-// Silence the logger from local-cdp-client.
-mock.module("../../../../util/logger.js", () => ({
-  getLogger: () => ({
-    info: () => {},
-    debug: () => {},
-    warn: () => {},
-    error: () => {},
-  }),
-}));
-
 let fakeSessionSendCalls: Array<{ method: string; params?: unknown }> = [];
 let fakeSessionDetachCalls = 0;
 let newCdpSessionCalls = 0;

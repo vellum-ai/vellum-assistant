@@ -3,8 +3,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { makeMockLogger } from "../../../../../__tests__/helpers/mock-logger.js";
-
 // Per-suite tmp data dir so the reembed sentinel never lands in the
 // developer's real ~/.vellum workspace.
 const TEST_DATA_DIR = mkdtempSync(join(tmpdir(), "memory-v2-qdrant-test-"));
@@ -13,29 +11,15 @@ const REEMBED_SENTINEL_PATH = join(
   ".memory-v2-reembed-required",
 );
 
-mock.module("../../../../../util/logger.js", () => ({
-  getLogger: () => makeMockLogger(),
-}));
-
+// Point the data dir (reembed sentinel) and workspace dir at the per-suite
+// tmp dir. Spread the real module so the config loader's own platform reads
+// (config path, quarantine notice) keep resolving against the seeded
+// workspace once the loader is real.
+const realPlatform = await import("../../../../../util/platform.js");
 mock.module("../../../../../util/platform.js", () => ({
+  ...realPlatform,
   getDataDir: () => TEST_DATA_DIR,
-  // Bun shares mocked modules across test files; some peer tests import
-  // `getWorkspaceDir` from this same module, so re-export it here to avoid
-  // an `undefined` if this mock is the one that wins evaluation order.
   getWorkspaceDir: () => TEST_DATA_DIR,
-}));
-
-// Stub getConfig — only the qdrant.url / vectorSize / onDisk fields matter.
-mock.module("../../../../../config/loader.js", () => ({
-  getConfig: () => ({
-    memory: {
-      qdrant: {
-        url: "http://127.0.0.1:6333",
-        vectorSize: 384,
-        onDisk: true,
-      },
-    },
-  }),
 }));
 
 mock.module("../../../../../persistence/embeddings/qdrant-client.js", () => ({

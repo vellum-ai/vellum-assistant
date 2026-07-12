@@ -7,7 +7,7 @@
  * `RepairReport` that renders either as plain text or as a single JSON
  * payload (`--json`).
  *
- * Adding a new step is a one-line edit to the `STEPS` array.
+ * Adding a new step is a one-line edit to the `repairSteps` list.
  *
  * Transport: `local`. The whole point of this surface is that it works when
  * the daemon is down, so it opens the DB file directly and never goes
@@ -15,26 +15,35 @@
  */
 
 import { existsSync } from "node:fs";
+import { createRequire } from "node:module";
 
 import type { Command } from "commander";
 
 import { getDbPath } from "../../../util/platform.js";
 import { dim, green, red } from "../../lib/cli-colors.js";
+import { subcommand } from "../../lib/cli-command-help.js";
 import { shouldOutputJson, writeOutput } from "../../output.js";
-import { conversationBackfillStep } from "./repair-step-conversation-backfill.js";
 import { integrityCheckStep } from "./repair-step-integrity.js";
 import type { RepairReport, RepairStep, StepResult } from "./repair-steps.js";
 import { formatDurationMs, runRepairSteps } from "./repair-steps.js";
+
+const loadModule = createRequire(import.meta.url);
 
 // ---------------------------------------------------------------------------
 // Step sequence
 // ---------------------------------------------------------------------------
 
 /**
- * Repair steps run in the order listed here. Integrity check runs first so
- * structural damage surfaces before subsequent steps touch the same pages.
+ * Repair steps run in the order listed here; integrity check first so
+ * structural damage surfaces early. Resolved lazily because the backfill
+ * step pulls the DB graph.
  */
-const STEPS: RepairStep[] = [integrityCheckStep, conversationBackfillStep];
+function repairSteps(): RepairStep[] {
+  const { conversationBackfillStep } = loadModule(
+    "./repair-step-conversation-backfill.js",
+  ) as typeof import("./repair-step-conversation-backfill.js");
+  return [integrityCheckStep, conversationBackfillStep];
+}
 
 // ---------------------------------------------------------------------------
 // Rendering
@@ -85,7 +94,9 @@ function renderSummary(report: RepairReport): string {
   let line =
     `\nDone. ${total} step${total === 1 ? "" : "s"} ran: ` +
     `${okCount} ok, ${errorCount} failed`;
-  if (halted) line += "  (sequence halted)";
+  if (halted) {
+    line += "  (sequence halted)";
+  }
   return line + "\n";
 }
 
@@ -94,48 +105,47 @@ function renderSummary(report: RepairReport): string {
 // ---------------------------------------------------------------------------
 
 export function registerDbRepair(parent: Command): void {
-  parent
-    .command("repair")
-    .description("Run the database repair sequence (integrity check, …)")
-    .action(async function (this: Command) {
-      const dbPath = getDbPath();
+  subcommand(parent, "repair").action(async function (this: Command) {
+    const dbPath = getDbPath();
 
-      if (!existsSync(dbPath)) {
-        if (shouldOutputJson(this)) {
-          writeOutput(this, {
-            dbPath,
-            missing: true,
-            steps: [],
-            okCount: 0,
-            errorCount: 0,
-            halted: false,
-          });
-        } else {
-          process.stderr.write(renderMissingDb(dbPath));
-        }
-        process.exit(1);
-      }
-
-      const isJson = shouldOutputJson(this);
-
-      const report = await runRepairSteps(
-        { dbPath },
-        STEPS,
-        isJson
-          ? {}
-          : {
-              onStart: emitStepStart,
-              onFinish: emitStepFinish,
-            },
-      );
-
-      if (isJson) {
-        writeOutput(this, report);
+    if (!existsSync(dbPath)) {
+      if (shouldOutputJson(this)) {
+        writeOutput(this, {
+          dbPath,
+          missing: true,
+          steps: [],
+          okCount: 0,
+          errorCount: 0,
+          halted: false,
+        });
       } else {
-        process.stdout.write(renderSummary(report));
+        process.stderr.write(renderMissingDb(dbPath));
       }
+      process.exit(1);
+    }
 
-      // Exit non-zero if any step failed — makes the command scriptable.
-      if (report.errorCount > 0) process.exit(1);
-    });
+    const isJson = shouldOutputJson(this);
+
+    const report = await runRepairSteps(
+      { dbPath },
+      repairSteps(),
+      isJson
+        ? {}
+        : {
+            onStart: emitStepStart,
+            onFinish: emitStepFinish,
+          },
+    );
+
+    if (isJson) {
+      writeOutput(this, report);
+    } else {
+      process.stdout.write(renderSummary(report));
+    }
+
+    // Exit non-zero if any step failed — makes the command scriptable.
+    if (report.errorCount > 0) {
+      process.exit(1);
+    }
+  });
 }

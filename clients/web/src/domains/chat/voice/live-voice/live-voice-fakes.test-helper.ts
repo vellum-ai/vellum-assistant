@@ -109,6 +109,14 @@ export class FakeCapture {
   stopCount = 0;
   shutdownCount = 0;
   startResult: LiveVoiceCaptureResult = { ok: true };
+  /**
+   * When true, `start()` stays pending until {@link resolveStart} — lets tests
+   * hold the mic acquisition open across `ready`/teardown. Must be set before
+   * `start()` is called (i.e. at creation, in the `createCapture` factory,
+   * since the controller starts the capture at connect time).
+   */
+  deferStart = false;
+  private startResolvers: Array<(result: LiveVoiceCaptureResult) => void> = [];
 
   constructor(options: LiveVoiceAudioCaptureOptions) {
     this.onChunk = options.onChunk;
@@ -117,6 +125,9 @@ export class FakeCapture {
 
   async start(): Promise<LiveVoiceCaptureResult> {
     this.startCount++;
+    if (this.deferStart) {
+      return new Promise((resolve) => this.startResolvers.push(resolve));
+    }
     return this.startResult;
   }
   async stop(): Promise<void> {
@@ -124,6 +135,15 @@ export class FakeCapture {
   }
   async shutdown(): Promise<void> {
     this.shutdownCount++;
+  }
+
+  /** Resolve pending deferred `start()` calls with the current `startResult`. */
+  resolveStart(): void {
+    const resolvers = this.startResolvers;
+    this.startResolvers = [];
+    for (const resolve of resolvers) {
+      resolve(this.startResult);
+    }
   }
 
   /** Feed a captured PCM chunk to the controller. */

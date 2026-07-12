@@ -1,15 +1,40 @@
 /**
- * Verifies the agent loop's exclusive-tool dispatch: when a tool the loop is
- * told is exclusive appears in a multi-call turn, only that tool runs and the
+ * Verifies the agent loop's exclusive-tool dispatch: when a tool the registry
+ * marks exclusive appears in a multi-call turn, only that tool runs and the
  * siblings are deferred un-run with a benign result — so the model incorporates
  * the exclusive tool's output before acting on anything else. Drives the REAL
  * loop, mocking only the provider boundary.
  */
-import { describe, expect, test } from "bun:test";
+import { beforeAll, describe, expect, test } from "bun:test";
 
 import { createMockProvider } from "../__tests__/helpers/mock-provider.js";
+import { RiskLevel } from "../permissions/types.js";
 import type { ContentBlock, ProviderResponse } from "../providers/types.js";
+import { registerTool } from "../tools/registry.js";
+import type { ToolContext, ToolExecutionResult } from "../tools/types.js";
 import { AgentLoop } from "./loop.js";
+
+// The loop reads exclusivity straight from the registry (`getTool(name)
+// ?.exclusive`), so seed a registered tool the loop can look up. Other tool
+// names in these turns are absent from the registry, so they read as
+// non-exclusive — exactly the mixed state the deferral logic branches on.
+beforeAll(() => {
+  registerTool({
+    name: "exclusive_tool",
+    description: "Exclusive test tool",
+    category: "test",
+    defaultRiskLevel: RiskLevel.Low,
+    executionTarget: "sandbox",
+    exclusive: true,
+    input_schema: { type: "object", properties: {}, required: [] },
+    async execute(
+      _input: Record<string, unknown>,
+      _context: ToolContext,
+    ): Promise<ToolExecutionResult> {
+      return { content: "ok", isError: false };
+    },
+  });
+});
 
 const endTurn = (text: string): ProviderResponse => ({
   content: [{ type: "text", text }],
@@ -82,7 +107,6 @@ describe("AgentLoop — exclusive tool deferral", () => {
         executed.push(name);
         return { content: `ran ${name}`, isError: false };
       },
-      isExclusiveTool: (name) => name === "exclusive_tool",
     });
 
     const { history } = await loop.run({
@@ -137,7 +161,6 @@ describe("AgentLoop — exclusive tool deferral", () => {
         executed.push(name);
         return { content: `ran ${name}`, isError: false };
       },
-      isExclusiveTool: (name) => name === "exclusive_tool",
     });
 
     const { history } = await loop.run({

@@ -21,74 +21,9 @@ import { UserError } from "../util/errors.js";
 // Mocks — must precede Conversation import
 // ---------------------------------------------------------------------------
 
-function makeLoggerStub(): Record<string, unknown> {
-  const stub: Record<string, unknown> = {};
-  for (const m of [
-    "info",
-    "warn",
-    "error",
-    "debug",
-    "trace",
-    "fatal",
-    "silent",
-    "child",
-  ]) {
-    stub[m] = m === "child" ? () => makeLoggerStub() : () => {};
-  }
-  return stub;
-}
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () => makeLoggerStub(),
-}));
-
 mock.module("../providers/registry.js", () => ({
   getProvider: () => ({ name: "mock-provider" }),
   initializeProviders: async () => {},
-}));
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-    llm: {
-      default: {
-        provider: "mock-provider",
-        model: "mock-model",
-        maxTokens: 4096,
-        effort: "high" as const,
-        speed: "standard",
-        temperature: null,
-        thinking: { enabled: false, streamThinking: true },
-        contextWindow: {
-          enabled: true,
-          maxInputTokens: 100000,
-          targetBudgetRatio: 0.3,
-          compactThreshold: 0.8,
-          summaryBudgetRatio: 0.05,
-          overflowRecovery: {
-            enabled: true,
-            safetyMarginRatio: 0.05,
-            maxAttempts: 3,
-            interactiveLatestTurnCompression: "summarize",
-            nonInteractiveLatestTurnCompression: "truncate",
-          },
-        },
-      },
-      profiles: {},
-      callSites: {},
-      pricingOverrides: [],
-    },
-    rateLimit: { maxRequestsPerMinute: 0 },
-    memory: { v2: { enabled: false } },
-    conversations: { skipAutoRetitling: false },
-    timeouts: { permissionTimeoutSec: 1 },
-    skills: { entries: {}, allowBundled: true },
-    permissions: { mode: "workspace" },
-    slack: { botUserId: "" },
-  }),
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-  invalidateConfigCache: () => {},
 }));
 
 mock.module("../config/assistant-feature-flags.js", () => ({
@@ -124,7 +59,7 @@ interface MockRow {
   id: string;
   conversationId: string;
   role: string;
-  content: string;
+  content: unknown;
   createdAt: number;
   metadata: string | null;
   clientMessageId: string | null;
@@ -240,10 +175,6 @@ mock.module("../persistence/llm-usage-store.js", () => ({
   listUsageEvents: () => [],
 }));
 
-mock.module("../runtime/services/auto-analysis-enqueue.js", () => ({
-  enqueueAutoAnalysisOnCompaction: () => {},
-}));
-
 mock.module("../agent/loop.js", () => ({
   AgentLoop: class {
     compactionCircuit = new CompactionCircuit("test-conv");
@@ -334,7 +265,7 @@ function row(id: string, role: string, text: string): MockRow {
     id,
     conversationId: "conv-1",
     role,
-    content: JSON.stringify([{ type: "text", text }]),
+    content: [{ type: "text", text }],
     createdAt: nextCreatedAt++,
     metadata: null,
     clientMessageId: null,
@@ -691,9 +622,9 @@ describe("Conversation.summarizeUpToMessage", () => {
       row("m0", "user", "u1"),
       {
         ...row("m1", "assistant", ""),
-        content: JSON.stringify([
+        content: [
           { type: "tool_use", id: "tu_1", name: "bash", input: { cmd: "ls" } },
-        ]),
+        ],
       },
       row("m2", "assistant", "continued"),
       row("m3", "user", "u2"),

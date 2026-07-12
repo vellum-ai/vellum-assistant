@@ -85,20 +85,6 @@ function makeNoopProvider(name: string): SkillFileProvider {
 // Module mocks — must be declared before importing the module under test
 // ---------------------------------------------------------------------------
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({}),
-  invalidateConfigCache: () => {},
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-}));
-
 mock.module("../config/skills.js", () => ({
   loadSkillCatalog: () => [],
 }));

@@ -1,16 +1,10 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { makeMockLogger } from "../../../../__tests__/helpers/mock-logger.js";
-
 // This test exercises the v1 PKB search path. `config.memory.v2.enabled`
 // (default `true`) makes pkb-search short-circuit to keep traffic off the
 // legacy collection — force it off so the v1 path stays under test.
 mock.module("../config.js", () => ({
   getMemoryConfig: () => ({ v2: { enabled: false } }),
-}));
-
-mock.module("../../../../util/logger.js", () => ({
-  getLogger: () => makeMockLogger(),
 }));
 
 // Mutable breaker state + capture buffers for assertions.
@@ -564,14 +558,11 @@ describe("searchPkbFiles", () => {
     expect(results[1]?.path).toBe("/a.md");
   });
 
-  test("adds memory_scope_id clause when scopeIds provided (both queries)", async () => {
+  test("filters carry no memory_scope_id clause — search spans the whole PKB index (both queries)", async () => {
     hybridResults = [];
     denseResults = [];
 
-    await searchPkbFiles([0.1], { indices: [1], values: [1] }, 5, [
-      "scope-a",
-      "scope-b",
-    ]);
+    await searchPkbFiles([0.1], { indices: [1], values: [1] }, 5);
 
     const hybridFilter = hybridSearchCalls[0]?.filter as {
       must: Array<Record<string, unknown>>;
@@ -580,10 +571,7 @@ describe("searchPkbFiles", () => {
       must: Array<Record<string, unknown>>;
     };
     for (const filter of [hybridFilter, denseFilter]) {
-      const scopeClause = filter.must.find(
-        (c) => c.key === "memory_scope_id",
-      ) as { match: { any: string[] } } | undefined;
-      expect(scopeClause?.match.any).toEqual(["scope-a", "scope-b"]);
+      expect(filter.must.map((c) => c.key)).toEqual(["target_type"]);
     }
   });
 });

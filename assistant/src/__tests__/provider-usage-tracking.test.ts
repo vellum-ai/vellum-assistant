@@ -1,4 +1,4 @@
-import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeAll, beforeEach, describe, expect, test } from "bun:test";
 
 import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
 
@@ -9,32 +9,20 @@ beforeAll(() => {
   setOverridesForTesting({ "override-or-default-resolution": false });
 });
 
-import { makeMockLogger } from "./helpers/mock-logger.js";
-
-let mockLlmConfig: Record<string, unknown> = {};
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    llm: mockLlmConfig,
-  }),
-}));
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () => makeMockLogger(),
-}));
-
-import { LLMSchema } from "../config/schemas/llm.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { listUsageEvents } from "../persistence/llm-usage-store.js";
 import { CallSiteConfiguredProvider } from "../providers/provider-send-message.js";
 import type { Provider, ProviderResponse } from "../providers/types.js";
 import { UsageTrackingProvider } from "../providers/usage-tracking.js";
+import { setConfig } from "./helpers/set-config.js";
 
 await initializeDb();
 
+// Seed `llm` into the real workspace config; the loader schema-merges the
+// raw partial over defaults exactly as `LLMSchema.parse` did for the mock.
 function setLlmConfig(raw: unknown): void {
-  mockLlmConfig = LLMSchema.parse(raw) as Record<string, unknown>;
+  setConfig("llm", raw);
 }
 
 function makeProvider(response: ProviderResponse): Provider {

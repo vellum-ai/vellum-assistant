@@ -13,7 +13,7 @@ import {
 } from "../../../../persistence/checkpoints.js";
 import { asString } from "../../../../persistence/job-utils.js";
 import type { MemoryJob } from "../../../../persistence/jobs-store.js";
-import { getLogger } from "../../../../util/logger.js";
+import { getLogger } from "../logging.js";
 import { runGraphExtraction } from "./extraction.js";
 
 const log = getLogger("graph-extraction-job");
@@ -35,7 +35,6 @@ export async function graphExtractJob(
   config: AssistantConfig,
 ): Promise<void> {
   const conversationId = asString(job.payload.conversationId);
-  const scopeId = asString(job.payload.scopeId) || "default";
   if (!conversationId) return;
 
   // Read checkpoint for incremental extraction
@@ -48,7 +47,7 @@ export async function graphExtractJob(
     : undefined;
 
   try {
-    const result = await runGraphExtraction(conversationId, scopeId, config, {
+    const result = await runGraphExtraction(conversationId, config, {
       afterTimestamp,
       activeContextNodeIds,
     });

@@ -22,6 +22,7 @@ import {
 } from "../config/env.js";
 import { getIsPlatform } from "../config/env-registry.js";
 import { getConfig } from "../config/loader.js";
+import { effectiveSttProvider } from "../config/schemas/stt.js";
 import {
   getDbMigrationReadiness,
   isDbMigrationGateBypassed,
@@ -234,7 +235,9 @@ export class RuntimeHttpServer {
             // reads config inside SttStreamSession.start()'s own guarded path.
             let configuredProvider: string | undefined;
             try {
-              configuredProvider = getConfig().services.stt.provider;
+              configuredProvider = effectiveSttProvider(
+                getConfig().services.stt,
+              );
 
               // Mismatch telemetry: when the optional requested provider
               // disagrees with the configured provider, log a warning so
@@ -940,8 +943,17 @@ export class RuntimeHttpServer {
   ): Promise<void> {
     if (frame.type === "start") {
       if (ws.data.sessionId) {
-        this.sendLiveVoiceStateError(ws, "Live voice session already started");
-        return;
+        // A session that failed after `ready` releases its manager slot
+        // without a frame crossing this socket — heal the stale binding so
+        // the client can retry on the same connection.
+        if (this.liveVoiceSessionManager.isSessionActive(ws.data.sessionId)) {
+          this.sendLiveVoiceStateError(
+            ws,
+            "Live voice session already started",
+          );
+          return;
+        }
+        ws.data.sessionId = undefined;
       }
 
       const result = await this.liveVoiceSessionManager.startSession(frame, {

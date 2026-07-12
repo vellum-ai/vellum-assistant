@@ -3,12 +3,7 @@ import { existsSync } from "node:fs";
 import { getLogger } from "../util/logger.js";
 import { getDbPath } from "../util/platform.js";
 import { runAsyncSqlite } from "./db-async-query.js";
-import {
-  getDb,
-  getLogsDb,
-  getMemoryDb,
-  getTelemetryDb,
-} from "./db-connection.js";
+import { getDb } from "./db-connection.js";
 import { runMigrationSteps } from "./migrations/run-migrations.js";
 import { validateMigrationState } from "./migrations/validate-migration-state.js";
 import { migrationSteps } from "./steps.js";
@@ -123,15 +118,6 @@ export async function initializeDb(): Promise<{ migrationsOk: boolean }> {
     validationOk = false;
     log.error({ err }, "validateMigrationState failed");
   }
-
-  // Open the dedicated logs/memory/telemetry connections so all four DBs are
-  // pinned to the current workspace once initializeDb() returns. On a fresh
-  // database the relocation steps (297/298/301) open these as a side effect;
-  // opening them here makes the postcondition hold in the already-migrated case
-  // too, where those steps are skipped via the checkpoint ledger.
-  getLogsDb();
-  getMemoryDb();
-  getTelemetryDb();
 
   // migrationsOk reflects BOTH no failed migration steps AND a passing
   // post-run validation, so an inconsistent schema keeps /readyz at 503.

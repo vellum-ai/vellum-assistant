@@ -22,7 +22,7 @@
 // over the assistant's own card. See `memory-retrospective-accounting.ts`.
 
 import type { AssistantConfig } from "../../../config/types.js";
-import { getLogger } from "../../../util/logger.js";
+import { getLogger } from "./logging.js";
 import { countRetrospectiveMessagesAfter } from "./memory-retrospective-accounting.js";
 import { enqueueMemoryRetrospectiveIfEnabled } from "./memory-retrospective-enqueue.js";
 import { getRetrospectiveState } from "./memory-retrospective-state.js";

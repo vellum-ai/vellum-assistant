@@ -31,13 +31,6 @@ let deliverReplyViaCallbackImpl: (
   ...args: unknown[]
 ) => Promise<void> = async () => {};
 
-mock.module("../../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 mock.module("../../../persistence/delivery-channels.js", () => ({
   updateDeliveredSegmentCount: (eventId: string, count: number) => {
     deliveredSegmentCounts.push({ eventId, count });

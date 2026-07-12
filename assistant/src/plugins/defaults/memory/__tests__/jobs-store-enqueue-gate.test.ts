@@ -10,55 +10,32 @@
 //      (`delete_qdrant_vectors`, `prune_*`) flow through unchanged.
 //
 // We verify (1) directly across the four config-shape variants, then
-// smoke-test (2) at two central entry-point helpers:
-//   - `enqueueAutoAnalysisIfEnabled`
+// smoke-test (2) at a central entry-point helper:
 //   - `enqueueMemoryRetrospectiveIfEnabled`
 // Each call site re-checks `isMemoryEnabled()` itself, so we don't
 // repeat 30+ identical scenarios — the helper test is the contract.
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 
-// Silence the logger.
-mock.module("../../../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
+import { setConfig } from "../../../../__tests__/helpers/set-config.js";
+import * as configLoader from "../../../../config/loader.js";
 
-// Mutable config shape, mutated per-test. `null` means "no `memory` key
-// at all" — exercises the defensive `?.` chain in `isMemoryEnabled`.
-type MemoryEnabledShape = boolean | null | undefined;
-let memoryEnabled: MemoryEnabledShape = true;
-let getConfigThrows = false;
-mock.module("../../../../config/loader.js", () => ({
-  getConfig: () => {
-    if (getConfigThrows) throw new Error("config load failed");
-    if (memoryEnabled === null) return {};
-    return {
-      memory: { enabled: memoryEnabled, v2: { enabled: false } },
-      analysis: { idleTimeoutMs: 600_000, batchSize: 30 },
-      assistant: { featureFlags: { "auto-analyze": true } },
-    };
-  },
-}));
+// Seed `memory.enabled` for real, preserving the schema-default v2-off shape
+// these tests ran under. `undefined`/absent both resolve to the schema default
+// (enabled), so they seed the same full-defaults shape — `isMemoryEnabled`
+// only distinguishes an explicit `false`.
+function seedMemoryEnabled(enabled: boolean): void {
+  setConfig("memory", { enabled, v2: { enabled: false } });
+}
 
-// Stub feature flags so auto-analyze isn't gated by an unrelated flag.
-mock.module("../../../../config/assistant-feature-flags.js", () => ({
-  isAssistantFeatureFlagEnabled: () => true,
-}));
-
-// Stub the conversation-source lookup so the recursion guards in the
-// retrospective and auto-analysis paths fall through to the enqueue.
-// `getConversation` returning null keeps `isLowYieldRetrospectiveSource`
-// false, so the retrospective is enqueued rather than skipped.
+// Stub the conversation-source lookup so the recursion guard in the
+// retrospective path falls through to the enqueue. `getConversation`
+// returning null keeps `isLowYieldRetrospectiveSource` false, so the
+// retrospective is enqueued rather than skipped.
 mock.module("../../../../persistence/conversation-crud.js", () => ({
   getConversation: () => null,
   getConversationSource: () => null,
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
-}));
-mock.module("../../../../runtime/services/auto-analysis-guard.js", () => ({
-  isAutoAnalysisConversation: () => false,
 }));
 
 // Stub the qdrant breaker so `enqueueMemoryJob` doesn't trip on it.
@@ -122,16 +99,13 @@ mock.module("../../../../persistence/db-connection.js", () => ({
 // Now load the real modules under test.
 const { isMemoryEnabled } =
   await import("../../../../persistence/jobs-store.js");
-const { enqueueAutoAnalysisIfEnabled } =
-  await import("../../../../runtime/services/auto-analysis-enqueue.js");
 const { enqueueMemoryRetrospectiveIfEnabled } =
   await import("../memory-retrospective-enqueue.js");
 
 beforeEach(() => {
   dbInserts.length = 0;
   dbUpdates.length = 0;
-  memoryEnabled = true;
-  getConfigThrows = false;
+  seedMemoryEnabled(true);
 });
 
 // ---------------------------------------------------------------------
@@ -140,74 +114,35 @@ beforeEach(() => {
 
 describe("isMemoryEnabled", () => {
   test("returns true when memory.enabled is true", () => {
-    memoryEnabled = true;
+    seedMemoryEnabled(true);
     expect(isMemoryEnabled()).toBe(true);
   });
 
-  test("returns true when memory.enabled is undefined (schema default)", () => {
-    memoryEnabled = undefined;
-    expect(isMemoryEnabled()).toBe(true);
-  });
-
-  test("returns true when memory key is absent (partial config)", () => {
-    memoryEnabled = null;
+  test("returns true when memory.enabled is the schema default (enabled)", () => {
+    // A bare `memory: {}` fills the schema default (`enabled: true`), the same
+    // "not explicitly false" case the code's `!== false` guard admits.
+    setConfig("memory", {});
     expect(isMemoryEnabled()).toBe(true);
   });
 
   test("returns false ONLY when memory.enabled is explicitly false", () => {
-    memoryEnabled = false;
+    seedMemoryEnabled(false);
     expect(isMemoryEnabled()).toBe(false);
   });
 
   test("returns true (defensive) when getConfig throws", () => {
     // If config can't be read, we can't tell whether memory has been
     // disabled, so default to "enabled". Callers that already have their
-    // own getConfig try/catch (e.g. enqueueAutoAnalysisIfEnabled) keep
-    // controlling the silent-failure semantic for the rest of their flow.
-    getConfigThrows = true;
-    expect(isMemoryEnabled()).toBe(true);
-  });
-});
-
-// ---------------------------------------------------------------------
-// enqueueAutoAnalysisIfEnabled — representative entry-point helper
-// ---------------------------------------------------------------------
-
-describe("enqueueAutoAnalysisIfEnabled (call-site gate)", () => {
-  test("does NOT enqueue when memory.enabled is false", () => {
-    memoryEnabled = false;
-    enqueueAutoAnalysisIfEnabled({
-      conversationId: "conv-1",
-      trigger: "batch",
+    // own getConfig try/catch keep controlling the silent-failure
+    // semantic for the rest of their flow.
+    const spy = spyOn(configLoader, "getConfig").mockImplementation(() => {
+      throw new Error("config load failed");
     });
-    expect(dbInserts.length).toBe(0);
-  });
-
-  test("enqueues when memory.enabled is true", () => {
-    memoryEnabled = true;
-    enqueueAutoAnalysisIfEnabled({
-      conversationId: "conv-1",
-      trigger: "batch",
-    });
-    expect(dbInserts.length).toBeGreaterThan(0);
-  });
-
-  test("enqueues when memory.enabled is undefined (schema default)", () => {
-    memoryEnabled = undefined;
-    enqueueAutoAnalysisIfEnabled({
-      conversationId: "conv-1",
-      trigger: "batch",
-    });
-    expect(dbInserts.length).toBeGreaterThan(0);
-  });
-
-  test("enqueues when memory key is absent from config", () => {
-    memoryEnabled = null;
-    enqueueAutoAnalysisIfEnabled({
-      conversationId: "conv-1",
-      trigger: "batch",
-    });
-    expect(dbInserts.length).toBeGreaterThan(0);
+    try {
+      expect(isMemoryEnabled()).toBe(true);
+    } finally {
+      spy.mockRestore();
+    }
   });
 });
 
@@ -217,7 +152,7 @@ describe("enqueueAutoAnalysisIfEnabled (call-site gate)", () => {
 
 describe("enqueueMemoryRetrospectiveIfEnabled (call-site gate)", () => {
   test("does NOT enqueue when memory.enabled is false", () => {
-    memoryEnabled = false;
+    seedMemoryEnabled(false);
     enqueueMemoryRetrospectiveIfEnabled({
       conversationId: "conv-1",
       trigger: "interval",
@@ -226,7 +161,7 @@ describe("enqueueMemoryRetrospectiveIfEnabled (call-site gate)", () => {
   });
 
   test("enqueues when memory.enabled is true", () => {
-    memoryEnabled = true;
+    seedMemoryEnabled(true);
     enqueueMemoryRetrospectiveIfEnabled({
       conversationId: "conv-1",
       trigger: "interval",
@@ -234,8 +169,8 @@ describe("enqueueMemoryRetrospectiveIfEnabled (call-site gate)", () => {
     expect(dbInserts.length).toBeGreaterThan(0);
   });
 
-  test("enqueues when memory.enabled is undefined (schema default)", () => {
-    memoryEnabled = undefined;
+  test("enqueues when memory.enabled is the schema default (enabled)", () => {
+    setConfig("memory", {});
     enqueueMemoryRetrospectiveIfEnabled({
       conversationId: "conv-1",
       trigger: "interval",

@@ -1,11 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-mock.module("../../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
-  truncateForLog: (value: string) => value,
-}));
-
 const getSlackMessageBlocks = mock(
   async (_channel: string, _ts: string): Promise<unknown[] | null> => null,
 );

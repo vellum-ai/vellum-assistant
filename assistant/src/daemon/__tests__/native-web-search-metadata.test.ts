@@ -8,34 +8,12 @@
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-// ── Mock platform (must precede imports that read it) ─────────────────────────
-mock.module("../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
+import { setConfig } from "../../__tests__/helpers/set-config.js";
 
-mock.module("../../config/loader.js", () => ({
-  getConfig: () => ({
-    skills: {
-      entries: {},
-      load: { extraDirs: [], watch: false, watchDebounceMs: 0 },
-      install: { nodeManager: "npm" },
-      allowBundled: null,
-      remoteProviders: {
-        skillssh: { enabled: true },
-        clawhub: { enabled: true },
-      },
-      remotePolicy: {
-        blockSuspicious: true,
-        blockMalware: true,
-        maxSkillsShRisk: "medium",
-      },
-    },
-  }),
-  loadConfig: () => ({}),
-}));
+// The finalize path indexes tool-result messages into memory; keep it inert
+// (the old partial mock omitted memory, leaving it disabled) so no real
+// embedding backend is touched.
+setConfig("memory", { enabled: false, v2: { enabled: false } });
 
 mock.module("../../persistence/conversation-crud.js", () => ({
   addMessage: () => ({ id: "mock-msg-id" }),

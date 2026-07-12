@@ -13,13 +13,17 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 
 import { generateInviteToken, hashInviteToken } from "@vellumai/gateway-client";
+import type { GatewayConfig } from "../config.js";
 import type { ConfigFileCache } from "../config-file-cache.js";
+import type { CredentialCache } from "../credential-cache.js";
+import { credentialKey } from "../credential-key.js";
 import {
   CredentialRequestStore,
   MAX_ACTIVE_CREDENTIAL_REQUESTS,
 } from "../db/credential-request-store.js";
 import { isFeatureFlagEnabled } from "../feature-flag-resolver.js";
 import { getLogger } from "../logger.js";
+import { resolvePublicHttpBaseUrl } from "../runtime/client.js";
 import type { IpcRoute } from "./server.js";
 
 const log = getLogger("credential-requests");
@@ -73,32 +77,59 @@ export type CreateCredentialRequestResult =
         | "too_many_active";
     };
 
+export interface CreateCredentialRequestDeps {
+  /**
+   * Lazily read `vellum:platform_assistant_id` — only invoked for the Velay
+   * fallback, so a config-resolved (self-hosted/manual) URL never touches CES.
+   */
+  getPlatformAssistantId?: () => Promise<string | undefined>;
+  /**
+   * Enable public ingress (if disabled) and start the Velay tunnel so the
+   * minted link is actually reachable. Wired by the gateway entrypoint, which
+   * owns the tunnel client.
+   */
+  ensurePublicIngressLive?: () => Promise<void>;
+}
+
 export function createCredentialRequestIpcRoutes(
+  config: GatewayConfig,
   configFile: ConfigFileCache,
+  credentials: CredentialCache,
+  ensurePublicIngressLive: () => Promise<void>,
 ): IpcRoute[] {
   return [
     {
       method: "create_credential_request",
       schema: CreateCredentialRequestSchema,
-      handler: (params?: Record<string, unknown>) => {
+      handler: async (params?: Record<string, unknown>) => {
         const parsed = CreateCredentialRequestSchema.parse(params ?? {});
-        return createCredentialRequest(configFile, parsed);
+        return createCredentialRequest(config, configFile, parsed, {
+          getPlatformAssistantId: () =>
+            credentials
+              .get(credentialKey("vellum", "platform_assistant_id"))
+              .then((value) => value?.trim()),
+          ensurePublicIngressLive,
+        });
       },
     },
   ];
 }
 
-export function createCredentialRequest(
+export async function createCredentialRequest(
+  config: GatewayConfig,
   configFile: ConfigFileCache,
   params: z.infer<typeof CreateCredentialRequestSchema>,
-): CreateCredentialRequestResult {
+  deps: CreateCredentialRequestDeps = {},
+): Promise<CreateCredentialRequestResult> {
   if (!isFeatureFlagEnabled(CREDENTIAL_REQUESTS_FLAG)) {
     return { ok: false, error: "flag_disabled" };
   }
 
-  const publicBaseUrl = configFile
-    .getString("ingress", "publicBaseUrl")
-    ?.replace(/\/+$/, "");
+  const publicBaseUrl = await resolvePublicHttpBaseUrl(
+    config,
+    configFile,
+    deps.getPlatformAssistantId,
+  );
   if (!publicBaseUrl) {
     return { ok: false, error: "no_public_base_url" };
   }
@@ -113,6 +144,9 @@ export function createCredentialRequest(
     return { ok: false, error: "too_many_active" };
   }
 
+  // All guards passed — the link WILL be minted, so now make ingress live:
+  // enable it if it was explicitly disabled AND start the Velay tunnel (on
+  // platform the tunnel otherwise only starts for Twilio / live voice, so the
   const ttlMs = Math.min(
     params.ttlMs ?? DEFAULT_CREDENTIAL_REQUEST_TTL_MS,
     MAX_CREDENTIAL_REQUEST_TTL_MS,
@@ -129,6 +163,15 @@ export function createCredentialRequest(
     policyJson: params.policyJson ?? null,
     expiresAt: now + ttlMs,
   });
+
+  // The link row is persisted, so now make ingress live: enable it if it was
+  // explicitly disabled AND start the Velay tunnel (on platform the tunnel
+  // otherwise only starts for Twilio / live voice, so the config bit alone
+  // would leave the link unreachable). Ordered after store.create so a failed
+  // insert — and every earlier guard (no resolvable URL, rate limit, too many
+  // active) — never flips public ingress on without a usable link. The link
+  // becomes reachable within a few seconds once the tunnel registers.
+  await deps.ensurePublicIngressLive?.();
 
   log.info(
     {

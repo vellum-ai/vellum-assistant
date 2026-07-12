@@ -60,16 +60,6 @@ mock.module("../../../providers/provider-send-message.js", () => ({
   }),
 }));
 
-mock.module("../../../config/loader.js", () => ({
-  getConfig: () => ({ llm: { profiles: {} } }),
-  getConfigReadOnly: () => ({ llm: { profiles: {} } }),
-  loadConfig: () => ({ llm: { profiles: {} } }),
-  loadRawConfig: () => ({}) as Record<string, unknown>,
-  saveRawConfig: () => {},
-  invalidateConfigCache: () => {},
-  applyNestedDefaults: () => ({ llm: { profiles: {} } }),
-}));
-
 mock.module("../../../util/logger.js", () => ({
   getLogger: () => ({
     info: () => {},

@@ -17,35 +17,6 @@
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-// ── Mock platform (must precede imports that read it) ─────────────────────────
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    skills: {
-      entries: {},
-      load: { extraDirs: [], watch: false, watchDebounceMs: 0 },
-      install: { nodeManager: "npm" },
-      allowBundled: null,
-      remoteProviders: {
-        skillssh: { enabled: true },
-        clawhub: { enabled: true },
-      },
-      remotePolicy: {
-        blockSuspicious: true,
-        blockMalware: true,
-        maxSkillsShRisk: "medium",
-      },
-    },
-  }),
-  loadConfig: () => ({}),
-}));
-
 let mockedRowContent = "";
 const updates: Array<{ id: string; content: string }> = [];
 
@@ -54,7 +25,7 @@ mock.module("../persistence/conversation-crud.js", () => ({
   isConversationProcessing: () => false,
   addMessage: () => ({ id: "mock-msg-id" }),
   getMessageById: (id: string) =>
-    mockedRowContent ? { id, content: mockedRowContent } : null,
+    mockedRowContent ? { id, content: JSON.parse(mockedRowContent) } : null,
   updateMessageContent: (id: string, content: string) => {
     updates.push({ id, content });
   },
@@ -123,7 +94,9 @@ function findPersistedToolUse(
 ): Record<string, unknown> {
   const parsed = JSON.parse(rawContent) as Array<Record<string, unknown>>;
   const block = parsed.find((b) => b.type === "tool_use" && b.id === toolUseId);
-  if (!block) throw new Error(`tool_use block ${toolUseId} not found`);
+  if (!block) {
+    throw new Error(`tool_use block ${toolUseId} not found`);
+  }
   return block;
 }
 

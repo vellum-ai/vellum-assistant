@@ -10,9 +10,11 @@
 import type { Command } from "commander";
 
 import { cliIpcCall, exitFromIpcResult } from "../../ipc/cli-client.js";
+import { applyCommandHelp } from "../lib/cli-command-help.js";
 import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
 import { shouldOutputJson, writeOutput } from "../output.js";
+import { psHelp } from "./ps.help.js";
 
 interface ProcessEntry {
   name: string;
@@ -44,25 +46,11 @@ function renderEntry(entry: ProcessEntry, depth: number): void {
 
 export function registerPsCommand(program: Command): void {
   registerCommand(program, {
-    name: "ps",
+    name: psHelp.name,
     transport: "ipc",
-    description: "Show the assistant daemon's live process tree",
+    description: psHelp.description,
     build: (ps) => {
-      ps.option("--json", "Machine-readable JSON output").addHelpText(
-        "after",
-        `
-Walks the daemon's OS process tree and reports every descendant process
-parented to the assistant runtime — qdrant, the embed worker, the memory
-worker (when the daemon owns it), MCP servers, and any other live children.
-The tree is built from the native process table (/proc on Linux, ps on
-macOS), so it reflects what is actually running, not a fixed subsystem list.
-
-Each node shows its PID; every listed process is live by definition.
-
-Examples:
-  $ assistant ps
-  $ assistant ps --json`,
-      );
+      applyCommandHelp(ps, psHelp);
 
       ps.action(async (_opts, cmd: Command) => {
         const r = await cliIpcCall<PsResponse>("ps");

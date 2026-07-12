@@ -19,8 +19,8 @@
 
 import type { ChannelId } from "../../../../channels/types.js";
 import { readPromptFile } from "../../../../prompts/system-prompt.js";
-import { getWorkspacePromptPath } from "../../../../util/platform.js";
 import { getMemoryConfig } from "../config.js";
+import { getWorkspacePromptPath } from "../paths.js";
 
 interface MemoryV2StaticBlock {
   heading: string;

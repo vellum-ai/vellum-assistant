@@ -89,6 +89,7 @@ function resultsFrame(
   options: {
     is_final?: boolean;
     speech_final?: boolean;
+    from_finalize?: boolean;
     words?: { word: string; speaker?: number }[];
   } = {},
 ): string {
@@ -99,6 +100,9 @@ function resultsFrame(
     start: 0,
     is_final: options.is_final ?? false,
     speech_final: options.speech_final ?? false,
+    ...(options.from_finalize !== undefined
+      ? { from_finalize: options.from_finalize }
+      : {}),
     channel: {
       alternatives: [
         {
@@ -595,7 +599,9 @@ describe("DeepgramRealtimeTranscriber", () => {
     test("UtteranceEnd flushes withheld segments as a single final", async () => {
       const { events } = await startSession({ utteranceBoundaryFinals: true });
 
-      mockWs.simulateMessage(resultsFrame("trailing words", { is_final: true }));
+      mockWs.simulateMessage(
+        resultsFrame("trailing words", { is_final: true }),
+      );
       mockWs.simulateMessage(utteranceEndFrame());
 
       const finals = events.filter((e) => e.type === "final");
@@ -652,6 +658,392 @@ describe("DeepgramRealtimeTranscriber", () => {
         "first part done",
         "second utterance",
       ]);
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────
+  // finalizeUtterance (mid-stream flush)
+  // ─────────────────────────────────────────────────────────────────
+
+  describe("finalizeUtterance", () => {
+    test("sends the Finalize control frame on an open socket", async () => {
+      const { transcriber, events } = await startSession();
+
+      transcriber.finalizeUtterance();
+
+      const textMessages = mockWs.sentData.filter((d) => typeof d === "string");
+      expect(textMessages).toHaveLength(1);
+      expect(JSON.parse(textMessages[0] as string)).toEqual({
+        type: "Finalize",
+      });
+      // No finalized event until the provider's from_finalize flush arrives.
+      expect(events).toHaveLength(0);
+    });
+
+    test("from_finalize results message emits final then finalized", async () => {
+      const { transcriber, events } = await startSession();
+
+      transcriber.finalizeUtterance();
+      mockWs.simulateMessage(
+        resultsFrame("buffered tail", { is_final: true, from_finalize: true }),
+      );
+
+      expect(events).toEqual([
+        {
+          type: "final",
+          text: "buffered tail",
+          confidence: 0.95,
+          fromFinalize: true,
+        },
+        { type: "finalized" },
+      ]);
+    });
+
+    test("empty-transcript flush emits only finalized", async () => {
+      const { transcriber, events } = await startSession();
+
+      transcriber.finalizeUtterance();
+      mockWs.simulateMessage(
+        resultsFrame("", { is_final: true, from_finalize: true }),
+      );
+
+      expect(events).toEqual([{ type: "finalized" }]);
+    });
+
+    test("emits finalized via fallback when no from_finalize flush arrives", async () => {
+      const { transcriber, events } = await startSession({
+        finalizeFallbackMs: 20,
+      });
+
+      // Deepgram omits the flush entirely when nothing significant is
+      // buffered — the fallback timer must complete the contract.
+      transcriber.finalizeUtterance();
+      expect(events).toHaveLength(0);
+      await new Promise((resolve) => setTimeout(resolve, 40));
+
+      expect(events).toEqual([{ type: "finalized" }]);
+
+      // A flush arriving after the fallback must not double-emit.
+      mockWs.simulateMessage(
+        resultsFrame("", { is_final: true, from_finalize: true }),
+      );
+      expect(events).toEqual([{ type: "finalized" }]);
+    });
+
+    test("a late flush after a fallback settlement emits neither final nor finalized", async () => {
+      const { transcriber, events } = await startSession({
+        finalizeFallbackMs: 20,
+      });
+
+      transcriber.finalizeUtterance();
+      await new Promise((resolve) => setTimeout(resolve, 40));
+      expect(events).toEqual([{ type: "finalized" }]);
+
+      // The request already settled — its slow flush is stale, and its
+      // text must not surface as a fresh flush.
+      mockWs.simulateMessage(
+        resultsFrame("late tail", { is_final: true, from_finalize: true }),
+      );
+
+      expect(events).toEqual([{ type: "finalized" }]);
+    });
+
+    test("an omitted flush does not poison the next request's flush", async () => {
+      const { transcriber, events } = await startSession({
+        finalizeFallbackMs: 20,
+      });
+
+      // Request one settles via the fallback because Deepgram OMITTED the
+      // flush (nothing significant buffered) — no stale frame ever arrives
+      // to consume the debt.
+      transcriber.finalizeUtterance();
+      await new Promise((resolve) => setTimeout(resolve, 40));
+      expect(events).toEqual([{ type: "finalized" }]);
+
+      // Sending request two clears the debt, so its legitimate flush is
+      // emitted and settles it — not dropped as stale.
+      transcriber.finalizeUtterance();
+      mockWs.simulateMessage(
+        resultsFrame("current turn", { is_final: true, from_finalize: true }),
+      );
+      expect(events).toEqual([
+        { type: "finalized" },
+        {
+          type: "final",
+          text: "current turn",
+          confidence: 0.95,
+          fromFinalize: true,
+        },
+        { type: "finalized" },
+      ]);
+    });
+
+    test("repeated omitted flushes never accumulate stale-flush debt", async () => {
+      const { transcriber, events } = await startSession({
+        finalizeFallbackMs: 20,
+      });
+
+      // Requests one and two each get no flush; each settles via fallback.
+      for (let i = 0; i < 2; i += 1) {
+        transcriber.finalizeUtterance();
+        await new Promise((resolve) => setTimeout(resolve, 40));
+      }
+      expect(events).toEqual([{ type: "finalized" }, { type: "finalized" }]);
+
+      // Request three is answered — its flush lands normally.
+      transcriber.finalizeUtterance();
+      mockWs.simulateMessage(
+        resultsFrame("third turn", { is_final: true, from_finalize: true }),
+      );
+      expect(events).toEqual([
+        { type: "finalized" },
+        { type: "finalized" },
+        {
+          type: "final",
+          text: "third turn",
+          confidence: 0.95,
+          fromFinalize: true,
+        },
+        { type: "finalized" },
+      ]);
+    });
+
+    test("teardown with a fallback-settled request pending resets cleanly", async () => {
+      const { transcriber, events } = await startSession({
+        finalizeFallbackMs: 20,
+      });
+
+      // Request one settles via the fallback; its flush never arrives
+      // before teardown. Request two is still outstanding at stop().
+      transcriber.finalizeUtterance();
+      await new Promise((resolve) => setTimeout(resolve, 40));
+      transcriber.finalizeUtterance();
+
+      transcriber.stop();
+      mockWs.simulateClose(1000, "normal");
+
+      const types = events.map((e) => e.type);
+      expect(types.filter((t) => t === "finalized")).toHaveLength(2);
+      expect(types.at(-1)).toBe("closed");
+
+      // Frames after close are ignored — no stale bookkeeping survives.
+      mockWs.simulateMessage(
+        resultsFrame("post-close tail", {
+          is_final: true,
+          from_finalize: true,
+        }),
+      );
+      expect(events.map((e) => e.type)).toEqual(types);
+    });
+
+    test("utteranceBoundaryFinals: a stale flush is dropped and a timely flush still forces the boundary", async () => {
+      const { transcriber, events } = await startSession({
+        utteranceBoundaryFinals: true,
+        finalizeFallbackMs: 20,
+      });
+
+      mockWs.simulateMessage(resultsFrame("first part", { is_final: true }));
+      transcriber.finalizeUtterance();
+      await new Promise((resolve) => setTimeout(resolve, 40));
+      expect(events).toEqual([{ type: "finalized" }]);
+
+      // Request one's late flush lands before any new request: dropped —
+      // withheld text stays withheld and no boundary is forced.
+      mockWs.simulateMessage(
+        resultsFrame("stale tail", { is_final: true, from_finalize: true }),
+      );
+      expect(events).toEqual([{ type: "finalized" }]);
+
+      // Request two's timely flush forces the boundary as usual.
+      transcriber.finalizeUtterance();
+      mockWs.simulateMessage(
+        resultsFrame("live tail", { is_final: true, from_finalize: true }),
+      );
+      expect(events).toEqual([
+        { type: "finalized" },
+        { type: "final", text: "first part live tail" },
+        { type: "finalized" },
+      ]);
+    });
+
+    test("a pending finalize completes as finalized before closed on teardown", async () => {
+      const { transcriber, events } = await startSession({
+        finalizeFallbackMs: 60_000,
+      });
+
+      transcriber.finalizeUtterance();
+      transcriber.stop();
+      mockWs.simulateClose(1000, "normal");
+
+      const finalizedIndex = events.findIndex((e) => e.type === "finalized");
+      const closedIndex = events.findIndex((e) => e.type === "closed");
+      expect(finalizedIndex).toBeGreaterThanOrEqual(0);
+      expect(closedIndex).toBeGreaterThan(finalizedIndex);
+    });
+
+    test("stream stays usable after finalized (audio still transcribes)", async () => {
+      const { transcriber, events } = await startSession();
+
+      transcriber.finalizeUtterance();
+      mockWs.simulateMessage(
+        resultsFrame("first utterance", {
+          is_final: true,
+          from_finalize: true,
+        }),
+      );
+      expect(events.at(-1)).toEqual({ type: "finalized" });
+
+      // The socket stays open — audio still flows and transcribes.
+      transcriber.sendAudio(Buffer.from("more-pcm"), "audio/pcm");
+      const binaryFrames = mockWs.sentData.filter(
+        (d) => d instanceof Uint8Array,
+      );
+      expect(binaryFrames).toHaveLength(1);
+      expect(mockWs.closeCalled).toBe(false);
+
+      mockWs.simulateMessage(
+        resultsFrame("second utterance", { is_final: true }),
+      );
+      expect(events.at(-1)).toEqual({
+        type: "final",
+        text: "second utterance",
+        confidence: 0.95,
+      });
+    });
+
+    test("emits finalized synchronously when the socket is not open", async () => {
+      const { transcriber, events } = await startSession();
+
+      // Socket dropped underneath us; the close event has not yet fired.
+      mockWs.readyState = 3; // CLOSED
+
+      transcriber.finalizeUtterance();
+
+      expect(events).toEqual([{ type: "finalized" }]);
+      // Nothing was sent on the dead socket.
+      expect(mockWs.sentData).toHaveLength(0);
+    });
+
+    test("emits finalized at most once per finalize request", async () => {
+      const { transcriber, events } = await startSession();
+
+      transcriber.finalizeUtterance();
+      mockWs.simulateMessage(
+        resultsFrame("flush one", { is_final: true, from_finalize: true }),
+      );
+      // A stray second from_finalize frame must not emit another finalized.
+      mockWs.simulateMessage(
+        resultsFrame("flush two", { is_final: true, from_finalize: true }),
+      );
+
+      const finalized = events.filter((e) => e.type === "finalized");
+      expect(finalized).toHaveLength(1);
+      expect(events.at(-1)).toEqual({
+        type: "final",
+        text: "flush two",
+        confidence: 0.95,
+        fromFinalize: true,
+      });
+    });
+
+    test("flushes withheld segments before finalized in utteranceBoundaryFinals mode", async () => {
+      const { transcriber, events } = await startSession({
+        utteranceBoundaryFinals: true,
+      });
+
+      mockWs.simulateMessage(resultsFrame("first part", { is_final: true }));
+      transcriber.finalizeUtterance();
+      mockWs.simulateMessage(
+        resultsFrame("tail", { is_final: true, from_finalize: true }),
+      );
+
+      expect(events).toEqual([
+        { type: "final", text: "first part tail" },
+        { type: "finalized" },
+      ]);
+    });
+
+    test("overlapping requests each emit final then finalized, in order", async () => {
+      const { transcriber, events } = await startSession();
+
+      transcriber.finalizeUtterance();
+      transcriber.finalizeUtterance();
+      const textMessages = mockWs.sentData.filter((d) => typeof d === "string");
+      expect(textMessages).toHaveLength(2);
+      expect(events).toHaveLength(0);
+
+      mockWs.simulateMessage(
+        resultsFrame("flush one", { is_final: true, from_finalize: true }),
+      );
+      mockWs.simulateMessage(
+        resultsFrame("flush two", { is_final: true, from_finalize: true }),
+      );
+
+      expect(events).toEqual([
+        {
+          type: "final",
+          text: "flush one",
+          confidence: 0.95,
+          fromFinalize: true,
+        },
+        { type: "finalized" },
+        {
+          type: "final",
+          text: "flush two",
+          confidence: 0.95,
+          fromFinalize: true,
+        },
+        { type: "finalized" },
+      ]);
+    });
+
+    test("fallback emits one finalized per outstanding request when both flushes are omitted", async () => {
+      const { transcriber, events } = await startSession({
+        finalizeFallbackMs: 20,
+      });
+
+      transcriber.finalizeUtterance();
+      transcriber.finalizeUtterance();
+      expect(events).toHaveLength(0);
+
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      expect(events).toEqual([{ type: "finalized" }, { type: "finalized" }]);
+    });
+
+    test("teardown drains every outstanding finalize before closed", async () => {
+      const { transcriber, events } = await startSession({
+        finalizeFallbackMs: 60_000,
+      });
+
+      transcriber.finalizeUtterance();
+      transcriber.finalizeUtterance();
+      transcriber.stop();
+      mockWs.simulateClose(1000, "normal");
+
+      const types = events.map((e) => e.type);
+      expect(types.filter((t) => t === "finalized")).toHaveLength(2);
+      expect(types.indexOf("closed")).toBeGreaterThan(
+        types.lastIndexOf("finalized"),
+      );
+    });
+
+    test("stop() teardown path is unchanged after a finalize cycle", async () => {
+      const { transcriber, events } = await startSession();
+
+      transcriber.finalizeUtterance();
+      mockWs.simulateMessage(
+        resultsFrame("", { is_final: true, from_finalize: true }),
+      );
+
+      transcriber.stop();
+      const textMessages = mockWs.sentData.filter((d) => typeof d === "string");
+      expect(JSON.parse(textMessages.at(-1) as string)).toEqual({
+        type: "CloseStream",
+      });
+      mockWs.simulateClose(1000, "normal");
+
+      expect(events.filter((e) => e.type === "closed")).toHaveLength(1);
     });
   });
 

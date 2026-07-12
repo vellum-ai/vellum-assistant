@@ -32,7 +32,6 @@ export const conversations = sqliteTable(
     ),
     conversationType: text("conversation_type").notNull().default("standard"),
     source: text("source").notNull().default("user"),
-    memoryScopeId: text("memory_scope_id").notNull().default("default"),
     originChannel: text("origin_channel"),
     originInterface: text("origin_interface"),
     forkParentConversationId: text("fork_parent_conversation_id"),
@@ -105,10 +104,25 @@ export const messages = sqliteTable(
       .notNull()
       .references(() => conversations.id, { onDelete: "cascade" }),
     role: text("role").notNull(),
+    /**
+     * Union of two JSON shapes: an inline `ContentBlock[]` (or a legacy
+     * plain string), or `{ ref: "<workspace-relative path>" }` pointing at
+     * a file-backed content payload. Resolve to typed blocks with
+     * `resolveMessageContentBlocks` (message-content-file.ts) — never
+     * interpret this column's shape by hand.
+     */
     content: text("content").notNull(),
     createdAt: integer("created_at").notNull(),
     metadata: text("metadata"),
     clientMessageId: text("client_message_id"),
+    /**
+     * 1 (default) = `content` is the complete, immutable value (inline or
+     * `{ ref }`). 0 = the message is still streaming and `content` is a
+     * `{ ref }` to its in-flight delta file. Batch readers (search, memory
+     * indexing, fork) must filter `finalized = 1`; only the live turn and
+     * crash recovery read unfinalized rows.
+     */
+    finalized: integer("finalized").notNull().default(1),
   },
   (table) => [
     uniqueIndex("idx_messages_conv_client_msg_id")

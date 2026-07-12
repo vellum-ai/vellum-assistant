@@ -11,7 +11,8 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import * as actualLoader from "../../../config/loader.js";
+import { setConfig } from "../../../__tests__/helpers/set-config.js";
+import { loadRawConfig } from "../../../config/loader.js";
 import { getMemoryWorkerPidPath } from "../../../util/platform.js";
 
 // ---------------------------------------------------------------------------
@@ -23,13 +24,27 @@ class FakeSpawnError extends Error {}
 let spawnImpl: () => Promise<{ pid: number; alreadyRunning: boolean }>;
 let spawnArgs: Array<{ detached?: boolean; terminateOnTimeout?: boolean }> = [];
 let stopImpl: () => { status: "running" | "not_running"; pid?: number };
-/** Records the `memory.worker.enabled` values written via saveRawConfig. */
-let enabledCalls: boolean[] = [];
 let workerProbe: { status: "running" | "not_running"; pid?: number } = {
   status: "not_running",
 };
 let configEnabled = false;
 let memoryEnabled = true;
+
+/** Seed the memory-worker flags the routes read into the real config.json. */
+function seedMemory(): void {
+  setConfig("memory", {
+    enabled: memoryEnabled,
+    worker: { enabled: configEnabled },
+  });
+}
+
+/** Read the persisted `memory.worker.enabled` flag back from the config file. */
+function persistedWorkerEnabled(): boolean {
+  const memory = loadRawConfig().memory as
+    | { worker?: { enabled?: boolean } }
+    | undefined;
+  return memory?.worker?.enabled === true;
+}
 let backendStatus: {
   enabled: boolean;
   degraded: boolean;
@@ -65,23 +80,8 @@ mock.module("../../../persistence/embeddings/embedding-backend.js", () => ({
   getMemoryBackendStatus: async () => backendStatus,
 }));
 
-// Spread the real loader so the route-policy import chain keeps every other
-// export (getConfig, …). Override the flag read, and capture the flag write
-// (the route's setMemoryWorkerEnabled goes through loadRawConfig/saveRawConfig).
-mock.module("../../../config/loader.js", () => ({
-  ...actualLoader,
-  getConfigReadOnly: () => ({
-    memory: { enabled: memoryEnabled, worker: { enabled: configEnabled } },
-  }),
-  loadRawConfig: () => ({}),
-  saveRawConfig: (cfg: { memory?: { worker?: { enabled?: boolean } } }) => {
-    enabledCalls.push(cfg.memory?.worker?.enabled === true);
-  },
-}));
-
-const { ROUTES, embeddingStatusSchema } = await import(
-  "../memory-worker-routes.js"
-);
+const { ROUTES, embeddingStatusSchema } =
+  await import("../memory-worker-routes.js");
 
 function handler(operationId: string) {
   const route = ROUTES.find((r) => r.operationId === operationId);
@@ -95,7 +95,6 @@ function handler(operationId: string) {
 
 beforeEach(() => {
   spawnArgs = [];
-  enabledCalls = [];
   spawnImpl = async () => ({ pid: 4242, alreadyRunning: false });
   stopImpl = () => ({ status: "not_running" });
   workerProbe = { status: "not_running" };
@@ -108,6 +107,7 @@ beforeEach(() => {
     model: "text-embedding-3-small",
     reason: null,
   };
+  seedMemory();
 });
 
 // ---------------------------------------------------------------------------
@@ -121,7 +121,7 @@ describe("memory_worker_start", () => {
     const res = await handler("memory_worker_start")();
 
     expect(spawnArgs).toEqual([{ detached: false, terminateOnTimeout: true }]);
-    expect(enabledCalls).toEqual([true]);
+    expect(persistedWorkerEnabled()).toBe(true);
     expect(res).toEqual({
       pid: 4242,
       alreadyRunning: false,
@@ -136,7 +136,7 @@ describe("memory_worker_start", () => {
     const res = await handler("memory_worker_start")();
 
     expect(res).toMatchObject({ pid: 99, alreadyRunning: true });
-    expect(enabledCalls).toEqual([true]);
+    expect(persistedWorkerEnabled()).toBe(true);
   });
 
   test("throws and leaves the flag untouched when the spawn fails", async () => {
@@ -147,7 +147,8 @@ describe("memory_worker_start", () => {
     await expect(handler("memory_worker_start")()).rejects.toThrow(
       "worker exited during startup",
     );
-    expect(enabledCalls).toEqual([]);
+    // A failed spawn leaves the seeded flag untouched (never enabled).
+    expect(persistedWorkerEnabled()).toBe(false);
   });
 });
 
@@ -157,11 +158,14 @@ describe("memory_worker_start", () => {
 
 describe("memory_worker_stop", () => {
   test("disables the flag and reports a signalled running worker", async () => {
+    // Start from an enabled flag so the disable is observable.
+    configEnabled = true;
+    seedMemory();
     stopImpl = () => ({ status: "running", pid: 555 });
 
     const res = await handler("memory_worker_stop")();
 
-    expect(enabledCalls).toEqual([false]);
+    expect(persistedWorkerEnabled()).toBe(false);
     expect(res).toEqual({
       workerWasRunning: true,
       pid: 555,
@@ -170,11 +174,14 @@ describe("memory_worker_stop", () => {
   });
 
   test("disables the flag and succeeds when no worker is running", async () => {
+    // Start from an enabled flag so the disable is observable.
+    configEnabled = true;
+    seedMemory();
     stopImpl = () => ({ status: "not_running" });
 
     const res = await handler("memory_worker_stop")();
 
-    expect(enabledCalls).toEqual([false]);
+    expect(persistedWorkerEnabled()).toBe(false);
     expect(res).toEqual({ workerWasRunning: false, workerEnabled: false });
   });
 });
@@ -188,6 +195,7 @@ describe("memory_worker_status", () => {
     workerProbe = { status: "running", pid: 321 };
     configEnabled = true;
 
+    seedMemory();
     const res = await handler("memory_worker_status")();
 
     expect(res).toEqual({
@@ -209,6 +217,7 @@ describe("memory_worker_status", () => {
     workerProbe = { status: "not_running" };
     configEnabled = false;
 
+    seedMemory();
     const res = await handler("memory_worker_status")();
 
     expect(res).toEqual({
@@ -236,6 +245,7 @@ describe("memory_worker_status", () => {
       reason: null,
     };
 
+    seedMemory();
     const res = await handler("memory_worker_status")();
 
     expect(res).toMatchObject({
@@ -254,6 +264,7 @@ describe("memory_worker_status", () => {
       reason: null,
     };
 
+    seedMemory();
     const res = await handler("memory_worker_status")();
 
     expect(res).toMatchObject({
@@ -261,9 +272,8 @@ describe("memory_worker_status", () => {
     });
     // The wire value "local" must satisfy the documented response contract.
     expect(
-      embeddingStatusSchema.safeParse(
-        (res as { embedding: unknown }).embedding,
-      ).success,
+      embeddingStatusSchema.safeParse((res as { embedding: unknown }).embedding)
+        .success,
     ).toBe(true);
   });
 
@@ -278,6 +288,7 @@ describe("memory_worker_status", () => {
       reason: "No embedding backend configured",
     };
 
+    seedMemory();
     const res = await handler("memory_worker_status")();
 
     expect(res).toMatchObject({
@@ -296,6 +307,7 @@ describe("memory_worker_status", () => {
     configEnabled = false;
     memoryEnabled = false;
 
+    seedMemory();
     const res = await handler("memory_worker_status")();
 
     expect(res).toMatchObject({

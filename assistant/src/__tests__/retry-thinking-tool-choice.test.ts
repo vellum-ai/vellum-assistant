@@ -10,7 +10,7 @@
  * `tool_choice` without explicitly disabling thinking.
  */
 
-import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeAll, beforeEach, describe, expect, test } from "bun:test";
 
 import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
 
@@ -21,18 +21,6 @@ beforeAll(() => {
   setOverridesForTesting({ "override-or-default-resolution": false });
 });
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
-}));
-
-let mockLlmConfig: Record<string, unknown> = {};
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({ llm: mockLlmConfig }),
-}));
-
-import { LLMSchema } from "../config/schemas/llm.js";
 import { RetryProvider } from "../providers/retry.js";
 import type {
   Message,
@@ -40,13 +28,14 @@ import type {
   ProviderResponse,
   SendMessageOptions,
 } from "../providers/types.js";
+import { setConfig } from "./helpers/set-config.js";
 
 function setLlmConfig(raw: unknown): void {
-  mockLlmConfig = LLMSchema.parse(raw) as Record<string, unknown>;
+  setConfig("llm", raw);
 }
 
 beforeEach(() => {
-  mockLlmConfig = LLMSchema.parse({}) as Record<string, unknown>;
+  setLlmConfig({});
 });
 
 function makePipeline(providerName: string): {

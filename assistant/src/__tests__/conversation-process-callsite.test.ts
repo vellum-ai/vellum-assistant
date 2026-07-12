@@ -13,6 +13,7 @@
 import { beforeAll, describe, expect, mock, test } from "bun:test";
 
 import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
+import { setConfig } from "./helpers/set-config.js";
 
 // Legacy-shaped fixtures (llm.default-centric resolution): pinned to the
 // flag-off cascade. Override-or-default (flag-on) semantics are pinned by
@@ -35,11 +36,6 @@ function clearCaptured(): void {
   captured.callSite = undefined;
   captured.constructorMaxTokens = undefined;
 }
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
-}));
 
 const mockProviderStub = { name: "mock-provider" };
 mock.module("../providers/registry.js", () => ({
@@ -65,69 +61,18 @@ mock.module("../providers/inference/connections.js", () => ({
   }),
 }));
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-    llm: {
-      default: {
-        provider: "anthropic",
-        provider_connection: "anthropic-conn",
-        model: "claude-opus-4-6",
-        maxTokens: 4096,
-        effort: "max" as const,
-        speed: "standard" as const,
-        temperature: null,
-        thinking: { enabled: false, streamThinking: true },
-        contextWindow: {
-          enabled: true,
-          maxInputTokens: 100000,
-          targetBudgetRatio: 0.3,
-          compactThreshold: 0.8,
-          summaryBudgetRatio: 0.05,
-          overflowRecovery: {
-            enabled: true,
-            safetyMarginRatio: 0.05,
-            maxAttempts: 3,
-            interactiveLatestTurnCompression: "summarize",
-            nonInteractiveLatestTurnCompression: "truncate",
-          },
-        },
-      },
-      profiles: {
-        // Disable the catalog default so resolution lands on llm.default.
-        balanced: { source: "managed", status: "disabled" },
-      },
-      callSites: {},
-      pricingOverrides: [],
-    },
-    rateLimit: { maxRequestsPerMinute: 0 },
-    memory: {
-      v2: { enabled: false },
-      retrieval: { scratchpadInjection: { enabled: true } },
-    },
-    daemon: {
-      startupSocketWaitMs: 5000,
-      stopTimeoutMs: 5000,
-      sigkillGracePeriodMs: 2000,
-      titleGenerationMaxTokens: 30,
-      standaloneRecording: true,
-    },
-    services: {
-      inference: {
-        mode: "your-own",
-      },
-      "image-generation": {
-        mode: "your-own",
-        provider: "gemini",
-        model: "gemini-3.1-flash-image-preview",
-      },
-      "web-search": { mode: "your-own", provider: "inference-provider-native" },
-    },
-  }),
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-  invalidateConfigCache: () => {},
-}));
+// Seed the workspace config for real. `llm.default.provider_connection` pins
+// the connection-aware resolver path to the inline `anthropic-conn` fixture,
+// and disabling the catalog `balanced` default makes resolution land on
+// `llm.default`. Memory is disabled so no memory subsystem work runs inside
+// these turns.
+setConfig("llm", {
+  default: { provider_connection: "anthropic-conn" },
+  profiles: {
+    balanced: { source: "managed", status: "disabled" },
+  },
+});
+setConfig("memory", { enabled: false, v2: { enabled: false } });
 
 mock.module("../prompts/system-prompt.js", () => ({
   buildSystemPrompt: () => "system prompt",

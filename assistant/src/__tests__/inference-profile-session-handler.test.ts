@@ -6,15 +6,9 @@
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { makeMockLogger } from "./helpers/mock-logger.js";
-
 // ---------------------------------------------------------------------------
 // Mocks — must be declared before importing the module under test
 // ---------------------------------------------------------------------------
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () => makeMockLogger(),
-}));
 
 // Stub the event hub so tests don't need a running event bus.
 // Exposed as a `mock(...)` so individual tests can assert publish calls.
@@ -30,24 +24,10 @@ mock.module("../runtime/assistant-event.js", () => ({
   buildAssistantEvent: (event: unknown) => event,
 }));
 
-// ---------------------------------------------------------------------------
-// Config mock — controlled per test so we can inject profiles
-// ---------------------------------------------------------------------------
-
-let mockProfiles: Record<string, unknown> = {};
-let mockMaxTtl: number | undefined;
-
-mock.module("../config/loader.js", () => ({
-  loadConfig: () => ({
-    llm: {
-      profiles: mockProfiles,
-      profileSession: {
-        defaultTtlSeconds: 1800,
-        maxTtlSeconds: mockMaxTtl ?? 43200,
-      },
-    },
-  }),
-}));
+// The handler reads the real config: the "balanced" and "cost-optimized"
+// profiles used below are code-default catalog entries that always resolve,
+// and llm.profileSession's schema defaults (1800/43200) are what the TTL
+// tests assert — no config seeding is needed.
 
 // ---------------------------------------------------------------------------
 // Real DB — same pattern as conversation-crud-inference-profile.test.ts
@@ -121,8 +101,6 @@ function makeLiveConversationStub(conversationId: string): Conversation {
 describe("setInferenceProfileSession", () => {
   beforeEach(() => {
     resetDb();
-    mockProfiles = { balanced: {}, "cost-optimized": {} };
-    mockMaxTtl = undefined; // reset to default 43200
     publishMock.mockClear();
     broadcastMessageMock.mockClear();
   });
@@ -409,8 +387,6 @@ describe("setInferenceProfileSession", () => {
 describe("closeInferenceProfileSession", () => {
   beforeEach(() => {
     resetDb();
-    mockProfiles = { balanced: {} };
-    mockMaxTtl = undefined;
   });
 
   test("close — returns closed with profile and sessionId, noop=false", async () => {
@@ -464,8 +440,6 @@ describe("closeInferenceProfileSession", () => {
 describe("listInferenceProfileSessionsWithRemaining", () => {
   beforeEach(() => {
     resetDb();
-    mockProfiles = { balanced: {} };
-    mockMaxTtl = undefined;
   });
 
   test("lists active sessions with remainingSeconds > 0", async () => {

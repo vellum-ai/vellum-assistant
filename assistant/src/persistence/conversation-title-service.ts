@@ -98,7 +98,9 @@ const REPLACEABLE_PATTERNS = [
  * user-provided custom titles.
  */
 export function isReplaceableTitle(title: string | null): boolean {
-  if (title == null || title.trim() === "") return true;
+  if (title == null || title.trim() === "") {
+    return true;
+  }
   return REPLACEABLE_PATTERNS.some((pattern) => pattern.test(title));
 }
 
@@ -467,12 +469,21 @@ function buildTitlePrompt(
 
   if (context) {
     const hints: string[] = [];
-    if (context.sourceChannel) hints.push(`Channel: ${context.sourceChannel}`);
-    if (context.displayName) hints.push(`User: ${context.displayName}`);
-    if (context.systemHint) hints.push(`Context: ${context.systemHint}`);
-    if (context.uxBrief) hints.push(`Brief: ${context.uxBrief}`);
-    if (context.metadataHints?.length)
+    if (context.sourceChannel) {
+      hints.push(`Channel: ${context.sourceChannel}`);
+    }
+    if (context.displayName) {
+      hints.push(`User: ${context.displayName}`);
+    }
+    if (context.systemHint) {
+      hints.push(`Context: ${context.systemHint}`);
+    }
+    if (context.uxBrief) {
+      hints.push(`Brief: ${context.uxBrief}`);
+    }
+    if (context.metadataHints?.length) {
       hints.push(`Hints: ${context.metadataHints.join(", ")}`);
+    }
     if (hints.length > 0) {
       parts.push("Metadata:", ...hints, "");
     }
@@ -513,7 +524,9 @@ function retryableFallbackLogFields(
     reason,
     fallbackSource: params.context ? "context" : "untitled",
   };
-  if (err) fields.err = err;
+  if (err) {
+    fields.err = err;
+  }
   return fields;
 }
 
@@ -546,14 +559,18 @@ const MAX_TITLE_LENGTH = 40;
 const MAX_TITLE_WORDS = 7;
 
 function truncateTitle(title: string): string {
-  if (title.length <= MAX_TITLE_LENGTH) return title;
+  if (title.length <= MAX_TITLE_LENGTH) {
+    return title;
+  }
   const words = title.split(/\s+/);
   if (words.length <= MAX_TITLE_WORDS) {
     // Long words but few of them — truncate to char limit at word boundary
     let result = "";
     for (const word of words) {
       const candidate = result ? result + " " + word : word;
-      if (candidate.length > MAX_TITLE_LENGTH) break;
+      if (candidate.length > MAX_TITLE_LENGTH) {
+        break;
+      }
       result = candidate;
     }
     return result || title.slice(0, MAX_TITLE_LENGTH);
@@ -566,7 +583,9 @@ function normalizeTitle(raw: string): string {
   let title = raw.trim().replace(/^["']|["']$/g, "");
   title = stripMarkdown(title);
   title = stripThinkingTags(title).trim();
-  if (!title) return "";
+  if (!title) {
+    return "";
+  }
   // Reject outputs that are the model reasoning aloud or continuing the
   // conversation instead of naming it (e.g. "I need to generate a…", "I'll
   // work through these files…"). Callers fall back to a deterministic title.
@@ -646,8 +665,12 @@ const LEAKED_PROSE_PREFIXES = [
  * fallback title, while a false accept persists a broken one.
  */
 function looksLikeLeakedProse(title: string): boolean {
-  if (/\n/.test(title)) return true;
-  if (/\b(?:user|assistant)\s*:/i.test(title)) return true;
+  if (/\n/.test(title)) {
+    return true;
+  }
+  if (/\b(?:user|assistant)\s*:/i.test(title)) {
+    return true;
+  }
   const lower = title.toLowerCase();
   if (LEAKED_PROSE_PREFIXES.some((prefix) => lower.startsWith(prefix))) {
     return true;
@@ -688,9 +711,15 @@ function stripMarkdown(text: string): string {
 }
 
 function deriveFallbackTitle(context?: TitleContext): string | null {
-  if (!context) return null;
-  if (context.systemHint) return context.systemHint;
-  if (context.uxBrief) return context.uxBrief;
+  if (!context) {
+    return null;
+  }
+  if (context.systemHint) {
+    return context.systemHint;
+  }
+  if (context.uxBrief) {
+    return context.uxBrief;
+  }
   return null;
 }
 
@@ -705,14 +734,20 @@ function deriveFallbackTitle(context?: TitleContext): string | null {
  * Returns empty string for content-block arrays with no extractable text,
  * preventing raw JSON from polluting the title prompt.
  */
-function extractTextForTitle(raw: string): string {
+function extractTextForTitle(raw: string | Array<{ type: string }>): string {
   try {
-    const parsed = JSON.parse(raw);
-    if (typeof parsed === "string") return parsed;
-    if (!Array.isArray(parsed)) return raw;
+    const parsed = Array.isArray(raw) ? raw : JSON.parse(raw);
+    if (typeof parsed === "string") {
+      return parsed;
+    }
+    if (!Array.isArray(parsed)) {
+      return raw as string;
+    }
     const texts: string[] = [];
     for (const block of parsed) {
-      if (!block || typeof block !== "object") continue;
+      if (!block || typeof block !== "object") {
+        continue;
+      }
       if (block.type === "text" && typeof block.text === "string") {
         texts.push(block.text);
         // guard:allow-tool-result-only — web_search_tool_result has structured
@@ -737,7 +772,7 @@ function extractTextForTitle(raw: string): string {
     }
     return texts.join("\n");
   } catch {
-    return raw;
+    return Array.isArray(raw) ? "" : raw;
   }
 }
 
@@ -746,7 +781,9 @@ function buildRegenerationPrompt(recentMessages: MessageRow[]): string {
 
   for (const msg of recentMessages) {
     const text = extractTextForTitle(msg.content);
-    if (!text) continue;
+    if (!text) {
+      continue;
+    }
     const role = msg.role === "user" ? "User" : "Assistant";
     parts.push(`${role}: ${stripThinkingTags(text)}`);
   }

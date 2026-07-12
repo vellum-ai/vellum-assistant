@@ -34,7 +34,12 @@
  */
 
 /** Which connection a slot holds. */
-export type DbSlotKey = "main" | "logs" | "memory" | "telemetry";
+export type DbSlotKey =
+  | "main"
+  | "main-readonly"
+  | "logs"
+  | "memory"
+  | "telemetry";
 
 type DbSlot = {
   db: unknown;
@@ -56,6 +61,7 @@ function slots(): DbSlots {
   const ns = (g.vellumAssistant ??= {});
   return (ns.dbSingletons ??= {
     main: emptySlot(),
+    "main-readonly": emptySlot(),
     logs: emptySlot(),
     memory: emptySlot(),
     telemetry: emptySlot(),

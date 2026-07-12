@@ -1,12 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-mock.module("../../../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // ---------------------------------------------------------------------------
 // Mock state. Reset between tests.
 // ---------------------------------------------------------------------------
@@ -264,8 +257,23 @@ mock.module("../../../../runtime/agent-wake.js", () => ({
   },
 }));
 
+// Mid-turn fallback requeue recorder (`upsertMemoryRetrospectiveJob` is the
+// same coalescing upsert the enqueue helper uses).
+let retrospectiveJobUpserts: Array<{
+  payload: { conversationId: string };
+  runAfter: number;
+}> = [];
 mock.module("../../../../persistence/jobs-store.js", () => ({
   enqueueMemoryJob: () => "follow-up-job-id",
+  upsertMemoryRetrospectiveJob: (
+    payload: { conversationId: string },
+    runAfter: number,
+  ) => {
+    retrospectiveJobUpserts.push({ payload, runAfter });
+  },
+  // The skill-card module's mid-turn deferral path; exercised in
+  // memory-retrospective-skill-card.test.ts, inert here.
+  upsertSkillCardInsertJob: () => {},
 }));
 
 // proc-to-skills gate. Drives both `buildForkInstruction`'s skill-authoring
@@ -278,7 +286,10 @@ mock.module("../../../../config/memory-v3-gate.js", () => ({
 }));
 
 import type { MemoryJob } from "../../../../persistence/jobs-store.js";
-import { memoryRetrospectiveJob } from "../memory-retrospective-job.js";
+import {
+  memoryRetrospectiveJob,
+  SOURCE_PROCESSING_REQUEUE_DELAY_MS,
+} from "../memory-retrospective-job.js";
 
 function makeConfig(
   overrides: {
@@ -371,6 +382,7 @@ describe("memoryRetrospectiveJob", () => {
     forkedConversationId = "fork-conv-1";
     forkCalls = [];
     addMessageCalls = [];
+    retrospectiveJobUpserts = [];
     conversationOverrides = {};
     messagesByConversationId = {};
     loadedConversations = {};
@@ -736,19 +748,36 @@ describe("memoryRetrospectiveJob", () => {
   });
 
   // -------------------------------------------------------------------------
-  // Mid-turn skip gate
+  // Mid-turn requeue gate
   // -------------------------------------------------------------------------
 
-  test("source mid-turn → skipped outcome, pointer unchanged, lastRunAt bumped, no fork", async () => {
+  test("source mid-turn → skipped outcome, state fully untouched, job re-upserted with the fallback delay, no fork", async () => {
     loadedConversations["src-conv-1"] = { processing: true };
 
+    const before = Date.now();
     const outcome = await memoryRetrospectiveJob(makeJob(), stubConfig);
+    const after = Date.now();
 
     expect(outcome.kind).toBe("source_processing");
-    // `lastProcessedMessageId` untouched — only the cooldown timestamp moves.
+    // BOTH pointers untouched. `lastRunAt` must stay unbumped so the
+    // turn-end message-indexing trigger check re-enqueues immediately (the
+    // primary, event-driven requeue) instead of being cooldown-suppressed —
+    // a fresh single-turn conversation would otherwise burn its first run
+    // forever.
     expect(stateUpserts).toHaveLength(0);
-    expect(lastRunAtBumps).toHaveLength(1);
-    expect(lastRunAtBumps[0]!.conversationId).toBe("src-conv-1");
+    expect(lastRunAtBumps).toHaveLength(0);
+    // Timed fallback row for a turn that aborts without indexing another
+    // message: coalescing re-upsert at the named delay.
+    expect(retrospectiveJobUpserts).toHaveLength(1);
+    expect(retrospectiveJobUpserts[0]!.payload).toEqual({
+      conversationId: "src-conv-1",
+    });
+    expect(retrospectiveJobUpserts[0]!.runAfter).toBeGreaterThanOrEqual(
+      before + SOURCE_PROCESSING_REQUEUE_DELAY_MS,
+    );
+    expect(retrospectiveJobUpserts[0]!.runAfter).toBeLessThanOrEqual(
+      after + SOURCE_PROCESSING_REQUEUE_DELAY_MS,
+    );
     // No fork, no instruction, no wake, no cleanup side effects.
     expect(forkCalls).toHaveLength(0);
     expect(addMessageCalls).toHaveLength(0);
@@ -756,7 +785,7 @@ describe("memoryRetrospectiveJob", () => {
     expect(deletedConversationIds).toEqual([]);
   });
 
-  test("source loaded but idle → normal run", async () => {
+  test("source loaded but idle → normal run, no requeue upsert", async () => {
     loadedConversations["src-conv-1"] = { processing: false };
 
     const outcome = await memoryRetrospectiveJob(makeJob(), stubConfig);
@@ -765,6 +794,7 @@ describe("memoryRetrospectiveJob", () => {
     expect(forkCalls).toHaveLength(1);
     expect(lastRunAtBumps).toHaveLength(0);
     expect(stateUpserts).toHaveLength(1);
+    expect(retrospectiveJobUpserts).toHaveLength(0);
   });
 
   test("source unloaded (not in registry) → normal run", async () => {
@@ -1170,12 +1200,54 @@ describe("memoryRetrospectiveJob", () => {
     expect(instructionText).not.toContain("(none)");
   });
 
-  test("prior fork-kind retrospective with no copied messages degrades to empty dedup", async () => {
-    // Corrupted/empty fork-kind prior: no message carries
-    // `forkSourceMessageId`. The detector should return null and the
-    // handler should treat dedup as empty rather than dumping everything
-    // (which would leak any pre-fork content into the baseline).
+  test("prior fork-kind retrospective with an empty copied prefix attributes rows to the run", async () => {
+    // Empty-prefix fork-kind prior (a tail-only fork whose inherited
+    // compaction covered the whole cutoff range): no message carries
+    // `forkSourceMessageId` and the conversation opens with the run's own
+    // instruction row, so every row is the run's output and its saves feed
+    // the dedup baseline.
     priorRetroId = "prior-fork-retro-2";
+
+    conversationOverrides[priorRetroId] = {
+      source: "memory-retrospective-fork",
+      forkParentMessageId: "m-src-2",
+    };
+    messagesByConversationId[priorRetroId] = [
+      {
+        role: "user",
+        content: JSON.stringify([{ type: "text", text: "review the above" }]),
+        createdAt: 900,
+        metadata: JSON.stringify({
+          kind: "memory_retrospective_instruction",
+          hidden: true,
+        }),
+      },
+      {
+        role: "assistant",
+        content: JSON.stringify([
+          {
+            type: "tool_use",
+            name: "remember",
+            input: { content: "empty-prefix save" },
+          },
+        ]),
+        createdAt: 1000,
+        metadata: null,
+      },
+    ];
+
+    await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    const instructionText = persistedInstructionText();
+    expect(instructionText).toContain("- empty-prefix save");
+    expect(instructionText).not.toContain("(none)");
+  });
+
+  test("prior fork-kind retrospective with missing stamps degrades to empty dedup", async () => {
+    // Stampless rows with no leading instruction row are indeterminate
+    // (copied rows whose metadata lost its stamps): treating them as run
+    // output would leak pre-fork content into the baseline.
+    priorRetroId = "prior-fork-retro-3";
 
     conversationOverrides[priorRetroId] = {
       source: "memory-retrospective-fork",

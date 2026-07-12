@@ -11,10 +11,9 @@ import { join } from "node:path";
 
 import type { AssistantConfig } from "../../../../config/types.js";
 import { enqueueMemoryJob } from "../../../../persistence/jobs-store.js";
-import { getLogger } from "../../../../util/logger.js";
-import { getWorkspaceDir } from "../../../../util/platform.js";
 import { enqueuePkbIndexJob } from "../jobs/embed-pkb-file.js";
-import { PKB_WORKSPACE_SCOPE } from "../pkb/types.js";
+import { getLogger } from "../logging.js";
+import { getWorkspaceDir } from "../paths.js";
 import { deleteNode, queryNodes, recordNodeEdit, updateNode } from "./store.js";
 
 const log = getLogger("graph-tool-handlers");
@@ -61,7 +60,6 @@ function rememberSuccessMessage(count: number): string {
 export function handleRemember(
   input: RememberInput,
   _conversationId: string,
-  _scopeId: string,
   config: AssistantConfig,
 ): RememberResult {
   const facts = normalizeFacts(input.content);
@@ -177,9 +175,6 @@ export function appendBufferAndArchive(args: {
 /**
  * Fire-and-forget enqueue of a PKB re-index job for a file we just wrote.
  *
- * Always indexes under {@link PKB_WORKSPACE_SCOPE}. See the comment on that
- * constant for why PKB points are not per-conversation-scoped.
- *
  * Wrapped in try/catch so an enqueue failure (e.g. DB hiccup) cannot break
  * the remember call — the write has already succeeded and the user's fact
  * is safe on disk.
@@ -189,7 +184,6 @@ function enqueuePkbReindex(pkbRoot: string, absPath: string): void {
     enqueuePkbIndexJob({
       pkbRoot,
       absPath,
-      memoryScopeId: PKB_WORKSPACE_SCOPE,
     });
   } catch (err) {
     log.warn({ err, absPath }, "Failed to enqueue PKB re-index job");
@@ -200,7 +194,6 @@ function enqueuePkbReindex(pkbRoot: string, absPath: string): void {
 // Shared helpers for delete / update / list
 // ---------------------------------------------------------------------------
 
-const MEMORY_SCOPE_DEFAULT = "default";
 const SNIPPET_LENGTH = 80;
 
 // ---------------------------------------------------------------------------
@@ -234,7 +227,6 @@ export function handleDeleteMemory(
 
   const search = input.content.trim().toLowerCase();
   const nodes = queryNodes({
-    scopeId: MEMORY_SCOPE_DEFAULT,
     fidelityNot: ["gone"],
   });
 
@@ -310,7 +302,6 @@ export function handleUpdateMemory(
   const search = input.old_content.trim().toLowerCase();
   const newContent = input.new_content.trim();
   const nodes = queryNodes({
-    scopeId: MEMORY_SCOPE_DEFAULT,
     fidelityNot: ["gone"],
   });
 
@@ -415,7 +406,6 @@ export function handleListMemory(
   // exhaustive regardless of graph size. Without a limit the DB still orders by
   // significance DESC, so the most relevant matches surface first after slicing.
   const allNodes = queryNodes({
-    scopeId: MEMORY_SCOPE_DEFAULT,
     fidelityNot: ["gone"],
     ...(search ? {} : { limit }),
   });

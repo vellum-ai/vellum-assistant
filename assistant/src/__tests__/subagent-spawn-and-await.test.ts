@@ -162,30 +162,12 @@ mock.module("../providers/call-site-routing.js", () => ({
   wrapWithCallSiteRouting: (provider: unknown) => provider,
 }));
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    llm: {
-      default: {
-        provider: "anthropic",
-        provider_connection: "anthropic-conn",
-        model: "claude-opus-4-7",
-      },
-    },
-    rateLimit: { maxRequestsPerMinute: 0 },
-  }),
-}));
-
 mock.module("../config/llm-resolver.js", () => ({
   resolveCallSiteConfig: () => ({
     provider: "anthropic",
     provider_connection: "anthropic-conn",
     maxTokens: 4096,
   }),
-}));
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
 }));
 
 // ── Imports (after mocks) ───────────────────────────────────────────────────

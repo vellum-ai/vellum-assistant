@@ -1,18 +1,10 @@
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 // ---------------------------------------------------------------------------
 // Mocks
 // ---------------------------------------------------------------------------
-
-mock.module("../../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 import { getWorkspaceRoutesDir } from "../../../util/platform.js";
 import { AssistantEventHub } from "../../assistant-event-hub.js";
 import type { UserRouteContext } from "../user-route-dispatcher.js";
@@ -27,6 +19,9 @@ function makeContext(overrides?: Partial<UserRouteContext>): UserRouteContext {
   return {
     assistantEventHub: new AssistantEventHub(),
     assistantId: "test-assistant",
+    conversations: {
+      postMessage: async () => ({ messageId: "test-msg" }),
+    },
     ...overrides,
   };
 }

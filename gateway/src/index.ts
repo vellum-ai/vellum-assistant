@@ -79,6 +79,7 @@ import { createTelegramControlPlaneProxyHandler } from "./http/routes/telegram-c
 import { createTwilioControlPlaneProxyHandler } from "./http/routes/twilio-control-plane-proxy.js";
 import { createVercelControlPlaneProxyHandler } from "./http/routes/vercel-control-plane-proxy.js";
 import { createContactsControlPlaneProxyHandler } from "./http/routes/contacts-control-plane-proxy.js";
+import { buildContactsControlPlaneRoutes } from "./http/routes/contacts-control-plane-route-table.js";
 import { handleContactPromptSubmit } from "./http/routes/contact-prompt.js";
 import {
   handleListDevices,
@@ -214,6 +215,7 @@ import { runPostAssistantReady } from "./post-assistant-ready.js";
 import {
   clearManagedPublicBaseUrl,
   createVelayTunnelClient,
+  enablePublicIngress,
 } from "./velay/client.js";
 import { VERSION_HEADER_NAME, VERSION_HEADER_VALUE } from "./version.js";
 
@@ -413,6 +415,41 @@ async function main() {
     log.info({ reason }, "Starting Velay tunnel after live voice enabled");
     velayTunnelClient.start();
     return true;
+  }
+
+  /**
+   * Start the Velay tunnel when a credential link is minted. Unlike the Twilio
+   * and live-voice paths this has no precondition: creating a one-time
+   * credential link is itself the request to expose public ingress, and the
+   * tunnel is the browser's route to the credential-entry page. Shares the
+   * `velayStartRequested` latch — one tunnel serves every ingress consumer —
+   * and `velayTunnelClient.start()` is idempotent.
+   */
+  function maybeStartVelayTunnelForCredentialLink(reason: string): boolean {
+    if (velayStartRequested || !velayTunnelClient) {
+      return velayStartRequested;
+    }
+    velayStartRequested = true;
+    log.info({ reason }, "Starting Velay tunnel after credential link minted");
+    velayTunnelClient.start();
+    return true;
+  }
+
+  /**
+   * Make public ingress live for a freshly minted credential link: enable it
+   * when explicitly disabled (only an explicit `false` — a default `undefined`
+   * already means enabled on platform) and start the Velay tunnel so the link
+   * is actually reachable.
+   */
+  async function ensurePublicIngressLiveForCredentialLink(): Promise<void> {
+    if (
+      configFileCache.getBoolean("ingress", "enabled", { force: true }) ===
+      false
+    ) {
+      await enablePublicIngress(configFileCache);
+      log.info("Auto-enabled public ingress for credential link creation");
+    }
+    maybeStartVelayTunnelForCredentialLink("credential link minted");
   }
 
   async function readTwilioCredentialsForVelayStartup(): Promise<Record<
@@ -765,130 +802,12 @@ async function main() {
     },
 
     // ── Contacts control plane ──
-    {
-      path: "/v1/contacts/prompt/submit",
-      method: "POST",
-      auth: "edge",
-      handler: (req) => handleContactPromptSubmit(req),
-    },
-    {
-      // Assistant-scoped variant for clients using the auto-prefix.
-      path: /^\/v1\/assistants\/[^/]+\/contacts\/prompt\/submit\/?$/,
-      method: "POST",
-      auth: "edge",
-      handler: (req) => handleContactPromptSubmit(req),
-    },
-    {
-      path: "/v1/contacts",
-      method: "GET",
-      auth: "edge",
-      handler: (req) => contactsControlPlaneProxy.handleListContacts(req),
-    },
-    {
-      path: "/v1/contacts",
-      method: "POST",
-      auth: "edge",
-      handler: (req) => contactsControlPlaneProxy.handleUpsertContact(req),
-    },
-    {
-      // Assistant-scoped variant for clients using the auto-prefix.
-      path: /^\/v1\/assistants\/[^/]+\/contacts\/?$/,
-      method: "POST",
-      auth: "edge",
-      handler: (req) => contactsControlPlaneProxy.handleUpsertContact(req),
-    },
-    {
-      path: "/v1/contacts/merge",
-      method: "POST",
-      auth: "edge",
-      handler: (req) => contactsControlPlaneProxy.handleMergeContacts(req),
-    },
-    {
-      path: /^\/v1\/contact-channels\/([^/]+)$/,
-      method: "PATCH",
-      auth: "edge",
-      handler: (req, params) =>
-        contactsControlPlaneProxy.handleUpdateContactChannel(req, params[0]),
-    },
-    {
-      path: /^\/v1\/contact-channels\/([^/]+)\/verify$/,
-      method: "POST",
-      auth: "edge-guardian",
-      handler: (req, params) =>
-        contactsControlPlaneProxy.handleVerifyContactChannel(req, params[0]),
-    },
-    {
-      // Assistant-scoped variant for clients using the auto-prefix.
-      path: /^\/v1\/assistants\/[^/]+\/contact-channels\/([^/]+)\/verify\/?$/,
-      method: "POST",
-      auth: "edge-guardian",
-      handler: (req, params) =>
-        contactsControlPlaneProxy.handleVerifyContactChannel(req, params[0]),
-    },
-    // ── Contacts/invites control plane ──
-    // Scope map: invites list → settings.read; create/redeem/revoke/call →
-    // settings.write.
-    {
-      path: "/v1/contacts/invites",
-      method: "GET",
-      auth: "edge-scoped",
-      scope: "settings.read",
-      handler: (req) => contactsControlPlaneProxy.handleListInvites(req),
-    },
-    {
-      path: "/v1/contacts/invites",
-      method: "POST",
-      auth: "edge-scoped",
-      scope: "settings.write",
-      handler: (req) => contactsControlPlaneProxy.handleCreateInvite(req),
-    },
-    {
-      path: "/v1/contacts/invites/redeem",
-      method: "POST",
-      auth: "edge-scoped",
-      scope: "settings.write",
-      handler: (req) => contactsControlPlaneProxy.handleRedeemInvite(req),
-    },
-    {
-      path: /^\/v1\/contacts\/invites\/([^/]+)\/call$/,
-      method: "POST",
-      auth: "edge-scoped",
-      scope: "settings.write",
-      handler: (req, params) =>
-        contactsControlPlaneProxy.handleCallInvite(req, params[0]),
-    },
-    {
-      path: /^\/v1\/contacts\/invites\/([^/]+)$/,
-      method: "DELETE",
-      auth: "edge-scoped",
-      scope: "settings.write",
-      handler: (req, params) =>
-        contactsControlPlaneProxy.handleRevokeInvite(req, params[0]),
-    },
-    {
-      // Keep DELETE on the invite collection unsupported; only /invites/:id
-      // should revoke an invite.
-      path: /^\/v1\/contacts\/(?!invites\/?$)([^/]+)\/?$/,
-      method: "DELETE",
-      auth: "edge",
-      handler: (_req, params) =>
-        contactsControlPlaneProxy.handleDeleteContact(params[0]),
-    },
-    {
-      // Assistant-scoped variant for clients using the auto-prefix.
-      path: /^\/v1\/assistants\/[^/]+\/contacts\/(?!invites\/?$)([^/]+)\/?$/,
-      method: "DELETE",
-      auth: "edge",
-      handler: (_req, params) =>
-        contactsControlPlaneProxy.handleDeleteContact(params[0]),
-    },
-    {
-      path: /^\/v1\/contacts\/([^/]+)$/,
-      method: "GET",
-      auth: "edge",
-      handler: (req, params) =>
-        contactsControlPlaneProxy.handleGetContact(req, params[0]),
-    },
+    // Route table shared with the fall-through regression test; see
+    // contacts-control-plane-route-table.ts.
+    ...buildContactsControlPlaneRoutes({
+      contactsControlPlaneProxy,
+      handleContactPromptSubmit,
+    }),
 
     // ── Generic loopback pairing (localhost-only, auth: none) ──
     {
@@ -1702,8 +1621,7 @@ async function main() {
     // on mutations (the daemon HTTP handlers were stripped by #28784).
     //
     // Trust rules are gateway-global, so the assistant id is matched and
-    // discarded. Same precedent as the assistant-scoped /v1/assistants/.../
-    // contacts DELETE route above.
+    // discarded. Same precedent as channel-admission-policy above.
     {
       path: /^\/v1\/assistants\/[^/]+\/trust-rules\/?$/,
       method: "GET",
@@ -2675,7 +2593,12 @@ async function main() {
     ...createLogTailRoutes(config),
     ...trustRulesRoutes,
     ...createVelayRoutes(velayTunnelClient),
-    ...createCredentialRequestIpcRoutes(configFileCache),
+    ...createCredentialRequestIpcRoutes(
+      config,
+      configFileCache,
+      credentialCache,
+      ensurePublicIngressLiveForCredentialLink,
+    ),
   ]);
   ipcServer.start();
 

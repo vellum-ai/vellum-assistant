@@ -23,6 +23,7 @@ import {
 } from "bun:test";
 
 import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
+import { setConfig } from "./helpers/set-config.js";
 
 // Legacy-shaped fixtures (llm.default-centric resolution): pinned to the
 // flag-off cascade. Override-or-default (flag-on) semantics are pinned by
@@ -32,7 +33,6 @@ beforeAll(() => {
 });
 
 import type { LoopToolExecutor } from "../agent/loop.js";
-import type { LLMConfig } from "../config/schemas/llm.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import { resetPluginRegistryAndRegisterDefaults } from "../plugins/defaults/index.js";
 import type { Message, Provider, ToolDefinition } from "../providers/types.js";
@@ -71,61 +71,12 @@ mock.module("../plugins/defaults/compaction/manager-store.js", () => ({
   },
 }));
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
-}));
-
-const defaultLlmConfig: LLMConfig = {
-  default: {
-    provider: "anthropic",
-    model: "mock-model",
-    maxTokens: 4096,
-    effort: "max" as const,
-    speed: "standard" as const,
-    verbosity: "medium" as const,
-    temperature: null,
-    topP: null,
-    thinking: { enabled: false, streamThinking: true },
-    contextWindow: {
-      enabled: true,
-      maxInputTokens: 200_000,
-      targetBudgetRatio: 0.3,
-      compactThreshold: 0.8,
-      summaryBudgetRatio: 0.05,
-      overflowRecovery: {
-        enabled: true,
-        safetyMarginRatio: 0.05,
-        maxAttempts: 3,
-        interactiveLatestTurnCompression: "summarize",
-        nonInteractiveLatestTurnCompression: "truncate",
-      },
-    },
-    openrouter: { only: [] },
-  },
-  profiles: {},
-  profileOrder: [],
-  callSites: {},
-  profileSession: { defaultTtlSeconds: 1800, maxTtlSeconds: 43200 },
-  pricingOverrides: [],
-};
-
-let mockLlmConfig: LLMConfig = structuredClone(defaultLlmConfig);
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    llm: mockLlmConfig,
-    rateLimit: { maxRequestsPerMinute: 0 },
-    workspaceGit: { turnCommitMaxWaitMs: 10 },
-    memory: { retrieval: { scratchpadInjection: { enabled: true } } },
-    ui: {},
-    compaction: { enabled: true, autoThreshold: 0.7 },
-    conversations: { skipAutoRetitling: true },
-  }),
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-  invalidateConfigCache: () => {},
-}));
+// Seed the workspace config for real: a short turn-boundary commit wait and
+// no second-pass retitling keep the loop teardown fast and deterministic.
+// The llm section runs on schema defaults (200k context window); the first
+// test seeds a narrowed profile on top.
+setConfig("workspaceGit", { turnCommitMaxWaitMs: 10 });
+setConfig("conversations", { skipAutoRetitling: true });
 
 // ── Overflow recovery mocks ──────────────────────────────────────────
 
@@ -620,8 +571,6 @@ function makeCtx(
     contextCompactedMessageCount: 0,
     contextCompactedAt: null,
 
-    memoryPolicy: { scopeId: "default", includeDefaultFallback: true },
-
     currentActiveSurfaceId: undefined,
     currentPage: undefined,
     surfaceState: new Map(),
@@ -764,7 +713,7 @@ function buildLongConversation(messageCount: number): Message[] {
 // ── Tests ────────────────────────────────────────────────────────────
 
 beforeEach(() => {
-  mockLlmConfig = structuredClone(defaultLlmConfig);
+  setConfig("llm", {});
   mockEstimateTokens = 1000;
   mockReducerStepFn = null;
   mockOverflowAction = "fail_gracefully";
@@ -781,8 +730,7 @@ beforeEach(() => {
 describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
   test("usage update context max follows active main-agent profile budget", async () => {
     // GIVEN an active main-agent profile that narrows the context budget
-    mockLlmConfig = {
-      ...structuredClone(defaultLlmConfig),
+    setConfig("llm", {
       activeProfile: "short-context",
       profiles: {
         "short-context": {
@@ -790,7 +738,7 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
           contextWindow: { maxInputTokens: 150_000 },
         },
       },
-    };
+    });
 
     // AND a provider turn that reports 12k input tokens of usage
     const ctx = makeCtx({

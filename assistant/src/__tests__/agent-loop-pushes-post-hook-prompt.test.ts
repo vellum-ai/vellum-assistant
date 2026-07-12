@@ -9,14 +9,6 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-// ── Stub pipes ──────────────────────────────────────────────────────
-// Same logger-stub shape as the rest of the test suite — pino pulls are
-// agent-loop-time too, but we silence them so the test stays deterministic.
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
-}));
-
 // Mock plugin pipeline. Two modes:
 //  - return mode (default): returns `hookResponse` as the hook result.
 //  - in-place mode: mutates ctx.systemPrompt directly and returns the same
@@ -54,15 +46,8 @@ mock.module("../plugins/pipeline.js", () => ({
   },
 }));
 
-// Minimal `getConfig` so the loop's defaults/loader path doesn't trip.
-let mockLlmConfig: Record<string, unknown> = {};
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({ llm: mockLlmConfig }),
-}));
-
 import type { AgentEvent } from "../agent/loop.js";
 import { AgentLoop } from "../agent/loop.js";
-import { LLMSchema } from "../config/schemas/llm.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
 import type {
   Message,
@@ -70,6 +55,7 @@ import type {
   ProviderResponse,
   SendMessageOptions,
 } from "../providers/types.js";
+import { setConfig } from "./helpers/set-config.js";
 
 const userMessage: Message = {
   role: "user",
@@ -81,12 +67,13 @@ const trust: TrustContext = {
   trustClass: "guardian",
 };
 
+/** Seed the workspace `llm` config block for real; the loader schema-merges it. */
 function setLlmConfig(raw: unknown): void {
-  mockLlmConfig = LLMSchema.parse(raw) as Record<string, unknown>;
+  setConfig("llm", raw);
 }
 
 beforeEach(() => {
-  mockLlmConfig = LLMSchema.parse({}) as Record<string, unknown>;
+  setLlmConfig({});
   hookMutatesInPlace = false;
   hookResponse = {
     conversationId: "test-conv",

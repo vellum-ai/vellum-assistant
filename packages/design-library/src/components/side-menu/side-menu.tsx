@@ -106,23 +106,31 @@ const ROOT_BASE_CLASSES = [
   "flex flex-col",
   "bg-[var(--surface-overlay)]",
   "text-[color:var(--content-default)]",
-  "border border-[var(--border-base)]",
   "overflow-hidden",
 ].join(" ");
 
+/* The 1px border is desktop-card chrome: the rail floats on the page
+ * background, so it needs an edge. The full-bleed mobile overlay is a
+ * full-screen sheet — a border there draws visible hairlines along the
+ * screen edges (top/bottom safe-area boundaries on iOS). */
+const ROOT_RAIL_BORDER_CLASSES = "border border-[var(--border-base)]";
+
 const ROOT_RAIL_EXPANDED_CLASSES = [
+  ROOT_RAIL_BORDER_CLASSES,
   "w-[230px]",
   "rounded-[12px]",
   "pt-4 px-4 pb-2",
 ].join(" ");
 
 const ROOT_RAIL_COLLAPSED_CLASSES = [
+  ROOT_RAIL_BORDER_CLASSES,
   "w-[48px]",
   "rounded-[12px]",
   "pt-4 px-2 pb-2",
 ].join(" ");
 
 const ROOT_RAIL_RESIZABLE_CLASSES = [
+  ROOT_RAIL_BORDER_CLASSES,
   "rounded-[12px]",
   "pt-4 px-4 pb-2",
 ].join(" ");

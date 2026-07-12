@@ -337,20 +337,40 @@ export function hasAssistants(): boolean {
 
 /**
  * A local-kind assistant, by origin: a plain on-machine assistant the web client
- * drives through its local flows (gateway connect, wake, local retire) — cloud
- * `"local"`. (Legacy entries that predate the `cloud` field are normalized to
- * `"local"` at the parse seam, so `cloud` is always set by the time it reaches
- * here.) Identity only — whether it currently has a reachable gateway is a
- * separate, connect-time question (see `getLocalGatewayUrl`).
+ * drives through its full set of local lifecycle flows (wake, local retire) —
+ * cloud `"local"`. (Legacy entries that predate the `cloud` field are normalized
+ * to `"local"` at the parse seam, so `cloud` is always set by the time it
+ * reaches here.) Identity only — whether it currently has a reachable gateway is
+ * a separate, connect-time question (see `getLocalGatewayUrl`).
  *
  * Deliberately excludes the externally-managed container runtimes (`docker`,
  * `apple-container`) and remote self-hosted clouds (`paired`/`gcp`/`aws`/
  * `custom`, reached at their own `runtimeUrl`), along with platform (`vellum`):
- * the web client manages none of those through its local flows. See the
- * `KNOWN_CLOUDS` taxonomy in `@vellumai/local-mode/contract`.
+ * the web client manages none of those through its lifecycle flows. Docker
+ * instances ARE still reachable over the local gateway proxy — that broader,
+ * connect-only set is {@link isLocalGatewayAssistant}. See the `KNOWN_CLOUDS`
+ * taxonomy in `@vellumai/local-mode/contract`.
  */
 export function isLocalAssistant(a: LockfileAssistant): boolean {
   return a.cloud === "local";
+}
+
+/**
+ * An assistant this runtime connects to over the local gateway proxy
+ * (`/assistant/__gateway/<port>`) with gateway auth: a plain on-machine
+ * assistant (`local`) or a local Docker instance (`docker`). Both run their
+ * gateway on a loopback port of this machine and lease guardian tokens under
+ * the CLI config dir, so the SPA can mint a gateway token for them without a
+ * platform session.
+ *
+ * Connect-only — a superset of {@link isLocalAssistant} that does NOT extend to
+ * the lifecycle flows (wake, local retire), which stay `cloud === "local"`.
+ * Excludes `apple-container` (its entries are managed by the macOS app and
+ * record no renderer-resolvable loopback gateway), the remote self-hosted
+ * clouds, and platform (`vellum`).
+ */
+export function isLocalGatewayAssistant(a: LockfileAssistant): boolean {
+  return a.cloud === "local" || a.cloud === "docker";
 }
 
 export function isPlatformAssistant(a: LockfileAssistant): boolean {
@@ -440,9 +460,9 @@ export function gatewayProxyUrl(port: number): string {
 
 /**
  * Whether this runtime should reach `assistant` over a local gateway: a
- * local-kind assistant, in local (non-remote-gateway) mode. Whether that gateway
- * is currently resolvable — a recorded port — is a separate question answered by
- * `getLocalGatewayUrl`.
+ * local-gateway assistant ({@link isLocalGatewayAssistant}), in local
+ * (non-remote-gateway) mode. Whether that gateway is currently resolvable — a
+ * recorded port — is a separate question answered by `getLocalGatewayUrl`.
  */
 function expectsLocalGateway(
   assistant: LockfileAssistant | undefined,
@@ -451,8 +471,37 @@ function expectsLocalGateway(
     !!assistant &&
     isLocalMode() &&
     !isRemoteGatewayMode() &&
-    isLocalAssistant(assistant)
+    isLocalGatewayAssistant(assistant)
   );
+}
+
+/**
+ * The loopback gateway port recorded for an assistant. Plain local entries
+ * record it as `resources.gatewayPort`; Docker entries record the published
+ * gateway address as a loopback `runtimeUrl` (`http://localhost:<port>`) with
+ * no `resources` block, so the port is recovered from that URL. A non-loopback
+ * `runtimeUrl` never yields a port — a remote address is not a local gateway.
+ */
+function getRecordedGatewayPort(
+  assistant: LockfileAssistant,
+): number | undefined {
+  const recorded = assistant.resources?.gatewayPort;
+  if (recorded != null) {
+    return recorded;
+  }
+  if (!assistant.runtimeUrl) {
+    return undefined;
+  }
+  try {
+    const url = new URL(assistant.runtimeUrl);
+    if (url.hostname !== "localhost" && url.hostname !== "127.0.0.1") {
+      return undefined;
+    }
+    const port = Number(url.port);
+    return Number.isInteger(port) && port > 0 ? port : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -464,7 +513,7 @@ export function getLocalGatewayUrl(
   assistant: LockfileAssistant | undefined = getSelectedAssistant(),
 ): string | undefined {
   if (!expectsLocalGateway(assistant)) return undefined;
-  const gatewayPort = assistant.resources?.gatewayPort;
+  const gatewayPort = getRecordedGatewayPort(assistant);
   if (gatewayPort == null) return undefined;
   return gatewayProxyUrl(gatewayPort);
 }

@@ -43,9 +43,11 @@ import {
 } from "../plugins/mtime-cache.js";
 import { getSourceVersionsPath } from "../plugins/source-versions.js";
 import {
+  __resetRegistryForTesting,
   getAllToolDefinitions,
   getPluginToolDefinitions,
   getToolOwner,
+  loadPluginTools,
 } from "../tools/registry.js";
 
 // ─── Test fixtures ───────────────────────────────────────────────────────────
@@ -171,6 +173,9 @@ beforeEach(() => {
   watchState = null;
   sentinelTouchSeq = 0;
   resetPluginCacheForTests();
+  // The registry pulls plugin tools via loadPluginTools(); clear its side
+  // (tools + pulled fingerprints) so registrations never leak across tests.
+  __resetRegistryForTesting();
 });
 
 afterAll(() => {
@@ -357,9 +362,11 @@ describe("plugin mtime cache (per-surface)", () => {
     touchFile(toolFile);
     publishSourceChanges();
     await getUserHooksFor("user-prompt-submit");
+    await loadPluginTools();
 
     // Both the cache and the global registry serve the fresh definition —
-    // the redeploy unregistered the old tool and registered the new one.
+    // the moved source mtime changed the plugin's fingerprint, so the pull
+    // reconcile re-registered its tool set.
     expect(getCachedUserTools()[0]?.description).toBe("v2");
     expect(
       getAllToolDefinitions().find((t) => t.name === "edited-tool")
@@ -632,11 +639,13 @@ const TOOL_SRC = (name: string) =>
  * production sequence: the monitor's pass rewrites the sentinel, and the
  * next hook dispatch's one-stat gate applies the diff. The hook name is
  * irrelevant — the reconcile runs regardless of whether a plugin defines
- * that hook.
+ * that hook. Finish with the registry pull the per-turn tool resolver
+ * fires, so registry-facing assertions see the reconciled tool set.
  */
 async function publishAndDispatch(): Promise<void> {
   publishSourceChanges();
   await getUserHooksFor("user-prompt-submit");
+  await loadPluginTools();
 }
 
 describe("plugin runtime activation", () => {
@@ -701,6 +710,7 @@ describe("plugin runtime activation", () => {
     writeMarkerHook(dir, "shutdown", shutdownMarker, "bye");
 
     await populateCacheAtBoot();
+    await loadPluginTools(); // boot pull (initializePlugins does this)
     expect(getToolOwner("temp-tool")?.kind).toBe("plugin");
 
     rmSync(dir, { recursive: true, force: true });
@@ -740,6 +750,7 @@ describe("plugin runtime activation", () => {
     writeMarkerHook(dir, "shutdown", shutdownMarker, "disabled");
 
     await populateCacheAtBoot();
+    await loadPluginTools(); // boot pull (initializePlugins does this)
     expect(getToolOwner("disable-tool")?.kind).toBe("plugin");
 
     writeFileSync(join(dir, ".disabled"), "");

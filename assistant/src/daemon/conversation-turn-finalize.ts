@@ -34,6 +34,10 @@ import { enqueueLexicalIndexForMessage } from "../persistence/job-handlers/messa
 import { indexMessageNow } from "../plugins/defaults/memory/indexer.js";
 import type { Message } from "../providers/types.js";
 import { publishSyncInvalidation } from "../runtime/sync/sync-publisher.js";
+import {
+  finalizeStrandedInflightContent,
+  type InflightContentWriter,
+} from "./inflight-message-content.js";
 import { conversationMetadataSyncTag } from "./message-types/sync.js";
 
 /** Minimal live-conversation surface the deferred tail reads and rewrites. */
@@ -46,6 +50,8 @@ interface TurnTailContext {
 interface TurnTailState {
   readonly deferredFinalizeEffects: ReadonlyArray<() => Promise<void>>;
   readonly lastAssistantMessageId: string | undefined;
+  /** In-flight content writers the turn left behind (see EventHandlerState). */
+  readonly inflightWriters: Map<string, InflightContentWriter>;
 }
 
 /**
@@ -85,7 +91,6 @@ export function buildDeferredFinalizeEffect(params: {
           role: "assistant",
           content: contentJson,
           createdAt: finalizedRow.createdAt,
-          scopeId: "default",
           provenanceTrustClass: metadata?.provenanceTrustClass,
           automated: metadata?.automated,
         },
@@ -179,6 +184,18 @@ export async function runDeferredTurnTail(params: {
     }
   } catch (err) {
     rlog.warn({ err }, "Post-turn tool result truncation failed (non-fatal)");
+  }
+
+  // Fold any in-flight content writers the turn left behind (cancelled or
+  // aborted turns exit before their rows' finalize seams). Guarded like the
+  // steps below: a failure must not escape past the terminal SSE.
+  try {
+    await finalizeStrandedInflightContent(state.inflightWriters, rlog);
+  } catch (err) {
+    rlog.warn(
+      { err },
+      "Failed to finalize stranded in-flight content (non-fatal)",
+    );
   }
 
   // Mirror the final assistant row into the JSONL disk view. Guarded like the

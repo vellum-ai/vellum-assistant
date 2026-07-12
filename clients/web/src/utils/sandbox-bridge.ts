@@ -10,12 +10,24 @@
  *    the parent via `postMessage`.
  * 3. **Fetch proxy** — `window.vellum.fetch()` proxies authenticated requests
  *    through the parent, keeping auth tokens out of the sandbox.
- * 4. **Safe injection** — `injectScript()` inserts `<script>` tags using
+ *    `window.vellum.asset(path)` is the binary sibling: it fetches a bundled
+ *    app file through the parent and resolves to a `blob:` object URL the
+ *    sandbox can load in `<img>` / `<video>` / `<audio>`.
+ *    `window.vellum.subscribe(filter, cb)` completes the trio with server→app
+ *    push: the parent forwards scoped `sync_changed` invalidations so an app
+ *    refreshes on demand instead of polling.
+ * 4. **Link interceptor** — catches clicks on `<a>` elements and opens them in
+ *    new tabs via `window.open()`, which the `allow-popups` sandbox token
+ *    permits. Without this, links inside sandboxed iframes are non-interactive
+ *    because the sandbox lacks `allow-top-navigation` (intentionally, for
+ *    security — the interceptor is the safer alternative).
+ * 5. **Safe injection** — `injectScript()` inserts `<script>` tags using
  *    `lastIndexOf` to avoid hijacking when app JS contains literal close-tag
  *    sequences.
  *
  * All sandboxed iframes that render untrusted HTML must use these utilities.
  * The storage polyfill is required even for non-interactive preview iframes.
+ * The link interceptor is injected by `injectBridge` (interactive iframes only).
  *
  * @see https://developer.mozilla.org/en-US/docs/Web/HTML/Element/iframe#sandbox
  * @see https://html.spec.whatwg.org/multipage/iframe-embed-object.html#attr-iframe-sandbox
@@ -42,7 +54,9 @@ export const FETCH_PROXY_PATH_RE = /^\/v1\/x\//;
  * @see https://html.spec.whatwg.org/multipage/scripting.html#restrictions-for-contents-of-script-elements
  */
 export function jsonForScript(value: unknown): string {
-  return JSON.stringify(value).replace(/<\//g, "<\\/").replace(/<!--/g, "<\\!--");
+  return JSON.stringify(value)
+    .replace(/<\//g, "<\\/")
+    .replace(/<!--/g, "<\\!--");
 }
 
 // ---------------------------------------------------------------------------
@@ -81,6 +95,97 @@ export function buildStoragePolyfill(): string {
 }
 
 // ---------------------------------------------------------------------------
+// Link interceptor
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a `<script>` tag that intercepts clicks on `<a>` elements inside the
+ * sandboxed iframe and opens them in new tabs.
+ *
+ * Sandboxed iframes without `allow-top-navigation` cannot navigate the parent
+ * window, so plain `<a href="...">` links are silently non-interactive. Adding
+ * `allow-top-navigation` would let untrusted app JS redirect the host page at
+ * will. Instead, this interceptor uses event delegation to catch link clicks
+ * and calls `window.open()` (permitted by the existing `allow-popups` token),
+ * which opens the URL in a new tab with `noopener,noreferrer`.
+ *
+ * The listener is registered in the **bubble** phase (not capture) and bails
+ * out early if `e.defaultPrevented` is already true. This lets sandboxed app
+ * click handlers run first — if they call `preventDefault()` (e.g. to handle a
+ * link via their own router or post-message bridge), the interceptor defers.
+ * `stopPropagation()` is intentionally not called so app handlers that listen
+ * on ancestor nodes still see the event.
+ *
+ * Scheme detection uses the **raw** `href` attribute, not the resolved
+ * `el.href` property. In `srcdoc` documents the browser resolves relative and
+ * fragment links (e.g. `#section`, `./page`) against the embedding page's
+ * URL, so `el.href` becomes an absolute `http(s)` URL that would be
+ * incorrectly intercepted. Checking the raw attribute preserves the original
+ * scheme, leaving fragments and relative links to in-frame navigation.
+ *
+ * Two categories of links are intercepted:
+ *
+ * 1. **`vellum://` deep links** (`vellum://workspace/...`,
+ *    `vellum://host/...`) — forwarded to the parent window via
+ *    `postMessage({ type: 'vellum_open_link', ... })` so the host app can
+ *    perform in-app navigation (open a workspace file, launch a host app,
+ *    etc.). These are checked **before** external schemes because
+ *    `window.open()` cannot handle custom schemes — a `vellum://` URL passed
+ *    to `window.open()` would be silently dropped or open a broken tab.
+ *
+ * 2. **External links** (http:, https:, mailto:, tel:) — opened in a new tab
+ *    via `window.open()` with `noopener,noreferrer`.
+ *
+ * Anchor links (`#foo`), relative paths, and `javascript:` URIs are left
+ * alone — the former are in-page navigation, the latter are already blocked
+ * by the sandbox.
+ *
+ * @param frameId The iframe identifier, included in `vellum_open_link`
+ *   messages so the parent knows which surface sent the request.
+ */
+export function buildLinkInterceptorScript(frameId: string): string {
+  return `<script>
+(function() {
+    document.addEventListener('click', function(e) {
+      // Bubble phase: let app handlers run first. If they already handled
+      // the click (preventDefault), defer to them.
+      if (e.defaultPrevented) return;
+      var el = e.target;
+      while (el && el !== document.body) {
+        if (el.tagName === 'A' && el.getAttribute('href')) {
+          // Use the raw href attribute for scheme detection. In srcdoc
+          // documents el.href resolves fragment/relative links against the
+          // embedding page URL, producing absolute http(s) URLs that would
+          // be wrongly intercepted. The raw attribute preserves the scheme.
+          var rawHref = el.getAttribute('href');
+          // vellum:// deep links — forward to the parent for in-app
+          // navigation. Checked before external schemes because
+          // window.open() cannot handle custom schemes (a vellum:// URL
+          // would be silently dropped or open a broken tab).
+          if (/^vellum:\\/\\/(workspace|host)\\//i.test(rawHref)) {
+            e.preventDefault();
+            window.parent.postMessage({
+              type: 'vellum_open_link',
+              frameId: ${jsonForScript(frameId)},
+              href: rawHref,
+              linkText: (el.textContent || '').trim()
+            }, '*');
+            return;
+          }
+          if (/^https?:|^mailto:|^tel:/i.test(rawHref)) {
+            e.preventDefault();
+            window.open(rawHref, '_blank', 'noopener,noreferrer');
+            return;
+          }
+        }
+        el = el.parentElement;
+      }
+    }, false);
+})();
+</script>`;
+}
+
+// ---------------------------------------------------------------------------
 // Full bridge script
 // ---------------------------------------------------------------------------
 
@@ -99,7 +204,10 @@ export interface BridgeOptions {
  * storage polyfill is prepended separately via `prependScript` so that it
  * runs before any app code that accesses `localStorage` during parsing.
  */
-function buildBridgeLogicScript(frameId: string, options?: BridgeOptions): string {
+function buildBridgeLogicScript(
+  frameId: string,
+  options?: BridgeOptions,
+): string {
   const enableFetch = options?.fetch ?? false;
   const route = options?.route ?? null;
 
@@ -127,6 +235,11 @@ function buildBridgeLogicScript(frameId: string, options?: BridgeOptions): strin
     delete window.vellum._pendingFetches[callId];
     p.reject(new Error(errorMessage));
   };
+  window.vellum._pendingAssets = {};
+  window.vellum._assetNextId = 1;
+  window.vellum._assetCache = {};
+  window.vellum._subs = {};
+  window.vellum._subNextId = 1;
   window.addEventListener('message', function(event) {
     var d = event.data;
     if (!d) return;
@@ -135,6 +248,24 @@ function buildBridgeLogicScript(frameId: string, options?: BridgeOptions): strin
         window.vellum._rejectFetch(d.callId, d.error);
       } else {
         window.vellum._resolveFetch(d.callId, d.status, d.statusText, d.body, d.headers);
+      }
+    }
+    if (d.type === 'vellum_asset_response' && d.callId) {
+      var pa = window.vellum._pendingAssets[d.callId];
+      if (!pa) return;
+      delete window.vellum._pendingAssets[d.callId];
+      if (d.error) { pa.reject(new Error(d.error)); return; }
+      try {
+        var blob = new Blob([d.buffer], { type: d.contentType || 'application/octet-stream' });
+        var url = URL.createObjectURL(blob);
+        window.vellum._assetCache[pa.path] = url;
+        pa.resolve(url);
+      } catch (e) { pa.reject(e); }
+    }
+    if (d.type === 'vellum_event' && d.subId) {
+      var s = window.vellum._subs[d.subId];
+      if (s && typeof s.cb === 'function') {
+        try { s.cb(d.event); } catch (e) { /* a subscriber throwing is not the host's problem */ }
       }
     }
   });
@@ -153,6 +284,41 @@ function buildBridgeLogicScript(frameId: string, options?: BridgeOptions): strin
         body: options.body || null
       }, '*');
     });
+  };
+  window.vellum.asset = function(path) {
+    if (window.vellum._assetCache[path]) {
+      return Promise.resolve(window.vellum._assetCache[path]);
+    }
+    return new Promise(function(resolve, reject) {
+      var callId = 'a' + (window.vellum._assetNextId++);
+      window.vellum._pendingAssets[callId] = { resolve: resolve, reject: reject, path: path };
+      window.parent.postMessage({
+        type: 'vellum_asset_request',
+        frameId: ${jsonForScript(frameId)},
+        callId: callId,
+        path: path
+      }, '*');
+    });
+  };
+  window.vellum.subscribe = function(filter, cb) {
+    var subId = 's' + (window.vellum._subNextId++);
+    var tags = (filter && Array.isArray(filter.tags)) ? filter.tags : [];
+    window.vellum._subs[subId] = { cb: cb, tags: tags };
+    window.parent.postMessage({
+      type: 'vellum_subscribe',
+      frameId: ${jsonForScript(frameId)},
+      subId: subId,
+      tags: tags
+    }, '*');
+    return function() {
+      if (!window.vellum._subs[subId]) return;
+      delete window.vellum._subs[subId];
+      window.parent.postMessage({
+        type: 'vellum_unsubscribe',
+        frameId: ${jsonForScript(frameId)},
+        subId: subId
+      }, '*');
+    };
   };`
     : "";
 
@@ -180,8 +346,15 @@ function buildBridgeLogicScript(frameId: string, options?: BridgeOptions): strin
  * `injectBridge` is preferred because it places the polyfill and bridge
  * logic at separate positions in the HTML.
  */
-export function buildBridgeScript(frameId: string, options?: BridgeOptions): string {
-  return buildStoragePolyfill() + buildBridgeLogicScript(frameId, options);
+export function buildBridgeScript(
+  frameId: string,
+  options?: BridgeOptions,
+): string {
+  return (
+    buildStoragePolyfill() +
+    buildBridgeLogicScript(frameId, options) +
+    buildLinkInterceptorScript(frameId)
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -244,9 +417,17 @@ export function prependScript(html: string, script: string): string {
  * the bridge logic is appended before `</body>` (app code calls
  * `window.vellum` APIs asynchronously after mount, not during parsing).
  */
-export function injectBridge(html: string, frameId: string, options?: BridgeOptions): string {
+export function injectBridge(
+  html: string,
+  frameId: string,
+  options?: BridgeOptions,
+): string {
   return prependScript(
-    injectScript(html, buildBridgeLogicScript(frameId, options)),
+    injectScript(
+      html,
+      buildBridgeLogicScript(frameId, options) +
+        buildLinkInterceptorScript(frameId),
+    ),
     buildStoragePolyfill(),
   );
 }

@@ -15,21 +15,8 @@
  * Call-site profiles without a connection throw `ConnectionResolutionError`.
  */
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
-}));
-
-// Mutable LLM config consumed by the resolver via `getConfig()`.
-let mockLlmConfig: Record<string, unknown> = {};
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({ llm: mockLlmConfig }),
-}));
-
-import { LLMSchema } from "../config/schemas/llm.js";
 import { CallSiteRoutingProvider } from "../providers/call-site-routing.js";
 import { ConnectionResolutionError } from "../providers/connection-resolution.js";
 import type {
@@ -38,6 +25,7 @@ import type {
   ProviderResponse,
   SendMessageOptions,
 } from "../providers/types.js";
+import { setConfig } from "./helpers/set-config.js";
 
 const DUMMY_MESSAGES: Message[] = [
   { role: "user", content: [{ type: "text", text: "hi" }] },
@@ -65,8 +53,9 @@ function makeProvider(
   };
 }
 
+/** Seed the `llm` config block for real; the schema fills in defaults. */
 function setLlmConfig(raw: unknown): void {
-  mockLlmConfig = LLMSchema.parse(raw) as Record<string, unknown>;
+  setConfig("llm", raw);
 }
 
 /**
@@ -85,7 +74,7 @@ function makeConnectionHook(
 }
 
 beforeEach(() => {
-  mockLlmConfig = LLMSchema.parse({}) as Record<string, unknown>;
+  setLlmConfig({});
 });
 
 describe("CallSiteRoutingProvider", () => {

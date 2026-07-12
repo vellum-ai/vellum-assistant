@@ -600,6 +600,15 @@ export interface MarkdownMessageProps {
    * @see https://github.com/remarkjs/react-markdown?tab=readme-ov-file#urltransform
    */
   urlTransform?: (url: string) => string;
+  /**
+   * Extra rehype plugins appended after the built-in ones (KaTeX). Lets
+   * consumers post-process the HTML tree — e.g. wrapping streamed words for
+   * entrance animations — without the design library knowing the domain.
+   *
+   * Pass a stable reference (module-level array) so the plugin list doesn't
+   * churn ReactMarkdown's pipeline on every render.
+   */
+  extraRehypePlugins?: readonly import("unified").Pluggable[];
 }
 
 export function MarkdownMessage({
@@ -609,6 +618,7 @@ export function MarkdownMessage({
   linkComponent,
   imageComponent,
   urlTransform,
+  extraRehypePlugins,
 }: MarkdownMessageProps) {
   const processed = useMemo(() => {
     const escaped = escapeCurrencyDollars(content);
@@ -616,9 +626,13 @@ export function MarkdownMessage({
   }, [content, hardLineBreaks]);
   const Link = linkComponent ?? DefaultLink;
   const components = useMemo(() => buildMarkdownComponents(Link, imageComponent), [Link, imageComponent]);
+  const rehypePlugins = useMemo(
+    () => [rehypeKatex, ...(extraRehypePlugins ?? [])],
+    [extraRehypePlugins],
+  );
   return (
     <div data-slot="markdown-message" className={cn("text-chat text-[var(--content-default)]", className)}>
-      <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath, remarkPreserveOrderedListNumbers]} rehypePlugins={[rehypeKatex]} components={components} urlTransform={urlTransform}>
+      <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath, remarkPreserveOrderedListNumbers]} rehypePlugins={rehypePlugins} components={components} urlTransform={urlTransform}>
         {processed}
       </ReactMarkdown>
     </div>

@@ -43,6 +43,7 @@ import type {
   ToolResultContent,
 } from "../providers/types.js";
 import { isContextOverflowError } from "../providers/types.js";
+import { getTool } from "../tools/registry.js";
 import type { SensitiveOutputBinding } from "../tools/sensitive-output-placeholders.js";
 import {
   applyStreamingSubstitution,
@@ -239,7 +240,15 @@ export type AgentEvent =
   | { type: "llm_call_started"; callSite?: LLMCallSite }
   | { type: "text_delta"; text: string }
   | { type: "thinking_delta"; thinking: string }
-  | { type: "message_complete"; message: Message }
+  /**
+   * Emitted once per LLM call when the assistant message is finalized.
+   * `model` is the provider-reported model that served the call
+   * (`response.model`) — the same value `llm_usage` records — so downstream
+   * persistence can attribute the message to the model that actually ran,
+   * including per-call reroutes by a `pre-model-call` hook. Absent on
+   * synthesized emissions that have no provider response.
+   */
+  | { type: "message_complete"; message: Message; model?: string }
   | { type: "max_tokens_reached"; stopReason: string }
   | {
       type: "tool_use";
@@ -709,14 +718,6 @@ export interface AgentLoopConstructorOptions {
   toolExecutor?: LoopToolExecutor;
   resolveTools?: (history: Message[]) => ToolDefinition[];
   /**
-   * Decide whether a tool runs exclusively in its turn (see
-   * {@link ToolDefinition.exclusive}). When it returns true for a tool present
-   * in a multi-call turn, the loop runs only that tool and defers the siblings
-   * un-run. Injected by the conversation wiring, which can read the tool
-   * registry; lightweight loops that omit it never defer.
-   */
-  isExclusiveTool?: (toolName: string) => boolean;
-  /**
    * Conversation this loop drives. Scopes the loop-held compaction circuit
    * breaker and is the source of truth the loop's pipeline contexts and
    * post-compaction re-injection resolve the live conversation through.
@@ -741,7 +742,6 @@ export class AgentLoop {
   private tools: ToolDefinition[];
   private resolveTools: ((history: Message[]) => ToolDefinition[]) | null;
   private toolExecutor: LoopToolExecutor | null;
-  private isExclusiveTool: ((toolName: string) => boolean) | null;
 
   /**
    * Conversation this loop drives. Source of truth for the `conversationId`
@@ -771,7 +771,6 @@ export class AgentLoop {
       tools,
       toolExecutor,
       resolveTools,
-      isExclusiveTool,
       conversationId,
       resolveConversationDir,
     } = options;
@@ -781,7 +780,6 @@ export class AgentLoop {
     this.tools = tools ?? [];
     this.resolveTools = resolveTools ?? null;
     this.toolExecutor = toolExecutor ?? null;
-    this.isExclusiveTool = isExclusiveTool ?? null;
     this.conversationId = conversationId;
     this.resolveConversationDir = resolveConversationDir ?? null;
     this.compactionCircuit = new CompactionCircuit(this.conversationId);
@@ -1912,6 +1910,7 @@ export class AgentLoop {
             await onEvent({
               type: "message_complete",
               message: safeAssistantMessage,
+              model: response.model,
             });
             history = maxTokensMessages;
             continue;
@@ -1924,6 +1923,7 @@ export class AgentLoop {
           await onEvent({
             type: "message_complete",
             message: safeAssistantMessage,
+            model: response.model,
           });
           await stopTurn("max_tokens_reached");
           break;
@@ -2008,7 +2008,11 @@ export class AgentLoop {
 
         history.push(assistantMessage);
 
-        await onEvent({ type: "message_complete", message: assistantMessage });
+        await onEvent({
+          type: "message_complete",
+          message: assistantMessage,
+          model: response.model,
+        });
 
         if (toolUseBlocks.length === 0 || !this.toolExecutor) {
           // The model stopped requesting tools and `post-model-call` settled on
@@ -2069,9 +2073,9 @@ export class AgentLoop {
         // the siblings with a benign, un-run result so the model re-issues them
         // next turn if still needed. Every tool_use still gets a matching
         // tool_result, so history stays well-formed.
-        const exclusiveBlock = this.isExclusiveTool
-          ? toolUseBlocks.find((block) => this.isExclusiveTool!(block.name))
-          : undefined;
+        const exclusiveBlock = toolUseBlocks.find(
+          (block) => getTool(block.name)?.exclusive === true,
+        );
         const deferSiblings =
           exclusiveBlock !== undefined && toolUseBlocks.length > 1;
         if (deferSiblings) {

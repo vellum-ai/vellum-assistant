@@ -4,13 +4,6 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 // Module mocks — must appear before any imports of the modules under test
 // ---------------------------------------------------------------------------
 
-mock.module("../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // -- Config mock -----------------------------------------------------------
 
 let mockElevenLabsConfig = {
@@ -42,21 +35,6 @@ let mockXaiConfig = {
   sampleRate: 24000,
   bitRate: 128000,
 };
-
-mock.module("../../config/loader.js", () => ({
-  getConfig: () => ({
-    services: {
-      tts: {
-        providers: {
-          elevenlabs: mockElevenLabsConfig,
-          "fish-audio": mockFishAudioConfig,
-          deepgram: mockDeepgramConfig,
-          xai: mockXaiConfig,
-        },
-      },
-    },
-  }),
-}));
 
 // -- Secure keys mock ------------------------------------------------------
 
@@ -121,6 +99,7 @@ mock.module("../providers/xai-tts-socket.js", () => ({
 // Imports (after mocks)
 // ---------------------------------------------------------------------------
 
+import { setConfig } from "../../__tests__/helpers/set-config.js";
 import {
   getProviderDefinition,
   getTtsProvider,
@@ -140,6 +119,20 @@ import { FishAudioTtsError } from "../providers/fish-audio-provider.js";
 import { createXaiProvider, XaiTtsError } from "../providers/xai-provider.js";
 import type { XaiTtsSocketOptions } from "../providers/xai-tts-socket.js";
 import type { TtsSynthesisRequest } from "../types.js";
+
+/** Seed the current per-provider TTS config into the workspace config file. */
+function seedTtsConfig(): void {
+  setConfig("services", {
+    tts: {
+      providers: {
+        elevenlabs: mockElevenLabsConfig,
+        "fish-audio": mockFishAudioConfig,
+        deepgram: mockDeepgramConfig,
+        xai: mockXaiConfig,
+      },
+    },
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Fetch mock helpers
@@ -181,6 +174,7 @@ beforeEach(() => {
   mockSynthesizeWithFishAudio.mockClear();
   mockSynthesizeOverXaiTtsSocket.mockClear();
   mockSynthesizeOverXaiTtsSocket.mockImplementation(defaultXaiSocketImpl);
+  seedTtsConfig();
 });
 
 afterEach(() => {
@@ -318,6 +312,7 @@ describe("ElevenLabs TTS provider adapter", () => {
 
   test("uses configured voiceModelId when set", async () => {
     mockElevenLabsConfig.voiceModelId = "eleven_turbo_v2_5";
+    seedTtsConfig();
 
     const audioPayload = new Uint8Array([0x49, 0x44, 0x33]);
     let capturedBody = "";
@@ -552,6 +547,7 @@ describe("ElevenLabs TTS provider adapter", () => {
 
   test("synthesizeStream respects configured voiceModelId over flash default", async () => {
     mockElevenLabsConfig.voiceModelId = "eleven_turbo_v2_5";
+    seedTtsConfig();
     let capturedBody = "";
 
     globalThis.fetch = mock(
@@ -979,6 +975,7 @@ describe("Fish Audio TTS provider adapter", () => {
 
   test("explicit format request does not set a sample rate", async () => {
     mockFishAudioConfig.format = "wav";
+    seedTtsConfig();
     const provider = createFishAudioProvider();
     await provider.synthesize(makeRequest());
 
@@ -1011,6 +1008,7 @@ describe("Fish Audio TTS provider adapter", () => {
 
   test("returns audio/mpeg content type for mp3 format", async () => {
     mockFishAudioConfig.format = "mp3";
+    seedTtsConfig();
     const provider = createFishAudioProvider();
     const result = await provider.synthesize(makeRequest());
     expect(result.contentType).toBe("audio/mpeg");
@@ -1018,6 +1016,7 @@ describe("Fish Audio TTS provider adapter", () => {
 
   test("returns audio/wav content type for wav format", async () => {
     mockFishAudioConfig.format = "wav";
+    seedTtsConfig();
     const provider = createFishAudioProvider();
     const result = await provider.synthesize(makeRequest());
     expect(result.contentType).toBe("audio/wav");
@@ -1025,6 +1024,7 @@ describe("Fish Audio TTS provider adapter", () => {
 
   test("returns audio/opus content type for opus format", async () => {
     mockFishAudioConfig.format = "opus";
+    seedTtsConfig();
     const provider = createFishAudioProvider();
     const result = await provider.synthesize(makeRequest());
     expect(result.contentType).toBe("audio/opus");
@@ -1034,6 +1034,7 @@ describe("Fish Audio TTS provider adapter", () => {
 
   test("throws FISH_AUDIO_TTS_NO_REFERENCE_ID when no reference ID is available", async () => {
     mockFishAudioConfig.referenceId = "";
+    seedTtsConfig();
 
     const provider = createFishAudioProvider();
 
@@ -1051,6 +1052,7 @@ describe("Fish Audio TTS provider adapter", () => {
 
   test("throws FISH_AUDIO_TTS_NO_REFERENCE_ID in synthesizeStream when no reference ID", async () => {
     mockFishAudioConfig.referenceId = "";
+    seedTtsConfig();
 
     const provider = createFishAudioProvider();
 
@@ -1263,6 +1265,7 @@ describe("Deepgram TTS provider adapter", () => {
 
   test("translates wav config format to linear16 encoding with container=wav", async () => {
     mockDeepgramConfig.format = "wav";
+    seedTtsConfig();
     const audioPayload = new Uint8Array([0x52, 0x49, 0x46, 0x46]);
     let capturedUrl = "";
 
@@ -1282,6 +1285,7 @@ describe("Deepgram TTS provider adapter", () => {
 
   test("uses configured model", async () => {
     mockDeepgramConfig.model = "aura-luna-en";
+    seedTtsConfig();
     const audioPayload = new Uint8Array([0x49, 0x44, 0x33]);
     let capturedUrl = "";
 
@@ -1639,6 +1643,7 @@ describe("xAI TTS provider adapter", () => {
 
   test("uses configured voiceId when request has none", async () => {
     mockXaiConfig.voiceId = "ara";
+    seedTtsConfig();
     const audioPayload = new Uint8Array([0x49, 0x44, 0x33]);
     let capturedBody = "";
 
@@ -1658,6 +1663,7 @@ describe("xAI TTS provider adapter", () => {
 
   test("wav config format produces codec=wav without bit_rate", async () => {
     mockXaiConfig.format = "wav";
+    seedTtsConfig();
     const audioPayload = new Uint8Array([0x52, 0x49, 0x46, 0x46]);
     let capturedBody = "";
 

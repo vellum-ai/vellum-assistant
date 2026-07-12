@@ -30,47 +30,6 @@ const realPreflightModule = {
   ...(await import("../live-voice-credential-preflight.js")),
 };
 
-mock.module("../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
-mock.module("../../config/loader.js", () => {
-  const config = {
-    model: "test",
-    provider: "test",
-    platform: { baseUrl: "https://example.com" },
-    memory: { enabled: false },
-    rateLimit: { maxRequestsPerMinute: 0 },
-    secretDetection: { enabled: false },
-    contextWindow: { maxInputTokens: 200_000 },
-    services: {
-      stt: { provider: "deepgram" },
-      inference: {
-        mode: "your-own",
-        provider: "anthropic",
-        model: "claude-opus-4-6",
-      },
-      "image-generation": {
-        mode: "your-own",
-        provider: "gemini",
-        model: "gemini-3.1-flash-image-preview",
-      },
-      "web-search": {
-        mode: "your-own",
-        provider: "inference-provider-native",
-      },
-    },
-  };
-  return {
-    loadConfig: () => config,
-    getConfig: () => config,
-    invalidateConfigCache: () => {},
-  };
-});
-
 class MockStreamingTranscriber implements StreamingTranscriber {
   readonly providerId = "deepgram" as const;
   readonly boundaryId = "daemon-streaming" as const;
@@ -444,6 +403,13 @@ describe("RuntimeHttpServer live voice WebSocket shell", () => {
     await waitForOpen(ws);
 
     ws.send(startFrame("conversation-failed"));
+    // ready precedes the arm: the STT connection is established in the
+    // background, so its failure surfaces as a post-ready error frame.
+    const readyBeforeFailure = await waitForJsonFrame(ws);
+    expect(readyBeforeFailure).toMatchObject({
+      type: "ready",
+      conversationId: "conversation-failed",
+    });
     const error = await waitForJsonFrame(ws);
     expect(error).toMatchObject({
       type: "error",

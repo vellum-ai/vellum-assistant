@@ -11,7 +11,7 @@ import {
 } from "@/hooks/use-bookmarks";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 
-type MessageHoverActionsProps = {
+export type MessageHoverActionsProps = {
   /** The message whose text is copied and whose role/timestamp drive the row. */
   message: DisplayMessage;
   /** Conversation the message belongs to. Required for the bookmark toggle —

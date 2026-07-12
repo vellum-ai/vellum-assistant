@@ -80,18 +80,18 @@ export interface AssistantSideMenuProps extends UseSidebarStateParams {
   onArchiveAllInGroup?: (groupName: string, conversations: Conversation[]) => void;
   processingConversationIds?: Set<string>;
   activeConversationProcessing?: boolean;
-  onAnalyze?: (conversation: Conversation) => void;
   onOpenInNewWindow?: (conversation: Conversation) => void;
   onShareFeedback?: () => void;
   onInspect?: (conversation: Conversation) => void;
 }
 
-function SearchButton({ onClose }: { onClose?: () => void }) {
+function SearchButton() {
   const toggle = useCommandPaletteStore.use.toggle();
+  // Leaves the drawer open: the palette (fixed z-50) covers it, so dismissing
+  // search returns to the menu rather than the chat behind it.
   const handleClick = useCallback(() => {
-    onClose?.();
     toggle();
-  }, [onClose, toggle]);
+  }, [toggle]);
   return (
     <Button
       variant="ghost"
@@ -165,7 +165,6 @@ export function AssistantSideMenu({
   processingConversationIds,
   attentionConversationIds,
   activeConversationProcessing,
-  onAnalyze,
   onOpenInNewWindow,
   onShareFeedback,
   onInspect,
@@ -236,7 +235,6 @@ export function AssistantSideMenu({
     onUnarchive: onUnarchiveConversation,
     onMarkRead: onMarkConversationRead,
     onMarkUnread: onMarkConversationUnread,
-    onAnalyze,
     onOpenInNewWindow,
     onShareFeedback,
     onInspect,
@@ -341,14 +339,17 @@ export function AssistantSideMenu({
       >
         <SideMenu.Header>
           {variant === "overlay" ? (
-            <div className="flex items-center gap-2">
+            /* Close on the left, Search pinned to the right so it stays put
+               and always reads as the persistent search affordance
+               (Figma 6788:6749). */
+            <div className="flex items-center justify-between gap-2">
               <Button
                 variant="ghost"
                 iconOnly={<X />}
                 aria-label="Close navigation"
                 onClick={() => onClose?.()}
               />
-              <SearchButton onClose={onClose} />
+              <SearchButton />
             </div>
           ) : (
             builtInNav

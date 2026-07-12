@@ -170,6 +170,16 @@ export interface TurnTraceMessage {
    * modern rows are `ContentBlock[]`, legacy rows are a plain string.
    */
   content: unknown;
+  /**
+   * Model that served this row — the provider's `response.model`, carried on
+   * the agent loop's `message_complete` event and persisted with the row
+   * (`messages.metadata.model`); matches the turn's `llm_usage.model` and
+   * reflects per-call reroutes by a `pre-model-call` hook. Null on rows with
+   * no model call: user rows, tool-result rows, synthetic assistant rows
+   * (provider-error / yield notices), and historical rows persisted before the
+   * daemon began stamping the model.
+   */
+  model: string | null;
 }
 
 /**
@@ -198,8 +208,8 @@ export interface TurnTraceToolCall {
  * Full transcript of a single turn — the user message, assistant response
  * message(s), and the tool calls + results that occurred between this user
  * turn and the next real user turn. Attached to the turn telemetry event's
- * `trace` field ONLY when trace collection is enabled — the `trace-collection`
- * feature flag AND the owner's `share_diagnostics` consent must both be true.
+ * `trace` field ONLY when trace collection is enabled — the owner's
+ * `share_diagnostics` consent at an eligible accepted version.
  * The platform stores this verbatim as an opaque JSON column, so the daemon
  * owns the shape.
  *
@@ -220,10 +230,12 @@ export interface TurnTraceToolDefinition {
 
 export interface TurnTrace {
   /** Shape version so the platform/dbt can evolve parsing without ambiguity. */
-  schema_version: 2;
+  schema_version: 3;
   /**
    * Ordered message rows for the turn (the user message first, then assistant
    * responses and any tool-result rows), oldest-first by `(created_at, id)`.
+   * Model attribution is per message — each assistant row carries the model
+   * that served it on `TurnTraceMessage.model`.
    */
   messages: TurnTraceMessage[];
   /**
@@ -336,10 +348,9 @@ export interface TurnTelemetryEvent extends TelemetryEventBase {
   /**
    * Full per-turn transcript (user message + assistant responses + tool
    * calls/results). Present ONLY when trace collection is enabled — the daemon
-   * composes the gate itself from the `trace-collection` feature flag (delivered
-   * via the assistant-tagged flag sync, evaluated server-side for this
-   * assistant's owner) AND the owner's cached `share_diagnostics` consent, both
-   * of which must be true. Fail-closed: when either is off (or unknown) no trace
+   * composes the gate itself from the owner's cached `share_diagnostics`
+   * consent AND the accepted consent version being at or past the disclosing
+   * version. Fail-closed: when either is off (or unknown) no trace
    * is attached. The platform dual-writes consented traces into a separate PII
    * table and keeps the trace-free turn row; downstream consumers that don't
    * read traces ignore this field. Null / absent when the gate is off or the
@@ -480,6 +491,27 @@ export interface WatchdogTelemetryEvent extends TelemetryEventBase {
   detail: Record<string, unknown> | null;
 }
 
+/**
+ * Config-setting event — records a tracked config key's effective value.
+ * A single string:string pair on top of the standard envelope, mirroring
+ * the platform `ConfigSettingTelemetryEventSerializer`:
+ *
+ *   - `config_key` — dotted config path (e.g. `"memory.enabled"`).
+ *     Bounded server-side at 128 chars.
+ *   - `config_value` — the effective value rendered as a string
+ *     (`"true"` / `"false"` for booleans). Bounded server-side at 256
+ *     chars.
+ *
+ * Metadata only — emitters record an explicit allowlist of non-sensitive
+ * settings, never free-form config content. Dedupe downstream on
+ * `daemon_event_id` (the daemon retries a batch on transient POST failure).
+ */
+export interface ConfigSettingTelemetryEvent extends TelemetryEventBase {
+  type: "config_setting";
+  config_key: string;
+  config_value: string;
+}
+
 /** Discriminated union of all telemetry event types. */
 export type TelemetryEvent =
   | LlmUsageTelemetryEvent
@@ -489,4 +521,5 @@ export type TelemetryEvent =
   | AuthFallbackTelemetryEvent
   | ToolExecutedTelemetryEvent
   | SkillLoadedTelemetryEvent
-  | WatchdogTelemetryEvent;
+  | WatchdogTelemetryEvent
+  | ConfigSettingTelemetryEvent;

@@ -15,9 +15,11 @@
 import type { Command } from "commander";
 
 import { cliIpcCall, exitFromIpcResult } from "../../../ipc/cli-client.js";
+import { applyCommandHelp, subcommand } from "../../lib/cli-command-help.js";
 import { registerCommand } from "../../lib/register-command.js";
 import { log } from "../../logger.js";
 import { shouldOutputJson, writeOutput } from "../../output.js";
+import { channelsHelp } from "./index.help.js";
 
 // ---------------------------------------------------------------------------
 // Snapshot shape (mirrors runtime/routes/channel-readiness-routes.ts)
@@ -98,132 +100,80 @@ function renderSnapshot(s: ChannelSnapshot): void {
   }
 }
 
-/** All channel IDs the readiness service knows about. Mirrors channels/types.ts. */
-const KNOWN_CHANNELS = [
-  "telegram",
-  "phone",
-  "vellum",
-  "whatsapp",
-  "slack",
-  "email",
-  "platform",
-  "a2a",
-] as const;
-
 // ---------------------------------------------------------------------------
 // Command registration
 // ---------------------------------------------------------------------------
 
 export function registerChannelsCommand(program: Command): void {
   registerCommand(program, {
-    name: "channels",
+    name: channelsHelp.name,
     transport: "ipc",
-    description:
-      "Inspect and repair messaging channels (slack, telegram, email, etc.)",
+    description: channelsHelp.description,
     build: (channels) => {
-      channels.addHelpText(
-        "after",
-        `
-Channels are the messaging surfaces the assistant talks over — slack,
-telegram, whatsapp, email, phone, vellum, platform, a2a. Each channel
-has a probe that reports whether it's configured and reachable.
-
-  list                    Overview of every channel + ready state
-  get <channel>           Live snapshot of one channel (always re-probes)
-
-Examples:
-  $ assistant channels list
-  $ assistant channels get slack`,
-      );
+      applyCommandHelp(channels, channelsHelp);
 
       // -----------------------------------------------------------------------
       // list
       // -----------------------------------------------------------------------
 
-      channels
-        .command("list")
-        .description("Show readiness state for every configured channel")
-        .option("--json", "Machine-readable compact JSON output")
-        .option(
-          "--remote",
-          "Include remote checks (live network round-trip per channel)",
-          false,
-        )
-        .action(
-          async (
-            opts: { json?: boolean; remote?: boolean },
-            cmd: Command,
-          ) => {
-            const r = await cliIpcCall<ReadinessResponse>(
-              "channels_readiness_get",
-              {
-                queryParams: {
-                  includeRemote: opts.remote ? "true" : "false",
-                },
+      subcommand(channels, "list").action(
+        async (opts: { json?: boolean; remote?: boolean }, cmd: Command) => {
+          const r = await cliIpcCall<ReadinessResponse>(
+            "channels_readiness_get",
+            {
+              queryParams: {
+                includeRemote: opts.remote ? "true" : "false",
               },
+            },
+          );
+          if (!r.ok) {
+            return exitFromIpcResult(
+              { ok: false, error: r.error, statusCode: r.statusCode },
+              cmd,
             );
-            if (!r.ok) {
-              return exitFromIpcResult(
-                { ok: false, error: r.error, statusCode: r.statusCode },
-                cmd,
-              );
-            }
-            if (shouldOutputJson(cmd)) {
-              writeOutput(cmd, { snapshots: r.result!.snapshots });
-            } else {
-              renderList(r.result!.snapshots);
-            }
-          },
-        );
+          }
+          if (shouldOutputJson(cmd)) {
+            writeOutput(cmd, { snapshots: r.result!.snapshots });
+          } else {
+            renderList(r.result!.snapshots);
+          }
+        },
+      );
 
       // -----------------------------------------------------------------------
       // get — always live (invalidates cache + re-runs remote checks)
       // -----------------------------------------------------------------------
 
-      channels
-        .command("get")
-        .description(
-          "Live readiness snapshot for one channel (always re-probes; no caching)",
-        )
-        .argument(
-          "<channel>",
-          `Channel id: ${KNOWN_CHANNELS.join(", ")}`,
-        )
-        .option("--json", "Machine-readable compact JSON output")
-        .action(
-          async (
-            channel: string,
-            _opts: { json?: boolean },
-            cmd: Command,
-          ) => {
-            // `get` is always live: invalidate the cache and re-run remote
-            // checks. This matches what source code does when it needs to
-            // know the channel's current state — no stale snapshots.
-            const r = await cliIpcCall<ReadinessResponse>(
-              "channels_readiness_refresh_post",
-              { body: { channel, includeRemote: true } },
+      subcommand(channels, "get").action(
+        async (channel: string, _opts: { json?: boolean }, cmd: Command) => {
+          // `get` is always live: invalidate the cache and re-run remote
+          // checks. This matches what source code does when it needs to
+          // know the channel's current state — no stale snapshots.
+          const r = await cliIpcCall<ReadinessResponse>(
+            "channels_readiness_refresh_post",
+            { body: { channel, includeRemote: true } },
+          );
+          if (!r.ok) {
+            return exitFromIpcResult(
+              { ok: false, error: r.error, statusCode: r.statusCode },
+              cmd,
             );
-            if (!r.ok) {
-              return exitFromIpcResult(
-                { ok: false, error: r.error, statusCode: r.statusCode },
-                cmd,
-              );
-            }
-            const snapshot = r.result!.snapshots.find(
-              (s) => s.channel === channel,
-            );
-            if (!snapshot) {
-              log.error(`No readiness probe registered for channel: ${channel}`);
-              process.exitCode = 1;
-              return;
-            }
-            if (shouldOutputJson(cmd)) {
-              writeOutput(cmd, snapshot);
-            } else {
-              renderSnapshot(snapshot);
-            }
-          },
-        );
+          }
+          const snapshot = r.result!.snapshots.find(
+            (s) => s.channel === channel,
+          );
+          if (!snapshot) {
+            log.error(`No readiness probe registered for channel: ${channel}`);
+            process.exitCode = 1;
+            return;
+          }
+          if (shouldOutputJson(cmd)) {
+            writeOutput(cmd, snapshot);
+          } else {
+            renderSnapshot(snapshot);
+          }
+        },
+      );
     },
   });
 }

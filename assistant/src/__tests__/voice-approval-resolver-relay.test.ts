@@ -18,19 +18,13 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-  truncateForLog: (value: string) => value,
-}));
-
 type ActivateOutcome =
   | { status: "activated"; memberId: string; member: null }
   | { status: "refused" };
 
-let activateBehavior: () => Promise<ActivateOutcome> | ActivateOutcome = () => ({
+let activateBehavior: () =>
+  | Promise<ActivateOutcome>
+  | ActivateOutcome = () => ({
   status: "activated",
   memberId: "member-1",
   member: null,

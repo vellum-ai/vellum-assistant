@@ -26,6 +26,7 @@
 import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { setOverridesForTesting } from "../../__tests__/feature-flag-test-helpers.js";
+import { setConfig } from "../../__tests__/helpers/set-config.js";
 
 // Connection-routing plumbing over legacy-shaped fixtures (llm.default /
 // activeProfile-centric, no defaultProvider): pinned to the flag-off
@@ -39,21 +40,6 @@ beforeAll(() => {
 // ---------------------------------------------------------------------------
 // Module mocks (must be declared before the import-under-test).
 // ---------------------------------------------------------------------------
-
-mock.module("../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
-}));
-
-// Test fixtures for the mocked config loader.
-let mockLlmConfig: Record<string, unknown> = {};
-
-mock.module("../../config/loader.js", () => ({
-  getConfig: () => ({
-    llm: mockLlmConfig,
-    services: { inference: { mode: "your-own" } },
-  }),
-}));
 
 // Mock the DB getter — we never actually hit SQLite since `getConnection` is
 // also mocked. Returning a sentinel keeps the call signature satisfied.
@@ -111,7 +97,7 @@ import { getConfiguredProvider } from "../provider-send-message.js";
 // ---------------------------------------------------------------------------
 
 function setLlmConfig(c: Record<string, unknown>): void {
-  mockLlmConfig = c;
+  setConfig("llm", c);
 }
 
 function registerConnection(
@@ -126,7 +112,7 @@ function reset(): void {
   resolveProviderCalls.length = 0;
   fakeConnections.clear();
   fakeProviders.clear();
-  mockLlmConfig = {};
+  setConfig("llm", {});
 }
 
 // ---------------------------------------------------------------------------

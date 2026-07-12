@@ -38,7 +38,6 @@ import type { Conversation } from "@/types/conversation-types";
 
 export interface UseChatHeaderRegistrationOptions {
   assetsRefreshKey: number;
-  handleAnalyzeConversation: (conversation: Conversation) => Promise<void>;
   handleForkConversationFromMenu: () => void;
   handleOpenInNewWindow: (conversation: Conversation) => void;
   handleInspectConversation: (conversation: Conversation) => void;
@@ -48,7 +47,6 @@ export interface UseChatHeaderRegistrationOptions {
 
 export function useChatHeaderRegistration({
   assetsRefreshKey,
-  handleAnalyzeConversation,
   handleForkConversationFromMenu,
   handleOpenInNewWindow,
   handleInspectConversation,
@@ -116,7 +114,6 @@ export function useChatHeaderRegistration({
     hasPersistedMessage,
     channelHeaderLabel,
     channelHeaderChannelId,
-    onAnalyze: handleAnalyzeConversation,
     onForkConversation: handleForkConversationFromMenu,
     onOpenInNewWindow: handleOpenInNewWindow,
     onInspect: handleInspectConversation,
@@ -126,7 +123,6 @@ export function useChatHeaderRegistration({
     hasPersistedMessage,
     channelHeaderLabel,
     channelHeaderChannelId,
-    handleAnalyzeConversation,
     handleForkConversationFromMenu,
     handleOpenInNewWindow,
     handleInspectConversation,

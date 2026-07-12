@@ -10,25 +10,10 @@
  *   Auth   — 401 (missing key) and 403 (insufficient scope) via route-policy assertions
  */
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 
-// ── Module mocks (must come before imports) ──────────────────────────────────
-
-// Config is read by the DELETE handler to find referencing profiles/call-sites.
-let fakeConfig: Record<string, unknown> = {};
-mock.module("../../../config/loader.js", () => ({
-  getConfigReadOnly: () => fakeConfig,
-  getConfig: () => fakeConfig,
-  invalidateConfigCache: () => {},
-}));
-
-mock.module("../../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
-}));
-
-// ── Real imports (after mocks) ────────────────────────────────────────────────
-
+// ── Real imports ──────────────────────────────────────────────────────────────
+import { setConfig } from "../../../__tests__/helpers/set-config.js";
 import { LLMSchema } from "../../../config/schemas/llm.js";
 import { getDb } from "../../../persistence/db-connection.js";
 import { initializeDb } from "../../../persistence/db-init.js";
@@ -90,7 +75,7 @@ function seedConnection(opts: {
 
 beforeEach(() => {
   clearConnections();
-  fakeConfig = { llm: {} };
+  setConfig("llm", {});
 });
 
 // ── GET list ─────────────────────────────────────────────────────────────────
@@ -387,16 +372,14 @@ describe("DELETE inference/provider-connections/:name (delete)", () => {
       provider: "anthropic",
       auth: { type: "platform" },
     });
-    fakeConfig = {
-      llm: {
-        profiles: {
-          "my-profile": {
-            provider_connection: "ref-conn",
-            model: "claude-opus-4-7",
-          },
+    setConfig("llm", {
+      profiles: {
+        "my-profile": {
+          provider_connection: "ref-conn",
+          model: "claude-opus-4-7",
         },
       },
-    };
+    });
 
     const err = await call(
       findHandler("inference_provider_connections_delete"),
@@ -413,11 +396,9 @@ describe("DELETE inference/provider-connections/:name (delete)", () => {
       provider: "anthropic",
       auth: { type: "platform" },
     });
-    fakeConfig = {
-      llm: {
-        default: { provider_connection: "default-conn" },
-      },
-    };
+    setConfig("llm", {
+      default: { provider_connection: "default-conn" },
+    });
 
     const err = await call(
       findHandler("inference_provider_connections_delete"),
@@ -432,11 +413,9 @@ describe("DELETE inference/provider-connections/:name (delete)", () => {
     // Stale ref in config: llm.default points at a connection that was
     // already deleted. Delete on the dangling name must return 404 so
     // callers can distinguish stale config from active conflicts.
-    fakeConfig = {
-      llm: {
-        default: { provider_connection: "ghost-conn" },
-      },
-    };
+    setConfig("llm", {
+      default: { provider_connection: "ghost-conn" },
+    });
 
     await expect(
       call(findHandler("inference_provider_connections_delete"), {
@@ -451,12 +430,10 @@ describe("DELETE inference/provider-connections/:name (delete)", () => {
       provider: "anthropic",
       auth: { type: "none" },
     });
-    fakeConfig = {
-      llm: {
-        default: { provider_connection: "shared-conn" },
-        profiles: { "prof-a": { provider_connection: "shared-conn" } },
-      },
-    };
+    setConfig("llm", {
+      default: { provider_connection: "shared-conn" },
+      profiles: { "prof-a": { provider_connection: "shared-conn" } },
+    });
 
     // llm.default check fires first (before profiles check).
     const err = await call(
@@ -477,7 +454,7 @@ describe("DELETE guards the llm.defaultProvider reference", () => {
       provider: "anthropic",
       auth: { type: "platform" },
     });
-    fakeConfig = { llm: { defaultProvider: { provider: "anthropic" } } };
+    setConfig("llm", { defaultProvider: { provider: "anthropic" } });
 
     const err = await call(
       findHandler("inference_provider_connections_delete"),
@@ -497,11 +474,9 @@ describe("DELETE guards the llm.defaultProvider reference", () => {
       provider: "openai",
       auth: { type: "platform" },
     });
-    fakeConfig = {
-      llm: {
-        defaultProvider: { provider: "openai", connectionName: "my-conn" },
-      },
-    };
+    setConfig("llm", {
+      defaultProvider: { provider: "openai", connectionName: "my-conn" },
+    });
 
     await expect(
       call(findHandler("inference_provider_connections_delete"), {
@@ -519,7 +494,7 @@ describe("DELETE guards the llm.defaultProvider reference", () => {
       provider: "anthropic",
       auth: { type: "platform" },
     });
-    fakeConfig = { llm: { defaultProvider: { provider: "anthropic" } } };
+    setConfig("llm", { defaultProvider: { provider: "anthropic" } });
 
     const err = await call(
       findHandler("inference_provider_connections_delete"),
@@ -540,14 +515,12 @@ describe("DELETE guards the llm.defaultProvider reference", () => {
       provider: "anthropic",
       auth: { type: "platform" },
     });
-    fakeConfig = {
-      llm: {
-        defaultProvider: {
-          provider: "anthropic",
-          connectionName: "anthropic-personal",
-        },
+    setConfig("llm", {
+      defaultProvider: {
+        provider: "anthropic",
+        connectionName: "anthropic-personal",
       },
-    };
+    });
 
     const result = await call(
       findHandler("inference_provider_connections_delete"),
@@ -569,7 +542,7 @@ describe("DELETE guards the llm.defaultProvider reference", () => {
       provider: "anthropic",
       auth: { type: "platform" },
     });
-    fakeConfig = { llm: { defaultProvider: { provider: "anthropic" } } };
+    setConfig("llm", { defaultProvider: { provider: "anthropic" } });
 
     const err = await call(
       findHandler("inference_provider_connections_delete"),
@@ -593,7 +566,7 @@ describe("DELETE guards the llm.defaultProvider reference", () => {
       provider: "anthropic",
       auth: { type: "platform" },
     });
-    fakeConfig = { llm: { defaultProvider: { provider: "anthropic" } } };
+    setConfig("llm", { defaultProvider: { provider: "anthropic" } });
 
     const result = (await call(
       findHandler("inference_provider_connections_delete"),
@@ -608,7 +581,7 @@ describe("DELETE guards the llm.defaultProvider reference", () => {
       provider: "openai",
       auth: { type: "platform" },
     });
-    fakeConfig = { llm: { defaultProvider: { provider: "anthropic" } } };
+    setConfig("llm", { defaultProvider: { provider: "anthropic" } });
 
     const result = (await call(
       findHandler("inference_provider_connections_delete"),
@@ -625,7 +598,7 @@ describe("DELETE guards the llm.defaultProvider reference", () => {
     });
     // No "anthropic" rows exist at all — an already-dangling default is a
     // legal state; the guard must no-op rather than crash on an empty list.
-    fakeConfig = { llm: { defaultProvider: { provider: "anthropic" } } };
+    setConfig("llm", { defaultProvider: { provider: "anthropic" } });
 
     const result = (await call(
       findHandler("inference_provider_connections_delete"),
@@ -640,7 +613,7 @@ describe("DELETE guards the llm.defaultProvider reference", () => {
       provider: "openai",
       auth: { type: "platform" },
     });
-    fakeConfig = { llm: {} };
+    setConfig("llm", {});
 
     const result = (await call(
       findHandler("inference_provider_connections_delete"),
@@ -659,7 +632,7 @@ describe("DELETE guards the llm.defaultProvider reference", () => {
       defaultProvider: { provider: "not-a-provider" },
     });
     expect(parsed.defaultProvider).toBeUndefined();
-    fakeConfig = { llm: parsed };
+    setConfig("llm", parsed);
 
     const result = (await call(
       findHandler("inference_provider_connections_delete"),
@@ -674,7 +647,7 @@ describe("DELETE guards the llm.defaultProvider reference", () => {
       provider: "anthropic",
       auth: { type: "platform" },
     });
-    fakeConfig = { llm: { defaultProvider: { provider: "vellum" } } };
+    setConfig("llm", { defaultProvider: { provider: "vellum" } });
 
     const err = await call(
       findHandler("inference_provider_connections_delete"),
@@ -808,13 +781,11 @@ describe("Managed connection write protection", () => {
         provider: "anthropic",
         auth: { type: "platform" },
       });
-      fakeConfig = {
-        llm: {
-          profiles: {
-            balanced: { provider_connection: "vellum" },
-          },
+      setConfig("llm", {
+        profiles: {
+          balanced: { provider_connection: "vellum" },
         },
-      };
+      });
 
       const err = await call(
         findHandler("inference_provider_connections_delete"),

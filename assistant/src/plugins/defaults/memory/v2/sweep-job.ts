@@ -26,6 +26,7 @@ import {
   getAssistantName,
   getConfiguredProvider,
   resolveUserName,
+  stringifyMessageContent,
 } from "@vellumai/plugin-api";
 import { and, desc, eq, gt, notInArray } from "drizzle-orm";
 import { z } from "zod";
@@ -34,13 +35,10 @@ import type { AssistantConfig } from "../../../../config/types.js";
 import { emitNotificationSignal } from "../../../../notifications/emit-signal.js";
 import { getDb } from "../../../../persistence/db-connection.js";
 import type { MemoryJob } from "../../../../persistence/jobs-store.js";
-import { stringifyMessageContent } from "../../../../persistence/message-content.js";
 import {
   conversations,
   messages,
 } from "../../../../persistence/schema/index.js";
-import { getLogger } from "../../../../util/logger.js";
-import { getWorkspaceDir } from "../../../../util/platform.js";
 import {
   appendBufferAndArchive,
   formatRememberEntry,
@@ -50,6 +48,8 @@ import {
   type ToolDefinition,
   userMessage,
 } from "../llm-helpers.js";
+import { getLogger } from "../logging.js";
+import { getWorkspaceDir } from "../paths.js";
 import { renderSweepPrompt } from "./prompts/sweep.js";
 
 const log = getLogger("memory-v2-sweep");
@@ -245,7 +245,9 @@ function appendEntries(memoryDir: string, entries: string[]): number {
   let written = 0;
   for (const raw of entries) {
     const content = typeof raw === "string" ? raw.trim() : "";
-    if (!content) continue;
+    if (!content) {
+      continue;
+    }
     const now = new Date();
     const entry = formatRememberEntry(content, now);
     appendBufferAndArchive({ rootDir: memoryDir, entry, now });
@@ -267,7 +269,9 @@ function readBufferText(memoryDir: string): string {
   } catch {
     return "";
   }
-  if (text.length <= MAX_BUFFER_CHARS) return text;
+  if (text.length <= MAX_BUFFER_CHARS) {
+    return text;
+  }
   return text.slice(text.length - MAX_BUFFER_CHARS);
 }
 
@@ -296,6 +300,7 @@ function loadRecentMessagesText(nowMs: number): string {
     .innerJoin(conversations, eq(messages.conversationId, conversations.id))
     .where(
       and(
+        eq(messages.finalized, 1),
         gt(messages.createdAt, cutoff),
         notInArray(conversations.conversationType, ["background", "scheduled"]),
       ),
@@ -303,15 +308,21 @@ function loadRecentMessagesText(nowMs: number): string {
     .orderBy(desc(messages.createdAt))
     .limit(1000)
     .all();
-  if (rows.length === 0) return "";
+  if (rows.length === 0) {
+    return "";
+  }
 
   const lines: string[] = [];
   for (const row of rows) {
     const text = stringifyMessageContent(row.content);
-    if (!text) continue;
+    if (!text) {
+      continue;
+    }
     lines.push(`[${row.role}]: ${text}`);
   }
-  if (lines.length === 0) return "";
+  if (lines.length === 0) {
+    return "";
+  }
 
   // Reverse so the oldest message lands first — natural reading order.
   lines.reverse();

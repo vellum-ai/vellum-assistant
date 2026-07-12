@@ -12,22 +12,6 @@ mock.module("../permissions/trust-store.js", () => ({
   clearCache: () => {},
 }));
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-
-    provider: "mock-provider",
-    timeouts: { permissionTimeoutSec: 5 },
-    permissions: { mode: "workspace" },
-    skills: { load: { extraDirs: [] } },
-  }),
-}));
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
-}));
-
 mock.module("../security/redaction.js", () => ({
   redactSensitiveFields: (input: Record<string, unknown>) => input,
 }));
@@ -49,7 +33,6 @@ function makeContext(overrides?: Partial<ToolSetupContext>): ToolSetupContext {
     conversationId: "conv-test",
     workingDir: "/tmp/test-project",
     abortController: null,
-    memoryPolicy: { scopeId: "default" },
     sendToClient: () => {},
     surfacesByAppId: new Map(),
     ...overrides,

@@ -2,40 +2,25 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, mock, test } from "bun:test";
 
+import { setConfig } from "./helpers/set-config.js";
+
+// Seed the two non-catalog inference profiles these tests exercise: `disabled`
+// drives the "profile is disabled" spawn error, and `frontier` is the advisor
+// consult's default `advisorProfile`. The catalog profiles (balanced,
+// cost-optimized, quality-optimized) always resolve through the code catalog,
+// so they need no seeding.
+setConfig("llm", {
+  profiles: {
+    disabled: { status: "disabled" },
+    frontier: {},
+  },
+  advisorProfile: "frontier",
+});
+
 // Mock conversation-crud before importing tool executors that depend on it.
 let mockGetMessages: (
   conversationId: string,
-) => Array<{ role: string; content: string }> | null = () => null;
-const mockProfiles = {
-  balanced: {},
-  "cost-optimized": {},
-  disabled: { status: "disabled" },
-  "quality-optimized": {},
-  frontier: {},
-};
-// The advisor consult defaults to `llm.advisorProfile`. Set here so the
-// advisor tests can assert the default and an explicit `inference_profile`
-// override against the same shared config.
-const mockAdvisorProfile = "frontier";
-mock.module("../config/loader.js", () => ({
-  getConfigReadOnly: () => ({
-    llm: { profiles: mockProfiles },
-  }),
-  getConfig: () => ({
-    llm: {
-      default: {
-        provider: "anthropic",
-        provider_connection: "anthropic-managed",
-        model: "claude-opus-4-7",
-      },
-      profiles: mockProfiles,
-      advisorProfile: mockAdvisorProfile,
-    },
-    rateLimit: { maxRequestsPerMinute: 0 },
-    tools: { exclude: [] },
-    memory: { enabled: true },
-  }),
-}));
+) => Array<{ role: string; content: unknown }> | null = () => null;
 
 // Mock the conversation registry so the advisor consult can resolve a fake
 // parent conversation (snapshot messages + system prompt) without a live
@@ -79,6 +64,7 @@ mock.module("../persistence/conversation-crud.js", () => ({
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
+import { resolveMessageContentBlocks } from "../persistence/message-content-file.js";
 import { getSubagentManager } from "../subagent/index.js";
 import { SubagentAbortedError, SubagentManager } from "../subagent/manager.js";
 import type { SubagentState } from "../subagent/types.js";
@@ -848,18 +834,18 @@ describe("Subagent read tool", () => {
     injectSubagent(manager, subagentId, ownerConversation, "completed");
 
     mockGetMessages = (convId: string) => {
-      if (convId !== `conv-${subagentId}`) return null;
+      if (convId !== `conv-${subagentId}`) {
+        return null;
+      }
       return [
         { role: "user", content: "Do the thing" },
         {
           role: "assistant",
-          content: JSON.stringify([
-            { type: "text", text: "Here is the result" },
-          ]),
+          content: [{ type: "text", text: "Here is the result" }],
         },
         {
           role: "assistant",
-          content: JSON.stringify([{ type: "text", text: "And more details" }]),
+          content: [{ type: "text", text: "And more details" }],
         },
       ];
     };
@@ -883,8 +869,15 @@ describe("Subagent read tool", () => {
     injectSubagent(manager, subagentId, ownerConversation, "completed");
 
     mockGetMessages = (convId: string) => {
-      if (convId !== `conv-${subagentId}`) return null;
-      return [{ role: "assistant", content: "Plain text response" }];
+      if (convId !== `conv-${subagentId}`) {
+        return null;
+      }
+      return [
+        {
+          role: "assistant",
+          content: resolveMessageContentBlocks("Plain text response"),
+        },
+      ];
     };
 
     try {
@@ -905,9 +898,16 @@ describe("Subagent read tool", () => {
     injectSubagent(manager, subagentId, ownerConversation, "completed");
 
     mockGetMessages = (convId: string) => {
-      if (convId !== `conv-${subagentId}`) return null;
+      if (convId !== `conv-${subagentId}`) {
+        return null;
+      }
       return [
-        { role: "assistant", content: JSON.stringify("A JSON string value") },
+        {
+          role: "assistant",
+          content: resolveMessageContentBlocks(
+            JSON.stringify("A JSON string value"),
+          ),
+        },
       ];
     };
 
@@ -929,14 +929,16 @@ describe("Subagent read tool", () => {
     injectSubagent(manager, subagentId, ownerConversation, "completed");
 
     mockGetMessages = (convId: string) => {
-      if (convId !== `conv-${subagentId}`) return null;
+      if (convId !== `conv-${subagentId}`) {
+        return null;
+      }
       return [
         {
           role: "assistant",
-          content: JSON.stringify([
+          content: [
             { type: "tool_use", id: "tool-1", name: "bash", input: {} },
             { type: "text", text: "Actual output" },
-          ]),
+          ],
         },
       ];
     };
@@ -960,7 +962,9 @@ describe("Subagent read tool", () => {
     injectSubagent(manager, subagentId, ownerConversation, "completed");
 
     mockGetMessages = (convId: string) => {
-      if (convId !== `conv-${subagentId}`) return null;
+      if (convId !== `conv-${subagentId}`) {
+        return null;
+      }
       return [
         { role: "user", content: "Do something" },
         { role: "tool", content: "tool result" },
@@ -1019,13 +1023,13 @@ describe("Subagent read tool", () => {
     injectSubagent(manager, subagentId, ownerConversation, "failed");
 
     mockGetMessages = (convId: string) => {
-      if (convId !== `conv-${subagentId}`) return null;
+      if (convId !== `conv-${subagentId}`) {
+        return null;
+      }
       return [
         {
           role: "assistant",
-          content: JSON.stringify([
-            { type: "text", text: "Partial output before failure" },
-          ]),
+          content: [{ type: "text", text: "Partial output before failure" }],
         },
       ];
     };
@@ -1048,7 +1052,9 @@ describe("Subagent read tool", () => {
     injectSubagent(manager, subagentId, ownerConversation, "aborted");
 
     mockGetMessages = (convId: string) => {
-      if (convId !== `conv-${subagentId}`) return null;
+      if (convId !== `conv-${subagentId}`) {
+        return null;
+      }
       return [{ role: "assistant", content: "Output before abort" }];
     };
 
@@ -1070,7 +1076,9 @@ describe("Subagent read tool", () => {
     injectSubagent(manager, subagentId, ownerConversation, "completed");
 
     mockGetMessages = (convId: string) => {
-      if (convId !== `conv-${subagentId}`) return null;
+      if (convId !== `conv-${subagentId}`) {
+        return null;
+      }
       return [
         { role: "assistant", content: "First message" },
         { role: "assistant", content: "Second message" },
@@ -1096,7 +1104,9 @@ describe("Subagent read tool", () => {
     injectSubagent(manager, subagentId, ownerConversation, "completed");
 
     mockGetMessages = (convId: string) => {
-      if (convId !== `conv-${subagentId}`) return null;
+      if (convId !== `conv-${subagentId}`) {
+        return null;
+      }
       return [
         { role: "assistant", content: "First message" },
         { role: "assistant", content: "Second message" },
@@ -1122,7 +1132,9 @@ describe("Subagent read tool", () => {
     injectSubagent(manager, subagentId, ownerConversation, "completed");
 
     mockGetMessages = (convId: string) => {
-      if (convId !== `conv-${subagentId}`) return null;
+      if (convId !== `conv-${subagentId}`) {
+        return null;
+      }
       return [
         { role: "assistant", content: "First message" },
         { role: "assistant", content: "Second message" },
@@ -1150,7 +1162,9 @@ describe("Subagent read tool", () => {
     injectSubagent(manager, subagentId, ownerConversation, "completed");
 
     mockGetMessages = (convId: string) => {
-      if (convId !== `conv-${subagentId}`) return null;
+      if (convId !== `conv-${subagentId}`) {
+        return null;
+      }
       return [
         { role: "assistant", content: "First message" },
         { role: "assistant", content: "Second message" },
@@ -1175,7 +1189,9 @@ describe("Subagent read tool", () => {
     injectSubagent(manager, subagentId, ownerConversation, "completed");
 
     mockGetMessages = (convId: string) => {
-      if (convId !== `conv-${subagentId}`) return null;
+      if (convId !== `conv-${subagentId}`) {
+        return null;
+      }
       return [
         { role: "assistant", content: "First response" },
         { role: "user", content: "Follow up question" },
@@ -1208,7 +1224,9 @@ describe("Subagent read tool", () => {
     injectSubagent(manager, subagentId, ownerConversation, "completed");
 
     mockGetMessages = (convId: string) => {
-      if (convId !== `conv-${subagentId}`) return null;
+      if (convId !== `conv-${subagentId}`) {
+        return null;
+      }
       return [
         { role: "assistant", content: "First response" },
         { role: "user", content: "Follow up" },
@@ -1235,7 +1253,9 @@ describe("Subagent read tool", () => {
     injectSubagent(manager, subagentId, ownerConversation, "completed");
 
     mockGetMessages = (convId: string) => {
-      if (convId !== `conv-${subagentId}`) return null;
+      if (convId !== `conv-${subagentId}`) {
+        return null;
+      }
       return [
         { role: "assistant", content: "First response" },
         { role: "user", content: "Follow up" },
@@ -1262,7 +1282,9 @@ describe("Subagent read tool", () => {
     injectSubagent(manager, subagentId, ownerConversation, "completed");
 
     mockGetMessages = (convId: string) => {
-      if (convId !== `conv-${subagentId}`) return null;
+      if (convId !== `conv-${subagentId}`) {
+        return null;
+      }
       return [
         { role: "assistant", content: "First response" },
         { role: "assistant", content: "Second response" },
@@ -1290,7 +1312,9 @@ describe("Subagent read tool", () => {
     injectSubagent(manager, subagentId, ownerConversation, "completed");
 
     mockGetMessages = (convId: string) => {
-      if (convId !== `conv-${subagentId}`) return null;
+      if (convId !== `conv-${subagentId}`) {
+        return null;
+      }
       return [
         { role: "assistant", content: "First response" },
         { role: "assistant", content: "Second response" },
@@ -1428,13 +1452,13 @@ describe("Label-based subagent lookup", () => {
     });
 
     mockGetMessages = (convId: string) => {
-      if (convId !== `conv-${readSubId}`) return null;
+      if (convId !== `conv-${readSubId}`) {
+        return null;
+      }
       return [
         {
           role: "assistant",
-          content: JSON.stringify([
-            { type: "text", text: "Research findings here" },
-          ]),
+          content: [{ type: "text", text: "Research findings here" }],
         },
       ];
     };
@@ -1713,15 +1737,17 @@ describe("Subagent advisor-role consult", () => {
       getCurrentSystemPrompt: () => "SYS",
     });
     mockGetMessages = (convId: string) => {
-      if (convId !== "advisor-sess-3") return null;
+      if (convId !== "advisor-sess-3") {
+        return null;
+      }
       return [
         {
           role: "user",
-          content: JSON.stringify([{ type: "text", text: "Plan the work" }]),
+          content: [{ type: "text", text: "Plan the work" }],
         },
         {
           role: "assistant",
-          content: JSON.stringify([
+          content: [
             { type: "text", text: "My plan: step 1, step 2." },
             {
               type: "tool_use",
@@ -1729,7 +1755,7 @@ describe("Subagent advisor-role consult", () => {
               name: "subagent_spawn",
               input: {},
             },
-          ]),
+          ],
         },
       ];
     };

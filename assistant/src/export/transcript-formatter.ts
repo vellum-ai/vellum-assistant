@@ -1,13 +1,10 @@
 /**
- * Transcript formatter for conversation analysis.
- *
- * Builds a markdown transcript of a conversation, including inline
- * subagent conversation sections when present in message metadata.
+ * Markdown transcript formatting for conversation messages, including
+ * inline subagent conversation sections when present in message metadata.
  */
 
 import { formatLocalTimestamp } from "../daemon/date-context.js";
 import {
-  getConversation,
   getMessages,
   parseMessageMetadata,
 } from "../persistence/conversation-crud.js";
@@ -24,7 +21,7 @@ interface ContentBlock {
   source?: { media_type?: string; filename?: string };
 }
 
-function extractAnalysisText(blocks: ContentBlock[]): string {
+function extractTranscriptText(blocks: ContentBlock[]): string {
   const parts: string[] = [];
   for (const block of blocks) {
     switch (block.type) {
@@ -97,7 +94,7 @@ function formatSubagentMessages(
     const role = formatRole(msg.role, options);
     const time = formatLocalTimestamp(msg.createdAt, options.timeZone);
     const content = parseContent(msg.content);
-    const text = extractAnalysisText(content);
+    const text = extractTranscriptText(content);
     if (text) {
       lines.push(`> **${role}** (${time})`);
       for (const line of text.split("\n")) {
@@ -109,7 +106,10 @@ function formatSubagentMessages(
   return lines.join("\n");
 }
 
-function parseContent(raw: string): ContentBlock[] {
+function parseContent(raw: string | unknown[]): ContentBlock[] {
+  if (Array.isArray(raw)) {
+    return raw as ContentBlock[];
+  }
   try {
     return JSON.parse(raw) as ContentBlock[];
   } catch {
@@ -123,14 +123,10 @@ type TranscriptMessage = ReturnType<typeof getMessages>[number];
  * Format a slice of messages as a transcript body (no top-of-conversation
  * header). Used by background jobs that process incremental slices — the
  * memory-retrospective job re-renders only the messages added since its
- * last successful run rather than the whole conversation. The per-message
- * structural shape matches `buildAnalysisTranscript` (header line, body,
- * optional subagent block) so downstream agents see consistent framing.
- * The participant *labels*, however, intentionally diverge: this function
- * honors `TranscriptFormatOptions` so the memory-retrospective prompt can
- * render the conversation under the assistant and user display names,
- * while `buildAnalysisTranscript` always uses generic "User"/"Assistant"
- * labels for the analyze-conversation flow.
+ * last successful run rather than the whole conversation. Each message
+ * renders as a header line, body, and optional subagent block; participant
+ * labels honor `TranscriptFormatOptions` so the memory-retrospective prompt
+ * can render the conversation under the assistant and user display names.
  */
 export function formatMessageSliceForTranscript(
   messages: TranscriptMessage[],
@@ -190,34 +186,11 @@ function appendMessageBlock(
   const role = formatRole(msg.role, options);
   const time = formatLocalTimestamp(msg.createdAt, options.timeZone);
   const content = parseContent(msg.content);
-  const text = extractAnalysisText(content);
+  const text = extractTranscriptText(content);
 
   lines.push(`## ${role} (${time})`);
   lines.push(text);
   lines.push("");
 
   appendSubagentSection(lines, msg, { timeZone: options.timeZone });
-}
-
-export function buildAnalysisTranscript(conversationId: string): string {
-  const conversation = getConversation(conversationId);
-  if (!conversation) {
-    return `# Conversation not found: ${conversationId}\n`;
-  }
-
-  const title = conversation.title ?? "Untitled";
-  const lines: string[] = [];
-
-  lines.push(`# Conversation: ${title}`);
-  lines.push(`Created: ${formatLocalTimestamp(conversation.createdAt)}`);
-  lines.push("");
-
-  // Analyze-conversation flow renders under generic "User"/"Assistant" labels,
-  // so no options are threaded through (see `formatMessageSliceForTranscript`
-  // for the display-name variant).
-  for (const msg of getMessages(conversationId)) {
-    appendMessageBlock(lines, msg);
-  }
-
-  return lines.join("\n");
 }

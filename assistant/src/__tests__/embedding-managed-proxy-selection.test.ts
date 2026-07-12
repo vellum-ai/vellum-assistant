@@ -13,14 +13,6 @@ import { credentialKey } from "../security/credential-key.js";
 // Mocks — must be before importing the module under test
 // ---------------------------------------------------------------------------
 
-// Suppress logger output
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // Mutable state for managed proxy context
 let mockPlatformBaseUrl = "";
 let mockAssistantApiKey: string | null = null;

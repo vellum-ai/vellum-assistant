@@ -6,7 +6,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 // ---------------------------------------------------------------------------
 // Mocks — declared before imports that depend on platform/logger
@@ -29,27 +29,6 @@ function ensureTestDir(): void {
     }
   }
 }
-
-function makeLoggerStub(): Record<string, unknown> {
-  const stub: Record<string, unknown> = {};
-  for (const m of [
-    "info",
-    "warn",
-    "error",
-    "debug",
-    "trace",
-    "fatal",
-    "silent",
-    "child",
-  ]) {
-    stub[m] = m === "child" ? () => makeLoggerStub() : () => {};
-  }
-  return stub;
-}
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () => makeLoggerStub(),
-}));
 
 import { invalidateConfigCache, loadConfig } from "../config/loader.js";
 import {
@@ -734,6 +713,7 @@ describe("AssistantConfigSchema", () => {
       turnCommitMaxWaitMs: 4000,
       failureBackoffBaseMs: 2000,
       failureBackoffMaxMs: 60000,
+      maxFileSizeBytes: 256000,
       interactiveGitTimeoutMs: 10000,
       enrichmentQueueSize: 50,
       enrichmentConcurrency: 1,
@@ -877,6 +857,7 @@ describe("AssistantConfigSchema", () => {
         language: "en-US",
         interruptSensitivity: "low",
         telephonyStreaming: true,
+        utteranceEndMs: 1000,
       },
       callerIdentity: {
         allowPerCallOverride: true,
@@ -917,6 +898,7 @@ describe("AssistantConfigSchema", () => {
         speechEnergyThreshold: 800,
         silenceThresholdMs: 800,
         maxTurnDurationMs: 30000,
+        bargeInMinSpeechMs: 60,
       },
       maxSessionDurationSeconds: 1800,
     });
@@ -926,16 +908,42 @@ describe("AssistantConfigSchema", () => {
     const result = AssistantConfigSchema.parse({
       liveVoice: {
         mode: "ptt",
-        vad: { speechEnergyThreshold: 1500, silenceThresholdMs: 1000 },
+        vad: {
+          speechEnergyThreshold: 1500,
+          silenceThresholdMs: 1000,
+          bargeInMinSpeechMs: 120,
+        },
         maxSessionDurationSeconds: 900,
       },
     });
     expect(result.liveVoice.mode).toBe("ptt");
     expect(result.liveVoice.vad.speechEnergyThreshold).toBe(1500);
     expect(result.liveVoice.vad.silenceThresholdMs).toBe(1000);
+    expect(result.liveVoice.vad.bargeInMinSpeechMs).toBe(120);
     // Unspecified vad fields still get defaults
     expect(result.liveVoice.vad.maxTurnDurationMs).toBe(30000);
     expect(result.liveVoice.maxSessionDurationSeconds).toBe(900);
+  });
+
+  test("accepts a liveVoice.vad.bargeInMinSpeechMs of 0 (guard disabled)", () => {
+    const result = AssistantConfigSchema.parse({
+      liveVoice: { vad: { bargeInMinSpeechMs: 0 } },
+    });
+    expect(result.liveVoice.vad.bargeInMinSpeechMs).toBe(0);
+  });
+
+  test("rejects negative liveVoice.vad.bargeInMinSpeechMs", () => {
+    const result = AssistantConfigSchema.safeParse({
+      liveVoice: { vad: { bargeInMinSpeechMs: -1 } },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  test("rejects non-integer liveVoice.vad.bargeInMinSpeechMs", () => {
+    const result = AssistantConfigSchema.safeParse({
+      liveVoice: { vad: { bargeInMinSpeechMs: 60.5 } },
+    });
+    expect(result.success).toBe(false);
   });
 
   test("accepts partial calls config with defaults for missing fields", () => {
@@ -1015,6 +1023,7 @@ describe("AssistantConfigSchema", () => {
     expect(result.calls.voice.language).toBe("en-US");
     expect(result.calls.voice.interruptSensitivity).toBe("low");
     expect(result.calls.voice.telephonyStreaming).toBe(true);
+    expect(result.calls.voice.utteranceEndMs).toBe(1000);
   });
 
   test("accepts valid calls.voice overrides", () => {
@@ -1023,11 +1032,35 @@ describe("AssistantConfigSchema", () => {
         voice: {
           language: "es-ES",
           telephonyStreaming: false,
+          utteranceEndMs: 2500,
         },
       },
     });
     expect(result.calls.voice.language).toBe("es-ES");
     expect(result.calls.voice.telephonyStreaming).toBe(false);
+    expect(result.calls.voice.utteranceEndMs).toBe(2500);
+  });
+
+  test("rejects calls.voice.utteranceEndMs outside the 1000-5000 range", () => {
+    for (const utteranceEndMs of [999, 5001]) {
+      const result = AssistantConfigSchema.safeParse({
+        calls: { voice: { utteranceEndMs } },
+      });
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        const msgs = result.error.issues.map((i) => i.message);
+        expect(msgs.some((m) => m.includes("calls.voice.utteranceEndMs"))).toBe(
+          true,
+        );
+      }
+    }
+  });
+
+  test("rejects non-integer calls.voice.utteranceEndMs", () => {
+    const result = AssistantConfigSchema.safeParse({
+      calls: { voice: { utteranceEndMs: 1000.5 } },
+    });
+    expect(result.success).toBe(false);
   });
 
   test("rejects non-boolean calls.voice.telephonyStreaming", () => {
@@ -1328,16 +1361,21 @@ describe("AssistantConfigSchema", () => {
     expect(result.services.tts.providers.deepgram.format).toBe("opus");
   });
 
-  test("rejects services.tts.mode = managed", () => {
+  test("accepts services.tts.mode = managed", () => {
     const result = AssistantConfigSchema.safeParse({
       services: { tts: { mode: "managed" } },
+    });
+    expect(result.success).toBe(true);
+  });
+
+  test("rejects tts provider vellum outside managed mode", () => {
+    const result = AssistantConfigSchema.safeParse({
+      services: { tts: { mode: "your-own", provider: "vellum" } },
     });
     expect(result.success).toBe(false);
     if (!result.success) {
       const msgs = result.error.issues.map((i) => i.message);
-      expect(
-        msgs.some((m) => m.includes("your-own") || m.includes("managed")),
-      ).toBe(true);
+      expect(msgs.some((m) => m.includes("managed"))).toBe(true);
     }
   });
 
@@ -1399,14 +1437,14 @@ describe("AssistantConfigSchema", () => {
     }
   });
 
-  test("services.tts.mode only accepts your-own as literal", () => {
+  test("services.tts.mode accepts your-own and managed", () => {
     // Explicit your-own should work
     const valid = TtsServiceSchema.safeParse({ mode: "your-own" });
     expect(valid.success).toBe(true);
 
-    // managed should be rejected
-    const invalid = TtsServiceSchema.safeParse({ mode: "managed" });
-    expect(invalid.success).toBe(false);
+    // managed is supported; the BYOK provider choice is preserved
+    const managed = TtsServiceSchema.safeParse({ mode: "managed" });
+    expect(managed.success).toBe(true);
 
     // Any other string should be rejected
     const invalid2 = TtsServiceSchema.safeParse({ mode: "self-hosted" });
@@ -1486,16 +1524,21 @@ describe("AssistantConfigSchema", () => {
     });
   });
 
-  test("rejects services.stt.mode = managed", () => {
+  test("accepts services.stt.mode = managed with a provider", () => {
     const result = AssistantConfigSchema.safeParse({
-      services: { stt: { mode: "managed" } },
+      services: { stt: { mode: "managed", provider: "deepgram" } },
+    });
+    expect(result.success).toBe(true);
+  });
+
+  test("rejects provider vellum outside managed mode", () => {
+    const result = AssistantConfigSchema.safeParse({
+      services: { stt: { mode: "your-own", provider: "vellum" } },
     });
     expect(result.success).toBe(false);
     if (!result.success) {
       const msgs = result.error.issues.map((i) => i.message);
-      expect(
-        msgs.some((m) => m.includes("your-own") || m.includes("managed")),
-      ).toBe(true);
+      expect(msgs.some((m) => m.includes("managed"))).toBe(true);
     }
   });
 
@@ -1574,7 +1617,7 @@ describe("AssistantConfigSchema", () => {
     expect(result.success).toBe(false);
   });
 
-  test("services.stt.mode only accepts your-own as literal", () => {
+  test("services.stt.mode accepts your-own and managed", () => {
     // Explicit your-own should work
     const valid = SttServiceSchema.safeParse({
       mode: "your-own",
@@ -1582,12 +1625,12 @@ describe("AssistantConfigSchema", () => {
     });
     expect(valid.success).toBe(true);
 
-    // managed should be rejected
-    const invalid = SttServiceSchema.safeParse({
+    // managed is supported; the BYOK provider choice is preserved
+    const managed = SttServiceSchema.safeParse({
       mode: "managed",
       provider: "openai-whisper",
     });
-    expect(invalid.success).toBe(false);
+    expect(managed.success).toBe(true);
 
     // Any other string should be rejected
     const invalid2 = SttServiceSchema.safeParse({
@@ -1759,15 +1802,25 @@ describe("resolveTtsConfig", () => {
 // ---------------------------------------------------------------------------
 
 describe("TTS provider catalog integration", () => {
-  test("TTS_PROVIDER_IDS matches catalog provider IDs", () => {
+  test("TTS_PROVIDER_IDS matches catalog provider IDs plus hidden providers", () => {
     const catalogIds = listCatalogProviderIds();
-    expect([...TTS_PROVIDER_IDS]).toEqual(catalogIds);
+    // Every displayed provider is a canonical ID…
+    for (const id of catalogIds) {
+      expect(TTS_PROVIDER_IDS).toContain(id);
+    }
+    // …and the only canonical ID hidden from the display catalog is
+    // vellum: managed mode is selected via services.tts.mode, not the
+    // provider picker.
+    const hidden = TTS_PROVIDER_IDS.filter((id) => !catalogIds.includes(id));
+    expect(hidden).toEqual(["vellum"]);
   });
 
   test("schema accepts all catalog provider IDs as services.tts.provider", () => {
     for (const providerId of listCatalogProviderIds()) {
+      // vellum is connection-based and only valid under managed mode.
+      const mode = providerId === "vellum" ? "managed" : "your-own";
       const result = AssistantConfigSchema.safeParse({
-        services: { tts: { provider: providerId } },
+        services: { tts: { mode, provider: providerId } },
       });
       expect(result.success).toBe(true);
       if (result.success) {
@@ -1786,13 +1839,21 @@ describe("TTS provider catalog integration", () => {
 
   test("resolveTtsConfig returns correct defaults for each catalog provider", () => {
     for (const providerId of listCatalogProviderIds()) {
+      // vellum is connection-based and only valid under managed mode.
+      const mode = providerId === "vellum" ? "managed" : "your-own";
       const config = AssistantConfigSchema.parse({
-        services: { tts: { provider: providerId } },
+        services: { tts: { mode, provider: providerId } },
       });
       const resolved = resolveTtsConfig(config);
       expect(resolved.provider).toBe(providerId);
-      // Every catalog provider should resolve to a non-empty config object
-      expect(Object.keys(resolved.providerConfig).length).toBeGreaterThan(0);
+      if (providerId === "vellum") {
+        // The vellum config block is intentionally empty — the platform
+        // pins the voice and model.
+        expect(resolved.providerConfig).toEqual({});
+      } else {
+        // Every BYOK provider resolves to a non-empty config object.
+        expect(Object.keys(resolved.providerConfig).length).toBeGreaterThan(0);
+      }
     }
   });
 

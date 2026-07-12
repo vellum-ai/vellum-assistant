@@ -205,6 +205,90 @@
       "defaultModel": "gpt-5.5",
       "models": [
         {
+          "id": "gpt-5.6-sol",
+          "displayName": "GPT-5.6 Sol",
+          "contextWindowTokens": 1050000,
+          "maxOutputTokens": 128000,
+          "defaultContextWindowTokens": 200000,
+          "longContextPricingThresholdTokens": 272000,
+          "longContextMode": "native-model",
+          "supportsThinking": true,
+          "supportsCaching": true,
+          "supportsVision": true,
+          "supportsToolUse": true,
+          "pricing": {
+            "inputPer1mTokens": 5,
+            "outputPer1mTokens": 30,
+            "cacheWritePer1mTokens": 6.25,
+            "cacheReadPer1mTokens": 0.5,
+            "tiers": [
+              {
+                "inputTokenThreshold": 272000,
+                "inputPer1mTokens": 10,
+                "outputPer1mTokens": 45,
+                "cacheWritePer1mTokens": 12.5,
+                "cacheReadPer1mTokens": 1
+              }
+            ]
+          }
+        },
+        {
+          "id": "gpt-5.6-terra",
+          "displayName": "GPT-5.6 Terra",
+          "contextWindowTokens": 1050000,
+          "maxOutputTokens": 128000,
+          "defaultContextWindowTokens": 200000,
+          "longContextPricingThresholdTokens": 272000,
+          "longContextMode": "native-model",
+          "supportsThinking": true,
+          "supportsCaching": true,
+          "supportsVision": true,
+          "supportsToolUse": true,
+          "pricing": {
+            "inputPer1mTokens": 2.5,
+            "outputPer1mTokens": 15,
+            "cacheWritePer1mTokens": 3.125,
+            "cacheReadPer1mTokens": 0.25,
+            "tiers": [
+              {
+                "inputTokenThreshold": 272000,
+                "inputPer1mTokens": 5,
+                "outputPer1mTokens": 22.5,
+                "cacheWritePer1mTokens": 6.25,
+                "cacheReadPer1mTokens": 0.5
+              }
+            ]
+          }
+        },
+        {
+          "id": "gpt-5.6-luna",
+          "displayName": "GPT-5.6 Luna",
+          "contextWindowTokens": 1050000,
+          "maxOutputTokens": 128000,
+          "defaultContextWindowTokens": 200000,
+          "longContextPricingThresholdTokens": 272000,
+          "longContextMode": "native-model",
+          "supportsThinking": true,
+          "supportsCaching": true,
+          "supportsVision": true,
+          "supportsToolUse": true,
+          "pricing": {
+            "inputPer1mTokens": 1,
+            "outputPer1mTokens": 6,
+            "cacheWritePer1mTokens": 1.25,
+            "cacheReadPer1mTokens": 0.1,
+            "tiers": [
+              {
+                "inputTokenThreshold": 272000,
+                "inputPer1mTokens": 2,
+                "outputPer1mTokens": 9,
+                "cacheWritePer1mTokens": 2.5,
+                "cacheReadPer1mTokens": 0.2
+              }
+            ]
+          }
+        },
+        {
           "id": "gpt-5.5",
           "displayName": "GPT-5.5",
           "contextWindowTokens": 1050000,
@@ -939,6 +1023,174 @@
             "outputPer1mTokens": 5,
             "cacheWritePer1mTokens": 1.25,
             "cacheReadPer1mTokens": 0.1
+          }
+        },
+        {
+          "id": "openai/gpt-5.6-sol",
+          "displayName": "GPT-5.6 Sol",
+          "contextWindowTokens": 1050000,
+          "maxOutputTokens": 128000,
+          "defaultContextWindowTokens": 200000,
+          "longContextPricingThresholdTokens": 272000,
+          "longContextMode": "native-model",
+          "supportsThinking": true,
+          "supportsCaching": true,
+          "supportsVision": true,
+          "supportsToolUse": true,
+          "pricing": {
+            "inputPer1mTokens": 5,
+            "outputPer1mTokens": 30,
+            "cacheWritePer1mTokens": 6.25,
+            "cacheReadPer1mTokens": 0.5,
+            "tiers": [
+              {
+                "inputTokenThreshold": 272000,
+                "inputPer1mTokens": 10,
+                "outputPer1mTokens": 45,
+                "cacheWritePer1mTokens": 12.5,
+                "cacheReadPer1mTokens": 1
+              }
+            ]
+          }
+        },
+        {
+          "id": "openai/gpt-5.6-sol-pro",
+          "displayName": "GPT-5.6 Sol Pro",
+          "contextWindowTokens": 1050000,
+          "maxOutputTokens": 128000,
+          "defaultContextWindowTokens": 200000,
+          "longContextPricingThresholdTokens": 272000,
+          "longContextMode": "native-model",
+          "supportsThinking": true,
+          "supportsCaching": true,
+          "supportsVision": true,
+          "supportsToolUse": true,
+          "pricing": {
+            "inputPer1mTokens": 5,
+            "outputPer1mTokens": 30,
+            "cacheWritePer1mTokens": 6.25,
+            "cacheReadPer1mTokens": 0.5,
+            "tiers": [
+              {
+                "inputTokenThreshold": 272000,
+                "inputPer1mTokens": 10,
+                "outputPer1mTokens": 45,
+                "cacheWritePer1mTokens": 12.5,
+                "cacheReadPer1mTokens": 1
+              }
+            ]
+          }
+        },
+        {
+          "id": "openai/gpt-5.6-terra",
+          "displayName": "GPT-5.6 Terra",
+          "contextWindowTokens": 1050000,
+          "maxOutputTokens": 128000,
+          "defaultContextWindowTokens": 200000,
+          "longContextPricingThresholdTokens": 272000,
+          "longContextMode": "native-model",
+          "supportsThinking": true,
+          "supportsCaching": true,
+          "supportsVision": true,
+          "supportsToolUse": true,
+          "pricing": {
+            "inputPer1mTokens": 2.5,
+            "outputPer1mTokens": 15,
+            "cacheWritePer1mTokens": 3.125,
+            "cacheReadPer1mTokens": 0.25,
+            "tiers": [
+              {
+                "inputTokenThreshold": 272000,
+                "inputPer1mTokens": 5,
+                "outputPer1mTokens": 22.5,
+                "cacheWritePer1mTokens": 6.25,
+                "cacheReadPer1mTokens": 0.5
+              }
+            ]
+          }
+        },
+        {
+          "id": "openai/gpt-5.6-terra-pro",
+          "displayName": "GPT-5.6 Terra Pro",
+          "contextWindowTokens": 1050000,
+          "maxOutputTokens": 128000,
+          "defaultContextWindowTokens": 200000,
+          "longContextPricingThresholdTokens": 272000,
+          "longContextMode": "native-model",
+          "supportsThinking": true,
+          "supportsCaching": true,
+          "supportsVision": true,
+          "supportsToolUse": true,
+          "pricing": {
+            "inputPer1mTokens": 2.5,
+            "outputPer1mTokens": 15,
+            "cacheWritePer1mTokens": 3.125,
+            "cacheReadPer1mTokens": 0.25,
+            "tiers": [
+              {
+                "inputTokenThreshold": 272000,
+                "inputPer1mTokens": 5,
+                "outputPer1mTokens": 22.5,
+                "cacheWritePer1mTokens": 6.25,
+                "cacheReadPer1mTokens": 0.5
+              }
+            ]
+          }
+        },
+        {
+          "id": "openai/gpt-5.6-luna",
+          "displayName": "GPT-5.6 Luna",
+          "contextWindowTokens": 1050000,
+          "maxOutputTokens": 128000,
+          "defaultContextWindowTokens": 200000,
+          "longContextPricingThresholdTokens": 272000,
+          "longContextMode": "native-model",
+          "supportsThinking": true,
+          "supportsCaching": true,
+          "supportsVision": true,
+          "supportsToolUse": true,
+          "pricing": {
+            "inputPer1mTokens": 1,
+            "outputPer1mTokens": 6,
+            "cacheWritePer1mTokens": 1.25,
+            "cacheReadPer1mTokens": 0.1,
+            "tiers": [
+              {
+                "inputTokenThreshold": 272000,
+                "inputPer1mTokens": 2,
+                "outputPer1mTokens": 9,
+                "cacheWritePer1mTokens": 2.5,
+                "cacheReadPer1mTokens": 0.2
+              }
+            ]
+          }
+        },
+        {
+          "id": "openai/gpt-5.6-luna-pro",
+          "displayName": "GPT-5.6 Luna Pro",
+          "contextWindowTokens": 1050000,
+          "maxOutputTokens": 128000,
+          "defaultContextWindowTokens": 200000,
+          "longContextPricingThresholdTokens": 272000,
+          "longContextMode": "native-model",
+          "supportsThinking": true,
+          "supportsCaching": true,
+          "supportsVision": true,
+          "supportsToolUse": true,
+          "pricing": {
+            "inputPer1mTokens": 1,
+            "outputPer1mTokens": 6,
+            "cacheWritePer1mTokens": 1.25,
+            "cacheReadPer1mTokens": 0.1,
+            "tiers": [
+              {
+                "inputTokenThreshold": 272000,
+                "inputPer1mTokens": 2,
+                "outputPer1mTokens": 9,
+                "cacheWritePer1mTokens": 2.5,
+                "cacheReadPer1mTokens": 0.2
+              }
+            ]
           }
         },
         {

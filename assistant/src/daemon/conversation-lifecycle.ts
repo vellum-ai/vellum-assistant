@@ -20,7 +20,6 @@ import { enqueueMemoryRetrospectiveIfEnabled } from "../plugins/defaults/memory/
 import type { ContentBlock, Message } from "../providers/types.js";
 import { type TrustClass } from "../runtime/actor-trust-resolver.js";
 import { resolveCapabilities } from "../runtime/capabilities.js";
-import { enqueueAutoAnalysisIfEnabled } from "../runtime/services/auto-analysis-enqueue.js";
 import { isAutoAnalysisConversation } from "../runtime/services/auto-analysis-guard.js";
 import { unregisterConversationSender } from "../tools/browser/browser-screencast.js";
 import { disposeToolProfiler } from "../tools/tool-profiler.js";
@@ -222,7 +221,6 @@ export function disposeConversation(ctx: DisposeContext): void {
         try {
           enqueueMemoryJob("graph_extract", {
             conversationId: ctx.conversationId,
-            scopeId: "default",
             ...(ctx.activeContextNodeIds?.length
               ? { activeContextNodeIds: ctx.activeContextNodeIds }
               : {}),
@@ -248,18 +246,6 @@ export function disposeConversation(ctx: DisposeContext): void {
       } catch {
         // Best-effort — don't block conversation disposal
       }
-    }
-
-    try {
-      // `enqueueAutoAnalysisIfEnabled` has its own internal recursion guard
-      // (it checks `isAutoAnalysisConversation()`), so it's safe to call
-      // unconditionally here.
-      enqueueAutoAnalysisIfEnabled({
-        conversationId: ctx.conversationId,
-        trigger: "lifecycle",
-      });
-    } catch {
-      // Best-effort — don't block conversation disposal
     }
   }
 

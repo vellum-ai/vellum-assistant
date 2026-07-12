@@ -21,16 +21,20 @@ export interface ForkConversationMemoryInput {
   sourceConversationId: string;
   forkId: string;
   /**
-   * Full-history fork (the child contains every source message). When false the
-   * fork is truncated and per-conversation memory state is re-derived from the
-   * child's visible window instead of copied wholesale.
+   * True when the fork branches from the source's tip: its rendered window
+   * equals the source's, so per-conversation memory state is carried
+   * wholesale. When false the fork is truncated and state is re-derived from
+   * the child's visible window instead.
    */
   isFullHistoryFork: boolean;
   /** The copied messages, in order. Only `id` and `metadata` are read. */
   messagesToCopy: ReadonlyArray<{ id: string; metadata: string | null }>;
   /** Map of source message id → forked message id. */
   forkedMessageIds: Map<string, string>;
-  /** Count of inherited messages behind the fork's compaction boundary. */
+  /**
+   * Count of leading `messagesToCopy` entries behind the fork's compaction
+   * boundary (0 when the copied range already starts at the visible window).
+   */
   inheritedCompactedMessageCount: number;
 }
 

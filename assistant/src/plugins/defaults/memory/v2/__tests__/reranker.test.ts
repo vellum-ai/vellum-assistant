@@ -8,15 +8,13 @@
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { makeMockLogger } from "../../../../../__tests__/helpers/mock-logger.js";
 import type { AssistantConfig } from "../../../../../config/types.js";
-
-mock.module("../../../../../util/logger.js", () => ({
-  getLogger: () => makeMockLogger(),
-}));
 
 mock.module("../../../../../util/platform.js", () => ({
   getWorkspaceDir: () => "/tmp/test-workspace",
+  // Imported by the real util/logger.js; ESM named-import validation
+  // requires it even though the silent test logger never calls it.
+  getLogsDir: () => "/tmp/test-workspace/logs",
 }));
 
 const backendState = {

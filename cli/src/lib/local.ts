@@ -94,9 +94,26 @@ function hasLocalRuntimeComponents(installDir: string): boolean {
   );
 }
 
-function resolveBunExecutable(): string {
+/**
+ * True when this process is a compiled standalone binary (desktop app or
+ * `bun build --compile` CLI) rather than a script executed by a plain `bun`
+ * binary (source tree, bunx, npm/global install).
+ *
+ * Only a compiled binary may trust product siblings in
+ * `dirname(process.execPath)`: under plain bun that directory is bun's own
+ * bin dir (e.g. `~/.bun/bin`), where bin links of globally-installed packages
+ * (`assistant`, `credential-executor`) collide with app-bundle binary names
+ * and point at whatever version happens to be installed globally.
+ */
+function isCompiledCli(): boolean {
   const execBase = basename(process.execPath);
-  if (execBase === "bun" || execBase.startsWith("bun-")) {
+  return (
+    execBase !== "bun" && execBase !== "bunx" && !execBase.startsWith("bun-")
+  );
+}
+
+function resolveBunExecutable(): string {
+  if (!isCompiledCli()) {
     return process.execPath;
   }
 
@@ -781,7 +798,7 @@ function resolveGatewayDir(resources?: LocalInstanceResources): string {
 
   // Compiled binary: gateway/ bundled adjacent to the CLI executable.
   const binGateway = join(dirname(process.execPath), "gateway");
-  if (isGatewaySourceDir(binGateway)) {
+  if (isCompiledCli() && isGatewaySourceDir(binGateway)) {
     return binGateway;
   }
 
@@ -897,7 +914,7 @@ export async function startCes(
   let ces;
   const runtimeCesDir = !watch ? localRuntimeCesDir(resources) : undefined;
   const cesBinary = join(dirname(process.execPath), "credential-executor");
-  if (!runtimeCesDir && existsSync(cesBinary) && !watch) {
+  if (!runtimeCesDir && isCompiledCli() && existsSync(cesBinary) && !watch) {
     // Compiled binary alongside the CLI (desktop app / compiled CLI).
     const cesLogFd = openLogFile("hatch.log");
     ces = spawn(cesBinary, [], {
@@ -1253,7 +1270,7 @@ export function isGatewayWatchModeAvailable(): boolean {
  */
 function writeAssistantWrapper(resources: LocalInstanceResources): void {
   const assistantBinary = join(dirname(process.execPath), "assistant");
-  if (!existsSync(assistantBinary)) return;
+  if (!isCompiledCli() || !existsSync(assistantBinary)) return;
 
   const workspaceDir = join(resources.instanceDir, ".vellum", "workspace");
   const protectedDir = join(resources.instanceDir, ".vellum", "protected");
@@ -1315,7 +1332,7 @@ export async function startLocalDaemon(
   // the user runs the compiled CLI directly from the terminal (e.g. via a
   // /usr/local/bin/vellum symlink into the app bundle).
   const daemonBinary = join(dirname(process.execPath), "vellum-daemon");
-  if (existsSync(daemonBinary) && !watch) {
+  if (isCompiledCli() && existsSync(daemonBinary) && !watch) {
     // In watch mode, skip the bundled binary and use source (bun --watch
     // only works with source files, not compiled binaries).
 
@@ -1609,7 +1626,12 @@ export async function startGateway(
     ? localRuntimeGatewayDir(resources)
     : undefined;
   const gatewayBinary = join(dirname(process.execPath), "vellum-gateway");
-  if (!runtimeGatewayDir && existsSync(gatewayBinary) && !watch) {
+  if (
+    !runtimeGatewayDir &&
+    isCompiledCli() &&
+    existsSync(gatewayBinary) &&
+    !watch
+  ) {
     // Use the compiled gateway binary when available (desktop app or compiled
     // CLI invoked from the terminal). In watch mode, skip the bundled binary
     // and use source (bun --watch only works with source files).

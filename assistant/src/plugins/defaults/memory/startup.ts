@@ -33,10 +33,10 @@ import {
   enqueueMemoryJob,
   isMemoryEnabled,
 } from "../../../persistence/jobs-store.js";
-import { getLogger } from "../../../util/logger.js";
-import { getWorkspaceDir } from "../../../util/platform.js";
 import { resolveQdrantUrl } from "./embeddings.js";
 import { startMemoryJobsWorker } from "./jobs-worker.js";
+import { getLogger } from "./logging.js";
+import { getWorkspaceDir } from "./paths.js";
 import { sweepConceptPageFrontmatter } from "./v2/frontmatter-sweep.js";
 import {
   maybeRebuildMemoryV2Concepts,
@@ -184,9 +184,8 @@ export async function runMemoryStartup(config: AssistantConfig): Promise<void> {
       void (async () => {
         try {
           const { reconcilePkbIndex } = await import("./pkb/pkb-reconcile.js");
-          const { PKB_WORKSPACE_SCOPE } = await import("./pkb/types.js");
           const pkbRoot = join(getWorkspaceDir(), "pkb");
-          await reconcilePkbIndex(pkbRoot, PKB_WORKSPACE_SCOPE);
+          await reconcilePkbIndex(pkbRoot);
         } catch (err) {
           log.warn(
             { err },

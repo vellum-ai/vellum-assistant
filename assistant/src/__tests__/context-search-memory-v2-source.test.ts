@@ -28,12 +28,6 @@ import type { AssistantConfig } from "../config/schema.js";
 import type { RecallSearchContext } from "../plugins/defaults/memory/context-search/types.js";
 import type { EdgeIndex } from "../plugins/defaults/memory/v2/edge-index.js";
 import type { ConceptPage } from "../plugins/defaults/memory/v2/types.js";
-import { makeMockLogger } from "./helpers/mock-logger.js";
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () => makeMockLogger(),
-}));
-
 let denseEmbedReturn: number[] = [0.1, 0.2, 0.3];
 mock.module("../persistence/embeddings/embedding-backend.js", () => ({
   isEmbeddingDimensionAvailable: async () => true,

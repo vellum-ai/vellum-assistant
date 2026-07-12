@@ -18,7 +18,7 @@
 import { isMemoryV3Live } from "../../../../config/memory-v3-gate.js";
 import type { AssistantConfig } from "../../../../config/types.js";
 import { getDb } from "../../../../persistence/db-connection.js";
-import { getWorkspaceDir } from "../../../../util/platform.js";
+import { getWorkspaceDir } from "../paths.js";
 import { getPageIndex, type PageIndexEntry } from "../v2/page-index.js";
 import { readPage, renderPageContent } from "../v2/page-store.js";
 import { isSkillSlug } from "../v2/skill-store.js";
@@ -72,7 +72,9 @@ function undirectedKey(a: string, b: string): string {
 function humanizeSlug(slug: string): string {
   const last = slug.split("/").pop() ?? slug;
   const words = last.replace(/[-_]+/g, " ").trim();
-  if (!words) {return slug;}
+  if (!words) {
+    return slug;
+  }
   return words.replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
@@ -115,9 +117,11 @@ export interface AssembleMemoryGraphInput {
  * Edges referencing a slug with no node entry are dropped. Node `weight` is the
  * resulting degree, and drives the truncation ranking.
  */
-export function assembleMemoryGraph(
-  input: AssembleMemoryGraphInput,
-): { nodes: MemoryGraphNode[]; edges: MemoryGraphEdge[]; truncated?: boolean } {
+export function assembleMemoryGraph(input: AssembleMemoryGraphInput): {
+  nodes: MemoryGraphNode[];
+  edges: MemoryGraphEdge[];
+  truncated?: boolean;
+} {
   const { entries, staticAdjacency, learnedAdjacency } = input;
   const maxNodes = input.maxNodes ?? DEFAULT_MAX_NODES;
 
@@ -132,16 +136,22 @@ export function assembleMemoryGraph(
 
   // Static link edges — directed, authored/structural.
   for (const [source, out] of staticAdjacency) {
-    if (!nodeIds.has(source)) {continue;}
+    if (!nodeIds.has(source)) {
+      continue;
+    }
     for (const [target, description] of out) {
-      if (!nodeIds.has(target)) {continue;}
+      if (!nodeIds.has(target)) {
+        continue;
+      }
       const edge: MemoryGraphEdge = {
         source,
         target,
         kind: "link",
         directed: true,
       };
-      if (description) {edge.description = description;}
+      if (description) {
+        edge.description = description;
+      }
       edges.push(edge);
       staticPairs.add(undirectedKey(source, target));
       bump(source);
@@ -153,11 +163,17 @@ export function assembleMemoryGraph(
   if (learnedAdjacency) {
     const emitted = new Set<string>();
     for (const [source, out] of learnedAdjacency) {
-      if (!nodeIds.has(source)) {continue;}
+      if (!nodeIds.has(source)) {
+        continue;
+      }
       for (const target of out.keys()) {
-        if (!nodeIds.has(target)) {continue;}
+        if (!nodeIds.has(target)) {
+          continue;
+        }
         const key = undirectedKey(source, target);
-        if (staticPairs.has(key) || emitted.has(key)) {continue;}
+        if (staticPairs.has(key) || emitted.has(key)) {
+          continue;
+        }
         emitted.add(key);
         const [a, b] = key.split("\t") as [string, string];
         edges.push({ source: a, target: b, kind: "learned", directed: false });
@@ -174,8 +190,12 @@ export function assembleMemoryGraph(
       kind: nodeKind(entry),
       weight: degree.get(entry.slug) ?? 0,
     };
-    if (entry.summary) {node.summary = entry.summary;}
-    if (entry.modifiedAt > 0) {node.updatedAtMs = entry.modifiedAt;}
+    if (entry.summary) {
+      node.summary = entry.summary;
+    }
+    if (entry.modifiedAt > 0) {
+      node.updatedAtMs = entry.modifiedAt;
+    }
     return node;
   });
 
@@ -218,7 +238,9 @@ export async function getMemoryGraph(
   // numeric fallbacks.
   const pageRaw = async (slug: Slug): Promise<string> => {
     const page = await readPage(workspaceDir, slug);
-    if (!page) {throw new Error(`page not found: ${slug}`);}
+    if (!page) {
+      throw new Error(`page not found: ${slug}`);
+    }
     return renderPageContent(page);
   };
 
@@ -236,7 +258,10 @@ export async function getMemoryGraph(
     {
       halfLifeMs: learned.halfLifeDays * DAY_MS,
       minCount: Math.max(1, learned.minCount * GRAPH_LEARNED_MIN_COUNT_FACTOR),
-      npmiFloor: Math.max(0, learned.npmiFloor * GRAPH_LEARNED_NPMI_FLOOR_FACTOR),
+      npmiFloor: Math.max(
+        0,
+        learned.npmiFloor * GRAPH_LEARNED_NPMI_FLOOR_FACTOR,
+      ),
       maxPerPage: Math.max(learned.maxPerPage, GRAPH_LEARNED_MIN_MAX_PER_PAGE),
       now: Date.now(),
       windowMs: LEARNED_EDGES_WINDOW_DAYS * DAY_MS,
@@ -271,6 +296,8 @@ export async function getMemoryGraphNode(
     return { found: false };
   }
   const page = await readPage(getWorkspaceDir(), id).catch(() => null);
-  if (!page) {return { found: false };}
+  if (!page) {
+    return { found: false };
+  }
   return { found: true, title: humanizeSlug(id), content: page.body };
 }

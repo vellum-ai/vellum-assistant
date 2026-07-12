@@ -3,14 +3,13 @@ import {
   rawMemoryRun,
   rawRun,
 } from "../../../persistence/raw-query.js";
-import { getLogger } from "../../../util/logger.js";
+import { getLogger } from "./logging.js";
 
 const log = getLogger("task-memory-cleanup");
 
 /**
- * Check whether a conversation belongs to a failed task run or failed
- * schedule run. Derived from durable storage (task_runs / cron_runs)
- * so the check survives daemon restarts.
+ * Check whether a conversation belongs to a failed schedule run. Derived from
+ * durable storage (cron_runs) so the check survives daemon restarts.
  */
 export function isConversationFailed(conversationId: string): boolean {
   // For reused schedule conversations the same conversation_id appears in
@@ -22,19 +21,14 @@ export function isConversationFailed(conversationId: string): boolean {
   const row = rawGet<{ found: number }>(
     "taskMemory:isConversationFailed",
     `SELECT 1 AS found
-       FROM (
-         SELECT 1 FROM task_runs WHERE conversation_id = ? AND status = 'failed'
-         UNION ALL
-         SELECT 1 FROM cron_runs
-          WHERE conversation_id = ?
-            AND status = 'error'
-            AND id = (
-              SELECT id FROM cron_runs WHERE conversation_id = ?
-              ORDER BY created_at DESC LIMIT 1
-            )
-       )
+       FROM cron_runs
+      WHERE conversation_id = ?
+        AND status = 'error'
+        AND id = (
+          SELECT id FROM cron_runs WHERE conversation_id = ?
+          ORDER BY created_at DESC LIMIT 1
+        )
       LIMIT 1`,
-    conversationId,
     conversationId,
     conversationId,
   );
@@ -43,8 +37,8 @@ export function isConversationFailed(conversationId: string): boolean {
 
 /**
  * Invalidate assistant-inferred memory graph nodes sourced *exclusively* from
- * the given conversation. Called when a background task or schedule fails —
- * the assistant's optimistic claims are not trustworthy if the task didn't
+ * the given conversation. Called when a background schedule fails — the
+ * assistant's optimistic claims are not trustworthy if the run didn't
  * complete.
  *
  * Nodes that also have sources from other non-failed conversations are left
@@ -70,11 +64,6 @@ export function invalidateAssistantInferredItemsForConversation(
         AND NOT EXISTS (
           SELECT 1 FROM json_each(source_conversations) jc2
            WHERE jc2.value != ?
-             AND NOT EXISTS (
-               SELECT 1 FROM task_runs tr
-                WHERE tr.conversation_id = jc2.value
-                  AND tr.status = 'failed'
-             )
              AND NOT EXISTS (
                -- Check only the most recent cron_run for each conversation
                -- so reused conversations with historical errors but recent

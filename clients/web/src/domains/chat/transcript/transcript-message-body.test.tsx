@@ -313,9 +313,9 @@ describe("TranscriptMessageBody", () => {
     expect(markdown).not.toBeNull();
     expect(markdown!.textContent).toBe("line one\nline two");
     expect(markdown!.getAttribute("data-hard-line-breaks")).toBe("true");
-    // The text run is wrapped in the surface-lift user bubble.
+    // The text run is wrapped in the user bubble.
     expect(
-      container.querySelector(".bg-\\[var\\(--surface-lift\\)\\]"),
+      container.querySelector("[class*='user-bubble-bg']"),
     ).not.toBeNull();
   });
 
@@ -1001,9 +1001,9 @@ describe("TranscriptMessageBody", () => {
     );
 
     const bubbles = container.querySelectorAll(
-      "[class*='bg-[var(--surface-lift)]']",
+      "[class*='user-bubble-bg']",
     );
-    // Exactly one bubble container carries the surface-lift background.
+    // Exactly one bubble container carries the user-bubble background.
     expect(bubbles.length).toBe(1);
 
     const bubble = bubbles[0]!;
@@ -1042,7 +1042,7 @@ describe("TranscriptMessageBody", () => {
     );
 
     const bubbles = container.querySelectorAll(
-      "[class*='bg-[var(--surface-lift)]']",
+      "[class*='user-bubble-bg']",
     );
     expect(bubbles.length).toBe(1);
     expect(bubbles[0]!.querySelector("img")?.getAttribute("src")).toBe(
@@ -1227,16 +1227,16 @@ describe("TranscriptMessageBody", () => {
       />,
     );
 
-    // Assistant path: separate strip renders, no surface-lift bubble.
+    // Assistant path: separate strip renders, no user bubble.
     expect(
       container.querySelector("[data-testid='attachments']"),
     ).not.toBeNull();
     expect(
-      container.querySelector("[class*='bg-[var(--surface-lift)]']"),
+      container.querySelector("[class*='user-bubble-bg']"),
     ).toBeNull();
   });
 
-  test("renders a user-message surface outside the surface-lift bubble", () => {
+  test("renders a user-message surface outside the user bubble", () => {
     const { container } = render(
       <TranscriptMessageBody
         message={{
@@ -1249,7 +1249,7 @@ describe("TranscriptMessageBody", () => {
     );
 
     const bubble = container.querySelector(
-      "[class*='bg-[var(--surface-lift)]']",
+      "[class*='user-bubble-bg']",
     );
     expect(bubble).not.toBeNull();
     // Text lives inside the bubble.
@@ -1285,9 +1285,9 @@ describe("TranscriptMessageBody", () => {
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
 
-    // The surface is NOT inside a surface-lift bubble; the text IS.
+    // The surface is NOT inside a user bubble; the text IS.
     const bubble = container.querySelector(
-      "[class*='bg-[var(--surface-lift)]']",
+      "[class*='user-bubble-bg']",
     );
     expect(bubble).not.toBeNull();
     expect(bubble!.contains(surface)).toBe(false);
@@ -1335,10 +1335,10 @@ describe("TranscriptMessageBody", () => {
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
 
-    // The tool chip is never wrapped inside a surface-lift text bubble — the
+    // The tool chip is never wrapped inside a user text bubble — the
     // text runs render inline and the chip sits between them.
     const bubbles = container.querySelectorAll(
-      "[class*='bg-[var(--surface-lift)]']",
+      "[class*='user-bubble-bg']",
     );
     for (const bubble of bubbles) {
       expect(bubble.contains(toolChip)).toBe(false);
@@ -1364,10 +1364,10 @@ describe("TranscriptMessageBody", () => {
       />,
     );
 
-    // No visible text and no attachments: the empty surface-lift bubble must
+    // No visible text and no attachments: the empty user bubble must
     // not render.
     expect(
-      container.querySelector("[class*='bg-[var(--surface-lift)]']"),
+      container.querySelector("[class*='user-bubble-bg']"),
     ).toBeNull();
     // The lone tool still renders as the inline chip.
     expect(

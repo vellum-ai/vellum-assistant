@@ -19,8 +19,6 @@ import type { AgentLoopRunOptions } from "../agent/loop.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import { resetPluginRegistryAndRegisterDefaults } from "../plugins/defaults/index.js";
 import type { Message, ToolDefinition } from "../providers/types.js";
-import { makeMockLogger } from "./helpers/mock-logger.js";
-
 // Snapshot the real `conversation-crud` exports before `mock.module()` below
 // replaces them. We use a synchronous CJS-style require (via `createRequire`)
 // because static `import` is hoisted above `mock.module()` calls — but bun's
@@ -45,58 +43,23 @@ const conversationDiskViewRealSnapshot = {
 
 // ── Module mocks (must precede imports of the module under test) ─────
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () => makeMockLogger(),
-}));
+import { setConfig } from "./helpers/set-config.js";
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    llm: {
-      default: {
-        provider: "mock-provider",
-        model: "mock-model",
-        maxTokens: 4096,
-        effort: "max" as const,
-        speed: "standard" as const,
-        temperature: null,
-        thinking: { enabled: false, streamThinking: true },
-        contextWindow: {
-          enabled: true,
-          maxInputTokens: 100000,
-          targetBudgetRatio: 0.3,
-          compactThreshold: 0.8,
-          summaryBudgetRatio: 0.05,
-          overflowRecovery: {
-            enabled: true,
-            safetyMarginRatio: 0.05,
-            maxAttempts: 3,
-            interactiveLatestTurnCompression: "summarize",
-            nonInteractiveLatestTurnCompression: "truncate",
-          },
-        },
-      },
-      profiles: {
-        // Complete (materialized) shape: override-or-default semantics skip
-        // profiles that don't carry their own provider+model.
-        "quality-optimized": {
-          source: "user",
-          provider: "anthropic",
-          model: "claude-opus-4-8",
-          contextWindow: { maxInputTokens: 50000 },
-        },
-      },
-      callSites: {},
-      pricingOverrides: [],
+// Seed the workspace config for real: a named profile the tests pin as the
+// per-conversation override (complete shape — override-or-default semantics
+// skip profiles that don't carry their own provider+model) plus a short
+// turn-boundary commit wait so loop teardown stays fast.
+setConfig("llm", {
+  profiles: {
+    "quality-optimized": {
+      source: "user",
+      provider: "anthropic",
+      model: "claude-opus-4-8",
+      contextWindow: { maxInputTokens: 50000 },
     },
-    rateLimit: { maxRequestsPerMinute: 0 },
-    workspaceGit: { turnCommitMaxWaitMs: 10 },
-    memory: { retrieval: { scratchpadInjection: { enabled: true } } },
-    ui: {},
-  }),
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-  invalidateConfigCache: () => {},
-}));
+  },
+});
+setConfig("workspaceGit", { turnCommitMaxWaitMs: 10 });
 
 mock.module("../context/token-estimator.js", () => ({
   estimatePromptTokens: () => 1000,
@@ -451,8 +414,6 @@ function makeCtx(
     } as unknown as Conversation["contextWindowManager"],
     contextCompactedMessageCount: 0,
     contextCompactedAt: null,
-
-    memoryPolicy: { scopeId: "default", includeDefaultFallback: true },
 
     currentActiveSurfaceId: undefined,
     currentPage: undefined,

@@ -9,6 +9,7 @@ import { FakeChild } from "./test-helpers";
 
 const userDataPath = "/mock/userData";
 const mockResourcesPath = "/mock/resources";
+const mockAppVersion = "1.2.3";
 
 // Baked from .tool-versions by electron.vite.config.ts in a real build; set here
 // (before the module import below reads it) so the packageManager stamp is live.
@@ -25,6 +26,7 @@ mock.module("electron", () => ({
       if (name === "userData") return userDataPath;
       return "/tmp";
     },
+    getVersion: () => mockAppVersion,
     isPackaged: true,
   },
 }));
@@ -42,6 +44,9 @@ let readdirSyncError: Error | null = null;
 let writeFileSyncError: Error | null = null;
 // Contents returned by readFileSync (the install package.json stampPackageManager reads).
 let readFileSyncReturn = '{"dependencies":{"vellum":"latest"}}';
+// Per-path readFileSync overrides (e.g. the .app-version marker). Falls back to
+// readFileSyncReturn.
+const readFileSyncByPath: Record<string, string> = {};
 let readFileSyncError: Error | null = null;
 let renameSyncError: Error | null = null;
 const chmodSyncCalls: Array<[string, number]> = [];
@@ -70,8 +75,9 @@ mock.module("node:fs", () => ({
     if (readdirSyncError) throw readdirSyncError;
     return readdirSyncReturn;
   },
-  readFileSync: (_p: string, _enc?: string) => {
+  readFileSync: (p: string, _enc?: string) => {
     if (readFileSyncError) throw readFileSyncError;
+    if (p in readFileSyncByPath) return readFileSyncByPath[p];
     return readFileSyncReturn;
   },
   renameSync: (src: string, dst: string) => {
@@ -130,6 +136,9 @@ const cliBinPath = `${latestInstallDir}/node_modules/.bin/vellum`;
 /** Bin path for an install dir under `cli/`. */
 const binPathFor = (name: string) =>
   `${userDataPath}/cli/${name}/node_modules/.bin/vellum`;
+/** `.app-version` marker path for an install dir under `cli/`. */
+const markerPathFor = (name: string) =>
+  `${userDataPath}/cli/${name}/.app-version`;
 
 afterEach(() => {
   existsSyncDefault = false;
@@ -138,6 +147,7 @@ afterEach(() => {
   readdirSyncError = null;
   writeFileSyncError = null;
   readFileSyncReturn = '{"dependencies":{"vellum":"latest"}}';
+  for (const key of Object.keys(readFileSyncByPath)) delete readFileSyncByPath[key];
   readFileSyncError = null;
   renameSyncError = null;
   chmodSyncCalls.length = 0;
@@ -348,6 +358,7 @@ describe("isCliInstalled", () => {
 describe("ensureCliInstalled", () => {
   test("skips install but refreshes the locator when already installed", async () => {
     existsSyncDefault = true;
+    readFileSyncByPath[markerPathFor("latest")] = mockAppVersion;
 
     await ensureCliInstalled();
 
@@ -361,6 +372,7 @@ describe("ensureCliInstalled", () => {
     // installs predating the field (or on an older bun) don't drift (LUM-2649).
     existsSyncDefault = true;
     readFileSyncReturn = '{"dependencies":{"vellum":"latest"}}';
+    readFileSyncByPath[markerPathFor("latest")] = mockAppVersion;
 
     await ensureCliInstalled();
 
@@ -375,6 +387,7 @@ describe("ensureCliInstalled", () => {
   test("does not rewrite an already-stamped install on the upgrade path", async () => {
     existsSyncDefault = true;
     readFileSyncReturn = `{"packageManager":"bun@${mockBunVersion}","dependencies":{"vellum":"latest"}}`;
+    readFileSyncByPath[markerPathFor("latest")] = mockAppVersion;
 
     await ensureCliInstalled();
 
@@ -386,6 +399,7 @@ describe("ensureCliInstalled", () => {
 
   test("a throwing locator write does not reject", async () => {
     existsSyncDefault = true;
+    readFileSyncByPath[markerPathFor("latest")] = mockAppVersion;
     writeFileSyncError = new Error("EROFS: read-only file system");
 
     await expect(ensureCliInstalled()).resolves.toBeUndefined();
@@ -395,6 +409,7 @@ describe("ensureCliInstalled", () => {
     existsSyncDefault = false;
     readdirSyncReturn = [dirEntry("0.9.0")];
     existsSyncByPath[binPathFor("0.9.0")] = true;
+    readFileSyncByPath[markerPathFor("0.9.0")] = mockAppVersion;
 
     await ensureCliInstalled();
 
@@ -408,6 +423,55 @@ describe("ensureCliInstalled", () => {
     ]);
     // ...and the locator is still refreshed.
     expect(renameSyncCalls).toContainEqual([`${locatorPath}.tmp`, locatorPath]);
+  });
+
+  test("re-floats a stale install seeded by an older app version", async () => {
+    existsSyncByPath[cliBinPath] = true;
+    readFileSyncByPath[markerPathFor("latest")] = "0.0.1";
+
+    const promise = ensureCliInstalled();
+    lastChild.emit("close", 0);
+    await promise;
+
+    // The stale tree is wiped so the reinstall re-resolves the dist-tag...
+    expect(rmSyncCalls).toContainEqual([
+      `${latestInstallDir}/node_modules`,
+      { recursive: true, force: true },
+    ]);
+    // ...and bun re-floats to the environment's tag.
+    expect(spawnCalls).toHaveLength(1);
+    expect(spawnCalls[0][1]).toEqual(["add", "vellum@latest", "--ignore-scripts"]);
+    // The running app version is recorded so it won't refresh again next launch.
+    expect(writeFileSyncCalls).toContainEqual([
+      `${latestInstallDir}/.app-version.tmp`,
+      `${mockAppVersion}\n`,
+    ]);
+  });
+
+  test("re-floats a markerless install on first launch of the fixed app", async () => {
+    // An install written before the marker existed reads as a non-matching
+    // version, so it heals exactly once.
+    existsSyncByPath[cliBinPath] = true;
+
+    const promise = ensureCliInstalled();
+    lastChild.emit("close", 0);
+    await promise;
+
+    expect(rmSyncCalls).toContainEqual([
+      `${latestInstallDir}/node_modules`,
+      { recursive: true, force: true },
+    ]);
+    expect(spawnCalls).toHaveLength(1);
+  });
+
+  test("does not refresh when the install matches the running app version", async () => {
+    existsSyncByPath[cliBinPath] = true;
+    readFileSyncByPath[markerPathFor("latest")] = mockAppVersion;
+
+    await ensureCliInstalled();
+
+    expect(spawnCalls).toHaveLength(0);
+    expect(rmSyncCalls).toHaveLength(0);
   });
 
   test("fresh unpinned install spawns bun add vellum@latest", async () => {

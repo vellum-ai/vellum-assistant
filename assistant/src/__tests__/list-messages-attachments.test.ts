@@ -9,24 +9,12 @@
  *   decode HEIF); undecodable content falls back to the stored bytes
  */
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
+import { setConfig } from "./helpers/set-config.js";
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-    model: "test",
-    provider: "test",
-    memory: { enabled: false },
-    rateLimit: { maxRequestsPerMinute: 0 },
-  }),
-}));
+// Keep the memory system off so addMessage skips indexing side effects.
+setConfig("memory", { enabled: false });
 
 import { randomUUID } from "node:crypto";
 
@@ -480,9 +468,12 @@ function createPaginatedArgs(
   params?: { limit?: string; beforeTimestamp?: string },
 ) {
   const queryParams: Record<string, string> = { conversationId };
-  if (params?.limit !== undefined) queryParams.limit = params.limit;
-  if (params?.beforeTimestamp !== undefined)
+  if (params?.limit !== undefined) {
+    queryParams.limit = params.limit;
+  }
+  if (params?.beforeTimestamp !== undefined) {
     queryParams.beforeTimestamp = params.beforeTimestamp;
+  }
   return { queryParams };
 }
 

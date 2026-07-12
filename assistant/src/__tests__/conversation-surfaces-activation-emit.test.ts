@@ -2,14 +2,6 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { ServerMessage } from "../daemon/message-protocol.js";
 
-// Silence the logger.
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // Analytics consent is granted so recordActivationEvent writes rows.
 let shareAnalytics = true;
 

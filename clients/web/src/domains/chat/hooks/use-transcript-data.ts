@@ -19,7 +19,6 @@ import { buildTranscriptItems } from "@/domains/chat/transcript/build-items";
 import type { TranscriptItem } from "@/domains/chat/transcript/types";
 import { sanitizeDisplayMessages } from "@/domains/chat/utils/sanitize-display-messages";
 import type { DisplayMessage } from "@/domains/chat/types/types";
-import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 
 // ---------------------------------------------------------------------------
 // Params & return type
@@ -63,12 +62,6 @@ export function useTranscriptData({
   const pendingSecret = useInteractionStore.use.pendingSecret();
   const pendingConfirmation = useInteractionStore.use.pendingConfirmation();
   const pendingContactRequest = useInteractionStore.use.pendingContactRequest();
-
-  // Client half of the `skill-creation-card` kill-switch: with the flag off,
-  // `skill_card` surfaces are dropped at projection time so persisted
-  // card-only messages leave no blank assistant row (the in-card `null`
-  // return alone would leave the surface wrapper + hover-action trailer).
-  const skillCardsEnabled = useClientFeatureFlagStore.use.skillCreationCard();
 
   // --- Sanitise -----------------------------------------------------------
   const sanitizedMessages = useMemo(
@@ -118,7 +111,6 @@ export function useTranscriptData({
         thinkingLabel,
         ephemeralMetaResults,
         showOnboardingChoice,
-        skillCardsEnabled,
       }),
     [
       sanitizedMessages,
@@ -131,7 +123,6 @@ export function useTranscriptData({
       thinkingLabel,
       ephemeralMetaResults,
       showOnboardingChoice,
-      skillCardsEnabled,
     ],
   );
 

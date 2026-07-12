@@ -29,15 +29,11 @@ import {
   test,
 } from "bun:test";
 
-import { makeMockLogger } from "../../../../../__tests__/helpers/mock-logger.js";
+import { setConfig } from "../../../../../__tests__/helpers/set-config.js";
 
 // ---------------------------------------------------------------------------
 // Module-level mocks (registered before importing the module under test).
 // ---------------------------------------------------------------------------
-
-mock.module("../../../../../util/logger.js", () => ({
-  getLogger: () => makeMockLogger(),
-}));
 
 // Migration runner — `migrate` job wraps this. The stub records call args
 // and lets each test choose the resolution shape (success, sentinel error).
@@ -86,42 +82,31 @@ mock.module("../migration.js", () => ({
 }));
 
 // `qdrant.ts#ensureConceptPageCollection` reads its vector size via
-// `getConfig()` (the runtime config singleton). Stub it with a fully-
-// specified memory.qdrant block so cross-test pollution from sibling test
-// files (which install their own loader mocks) cannot strip these fields.
-const STUB_RUNTIME_CONFIG = {
-  memory: {
-    qdrant: {
-      url: "http://127.0.0.1:6333",
-      vectorSize: 3,
-      onDisk: true,
-    },
-    v2: {
-      enabled: true,
-      d: 0.3,
-      c_user: 0.3,
-      c_assistant: 0.2,
-      c_now: 0.2,
-      k: 0.5,
-      hops: 2,
-      top_k: 20,
-      epsilon: 0.01,
-      dense_weight: 0.7,
-      sparse_weight: 0.3,
-      consolidation_interval_hours: 1,
-      max_page_chars: 5000,
-    },
+// `getConfig().memory.qdrant.vectorSize`, and the activation pipeline reads the
+// `memory.v2` tuning knobs. Seed the exact block below into the test workspace
+// (in `beforeAll`, after `VELLUM_WORKSPACE_DIR` is overridden).
+const SEEDED_MEMORY_CONFIG = {
+  qdrant: {
+    url: "http://127.0.0.1:6333",
+    vectorSize: 3,
+    onDisk: true,
+  },
+  v2: {
+    enabled: true,
+    d: 0.3,
+    c_user: 0.3,
+    c_assistant: 0.2,
+    c_now: 0.2,
+    k: 0.5,
+    hops: 2,
+    top_k: 20,
+    epsilon: 0.01,
+    dense_weight: 0.7,
+    sparse_weight: 0.3,
+    consolidation_interval_hours: 1,
+    max_page_chars: 5000,
   },
 };
-mock.module("../../../../../config/loader.js", () => ({
-  getConfig: () => STUB_RUNTIME_CONFIG,
-  getConfigReadOnly: () => STUB_RUNTIME_CONFIG,
-  loadConfig: () => STUB_RUNTIME_CONFIG,
-  loadRawConfig: () => ({}) as Record<string, unknown>,
-  saveRawConfig: () => {},
-  invalidateConfigCache: () => {},
-  applyNestedDefaults: () => STUB_RUNTIME_CONFIG,
-}));
 
 // Embedding backend — `activation` calls `embedWithBackend` and
 // `generateSparseEmbedding` to build the ANN candidate query. Stub both so
@@ -196,6 +181,7 @@ beforeAll(() => {
   mkdirSync(join(tmpWorkspace, "memory", ".v2-state"), { recursive: true });
   previousWorkspaceEnv = process.env.VELLUM_WORKSPACE_DIR;
   process.env.VELLUM_WORKSPACE_DIR = tmpWorkspace;
+  setConfig("memory", SEEDED_MEMORY_CONFIG);
 });
 
 afterAll(() => {
@@ -229,7 +215,7 @@ const {
 // reads its tunables from `config.memory.v2.*`. Hand the handler a config
 // shaped just enough to satisfy both paths — materializing the full default
 // config would otherwise pull in heavy schemas that don't add value here.
-const TEST_CONFIG = STUB_RUNTIME_CONFIG as Parameters<
+const TEST_CONFIG = { memory: SEEDED_MEMORY_CONFIG } as Parameters<
   typeof memoryV2ActivationRecomputeJob
 >[1];
 

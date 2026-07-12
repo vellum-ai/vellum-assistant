@@ -378,6 +378,24 @@ describe("classifyConversationError", () => {
       expect(result.retryable).toBe(false);
     });
 
+    it("classifies Anthropic 400 'Could not process image' as image_unprocessable (non-retryable)", () => {
+      // The rejection Anthropic returns for images below its minimum size
+      // floor (e.g. a 16×14 px upload). It must route to the image-recovery
+      // classification with a friendly message, not surface the raw JSON body
+      // through the generic PROVIDER_API branch.
+      const err = new ProviderError(
+        'Anthropic API error (400): 400 {"type":"error","error":{"type":"invalid_request_error","message":"Could not process image"},"request_id":"req_011CcsLvPnYo5Xnvhs5edSS2"}',
+        "anthropic",
+        400,
+      );
+      const result = classifyConversationError(err, baseCtx);
+      expect(result.code).toBe("IMAGE_TOO_LARGE");
+      expect(result.errorCategory).toBe("image_unprocessable");
+      expect(result.retryable).toBe(false);
+      expect(result.userMessage).not.toContain("invalid_request_error");
+      expect(result.userMessage.toLowerCase()).toContain("image");
+    });
+
     it("does not steal generic 400s that happen to mention 'image'", () => {
       const err = new ProviderError(
         "invalid request: image source is missing",
@@ -924,12 +942,9 @@ describe("classifyConversationError", () => {
       // managed quota body pattern must still win over PROVIDER_RATE_LIMIT.
       providerRoutingSources.openai = "user-key";
       const result = classifyConversationError(
-        new ProviderError(
-          '{"code":"daily_quota_exceeded"}',
-          "openai",
-          429,
-          { reason: "rate_limited" },
-        ),
+        new ProviderError('{"code":"daily_quota_exceeded"}', "openai", 429, {
+          reason: "rate_limited",
+        }),
         baseCtx,
       );
       expect(result.code).toBe("MANAGED_USAGE_LIMIT");
@@ -1050,7 +1065,6 @@ describe("classifyConversationError", () => {
       "subagent_aborted",
       "signal_cancel",
       "voice_session_aborted",
-      "work_item_aborted",
     ];
 
     for (const kind of taggedKinds) {

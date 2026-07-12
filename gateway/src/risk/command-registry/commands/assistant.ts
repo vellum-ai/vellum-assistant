@@ -126,6 +126,18 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "image-generation",
   "image-generation generate",
   "inference",
+  "inference callsites",
+  "inference callsites get",
+  "inference callsites list",
+  "inference models",
+  "inference models list",
+  "inference profiles",
+  "inference profiles active",
+  "inference profiles create",
+  "inference profiles delete",
+  "inference profiles get",
+  "inference profiles list",
+  "inference profiles update",
   "inference providers",
   "inference providers connections",
   "inference providers connections create",
@@ -133,6 +145,7 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "inference providers connections get",
   "inference providers connections list",
   "inference providers connections update",
+  "inference providers default",
   "inference send",
   "inference session",
   "inference session open",
@@ -262,6 +275,7 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "ui",
   "ui request",
   "ui confirm",
+  "ui snapshot",
   "usage",
   "usage totals",
   "usage daily",
@@ -442,6 +456,61 @@ const riskOverrides: AssistantRiskOverride[] = [
   { path: "email send", risk: "high" },
   { path: "image-generation generate", risk: "medium" },
   { path: "inference send", risk: "medium" },
+  {
+    path: "inference models list",
+    risk: "low",
+    reason: "Read-only listing of the code-owned model catalog",
+  },
+  {
+    path: "inference profiles list",
+    risk: "low",
+    reason: "Read-only listing of the effective inference profiles",
+  },
+  {
+    path: "inference profiles get",
+    risk: "low",
+    reason: "Read-only fetch of a single effective profile",
+  },
+  {
+    path: "inference profiles create",
+    risk: "medium",
+    reason:
+      "Writes a validated custom profile to llm.profiles; daemon rejects managed names",
+  },
+  {
+    path: "inference profiles update",
+    risk: "medium",
+    reason:
+      "Mutates a custom profile in llm.profiles; daemon rejects managed profiles",
+  },
+  {
+    path: "inference profiles delete",
+    risk: "medium",
+    reason:
+      "Deletes a custom profile from llm.profiles; daemon rejects managed profiles",
+  },
+  {
+    path: "inference profiles active",
+    risk: "medium",
+    reason:
+      "Reads or switches llm.activeProfile — the user's chat-model selection",
+  },
+  {
+    path: "inference callsites list",
+    risk: "low",
+    reason: "Read-only per-call-site resolution summary",
+  },
+  {
+    path: "inference callsites get",
+    risk: "low",
+    reason: "Read-only resolution detail for one call site",
+  },
+  {
+    path: "inference providers default",
+    risk: "medium",
+    reason:
+      "Reads the default provider, or replaces llm.defaultProvider when a name is passed",
+  },
   {
     path: "inference providers connections list",
     risk: "low",

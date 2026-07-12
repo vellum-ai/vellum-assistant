@@ -14,13 +14,6 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 // Mocks — must be defined before importing the module under test
 // ---------------------------------------------------------------------------
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 const mockGetConversationByKey = mock(
   (
     _key: string,
@@ -84,25 +77,6 @@ mock.module("../runtime/routes/workspace-greetings.js", () => ({
   readWorkspaceGreetings: () => null,
 }));
 
-const mockConfig = {
-  ui: {
-    emptyStateGreetingCacheTtlMs: 0,
-    userTimezone: "",
-    detectedTimezone: "",
-  },
-  memory: {
-    retrieval: {
-      scratchpadInjection: {
-        enabled: false,
-      },
-    },
-  },
-};
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => mockConfig,
-}));
-
 // Mock getOrCreateConversation from conversation-store so the handler
 // never touches DaemonServer.
 const mockGetOrCreateConversation = mock(async (_id: string) =>
@@ -146,6 +120,7 @@ import {
 } from "../runtime/routes/errors.js";
 import type { RouteHandlerArgs } from "../runtime/routes/types.js";
 import { getWorkspaceDir } from "../util/platform.js";
+import { setConfig } from "./helpers/set-config.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -242,10 +217,12 @@ async function readStream(stream: ReadableStream<Uint8Array>): Promise<string> {
 
 describe("POST /v1/btw", () => {
   beforeEach(() => {
-    mockConfig.ui.emptyStateGreetingCacheTtlMs = 0;
-    mockConfig.ui.userTimezone = "";
-    mockConfig.ui.detectedTimezone = "";
-    mockConfig.memory.retrieval.scratchpadInjection.enabled = false;
+    // Disable greeting caching so every request generates fresh, and keep
+    // NOW.md scratchpad injection out of the prompts these tests assert on.
+    setConfig("ui", { emptyStateGreetingCacheTtlMs: 0 });
+    setConfig("memory", {
+      retrieval: { scratchpadInjection: { enabled: false } },
+    });
   });
 
   // -- Validation (400s) --

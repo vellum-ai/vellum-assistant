@@ -104,11 +104,21 @@ function applyConnectionPragmas(sqlite: Database): void {
   sqlite.exec("PRAGMA foreign_keys = ON");
   sqlite.exec("PRAGMA cache_size=-256000");
   sqlite.exec("PRAGMA temp_store=MEMORY");
+  // Checkpointing alone never shrinks the WAL file — a fully-backfilled WAL
+  // is reused from offset 0 at its high-water size, so a single write burst
+  // otherwise leaves a permanently huge file (disk cost, plus a long recovery
+  // scan on the first open after a hard crash). With a size limit, any WAL
+  // reset also truncates the file to at most this many bytes. 64 MB
+  // comfortably exceeds the WAL's steady-state hover (the ~4 MB autocheckpoint
+  // threshold), so normal writes never pay file re-extension.
+  sqlite.exec("PRAGMA journal_size_limit=67108864");
 }
 
 export function getDb(): DrizzleDb {
   const existing = getStoredDb<DrizzleDb>("main");
-  if (existing) return existing;
+  if (existing) {
+    return existing;
+  }
 
   assertTestDbIsIsolated();
   ensureDataDir();
@@ -118,6 +128,48 @@ export function getDb(): DrizzleDb {
   const db = drizzle(sqlite, { schema });
   setStoredDb("main", db, () => sqlite.close());
   return db;
+}
+
+/**
+ * A dedicated read-only connection to the main database, opened lazily in
+ * its own singleton slot — never shared with `getDb()`'s read-write
+ * connection. For worker processes (the resource monitor) that observe the
+ * daemon's main DB: WAL permits cross-process readers, the daemon stays the
+ * main DB's sole writer, and a read-only connection makes an accidental
+ * worker-side write fail loudly instead of contending for the write lock.
+ *
+ * Read-only connections skip the standard PRAGMAs: journal_mode /
+ * journal_size_limit write to the database file, and synchronous /
+ * foreign_keys only affect writes. busy_timeout still applies so reads wait
+ * out a checkpoint instead of failing with SQLITE_BUSY.
+ *
+ * Fail-soft: returns `null` when the file cannot be opened (e.g. a fresh
+ * install where the daemon has not created it yet) — never falls back to a
+ * read-write open, which would make this process a second writer and could
+ * create the file before the daemon does. Callers tolerate `null` and retry
+ * on a later cycle.
+ */
+export function getMainDbReadOnly(): DrizzleDb | null {
+  const existing = getStoredDb<DrizzleDb>("main-readonly");
+  if (existing) {
+    return existing;
+  }
+  assertTestDbIsIsolated();
+  try {
+    const sqlite = new Database(getDbPath(), { readonly: true });
+    sqlite.exec(`PRAGMA busy_timeout=${SQLITE_BUSY_TIMEOUT_MS}`);
+    const db = drizzle(sqlite, { schema });
+    setStoredDb("main-readonly", db, () => sqlite.close());
+    return db;
+  } catch (err) {
+    void import("../util/logger.js").then(({ getLogger }) =>
+      getLogger("db-connection").warn(
+        { err },
+        "Failed to open the main database read-only; retried on next access",
+      ),
+    );
+    return null;
+  }
 }
 
 /**
@@ -193,7 +245,9 @@ function openDedicatedDb(
  */
 export function getLogsDb(): DrizzleDb | null {
   const existing = getStoredDb<DrizzleDb>("logs");
-  if (existing) return existing;
+  if (existing) {
+    return existing;
+  }
   return openDedicatedDb("logs", getLogsDbPath());
 }
 
@@ -210,7 +264,9 @@ export function getLogsSqlite(): Database | null {
  */
 export function getMemoryDb(): DrizzleDb | null {
   const existing = getStoredDb<DrizzleDb>("memory");
-  if (existing) return existing;
+  if (existing) {
+    return existing;
+  }
   return openDedicatedDb("memory", getMemoryDbPath());
 }
 
@@ -227,7 +283,9 @@ export function getMemorySqlite(): Database | null {
  */
 export function getTelemetryDb(): DrizzleDb | null {
   const existing = getStoredDb<DrizzleDb>("telemetry");
-  if (existing) return existing;
+  if (existing) {
+    return existing;
+  }
   return openDedicatedDb("telemetry", getTelemetryDbPath());
 }
 
@@ -249,6 +307,7 @@ export function getTelemetrySqlite(): Database | null {
  */
 export function resetDb(): void {
   clearStoredDb("main");
+  clearStoredDb("main-readonly");
   clearStoredDb("logs");
   clearStoredDb("memory");
   clearStoredDb("telemetry");

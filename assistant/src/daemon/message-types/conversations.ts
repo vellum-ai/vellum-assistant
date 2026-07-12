@@ -349,6 +349,8 @@ interface HistoryResponseToolCall {
   imageData?: string;
   /** Base64-encoded image data from tool contentBlocks (e.g. browser_screenshot, image generation). */
   imageDataList?: string[];
+  /** Workspace attachment ids for tool-result images persisted as references; clients fetch bytes by id on render instead of embedding base64. */
+  imageAttachmentIds?: string[];
   /** Unix ms when the tool started executing. */
   startedAt?: number;
   /** Unix ms when the tool completed. */

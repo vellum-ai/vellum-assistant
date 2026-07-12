@@ -40,12 +40,6 @@ import type {
   SendMessageOptions,
 } from "@vellumai/plugin-api";
 
-import { makeMockLogger } from "../../../../../__tests__/helpers/mock-logger.js";
-
-mock.module("../../../../../util/logger.js", () => ({
-  getLogger: () => makeMockLogger(),
-}));
-
 // Provider stub. Each test sets `providerStub` to control the response;
 // `null` simulates "no configured provider".
 let providerStub: Provider | null = null;

@@ -16,84 +16,29 @@ import type { Message, ProviderResponse } from "../providers/types.js";
 // Mocks — must precede Conversation import
 // ---------------------------------------------------------------------------
 
-function makeLoggerStub(): Record<string, unknown> {
-  const stub: Record<string, unknown> = {};
-  for (const m of [
-    "info",
-    "warn",
-    "error",
-    "debug",
-    "trace",
-    "fatal",
-    "silent",
-    "child",
-  ]) {
-    stub[m] = m === "child" ? () => makeLoggerStub() : () => {};
-  }
-  return stub;
-}
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () => makeLoggerStub(),
-}));
-
 mock.module("../providers/registry.js", () => ({
   getProvider: () => ({ name: "mock-provider" }),
   initializeProviders: async () => {},
 }));
 
-// Controllable config mock — speed and feature flag behavior are test-specific.
-let mockConfigSpeed: "standard" | "fast" = "fast";
+import { setConfig } from "./helpers/set-config.js";
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-    llm: {
-      default: {
-        provider: "mock-provider",
-        model: "mock-model",
-        maxTokens: 4096,
-        effort: "high" as const,
-        speed: mockConfigSpeed,
-        temperature: null,
-        thinking: { enabled: false, streamThinking: true },
-        contextWindow: {
-          enabled: true,
-          maxInputTokens: 100000,
-          targetBudgetRatio: 0.3,
-          compactThreshold: 0.8,
-          summaryBudgetRatio: 0.05,
-          overflowRecovery: {
-            enabled: true,
-            safetyMarginRatio: 0.05,
-            maxAttempts: 3,
-            interactiveLatestTurnCompression: "summarize",
-            nonInteractiveLatestTurnCompression: "truncate",
-          },
-        },
+// Controllable global speed, seeded into the real workspace config per test.
+// This file's blanket assistant-feature-flags mock forces the
+// override-or-default resolution flag ON; the speed under test rides in the
+// mainAgent call-site tweak (applies under both semantics) as well as
+// llm.default.
+function seedConfigSpeed(speed: "standard" | "fast"): void {
+  setConfig("llm", {
+    default: { speed },
+    callSites: {
+      mainAgent: {
+        speed,
+        contextWindow: { maxInputTokens: 100000 },
       },
-      profiles: {},
-      // This file's blanket assistant-feature-flags mock forces the
-      // override-or-default resolution flag ON; the speed under test rides
-      // in the mainAgent call-site tweak (applies under both semantics)
-      // rather than llm.default.
-      callSites: {
-        mainAgent: {
-          speed: mockConfigSpeed,
-          contextWindow: { maxInputTokens: 100000 },
-        },
-      },
-      pricingOverrides: [],
     },
-    rateLimit: { maxRequestsPerMinute: 0 },
-    timeouts: { permissionTimeoutSec: 1 },
-    skills: { entries: {}, allowBundled: true },
-    permissions: { mode: "workspace" },
-  }),
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-  invalidateConfigCache: () => {},
-}));
+  });
+}
 
 // Feature flag mock — fast-mode enabled for all tests in this file.
 mock.module("../config/assistant-feature-flags.js", () => ({
@@ -293,7 +238,7 @@ function makeSendToClient(): (msg: ServerMessage) => void {
 
 describe("per-conversation speed override", () => {
   test("speedOverride 'standard' prevents fast mode even when global config is 'fast'", () => {
-    mockConfigSpeed = "fast";
+    seedConfigSpeed("fast");
     lastAgentLoopConfig = undefined;
 
     new Conversation(
@@ -311,7 +256,7 @@ describe("per-conversation speed override", () => {
   });
 
   test("no speedOverride uses global config speed", () => {
-    mockConfigSpeed = "fast";
+    seedConfigSpeed("fast");
     lastAgentLoopConfig = undefined;
 
     new Conversation(
@@ -328,7 +273,7 @@ describe("per-conversation speed override", () => {
   });
 
   test("speedOverride 'fast' enables fast mode even when global config is 'standard'", () => {
-    mockConfigSpeed = "standard";
+    seedConfigSpeed("standard");
     lastAgentLoopConfig = undefined;
 
     new Conversation(

@@ -39,7 +39,6 @@ function makeScoredNode(
       narrativeRole: overrides.narrativeRole ?? null,
       partOfStory: overrides.partOfStory ?? null,
       imageRefs: overrides.imageRefs ?? null,
-      scopeId: overrides.scopeId ?? "default",
     },
     score: 0.8,
     scoreBreakdown: {

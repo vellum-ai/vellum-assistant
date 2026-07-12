@@ -15,17 +15,9 @@ import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { eq } from "drizzle-orm";
 
-import { DEFAULT_CONFIG } from "../config/defaults.js";
-import type { AssistantConfig } from "../config/types.js";
+import { setConfig } from "./helpers/set-config.js";
 
-// ── Mocks (must precede imports of tested module) ──────────────────
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
+// ── Config seed (before the tested module reads config) ────────────
 
 // Per-lane caps: 1 slow slot (so only 1 of the 5 enqueued slow jobs runs in
 // this tick) and a generous fast cap so every fast job both gets claimed
@@ -33,26 +25,15 @@ mock.module("../util/logger.js", () => ({
 // claimed jobs without lane awareness and ran them through a single
 // workerConcurrency-sized pool — would pin its slots on the first claimed
 // slow jobs and force the fast jobs to queue behind a 200ms LLM call.
-const TEST_CONFIG: AssistantConfig = {
-  ...DEFAULT_CONFIG,
-  memory: {
-    ...DEFAULT_CONFIG.memory,
-    enabled: true,
-    jobs: {
-      ...DEFAULT_CONFIG.memory.jobs,
-      slowLlmConcurrency: 1,
-      fastConcurrency: 5,
-      embedConcurrency: 1,
-      workerConcurrency: 2,
-    },
+// Everything else (including `memory.enabled: true`) is the schema default.
+setConfig("memory", {
+  jobs: {
+    slowLlmConcurrency: 1,
+    fastConcurrency: 5,
+    embedConcurrency: 1,
+    workerConcurrency: 2,
   },
-};
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => TEST_CONFIG,
-  loadConfig: () => TEST_CONFIG,
-  invalidateConfigCache: () => {},
-}));
+});
 
 // ── Track timestamps so we can assert ordering ─────────────────────
 

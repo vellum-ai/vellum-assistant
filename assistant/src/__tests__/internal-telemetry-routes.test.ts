@@ -1,12 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // Toggle for the share_analytics opt-out the real store consults. The store
 // module is intentionally NOT mocked here — it has its own DB-backed tests, and
 // Bun's `mock.module` is process-global, so mocking it would leak into those

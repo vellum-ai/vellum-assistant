@@ -9,23 +9,6 @@ import { describe, expect, mock, test } from "bun:test";
 
 // ── Mocks (must precede imports of tested module) ──────────────────
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
-// Mock config — memory disabled so runMemoryJobsOnce returns 0 immediately
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    memory: { enabled: false },
-  }),
-  loadConfig: () => ({
-    memory: { enabled: false },
-  }),
-}));
-
 // Mock jobs-store (accesses DB)
 mock.module("../persistence/jobs-store.js", () => ({
   resetRunningJobsToPending: () => 0,
@@ -50,6 +33,12 @@ import {
   POLL_INTERVAL_MIN_MS,
   startMemoryJobsWorker,
 } from "../plugins/defaults/memory/jobs-worker.js";
+import { setConfig } from "./helpers/set-config.js";
+
+// Memory disabled so each idle tick stays on the mocked-store fast path, and
+// the worker flag off so the supervisor neither spawns the out-of-process
+// worker nor stands the in-process runner down at the slow-poll cap.
+setConfig("memory", { enabled: false, worker: { enabled: false } });
 
 describe("memory jobs worker adaptive poll interval", () => {
   test("exports expected poll interval constants", () => {

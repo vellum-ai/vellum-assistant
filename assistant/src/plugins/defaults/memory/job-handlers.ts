@@ -14,7 +14,6 @@
 
 import type { AssistantConfig } from "../../../config/types.js";
 import type { MemoryJob } from "../../../persistence/jobs-store.js";
-import { getLogger } from "../../../util/logger.js";
 import type { JobHandlerEntry } from "../../types.js";
 import { pkbCompactionJob, pkbFilingJob } from "./filing-jobs.js";
 import { bootstrapFromHistory } from "./graph/bootstrap.js";
@@ -40,7 +39,9 @@ import {
 } from "./job-handlers/index-maintenance.js";
 import { embedConceptPageJob } from "./jobs/embed-concept-page.js";
 import { embedPkbFileJob } from "./jobs/embed-pkb-file.js";
+import { getLogger } from "./logging.js";
 import { memoryRetrospectiveJob } from "./memory-retrospective-job.js";
+import { skillCardInsertJob } from "./memory-retrospective-skill-card.js";
 import {
   memoryV2ActivationRecomputeJob,
   memoryV2MigrateJob,
@@ -55,8 +56,7 @@ const log = getLogger("memory-job-handlers");
 // ── Graph lifecycle job handlers ──────────────────────────────────
 
 function graphDecayJob(job: MemoryJob): void {
-  const scopeId = (job.payload as { scopeId?: string })?.scopeId ?? "default";
-  const result = runDecayTick(scopeId);
+  const result = runDecayTick();
   log.info({ jobId: job.id, ...result }, "Graph decay tick complete");
 }
 
@@ -64,8 +64,7 @@ async function graphConsolidateJob(
   job: MemoryJob,
   config: AssistantConfig,
 ): Promise<void> {
-  const scopeId = (job.payload as { scopeId?: string })?.scopeId ?? "default";
-  const result = await runConsolidation(scopeId, config);
+  const result = await runConsolidation(config);
   log.info(
     {
       jobId: job.id,
@@ -81,8 +80,7 @@ async function graphPatternScanJob(
   job: MemoryJob,
   config: AssistantConfig,
 ): Promise<void> {
-  const scopeId = (job.payload as { scopeId?: string })?.scopeId ?? "default";
-  const result = await runPatternScan(scopeId, config);
+  const result = await runPatternScan(config);
   log.info(
     {
       jobId: job.id,
@@ -97,8 +95,7 @@ async function graphNarrativeRefineJob(
   job: MemoryJob,
   config: AssistantConfig,
 ): Promise<void> {
-  const scopeId = (job.payload as { scopeId?: string })?.scopeId ?? "default";
-  const result = await runNarrativeRefinement(scopeId, config);
+  const result = await runNarrativeRefinement(config);
   log.info(
     {
       jobId: job.id,
@@ -209,5 +206,9 @@ export const memoryJobHandlers: readonly JobHandlerEntry[] = [
   {
     type: "memory_retrospective",
     handler: (job, config) => memoryRetrospectiveJob(job, config),
+  },
+  {
+    type: "skill_card_insert",
+    handler: (job) => skillCardInsertJob(job),
   },
 ];

@@ -16,6 +16,7 @@
 import { beforeAll, describe, expect, mock, test } from "bun:test";
 
 import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
+import { setConfig } from "./helpers/set-config.js";
 
 // These suites exercise override-profile PLUMBING through legacy-shaped
 // fixtures (llm.default-centric, no defaultProvider). Pinned to the
@@ -25,12 +26,6 @@ import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
 beforeAll(() => {
   setOverridesForTesting({ "override-or-default-resolution": false });
 });
-
-import { makeMockLogger } from "./helpers/mock-logger.js";
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () => makeMockLogger(),
-}));
 
 import { AgentLoop } from "../agent/loop.js";
 import type {
@@ -298,32 +293,37 @@ mock.module("../providers/inference/connections.js", () => ({
   }),
 }));
 
-let mockActiveProfile: string | undefined;
-let mockCallSites: Record<string, unknown> = {};
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    llm: {
-      default: {
-        provider: "anthropic",
-        model: "claude-opus-4-7",
-        provider_connection: "anthropic-conn",
-      },
-      profiles: {
-        // Disable the catalog default so resolution lands on llm.default.
-        balanced: { source: "managed", status: "disabled" },
-        fast: {
-          source: "user",
-          provider: "anthropic",
-          model: "claude-haiku-4-5-20251001",
-        },
-      },
-      activeProfile: mockActiveProfile,
-      callSites: mockCallSites,
+/**
+ * Seed the workspace `llm` config block for real. `activeProfile` and
+ * `callSites` vary per test; the rest is the shared legacy-shaped fixture.
+ */
+function seedLlmConfig(options?: {
+  activeProfile?: string;
+  callSites?: Record<string, unknown>;
+}): void {
+  setConfig("llm", {
+    default: {
+      provider: "anthropic",
+      model: "claude-opus-4-7",
+      provider_connection: "anthropic-conn",
     },
-    rateLimit: { maxRequestsPerMinute: 0 },
-  }),
-}));
+    profiles: {
+      // Disable the catalog default so resolution lands on llm.default.
+      balanced: { source: "managed", status: "disabled" },
+      fast: {
+        source: "user",
+        provider: "anthropic",
+        model: "claude-haiku-4-5-20251001",
+      },
+    },
+    ...(options?.activeProfile === undefined
+      ? {}
+      : { activeProfile: options.activeProfile }),
+    callSites: options?.callSites ?? {},
+  });
+}
+
+seedLlmConfig();
 
 import { SubagentManager } from "../subagent/manager.js";
 
@@ -500,7 +500,7 @@ describe("executeSubagentSpawn — nested inheritance via context.overrideProfil
       capturedConfig = config;
       return "nested-subagent-id-3";
     };
-    mockActiveProfile = "fast";
+    seedLlmConfig({ activeProfile: "fast" });
     try {
       const baseContext = {
         workingDir: "/tmp",
@@ -509,14 +509,16 @@ describe("executeSubagentSpawn — nested inheritance via context.overrideProfil
         sendToClient: () => {},
       } as import("../tools/types.js").ToolContext;
 
-      mockCallSites = {};
       await executeSubagentSpawn(
         { label: "nested", objective: "do nested work" },
         baseContext,
       );
       expect(capturedConfig!.overrideProfile).toBe("fast");
 
-      mockCallSites = { subagentSpawn: { profile: "fast" } };
+      seedLlmConfig({
+        activeProfile: "fast",
+        callSites: { subagentSpawn: { profile: "fast" } },
+      });
       capturedConfig = undefined;
       await executeSubagentSpawn(
         { label: "nested", objective: "do nested work" },
@@ -525,8 +527,7 @@ describe("executeSubagentSpawn — nested inheritance via context.overrideProfil
       expect("overrideProfile" in capturedConfig!).toBe(false);
     } finally {
       manager.spawn = originalSpawn;
-      mockActiveProfile = undefined;
-      mockCallSites = {};
+      seedLlmConfig();
     }
   });
 });

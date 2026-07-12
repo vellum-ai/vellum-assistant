@@ -16,9 +16,9 @@ export interface BootstrapConversationOptions {
   /**
    * When set, the new conversation is linked to its parent via the
    * `fork_parent_conversation_id` column. Used by background jobs that
-   * spawn analysis conversations off a source conversation (auto-analyze,
-   * memory-retrospective) so the parent → child relationship is queryable
-   * later (e.g. "find the most recent retrospective for this source").
+   * spawn conversations off a source conversation (memory-retrospective)
+   * so the parent → child relationship is queryable later (e.g. "find the
+   * most recent retrospective for this source").
    */
   forkParentConversationId?: string;
 }
