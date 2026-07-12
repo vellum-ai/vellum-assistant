@@ -62,7 +62,6 @@ import {
   getScheduleRuns,
 } from "../schedule/schedule-store.js";
 import { runScheduleDueWorkOnce } from "../schedule/scheduler.js";
-import { createTask } from "../tasks/task-store.js";
 
 await initializeDb();
 
@@ -164,49 +163,6 @@ describe("scheduler RRULE execution", () => {
     const runs = getScheduleRuns(schedule.id);
     expect(runs.length).toBeGreaterThanOrEqual(1);
     expect(runs[0].status).toBe("ok");
-  });
-
-  test("RRULE run_task:<id> triggers task runner", async () => {
-    const task = createTask({
-      title: "RRULE Task",
-      template: "Execute RRULE task",
-    });
-
-    const rruleExpr = buildEveryMinuteRrule();
-    const schedule = await createSchedule({
-      name: "RRULE Task Schedule",
-      cronExpression: rruleExpr,
-      message: `run_task:${task.id}`,
-      syntax: "rrule",
-      expression: rruleExpr,
-    });
-
-    forceScheduleDue(schedule.id);
-
-    const directCalls: { conversationId: string; message: string }[] = [];
-    processMessageImpl = async (conversationId, message) => {
-      directCalls.push({ conversationId, message });
-    };
-
-    // runScheduleDueWorkOnce() awaits the full tick — including the run_task
-    // dynamic import and processMessage — so the schedule run is recorded by the
-    // time it resolves. No fixed timeout / callback race needed.
-    await runScheduleDueWorkOnce();
-
-    // runTask renders the template, so processMessage gets the template text
-    const runTaskCalls = directCalls.filter(
-      (c) => c.message === "Execute RRULE task",
-    );
-    const rawCalls = directCalls.filter((c) =>
-      c.message.startsWith("run_task:"),
-    );
-
-    expect(runTaskCalls.length).toBe(1);
-    expect(rawCalls.length).toBe(0);
-
-    // A cron_runs entry should exist
-    const runs = getScheduleRuns(schedule.id);
-    expect(runs.length).toBeGreaterThanOrEqual(1);
   });
 
   test("expired RRULE fires one final due run then is disabled", async () => {

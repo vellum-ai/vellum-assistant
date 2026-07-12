@@ -43,8 +43,6 @@ import {
   memoryGraphNodes,
   memoryJobs,
   messages,
-  taskRuns,
-  tasks,
 } from "../persistence/schema/index.js";
 import {
   invalidateAssistantInferredItemsForConversation,
@@ -73,8 +71,6 @@ describe("invalidateAssistantInferredItemsForConversation", () => {
     db.run("DELETE FROM messages");
     db.run("DELETE FROM cron_runs");
     db.run("DELETE FROM cron_jobs");
-    db.run("DELETE FROM task_runs");
-    db.run("DELETE FROM tasks");
     db.run("DELETE FROM conversations");
   });
 
@@ -328,114 +324,6 @@ describe("invalidateAssistantInferredItemsForConversation", () => {
     expect(affected).toBe(0);
   });
 
-  test("invalidates items when corroborating conversation is also from a failed task run", () => {
-    const db = getDb();
-    const convA = "conv-failed-task-a";
-    const convB = "conv-failed-task-b";
-
-    // Create two conversations, each from a failed task run
-    for (const id of [convA, convB]) {
-      db.insert(conversations)
-        .values({
-          id,
-          title: null,
-          createdAt: now,
-          updatedAt: now,
-          totalInputTokens: 0,
-          totalOutputTokens: 0,
-          totalEstimatedCost: 0,
-          contextSummary: null,
-          contextCompactedMessageCount: 0,
-          contextCompactedAt: null,
-        })
-        .run();
-    }
-
-    db.insert(messages)
-      .values([
-        {
-          id: "msg-a",
-          conversationId: convA,
-          role: "assistant",
-          content: "[]",
-          createdAt: now + 10,
-        },
-        {
-          id: "msg-b",
-          conversationId: convB,
-          role: "assistant",
-          content: "[]",
-          createdAt: now + 20,
-        },
-      ])
-      .run();
-
-    // Both conversations are from failed task runs
-    db.insert(tasks)
-      .values({
-        id: "task-1",
-        title: "Test task",
-        template: "template",
-        status: "active",
-        createdAt: now,
-        updatedAt: now,
-      })
-      .run();
-
-    db.insert(taskRuns)
-      .values([
-        {
-          id: "run-a",
-          taskId: "task-1",
-          conversationId: convA,
-          status: "failed",
-          createdAt: now + 10,
-        },
-        {
-          id: "run-b",
-          taskId: "task-1",
-          conversationId: convB,
-          status: "failed",
-          createdAt: now + 20,
-        },
-      ])
-      .run();
-
-    // A memory node sourced from both failed conversations
-    db.insert(memoryGraphNodes)
-      .values({
-        id: "item-cross-sourced",
-        content: "cross-sourced claim\nClaim from two failed tasks.",
-        type: "semantic",
-        created: now + 10,
-        lastAccessed: now + 20,
-        lastConsolidated: now + 10,
-        emotionalCharge: DEFAULT_EMOTIONAL_CHARGE,
-        fidelity: "vivid",
-        confidence: 0.8,
-        significance: 0.7,
-        stability: 14,
-        reinforcementCount: 0,
-        lastReinforced: now + 10,
-        sourceConversations: JSON.stringify([convA, convB]),
-        sourceType: "inferred",
-        narrativeRole: null,
-        partOfStory: null,
-      })
-      .run();
-
-    // Invalidating for convA should succeed because convB is also from a failed task
-    const affected = invalidateAssistantInferredItemsForConversation(convA);
-    expect(affected).toBe(1);
-
-    const item = db
-      .select()
-      .from(memoryGraphNodes)
-      .where(eq(memoryGraphNodes.id, "item-cross-sourced"))
-      .get();
-    expect(item?.fidelity).toBe("gone");
-  });
-
   test("invalidates items when corroborating conversation is from a failed schedule run", () => {
     const db = getDb();
     const convA = "conv-failed-sched-a";
@@ -546,7 +434,7 @@ describe("invalidateAssistantInferredItemsForConversation", () => {
     expect(item?.fidelity).toBe("gone");
   });
 
-  test("preserves items when corroborating conversation is from a successful task run", () => {
+  test("preserves items when corroborating conversation is from a successful schedule run", () => {
     const db = getDb();
     const convFailed = "conv-failed-task";
     const convSuccess = "conv-success-task";
@@ -587,31 +475,35 @@ describe("invalidateAssistantInferredItemsForConversation", () => {
       ])
       .run();
 
-    db.insert(tasks)
+    db.insert(cronJobs)
       .values({
-        id: "task-2",
-        title: "Test task 2",
-        template: "template",
-        status: "active",
+        id: "cron-2",
+        name: "Test schedule 2",
+        cronExpression: "0 9 * * *",
+        message: "test",
+        nextRunAt: now + 100_000,
+        createdBy: "agent",
         createdAt: now,
         updatedAt: now,
       })
       .run();
 
-    db.insert(taskRuns)
+    db.insert(cronRuns)
       .values([
         {
-          id: "run-failed",
-          taskId: "task-2",
+          id: "cron-run-failed",
+          jobId: "cron-2",
+          status: "error",
           conversationId: convFailed,
-          status: "failed",
+          startedAt: now + 10,
           createdAt: now + 10,
         },
         {
-          id: "run-success",
-          taskId: "task-2",
+          id: "cron-run-success",
+          jobId: "cron-2",
+          status: "ok",
           conversationId: convSuccess,
-          status: "completed",
+          startedAt: now + 20,
           createdAt: now + 20,
         },
       ])
@@ -639,7 +531,7 @@ describe("invalidateAssistantInferredItemsForConversation", () => {
       })
       .run();
 
-    // The successful task run corroborates the claim, so it should NOT be invalidated
+    // The successful schedule run corroborates the claim, so it should NOT be invalidated
     const affected =
       invalidateAssistantInferredItemsForConversation(convFailed);
     expect(affected).toBe(0);
@@ -650,44 +542,6 @@ describe("invalidateAssistantInferredItemsForConversation", () => {
       .where(eq(memoryGraphNodes.id, "item-with-good-corroboration"))
       .get();
     expect(item?.fidelity).toBe("vivid");
-  });
-
-  test("isConversationFailed derives state from durable task_runs/cron_runs", () => {
-    seedConversations();
-    seedMessages();
-
-    const db = getDb();
-
-    // No failure records yet — should be false
-    expect(isConversationFailed(convId)).toBe(false);
-    expect(isConversationFailed(otherConvId)).toBe(false);
-
-    // Insert a failed task run for convId
-    db.insert(tasks)
-      .values({
-        id: "task-durable",
-        title: "Durable test",
-        template: "template",
-        status: "active",
-        createdAt: now,
-        updatedAt: now,
-      })
-      .run();
-
-    db.insert(taskRuns)
-      .values({
-        id: "run-durable",
-        taskId: "task-durable",
-        conversationId: convId,
-        status: "failed",
-        createdAt: now + 50,
-      })
-      .run();
-
-    // Now convId should be detected as failed via the DB
-    expect(isConversationFailed(convId)).toBe(true);
-    // Other conversations remain unaffected
-    expect(isConversationFailed(otherConvId)).toBe(false);
   });
 
   test("isConversationFailed detects failed schedule runs", () => {
