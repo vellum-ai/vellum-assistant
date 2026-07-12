@@ -4,6 +4,7 @@ import { toProviderSafeToolName } from "./provider-tool-name.js";
 import { finalizeTool } from "./tool-defaults.js";
 import { explicitTools } from "./tool-manifest.js";
 import type { OwnerInfo, Tool, ToolDefinition } from "./types.js";
+import { loadWorkspaceTools } from "./workspace-tools/loader.js";
 
 const log = getLogger("tool-registry");
 
@@ -1087,11 +1088,6 @@ async function runToolInitialization(): Promise<void> {
   // `loadWorkspaceTools` is idempotent: this is the first reconcile, and
   // conversation reads re-run it later to pick up on-disk edits without a
   // restart (see workspace-tools/loader.ts).
-  //
-  // Imported dynamically because the loader imports back from this module
-  // (registerWorkspaceTools / removeCoreToolViaWorkspace); a static import
-  // here would create a registry ↔ loader cycle.
-  const { loadWorkspaceTools } = await import("./workspace-tools/loader.js");
   await loadWorkspaceTools();
 
   // Pull the active user-plugin tool set last, so core and workspace
