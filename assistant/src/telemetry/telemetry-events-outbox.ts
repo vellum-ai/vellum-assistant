@@ -1,13 +1,17 @@
 /**
- * Storage seam for the generic `telemetry_events` outbox on the dedicated
- * telemetry database (`assistant-telemetry.db`). Rows carry the full wire
- * `TelemetryEvent` built at record time and are deleted after a successful
- * flush. No consent logic lives here — call sites own gating.
+ * Generic `telemetry_events` outbox on the dedicated telemetry database
+ * (`assistant-telemetry.db`). Rows carry the full wire `TelemetryEvent` built
+ * at record time and are deleted after a successful flush.
+ * `recordTelemetryOutboxEvent` is the consent-owning record layer; the
+ * storage seam functions carry no consent logic — their call sites own
+ * gating.
  */
 import { asc, eq, inArray } from "drizzle-orm";
+import { v4 as uuid } from "uuid";
 
 import { getTelemetryDb } from "../persistence/db-connection.js";
 import { telemetryEvents } from "../persistence/schema/index.js";
+import { getCachedShareAnalytics } from "../platform/consent-cache.js";
 import type { TelemetryEvent } from "./types.js";
 
 /** Ids per DELETE chunk — stays under SQLite's bound-variable limit. */
@@ -67,6 +71,34 @@ export function insertTelemetryOutboxEvent(
   row: TelemetryOutboxInsert,
 ): boolean {
   return insertTelemetryOutboxEvents([row]);
+}
+
+/**
+ * Record one telemetry event: gate on usage-data consent, generate the outbox
+ * row id and record-time timestamp, build the wire payload via `buildEvent`
+ * (which owns per-type stamping, e.g. `daemon_event_id` overrides), and
+ * insert. Returns the generated row identity, or null when usage data
+ * collection is disabled (the event is dropped to honor the opt-out) or the
+ * telemetry DB is unavailable (degraded mode).
+ */
+export function recordTelemetryOutboxEvent(
+  name: string,
+  buildEvent: (id: string, createdAt: number) => TelemetryEvent,
+  opts?: { conversationId?: string | null },
+): { id: string; createdAt: number } | null {
+  if (!getCachedShareAnalytics()) {
+    return null;
+  }
+  const id = uuid();
+  const createdAt = Date.now();
+  const inserted = insertTelemetryOutboxEvent({
+    id,
+    name,
+    createdAt,
+    conversationId: opts?.conversationId ?? null,
+    event: buildEvent(id, createdAt),
+  });
+  return inserted ? { id, createdAt } : null;
 }
 
 /**
