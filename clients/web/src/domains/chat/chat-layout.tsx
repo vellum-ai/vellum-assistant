@@ -383,10 +383,16 @@ export function ChatLayout() {
   // past threshold. Suppressed whenever a back-swipe owner is active (a pushed
   // page under this layout) so a single left-edge swipe resolves to exactly one
   // action — back-navigation on detail pages, open-menu at the stack root.
+  // Also suppressed while a swipe-action row is revealed anywhere under the
+  // layout (e.g. a library card showing Pin/Delete): swiping the open row back
+  // toward centre must close it, matching the iOS table-row model where the
+  // open row owns the gesture and the enclosing container yields.
   const backSwipeOwnerCount = useEdgeSwipeArbiterStore.use.backOwnerCount();
+  const openRowCount = useEdgeSwipeArbiterStore.use.openRowCount();
   useEdgeSwipeDrawer({
     panelRef: drawerRef,
-    enabled: isMobile && !drawerOpen && backSwipeOwnerCount === 0,
+    enabled:
+      isMobile && !drawerOpen && backSwipeOwnerCount === 0 && openRowCount === 0,
     onDragStart: () => setDrawerDragging(true),
     onOpen: () => {
       // Same as the button path: swiping the drawer in over a focused
