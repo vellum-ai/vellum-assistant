@@ -90,7 +90,6 @@ import {
   startInferenceProfileSessionReaper,
   stopInferenceProfileSessionReaper,
 } from "./routes/inference-profile-session-reaper.js";
-import { matchSkillRoute } from "./skill-route-registry.js";
 
 // Re-export for consumers
 export { isPrivateAddress } from "./middleware/auth.js";
@@ -654,20 +653,6 @@ export class RuntimeHttpServer {
         }
         throw err;
       }
-    }
-
-    // Skill-registered routes (e.g. meet-bot event ingress). Handled before
-    // JWT auth because skills may use their own auth (e.g. per-meeting bearer
-    // tokens minted by a session manager).
-    const skillMatch = matchSkillRoute(path, req.method);
-    if (skillMatch) {
-      if (skillMatch.kind === "methodMismatch") {
-        return new Response("Method Not Allowed", {
-          status: 405,
-          headers: { Allow: skillMatch.allow.join(", ") },
-        });
-      }
-      return await skillMatch.route.handler(req, skillMatch.match);
     }
 
     // JWT bearer authentication — replaces the old shared-secret comparison.
