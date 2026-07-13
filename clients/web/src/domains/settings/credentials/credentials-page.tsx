@@ -51,6 +51,7 @@ interface CredentialRow {
   alias: string | null;
   usageDescription: string | null;
   createdAt: string | null;
+  updatedAt: string | null;
 }
 
 /** A platform-managed credential from the same response. Read-only. */
@@ -113,10 +114,18 @@ function CredentialValue({
   const [justCopied, setJustCopied] = useState(false);
   const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Monotonic token used to ignore stale reveal responses. Incremented on
+  // every reveal, hide, and credential change so that an in-flight promise
+  // whose row has since changed (or been hidden) is silently dropped instead
+  // of overwriting newer state with an obsolete secret.
+  const revealVersionRef = useRef(0);
+
   const name = `${credential.service}:${credential.field}`;
 
   const hide = useCallback(() => {
+    revealVersionRef.current++;
     setRevealed(null);
+    setIsRevealing(false);
     setJustCopied(false);
     if (copiedTimer.current) {
       clearTimeout(copiedTimer.current);
@@ -127,12 +136,16 @@ function CredentialValue({
   // Clear any revealed plaintext when the underlying secret changes (e.g. the
   // user replaces the credential via the form). The row key stays stable for
   // an upsert, so without this the stale plaintext from the previous value
-  // would remain visible and copyable until the row remounts.
+  // would remain visible and copyable until the row remounts. Using
+  // `updatedAt` (not `scrubbedValue`) avoids a false negative when the
+  // replacement masks to the same preview (e.g. same last four chars or any
+  // value ≤ 4 chars where scrubSecret() returns "****").
   useEffect(() => {
     hide();
-  }, [credential.scrubbedValue, hide]);
+  }, [credential.updatedAt, hide]);
 
   const reveal = useCallback(async () => {
+    const myVersion = ++revealVersionRef.current;
     setIsRevealing(true);
     try {
       const { data } = await credentialsRevealPost({
@@ -140,11 +153,19 @@ function CredentialValue({
         body: { service: credential.service, field: credential.field },
         throwOnError: true,
       });
-      setRevealed(data.value);
+      // Only apply the result if no newer reveal, hide, or credential change
+      // has superseded this request.
+      if (revealVersionRef.current === myVersion) {
+        setRevealed(data.value);
+      }
     } catch {
-      toast.error(`Couldn't reveal ${name}.`);
+      if (revealVersionRef.current === myVersion) {
+        toast.error(`Couldn't reveal ${name}.`);
+      }
     } finally {
-      setIsRevealing(false);
+      if (revealVersionRef.current === myVersion) {
+        setIsRevealing(false);
+      }
     }
   }, [assistantId, credential.service, credential.field, name]);
 
