@@ -471,6 +471,48 @@ describe("getSpeechRelayWebsocketHandlers", () => {
     expect(ws.closeCalled?.code).toBe(1011);
   });
 
+  test("a ws:// relay base still yields a fetchable probe URL", async () => {
+    const server = makeFakeServer();
+    const handler = createSpeechRelayUpgradeHandler(
+      makeConfig({ velayBaseUrl: "wss://velay.test" } as never),
+      "stt",
+      { credentials: makeCredentials("vk-1") },
+    );
+    const req = new Request(
+      `http://127.0.0.1:7830/v1/speech/stt/stream?key=${TOKEN}&encoding=linear16`,
+      { headers: { upgrade: "websocket" } },
+    );
+
+    expect(await handler(req, server)).toBeUndefined();
+    const data = (server.upgrade as unknown as { mock: { calls: unknown[][] } })
+      .mock.calls[0]![1] as { data: SpeechRelaySocketData };
+    expect(data.data.upstreamWsUrl.startsWith("wss://velay.test/")).toBe(true);
+    expect(data.data.upstreamHttpUrl.startsWith("https://velay.test/")).toBe(
+      true,
+    );
+  });
+
+  test("a daemon close during the credential read prevents the velay dial", async () => {
+    FakeUpstreamWebSocket.instances = [];
+    const handlers = getSpeechRelayWebsocketHandlers();
+    let releaseRead: (v: string) => void = () => {};
+    const data = makeSocketData();
+    data.deps.credentials = {
+      get: () => new Promise<string>((r) => (releaseRead = r)),
+    } as unknown as CredentialCache;
+    const ws = new FakeDownstreamSocket(data);
+
+    const opening = handlers.open(ws as never);
+    // The daemon hangs up while the CES/keychain read is still pending.
+    handlers.close(ws as never, 1001, "going away");
+    releaseRead("vk-1");
+    await opening;
+
+    // No upstream session was dialed — nothing left to close would have
+    // torn it down.
+    expect(FakeUpstreamWebSocket.instances).toHaveLength(0);
+  });
+
   test("daemon close is forwarded to velay", async () => {
     FakeUpstreamWebSocket.instances = [];
     const handlers = getSpeechRelayWebsocketHandlers();

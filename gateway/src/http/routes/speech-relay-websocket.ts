@@ -92,6 +92,12 @@ export type SpeechRelaySocketData = {
   deps: SpeechRelayDeps;
   upstream?: WebSocket;
   upstreamOpened?: boolean;
+  /**
+   * Set by the close handler; open() re-checks it after its async
+   * credential read so a daemon that hung up mid-read doesn't leave a
+   * dialed velay session with no close left to forward.
+   */
+  downstreamClosed?: boolean;
   pendingMessages?: (string | ArrayBuffer | Uint8Array)[];
 };
 
@@ -107,15 +113,17 @@ function velaySpeechUrls(
   operation: SpeechRelayOperation,
   params: URLSearchParams,
 ): { wsUrl: string; httpUrl: string } {
-  const base = (config.velayBaseUrl ?? DEFAULT_VELAY_BASE_URL).replace(
-    /\/+$/,
-    "",
-  );
+  // The velay tunnel client accepts ws(s):// bases too — normalize to the
+  // http(s) twin first so the probe URL is always fetchable, then derive
+  // the ws(s) dial URL from that.
+  const httpBase = (config.velayBaseUrl ?? DEFAULT_VELAY_BASE_URL)
+    .replace(/\/+$/, "")
+    .replace(/^ws/, "http");
   const query = params.toString();
   const path = `/v1/speech/${operation}/stream${query ? `?${query}` : ""}`;
   return {
-    httpUrl: `${base}${path}`,
-    wsUrl: `${base.replace(/^http/, "ws")}${path}`,
+    httpUrl: `${httpBase}${path}`,
+    wsUrl: `${httpBase.replace(/^http/, "ws")}${path}`,
   };
 }
 
@@ -284,6 +292,13 @@ export function getSpeechRelayWebsocketHandlers() {
       ws.data.upstreamOpened = false;
 
       const apiKey = await readAssistantApiKey(deps);
+      if (ws.data.downstreamClosed) {
+        // The daemon hung up while the credential read was pending; there
+        // is no close left to forward, so dialing now would leak a velay
+        // session until its timeout.
+        log.info({ operation }, "Speech relay: daemon closed before dial");
+        return;
+      }
       if (!apiKey) {
         log.warn({ operation }, "Speech relay: no assistant API key stored");
         sendRelayError(
@@ -404,6 +419,7 @@ export function getSpeechRelayWebsocketHandlers() {
       code: number,
       reason: string,
     ) {
+      ws.data.downstreamClosed = true;
       const { upstream, operation } = ws.data;
       log.info({ code, reason, operation }, "Speech relay downstream closed");
       ws.data.pendingMessages = undefined;
