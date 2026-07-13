@@ -529,13 +529,17 @@ export type TelemetryEvent =
  * change once shipped. The watermark-flushed types (`llm_usage`, `turn`,
  * `tool_executed`) live on their own tables and are deliberately excluded.
  */
+export const OUTBOX_TELEMETRY_EVENT_NAMES = [
+  "lifecycle",
+  "onboarding",
+  "auth_fallback",
+  "skill_loaded",
+  "watchdog",
+  "config_setting",
+] as const;
+
 export type OutboxTelemetryEventName =
-  | "lifecycle"
-  | "onboarding"
-  | "auth_fallback"
-  | "skill_loaded"
-  | "watchdog"
-  | "config_setting";
+  (typeof OUTBOX_TELEMETRY_EVENT_NAMES)[number];
 
 /** Wire event type for one outbox event name. */
 export type OutboxTelemetryEventOf<N extends OutboxTelemetryEventName> =
