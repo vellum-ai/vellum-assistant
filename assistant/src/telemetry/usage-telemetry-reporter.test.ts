@@ -2674,7 +2674,7 @@ describe("UsageTelemetryReporter", () => {
   });
 
   // -------------------------------------------------------------------------
-  // Ack-mode sources (acknowledge / discardPending hooks)
+  // Ack-mode sources (grouped `ack` field: acknowledge + discardPending)
   // -------------------------------------------------------------------------
 
   // Wire id deliberately differs from the row id: acknowledge must receive
@@ -2716,8 +2716,7 @@ describe("UsageTelemetryReporter", () => {
           fullBatch: batch.length === limit,
         };
       },
-      acknowledge,
-      discardPending,
+      ack: { acknowledge, discardPending },
     };
     return { source, acknowledge, discardPending, pending: () => rows.length };
   }
@@ -2895,5 +2894,76 @@ describe("UsageTelemetryReporter", () => {
     expect(acknowledge.mock.calls[0][0]).toHaveLength(500);
     expect(acknowledge.mock.calls[1][0]).toEqual(["row-500"]);
     expect(pending()).toBe(0);
+  });
+
+  /** Ack source whose collect returns events with broken rowIds. */
+  function makeBrokenAckSource(id: string, rowIds: string[] | undefined) {
+    const acknowledge = mock((_acked: string[]) => {});
+    const discardPending = mock(() => {});
+    const source: TelemetryEventSource = {
+      id,
+      collect() {
+        return {
+          events: [
+            fakeWireEvent("row-1", 1700000000000),
+            fakeWireEvent("row-2", 1700000000001),
+          ],
+          ...(rowIds ? { rowIds } : {}),
+          lastCursor: null,
+          fullBatch: false,
+        };
+      },
+      ack: { acknowledge, discardPending },
+    };
+    return { source, acknowledge };
+  }
+
+  test("an ack batch omitting rowIds ships nothing while other sources still ship", async () => {
+    const { source: brokenSource, acknowledge } = makeBrokenAckSource(
+      "fake_broken_ack",
+      undefined,
+    );
+    const wmSource = makeWatermarkSource("fake_wm", ["wm-1"]);
+    const reporter = new UsageTelemetryReporter(
+      [brokenSource, wmSource],
+      fakeFlushCheckpointStore,
+    );
+    await reporter.flush();
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    expect(
+      body.events.map((e: { daemon_event_id: string }) => e.daemon_event_id),
+    ).toEqual(["wire-wm-1"]);
+    expect(acknowledge).not.toHaveBeenCalled();
+    expect(
+      mockSetFlushCheckpoint.mock.calls.some((c) =>
+        c[0].includes("fake_broken_ack"),
+      ),
+    ).toBe(false);
+  });
+
+  test("an ack batch with mismatched rowIds ships nothing while other sources still ship", async () => {
+    const { source: brokenSource, acknowledge } = makeBrokenAckSource(
+      "fake_broken_ack",
+      ["row-1"],
+    );
+    const wmSource = makeWatermarkSource("fake_wm", ["wm-1"]);
+    const reporter = new UsageTelemetryReporter(
+      [brokenSource, wmSource],
+      fakeFlushCheckpointStore,
+    );
+    await reporter.flush();
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    expect(
+      body.events.map((e: { daemon_event_id: string }) => e.daemon_event_id),
+    ).toEqual(["wire-wm-1"]);
+    expect(acknowledge).not.toHaveBeenCalled();
   });
 });

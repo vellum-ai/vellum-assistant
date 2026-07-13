@@ -8,8 +8,8 @@
  * source list it is constructed with, acknowledging each source after a
  * successful upload in one of two modes: watermark-mode sources advance a
  * compound `(createdAt, id)` cursor in the telemetry DB's
- * `flush_checkpoints` table, and ack-mode sources (those defining
- * `acknowledge`) delete their shipped rows instead.
+ * `flush_checkpoints` table, and ack-mode sources (those defining `ack`)
+ * delete their shipped rows instead.
  *
  * Flushing is split across two processes, each running its own reporter
  * instance over a disjoint source partition: the daemon flushes turn events
@@ -313,8 +313,8 @@ export class UsageTelemetryReporter {
         // ships events overwrites the sentinel with a real row ID.
         const now = String(Date.now());
         for (const source of this.sources) {
-          if (source.discardPending) {
-            source.discardPending();
+          if (source.ack) {
+            source.ack.discardPending();
             continue;
           }
           const keys = watermarkKeysForSource(source.id);
@@ -341,6 +341,33 @@ export class UsageTelemetryReporter {
           batch: source.collect(afterCreatedAt, afterId, BATCH_SIZE),
         };
       });
+
+      // Ack-mode batches must carry a row id per event: without them nothing
+      // can be acknowledged post-2xx, so shipping would re-send the same rows
+      // on every flush. Exclude such a batch from the POST instead.
+      for (const entry of batches) {
+        const { source, batch } = entry;
+        if (
+          source.ack &&
+          batch.events.length > 0 &&
+          (batch.rowIds ?? []).length !== batch.events.length
+        ) {
+          log.warn(
+            {
+              sourceId: source.id,
+              eventCount: batch.events.length,
+              rowIdCount: batch.rowIds?.length ?? 0,
+            },
+            "Telemetry flush: ack-mode batch missing/mismatched rowIds — excluding from POST",
+          );
+          entry.batch = {
+            events: [],
+            rowIds: [],
+            lastCursor: null,
+            fullBatch: false,
+          };
+        }
+      }
 
       if (batches.every(({ batch }) => batch.events.length === 0)) {
         return;
@@ -413,10 +440,9 @@ export class UsageTelemetryReporter {
       // (never touching flush_checkpoints), watermark-mode sources advance
       // their compound cursor to the last reported row.
       for (const { source, batch } of batches) {
-        if (source.acknowledge) {
-          const rowIds = batch.rowIds ?? [];
-          if (rowIds.length > 0) {
-            source.acknowledge(rowIds);
+        if (source.ack) {
+          if (batch.events.length > 0) {
+            source.ack.acknowledge(batch.rowIds ?? []);
           }
         } else if (batch.lastCursor) {
           const keys = watermarkKeysForSource(source.id);

@@ -80,18 +80,16 @@ export interface TelemetryEventSource {
     limit: number,
   ): TelemetryEventSourceBatch;
   /**
-   * Ack-mode (delete-on-flush) acknowledgment: delete the rows behind
-   * `rowIds` (the batch's {@link TelemetryEventSourceBatch.rowIds}). Called
-   * only after a 2xx from the ingest endpoint. Sources that define this
-   * never get watermark writes in `flush_checkpoints`.
+   * Delete-on-flush mode. Both operations are required together: `acknowledge`
+   * deletes the rows behind {@link TelemetryEventSourceBatch.rowIds} after a
+   * 2xx from the ingest endpoint, and `discardPending` drops all pending rows
+   * on an opted-out flush (watermark writes are meaningless for ack-mode
+   * sources, so they never touch `flush_checkpoints`).
    */
-  acknowledge?(rowIds: string[]): void;
-  /**
-   * Opt-out handling for ack-mode sources: drop all pending rows so events
-   * recorded during the opt-out window are never sent, replacing the
-   * watermark-mode sentinel pin.
-   */
-  discardPending?(): void;
+  ack?: {
+    acknowledge(rowIds: string[]): void;
+    discardPending(): void;
+  };
 }
 
 /** The `flush_checkpoints` keys holding a source's compound cursor. */
