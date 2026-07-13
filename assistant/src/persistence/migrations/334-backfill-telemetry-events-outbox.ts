@@ -291,11 +291,13 @@ function dropRedactedConversationRows(
   });
 }
 
+/** Returns the number of rows actually inserted (dupes IGNOREd don't count). */
 function insertOutboxRows(
   raw: Database,
   spec: LegacyBackfillSpec,
   rows: LegacyRow[],
-): void {
+): number {
+  let inserted = 0;
   for (let i = 0; i < rows.length; i += INSERT_CHUNK_SIZE) {
     const chunk = rows.slice(i, i + INSERT_CHUNK_SIZE);
     const placeholders = chunk.map(() => "(?, ?, ?, ?, ?)").join(", ");
@@ -308,12 +310,13 @@ function insertOutboxRows(
         : null,
       JSON.stringify(spec.toPayload(row)),
     ]);
-    raw
+    inserted += raw
       .query(
         /*sql*/ `INSERT OR IGNORE INTO telemetry_events (id, name, created_at, conversation_id, payload) VALUES ${placeholders}`,
       )
-      .run(...params);
+      .run(...params).changes;
   }
+  return inserted;
 }
 
 /**
@@ -362,9 +365,8 @@ export function migrateBackfillTelemetryEventsOutbox(mainDb: DrizzleDb): void {
       spec,
       selectUnshippedRows(raw, spec),
     );
-    insertOutboxRows(raw, spec, rows);
+    backfilled[spec.table] = insertOutboxRows(raw, spec, rows);
     raw.exec(/*sql*/ `DROP TABLE ${spec.table}`);
-    backfilled[spec.table] = rows.length;
   }
 
   const watermarkKeys = LEGACY_BACKFILL_SPECS.flatMap((spec) => [
