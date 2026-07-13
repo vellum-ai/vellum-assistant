@@ -26,8 +26,8 @@ import {
 
 /**
  * One flattened row from the platform catalog. Unknown keys (`id`,
- * `display_name`, `icon`, `homepage`, `license`) are accepted and dropped —
- * zod strips them by default.
+ * `display_name`, `icon`) are accepted and dropped — zod strips them by
+ * default.
  */
 const platformPluginRowSchema = z.object({
   name: z.string(),
@@ -36,6 +36,8 @@ const platformPluginRowSchema = z.object({
   path: z.string().nullable().optional(),
   description: z.string().optional(),
   category: z.string().nullable().optional(),
+  homepage: z.string().nullable().optional(),
+  license: z.string().nullable().optional(),
 });
 
 const platformCatalogSchema = z.object({
@@ -105,6 +107,8 @@ export async function fetchPluginCatalogFromPlatform(
       },
       description: row.description ?? undefined,
       category: row.category ?? undefined,
+      homepage: row.homepage ?? undefined,
+      license: row.license ?? undefined,
     });
   }
 

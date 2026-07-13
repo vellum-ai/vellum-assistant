@@ -38,12 +38,12 @@ describe("fetchPluginCatalogFromPlatform", () => {
             path: "packages/plugin",
             description: "graph memory",
             category: "productivity",
+            homepage: "https://example.com",
+            license: "MIT",
             // dropped keys
             id: "abc",
             display_name: "Memory Graph",
             icon: "🧠",
-            homepage: "https://example.com",
-            license: "MIT",
           },
           {
             name: "alpha-tool",
@@ -66,6 +66,8 @@ describe("fetchPluginCatalogFromPlatform", () => {
       path: `github:acme/memory-graph/packages/plugin@${SHA_B}`,
       description: "graph memory",
       category: "productivity",
+      homepage: "https://example.com",
+      license: "MIT",
       source: {
         kind: "github",
         repo: "acme/memory-graph",
@@ -76,6 +78,8 @@ describe("fetchPluginCatalogFromPlatform", () => {
 
     const alpha = catalog.matches[0];
     expect(alpha.category).toBeNull();
+    expect(alpha.homepage).toBeUndefined();
+    expect(alpha.license).toBeUndefined();
     expect(alpha.source).toEqual({
       kind: "github",
       repo: "vellum-ai/alpha-tool",

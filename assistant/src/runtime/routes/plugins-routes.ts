@@ -49,6 +49,7 @@ import {
   listInstalledPlugins,
 } from "../../cli/lib/list-installed-plugins.js";
 import { getPluginCatalog } from "../../cli/lib/plugin-catalog-cache.js";
+import { resolvePluginSourceFromCatalog } from "../../cli/lib/plugin-catalog-resolve.js";
 import {
   DEFAULT_PIN_HISTORY_LIMIT,
   DEFAULT_PLUGIN_REF,
@@ -1065,6 +1066,12 @@ async function handleGetPluginDetails({
     if (err instanceof PluginDetailsNotFoundError) {
       throw new NotFoundError(err.message);
     }
+    // A catalog outage blocking a remote-only (not-installed) detail view is
+    // transient — surface it as retryable rather than a misleading 404/500 so
+    // clients retry instead of treating the plugin as permanently gone.
+    if (err instanceof PluginCatalogUnavailableError) {
+      throw new ServiceUnavailableError(err.message);
+    }
     throw new InternalError(
       err instanceof Error ? err.message : "plugin detail lookup failed",
     );
@@ -1102,29 +1109,59 @@ async function resolveInstallMarketplaceRef(
 }
 
 async function handleInstallPlugin({ body = {}, headers }: RouteHandlerArgs) {
-  const name = typeof body.name === "string" ? body.name : "";
-  if (!name) {
+  const rawName = typeof body.name === "string" ? body.name : "";
+  if (!rawName) {
     throw new BadRequestError("`name` is required");
   }
   const force = typeof body.force === "boolean" ? body.force : undefined;
   const pin = typeof body.pin === "string" ? body.pin : undefined;
 
-  // The marketplace ref is never taken raw from the request: a caller-supplied
+  // The install source is never taken raw from the request: a caller-supplied
   // ref would let any `settings.write` principal install from an unreviewed
   // revision (a PR branch, fork ref, ...) whose manifest could carry attacker
-  // code the loader then dynamically imports. Installs over HTTP therefore
-  // resolve only against reviewed history. A `pin` is honored by mapping it —
-  // server-side — to the marketplace commit that introduced it, but only if it
-  // appears in the plugin's reviewed pin history; an unreviewed SHA is refused.
-  // The default install reads the current catalog on `DEFAULT_PLUGIN_REF`.
-  // Operators who need an unreviewed revision use the local CLI's
-  // `assistant plugins install --pin <sha> --allow-unreviewed`.
+  // code the loader then dynamically imports. The default (no-pin) install
+  // resolves owner/repo/ref from the gated catalog — platform-first, or the
+  // bundled manifest when platform features are disabled — which is the same
+  // reviewed source of truth `handleSearchPlugins` advertises, and installs via
+  // a trusted pre-resolved source (no direct `plugins/marketplace.json` fetch).
+  // A `pin` is honored by mapping it — server-side — to the marketplace commit
+  // that introduced it through the plugin's reviewed pin history; an unreviewed
+  // SHA is refused. Operators who need an unreviewed revision use the local
+  // CLI's `assistant plugins install --pin <sha> --allow-unreviewed`.
   try {
-    const marketplaceRef = await resolveInstallMarketplaceRef(name, pin);
-    const result = await installPlugin(
-      { name, ref: marketplaceRef, force },
-      { fetch: globalThis.fetch.bind(globalThis) },
-    );
+    // Validate the name up front — before any catalog/pin/network work — so a
+    // malformed name (`../escape`) is a deterministic 400 rather than a 404/503
+    // from the catalog lookup. `installPlugin` sanitizes too; this restores the
+    // advertised 400 across both the no-pin and pin paths.
+    const name = sanitizePluginName(rawName);
+    let result;
+    if (pin) {
+      const marketplaceRef = await resolveInstallMarketplaceRef(name, pin);
+      result = await installPlugin(
+        { name, ref: marketplaceRef, force },
+        { fetch: globalThis.fetch.bind(globalThis) },
+      );
+    } else {
+      const source = await resolvePluginSourceFromCatalog(name, {
+        fetch: globalThis.fetch.bind(globalThis),
+      });
+      if (!source) {
+        throw new NotFoundError(`No plugin named "${name}" in the catalog.`);
+      }
+      result = await installPlugin(
+        {
+          name,
+          force,
+          trustedSource: {
+            owner: source.owner,
+            repo: source.repo,
+            rootPath: source.path,
+            ref: source.ref,
+          },
+        },
+        { fetch: globalThis.fetch.bind(globalThis) },
+      );
+    }
     publishPluginsChanged(getOriginClientId(headers));
     return {
       ok: true as const,
@@ -1134,7 +1171,7 @@ async function handleInstallPlugin({ body = {}, headers }: RouteHandlerArgs) {
       ref: result.ref,
     };
   } catch (err) {
-    // Pin resolution already maps unreviewed/bad-pin cases to a RouteError;
+    // Pin resolution and the not-in-catalog case already map to a RouteError;
     // re-throw those verbatim rather than masking them as a 500.
     if (err instanceof RouteError) {
       throw err;
@@ -1155,6 +1192,11 @@ async function handleInstallPlugin({ body = {}, headers }: RouteHandlerArgs) {
     }
     // The pin-history read hits GitHub too; treat its failures as retryable.
     if (err instanceof PluginPinHistoryError) {
+      throw new ServiceUnavailableError(err.message);
+    }
+    // A rate-limited or unavailable platform catalog (no stale fallback) is
+    // transient — surface it as retryable rather than a misleading 500.
+    if (err instanceof PluginCatalogUnavailableError) {
       throw new ServiceUnavailableError(err.message);
     }
     throw new InternalError(

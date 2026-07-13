@@ -35,6 +35,8 @@ describe("buildBundledPluginCatalog", () => {
       description:
         "Ultra-compressed communication mode that strips filler words to cut token usage.",
       category: "productivity",
+      homepage: "https://github.com/JuliusBrussee/caveman",
+      license: "MIT",
       source: {
         kind: "github",
         repo: "JuliusBrussee/caveman",
