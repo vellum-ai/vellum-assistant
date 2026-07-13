@@ -15,6 +15,11 @@
  *     `invoked` with `noProgress: true` and enqueues no follow-ups.
  *   - Follow-up coalescing: a pending job of a follow-up type suppresses
  *     that enqueue (the pending row already covers it).
+ *   - Consecutive-failure state: failed runs increment the durable
+ *     checkpoint, progressing success clears it, no-progress completions
+ *     record a transient failure, skipped runs and pre-runner bail paths
+ *     leave it alone, and the recorded kind (billing vs transient) tracks
+ *     the most recent failure's classification.
  *
  * Tests use temp workspaces (mkdtemp) and never touch `~/.vellum/`. Sample
  * content uses generic placeholders (Alice).
@@ -64,6 +69,8 @@ let runnerImpl: () => Promise<{
   ok: boolean;
   error?: Error;
   errorKind?: string;
+  failureCode?: string;
+  skipReason?: string;
 }> = runnerTrimsBuffer;
 
 mock.module("../../../../../runtime/background-job-runner.js", () => ({
@@ -119,6 +126,24 @@ mock.module("../../../../../persistence/jobs-store.js", () => ({
   isMemoryEnabled: () => true,
 }));
 
+// ── checkpoints mock ────────────────────────────────────────────────
+//
+// The handler persists consecutive-failure state through the durable
+// checkpoint helpers. An in-memory map stands in for the DB so the tests
+// can assert what the handler wrote without initializing sqlite.
+const checkpointStore = new Map<string, string>();
+
+mock.module("../../../../../persistence/checkpoints.js", () => ({
+  getMemoryCheckpoint: (key: string): string | null =>
+    checkpointStore.get(key) ?? null,
+  setMemoryCheckpoint: (key: string, value: string): void => {
+    checkpointStore.set(key, value);
+  },
+  deleteMemoryCheckpoint: (key: string): void => {
+    checkpointStore.delete(key);
+  },
+}));
+
 // ── v3 live gate mock ───────────────────────────────────────────────
 //
 // `memory.v3.live` being on appends `memory_v3_maintain` to the
@@ -158,7 +183,8 @@ afterAll(() => {
   rmSync(tmpWorkspace, { recursive: true, force: true });
 });
 
-const { memoryV2ConsolidateJob } = await import("../consolidation-job.js");
+const { memoryV2ConsolidateJob, CONSOLIDATION_FAILURE_CHECKPOINT_KEY } =
+  await import("../consolidation-job.js");
 const { CUTOFF_PLACEHOLDER, CONSOLIDATION_PROMPT } =
   await import("../prompts/consolidation.js");
 
@@ -238,6 +264,7 @@ beforeEach(() => {
   enqueuedJobs.length = 0;
   nextJobIdCounter = 0;
   pendingJobTypes = new Set();
+  checkpointStore.clear();
 
   // v3 follow-up flag default: off.
   v3FlagOn = false;
@@ -855,6 +882,247 @@ describe("memoryV2ConsolidateJob — concurrent invocations", () => {
     expect(result.kind).toBe("invoked");
     expect(runnerCalls).toBe(1);
     expect(existsSync(lockPath())).toBe(false);
+  });
+});
+
+describe("memoryV2ConsolidateJob — consecutive-failure state", () => {
+  function readFailureState(): {
+    consecutiveFailures: number;
+    lastFailureAt: number;
+    kind: string;
+  } | null {
+    const raw = checkpointStore.get(CONSOLIDATION_FAILURE_CHECKPOINT_KEY);
+    return raw === undefined
+      ? null
+      : (JSON.parse(raw) as {
+          consecutiveFailures: number;
+          lastFailureAt: number;
+          kind: string;
+        });
+  }
+
+  function seedFailureState(
+    consecutiveFailures: number,
+    lastFailureAt: number,
+    kind: "billing" | "transient" = "transient",
+  ): void {
+    checkpointStore.set(
+      CONSOLIDATION_FAILURE_CHECKPOINT_KEY,
+      JSON.stringify({ consecutiveFailures, lastFailureAt, kind }),
+    );
+  }
+
+  function failingRunner(failureCode?: string): typeof runnerImpl {
+    return async () => ({
+      conversationId: "conv-1",
+      ok: false,
+      error: new Error("provider refused"),
+      errorKind: "model_provider",
+      ...(failureCode !== undefined ? { failureCode } : {}),
+    });
+  }
+
+  beforeEach(() => {
+    writeFileSync(bufferPath(), "- [Apr 27, 9:00 AM] Alice prefers VS Code.\n");
+  });
+
+  test("a failed run records consecutiveFailures=1 with a failure timestamp", async () => {
+    runnerImpl = failingRunner();
+
+    const before = Date.now();
+    const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
+    const after = Date.now();
+
+    expect(result.kind).toBe("run_failed");
+    const state = readFailureState();
+    expect(state).not.toBeNull();
+    expect(state!.consecutiveFailures).toBe(1);
+    expect(state!.lastFailureAt).toBeGreaterThanOrEqual(before);
+    expect(state!.lastFailureAt).toBeLessThanOrEqual(after);
+  });
+
+  test("consecutive failed runs increment the count", async () => {
+    runnerImpl = failingRunner();
+
+    await memoryV2ConsolidateJob(makeJob(), CONFIG);
+    await memoryV2ConsolidateJob(makeJob(), CONFIG);
+    await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    expect(readFailureState()!.consecutiveFailures).toBe(3);
+  });
+
+  test("a PROVIDER_BILLING turn failure records kind=billing", async () => {
+    runnerImpl = failingRunner("PROVIDER_BILLING");
+
+    await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    expect(readFailureState()!.kind).toBe("billing");
+  });
+
+  test("a failure without a failureCode records kind=transient", async () => {
+    runnerImpl = failingRunner();
+
+    await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    expect(readFailureState()!.kind).toBe("transient");
+  });
+
+  test("a non-billing failureCode records kind=transient", async () => {
+    runnerImpl = failingRunner("PROVIDER_RATE_LIMIT");
+
+    await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    expect(readFailureState()!.kind).toBe("transient");
+  });
+
+  test("the most recent failure's kind wins while the count keeps accruing", async () => {
+    // transient → billing: kind flips to billing at count 2.
+    runnerImpl = failingRunner();
+    await memoryV2ConsolidateJob(makeJob(), CONFIG);
+    runnerImpl = failingRunner("PROVIDER_BILLING");
+    await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    let state = readFailureState()!;
+    expect(state.consecutiveFailures).toBe(2);
+    expect(state.kind).toBe("billing");
+
+    // billing → transient: kind flips back at count 3.
+    runnerImpl = failingRunner();
+    await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    state = readFailureState()!;
+    expect(state.consecutiveFailures).toBe(3);
+    expect(state.kind).toBe("transient");
+  });
+
+  test("a successful run clears the failure state", async () => {
+    seedFailureState(4, Date.now() - 60_000, "billing");
+
+    const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    expect(result.kind).toBe("invoked");
+    expect(readFailureState()).toBeNull();
+  });
+
+  test("a completed run with no progress records a transient failure instead of clearing", async () => {
+    seedFailureState(2, Date.now() - 60_000, "billing");
+    // Completes ok but never touches buffer.md — the stuck-agent shape.
+    runnerImpl = async () => ({ conversationId: "conv-1", ok: true });
+
+    const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    expect(result.kind).toBe("invoked");
+    if (result.kind !== "invoked") {
+      throw new Error("unreachable");
+    }
+    expect(result.noProgress).toBe(true);
+    expect(readFailureState()).toMatchObject({
+      consecutiveFailures: 3,
+      kind: "transient",
+    });
+  });
+
+  test("a skipped run neither clears nor records failure state", async () => {
+    const lastFailureAt = Date.now() - 60_000;
+    seedFailureState(2, lastFailureAt, "billing");
+    runnerImpl = async () => ({
+      conversationId: "",
+      ok: true,
+      skipReason: "pre_first_user_message",
+    });
+
+    await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    expect(readFailureState()).toEqual({
+      consecutiveFailures: 2,
+      lastFailureAt,
+      kind: "billing",
+    });
+  });
+
+  test("a skipped run creates no failure state when none exists", async () => {
+    runnerImpl = async () => ({
+      conversationId: "",
+      ok: true,
+      skipReason: "pre_first_user_message",
+    });
+
+    await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    expect(readFailureState()).toBeNull();
+  });
+
+  test("the disabled bail path leaves the failure state untouched", async () => {
+    const lastFailureAt = Date.now() - 60_000;
+    seedFailureState(2, lastFailureAt);
+
+    const result = await memoryV2ConsolidateJob(makeJob(), CONFIG_DISABLED);
+
+    expect(result.kind).toBe("disabled");
+    expect(readFailureState()).toEqual({
+      consecutiveFailures: 2,
+      lastFailureAt,
+      kind: "transient",
+    });
+  });
+
+  test("the empty-buffer bail path leaves the failure state untouched", async () => {
+    rmSync(bufferPath(), { force: true });
+    const lastFailureAt = Date.now() - 60_000;
+    seedFailureState(2, lastFailureAt);
+
+    const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    expect(result.kind).toBe("empty_buffer");
+    expect(readFailureState()).toEqual({
+      consecutiveFailures: 2,
+      lastFailureAt,
+      kind: "transient",
+    });
+  });
+
+  test("the locked bail path leaves the failure state untouched", async () => {
+    mkdirSync(join(memoryDir(), ".v2-state"), { recursive: true });
+    writeFileSync(lockPath(), `${process.pid} ${Date.now()}\n`);
+    const lastFailureAt = Date.now() - 60_000;
+    seedFailureState(2, lastFailureAt);
+
+    const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    expect(result.kind).toBe("locked");
+    expect(readFailureState()).toEqual({
+      consecutiveFailures: 2,
+      lastFailureAt,
+      kind: "transient",
+    });
+  });
+
+  test("a corrupt failure-state payload restarts the count at 1 on the next failure", async () => {
+    checkpointStore.set(CONSOLIDATION_FAILURE_CHECKPOINT_KEY, "not-json");
+    runnerImpl = failingRunner();
+
+    await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    expect(readFailureState()!.consecutiveFailures).toBe(1);
+  });
+
+  test("a payload with an unknown kind restarts the count at 1 on the next failure", async () => {
+    checkpointStore.set(
+      CONSOLIDATION_FAILURE_CHECKPOINT_KEY,
+      JSON.stringify({
+        consecutiveFailures: 7,
+        lastFailureAt: Date.now(),
+        kind: "mystery",
+      }),
+    );
+    runnerImpl = failingRunner();
+
+    await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    expect(readFailureState()).toMatchObject({
+      consecutiveFailures: 1,
+      kind: "transient",
+    });
   });
 });
 

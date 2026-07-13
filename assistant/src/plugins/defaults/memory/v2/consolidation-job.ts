@@ -49,7 +49,12 @@
  *      a conservative full-reembed effectively free. Each follow-up coalesces
  *      with an already-pending job of the same type. On failure no follow-ups
  *      are enqueued — the agent's writes may be partial and re-embedding
- *      partial state would be misleading.
+ *      partial state would be misleading. Run outcome also drives the durable
+ *      consecutive-failure state (see
+ *      {@link CONSOLIDATION_FAILURE_CHECKPOINT_KEY}): a failed or
+ *      no-progress run increments it, a progressing run clears it, a skipped
+ *      run leaves it untouched, and the scheduler backs off automatic
+ *      re-enqueues while it is set.
  *   8. Release the lock. A stale lock is taken over automatically on the next
  *      run (single-writer per workspace): when the holder's PID is no longer
  *      running, or — because the daemon runs as PID 1 in containers and a
@@ -74,6 +79,11 @@ import { dirname, join } from "node:path";
 
 import { isMemoryV3Live } from "../../../../config/memory-v3-gate.js";
 import type { AssistantConfig } from "../../../../config/types.js";
+import {
+  deleteMemoryCheckpoint,
+  getMemoryCheckpoint,
+  setMemoryCheckpoint,
+} from "../../../../persistence/checkpoints.js";
 import {
   enqueueMemoryJob,
   hasPendingJobOfType,
@@ -153,6 +163,109 @@ const CONSOLIDATION_TIMEOUT_MS = 15 * 60 * 1000;
  * within a couple of scheduled passes.
  */
 const STALE_LOCK_TTL_MS = 4 * CONSOLIDATION_TIMEOUT_MS;
+
+/**
+ * Durable checkpoint tracking consecutive consolidation run failures.
+ *
+ * Written by this handler: incremented when the run fails or completes
+ * without draining the buffer, cleared when a run makes progress. Paths that
+ * bail before invoking the runner (disabled, locked, empty buffer) and
+ * skipped runs (`skipReason`) leave it untouched. The scheduler
+ * (`maybeEnqueueGraphMaintenanceJobs`) reads it to back off automatic
+ * re-enqueues while runs keep failing — without it, a fast-failing run whose
+ * buffer never trims re-fires the size trigger on every worker poll. Manual
+ * "run now" enqueues are not gated.
+ *
+ * `kind` reflects the MOST RECENT failure and selects the scheduler's backoff
+ * curve: `billing` (non-retryable `PROVIDER_BILLING` turn failures) backs off
+ * toward the long cap, `transient` (everything else) stays short so a network
+ * blip or model hiccup never meaningfully delays consolidation. The
+ * consecutive count spans both kinds.
+ *
+ * Value is JSON: `{ consecutiveFailures, lastFailureAt, kind }`.
+ */
+export const CONSOLIDATION_FAILURE_CHECKPOINT_KEY =
+  "memory_v2_consolidate_failure_state";
+
+export type ConsolidationFailureKind = "billing" | "transient";
+
+export interface ConsolidationFailureState {
+  consecutiveFailures: number;
+  lastFailureAt: number;
+  kind: ConsolidationFailureKind;
+}
+
+/**
+ * Read the persisted failure state. Missing, malformed, or out-of-range
+ * payloads read as `null` (no failures on record) — corruption self-heals on
+ * the next record/clear.
+ */
+export function readConsolidationFailureState(): ConsolidationFailureState | null {
+  const raw = getMemoryCheckpoint(CONSOLIDATION_FAILURE_CHECKPOINT_KEY);
+  if (raw === null) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(raw) as Partial<ConsolidationFailureState>;
+    if (
+      typeof parsed.consecutiveFailures !== "number" ||
+      !Number.isFinite(parsed.consecutiveFailures) ||
+      parsed.consecutiveFailures < 1 ||
+      typeof parsed.lastFailureAt !== "number" ||
+      !Number.isFinite(parsed.lastFailureAt) ||
+      (parsed.kind !== "billing" && parsed.kind !== "transient")
+    ) {
+      return null;
+    }
+    return {
+      consecutiveFailures: parsed.consecutiveFailures,
+      lastFailureAt: parsed.lastFailureAt,
+      kind: parsed.kind,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Increment the consecutive-failure count, stamp the failure time, and set
+ * the kind to this (most recent) failure's classification.
+ * Best-effort: failure bookkeeping must never change the handler's outcome.
+ */
+function recordConsolidationFailure(
+  nowMs: number,
+  kind: ConsolidationFailureKind,
+): void {
+  try {
+    const prior = readConsolidationFailureState();
+    const state: ConsolidationFailureState = {
+      consecutiveFailures: (prior?.consecutiveFailures ?? 0) + 1,
+      lastFailureAt: nowMs,
+      kind,
+    };
+    setMemoryCheckpoint(
+      CONSOLIDATION_FAILURE_CHECKPOINT_KEY,
+      JSON.stringify(state),
+    );
+  } catch (err) {
+    log.warn(
+      { err },
+      "consolidation: failed to record failure state (best-effort)",
+    );
+  }
+}
+
+/** Clear the failure state after a progressing run. Best-effort. */
+function clearConsolidationFailureState(): void {
+  try {
+    deleteMemoryCheckpoint(CONSOLIDATION_FAILURE_CHECKPOINT_KEY);
+  } catch (err) {
+    log.warn(
+      { err },
+      "consolidation: failed to clear failure state (best-effort)",
+    );
+  }
+}
 
 /**
  * Follow-up jobs to fan out after a successful consolidation.
@@ -340,14 +453,24 @@ export async function memoryV2ConsolidateJob(
     });
 
     if (!runResult.ok) {
+      // Billing turn failures (`PROVIDER_BILLING` covers both exhausted
+      // managed credits and BYOK provider-account credits) are
+      // non-retryable and select the scheduler's long backoff curve;
+      // everything else (network blip, model hiccup, timeout) is transient
+      // and stays on the short curve.
+      const failureKind: ConsolidationFailureKind =
+        runResult.failureCode === "PROVIDER_BILLING" ? "billing" : "transient";
       log.error(
         {
           conversationId: runResult.conversationId,
           errorKind: runResult.errorKind,
+          failureCode: runResult.failureCode,
+          failureKind,
           err: runResult.error?.message,
         },
         "consolidation run failed; follow-ups skipped",
       );
+      recordConsolidationFailure(Date.now(), failureKind);
       return runResult.error?.message !== undefined
         ? { kind: "run_failed", reason: runResult.error.message }
         : { kind: "run_failed" };
@@ -363,7 +486,22 @@ export async function memoryV2ConsolidateJob(
     // after-count into a false "no progress"; that is benign — the next
     // progressing run enqueues the same follow-ups.
     const bufferLinesAfter = countBufferLines(bufferPath);
-    if (bufferLinesAfter >= bufferLinesBefore) {
+    const noProgress = bufferLinesAfter >= bufferLinesBefore;
+
+    // Failure-state bookkeeping. A skipped run (`skipReason`) never invoked
+    // the agent, so it neither clears nor records. A completed run that made
+    // no progress behaves like a failure for scheduling — the size trigger
+    // stays armed — so it records on the transient curve rather than
+    // re-firing every worker poll; only a progressing run clears the backoff.
+    if (runResult.skipReason === undefined) {
+      if (noProgress) {
+        recordConsolidationFailure(Date.now(), "transient");
+      } else {
+        clearConsolidationFailureState();
+      }
+    }
+
+    if (noProgress) {
       log.warn(
         {
           conversationId: runResult.conversationId,
