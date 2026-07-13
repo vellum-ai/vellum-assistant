@@ -814,15 +814,25 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
       return;
     }
 
+    // Close reasons can echo the dialed URL (query auth carries the key
+    // there) — redact before logging, not just before emitting.
+    const safeReason = this.redact(reason);
+
     // Normal close (1000) or going-away (1001) after stop() is expected.
     if (this.stopping && (code === 1000 || code === 1001)) {
-      log.info({ code, reason }, "Deepgram realtime session closed normally");
+      log.info(
+        { code, reason: safeReason },
+        "Deepgram realtime session closed normally",
+      );
       this.emitClosedAndCleanup();
       return;
     }
 
     // Unexpected close — map to an error event.
-    log.warn({ code, reason }, "Deepgram realtime session closed unexpectedly");
+    log.warn(
+      { code, reason: safeReason },
+      "Deepgram realtime session closed unexpectedly",
+    );
 
     const category =
       code === 1008 || code === 4001
@@ -834,7 +844,7 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
     this.emitEvent({
       type: "error",
       category,
-      message: `Deepgram WebSocket closed (code=${code}, reason=${this.redact(reason)})`,
+      message: `Deepgram WebSocket closed (code=${code}, reason=${safeReason})`,
     });
     this.emitClosedAndCleanup();
   }
