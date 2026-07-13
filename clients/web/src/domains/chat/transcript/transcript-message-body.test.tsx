@@ -220,6 +220,7 @@ import type { DisplayMessage, Surface } from "@/domains/chat/types/types";
 import { TranscriptMessageBody } from "@/domains/chat/transcript/transcript-message-body";
 import { MIN_VERSION as REDACTED_CHIPS_MIN_VERSION } from "@/lib/backwards-compat/use-supports-redacted-credential-chips";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 
 const noop = () => {};
 
@@ -1595,7 +1596,12 @@ describe("TranscriptMessageBody — generic inline process cards", () => {
 });
 
 describe("TranscriptMessageBody — redacted-credential chip version gate", () => {
-  function chipFlag(role: "assistant" | "user"): string | null {
+  const GATE_ASSISTANT_ID = "asst-gate";
+
+  function chipFlag(
+    role: "assistant" | "user",
+    assistantId: string | null = GATE_ASSISTANT_ID,
+  ): string | null {
     const { container } = render(
       <TranscriptMessageBody
         message={{
@@ -1604,6 +1610,7 @@ describe("TranscriptMessageBody — redacted-credential chip version gate", () =
           contentBlocks: [textBlock("some text")],
           timestamp: 1_000,
         }}
+        assistantId={assistantId}
         onSurfaceAction={noop}
       />,
     );
@@ -1612,31 +1619,48 @@ describe("TranscriptMessageBody — redacted-credential chip version gate", () =
       .getAttribute("data-redacted-credential-chips");
   }
 
+  function activateGateAssistant(version: string) {
+    useResolvedAssistantsStore.setState({
+      activeAssistantId: GATE_ASSISTANT_ID,
+    });
+    useAssistantIdentityStore.getState().setIdentity("test-asst", version);
+  }
+
   afterEach(() => {
     useAssistantIdentityStore.getState().clearIdentity();
+    useResolvedAssistantsStore.setState({ activeAssistantId: null });
   });
 
   test("chips stay off while the assistant version is unknown", () => {
+    useResolvedAssistantsStore.setState({
+      activeAssistantId: GATE_ASSISTANT_ID,
+    });
     useAssistantIdentityStore.getState().clearIdentity();
     expect(chipFlag("assistant")).toBe("false");
   });
 
   test("chips stay off against an assistant below the gate (no neutralization)", () => {
-    useAssistantIdentityStore.getState().setIdentity("test-asst", "0.10.8");
+    activateGateAssistant("0.10.8");
     expect(chipFlag("assistant")).toBe("false");
   });
 
-  test("chips enable for assistant messages at the gated version", () => {
-    useAssistantIdentityStore
-      .getState()
-      .setIdentity("test-asst", REDACTED_CHIPS_MIN_VERSION);
+  test("chips enable for the active assistant's messages at the gated version", () => {
+    activateGateAssistant(REDACTED_CHIPS_MIN_VERSION);
     expect(chipFlag("assistant")).toBe("true");
   });
 
+  test("chips stay off when the transcript belongs to a different assistant", () => {
+    activateGateAssistant(REDACTED_CHIPS_MIN_VERSION);
+    expect(chipFlag("assistant", "asst-other")).toBe("false");
+  });
+
+  test("chips stay off when the transcript has no assistant owner", () => {
+    activateGateAssistant(REDACTED_CHIPS_MIN_VERSION);
+    expect(chipFlag("assistant", null)).toBe("false");
+  });
+
   test("user messages never enable chips, even at the gated version", () => {
-    useAssistantIdentityStore
-      .getState()
-      .setIdentity("test-asst", REDACTED_CHIPS_MIN_VERSION);
+    activateGateAssistant(REDACTED_CHIPS_MIN_VERSION);
     expect(chipFlag("user")).toBe("false");
   });
 });

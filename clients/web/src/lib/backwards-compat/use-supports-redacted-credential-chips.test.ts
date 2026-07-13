@@ -3,24 +3,34 @@ import { cleanup, renderHook } from "@testing-library/react";
 
 import { useSupportsRedactedCredentialChips } from "@/lib/backwards-compat/use-supports-redacted-credential-chips";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
+
+const ACTIVE_ID = "asst-active";
 
 function setVersion(version: string | null) {
   useAssistantIdentityStore.getState().setIdentity("test-asst", version);
 }
 
-function check(version: string | null): boolean {
+function check(
+  version: string | null,
+  transcriptAssistantId: string | null | undefined = ACTIVE_ID,
+): boolean {
   setVersion(version);
-  const { result } = renderHook(() => useSupportsRedactedCredentialChips());
+  const { result } = renderHook(() =>
+    useSupportsRedactedCredentialChips(transcriptAssistantId),
+  );
   return result.current;
 }
 
 beforeEach(() => {
   useAssistantIdentityStore.getState().clearIdentity();
+  useResolvedAssistantsStore.setState({ activeAssistantId: ACTIVE_ID });
 });
 
 afterEach(() => {
   cleanup();
   useAssistantIdentityStore.getState().clearIdentity();
+  useResolvedAssistantsStore.setState({ activeAssistantId: null });
 });
 
 describe("useSupportsRedactedCredentialChips", () => {
@@ -29,7 +39,7 @@ describe("useSupportsRedactedCredentialChips", () => {
     expect(check("")).toBe(false);
   });
 
-  test("returns true at exactly MIN_VERSION (0.11.0)", () => {
+  test("returns true at exactly MIN_VERSION (0.11.0) for the active assistant's transcript", () => {
     expect(check("0.11.0")).toBe(true);
   });
 
@@ -56,5 +66,24 @@ describe("useSupportsRedactedCredentialChips", () => {
   test("returns false for unparseable versions", () => {
     expect(check("not-a-version")).toBe(false);
     expect(check("0.11")).toBe(false);
+  });
+
+  test("returns false when the transcript owner is not the active assistant, even at MIN_VERSION", () => {
+    expect(check("0.11.0", "asst-other")).toBe(false);
+  });
+
+  test("returns false when the transcript owner is null or undefined", () => {
+    expect(check("0.11.0", null)).toBe(false);
+    // Passed explicitly (a default parameter would swallow `undefined`).
+    setVersion("0.11.0");
+    const { result } = renderHook(() =>
+      useSupportsRedactedCredentialChips(undefined),
+    );
+    expect(result.current).toBe(false);
+  });
+
+  test("returns false when no assistant is active", () => {
+    useResolvedAssistantsStore.setState({ activeAssistantId: null });
+    expect(check("0.11.0", ACTIVE_ID)).toBe(false);
   });
 });

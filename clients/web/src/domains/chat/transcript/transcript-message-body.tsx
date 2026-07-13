@@ -118,9 +118,11 @@ export function TranscriptMessageBody({
   const isSlackReaction = message.slackMessage?.eventKind === "reaction";
   const isUser = message.role === "user";
   const hasAttachments = Boolean(message.attachments?.length);
-  // Version-gated: an older daemon neutralizes nothing, so sentinel-shaped
-  // text in its transcripts must never chip-ify (see the gate module).
-  const supportsRedactedCredentialChips = useSupportsRedactedCredentialChips();
+  // Gated on the transcript owner: an older daemon neutralizes nothing, so
+  // sentinel-shaped text in its transcripts must never chip-ify, and only the
+  // active assistant's version is known (see the gate module).
+  const supportsRedactedCredentialChips =
+    useSupportsRedactedCredentialChips(assistantId);
 
   // User-typed thinking tags must render verbatim; only assistant text splits.
   const groups = groupContentBlocks(message.contentBlocks ?? [], {
