@@ -8,6 +8,7 @@ import {
   getSqliteFrom,
   getTelemetrySqlite,
 } from "../db-connection.js";
+import { RELOCATING_SUFFIX } from "./helpers/relocation.js";
 
 const log = getLogger("migration-334");
 
@@ -171,6 +172,33 @@ const LEGACY_BACKFILL_SPECS: readonly LegacyBackfillSpec[] = [
   },
 ];
 
+/**
+ * Throw unless the legacy relocations (329–332) have fully completed. The
+ * migration runner catches a failed step and still runs later ones, so
+ * without this gate a mid-drain relocation failure would let 334 backfill,
+ * drop the telemetry-side tables, and checkpoint — then the relocation's
+ * next-boot rerun drains rows into a legacy table nothing reads anymore.
+ * Throwing leaves 334 uncheckpointed so it retries after the relocations.
+ */
+function assertLegacyRelocationsComplete(mainRaw: Database): void {
+  const names = LEGACY_BACKFILL_SPECS.flatMap((spec) => [
+    spec.table,
+    `${spec.table}${RELOCATING_SUFFIX}`,
+  ]);
+  const pending = (
+    mainRaw
+      .query(
+        /*sql*/ `SELECT name FROM main.sqlite_master WHERE type='table' AND name IN (${names.map(() => "?").join(", ")})`,
+      )
+      .all(...names) as Array<{ name: string }>
+  ).map((row) => row.name);
+  if (pending.length > 0) {
+    throw new Error(
+      `legacy telemetry relocations incomplete (${pending.join(", ")}) — deferring outbox backfill`,
+    );
+  }
+}
+
 function tableExists(raw: Database, table: string): boolean {
   return (
     raw
@@ -312,6 +340,9 @@ function insertOutboxRows(
  * sources (`usage`, `turns`, `tool_executed`).
  */
 export function migrateBackfillTelemetryEventsOutbox(mainDb: DrizzleDb): void {
+  const mainRaw = getSqliteFrom(mainDb);
+  assertLegacyRelocationsComplete(mainRaw);
+
   let raw: Database | null = getTelemetrySqlite();
   if (!raw) {
     // The dedicated connection failed to open (logged by openDedicatedDb).
@@ -321,7 +352,6 @@ export function migrateBackfillTelemetryEventsOutbox(mainDb: DrizzleDb): void {
     raw = new Database(getTelemetryDbPath());
   }
 
-  const mainRaw = getSqliteFrom(mainDb);
   const backfilled: Record<string, number> = {};
   for (const spec of LEGACY_BACKFILL_SPECS) {
     if (!tableExists(raw, spec.table)) {

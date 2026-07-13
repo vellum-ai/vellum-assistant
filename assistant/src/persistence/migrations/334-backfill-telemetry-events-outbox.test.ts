@@ -514,6 +514,56 @@ describe("migration 334: backfill telemetry_events from the legacy tables", () =
     expect(watermarkKeyCount()).toBe(0);
   });
 
+  test("a main-side __relocating staging table defers the backfill: throws, drops nothing, purges no watermarks", () => {
+    resetState();
+    createLegacyTable("lifecycle_events");
+    telemetry().exec(
+      `INSERT INTO lifecycle_events (id, event_name, created_at) VALUES ('l-1', 'hatch', 1000)`,
+    );
+    setWatermark("lifecycle", 500);
+    getSqlite().exec(
+      `CREATE TABLE main."skill_loaded_events__relocating" (id TEXT PRIMARY KEY)`,
+    );
+
+    try {
+      expect(() => migrateBackfillTelemetryEventsOutbox(getDb())).toThrow(
+        "legacy telemetry relocations incomplete",
+      );
+      expect(tableExists("lifecycle_events")).toBe(true);
+      expect(outboxRows("lifecycle")).toHaveLength(0);
+      expect(watermarkKeyCount()).toBe(1);
+    } finally {
+      getSqlite().exec(
+        `DROP TABLE IF EXISTS main."skill_loaded_events__relocating"`,
+      );
+    }
+
+    // Staging table gone (relocation completed) → the retried step succeeds.
+    migrateBackfillTelemetryEventsOutbox(getDb());
+    expect(tableExists("lifecycle_events")).toBe(false);
+    expect(outboxRows("lifecycle")).toHaveLength(1);
+    expect(watermarkKeyCount()).toBe(0);
+  });
+
+  test("a main-side legacy table (relocation not yet run) defers the backfill", () => {
+    resetState();
+    createLegacyTable("watchdog_events");
+    setWatermark("watchdog", 500);
+    getSqlite().exec(
+      `CREATE TABLE main.onboarding_events (id TEXT PRIMARY KEY)`,
+    );
+
+    try {
+      expect(() => migrateBackfillTelemetryEventsOutbox(getDb())).toThrow(
+        "legacy telemetry relocations incomplete",
+      );
+      expect(tableExists("watchdog_events")).toBe(true);
+      expect(watermarkKeyCount()).toBe(1);
+    } finally {
+      getSqlite().exec(`DROP TABLE IF EXISTS main.onboarding_events`);
+    }
+  });
+
   test("a pre-existing outbox row with the same id survives (INSERT OR IGNORE)", () => {
     resetState();
     createLegacyTable("lifecycle_events");
