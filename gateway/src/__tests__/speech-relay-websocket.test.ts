@@ -240,6 +240,7 @@ type WsListener = (ev?: unknown) => void;
 class FakeUpstreamWebSocket {
   static instances: FakeUpstreamWebSocket[] = [];
   readyState = 0; // CONNECTING
+  binaryType = "";
   sent: (string | ArrayBuffer | Uint8Array)[] = [];
   closeCalled: { code?: number; reason?: string } | null = null;
 
@@ -369,6 +370,46 @@ describe("getSpeechRelayWebsocketHandlers", () => {
       code: 1000,
       reason: "session_duration_exceeded",
     });
+  });
+
+  test("sets arraybuffer binary mode on the upstream socket", async () => {
+    FakeUpstreamWebSocket.instances = [];
+    const handlers = getSpeechRelayWebsocketHandlers();
+    const ws = new FakeDownstreamSocket(makeSocketData());
+
+    await handlers.open(ws as never);
+    expect(FakeUpstreamWebSocket.instances[0]!.binaryType).toBe("arraybuffer");
+  });
+
+  test("a pre-open close waits for the probe's velay_error before closing", async () => {
+    // A rejected handshake can emit close (or error+close) before the async
+    // probe resolves; the raw close must not beat the synthesized frame.
+    FakeUpstreamWebSocket.instances = [];
+    const handlers = getSpeechRelayWebsocketHandlers();
+    const fetchImpl = mock(
+      async () =>
+        new Response(
+          JSON.stringify({ code: "insufficient_balance", detail: "empty" }),
+          { status: 402 },
+        ),
+    ) as unknown as typeof fetch;
+    const data = makeSocketData();
+    data.deps.fetchImpl = fetchImpl;
+    const ws = new FakeDownstreamSocket(data);
+
+    await handlers.open(ws as never);
+    const upstream = FakeUpstreamWebSocket.instances[0]!;
+    upstream.emitError();
+    upstream.emitClose(1006);
+    await tick();
+
+    // One synthesized frame, one close — the double-fire is coalesced.
+    expect(ws.sent).toHaveLength(1);
+    expect(JSON.parse(ws.sent[0] as string).code).toBe("insufficient_balance");
+    expect(ws.closeCalled?.code).toBe(1011);
+    expect(
+      (fetchImpl as unknown as { mock: { calls: unknown[] } }).mock.calls,
+    ).toHaveLength(1);
   });
 
   test("a failed velay dial synthesizes a velay_error from the HTTP probe", async () => {

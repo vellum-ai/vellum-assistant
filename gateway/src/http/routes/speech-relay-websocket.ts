@@ -270,7 +270,41 @@ export function getSpeechRelayWebsocketHandlers() {
       const upstream = new WsCtor(upstreamWsUrl, {
         headers: { Authorization: `Api-Key ${apiKey}` },
       });
+      // TTS audio arrives as binary frames; without this they surface as
+      // Blobs and the downstream forward would crash.
+      try {
+        upstream.binaryType = "arraybuffer";
+      } catch {
+        // Test fakes may not implement the setter.
+      }
       ws.data.upstream = upstream;
+
+      // A rejected handshake can emit error and close (in either order,
+      // sometimes both) before the async rejection probe resolves —
+      // forwarding that raw close would beat the synthesized velay_error
+      // frame to the daemon. Route every pre-open failure through one
+      // guarded path instead.
+      let dialFailureHandled = false;
+      const handleDialFailure = () => {
+        if (dialFailureHandled) {
+          return;
+        }
+        dialFailureHandled = true;
+        void probeVelay(upstreamHttpUrl, apiKey, deps.fetchImpl ?? fetch).then(
+          (rejection) => {
+            log.error(
+              { operation, code: rejection?.code },
+              "Speech relay upstream dial failed",
+            );
+            sendRelayError(
+              ws,
+              rejection?.code ?? "provider_unreachable",
+              rejection?.detail ?? "could not reach the speech relay",
+            );
+            ws.close(1011, rejection?.code ?? "upstream_error");
+          },
+        );
+      };
 
       upstream.addEventListener("open", () => {
         log.info({ operation }, "Speech relay upstream connected to velay");
@@ -293,6 +327,10 @@ export function getSpeechRelayWebsocketHandlers() {
       });
 
       upstream.addEventListener("close", (event) => {
+        if (!ws.data.upstreamOpened) {
+          handleDialFailure();
+          return;
+        }
         log.info(
           { code: event.code, operation },
           "Speech relay upstream closed",
@@ -301,30 +339,14 @@ export function getSpeechRelayWebsocketHandlers() {
       });
 
       upstream.addEventListener("error", () => {
-        if (ws.data.upstreamOpened) {
-          // Mid-session transport failure; velay already sent its own
-          // velay_error frame if it had one.
-          log.error({ operation }, "Speech relay upstream error");
-          ws.close(1011, "upstream_error");
+        if (!ws.data.upstreamOpened) {
+          handleDialFailure();
           return;
         }
-        // Failed dial: the WebSocket API hides velay's HTTP rejection, so
-        // replay it as plain HTTPS and forward the {code, detail} the way
-        // velay itself reports mid-session errors.
-        void probeVelay(upstreamHttpUrl, apiKey, deps.fetchImpl ?? fetch).then(
-          (rejection) => {
-            log.error(
-              { operation, code: rejection?.code },
-              "Speech relay upstream dial failed",
-            );
-            sendRelayError(
-              ws,
-              rejection?.code ?? "provider_unreachable",
-              rejection?.detail ?? "could not reach the speech relay",
-            );
-            ws.close(1011, rejection?.code ?? "upstream_error");
-          },
-        );
+        // Mid-session transport failure; velay already sent its own
+        // velay_error frame if it had one.
+        log.error({ operation }, "Speech relay upstream error");
+        ws.close(1011, "upstream_error");
       });
     },
 
