@@ -14,7 +14,7 @@
  *   - A catalog fetch failure degrades `category` to null without erroring
  *
  * GET /v1/plugins/search (catalog search):
- *   - Forwards `?q=` and `?ref=` to the `searchPlugins` lib
+ *   - Resolves the catalog for `?ref=` and filters it by `?q=`
  *   - Empty / missing `?q=` is passed through as the empty-regex
  *     ("match-all") query — the lib's documented contract
  *   - Wraps `InvalidSearchPatternError` into a 400 (BadRequestError)

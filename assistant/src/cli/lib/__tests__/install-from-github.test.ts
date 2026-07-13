@@ -686,6 +686,114 @@ describe("installPlugin — marketplace resolution", () => {
     expect(hook).not.toContain("description: terse mode");
   });
 
+  test("a trusted pre-resolved source still overlays the curated adapter stub", async () => {
+    // GIVEN caveman's pin already resolved (as the offline bundled catalog
+    // does) — so no marketplace manifest is served — but the real curated
+    // adapter stub IS available to overlay
+    const fetch = makeContentsFetch({ tree: readRealCavemanStub() });
+    const runGit = fakeGitRunner({
+      tree: {
+        "package.json": JSON.stringify({
+          name: "caveman-installer",
+          version: "0.1.0",
+        }),
+        "skills/caveman/SKILL.md":
+          "---\nname: caveman\n---\n\nCAVEMAN MODE. Drop filler words.",
+      },
+      commit: CAVEMAN_SHA,
+    });
+
+    // WHEN we install from trusted pre-resolved coordinates
+    const result = await installPlugin(
+      {
+        name: "caveman",
+        trustedSource: {
+          owner: "JuliusBrussee",
+          repo: "caveman",
+          rootPath: "",
+          ref: CAVEMAN_SHA,
+        },
+      },
+      { fetch, runGit, workspacePluginsDir: pluginsDir },
+    );
+
+    // THEN the adapter overlay ran (the stub was NOT skipped): the manifest was
+    // normalized and the pre-model-call hook synthesized from the ruleset
+    const target = join(pluginsDir, "caveman");
+    expect(result.commit).toBe(CAVEMAN_SHA);
+    const pkg = JSON.parse(readFileSync(join(target, "package.json"), "utf-8"));
+    expect(pkg.name).toBe("caveman");
+    expect(pkg.peerDependencies["@vellumai/plugin-api"]).toBeString();
+    expect(pkg.scripts?.postinstall).toBeUndefined();
+    const hook = readFileSync(
+      join(target, "hooks", "pre-model-call.ts"),
+      "utf-8",
+    );
+    expect(hook).toContain("CAVEMAN MODE. Drop filler words.");
+  });
+
+  test("fetches the offline adapter stub at the canonical ref, not the external content commit", async () => {
+    // GIVEN caveman's pin already resolved (offline bundled catalog) with the
+    // real curated stub. `trustedSource` names the EXTERNAL content repo, and
+    // its `ref` is caveman's content commit — which does NOT exist in this repo,
+    // where the stub lives. Model production: the canonical repo resolves the
+    // stub only at `main` (DEFAULT_PLUGIN_REF) and 404s any other ref.
+    const base = makeContentsFetch({ tree: readRealCavemanStub() });
+    const stubRefs: string[] = [];
+    const stubContentsPrefix = `https://api.github.com/repos/${CANON_REPO}/contents/plugins/caveman`;
+    const fetch: FetchLike = async (input, init) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.startsWith(stubContentsPrefix)) {
+        const ref = new URL(url).searchParams.get("ref") ?? "";
+        stubRefs.push(ref);
+        if (ref !== "main") {
+          return new Response("No commit found for the ref", { status: 404 });
+        }
+      }
+      return base(url, init);
+    };
+    const runGit = fakeGitRunner({
+      tree: {
+        "package.json": JSON.stringify({
+          name: "caveman-installer",
+          version: "0.1.0",
+        }),
+        "skills/caveman/SKILL.md":
+          "---\nname: caveman\n---\n\nCAVEMAN MODE. Drop filler words.",
+      },
+      commit: CAVEMAN_SHA,
+    });
+
+    // WHEN we install from trusted pre-resolved (external) coordinates
+    await installPlugin(
+      {
+        name: "caveman",
+        trustedSource: {
+          owner: "JuliusBrussee",
+          repo: "caveman",
+          rootPath: "",
+          ref: CAVEMAN_SHA,
+        },
+      },
+      { fetch, runGit, workspacePluginsDir: pluginsDir },
+    );
+
+    // THEN the stub was fetched from the canonical repo at `main`, never at the
+    // external content commit (they live in different repos, so the content SHA
+    // would 404 against this repo and silently skip the overlay)
+    expect(stubRefs.length).toBeGreaterThan(0);
+    expect(stubRefs).not.toContain(CAVEMAN_SHA);
+    for (const ref of stubRefs) {
+      expect(ref).toBe("main");
+    }
+    // AND because the stub resolved, the adapter overlay still ran
+    const pkg = JSON.parse(
+      readFileSync(join(pluginsDir, "caveman", "package.json"), "utf-8"),
+    );
+    expect(pkg.name).toBe("caveman");
+    expect(pkg.peerDependencies["@vellumai/plugin-api"]).toBeString();
+  });
+
   test("falls back to the stub manifest when the upstream ships no package.json", async () => {
     // GIVEN caveman is whitelisted with the real curated adapter stub
     const fetch = makeContentsFetch({
