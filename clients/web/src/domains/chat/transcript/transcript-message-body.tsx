@@ -133,12 +133,19 @@ export function TranscriptMessageBody({
       : null,
   );
 
+  const isTouch = isPointerCoarse();
+
   const textBubbleClass = isSlackMessage
     ? "max-w-[80%] text-[var(--content-default)] sm:max-w-[640px]"
     : "w-full text-[var(--content-default)]";
+  // On touch devices, the long-press gesture opens the message actions sheet.
+  // iOS's native text selection (blue highlight + callout bar) otherwise races
+  // the 500ms long-press timer, so both surface at once. Suppress native
+  // selection/callout on user bubbles for coarse pointers only; desktop keeps
+  // text selectable. Assistant text stays selectable everywhere (quote-reply).
   const userBubbleClass = `max-w-[80%] rounded-lg bg-[var(--user-bubble-bg,var(--surface-lift))] px-4 py-3 text-[var(--user-bubble-text,var(--content-default))] flex flex-col gap-2 ${
-    isSlackMessage ? "sm:max-w-[420px]" : ""
-  }`;
+    isTouch ? "select-none [-webkit-touch-callout:none]" : ""
+  } ${isSlackMessage ? "sm:max-w-[420px]" : ""}`;
   const segmentClass = isUser
     ? "break-words text-[15px]"
     : `break-words text-[15px] ${textBubbleClass}`;
@@ -163,7 +170,6 @@ export function TranscriptMessageBody({
   const [revealed, setRevealed] = useState(false);
   const slackMessageUrl = getExternalLinkUrl(message.slackMessage?.messageLink);
 
-  const isTouch = isPointerCoarse();
   const [longPressOpen, setLongPressOpen] = useState(false);
   const longPressFiredRef = useRef(false);
 
@@ -202,7 +208,9 @@ export function TranscriptMessageBody({
   }, []);
 
   useEffect(() => {
-    if (!revealed) return;
+    if (!revealed) {
+      return;
+    }
     const onDocPointerDown = (e: PointerEvent) => {
       const target = e.target as Node | null;
       if (
@@ -231,12 +239,16 @@ export function TranscriptMessageBody({
       }
 
       if (slackMessageUrl && isPointerCoarse()) {
-        if (window.getSelection()?.toString()) return;
+        if (window.getSelection()?.toString()) {
+          return;
+        }
         window.open(slackMessageUrl, "_blank", "noopener,noreferrer");
         return;
       }
 
-      if (!isPointerCoarse()) return;
+      if (!isPointerCoarse()) {
+        return;
+      }
       setRevealed((v) => !v);
     },
     [slackMessageUrl],
@@ -281,7 +293,9 @@ export function TranscriptMessageBody({
         const ids: string[] = [];
         for (const tc of message.toolCalls ?? []) {
           const id = acpRunIdForCall(tc, s.byToolUseId);
-          if (id !== null && s.byId[id] !== undefined) ids.push(id);
+          if (id !== null && s.byId[id] !== undefined) {
+            ids.push(id);
+          }
         }
         return ids.join("|");
       },
@@ -304,7 +318,9 @@ export function TranscriptMessageBody({
         const ids: string[] = [];
         for (const tc of message.toolCalls ?? []) {
           const id = extractBgIdFromResult(tc);
-          if (id !== undefined && s.byId[id] !== undefined) ids.push(id);
+          if (id !== undefined && s.byId[id] !== undefined) {
+            ids.push(id);
+          }
         }
         return ids.join("|");
       },
@@ -487,7 +503,9 @@ export function TranscriptMessageBody({
       byToolUseId,
       claimedSpawnIds,
     );
-    if (spawnedIds.length === 0) return null;
+    if (spawnedIds.length === 0) {
+      return null;
+    }
     return (
       <SubagentSpawnGroup
         subagentIds={spawnedIds}
@@ -503,7 +521,9 @@ export function TranscriptMessageBody({
       byToolUseIdWf,
       claimedWorkflowIds,
     );
-    if (runIds.length === 0) return null;
+    if (runIds.length === 0) {
+      return null;
+    }
     return (
       <div className="flex w-full flex-col gap-1.5">
         {runIds.map((runId) => (
@@ -527,7 +547,9 @@ export function TranscriptMessageBody({
       byToolUseIdAcp,
       claimedAcpIds,
     );
-    if (acpSessionIds.length === 0) return null;
+    if (acpSessionIds.length === 0) {
+      return null;
+    }
     return (
       <div className="flex w-full flex-col gap-1.5">
         {acpSessionIds.map((acpSessionId) => (
@@ -558,7 +580,9 @@ export function TranscriptMessageBody({
       toolCalls,
       claimedBackgroundTaskIds,
     );
-    if (taskIds.length === 0) return null;
+    if (taskIds.length === 0) {
+      return null;
+    }
     return (
       <div className="flex w-full flex-col gap-1.5">
         {taskIds.map((id) => (
@@ -748,11 +772,15 @@ export function TranscriptMessageBody({
 
     for (const item of items) {
       if (item.kind === "text") {
-        if (item.node) textRun.push(item.node);
+        if (item.node) {
+          textRun.push(item.node);
+        }
         continue;
       }
       flushTextRun();
-      if (item.node) slots.push({ kind: "raw", node: item.node });
+      if (item.node) {
+        slots.push({ kind: "raw", node: item.node });
+      }
     }
     flushTextRun();
 

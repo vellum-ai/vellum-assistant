@@ -12,6 +12,12 @@
  */
 
 import { Archive, ArchiveRestore, Pin, PinOff } from "lucide-react";
+import {
+  useCallback,
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+} from "react";
 
 import { ContextMenu, PanelItem } from "@vellumai/design-library";
 import { cn } from "@vellumai/design-library/utils/cn";
@@ -19,9 +25,11 @@ import { cn } from "@vellumai/design-library/utils/cn";
 import { SwipeActionReveal } from "@/components/swipe-action-reveal";
 import {
   ConversationActionsMenu,
+  ConversationActionsSheet,
   renderConversationMenuItems,
   type ConversationMenuItemsProps,
 } from "@/domains/chat/components/conversation-actions-menu";
+import { useLongPress } from "@/hooks/use-long-press";
 import {
   hasThreadStatus,
   ThreadStatusIndicator,
@@ -97,7 +105,12 @@ export function buildDragProps(
   dragSection: string | undefined,
   dragSiblings: Conversation[] | undefined,
 ): Partial<DragReorderItemProps> & { className?: string } {
-  if (!dragSection || !ctx.canReorder || !dragSiblings || dragSiblings.length < 2) {
+  if (
+    !dragSection ||
+    !ctx.canReorder ||
+    !dragSiblings ||
+    dragSiblings.length < 2
+  ) {
     return {};
   }
   const { draggingId, dropIndicator } = ctx.dragReorder;
@@ -188,21 +201,75 @@ export function ConversationRow({
 
   const isProcessing =
     conversationId === ctx.activeConversationId
-      ? ctx.activeConversationProcessing ?? false
-      : ctx.processingConversationIds?.has(conversationId) ?? false;
+      ? (ctx.activeConversationProcessing ?? false)
+      : (ctx.processingConversationIds?.has(conversationId) ?? false);
   const needsAttention =
     ctx.attentionConversationIds?.has(conversationId) ?? false;
 
   const menuProps = buildMenuProps(ctx, conversation);
   const select = onSelect ?? ctx.onSelect;
 
+  // Touch: long-pressing the row opens the actions bottom sheet, matching the
+  // trailing ellipsis (which already branches to a BottomSheet on mobile) and
+  // the transcript message long-press pattern. Radix ContextMenu renders a
+  // pointer-positioned popover on touch, which is the wrong surface on mobile.
+  const [longPressOpen, setLongPressOpen] = useState(false);
+  // After a long-press fires, the browser still emits a compatibility click on
+  // touchend. Without suppression that click reaches PanelItem.onSelect and
+  // navigates to the conversation *behind* the sheet. Mirror the transcript
+  // long-press guard: set a flag on activation, swallow the next click in a
+  // capture-phase handler, and clear it when the sheet closes (in case the
+  // compat click never reaches this wrapper — e.g. routed to the sheet).
+  const longPressFiredRef = useRef(false);
+  const longPressHandlers = useLongPress(
+    () => {
+      longPressFiredRef.current = true;
+      setLongPressOpen(true);
+    },
+    undefined,
+    {
+      // The row itself is the interactive target (PanelItem renders
+      // `role="button"` for its `onSelect`), so the default interactive-target
+      // skip would suppress the gesture entirely. Opt out of it and instead
+      // skip only nested *real* controls — the trailing actions ellipsis and
+      // the swipe-reveal action buttons (Pin/Archive) are `<button>`/`<a>`
+      // elements that own their own taps. The row `role="button"` div is not a
+      // real `<button>`, so this selector arms on the row but not those.
+      ignoreInteractiveTarget: true,
+      shouldSkip: (target) => Boolean(target?.closest("button, a")),
+    },
+  );
+  const handleLongPressOpenChange = useCallback((open: boolean) => {
+    setLongPressOpen(open);
+    if (!open) {
+      longPressFiredRef.current = false;
+    }
+  }, []);
+  const handleClickCapture = useCallback((event: ReactMouseEvent) => {
+    if (longPressFiredRef.current) {
+      longPressFiredRef.current = false;
+      event.preventDefault();
+      event.stopPropagation();
+    }
+  }, []);
+
   const status = {
     isProcessing,
     needsAttention,
     hasUnread: conversation.hasUnseenLatestAssistantMessage === true,
   };
-  const dragProps = buildDragProps(ctx, conversation, dragSection, dragSiblings);
-  const { leadingActions, trailingActions } = buildSwipeActions(ctx, conversation);
+  const dragProps = buildDragProps(
+    ctx,
+    conversation,
+    dragSection,
+    dragSiblings,
+  );
+  const { leadingActions, trailingActions } = buildSwipeActions(
+    ctx,
+    conversation,
+  );
+
+  const isTouch = isPointerCoarse();
 
   const panelItem = (
     <SwipeActionReveal
@@ -214,7 +281,11 @@ export function ConversationRow({
         marqueeOnHover={marquee}
         active={conversationId === ctx.activeConversationId}
         onSelect={() => select(conversationId)}
-        badge={hasThreadStatus(status) ? <ThreadStatusIndicator {...status} /> : undefined}
+        badge={
+          hasThreadStatus(status) ? (
+            <ThreadStatusIndicator {...status} />
+          ) : undefined
+        }
         trailingAction={<ConversationActionsMenu {...menuProps} />}
         {...dragProps}
         className={cn(
@@ -224,6 +295,39 @@ export function ConversationRow({
       />
     </SwipeActionReveal>
   );
+
+  // Touch: replace the right-click ContextMenu with a long-press → bottom sheet.
+  // The long-press touch handlers + compat-click capture wrap only the row; the
+  // gesture arms on the row itself (see `ignoreInteractiveTarget` above) and its
+  // `shouldSkip` avoids the nested ellipsis / swipe buttons, so they don't
+  // double-trigger. The wrapper adds no layout box (contents display) so the
+  // swipe-to-reveal geometry is unaffected. The sheet is rendered as a *sibling*
+  // of that wrapper, not a child: React propagates events through the React
+  // tree even for portaled content, so keeping the sheet outside the capture
+  // boundary stops `handleClickCapture` from swallowing the first tap on a sheet
+  // action. Gated on `withContextMenu` so the rail flyout — which opts out of
+  // the row menu on desktop — stays consistent on touch.
+  if (isTouch && withContextMenu) {
+    return (
+      <>
+        <div
+          className="contents"
+          onClickCapture={handleClickCapture}
+          onTouchStart={longPressHandlers.onTouchStart}
+          onTouchMove={longPressHandlers.onTouchMove}
+          onTouchEnd={longPressHandlers.onTouchEnd}
+          onTouchCancel={longPressHandlers.onTouchCancel}
+        >
+          {panelItem}
+        </div>
+        <ConversationActionsSheet
+          {...menuProps}
+          open={longPressOpen}
+          onOpenChange={handleLongPressOpenChange}
+        />
+      </>
+    );
+  }
 
   if (!withContextMenu) {
     return panelItem;

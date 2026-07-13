@@ -25,6 +25,16 @@ export interface UseLongPressOptions {
    * text selection settles only after the threshold fires.
    */
   shouldSkip?: (target: Element | null) => boolean;
+  /**
+   * By default the long-press is skipped when the touch lands on an
+   * interactive element (link, button, form control, `[role="button"]`) — the
+   * user is interacting with that control, not the surface. Set this `true`
+   * when the long-press target IS itself an interactive element (e.g. a
+   * `PanelItem` sidebar row that renders `role="button"`), so the gesture can
+   * arm on the row. The caller then takes responsibility for skipping nested
+   * controls via `shouldSkip` (e.g. a trailing menu button inside the row).
+   */
+  ignoreInteractiveTarget?: boolean;
 }
 
 /**
@@ -43,7 +53,7 @@ export function useLongPress(
   threshold: number = DEFAULT_THRESHOLD_MS,
   options: UseLongPressOptions = {},
 ): UseLongPressHandlers {
-  const { shouldSkip } = options;
+  const { shouldSkip, ignoreInteractiveTarget = false } = options;
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const startPosRef = useRef<{ x: number; y: number } | null>(null);
 
@@ -56,22 +66,32 @@ export function useLongPress(
 
   const onTouchStart = useCallback(
     (e: ReactTouchEvent) => {
-      if (!isPointerCoarse()) return;
+      if (!isPointerCoarse()) {
+        return;
+      }
       const touch = e.touches[0];
-      if (!touch) return;
+      if (!touch) {
+        return;
+      }
       const target = e.target as Element | null;
       // Skip if the touch landed on an interactive element (inline link,
       // button, form control, [role="button"], etc.) — the user's intent
       // is to interact with that control, not to open the long-press
       // action sheet. Mirrors the `isInteractiveClickTarget` guard in
-      // `handleBubbleClick` (transcript-message-body.tsx).
-      if (isInteractiveTarget(target)) return;
+      // `handleBubbleClick` (transcript-message-body.tsx). Bypassed when the
+      // long-press target is itself interactive (see `ignoreInteractiveTarget`)
+      // — the caller then skips nested controls via `shouldSkip`.
+      if (!ignoreInteractiveTarget && isInteractiveTarget(target)) {
+        return;
+      }
       // Skip where another gesture owns the long-press for this target (e.g.
       // assistant-message text, which long-presses into a quote-reply
       // selection). Evaluated here at touchstart so the timer never arms —
       // deciding at the threshold would race the text selection, which on iOS
       // often settles only after the threshold fires.
-      if (shouldSkip?.(target)) return;
+      if (shouldSkip?.(target)) {
+        return;
+      }
       startPosRef.current = { x: touch.clientX, y: touch.clientY };
       clearTimer();
       timerRef.current = setTimeout(() => {
@@ -88,14 +108,18 @@ export function useLongPress(
         callback();
       }, threshold);
     },
-    [callback, threshold, clearTimer, shouldSkip],
+    [callback, threshold, clearTimer, shouldSkip, ignoreInteractiveTarget],
   );
 
   const onTouchMove = useCallback(
     (e: ReactTouchEvent) => {
-      if (!startPosRef.current) return;
+      if (!startPosRef.current) {
+        return;
+      }
       const touch = e.touches[0];
-      if (!touch) return;
+      if (!touch) {
+        return;
+      }
       const dx = touch.clientX - startPosRef.current.x;
       const dy = touch.clientY - startPosRef.current.y;
       if (Math.hypot(dx, dy) > MOVE_TOLERANCE_PX) {
