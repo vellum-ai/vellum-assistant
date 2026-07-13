@@ -28,7 +28,7 @@ import {
 import { getLogger } from "../util/logger.js";
 import type { NotificationDeliveryResult } from "./types.js";
 
-const log = getLogger("canonical-delivery-recorder");
+const log = getLogger("guardian-delivery-recorder");
 
 /**
  * Where an approval card was delivered. Exactly one addressing modality is

@@ -308,7 +308,7 @@ describe("applyGuardianDecision / tool_grant_request", () => {
     }
     expect(result.grantMinted).toBe(true);
 
-    // Verify canonical request is approved
+    // Verify guardian request is approved
     const resolved = sim.getRequest(req.id);
     expect(resolved!.status).toBe("approved");
     expect(resolved!.decidedByExternalUserId).toBe("guardian-1");
@@ -410,7 +410,7 @@ describe("inline wait-and-resume", () => {
   });
 
   test("waitForInlineGrant returns granted when grant appears during wait", async () => {
-    // Create a canonical request manually
+    // Create a guardian request manually
     const req = seedGrantRequest("sha256:waitgrant");
 
     // Schedule approval after 50ms

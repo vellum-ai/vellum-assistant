@@ -537,7 +537,7 @@ export async function enforceIngressAcl(
 
         // Notify the guardian about the access request so they can approve/deny.
         // Uses the shared helper which handles guardian binding lookup,
-        // deduplication, canonical request creation, and notification emission.
+        // deduplication, guardian request creation, and notification emission.
         // Skipped for callback interactions — a button press must not create
         // an access request — but the handshake window is still probed so the
         // reply doesn't tell a just-approved sender they lack access.

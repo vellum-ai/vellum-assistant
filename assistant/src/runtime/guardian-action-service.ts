@@ -107,7 +107,7 @@ export async function processGuardianDecision(
   }
 
   // 3. Apply the decision through the gateway-native primitive
-  const canonicalResult = await applyGuardianDecision({
+  const decisionResult = await applyGuardianDecision({
     requestId,
     action,
     actorContext: {
@@ -120,29 +120,29 @@ export async function processGuardianDecision(
   });
 
   // 4. Map the canonical result
-  if (canonicalResult.applied) {
-    if (canonicalResult.resolverFailed) {
+  if (decisionResult.applied) {
+    if (decisionResult.resolverFailed) {
       return {
         ok: true,
         applied: false,
         reason: "resolver_failed",
-        resolverFailureReason: canonicalResult.resolverFailureReason,
-        requestId: canonicalResult.requestId,
+        resolverFailureReason: decisionResult.resolverFailureReason,
+        requestId: decisionResult.requestId,
       };
     }
 
     return {
       ok: true,
       applied: true,
-      requestId: canonicalResult.requestId,
-      replyText: canonicalResult.resolverReplyText,
+      requestId: decisionResult.requestId,
+      replyText: decisionResult.resolverReplyText,
     };
   }
 
   return {
     ok: true,
     applied: false,
-    reason: canonicalResult.reason,
+    reason: decisionResult.reason,
     requestId,
   };
 }

@@ -5,7 +5,7 @@
  * present-but-empty: the intercept adopts the principal from the assistant's
  * vellum anchor (via `resolveDecidableGuardianPrincipalId`), and when neither
  * resolves it fails closed instead of creating an undecidable (principal-less)
- * canonical request. The `""`-is-unresolved contract itself is pinned in
+ * guardian request. The `""`-is-unresolved contract itself is pinned in
  * `local-actor-identity.test.ts`.
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";

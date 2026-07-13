@@ -134,7 +134,7 @@ export type GuardianReplyResultType =
 
 /** Result from the guardian reply router. */
 export interface GuardianReplyResult {
-  /** Whether a decision was applied to a canonical request. */
+  /** Whether a decision was applied to a guardian request. */
   decisionApplied: boolean;
   /** Reply text to send back to the guardian (if any). */
   replyText?: string;
@@ -142,7 +142,7 @@ export interface GuardianReplyResult {
   consumed: boolean;
   /** The type of outcome for diagnostics. */
   type: GuardianReplyResultType;
-  /** The canonical request ID that was targeted (if any). */
+  /** The guardian request ID that was targeted (if any). */
   requestId?: string;
   /** Detailed result from the decision primitive (when a decision was attempted). */
   canonicalResult?: GuardianDecisionResult;
@@ -297,7 +297,7 @@ function notConsumed(): GuardianReplyResult {
 // ---------------------------------------------------------------------------
 
 /**
- * Route an inbound guardian reply through the canonical decision pipeline.
+ * Route an inbound guardian reply through the guardian decision pipeline.
  *
  * This is the single entry point for all inbound guardian reply processing.
  * It handles messages from any channel (Telegram, WhatsApp) and
@@ -590,7 +590,7 @@ export async function routeGuardianReply(
     // Guardian requests for channel/voice flows are created on the requester's
     // conversation, not the guardian's reply conversation, so filtering by
     // conversationId would incorrectly drop valid pending requests. Identity-
-    // based filtering in findPendingCanonicalRequests already constrains
+    // based filtering in findPendingGuardianRequests already constrains
     // results to the correct guardian.
     const pendingRequestsForClassification = pendingRequests;
 
@@ -765,7 +765,7 @@ async function applyDecision(
         action,
         grantMinted: canonicalResult.grantMinted,
       },
-      "Guardian reply router applied canonical decision",
+      "Guardian reply router applied guardian decision",
     );
 
     return {
@@ -787,7 +787,7 @@ async function applyDecision(
       action,
       reason: canonicalResult.reason,
     },
-    `Guardian reply router: canonical decision not applied (${canonicalResult.reason})`,
+    `Guardian reply router: decision not applied (${canonicalResult.reason})`,
   );
 
   // When the guardian request doesn't exist, allow the message to fall
@@ -1011,9 +1011,7 @@ function failureReplyText(
  * code without any decision text. Provides context about the request and
  * tells the guardian how to approve or reject it.
  */
-function composeCodeOnlyClarification(
-  request: GuardianRequestWire,
-): string {
+function composeCodeOnlyClarification(request: GuardianRequestWire): string {
   const code = request.requestCode ?? "unknown";
   const mode = resolveRequestInstructionMode(request);
   return buildGuardianCodeOnlyClarification(mode, {

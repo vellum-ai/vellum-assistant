@@ -144,7 +144,7 @@ const _testAuthContext: AuthContext = {
   policyEpoch: 1,
 };
 
-describe("handleSendMessage canonical guardian reply interception", () => {
+describe("handleSendMessage guardian reply interception", () => {
   beforeEach(() => {
     routeGuardianReplyMock.mockClear();
     listPendingByDestinationMock.mockClear();

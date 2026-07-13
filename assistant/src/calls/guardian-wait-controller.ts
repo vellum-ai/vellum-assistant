@@ -65,7 +65,7 @@ export interface GuardianWaitResolutionContext {
 }
 
 export interface GuardianWaitStartParams {
-  /** Canonical guardian access-request id to poll. */
+  /** Guardian access-request id to poll. */
   requestId: string;
   assistantId: string;
   fromNumber: string;

@@ -318,7 +318,7 @@ describe("non-member access request notification", () => {
     // Only one notification signal should be emitted (second is deduplicated)
     expect(emitSignalCalls.length).toBe(1);
 
-    // Only one canonical request should exist
+    // Only one guardian request should exist
     const pending = listRequests({
       status: "pending",
       requesterExternalUserId: "user-unknown-456",
@@ -419,7 +419,7 @@ describe("non-member access request notification", () => {
     expect(emitSignalCalls.length).toBe(1);
     expect(emitSignalCalls[0].sourceEventName).toBe("ingress.access_request");
 
-    // Canonical request was created with a self-healed principal
+    // Guardian request was created with a self-healed principal
     const pending = listRequests({
       status: "pending",
       requesterExternalUserId: "user-unknown-456",
@@ -466,7 +466,7 @@ describe("non-member access request notification", () => {
     // Falls back to vellum anchor, not the phone binding
     expect(payload.guardianBindingChannel).toBe("vellum");
 
-    // Canonical request uses the vellum anchor identity
+    // Guardian request uses the vellum anchor identity
     const pending = listRequests({
       status: "pending",
       requesterExternalUserId: "user-unknown-456",
@@ -517,7 +517,7 @@ describe("access-request-helper unit tests", () => {
       expect(result.reason).toBe("no_sender_id");
     }
 
-    // No canonical request created
+    // No guardian request created
     const pending = listRequests({
       status: "pending",
       kind: "access_request",
@@ -763,7 +763,7 @@ describe("access-request-helper unit tests", () => {
     expect(payload.actorExternalId).toBe("+15559998888");
     expect(payload.senderIdentifier).toBe("Alice Caller");
 
-    // Canonical request should exist
+    // Guardian request should exist
     const pending = listRequests({
       status: "pending",
       requesterExternalUserId: "+15559998888",
@@ -814,7 +814,7 @@ describe("access-request-helper unit tests", () => {
     expect(payload.previousMemberStatus).toBe("revoked");
   });
 
-  test("notifyGuardianOfAccessRequest persists canonical delivery rows from notification results", async () => {
+  test("notifyGuardianOfAccessRequest persists delivery rows from notification results", async () => {
     mockEmitResult = {
       signalId: "sig-deliveries",
       deduplicated: false,

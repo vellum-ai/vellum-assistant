@@ -16,11 +16,11 @@ import {
   listGuardianRequestsOrEmpty,
 } from "../channels/gateway-guardian-requests.js";
 import type { ChannelId } from "../channels/types.js";
+import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import {
   recordApprovalCardDelivery,
   recordGuardianRequestDeliveries,
-} from "../notifications/canonical-delivery-recorder.js";
-import { emitNotificationSignal } from "../notifications/emit-signal.js";
+} from "../notifications/guardian-delivery-recorder.js";
 import { getLogger } from "../util/logger.js";
 import { getGuardianBinding } from "./channel-verification-service.js";
 import { resolveDecidableGuardianPrincipalId } from "./local-actor-identity.js";
@@ -103,7 +103,7 @@ export async function createOrReuseToolGrantRequest(
     return { failed: true, reason: "no_guardian_binding" };
   }
 
-  // Deduplicate: skip creation if there is already a pending canonical request
+  // Deduplicate: skip creation if there is already a pending guardian request
   // for the same requester + conversation + tool + input digest + guardian.
   // Guardian identity is included so that after a guardian rebind, old requests
   // tied to the previous guardian don't block creation of a new approvable
@@ -141,7 +141,7 @@ export async function createOrReuseToolGrantRequest(
   const senderLabel = requesterIdentifier || requesterExternalUserId;
   const requestId = `tool-grant-${assistantId}-${sourceChannel}-${requesterExternalUserId}-${Date.now()}`;
 
-  const canonicalRequest = await createGuardianRequest({
+  const guardianRequest = await createGuardianRequest({
     id: requestId,
     kind: "tool_grant_request",
     sourceChannel,
@@ -156,8 +156,7 @@ export async function createOrReuseToolGrantRequest(
     expiresAt: Date.now() + GUARDIAN_APPROVAL_TTL_MS,
   });
   const requestCode =
-    canonicalRequest.requestCode ??
-    canonicalRequest.id.slice(0, 6).toUpperCase();
+    guardianRequest.requestCode ?? guardianRequest.id.slice(0, 6).toUpperCase();
 
   // The vellum delivery row is created up front in onConversationCreated so the
   // in-app client sees it immediately; the post-resolve recorder reuses it.
@@ -178,7 +177,7 @@ export async function createOrReuseToolGrantRequest(
       visibleInSourceNow: false,
     },
     contextPayload: {
-      requestId: canonicalRequest.id,
+      requestId: guardianRequest.id,
       requestKind: "tool_grant_request",
       requestCode,
       sourceChannel,
@@ -188,10 +187,10 @@ export async function createOrReuseToolGrantRequest(
       toolName,
       questionText,
     },
-    dedupeKey: `tool-grant-request:${canonicalRequest.id}`,
+    dedupeKey: `tool-grant-request:${guardianRequest.id}`,
     onConversationCreated: (info) => {
       vellumDeliveryIdPromise ??= recordApprovalCardDelivery({
-        requestId: canonicalRequest.id,
+        requestId: guardianRequest.id,
         channel: "vellum",
         conversationId: info.conversationId,
       }).then((delivery) => delivery?.id);
@@ -202,7 +201,7 @@ export async function createOrReuseToolGrantRequest(
   // the recorder is best-effort and never rejects).
   void signalPromise.then(async (signalResult) => {
     await recordGuardianRequestDeliveries({
-      requestId: canonicalRequest.id,
+      requestId: guardianRequest.id,
       deliveryResults: signalResult.deliveryResults,
       vellumDeliveryId: await vellumDeliveryIdPromise,
     });
@@ -213,15 +212,15 @@ export async function createOrReuseToolGrantRequest(
       sourceChannel,
       requesterExternalUserId,
       toolName,
-      requestId: canonicalRequest.id,
-      requestCode: canonicalRequest.requestCode,
+      requestId: guardianRequest.id,
+      requestCode: guardianRequest.requestCode,
     },
     "Guardian notified of tool grant request",
   );
 
   return {
     created: true,
-    requestId: canonicalRequest.id,
-    requestCode: canonicalRequest.requestCode,
+    requestId: guardianRequest.id,
+    requestCode: guardianRequest.requestCode,
   };
 }

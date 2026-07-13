@@ -1,5 +1,5 @@
 /**
- * Tests for guardian approval-by-reaction on the canonical pipeline.
+ * Tests for guardian approval-by-reaction on the guardian decision pipeline.
  *
  * A Slack emoji reaction (✅ / ❌) on a delivered approval card is routed
  * through `routeGuardianReply` exactly like a button press or text reply. The

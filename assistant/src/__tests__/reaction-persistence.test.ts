@@ -526,7 +526,7 @@ describe("guardian approval-by-reaction integration via handleChannelInbound", (
   test("guardian reaction on pending approval applies decision and persists no transcript row", async () => {
     seedGuardianForChannel();
     const requestId = "req-guardian-react-1";
-    // Back the canonical request and its pending interaction with a real
+    // Back the guardian request and its pending interaction with a real
     // conversation row, inserted directly via the DB layer.
     const db = getDb();
     const conversationId = "conv-react-test-1";
@@ -597,7 +597,7 @@ describe("guardian approval-by-reaction integration via handleChannelInbound", (
     expect(json.canonicalRouter).toBe("canonical_decision_applied");
     expect(approvalConversationGenerator).not.toHaveBeenCalled();
 
-    // The canonical request is resolved (no longer pending).
+    // The guardian request is resolved (no longer pending).
     expect(bridgeState.getRequest(requestId)?.status).toBe("approved");
 
     // No transcript row was written for the reaction itself — resolved

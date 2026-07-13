@@ -47,7 +47,9 @@ async function applyTrustContext(
   },
   actorPrincipalId: string | undefined,
 ): Promise<void> {
-  if (!conversation.setTrustContext) return;
+  if (!conversation.setTrustContext) {
+    return;
+  }
 
   const sourceChannel = "vellum";
 
@@ -115,7 +117,7 @@ async function handleSurfaceAction({
 
   // Intercept access-request approval actions (apr:<requestId>:<action>)
   // before conversation resolution — these are cross-conversation decisions
-  // that route through the canonical guardian decision primitive.
+  // that route through the guardian decision primitive.
   const aprDecision = parseCallbackData(actionId, "vellum");
   if (aprDecision) {
     // Resolve the actor's guardian principal ID. In dev mode the synthetic
@@ -223,7 +225,9 @@ async function handleSurfaceAction({
     }
     return { ok: true };
   } catch (err) {
-    if (err instanceof RouteError) throw err;
+    if (err instanceof RouteError) {
+      throw err;
+    }
     log.error(
       {
         err,
@@ -271,7 +275,9 @@ async function handleSurfaceUndo({ body, pathParams }: RouteHandlerArgs) {
     );
     return { ok: true };
   } catch (err) {
-    if (err instanceof RouteError) throw err;
+    if (err instanceof RouteError) {
+      throw err;
+    }
     log.error(
       { err, conversationId: conversationId ?? undefined, surfaceId },
       "Failed to handle surface undo",

@@ -1,6 +1,6 @@
 /**
- * Canonical guardian reply intercept stage: routes inbound messages from
- * guardian-class actors through the canonical decision pipeline before
+ * Guardian reply intercept stage: routes inbound messages from
+ * guardian-class actors through the guardian decision pipeline before
  * they reach the legacy approval interception or the agent loop.
  *
  * Handles deterministic callbacks (button presses), request code prefixes,
@@ -60,7 +60,7 @@ export interface GuardianReplyInterceptResult {
 }
 
 /**
- * Route inbound guardian messages through the canonical decision pipeline.
+ * Route inbound guardian messages through the guardian decision pipeline.
  *
  * Returns a response if the message was consumed, or null to continue
  * the pipeline. Also signals whether legacy approval interception should
@@ -104,7 +104,7 @@ export async function handleGuardianReplyIntercept(
   }
 
   // Compute destination-scoped pending request hints so the router can
-  // discover canonical requests delivered to this chat even when the
+  // discover guardian requests delivered to this chat even when the
   // request lacks a guardianExternalUserId (e.g. voice-originated
   // pending_question requests).
   //
@@ -201,7 +201,7 @@ export async function handleGuardianReplyIntercept(
       } catch (err) {
         log.error(
           { err, conversationExternalId },
-          "Failed to deliver canonical router reply",
+          "Failed to deliver guardian reply-router reply",
         );
       }
     }

@@ -1,5 +1,5 @@
 /**
- * Promote a `confirmation_request` (tool approval) into a canonical guardian
+ * Promote a `confirmation_request` (tool approval) into a guardian
  * request and bridge it to the guardian's channels.
  *
  * Called fire-and-forget by the paths that emit a `confirmation_request`:
@@ -9,7 +9,7 @@
  * dependency on the conversation registry or guardian bridge.
  *
  * Channel guardian decisions (reactions, buttons, text) all route through the
- * canonical pipeline, so without this record none of them can resolve the
+ * guardian-request pipeline, so without this record none of them can resolve the
  * confirmation.
  *
  * The heavy dependencies (conversation registry, gateway guardian-request
@@ -21,15 +21,15 @@ import type { ServerMessage } from "../daemon/message-protocol.js";
 import { IntegrityError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 
-const log = getLogger("confirmation-canonical-request");
+const log = getLogger("confirmation-guardian-request");
 
 /**
- * Create a canonical guardian request + bridge for a `confirmation_request`
+ * Create a guardian request + bridge for a `confirmation_request`
  * message. The request row lives gateway-side; the request code is generated
  * by the gateway create. Safe to call fire-and-forget; failures are logged,
  * never thrown.
  */
-export async function createCanonicalRequestForConfirmation(
+export async function createGuardianRequestForConfirmation(
   msg: ServerMessage & { type: "confirmation_request" },
   conversationId: string,
 ): Promise<void> {
@@ -67,7 +67,7 @@ export async function createCanonicalRequestForConfirmation(
         "Cannot create tool_approval request without guardianPrincipalId",
       );
     }
-    const canonicalRequest = await createGuardianRequest({
+    const guardianRequest = await createGuardianRequest({
       id: msg.requestId,
       kind: "tool_approval",
       sourceChannel,
@@ -89,7 +89,7 @@ export async function createCanonicalRequestForConfirmation(
 
     if (trustContext && conversation) {
       await bridgeConfirmationRequestToGuardian({
-        canonicalRequest,
+        guardianRequest,
         trustContext,
         conversationId,
         toolName: msg.toolName,
@@ -98,20 +98,20 @@ export async function createCanonicalRequestForConfirmation(
     }
   } catch (err) {
     if (err instanceof IntegrityError) {
-      // The confirmation could not be promoted to a canonical guardian request
+      // The confirmation could not be promoted to a guardian request
       // (e.g. its trust context resolved no guardianPrincipalId). Channel
       // guardian decisions — reactions, buttons, and text — all route through
-      // the canonical pipeline, so without this record none of them can resolve
+      // the guardian-request pipeline, so without this record none of them can resolve
       // the confirmation. Surface it rather than swallowing: for a guardian's
       // own confirmation a bound principal should always be present.
       log.warn(
         { err, conversationId, requestId: msg.requestId },
-        "Could not create canonical guardian request for confirmation; channel guardian decisions will not work for it",
+        "Could not create guardian request for confirmation; channel guardian decisions will not work for it",
       );
     } else {
       log.debug(
         { err, conversationId },
-        "Failed to create canonical request from broadcast",
+        "Failed to create guardian request from broadcast",
       );
     }
   }

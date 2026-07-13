@@ -1,7 +1,7 @@
 /**
- * Guard tests for canonical guardian request routing invariants.
+ * Guard tests for guardian request routing invariants.
  *
- * These tests verify that the canonical guardian request system maintains
+ * These tests verify that the guardian request system maintains
  * its key architectural invariants:
  *
  *   1. All decision paths route through `applyGuardianDecision`
@@ -272,7 +272,9 @@ describe("routing invariant: principal-based authorization enforced before decis
     });
 
     expect(result.applied).toBe(false);
-    if (result.applied) return;
+    if (result.applied) {
+      return;
+    }
     expect(result.reason).toBe("identity_mismatch");
 
     // Request must remain pending (no state change)
@@ -315,7 +317,9 @@ describe("routing invariant: principal-based authorization enforced before decis
     });
 
     expect(result.applied).toBe(false);
-    if (result.applied) return;
+    if (result.applied) {
+      return;
+    }
     expect(result.reason).toBe("identity_mismatch");
   });
 
@@ -371,7 +375,9 @@ describe("routing invariant: stale/expired/already-resolved decisions rejected",
     });
 
     expect(result.applied).toBe(false);
-    if (result.applied) return;
+    if (result.applied) {
+      return;
+    }
     expect(result.reason).toBe("expired");
   });
 
@@ -400,7 +406,9 @@ describe("routing invariant: stale/expired/already-resolved decisions rejected",
       actorContext: guardianActor(),
     });
     expect(second.applied).toBe(false);
-    if (second.applied) return;
+    if (second.applied) {
+      return;
+    }
     expect(second.reason).toBe("already_resolved");
 
     // First decision stuck
@@ -416,7 +424,9 @@ describe("routing invariant: stale/expired/already-resolved decisions rejected",
     });
 
     expect(result.applied).toBe(false);
-    if (result.applied) return;
+    if (result.applied) {
+      return;
+    }
     expect(result.reason).toBe("not_found");
   });
 
@@ -439,7 +449,7 @@ describe("routing invariant: stale/expired/already-resolved decisions rejected",
     });
 
     // Attempt to resolve again via router with code prefix.
-    // Since getCanonicalGuardianRequestByCode only returns pending requests,
+    // Since getGuardianRequestByCodeOrNull only returns pending requests,
     // the resolved request won't be found and the code won't match.
     const result = await routeGuardianReply(
       replyCtx({
@@ -1913,7 +1923,7 @@ describe("routing invariant: kind-specific action sets in prompt mapping", () =>
   });
 
   // Integration tests: verify listGuardianDecisionPrompts returns correct
-  // action sets for each canonical request kind.
+  // action sets for each guardian request kind.
 
   test("tool_approval prompt uses approve_once + reject only (one-time decision pattern)", async () => {
     const convId = "conv-kind-tool-approval";

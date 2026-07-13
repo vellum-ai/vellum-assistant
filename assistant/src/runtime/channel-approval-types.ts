@@ -33,7 +33,7 @@ export {
  * `approve_once` / `reject` are the generic decision pair used by every
  * request kind. `trust` / `verify_code` / `leave_unverified` / `block` are the
  * introduction-card actions, valid only for `access_request` requests — the
- * canonical decision primitive rejects them for any other kind.
+ * guardian decision primitive rejects them for any other kind.
  */
 export const APPROVAL_ACTION_IDS = [
   "approve_once",

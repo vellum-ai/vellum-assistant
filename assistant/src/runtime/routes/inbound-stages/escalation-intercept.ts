@@ -146,7 +146,7 @@ export async function handleEscalationIntercept(
   } catch (err) {
     log.warn(
       { err, conversationId, sourceChannel },
-      "Failed to create canonical guardian request for ingress escalation — escalation continues via notification pipeline",
+      "Failed to create guardian request for ingress escalation — escalation continues via notification pipeline",
     );
   }
 

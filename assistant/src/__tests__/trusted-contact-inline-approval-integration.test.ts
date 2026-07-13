@@ -273,7 +273,7 @@ describe("(a) target flow: trusted-contact inline guardian approval end-to-end",
     expect(routing.guardianRouteResolvable).toBe(true);
 
     // Step 2: Verify the inline grant wait primitive works correctly end-to-end.
-    // Create a canonical request (as the escalation path would), then approve.
+    // Create a guardian request (as the escalation path would), then approve.
     const req = sim.seedRequest({
       kind: "tool_grant_request",
       sourceType: "channel",
@@ -344,7 +344,7 @@ describe("(b) prompt-path flow: confirmation_request bridges to guardian", () =>
   });
 
   test("trusted-contact confirmation_request emits guardian.question and creates delivery records", async () => {
-    const canonicalRequest = sim.seedRequest({
+    const guardianRequest = sim.seedRequest({
       id: `req-bridge-${Date.now()}`,
       kind: "tool_approval",
       sourceType: "channel",
@@ -361,7 +361,7 @@ describe("(b) prompt-path flow: confirmation_request bridges to guardian", () =>
     const trustContext = makeTrustedContactTrustContext();
 
     const result = await bridgeConfirmationRequestToGuardian({
-      canonicalRequest,
+      guardianRequest,
       trustContext,
       conversationId: "conv-bridge-1",
       toolName: "bash",
@@ -374,7 +374,7 @@ describe("(b) prompt-path flow: confirmation_request bridges to guardian", () =>
     expect(emittedSignals[0].sourceEventName).toBe("guardian.question");
 
     const payload = emittedSignals[0].contextPayload as Record<string, unknown>;
-    expect(payload.requestId).toBe(canonicalRequest.id);
+    expect(payload.requestId).toBe(guardianRequest.id);
     expect(payload.toolName).toBe("bash");
     expect(payload.requesterIdentifier).toBe("@requester");
   });
@@ -383,7 +383,7 @@ describe("(b) prompt-path flow: confirmation_request bridges to guardian", () =>
     // The confirmation_request bridge and tool_grant_request helper both
     // use 'guardian.question' as the notification signal, ensuring consistent
     // guardian routing regardless of the approval path.
-    const canonicalRequest = sim.seedRequest({
+    const guardianRequest = sim.seedRequest({
       id: `req-unified-${Date.now()}`,
       kind: "tool_approval",
       sourceType: "channel",
@@ -400,7 +400,7 @@ describe("(b) prompt-path flow: confirmation_request bridges to guardian", () =>
     const trustContext = makeTrustedContactTrustContext();
 
     await bridgeConfirmationRequestToGuardian({
-      canonicalRequest,
+      guardianRequest,
       trustContext,
       conversationId: "conv-unified-1",
       toolName: "bash",
@@ -440,7 +440,7 @@ describe("(c) no-binding flow: trusted contact fails fast without guardian bindi
   });
 
   test("bridge skips when no guardian binding exists for channel", async () => {
-    const canonicalRequest = sim.seedRequest({
+    const guardianRequest = sim.seedRequest({
       id: `req-nobinding-${Date.now()}`,
       kind: "tool_approval",
       sourceType: "channel",
@@ -457,7 +457,7 @@ describe("(c) no-binding flow: trusted contact fails fast without guardian bindi
     const trustContext = makeTrustedContactTrustContext();
 
     const result = await bridgeConfirmationRequestToGuardian({
-      canonicalRequest,
+      guardianRequest,
       trustContext,
       conversationId: "conv-nobinding",
       toolName: "bash",
@@ -550,7 +550,7 @@ describe("(d) unknown actor flow: fail-closed with no interactive approval", () 
   });
 
   test("bridge skips unknown actor sessions entirely", async () => {
-    const canonicalRequest = sim.seedRequest({
+    const guardianRequest = sim.seedRequest({
       id: `req-unknown-${Date.now()}`,
       kind: "tool_approval",
       sourceType: "channel",
@@ -570,7 +570,7 @@ describe("(d) unknown actor flow: fail-closed with no interactive approval", () 
     };
 
     const result = await bridgeConfirmationRequestToGuardian({
-      canonicalRequest,
+      guardianRequest,
       trustContext,
       conversationId: "conv-unknown",
       toolName: "bash",
@@ -759,7 +759,7 @@ describe("(f) timeout/stale flow: stale guardian decision after inline wait time
   });
 
   test("inline_wait_active staleness guard: expired marker allows retry notification", async () => {
-    // Create a canonical request with a stale inline_wait_active marker
+    // Create a guardian request with a stale inline_wait_active marker
     // that simulates a daemon crash during the wait.
     const staleTimestamp = Date.now() - TC_GRANT_WAIT_MAX_MS - 60_000;
     const req = sim.seedRequest({
@@ -974,7 +974,7 @@ describe("cross-milestone integration checks", () => {
     // use the guardian binding's guardianExternalUserId to route notifications.
     // Verify this consistency:
 
-    const canonicalRequest = sim.seedRequest({
+    const guardianRequest = sim.seedRequest({
       id: `req-consistency-${Date.now()}`,
       kind: "tool_approval",
       sourceType: "channel",
@@ -991,7 +991,7 @@ describe("cross-milestone integration checks", () => {
     const trustContext = makeTrustedContactTrustContext();
 
     const bridgeResult = await bridgeConfirmationRequestToGuardian({
-      canonicalRequest,
+      guardianRequest,
       trustContext,
       conversationId: "conv-consistency",
       toolName: "bash",

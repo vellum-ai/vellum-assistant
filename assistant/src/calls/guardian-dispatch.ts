@@ -18,11 +18,11 @@ import {
   getGuardianDelivery,
   guardianForChannel,
 } from "../contacts/guardian-delivery-reader.js";
+import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import {
   recordApprovalCardDelivery,
   recordGuardianRequestDeliveries,
-} from "../notifications/canonical-delivery-recorder.js";
-import { emitNotificationSignal } from "../notifications/emit-signal.js";
+} from "../notifications/guardian-delivery-recorder.js";
 import { getLogger } from "../util/logger.js";
 import { getUserConsultationTimeoutMs } from "./call-constants.js";
 import type { CallPendingQuestion } from "./types.js";
@@ -110,7 +110,7 @@ async function dispatchGuardianQuestionInner(
       return;
     }
 
-    // Create the canonical guardian request as the primary record.
+    // Create the guardian request as the primary record.
     const request = await createGuardianRequest({
       id: uuid(),
       kind: "pending_question",
@@ -131,7 +131,7 @@ async function dispatchGuardianQuestionInner(
         requestCode: request.requestCode,
         callSessionId,
       },
-      "Created canonical guardian request for voice dispatch",
+      "Created guardian request for voice dispatch",
     );
 
     // Both affinity hints below read from one voice-request listing; a
@@ -140,7 +140,7 @@ async function dispatchGuardianQuestionInner(
       sourceType: "voice",
     });
 
-    // Count how many canonical guardian requests are already pending for
+    // Count how many guardian requests are already pending for
     // this call session. Used as a candidate-affinity hint so the decision
     // engine prefers reusing an existing conversation.
     const activeGuardianRequestCount = voiceRequests.filter(
@@ -151,7 +151,7 @@ async function dispatchGuardianQuestionInner(
     // delivery in this call session. When found, pass it as an affinity hint
     // so the notification pipeline deterministically routes to the same
     // conversation instead of letting the LLM choose a different conversation.
-    // Find earlier canonical requests for this call session and check their
+    // Find earlier guardian requests for this call session and check their
     // deliveries for a vellum destination conversation ID.
     let existingGuardianConversationId: string | null = null;
     const priorRequests = voiceRequests.filter(
@@ -182,7 +182,7 @@ async function dispatchGuardianQuestionInner(
     }
 
     // Route through the canonical notification pipeline. The paired vellum
-    // conversation from this pipeline is the canonical guardian conversation.
+    // conversation from this pipeline is the guardian conversation.
     let vellumDeliveryIdPromise: Promise<string | undefined> | undefined;
     const requestCode =
       request.requestCode ?? request.id.slice(0, 6).toUpperCase();

@@ -36,7 +36,7 @@ import { withdrawGuardianRequestCards } from "../approvals/guardian-card-withdra
 import {
   recordApprovalCardDelivery,
   recordGuardianRequestDeliveries,
-} from "../notifications/canonical-delivery-recorder.js";
+} from "../notifications/guardian-delivery-recorder.js";
 import { initializeDb } from "../persistence/db-init.js";
 import type { SimGuardianRequest } from "./guardian-gateway-sim.js";
 
