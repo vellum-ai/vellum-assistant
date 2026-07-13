@@ -196,17 +196,19 @@ async function installCapabilityBestEffort(
 }
 
 /**
- * Report the settled research turn's output (claims/suggestions/plugin picks)
- * for analytics. Client-orchestrated: the daemon never detects this turn on
- * its own, so the client reports it once, right at the point it observes the
- * reply parse as a complete JSON payload — the raw model output, before the
- * deterministic-floor merge folds in role-based baseline plugins.
- * Fire-and-forget: a failure here must never block or surface in the flow,
- * mirroring `archiveResearchConversation`.
+ * Report a research turn's outcome (claims/suggestions/plugin picks) for
+ * analytics. Client-orchestrated: the daemon never detects this turn on its
+ * own, so the client reports it once — either as the raw model output the
+ * moment the reply parses as a complete JSON payload (`status: "done"`,
+ * before the deterministic-floor merge folds in role-based baseline
+ * plugins), or as whatever had been parsed so far if the poll ceiling fires
+ * first (`status: "error"`). Fire-and-forget: a failure here must never
+ * block or surface in the flow, mirroring `archiveResearchConversation`.
  */
 async function sendOnboardingResearchTelemetry({
   assistantId,
   conversationId,
+  status,
   claims,
   suggestions,
   plugins,
@@ -214,6 +216,7 @@ async function sendOnboardingResearchTelemetry({
 }: {
   assistantId: string;
   conversationId: string;
+  status: "done" | "error";
   claims: ResearchFact[];
   suggestions: ResearchSuggestion[];
   plugins: string[];
@@ -224,7 +227,7 @@ async function sendOnboardingResearchTelemetry({
       path: { assistant_id: assistantId },
       body: {
         conversation_id: conversationId,
-        status: "done",
+        status,
         claims,
         suggestions,
         plugins,
@@ -566,6 +569,14 @@ export function useResearchRunner(): UseResearchRunner {
           // stay true across the `STABLE_READS_TO_SETTLE` re-polls before the
           // loop breaks, and would otherwise re-send on every one of them.
           let telemetrySent = false;
+          // Last-known partial result, so a poll-ceiling timeout (the loop
+          // exits without ever seeing `complete`) can still report what had
+          // been parsed so far instead of the turn silently never being
+          // reported at all.
+          let lastClaims: ResearchFact[] = [];
+          let lastSuggestions: ResearchSuggestion[] = [];
+          let lastPlugins: string[] = [];
+          let lastInstalledPlugins: string[] = [];
           // The model's `plugins` picks fire as soon as its array closes — emitted
           // first in the reply, so this lands early while claims/suggestions are
           // still streaming. These union on top of the deterministic floor already
@@ -615,12 +626,17 @@ export function useResearchRunner(): UseResearchRunner {
                 installedPlugins,
                 pluginCatalog,
               });
+              lastClaims = claims;
+              lastSuggestions = suggestions;
+              lastPlugins = plugins;
+              lastInstalledPlugins = installedPlugins;
               if (complete) sawCompletePayload = true;
               if (complete && !telemetrySent) {
                 telemetrySent = true;
                 void sendOnboardingResearchTelemetry({
                   assistantId,
                   conversationId,
+                  status: "done",
                   claims,
                   suggestions,
                   plugins,
@@ -639,6 +655,22 @@ export function useResearchRunner(): UseResearchRunner {
           }
 
           if (isStale()) return;
+          // The poll ceiling fired before a complete payload ever landed —
+          // the in-loop send above never ran. Report the timeout with
+          // whatever had been parsed so far rather than letting the turn go
+          // unreported and skewing the event stream toward successful runs.
+          if (!telemetrySent) {
+            telemetrySent = true;
+            void sendOnboardingResearchTelemetry({
+              assistantId,
+              conversationId,
+              status: "error",
+              claims: lastClaims,
+              suggestions: lastSuggestions,
+              plugins: lastPlugins,
+              installedPlugins: lastInstalledPlugins,
+            });
+          }
           setState((s) => ({
             ...s,
             status: resolveResearchCompletionStatus({ sawCompletePayload }),

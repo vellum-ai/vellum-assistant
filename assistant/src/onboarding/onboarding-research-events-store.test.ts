@@ -76,7 +76,9 @@ describe("onboarding-research-events-store", () => {
     expect(row.conversationId).toBe("conv-xyz");
     expect(row.payload).toEqual({
       type: "onboarding_research",
-      daemon_event_id: row.id,
+      // Deterministic on the conversation id (not the row id) so a
+      // resume-triggered duplicate report collapses downstream.
+      daemon_event_id: "onboarding_research:conv-xyz",
       recorded_at: row.createdAt,
       conversation_id: "conv-xyz",
       status: "done",
@@ -98,7 +100,7 @@ describe("onboarding-research-events-store", () => {
     });
   });
 
-  test("empty claims/suggestions/plugins ship as empty arrays with zeroed counts", () => {
+  test("empty claims/suggestions/plugins ship as empty arrays with zeroed counts; daemon_event_id falls back to the row id without a conversation", () => {
     recordOnboardingResearchEvent({
       conversationId: null,
       status: "error",
@@ -112,6 +114,7 @@ describe("onboarding-research-events-store", () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]!.conversationId).toBeNull();
     expect(rows[0]!.payload).toMatchObject({
+      daemon_event_id: rows[0]!.id,
       status: "error",
       claims: [],
       claim_count: 0,
@@ -123,5 +126,37 @@ describe("onboarding-research-events-store", () => {
       plugins: [],
       installed_plugins: [],
     });
+  });
+
+  test("a resume-triggered duplicate report shares one daemon_event_id per conversation", () => {
+    recordOnboardingResearchEvent({
+      conversationId: "conv-resume",
+      status: "done",
+      claims: [],
+      suggestions: [],
+      plugins: [],
+      installedPlugins: [],
+    });
+    recordOnboardingResearchEvent({
+      conversationId: "conv-resume",
+      status: "done",
+      claims: [],
+      suggestions: [],
+      plugins: [],
+      installedPlugins: [],
+    });
+
+    // Two distinct outbox rows (each flush attempt ships independently), but
+    // both stamp the SAME wire `daemon_event_id` so downstream analytics
+    // collapse the resume-triggered retry onto the original attempt.
+    const rows = pendingRows();
+    expect(rows).toHaveLength(2);
+    expect(rows[0]!.id).not.toBe(rows[1]!.id);
+    expect(rows[0]!.payload.daemon_event_id).toBe(
+      "onboarding_research:conv-resume",
+    );
+    expect(rows[1]!.payload.daemon_event_id).toBe(
+      "onboarding_research:conv-resume",
+    );
   });
 });
