@@ -228,7 +228,6 @@ import { getDb, getTelemetryDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import {
   authFallbackEvents,
-  configSettingEvents,
   conversations,
   skillLoadedEvents,
   telemetryEvents,
@@ -258,6 +257,7 @@ import {
   initToolExecutedWatermarkIfAbsent,
   UsageTelemetryReporter,
 } from "./usage-telemetry-reporter.js";
+import { recordWatchdogEvent } from "./watchdog-events-store.js";
 
 /**
  * Construct a reporter wired to the in-memory checkpoint fake. All tests go
@@ -415,7 +415,6 @@ beforeEach(() => {
   getDb().delete(toolInvocations).run();
   getTelemetryDb()!.delete(skillLoadedEvents).run();
   getTelemetryDb()!.delete(authFallbackEvents).run();
-  getTelemetryDb()!.delete(configSettingEvents).run();
   getTelemetryDb()!.delete(telemetryEvents).run();
   delete process.env.VELLUM_DISABLE_PLATFORM;
   delete process.env.IS_PLATFORM;
@@ -1651,11 +1650,13 @@ describe("UsageTelemetryReporter", () => {
     // No HTTP call should have been made
     expect(mockFetch).not.toHaveBeenCalled();
 
-    // All 9 timestamp watermarks should have been advanced, and all 9 ID
-    // watermarks pinned to the high-sorting sentinel (a truthy value keeps
-    // the compound-cursor branch active while closing its same-millisecond
-    // arm against opt-out rows).
-    expect(mockSetFlushCheckpoint).toHaveBeenCalledTimes(18);
+    // Every watermark-mode source's timestamp watermark should have been
+    // advanced, and its ID watermark pinned to the high-sorting sentinel (a
+    // truthy value keeps the compound-cursor branch active while closing its
+    // same-millisecond arm against opt-out rows). Ack-mode sources (watchdog,
+    // config_setting) discard pending outbox rows instead and never touch
+    // `flush_checkpoints`.
+    expect(mockSetFlushCheckpoint).toHaveBeenCalledTimes(14);
 
     const calls = mockSetFlushCheckpoint.mock.calls;
     const keys = calls.map((c) => c[0]);
@@ -1667,8 +1668,6 @@ describe("UsageTelemetryReporter", () => {
       "auth_fallback",
       "tool_executed",
       "skill_loaded",
-      "watchdog",
-      "config_setting",
     ];
     for (const eventType of eventTypes) {
       expect(keys).toContain(`telemetry:${eventType}:last_reported_at`);
@@ -2639,7 +2638,7 @@ describe("UsageTelemetryReporter", () => {
     });
   });
 
-  test("config_setting watermark advances to the last reported row on success", async () => {
+  test("config_setting rows are deleted on success and no watermark is written", async () => {
     mockQueryUnreportedUsageEvents.mockReturnValue([]);
     recordConfigSettingEvent({
       configKey: "memory.enabled",
@@ -2649,35 +2648,72 @@ describe("UsageTelemetryReporter", () => {
       configKey: "memory.v2.enabled",
       configValue: "true",
     });
+    expect(queryTelemetryOutboxBatch("config_setting", 10)).toHaveLength(2);
     mockFetch.mockImplementation(() =>
       Promise.resolve(new Response('{"accepted":2}', { status: 200 })),
     );
 
-    // The last row by the reporter's (createdAt, id) cursor order is the one
-    // whose watermark should be persisted after a successful upload.
-    const rows = getTelemetryDb()!
-      .select()
-      .from(configSettingEvents)
-      .orderBy(configSettingEvents.createdAt, configSettingEvents.id)
-      .all();
-    const lastRow = rows[rows.length - 1];
+    const reporter = makeReporter();
+    await reporter.flush();
+
+    // Ack-mode: acknowledged rows are deleted from the outbox instead of
+    // advancing a `flush_checkpoints` watermark.
+    expect(queryTelemetryOutboxBatch("config_setting", 10)).toHaveLength(0);
+    const watermarkKeys = mockSetFlushCheckpoint.mock.calls
+      .map((c) => c[0] as string)
+      .filter((key) => key.startsWith("telemetry:config_setting:"));
+    expect(watermarkKeys).toHaveLength(0);
+  });
+
+  test("config_setting rows survive a failed POST for the next flush", async () => {
+    mockQueryUnreportedUsageEvents.mockReturnValue([]);
+    recordConfigSettingEvent({
+      configKey: "memory.enabled",
+      configValue: "true",
+    });
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response("error", { status: 500 })),
+    );
 
     const reporter = makeReporter();
     await reporter.flush();
 
-    const watermarkCalls = mockSetFlushCheckpoint.mock.calls.filter(
-      (c) => c[0] === "telemetry:config_setting:last_reported_at",
-    );
-    expect(watermarkCalls.length).toBeGreaterThanOrEqual(1);
-    expect(watermarkCalls[watermarkCalls.length - 1][1]).toBe(
-      String(lastRow.createdAt),
+    expect(queryTelemetryOutboxBatch("config_setting", 10)).toHaveLength(1);
+  });
+
+  // -------------------------------------------------------------------------
+  // Watchdog events
+  // -------------------------------------------------------------------------
+
+  test("watchdog events ship the record-time payload with nested detail, then delete", async () => {
+    mockQueryUnreportedUsageEvents.mockReturnValue([]);
+    recordWatchdogEvent({
+      checkName: "event_loop_blocked",
+      value: 60000,
+      detail: { reason: "no_bytes_60s", threshold_ms: 5000 },
+    });
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
     );
 
-    const idCalls = mockSetFlushCheckpoint.mock.calls.filter(
-      (c) => c[0] === "telemetry:config_setting:last_reported_id",
+    const reporter = makeReporter();
+    await reporter.flush();
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
     );
-    expect(idCalls.length).toBeGreaterThanOrEqual(1);
-    expect(idCalls[idCalls.length - 1][1]).toBe(lastRow.id);
+    expect(body.events).toHaveLength(1);
+    expect(body.events[0]).toMatchObject({
+      type: "watchdog",
+      check_name: "event_loop_blocked",
+      value: 60000,
+      detail: { reason: "no_bytes_60s", threshold_ms: 5000 },
+      assistant_version: "1.2.3-test",
+    });
+    expect(typeof body.events[0].daemon_event_id).toBe("string");
+    expect(typeof body.events[0].recorded_at).toBe("number");
+    expect(queryTelemetryOutboxBatch("watchdog", 10)).toHaveLength(0);
   });
 
   // -------------------------------------------------------------------------
