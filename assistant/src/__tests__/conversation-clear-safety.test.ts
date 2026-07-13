@@ -6,7 +6,7 @@
  * - Missing X-Confirm-Destructive header returns BadRequestError
  * - Wrong header value returns BadRequestError
  * - Correct header clears data
- * - lifecycle_events contains `conversations_clear_all` audit entry after clear
+ * - telemetry_events contains the `conversations_clear_all` audit entry after clear
  */
 
 import { describe, expect, mock, test } from "bun:test";
@@ -170,20 +170,31 @@ describe("DELETE /v1/conversations — route handler", () => {
     expect(getConversation(conv.id)).toBeNull();
   });
 
-  test("lifecycle_events contains conversations_clear_all after successful clear", async () => {
+  test("telemetry_events contains conversations_clear_all after successful clear", async () => {
     await clearRoute.handler({
       pathParams: {},
       body: {},
       headers: { "x-confirm-destructive": "clear-all-conversations" },
     });
 
-    // The audit row lives in the dedicated telemetry DB (migration 329).
+    // The audit row lands in the telemetry_events outbox on the dedicated
+    // telemetry DB; the durable trail persists platform-side once flushed.
     const rows = getTelemetrySqlite()!
       .query(
-        "SELECT event_name FROM lifecycle_events WHERE event_name = 'conversations_clear_all'",
+        "SELECT id, payload FROM telemetry_events WHERE name = 'lifecycle'",
       )
-      .all() as Array<{ event_name: string }>;
-    expect(rows.length).toBeGreaterThanOrEqual(1);
-    expect(rows[0].event_name).toBe("conversations_clear_all");
+      .all() as Array<{ id: string; payload: string }>;
+    const audits = rows
+      .map((r) => ({
+        id: r.id,
+        payload: JSON.parse(r.payload) as Record<string, unknown>,
+      }))
+      .filter((r) => r.payload.event_name === "conversations_clear_all");
+    expect(audits.length).toBeGreaterThanOrEqual(1);
+    expect(audits[0].payload).toMatchObject({
+      type: "lifecycle",
+      daemon_event_id: audits[0].id,
+      event_name: "conversations_clear_all",
+    });
   });
 });

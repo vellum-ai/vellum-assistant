@@ -1,22 +1,25 @@
 /**
  * Tests for migration 330: relocating `auth_fallback_events` from the main DB
- * into the dedicated telemetry database (`assistant-telemetry.db`).
+ * into the dedicated telemetry database (`assistant-telemetry.db`), covered
+ * as the head of the full pipeline — migration 334 then backfills the
+ * relocated rows into the generic `telemetry_events` outbox and drops the
+ * telemetry-side table.
  *
  * Runs against real workspace databases (`initializeDb()`) because the drain
  * engine dispatches batches via `runAsyncSqlite` against the workspace's main
- * DB file. `initializeDb()` already ran migration 330 once (dropping the empty
- * main-side table created by migration 271), so each test recreates the
- * pre-move source table in `main` to simulate an upgrading install.
+ * DB file. `initializeDb()` already ran the pipeline once, so each test
+ * recreates the pre-move source table in `main` to simulate an upgrading
+ * install, then runs 330 + 334 directly.
  */
 import { describe, expect, test } from "bun:test";
 
 const { getDb, getSqlite, getTelemetrySqlite } =
   await import("../db-connection.js");
 const { initializeDb } = await import("../db-init.js");
-const { queryUnreportedAuthFallbackEvents } =
-  await import("../../security/auth-fallback-events-store.js");
 const { migrateMoveAuthFallbackEventsToTelemetryDb } =
   await import("./330-move-auth-fallback-events-to-telemetry-db.js");
+const { migrateBackfillTelemetryEventsOutbox } =
+  await import("./334-backfill-telemetry-events-outbox.js");
 
 await initializeDb();
 
@@ -24,6 +27,21 @@ const SOURCE_COLUMNS = `
   id TEXT PRIMARY KEY, created_at INTEGER NOT NULL, guard TEXT NOT NULL,
   path TEXT NOT NULL, failure_kind TEXT NOT NULL, count INTEGER NOT NULL,
   window_start INTEGER NOT NULL, window_end INTEGER NOT NULL`;
+
+/** Backfilled outbox rows for the auth_fallback source, in `(created_at, id)` order. */
+function outboxAuthFallbackRows(): Array<{
+  id: string;
+  payload: Record<string, unknown>;
+}> {
+  return (
+    getTelemetrySqlite()!
+      .query(
+        `SELECT id, payload FROM telemetry_events
+         WHERE name = 'auth_fallback' ORDER BY created_at, id`,
+      )
+      .all() as Array<{ id: string; payload: string }>
+  ).map((row) => ({ ...row, payload: JSON.parse(row.payload) }));
+}
 
 function existsInMain(name: string): boolean {
   return (
@@ -35,8 +53,22 @@ function existsInMain(name: string): boolean {
   );
 }
 
+function existsInTelemetry(name: string): boolean {
+  return (
+    getTelemetrySqlite()!
+      .query(`SELECT name FROM sqlite_master WHERE type='table' AND name = ?`)
+      .get(name) != null
+  );
+}
+
 function resetState(): void {
-  getTelemetrySqlite()!.exec(`DELETE FROM auth_fallback_events`);
+  getTelemetrySqlite()!.exec(`DROP TABLE IF EXISTS auth_fallback_events`);
+  getTelemetrySqlite()!.exec(
+    `DELETE FROM telemetry_events WHERE name = 'auth_fallback'`,
+  );
+  getTelemetrySqlite()!.exec(
+    `DELETE FROM flush_checkpoints WHERE key LIKE 'telemetry:auth_fallback:%'`,
+  );
   getSqlite().exec(`DROP TABLE IF EXISTS main.auth_fallback_events`);
   getSqlite().exec(
     `DROP TABLE IF EXISTS main."auth_fallback_events__relocating"`,
@@ -83,71 +115,71 @@ function seedSourceTable(): void {
   );
 }
 
+async function runPipeline(): Promise<void> {
+  await migrateMoveAuthFallbackEventsToTelemetryDb(getDb());
+  migrateBackfillTelemetryEventsOutbox(getDb());
+}
+
 describe("migration 330: move auth_fallback_events to the telemetry DB", () => {
-  test("drains pre-move rows into the telemetry DB and drops the main-side table", async () => {
+  test("pre-move rows land in telemetry_events and both legacy tables are gone", async () => {
     resetState();
     seedSourceTable();
 
-    await migrateMoveAuthFallbackEventsToTelemetryDb(getDb());
+    await runPipeline();
 
     expect(existsInMain("auth_fallback_events")).toBe(false);
     expect(existsInMain("auth_fallback_events__relocating")).toBe(false);
+    expect(existsInTelemetry("auth_fallback_events")).toBe(false);
 
-    const moved = getTelemetrySqlite()!
-      .query(`SELECT id, guard FROM auth_fallback_events ORDER BY id`)
-      .all();
-    expect(moved).toEqual([
-      { id: "seed-1", guard: "edge" },
-      { id: "seed-2", guard: "edge-scoped" },
-      { id: "seed-dupe", guard: "edge-guardian" },
-    ]);
-
-    // The relocated rows are readable through the store's reporter query.
-    const rows = queryUnreportedAuthFallbackEvents(0, undefined, 10);
+    const rows = outboxAuthFallbackRows();
     expect(rows.map((r) => r.id)).toEqual(["seed-1", "seed-2", "seed-dupe"]);
-    expect(rows[0]!).toMatchObject({
+    expect(rows[0]!.payload).toMatchObject({
+      type: "auth_fallback",
+      daemon_event_id: "seed-1",
+      recorded_at: 1000,
       guard: "edge",
       path: "/v1/messages",
-      failureKind: "missing_authorization",
+      failure_kind: "missing_authorization",
       count: 7,
-      windowStart: 900,
-      windowEnd: 1000,
+      window_start: 900,
+      window_end: 1000,
     });
+    expect(rows[2]!.payload.guard).toBe("edge-guardian");
   });
 
-  test("re-running after a completed move is a no-op", async () => {
+  test("re-running the pipeline after a completed move is a no-op", async () => {
     resetState();
     seedSourceTable();
 
-    await migrateMoveAuthFallbackEventsToTelemetryDb(getDb());
-    await migrateMoveAuthFallbackEventsToTelemetryDb(getDb());
+    await runPipeline();
+    await runPipeline();
 
     expect(existsInMain("auth_fallback_events")).toBe(false);
     expect(existsInMain("auth_fallback_events__relocating")).toBe(false);
-    expect(queryUnreportedAuthFallbackEvents(0, undefined, 10)).toHaveLength(3);
+    expect(existsInTelemetry("auth_fallback_events")).toBe(false);
+    expect(outboxAuthFallbackRows()).toHaveLength(3);
   });
 
-  test("a pre-existing duplicate id in the telemetry copy does not fail the drain", async () => {
+  test("a pre-existing duplicate id in the outbox does not fail the pipeline", async () => {
     resetState();
     seedSourceTable();
 
-    // A crash between a drain batch's copy and delete re-copies the same rows
-    // next boot; INSERT OR IGNORE must keep the already-copied row and finish.
+    // A crash between a drain/backfill batch's copy and delete re-copies the
+    // same rows next boot; INSERT OR IGNORE must keep the already-copied row.
     getTelemetrySqlite()!.exec(
-      `INSERT INTO auth_fallback_events
-         (id, created_at, guard, path, failure_kind, count, window_start, window_end)
-       VALUES ('seed-dupe', 3000, 'already-copied', '/v1/pair', 'guardian_mismatch', 1, 2900, 3000)`,
+      `INSERT INTO telemetry_events (id, name, created_at, conversation_id, payload)
+       VALUES ('seed-dupe', 'auth_fallback', 3000, NULL, '{"type":"auth_fallback","guard":"already-copied"}')`,
     );
 
-    await migrateMoveAuthFallbackEventsToTelemetryDb(getDb());
+    await runPipeline();
 
     expect(existsInMain("auth_fallback_events")).toBe(false);
     expect(existsInMain("auth_fallback_events__relocating")).toBe(false);
-    const dupe = getTelemetrySqlite()!
-      .query(`SELECT guard FROM auth_fallback_events WHERE id = 'seed-dupe'`)
-      .get() as { guard: string };
-    expect(dupe.guard).toBe("already-copied");
-    expect(queryUnreportedAuthFallbackEvents(0, undefined, 10)).toHaveLength(3);
+    const rows = outboxAuthFallbackRows();
+    expect(rows).toHaveLength(3);
+    expect(rows.find((r) => r.id === "seed-dupe")!.payload.guard).toBe(
+      "already-copied",
+    );
   });
 
   test("an empty main-side table (fresh install) is dropped without a drain", async () => {
@@ -156,19 +188,10 @@ describe("migration 330: move auth_fallback_events to the telemetry DB", () => {
       `CREATE TABLE main.auth_fallback_events (${SOURCE_COLUMNS})`,
     );
 
-    await migrateMoveAuthFallbackEventsToTelemetryDb(getDb());
+    await runPipeline();
 
     expect(existsInMain("auth_fallback_events")).toBe(false);
     expect(existsInMain("auth_fallback_events__relocating")).toBe(false);
-    expect(queryUnreportedAuthFallbackEvents(0, undefined, 10)).toHaveLength(0);
-  });
-
-  test("telemetry-side schema has the reporter's compound cursor index", () => {
-    const indexes = (
-      getTelemetrySqlite()!
-        .query(`PRAGMA index_list(auth_fallback_events)`)
-        .all() as Array<{ name: string }>
-    ).map((i) => i.name);
-    expect(indexes).toContain("idx_auth_fallback_events_created_at_id");
+    expect(outboxAuthFallbackRows()).toHaveLength(0);
   });
 });

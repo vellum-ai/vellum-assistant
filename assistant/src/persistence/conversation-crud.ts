@@ -90,6 +90,7 @@ import {
   enqueueLexicalIndexForMessage,
   enqueuePurgeConversationLexical,
 } from "./job-handlers/message-lexical.js";
+import { buildLifecycleTelemetryEvent } from "./lifecycle-events-store.js";
 import { resolveMessageContentBlocks } from "./message-content-file.js";
 import {
   rawAll,
@@ -108,7 +109,7 @@ import {
   memorySegments,
   messageAttachments,
   messages,
-  skillLoadedEvents,
+  telemetryEvents,
   toolInvocations,
 } from "./schema/index.js";
 import { timeSyncSection } from "./slow-sync-log.js";
@@ -129,10 +130,10 @@ function logsDb(): DrizzleDb {
 }
 
 /**
- * The telemetry connection (`assistant-telemetry.db`), where
- * `skill_loaded_events` lives. Throws if the file cannot be opened — the
+ * The telemetry connection (`assistant-telemetry.db`), where the
+ * `telemetry_events` outbox lives. Throws if the file cannot be opened — the
  * conversation-delete call sites must not report success while unshipped
- * skill events referencing the deleted conversation survive to be flushed.
+ * events referencing the deleted conversation survive to be flushed.
  */
 function telemetryDb(): DrizzleDb {
   const db = getTelemetryDb();
@@ -1655,17 +1656,19 @@ export function deleteConversation(id: string): DeletedMemoryIds {
   const convBeforeDelete = getConversation(id);
   const createdAtForDiskCleanup = convBeforeDelete?.createdAt;
 
-  // llm_request_logs and skill_loaded_events live in the dedicated logs and
-  // telemetry connections, so they are deleted there — separately from (and
-  // before) the main-DB transaction below, so a failure leaves the
-  // conversation intact for a retried delete.
+  // llm_request_logs and pending telemetry_events rows live in the dedicated
+  // logs and telemetry connections, so they are deleted there — separately
+  // from (and before) the main-DB transaction below, so a failure leaves the
+  // conversation intact for a retried delete. Telemetry redaction keys on
+  // conversation_id regardless of event name, so every conversation-scoped
+  // pending event is covered.
   logsDb()
     .delete(llmRequestLogs)
     .where(eq(llmRequestLogs.conversationId, id))
     .run();
   telemetryDb()
-    .delete(skillLoadedEvents)
-    .where(eq(skillLoadedEvents.conversationId, id))
+    .delete(telemetryEvents)
+    .where(eq(telemetryEvents.conversationId, id))
     .run();
 
   db.transaction((tx) => {
@@ -1784,13 +1787,14 @@ export async function deleteConversationGently(
     .all()
     .map((r) => r.id);
 
-  // skill_loaded_events lives in the dedicated telemetry connection; delete
-  // it there before ANY destructive work so a telemetry failure leaves the
-  // conversation fully intact for a retried delete — a throw after the bulk
-  // drains below would strand unredacted rows that could still flush.
+  // Pending telemetry_events rows live in the dedicated telemetry connection;
+  // delete them there (by conversation_id, regardless of event name) before
+  // ANY destructive work so a telemetry failure leaves the conversation fully
+  // intact for a retried delete — a throw after the bulk drains below would
+  // strand unredacted rows that could still flush.
   telemetryDb()
-    .delete(skillLoadedEvents)
-    .where(eq(skillLoadedEvents.conversationId, id))
+    .delete(telemetryEvents)
+    .where(eq(telemetryEvents.conversationId, id))
     .run();
 
   // llm_request_logs lives in the dedicated logs connection, and each row is
@@ -2976,14 +2980,15 @@ export async function clearAll(): Promise<{
     }
   };
 
-  // skill_loaded_events lives in the dedicated telemetry connection. Redact
-  // it FIRST, before any destructive delete: unshipped skill events reference
-  // conversations this wipe must redact, so a telemetry failure must abort
-  // the clear-all while the workspace is still fully intact — never after
-  // memory state is already gone.
+  // Pending skill_loaded rows live in the telemetry_events outbox on the
+  // dedicated telemetry connection. Redact them FIRST, before any destructive
+  // delete: unshipped skill events reference conversations this wipe must
+  // redact, so a telemetry failure must abort the clear-all while the
+  // workspace is still fully intact — never after memory state is already
+  // gone.
   rawTelemetryRun(
     "conversation:clearAll:skillLoadedEvents",
-    "DELETE FROM skill_loaded_events",
+    "DELETE FROM telemetry_events WHERE name = 'skill_loaded'",
   );
 
   // Delete in dependency order. Cascades handle memory_segments and
@@ -3008,18 +3013,25 @@ export async function clearAll(): Promise<{
   await runOrThrow("DELETE FROM messages");
   await runOrThrow("DELETE FROM conversations");
 
-  // Record audit event — lifecycle_events lives in the telemetry DB and is
-  // NOT deleted by clearAll(), so this survives the wipe as a permanent trail.
-  // Best-effort: the destructive deletes above already completed, so telemetry
-  // degradation must not turn a finished wipe into a failure or skip the
-  // cleanup below.
+  // Record audit event into the telemetry_events outbox (consent-bypassing);
+  // the trail persists platform-side once flushed. Best-effort: the
+  // destructive deletes above already completed, so telemetry degradation
+  // must not turn a finished wipe into a failure or skip the cleanup below.
   try {
+    const auditEventId = uuid();
+    const auditEventAt = Date.now();
     rawTelemetryRun(
       "conversation:clearAll:auditEvent",
-      `INSERT INTO lifecycle_events (id, event_name, created_at) VALUES (?, ?, ?)`,
-      uuid(),
-      "conversations_clear_all",
-      Date.now(),
+      `INSERT INTO telemetry_events (id, name, created_at, conversation_id, payload) VALUES (?, 'lifecycle', ?, NULL, ?)`,
+      auditEventId,
+      auditEventAt,
+      JSON.stringify(
+        buildLifecycleTelemetryEvent(
+          auditEventId,
+          "conversations_clear_all",
+          auditEventAt,
+        ),
+      ),
     );
   } catch (err) {
     log.warn({ err }, "clearAll: failed to record audit event");

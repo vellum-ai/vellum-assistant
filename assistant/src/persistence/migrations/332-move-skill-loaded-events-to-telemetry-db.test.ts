@@ -1,23 +1,26 @@
 /**
  * Tests for migration 332: relocating `skill_loaded_events` from the main DB
- * into the dedicated telemetry database (`assistant-telemetry.db`).
+ * into the dedicated telemetry database (`assistant-telemetry.db`), covered
+ * as the head of the full pipeline — migration 334 then backfills the
+ * relocated rows into the generic `telemetry_events` outbox (with the
+ * conversation id in its dedicated column) and drops the telemetry-side
+ * table.
  *
  * Runs against real workspace databases (`initializeDb()`) because the drain
  * engine dispatches batches via `runAsyncSqlite` against the workspace's main
- * DB file. `initializeDb()` already ran migration 332 once (dropping the empty
- * main-side table created by migration 279), so each test recreates the
- * pre-move source table in `main` to simulate an upgrading install.
+ * DB file. `initializeDb()` already ran the pipeline once, so each test
+ * recreates the pre-move source table in `main` to simulate an upgrading
+ * install, then runs 332 + 334 directly.
  */
 import { describe, expect, test } from "bun:test";
 
 const { getDb, getSqlite, getTelemetrySqlite } =
   await import("../db-connection.js");
 const { initializeDb } = await import("../db-init.js");
-const { queryUnreportedSkillLoadedEvents } =
-  await import("../../telemetry/skill-loaded-events-store.js");
 const { migrateMoveSkillLoadedEventsToTelemetryDb } =
   await import("./332-move-skill-loaded-events-to-telemetry-db.js");
-const { rawTelemetryRun } = await import("../raw-query.js");
+const { migrateBackfillTelemetryEventsOutbox } =
+  await import("./334-backfill-telemetry-events-outbox.js");
 
 await initializeDb();
 
@@ -25,6 +28,26 @@ const SOURCE_COLUMNS = `
   id TEXT PRIMARY KEY, created_at INTEGER NOT NULL, conversation_id TEXT,
   skill_name TEXT NOT NULL, skill_updated_at TEXT, provider TEXT, model TEXT,
   inference_profile TEXT, inference_profile_source TEXT`;
+
+/** Backfilled outbox rows for the skill_loaded source, in `(created_at, id)` order. */
+function outboxSkillRows(): Array<{
+  id: string;
+  conversation_id: string | null;
+  payload: Record<string, unknown>;
+}> {
+  return (
+    getTelemetrySqlite()!
+      .query(
+        `SELECT id, conversation_id, payload FROM telemetry_events
+         WHERE name = 'skill_loaded' ORDER BY created_at, id`,
+      )
+      .all() as Array<{
+      id: string;
+      conversation_id: string | null;
+      payload: string;
+    }>
+  ).map((row) => ({ ...row, payload: JSON.parse(row.payload) }));
+}
 
 function existsInMain(name: string): boolean {
   return (
@@ -36,8 +59,22 @@ function existsInMain(name: string): boolean {
   );
 }
 
+function existsInTelemetry(name: string): boolean {
+  return (
+    getTelemetrySqlite()!
+      .query(`SELECT name FROM sqlite_master WHERE type='table' AND name = ?`)
+      .get(name) != null
+  );
+}
+
 function resetState(): void {
-  getTelemetrySqlite()!.exec(`DELETE FROM skill_loaded_events`);
+  getTelemetrySqlite()!.exec(`DROP TABLE IF EXISTS skill_loaded_events`);
+  getTelemetrySqlite()!.exec(
+    `DELETE FROM telemetry_events WHERE name = 'skill_loaded'`,
+  );
+  getTelemetrySqlite()!.exec(
+    `DELETE FROM flush_checkpoints WHERE key LIKE 'telemetry:skill_loaded:%'`,
+  );
   getSqlite().exec(`DROP TABLE IF EXISTS main.skill_loaded_events`);
   getSqlite().exec(
     `DROP TABLE IF EXISTS main."skill_loaded_events__relocating"`,
@@ -70,77 +107,77 @@ function seedSourceTable(): void {
   insert.run("seed-dupe", 3000, "conv-b", "calendar");
 }
 
+async function runPipeline(): Promise<void> {
+  await migrateMoveSkillLoadedEventsToTelemetryDb(getDb());
+  migrateBackfillTelemetryEventsOutbox(getDb());
+}
+
 describe("migration 332: move skill_loaded_events to the telemetry DB", () => {
-  test("drains pre-move rows into the telemetry DB and drops the main-side table", async () => {
+  test("pre-move rows land in telemetry_events with the conversation id column; both legacy tables are gone", async () => {
     resetState();
     seedSourceTable();
 
-    await migrateMoveSkillLoadedEventsToTelemetryDb(getDb());
+    await runPipeline();
 
     expect(existsInMain("skill_loaded_events")).toBe(false);
     expect(existsInMain("skill_loaded_events__relocating")).toBe(false);
+    expect(existsInTelemetry("skill_loaded_events")).toBe(false);
 
-    const moved = getTelemetrySqlite()!
-      .query(
-        `SELECT id, skill_name, conversation_id FROM skill_loaded_events ORDER BY id`,
-      )
-      .all();
-    expect(moved).toEqual([
-      { id: "seed-1", skill_name: "web-research", conversation_id: "conv-a" },
-      { id: "seed-2", skill_name: "tasks", conversation_id: null },
-      { id: "seed-dupe", skill_name: "calendar", conversation_id: "conv-b" },
-    ]);
-
-    // The relocated rows are readable through the store's reporter query.
-    const rows = queryUnreportedSkillLoadedEvents(0, undefined, 10);
+    const rows = outboxSkillRows();
     expect(rows.map((r) => r.id)).toEqual(["seed-1", "seed-2", "seed-dupe"]);
-    expect(rows[0]).toEqual({
-      id: "seed-1",
-      createdAt: 1000,
-      conversationId: "conv-a",
-      skillName: "web-research",
-      skillUpdatedAt: null,
+    expect(rows.map((r) => r.conversation_id)).toEqual([
+      "conv-a",
+      null,
+      "conv-b",
+    ]);
+    // Every column reaches the wire payload intact.
+    expect(rows[0]!.payload).toMatchObject({
+      type: "skill_loaded",
+      daemon_event_id: "seed-1",
+      recorded_at: 1000,
+      skill_name: "web-research",
+      skill_updated_at: null,
+      conversation_id: "conv-a",
       provider: null,
       model: null,
-      inferenceProfile: null,
-      inferenceProfileSource: null,
+      inference_profile: null,
+      inference_profile_source: null,
     });
   });
 
-  test("re-running after a completed move is a no-op", async () => {
+  test("re-running the pipeline after a completed move is a no-op", async () => {
     resetState();
     seedSourceTable();
 
-    await migrateMoveSkillLoadedEventsToTelemetryDb(getDb());
-    await migrateMoveSkillLoadedEventsToTelemetryDb(getDb());
+    await runPipeline();
+    await runPipeline();
 
     expect(existsInMain("skill_loaded_events")).toBe(false);
     expect(existsInMain("skill_loaded_events__relocating")).toBe(false);
-    expect(queryUnreportedSkillLoadedEvents(0, undefined, 10)).toHaveLength(3);
+    expect(existsInTelemetry("skill_loaded_events")).toBe(false);
+    expect(outboxSkillRows()).toHaveLength(3);
   });
 
-  test("a pre-existing duplicate id in the telemetry copy does not fail the drain", async () => {
+  test("a pre-existing duplicate id in the outbox does not fail the pipeline", async () => {
     resetState();
     seedSourceTable();
 
-    // A crash between a drain batch's copy and delete re-copies the same rows
-    // next boot; INSERT OR IGNORE must keep the already-copied row and finish.
+    // A crash between a drain/backfill batch's copy and delete re-copies the
+    // same rows next boot; INSERT OR IGNORE must keep the already-copied row.
     getTelemetrySqlite()!.exec(
-      `INSERT INTO skill_loaded_events (id, created_at, skill_name)
-       VALUES ('seed-dupe', 3000, 'already-copied')`,
+      `INSERT INTO telemetry_events (id, name, created_at, conversation_id, payload)
+       VALUES ('seed-dupe', 'skill_loaded', 3000, 'conv-b', '{"type":"skill_loaded","skill_name":"already-copied"}')`,
     );
 
-    await migrateMoveSkillLoadedEventsToTelemetryDb(getDb());
+    await runPipeline();
 
     expect(existsInMain("skill_loaded_events")).toBe(false);
     expect(existsInMain("skill_loaded_events__relocating")).toBe(false);
-    const dupe = getTelemetrySqlite()!
-      .query(
-        `SELECT skill_name FROM skill_loaded_events WHERE id = 'seed-dupe'`,
-      )
-      .get() as { skill_name: string };
-    expect(dupe.skill_name).toBe("already-copied");
-    expect(queryUnreportedSkillLoadedEvents(0, undefined, 10)).toHaveLength(3);
+    const rows = outboxSkillRows();
+    expect(rows).toHaveLength(3);
+    expect(rows.find((r) => r.id === "seed-dupe")!.payload.skill_name).toBe(
+      "already-copied",
+    );
   });
 
   test("an empty main-side table (fresh install) is dropped without a drain", async () => {
@@ -149,11 +186,11 @@ describe("migration 332: move skill_loaded_events to the telemetry DB", () => {
       `CREATE TABLE main.skill_loaded_events (${SOURCE_COLUMNS})`,
     );
 
-    await migrateMoveSkillLoadedEventsToTelemetryDb(getDb());
+    await runPipeline();
 
     expect(existsInMain("skill_loaded_events")).toBe(false);
     expect(existsInMain("skill_loaded_events__relocating")).toBe(false);
-    expect(queryUnreportedSkillLoadedEvents(0, undefined, 10)).toHaveLength(0);
+    expect(outboxSkillRows()).toHaveLength(0);
   });
 
   test("the drain purges rows whose conversation no longer exists (redaction across boots)", async () => {
@@ -172,44 +209,11 @@ describe("migration 332: move skill_loaded_events to the telemetry DB", () => {
     // itself must purge this row rather than resurrect it.
     insert.run("dead-1", 3000, "conv-deleted", "calendar");
 
-    await migrateMoveSkillLoadedEventsToTelemetryDb(getDb());
+    await runPipeline();
 
     expect(existsInMain("skill_loaded_events")).toBe(false);
     expect(existsInMain("skill_loaded_events__relocating")).toBe(false);
 
-    const moved = queryUnreportedSkillLoadedEvents(0, undefined, 10);
-    expect(moved.map((r) => r.id)).toEqual(["live-1", "null-1"]);
-    const dead = getTelemetrySqlite()!
-      .query(`SELECT 1 FROM skill_loaded_events WHERE id = 'dead-1'`)
-      .get();
-    expect(dead).toBeNull();
-  });
-
-  test("per-conversation redaction deletes rows on the telemetry connection", () => {
-    resetState();
-    getTelemetrySqlite()!.exec(
-      `INSERT INTO skill_loaded_events (id, created_at, conversation_id, skill_name)
-       VALUES ('red-1', 1000, 'conv-pruned', 'web-research'),
-              ('red-2', 2000, 'conv-kept', 'tasks')`,
-    );
-
-    // The exact delete the conversation prune runs (job-handlers/cleanup.ts).
-    rawTelemetryRun(
-      "test:prune-redaction",
-      `DELETE FROM skill_loaded_events WHERE conversation_id = ?`,
-      "conv-pruned",
-    );
-
-    const remaining = queryUnreportedSkillLoadedEvents(0, undefined, 10);
-    expect(remaining.map((r) => r.id)).toEqual(["red-2"]);
-  });
-
-  test("telemetry-side schema has the reporter's compound cursor index", () => {
-    const indexes = (
-      getTelemetrySqlite()!
-        .query(`PRAGMA index_list(skill_loaded_events)`)
-        .all() as Array<{ name: string }>
-    ).map((i) => i.name);
-    expect(indexes).toContain("idx_skill_loaded_events_created_at_id");
+    expect(outboxSkillRows().map((r) => r.id)).toEqual(["live-1", "null-1"]);
   });
 });

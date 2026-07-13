@@ -1,7 +1,7 @@
 /**
  * Direct (unbuffered) emit of a single `watchdog` telemetry event.
  *
- * The usual watchdog path persists to the SQLite `watchdog_events` table and
+ * The usual watchdog path persists to the SQLite `telemetry_events` outbox and
  * lets {@link ./usage-telemetry-reporter} batch and upload it later. That
  * durable buffer is the right default — it survives restarts and dedupes on
  * `daemon_event_id`. But it is the wrong tool for a check that fires *because*
