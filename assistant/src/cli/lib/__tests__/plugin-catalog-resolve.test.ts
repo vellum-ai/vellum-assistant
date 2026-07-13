@@ -61,6 +61,28 @@ describe("resolveSourceFromMatch", () => {
   ])("throws on %s ref", (_label, ref) => {
     expect(() => resolveSourceFromMatch(match({ ref }))).toThrow();
   });
+
+  test("resolves a clean nested path", () => {
+    expect(
+      resolveSourceFromMatch(match({ path: "packages/plugin" })),
+    ).toEqual({
+      owner: "acme",
+      repo: "example",
+      path: "packages/plugin",
+      ref: FULL_SHA,
+    });
+  });
+
+  test.each([
+    ["a leading `..` segment", "../evil"],
+    ["an interior `..` segment", "a/../b"],
+    ["a backslash `..` segment", "a\\..\\b"],
+    ["an empty segment", "a//b"],
+  ])("throws on an unsafe path with %s", (_label, path) => {
+    expect(() => resolveSourceFromMatch(match({ path }))).toThrow(
+      /unsafe plugin path/,
+    );
+  });
 });
 
 describe("catalog-backed resolvers (bundled, offline)", () => {

@@ -27,12 +27,25 @@ export async function findCatalogEntry(
 }
 
 /**
+ * A repo-relative path is clean when no `/`-or-`\`-split segment escapes (`..`)
+ * or is empty (`""`). Mirrors the marketplace schema's `path` refine so the
+ * gated resolver rejects the same paths the GitHub manifest does — platform
+ * catalog rows accept `path` as any string, so this is the install-side gate.
+ */
+function isCleanRepoRelativePath(path: string): boolean {
+  return !path.split(/[/\\]/).some((seg) => seg === ".." || seg === "");
+}
+
+/**
  * Project a catalog match onto concrete GitHub install coordinates.
  *
  * Re-asserts the install-pinning invariant the GitHub path enforces via schema:
  * a curated install MUST pin to an immutable full commit SHA, so a non-SHA ref
  * from an upstream catalog is a config defect and throws rather than installing
- * mutable code. Pure — unit-testable without a catalog.
+ * mutable code. Likewise re-asserts the schema's clean-path rule: a platform
+ * catalog row does not validate `path`, so an escaping/empty segment reaching
+ * `trustedSource.rootPath` is rejected here rather than copying the wrong tree.
+ * Pure — unit-testable without a catalog.
  */
 export function resolveSourceFromMatch(
   match: PluginSearchMatch,
@@ -42,6 +55,12 @@ export function resolveSourceFromMatch(
     throw new Error(
       `Catalog entry "${match.name}" pins ref "${ref}", which is not a full commit SHA; ` +
         `a curated install must pin to an immutable full commit SHA (tags and branches are mutable).`,
+    );
+  }
+  if (path !== undefined && !isCleanRepoRelativePath(path)) {
+    throw new Error(
+      `Catalog entry "${match.name}" has an unsafe plugin path "${path}"; ` +
+        `a curated install path must be a clean repo-relative directory (no ".." or empty segments).`,
     );
   }
   const [owner, repoName] = repo.split("/", 2) as [string, string];
