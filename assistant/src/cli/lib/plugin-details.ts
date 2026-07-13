@@ -43,13 +43,12 @@ import {
 import { findCatalogEntry } from "./plugin-catalog-resolve.js";
 import { DEFAULT_PLUGIN_REF } from "./plugin-constants.js";
 import { readValidatedPluginIcon } from "./plugin-icon-file.js";
+import { fetchMarketplaceEntries } from "./plugin-marketplace.js";
 import {
-  fetchMarketplaceEntries,
-  type MarketplaceEntry,
-} from "./plugin-marketplace.js";
-import {
+  marketplaceMatch,
   PluginCatalogUnavailableError,
   type PluginMatchSource,
+  type PluginSearchMatch,
 } from "./search-plugins.js";
 
 /** Recognised README filenames, matched case-insensitively against a listing. */
@@ -370,14 +369,6 @@ async function fetchRawFile(
   }
 }
 
-/** Normalized catalog metadata both resolution branches project onto. */
-interface CatalogMatch {
-  readonly source: PluginMatchSource;
-  readonly description?: string;
-  readonly homepage?: string;
-  readonly license?: string;
-}
-
 /**
  * Resolve the external catalog entry claiming {@link name}.
  *
@@ -400,7 +391,7 @@ async function resolveCatalogEntry(
   ref: string,
   fetchFn: FetchLike,
   installed: boolean,
-): Promise<CatalogMatch | null> {
+): Promise<PluginSearchMatch | null> {
   try {
     return ref === DEFAULT_PLUGIN_REF
       ? await findCatalogEntry(name, { fetch: fetchFn })
@@ -413,28 +404,15 @@ async function resolveCatalogEntry(
   }
 }
 
-/** Read the GitHub marketplace at {@link ref} and normalize the named entry. */
+/** Read the GitHub marketplace at {@link ref} and project the named entry. */
 async function findMarketplaceMatch(
   name: string,
   ref: string,
   fetchFn: FetchLike,
-): Promise<CatalogMatch | null> {
+): Promise<PluginSearchMatch | null> {
   const entries = await fetchMarketplaceEntries({ fetch: fetchFn }, { ref });
   const entry = entries.find((e) => e.name === name);
-  return entry ? marketplaceEntryToMatch(entry) : null;
-}
-
-/** Project a raw marketplace entry onto the normalized {@link CatalogMatch}. */
-function marketplaceEntryToMatch(entry: MarketplaceEntry): CatalogMatch {
-  const { repo, path, ref } = entry.source;
-  return {
-    source: { kind: "github", repo, ref, ...(path ? { path } : {}) },
-    ...(entry.description !== undefined
-      ? { description: entry.description }
-      : {}),
-    ...(entry.homepage !== undefined ? { homepage: entry.homepage } : {}),
-    ...(entry.license !== undefined ? { license: entry.license } : {}),
-  };
+  return entry ? marketplaceMatch(entry) : null;
 }
 
 function githubFetch(
