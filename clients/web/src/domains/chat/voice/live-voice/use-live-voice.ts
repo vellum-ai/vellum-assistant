@@ -428,33 +428,63 @@ export function useLiveVoice(
   }, [clearReconnectTimer]);
 
   /**
-   * Manual push-to-talk release — same internal path as the automatic silence
-   * release. Guarded to `listening` so a stray click (or the store-registered
-   * control firing late) can't disturb another phase.
+   * Manual turn release ("send now"). Guarded to `listening` so a stray click
+   * (or the store-registered control firing late) can't disturb another phase.
+   *
+   * Hands-free: the daemon honors `ptt_release` as a manual override of the
+   * server VAD — it forces the detector's utterance boundary and runs the
+   * standard release path (see `releaseFromClient` in
+   * `assistant/src/live-voice/live-voice-session.ts`). Send the frame ALONE:
+   * `forwardingAudio` must stay on (the hands-free return to `listening`
+   * never re-enables it — flipping it off strands the session), and the state
+   * transition is frame-driven — the daemon's `utterance_end` moves us to
+   * `transcribing` and stamps client-heard latency.
+   *
+   * Manual mode: the classic push-to-talk release (closes the forwarding
+   * gate; single-utterance semantics).
    */
   const release = useCallback(() => {
     const session = sessionRef.current;
     if (!session) return;
-    // Hands-free sessions have no manual push-to-talk to release: the server
-    // VAD owns utterance boundaries and mic forwarding stays on for the whole
-    // session. A release here would flip `forwardingAudio` off — which the
-    // hands-free `tts_done`/listening return never re-enables — so every later
-    // mic chunk is dropped and the session strands (looks live, accepts no
-    // turns). No-op instead; the "send now" affordance is manual-mode only.
-    if (session.handsFree) return;
     if (useLiveVoiceStore.getState().state !== "listening") return;
+    if (session.handsFree) {
+      session.client.pttRelease();
+      return;
+    }
     releasePushToTalk(session);
   }, []);
 
   /**
-   * Stop in-flight assistant playback — the barge-in interrupt path without
-   * the amplitude gate. `interruptIfSpeaking` itself guards to `speaking`.
+   * Stop in-flight assistant playback. Hands-free: turn-scoped — the daemon
+   * cancels the turn and re-arms the next utterance cycle, so the session
+   * survives and returns to `listening`. Manual mode: the barge-in interrupt
+   * path without the amplitude gate, which ends the session (V1 semantics —
+   * the interrupted manual session is terminal on the runtime).
    */
   const interrupt = useCallback(() => {
     const session = sessionRef.current;
     if (!session) return;
+    if (session.handsFree) {
+      interruptTurnHandsFree(session);
+      return;
+    }
     interruptIfSpeaking(session, teardown);
   }, [teardown]);
+
+  /**
+   * Mute/unmute the mic without ending the session. The capture graph keeps
+   * running; `handleChunk` substitutes silence for captured PCM while muted
+   * (an absent audio stream can starve the server VAD / STT keepalive, silence
+   * cannot) and `handleAmplitude` pins the published amplitude to 0. Store-
+   * backed rather than session-context state so the muted flag survives the
+   * hands-free reconnect gap (where no session context exists) — a user who
+   * muted must never come back from a transient reconnect with a hot mic.
+   */
+  const setMuted = useCallback((muted: boolean) => {
+    const s = useLiveVoiceStore.getState();
+    s.setMuted(muted);
+    if (muted) s.setInputAmplitude(0);
+  }, []);
 
   // The connect flow, shared by the user-facing `start()` and the hands-free
   // reconnect path. `start()` owns the "already active" guard and resets the
@@ -470,7 +500,16 @@ export function useLiveVoice(
       if (sessionRef.current) teardown();
       startGenerationRef.current += 1;
 
+      const isReconnect = reconnectAttemptRef.current > 0;
       const store = useLiveVoiceStore.getState();
+      // A muted user must stay muted across a transient reconnect — the reset
+      // below clears the flag, so carry it over (a fresh start() always
+      // begins live: attempt 0 ⇒ wasMuted is not re-applied).
+      const wasMuted = store.muted;
+      // The entry origin (the tapped control's position, published by the
+      // composer just before start) also lives in the session state the reset
+      // below clears — carry it across so the room's entrance grows from it.
+      const entryOrigin = store.entryOrigin;
       store.reset();
       store.setState("connecting");
       // A retry re-enters here via the backoff timer with `reconnectAttemptRef`
@@ -478,12 +517,15 @@ export function useLiveVoice(
       // connect as a reconnect; a fresh `start()` (attempt 0) clears it. The
       // `store.reset()` above already cleared `reconnecting`, so this only needs
       // to (re)assert true on the reconnect path.
-      store.setReconnecting(reconnectAttemptRef.current > 0);
+      store.setReconnecting(isReconnect);
       store.setSessionContext(assistantId, conversationId ?? null);
+      store.setEntryOrigin(entryOrigin);
+      if (isReconnect && wasMuted) store.setMuted(true);
+      store.setHandsFree(startOptions.handsFree === true);
       // Registered here (not on `ready`) so a globally mounted surface can
       // drive the session from the moment it exists; cleared by the store
       // reset in teardown()/stop().
-      store.setControls({ stop: () => void stop(), release, interrupt });
+      store.setControls({ stop: () => void stop(), release, interrupt, setMuted });
 
       const opts = optionsRef.current;
       const client = (opts.createClient ?? (() => new LiveVoiceChannelClient()))();
@@ -544,6 +586,9 @@ export function useLiveVoice(
           // single-turn teardown) so the session works instead of hanging.
           if (session.handsFree && frame.turnDetection !== "server_vad") {
             session.handsFree = false;
+            // Keep surfaces honest: hands-free-only affordances (the pill's
+            // turn-scoped ■ stop) must not render against a manual session.
+            useLiveVoiceStore.getState().setHandsFree(false);
           }
           // A `ready` means the (re)connection succeeded — clear the reconnect
           // budget so a later, unrelated tunnel drop gets its full retry set,
@@ -625,6 +670,10 @@ export function useLiveVoice(
             // server's `thinking` frame (which re-bumps; the guard only
             // checks inequality, so the double bump is harmless).
             session.responseEpoch += 1;
+            // A new turn also lifts the straggler-frame guard set by a
+            // client-initiated interrupt (normally `thinking` clears it, but
+            // this final may be the first frame of the next turn we see).
+            session.interruptSent = false;
           }
           s.setState("thinking");
         }),
@@ -650,6 +699,11 @@ export function useLiveVoice(
         }),
         client.on("assistantTextDelta", (frame) => {
           if (!live() || frame.text.length === 0) return;
+          // Deltas already in transit when a client-initiated interrupt
+          // cancelled the turn must not append the cancelled response's text
+          // or drag the flushed `listening` back to `thinking`; like
+          // `ttsAudio` below, the guard lifts on the next turn.
+          if (session.interruptSent) return;
           const s = useLiveVoiceStore.getState();
           s.appendAssistantTranscript(frame.text);
           const phase = s.state;
@@ -659,6 +713,11 @@ export function useLiveVoice(
         }),
         client.on("ttsAudio", (frame) => {
           if (!live()) return;
+          // Frames already in transit when a client-initiated interrupt
+          // cancelled the turn must not resurrect playback after the local
+          // flush; the guard lifts on the next turn (`thinking` / hands-free
+          // stt-final reset `interruptSent`).
+          if (session.interruptSent) return;
           beginAssistantAudioIfNeeded(session);
           const chunk: TtsAudioChunk = {
             dataBase64: frame.dataBase64,
@@ -772,7 +831,7 @@ export function useLiveVoice(
             // timer re-enters `connectSession`) so the surface shows a
             // reconnect, not a fresh connect. Cleared on `ready`/teardown.
             s.setReconnecting(true);
-            s.setControls({ stop: () => void stop(), release, interrupt });
+            s.setControls({ stop: () => void stop(), release, interrupt, setMuted });
             console.warn(
               `live-voice: transport closed (code ${info.code}); reconnecting ` +
                 `(attempt ${attempt + 1}/${backoff.length})`,
@@ -796,7 +855,7 @@ export function useLiveVoice(
         ...(session.handsFree ? { turnDetection: "server_vad" as const } : {}),
       });
     },
-    [teardown, stop, release, interrupt],
+    [teardown, stop, release, interrupt, setMuted],
   );
 
   // Let the transport `closed` handler re-enter the connect flow for a
@@ -926,7 +985,11 @@ async function finishCaptureStartup(
  */
 function handleChunk(session: SessionContext, buf: ArrayBuffer): void {
   if (!session.captureRunning || !session.forwardingAudio) return;
-  session.client.sendAudio(buf);
+  // Muted: substitute silence rather than skipping the send — an absent audio
+  // stream can starve the server VAD / streaming-STT keepalive, silence
+  // cannot. A fresh ArrayBuffer is zero-filled, and Int16 zeros are silence.
+  const muted = useLiveVoiceStore.getState().muted;
+  session.client.sendAudio(muted ? new ArrayBuffer(buf.byteLength) : buf);
   if (!session.handsFree) {
     updateAutomaticRelease(session, buf);
   }
@@ -947,8 +1010,12 @@ function handleAmplitude(
   teardown: () => void,
 ): void {
   if (!session.captureRunning) return;
-  useLiveVoiceStore.getState().setInputAmplitude(amplitude);
-  if (!session.handsFree && amplitude >= BARGE_IN_AMPLITUDE_THRESHOLD) {
+  // Muted: the server hears silence (see handleChunk), so the UI and the
+  // manual-mode amplitude barge-in must too — a hot-looking waveform (or a
+  // barge-in) from a muted mic would contradict the substituted stream.
+  const muted = useLiveVoiceStore.getState().muted;
+  useLiveVoiceStore.getState().setInputAmplitude(muted ? 0 : amplitude);
+  if (!muted && !session.handsFree && amplitude >= BARGE_IN_AMPLITUDE_THRESHOLD) {
     interruptIfSpeaking(session, teardown);
   }
 }
@@ -999,10 +1066,11 @@ function releasePushToTalk(session: SessionContext): void {
 }
 
 /**
- * Barge-in: stop playback and interrupt the server once per response, then end
- * the session (→ idle). The interrupted session is terminal on the runtime — it
- * won't accept more audio — so we can't keep forwarding on it; the user starts a
- * fresh session to respond. (Seamless reconnect-on-barge-in is a follow-up.)
+ * Barge-in (manual mode): stop playback and interrupt the server once per
+ * response, then end the session (→ idle). The interrupted MANUAL session is
+ * terminal on the runtime — it won't accept more audio — so we can't keep
+ * forwarding on it; the user starts a fresh session to respond. (Seamless
+ * reconnect-on-barge-in is a follow-up.)
  */
 function interruptIfSpeaking(
   session: SessionContext,
@@ -1017,6 +1085,29 @@ function interruptIfSpeaking(
 }
 
 /**
+ * Turn-scoped stop for a hands-free session: cancel the in-flight response
+ * without ending the session. The daemon treats a client `interrupt` in
+ * server-VAD mode as turn-scoped — it cancels the assistant turn and re-arms
+ * the next utterance cycle — so locally we mirror the server-barge-in path:
+ * flush playback and return to `listening` on the same socket. `interruptSent`
+ * doubles as the straggler guard: `tts_audio` frames already in transit are
+ * dropped until the next turn lifts it (see the `ttsAudio` handler).
+ *
+ * Unlike the manual barge-in above this does not require `player.isPlaying`:
+ * `speaking` can hold between chunks with more audio still inbound, and the
+ * cancel must land regardless.
+ */
+function interruptTurnHandsFree(session: SessionContext): void {
+  if (useLiveVoiceStore.getState().state !== "speaking") return;
+  if (session.interruptSent) return;
+  session.interruptSent = true;
+  // The cancelled turn's latency stamp must not pair with a later response.
+  session.turnHeardStampMs = null;
+  session.client.interrupt();
+  flushPlaybackToListening(session);
+}
+
+/**
  * First TTS frame of a response: reset playback flags for the new utterance
  * and resolve the client-heard latency — the end-of-speech stamp → first
  * audio enqueue delta the user actually perceives (network + queueing
@@ -1026,7 +1117,10 @@ function interruptIfSpeaking(
 function beginAssistantAudioIfNeeded(session: SessionContext): void {
   if (session.responseAudioStarted) return;
   session.responseAudioStarted = true;
-  session.interruptSent = false;
+  // `interruptSent` is deliberately NOT reset here: it clears on the next
+  // turn (`thinking` / hands-free stt-final) so it can double as the
+  // straggler-frame guard after a client-initiated interrupt — a reset on
+  // first audio would let the second straggler frame through.
   if (session.turnHeardStampMs === null) return;
   session.clientHeardLatencyMs = performance.now() - session.turnHeardStampMs;
   session.turnHeardStampMs = null;

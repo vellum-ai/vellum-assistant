@@ -9,10 +9,10 @@
  * assistant-avatar React Query graph — irrelevant to room chrome, and stubbed
  * so the exit control's independence from avatar readiness is testable).
  *
- * Exit and minimize are the load-bearing behaviors: the ✕ control ends the
- * session, Escape / the minimize control collapse the room WITHOUT ending the
- * session (the composer's voice bar takes over), the ✕ renders even with no
- * assistant resolved, and the key listeners are removed on unmount (no leaks).
+ * Exit is the load-bearing behavior: the room is a full-app takeover with no
+ * minimize — ending the session is the only way out, via the ✕ control (which
+ * renders even with no assistant resolved) or Escape, and the key listener is
+ * removed on unmount (no leaks).
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -76,17 +76,37 @@ mock.module("@/domains/chat/voice/voice-room/voice-listening-waves", () => ({
   VoiceListeningWaves: () => <div data-testid="listening-waves" />,
 }));
 
-// The room reads the session avatar to tint the waves to the assistant color;
-// stub the hook so these tests don't need the assistant-avatar React Query
-// graph (the room-chrome behavior is independent of avatar data).
+// The room resolves its look (color-with-eyes vs the ambient void) and the
+// wave accent from the session avatar; stub the hook — with mutable data so
+// look tests can exercise both — to avoid the assistant-avatar React Query
+// graph.
+let mockAvatarData: {
+  components: unknown;
+  traits: unknown;
+  customImageUrl: string | null;
+} = { components: null, traits: null, customImageUrl: null };
 mock.module("@/hooks/use-assistant-avatar", () => ({
-  useAssistantAvatar: () => ({
-    components: null,
-    traits: null,
-    customImageUrl: null,
-  }),
+  useAssistantAvatar: () => ({ ...mockAvatarData }),
   avatarQueryKey: (id: string) => ["assistantAvatar", id],
 }));
+
+/** Minimal character components: one body/eye/color of each. */
+const CHARACTER_COMPONENTS = {
+  bodyShapes: [
+    {
+      id: "sprout",
+      svgPath: "M0 0 L10 0 L10 10 Z",
+      viewBox: { width: 10, height: 10 },
+    },
+  ],
+  eyeStyles: [
+    {
+      id: "curious",
+      paths: [{ svgPath: "M0 0 L10 0 L10 10 Z", color: "#FFFFFF" }],
+    },
+  ],
+  colors: [{ id: "green", hex: "#4C9B50" }],
+};
 
 // Imported after the mocks so the room picks up the mocked modules.
 const { VoiceRoom } = await import("@/domains/chat/voice/voice-room/voice-room");
@@ -107,6 +127,7 @@ beforeEach(() => {
   mockSearch = "";
   mockMainView = "chat";
   mockIsMobile = false;
+  mockAvatarData = { components: null, traits: null, customImageUrl: null };
   controls.stop.mockClear();
   controls.release.mockClear();
   controls.interrupt.mockClear();
@@ -215,29 +236,27 @@ describe("VoiceRoom — exit", () => {
     expect(screen.getByTestId("voice-avatar").textContent).toBe("no-assistant");
   });
 
-  test("key listeners are removed on unmount — no stray Escape handling", () => {
-    startOwnedSession("listening");
-    const { unmount } = render(<VoiceRoom />);
-    unmount();
-    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
-    expect(useLiveVoiceStore.getState().roomMinimized).toBe(false);
-    expect(controls.stop).not.toHaveBeenCalled();
-  });
 });
 
-describe("VoiceRoom — minimize (session keeps running)", () => {
-  test("Escape minimizes the room without ending the session", () => {
+describe("VoiceRoom — no way out but ending the session", () => {
+  test("no minimize control renders", () => {
     startOwnedSession("listening");
     render(<VoiceRoom />);
-    // act: minimizing flips the store flag, which re-renders (unmounts) the room.
+    expect(
+      screen.queryByRole("button", { name: "Minimize voice room" }),
+    ).toBeNull();
+  });
+
+  test("Escape ends the session, same as ✕", () => {
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
     act(() => {
       window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
     });
-    expect(useLiveVoiceStore.getState().roomMinimized).toBe(true);
-    expect(controls.stop).not.toHaveBeenCalled();
+    expect(controls.stop).toHaveBeenCalledTimes(1);
   });
 
-  test("Escape minimizes even when an editable element holds focus (global key)", () => {
+  test("Escape ends the session even when an editable element holds focus (global key)", () => {
     startOwnedSession("listening");
     render(<VoiceRoom />);
     // The room can open while the composer textarea still owns focus; the key
@@ -249,26 +268,16 @@ describe("VoiceRoom — minimize (session keeps running)", () => {
         new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
       );
     });
-    expect(useLiveVoiceStore.getState().roomMinimized).toBe(true);
-    expect(controls.stop).not.toHaveBeenCalled();
+    expect(controls.stop).toHaveBeenCalledTimes(1);
     input.remove();
   });
 
-  test("the minimize control minimizes without ending the session", () => {
+  test("the key listener is removed on unmount — no stray Escape handling", () => {
     startOwnedSession("listening");
-    render(<VoiceRoom />);
-    fireEvent.click(
-      screen.getByRole("button", { name: "Minimize voice room" }),
-    );
-    expect(useLiveVoiceStore.getState().roomMinimized).toBe(true);
+    const { unmount } = render(<VoiceRoom />);
+    unmount();
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
     expect(controls.stop).not.toHaveBeenCalled();
-  });
-
-  test("a minimized room does not render for an owned active session", () => {
-    startOwnedSession("listening");
-    useLiveVoiceStore.getState().setRoomMinimized(true);
-    render(<VoiceRoom />);
-    expect(roomDialog()).toBeNull();
   });
 });
 
@@ -290,6 +299,54 @@ describe("VoiceRoom — captions toggle", () => {
     const prefs = useVoicePrefsStore.getState();
     expect(prefs.showUserTranscript).toBe(false);
     expect(prefs.showAssistantTranscript).toBe(false);
+  });
+});
+
+describe("VoiceRoom — mute toggle", () => {
+  test("mute drives the registered setMuted control", () => {
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+    fireEvent.click(screen.getByRole("button", { name: "Mute microphone" }));
+    expect(controls.setMuted).toHaveBeenCalledWith(true);
+  });
+
+  test("muted: offers unmute", () => {
+    startOwnedSession("listening");
+    useLiveVoiceStore.setState({ muted: true });
+    render(<VoiceRoom />);
+    const toggle = screen.getByRole("button", { name: "Unmute microphone" });
+    expect(toggle.getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(toggle);
+    expect(controls.setMuted).toHaveBeenCalledWith(false);
+  });
+});
+
+describe("VoiceRoom — stop response", () => {
+  const stopButton = () =>
+    screen.queryByRole("button", { name: "Stop assistant response" });
+
+  test("■ renders while speaking hands-free and drives the interrupt control", () => {
+    startOwnedSession("speaking");
+    useLiveVoiceStore.setState({ handsFree: true });
+    render(<VoiceRoom />);
+    fireEvent.click(stopButton()!);
+    expect(controls.interrupt).toHaveBeenCalledTimes(1);
+    expect(controls.stop).not.toHaveBeenCalled();
+  });
+
+  test("no ■ outside speaking, or for a manual (fallback) session", () => {
+    startOwnedSession("listening");
+    useLiveVoiceStore.setState({ handsFree: true });
+    const { unmount } = render(<VoiceRoom />);
+    expect(stopButton()).toBeNull();
+    unmount();
+
+    // Manual session (version-skew fallback): interrupt would end the whole
+    // session, so the room must not offer the turn-scoped control.
+    startOwnedSession("speaking");
+    useLiveVoiceStore.setState({ handsFree: false });
+    render(<VoiceRoom />);
+    expect(stopButton()).toBeNull();
   });
 });
 
@@ -318,17 +375,77 @@ describe("VoiceRoom — connect feedback", () => {
   });
 });
 
-describe("VoiceRoom — placement variants", () => {
-  test("the fullscreen (mobile) variant is modal", () => {
+describe("VoiceRoom — full-app takeover", () => {
+  test("the room is a modal full-viewport overlay", () => {
     startOwnedSession("listening");
-    render(<VoiceRoom variant="fullscreen" />);
-    expect(roomDialog()!.getAttribute("aria-modal")).toBe("true");
+    render(<VoiceRoom />);
+    const dialog = roomDialog()!;
+    expect(dialog.getAttribute("aria-modal")).toBe("true");
+    expect(dialog.className).toContain("fixed inset-0");
+  });
+});
+
+describe("VoiceRoom — looks (color-with-eyes vs ambient void)", () => {
+  const eyes = () => screen.queryByTestId("voice-room-eyes");
+
+  test("a character avatar gets the color-with-eyes look", () => {
+    mockAvatarData = {
+      components: CHARACTER_COMPONENTS,
+      traits: { bodyShape: "sprout", eyeStyle: "curious", color: "green" },
+      customImageUrl: null,
+    };
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+    expect(eyes()).not.toBeNull();
+    // The eyes replace the void look's centered avatar; the mic waveform
+    // still shows while listening (centered, behind the eyes).
+    expect(screen.queryByTestId("voice-avatar")).toBeNull();
+    expect(screen.getByTestId("listening-waves")).toBeTruthy();
+    // The exit control stays available regardless of look.
+    expect(exitButton()).not.toBeNull();
   });
 
-  test("the content (desktop) variant is not modal — surrounding chrome stays usable", () => {
+  test("the color look shows no waveform outside listening", () => {
+    mockAvatarData = {
+      components: CHARACTER_COMPONENTS,
+      traits: { bodyShape: "sprout", eyeStyle: "curious", color: "green" },
+      customImageUrl: null,
+    };
+    startOwnedSession("speaking");
+    render(<VoiceRoom />);
+    expect(eyes()).not.toBeNull();
+    expect(screen.queryByTestId("listening-waves")).toBeNull();
+  });
+
+  test("a default character (no traits) gets first-component eyes", () => {
+    mockAvatarData = {
+      components: CHARACTER_COMPONENTS,
+      traits: null,
+      customImageUrl: null,
+    };
     startOwnedSession("listening");
-    render(<VoiceRoom variant="content" />);
-    expect(roomDialog()!.getAttribute("aria-modal")).toBeNull();
+    render(<VoiceRoom />);
+    expect(eyes()).not.toBeNull();
+  });
+
+  test("a custom-image avatar keeps the ambient-void look", () => {
+    mockAvatarData = {
+      components: CHARACTER_COMPONENTS,
+      traits: null,
+      customImageUrl: "blob:custom-avatar",
+    };
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+    expect(eyes()).toBeNull();
+    expect(screen.getByTestId("voice-avatar")).toBeTruthy();
+    expect(screen.getByTestId("listening-waves")).toBeTruthy();
+  });
+
+  test("an unresolved avatar (still loading) keeps the ambient-void look", () => {
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+    expect(eyes()).toBeNull();
+    expect(screen.getByTestId("voice-avatar")).toBeTruthy();
   });
 });
 

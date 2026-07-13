@@ -23,8 +23,12 @@ import { Button } from "@vellumai/design-library";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 
 interface LiveVoiceButtonProps {
-  /** Start a live-voice session (the composer binds assistant + conversation). */
-  onStart: () => void;
+  /**
+   * Start a live-voice session (the composer binds assistant + conversation).
+   * Receives the button's viewport-space center so the room can grow its
+   * entrance from where the user tapped.
+   */
+  onStart: (origin?: { x: number; y: number }) => void;
   /** Disable the control (e.g. while dictation is recording). */
   disabled?: boolean;
 }
@@ -41,7 +45,10 @@ export function LiveVoiceButton({
     <Button
       variant="ghost"
       iconOnly={<AudioLines strokeWidth={2} />}
-      onClick={onStart}
+      onClick={(event) => {
+        const rect = event.currentTarget.getBoundingClientRect();
+        onStart({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
+      }}
       disabled={disabled}
       aria-label="Start voice mode"
       title="Start voice mode"

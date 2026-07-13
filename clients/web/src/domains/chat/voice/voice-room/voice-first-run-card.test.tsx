@@ -1,14 +1,14 @@
 /**
  * Tests for `VoiceFirstRunCard`.
  *
- * The card is exercised in isolation: `onStart` is a spy, and the real
- * persisted `voice-prefs` store backs the toggles (reset between tests). The
- * assistant-avatar hook is stubbed so the card renders without the React Query
- * graph — the avatar is chrome, not behavior.
+ * The card is exercised in isolation: `onStart` is a spy. The assistant-avatar
+ * hook is stubbed so the card renders without the React Query graph — the
+ * avatar is chrome, not behavior.
  *
  * Load-bearing behavior:
  *   - the card renders on first run and does NOT start on its own,
- *   - the toggles mutate the shared voice-prefs store (both default OFF),
+ *   - it carries no settings quiz — captions/prefs are in-session and in
+ *     Settings, not front-loaded here,
  *   - "Start" invokes the caller's `onStart`; wiring that `onStart` to
  *     `markFirstRunSeen` (as the composer does) consumes the first run so a
  *     second entry would skip the card.
@@ -49,34 +49,26 @@ beforeEach(() => {
 describe("VoiceFirstRunCard", () => {
   test("renders the card and does not start on its own", () => {
     const onStart = mock(() => {});
-    const { getByText, getByLabelText } = render(
+    const { getByText } = render(
       <VoiceFirstRunCard assistantId="asst_test" onStart={onStart} />,
     );
 
-    // Title + both toggles are present, and nothing has started yet.
     expect(getByText("Voice mode")).toBeTruthy();
-    expect(getByLabelText("Show the words you say")).toBeTruthy();
-    expect(getByLabelText("Show the words the assistant says")).toBeTruthy();
     expect(getByText("Start")).toBeTruthy();
     expect(onStart).not.toHaveBeenCalled();
   });
 
-  test("toggles are OFF by default and flip the shared voice-prefs store", () => {
-    const { getByLabelText } = render(
+  test("carries no settings quiz — no transcript toggles, prefs untouched", () => {
+    const { queryByLabelText } = render(
       <VoiceFirstRunCard assistantId="asst_test" onStart={() => {}} />,
     );
 
-    // Defaults OFF.
+    // The old toggle pair is gone (captions moved in-session) and the card
+    // never writes the prefs store on its own.
+    expect(queryByLabelText("Show the words you say")).toBeNull();
+    expect(queryByLabelText("Show the words the assistant says")).toBeNull();
     expect(useVoicePrefsStore.getState().showUserTranscript).toBe(false);
     expect(useVoicePrefsStore.getState().showAssistantTranscript).toBe(false);
-
-    // Flipping each toggle writes through to the same store the settings
-    // page reads.
-    fireEvent.click(getByLabelText("Show the words you say"));
-    expect(useVoicePrefsStore.getState().showUserTranscript).toBe(true);
-
-    fireEvent.click(getByLabelText("Show the words the assistant says"));
-    expect(useVoicePrefsStore.getState().showAssistantTranscript).toBe(true);
   });
 
   test("Start invokes onStart", () => {

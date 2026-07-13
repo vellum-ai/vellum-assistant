@@ -11,14 +11,14 @@ import { makeControlsSpies } from "@/domains/chat/voice/live-voice/live-voice-fa
 import {
   dismissLiveVoiceFailure,
   endLiveVoiceSession,
-  expandLiveVoiceRoom,
   getLiveVoiceInputAmplitude,
   isLiveVoiceMicLive,
   isLiveVoiceSessionActive,
   isLiveVoiceSessionOwnedBy,
   liveVoiceStateLabel,
-  minimizeLiveVoiceRoom,
   releaseLiveVoiceTurn,
+  setLiveVoiceMuted,
+  stopLiveVoiceResponse,
   useLiveVoiceStore,
   type LiveVoiceSessionState,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
@@ -112,28 +112,45 @@ describe("useLiveVoiceStore — reconnecting", () => {
   });
 });
 
-describe("useLiveVoiceStore — room minimize", () => {
-  test("defaults to expanded", () => {
-    expect(useLiveVoiceStore.getState().roomMinimized).toBe(false);
+describe("useLiveVoiceStore — mute + handsFree", () => {
+  test("defaults: mic live, not hands-free", () => {
+    expect(useLiveVoiceStore.getState().muted).toBe(false);
+    expect(useLiveVoiceStore.getState().handsFree).toBe(false);
   });
 
-  test("the module-level helpers minimize and re-expand the room", () => {
-    minimizeLiveVoiceRoom();
-    expect(useLiveVoiceStore.getState().roomMinimized).toBe(true);
-    expandLiveVoiceRoom();
-    expect(useLiveVoiceStore.getState().roomMinimized).toBe(false);
+  test("setLiveVoiceMuted drives the registered control", () => {
+    const controls = makeControlsSpies();
+    useLiveVoiceStore.getState().setControls(controls);
+    setLiveVoiceMuted(true);
+    expect(controls.setMuted).toHaveBeenCalledWith(true);
+    setLiveVoiceMuted(false);
+    expect(controls.setMuted).toHaveBeenCalledWith(false);
   });
 
-  test("reset clears a minimized room", () => {
-    minimizeLiveVoiceRoom();
+  test("stopLiveVoiceResponse drives the registered interrupt control", () => {
+    const controls = makeControlsSpies();
+    useLiveVoiceStore.getState().setControls(controls);
+    stopLiveVoiceResponse();
+    expect(controls.interrupt).toHaveBeenCalledTimes(1);
+  });
+
+  test("helpers are no-ops with no registered controls", () => {
+    expect(() => {
+      setLiveVoiceMuted(true);
+      stopLiveVoiceResponse();
+    }).not.toThrow();
+  });
+
+  test("reset clears muted and handsFree; setSessionContext unmutes a fresh session", () => {
+    useLiveVoiceStore.getState().setMuted(true);
+    useLiveVoiceStore.getState().setHandsFree(true);
     useLiveVoiceStore.getState().reset();
-    expect(useLiveVoiceStore.getState().roomMinimized).toBe(false);
-  });
+    expect(useLiveVoiceStore.getState().muted).toBe(false);
+    expect(useLiveVoiceStore.getState().handsFree).toBe(false);
 
-  test("setSessionContext re-expands — a fresh session always opens with the room", () => {
-    minimizeLiveVoiceRoom();
+    useLiveVoiceStore.getState().setMuted(true);
     useLiveVoiceStore.getState().setSessionContext("assistant-1", "conv-1");
-    expect(useLiveVoiceStore.getState().roomMinimized).toBe(false);
+    expect(useLiveVoiceStore.getState().muted).toBe(false);
   });
 });
 

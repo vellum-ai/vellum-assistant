@@ -1,9 +1,8 @@
 /**
- * Bounding-box helpers for the onboarding eye art.
+ * Bounding-box helpers for avatar eye art.
  *
- * SPIKE — research-onboarding flow.
- *
- * The peeking/motion eye components size and frame the chosen avatar's eye art
+ * The peeking/motion eye components (onboarding's bottom eyes, the voice
+ * room's eyes) size and frame an avatar's eye art
  * from the union bounding box of its SVG paths. This parser walks the path
  * command-by-command, tracking the current point, so single-coordinate commands
  * — `H`/`V` (horizontal/vertical lineto) — update one axis while every other

@@ -213,6 +213,7 @@ export function makeControlsSpies() {
     stop: mock(() => {}),
     release: mock(() => {}),
     interrupt: mock(() => {}),
+    setMuted: mock((_muted: boolean) => {}),
   } satisfies LiveVoiceSessionControls;
 }
 

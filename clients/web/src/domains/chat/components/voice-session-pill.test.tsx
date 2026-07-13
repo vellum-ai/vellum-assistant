@@ -25,6 +25,7 @@ afterEach(() => {
 
 function renderPill(overrides: Partial<VoiceSessionPillProps> = {}) {
   const handlers = {
+    onToggleMute: mock(() => {}),
     onStop: mock(() => {}),
     onEnd: mock(() => {}),
     onSend: mock(() => {}),
@@ -36,6 +37,7 @@ function renderPill(overrides: Partial<VoiceSessionPillProps> = {}) {
       secondaryLabel="Thread name here"
       state="listening"
       getAmplitude={() => 0.5}
+      muted={false}
       {...handlers}
       {...overrides}
     />,
@@ -102,11 +104,28 @@ describe("VoiceSessionPill — stop control", () => {
   });
 
   test("hidden even while speaking when onStop is not provided", () => {
-    // Hosts omit onStop while stopping a response would end the whole
-    // session (V1 interrupt); the ✕ stays the only destructive control.
+    // The host omits onStop for manual (version-skew fallback) sessions,
+    // where stopping a response would end the whole session; the ✕ stays
+    // the only destructive control there.
     renderPill({ state: "speaking", onStop: undefined });
     expect(stopButton()).toBeNull();
     expect(endButton()).toBeTruthy();
+  });
+});
+
+describe("VoiceSessionPill — mute toggle", () => {
+  test("live: offers mute and fires onToggleMute", () => {
+    const { onToggleMute } = renderPill();
+    fireEvent.click(screen.getByRole("button", { name: "Mute microphone" }));
+    expect(onToggleMute).toHaveBeenCalledTimes(1);
+  });
+
+  test("muted: offers unmute and freezes the waveform", () => {
+    const { onToggleMute } = renderPill({ muted: true });
+    const toggle = screen.getByRole("button", { name: "Unmute microphone" });
+    expect(toggle.getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(toggle);
+    expect(onToggleMute).toHaveBeenCalledTimes(1);
   });
 });
 

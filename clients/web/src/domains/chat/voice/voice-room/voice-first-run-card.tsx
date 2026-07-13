@@ -1,21 +1,19 @@
+import { AudioLines, Captions, MicOff } from "lucide-react";
+
 import { Button } from "@vellumai/design-library/components/button";
 import { Modal } from "@vellumai/design-library/components/modal";
 
 import { ChatAvatar } from "@/components/avatar/chat-avatar";
-import { VoiceTranscriptToggles } from "@/components/voice-transcript-toggles";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
-import { VOICE_TRANSCRIPT_RECOMMENDATION } from "@/utils/voice-transcript-prefs";
 
 /**
- * One-time preferences card shown the first time a user enters voice mode,
- * before the live session starts.
+ * One-time welcome card shown the first time a user enters voice mode, before
+ * the live session starts.
  *
- * The two transcript toggles are bound to the SAME persisted `voice-prefs`
- * store as the Voice settings page (`settings/pages/voice-page.tsx`), so a
- * choice made here is the choice the settings screen shows — the card is just
- * an earlier, in-context surface for the same preferences. Both default OFF;
- * the "Recommended off" badge and the closing note nudge users to try the
- * hands-free, transcript-free experience first, matching the settings copy.
+ * Deliberately NOT a settings quiz: captions are toggled in-session from the
+ * voice room, and the full preferences live in Settings → Voice —
+ * front-loading choices before the user has ever experienced voice mode is
+ * the wrong moment. The card just sets expectations and starts.
  *
  * The card does NOT persist `firstRunSeen` itself: dismissing it (Escape /
  * backdrop / ✕) is a plain cancel and must leave the first run un-consumed so
@@ -69,16 +67,47 @@ export function VoiceFirstRunCard({
             <Modal.Title>Voice mode</Modal.Title>
           </div>
           <Modal.Description>
-            A hands-free, spoken conversation. Speak naturally and your
-            assistant listens, then replies out loud.
+            A hands-free, spoken conversation with your assistant.
           </Modal.Description>
         </Modal.Header>
         <Modal.Body>
-          <div className="flex flex-col gap-1">
-            <VoiceTranscriptToggles showRecommendedBadge />
-            <p className="pt-2 text-body-small-default text-[var(--content-tertiary)]">
-              You can change these anytime in settings.{" "}
-              {VOICE_TRANSCRIPT_RECOMMENDATION}
+          <div className="flex flex-col gap-3">
+            {/* Each bullet's icon matches the in-session control it describes,
+                so the card doubles as a legend for the room. */}
+            <ul className="flex flex-col gap-2.5">
+              <li className="flex items-start gap-2.5">
+                <AudioLines
+                  aria-hidden
+                  className="mt-0.5 size-4 shrink-0 text-[var(--content-secondary)]"
+                />
+                <span className="text-body-medium-default">
+                  Speak naturally — your assistant listens and replies out
+                  loud.
+                </span>
+              </li>
+              <li className="flex items-start gap-2.5">
+                <MicOff
+                  aria-hidden
+                  className="mt-0.5 size-4 shrink-0 text-[var(--content-secondary)]"
+                />
+                <span className="text-body-medium-default">
+                  Mute the mic whenever you need to, without ending the
+                  session.
+                </span>
+              </li>
+              <li className="flex items-start gap-2.5">
+                <Captions
+                  aria-hidden
+                  className="mt-0.5 size-4 shrink-0 text-[var(--content-secondary)]"
+                />
+                <span className="text-body-medium-default">
+                  Turn on live captions from the session controls.
+                </span>
+              </li>
+            </ul>
+            <p className="text-body-small-default text-[var(--content-tertiary)]">
+              You can change any of this anytime, in the session or in
+              Settings.
             </p>
           </div>
         </Modal.Body>

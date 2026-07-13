@@ -51,10 +51,11 @@
  * two error surfaces never double-render. Dismissing the chip resets the
  * store to idle, mirroring the composer Notice's dismiss.
  *
- * The ■ "stop response" control is deliberately not wired: V1's `interrupt()`
- * ends the whole session, contradicting the control's "without ending the
- * session" contract, so the pill offers only ✕ (end) until a turn-scoped
- * interrupt exists (engine plan, JARVIS-1240).
+ * The ■ "stop response" control is wired only for hands-free sessions, where
+ * the client interrupt is turn-scoped (the daemon cancels the turn and
+ * re-arms). A manual session's `interrupt()` ends the whole session,
+ * contradicting the control's "without ending the session" contract, so
+ * there the pill offers only ✕ (end).
  */
 
 import { useCallback } from "react";
@@ -76,6 +77,8 @@ import {
   getLiveVoiceInputAmplitude,
   isLiveVoiceSessionActive,
   releaseLiveVoiceTurn,
+  setLiveVoiceMuted,
+  stopLiveVoiceResponse,
   useLiveVoiceStore,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
 import { useOwningComposerSurfaceVisible } from "@/domains/chat/voice/voice-room/use-is-voice-room-visible";
@@ -98,6 +101,11 @@ export function VoiceSessionPillHost({
   const error = useLiveVoiceStore.use.error();
   const sessionAssistantId = useLiveVoiceStore.use.assistantId();
   const sessionConversationId = useLiveVoiceStore.use.conversationId();
+  const muted = useLiveVoiceStore.use.muted();
+  // Turn-scoped ■ stop is hands-free-only: a manual (version-skew fallback)
+  // session's interrupt ends the whole session, contradicting the control's
+  // "without ending the session" contract — there the ✕ is the only stop.
+  const handsFree = useLiveVoiceStore.use.handsFree();
 
   const navigate = useNavigate();
 
@@ -144,12 +152,15 @@ export function VoiceSessionPillHost({
   } else if (visible) {
     content = (
       <VoiceSessionPill
-        primaryLabel={LIVE_VOICE_STATE_LABELS[state]}
+        primaryLabel={muted ? "Muted" : LIVE_VOICE_STATE_LABELS[state]}
         secondaryLabel={
           owningConversation ? (owningConversation.title ?? "Untitled") : undefined
         }
         state={state}
         getAmplitude={getLiveVoiceInputAmplitude}
+        muted={muted}
+        onToggleMute={() => setLiveVoiceMuted(!muted)}
+        onStop={handsFree ? stopLiveVoiceResponse : undefined}
         onEnd={endLiveVoiceSession}
         onSend={releaseLiveVoiceTurn}
         onNavigate={sessionConversationId ? handleNavigate : undefined}
