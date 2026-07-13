@@ -863,7 +863,11 @@ describe("wakeAgentForOpportunity", () => {
       { resolveTarget: async () => conversation },
     );
 
-    expect(result).toEqual({ invoked: true, producedToolCalls: false });
+    expect(result).toEqual({
+      invoked: false,
+      producedToolCalls: false,
+      reason: "run_error",
+    });
     expect(conversation.personaOverrideSets).toEqual([override, undefined]);
   });
 
@@ -1536,11 +1540,86 @@ describe("wakeAgentForOpportunity", () => {
       { resolveTarget: async () => conversation },
     );
 
-    expect(result).toEqual({ invoked: true, producedToolCalls: false });
+    // A throw before anything went live is a failed run, not a silent
+    // no-op — callers like the memory retrospective advance their
+    // processed-message watermark on `invoked: true`, so a phantom
+    // success would permanently consume their trigger window.
+    expect(result).toEqual({
+      invoked: false,
+      producedToolCalls: false,
+      reason: "run_error",
+    });
     // Critical: the finally block must have released the flag despite
     // the thrown error, otherwise the next user turn would hang.
     expect(conversation.processingToggles).toEqual([true, false]);
     expect(conversation.isProcessing()).toBe(false);
+  });
+
+  test("reports run_error when the loop throws before any output", async () => {
+    const conversation = makeWakeConversation({
+      conversationId: "conv-err-turn0",
+      runImpl: async () => {
+        throw new Error("provider 402: insufficient balance");
+      },
+    });
+
+    const result = await wakeAgentForOpportunity(
+      { conversationId: "conv-err-turn0", hint: "boom", source: "t" },
+      { resolveTarget: async () => conversation },
+    );
+
+    expect(result).toEqual({
+      invoked: false,
+      producedToolCalls: false,
+      reason: "run_error",
+    });
+    // No checkpoint fired and nothing was flushed: the failed run must
+    // not have pushed or persisted anything.
+    expect(conversation.pushedMessages).toEqual([]);
+    expect(conversation.persistedTailCalls).toEqual([]);
+  });
+
+  test("keeps invoked true when the loop throws after a checkpoint went live", async () => {
+    // A completed tool turn (checkpoint) means side effects have already
+    // landed and partial output was pushed + persisted — a later throw
+    // must NOT read as "the wake never ran", or callers would re-run a
+    // pass whose side effects already fired.
+    const assistantToolMsg: Message = {
+      role: "assistant",
+      content: [{ type: "tool_use", id: "tu-1", name: "remember", input: {} }],
+    };
+    const toolResultMsg: Message = {
+      role: "user",
+      content: [{ type: "tool_result", tool_use_id: "tu-1", content: "saved" }],
+    };
+    const conversation = makeWakeConversation({
+      conversationId: "conv-err-after-checkpoint",
+      runImpl: async (input, _onEvent, runOptions) => {
+        const history = [...input, assistantToolMsg, toolResultMsg];
+        await runOptions?.onCheckpoint?.({
+          turnIndex: 0,
+          toolCount: 1,
+          hasToolUse: true,
+          history,
+        });
+        throw new Error("provider died mid-run");
+      },
+    });
+
+    const result = await wakeAgentForOpportunity(
+      {
+        conversationId: "conv-err-after-checkpoint",
+        hint: "boom",
+        source: "t",
+      },
+      { resolveTarget: async () => conversation },
+    );
+
+    expect(result).toEqual({ invoked: true, producedToolCalls: false });
+    // The checkpoint's flush pushed + persisted the partial tail before
+    // the throw.
+    expect(conversation.pushedMessages.length).toBeGreaterThan(0);
+    expect(conversation.persistedTailCalls.length).toBeGreaterThan(0);
   });
 
   test("elevates the turn's trust context before the agent loop runs", async () => {
@@ -2014,7 +2093,7 @@ describe("wakeAgentForOpportunity", () => {
     expect(conversation.runCalls).toHaveLength(0);
   });
 
-  test("agent loop error is treated as a no-op", async () => {
+  test("agent loop error before any output is reported as run_error", async () => {
     const conversation = makeWakeConversation({
       conversationId: "conv-err",
       runImpl: async () => {
@@ -2027,7 +2106,11 @@ describe("wakeAgentForOpportunity", () => {
       { resolveTarget: async () => conversation },
     );
 
-    expect(result).toEqual({ invoked: true, producedToolCalls: false });
+    expect(result).toEqual({
+      invoked: false,
+      producedToolCalls: false,
+      reason: "run_error",
+    });
     expect(conversation.persistedTailCalls).toHaveLength(0);
   });
 
@@ -2083,7 +2166,11 @@ describe("wakeAgentForOpportunity", () => {
       { resolveTarget: async () => conversation },
     );
 
-    expect(result).toEqual({ invoked: true, producedToolCalls: false });
+    expect(result).toEqual({
+      invoked: false,
+      producedToolCalls: false,
+      reason: "run_error",
+    });
     // Drain ran AFTER setProcessing(false), satisfying the
     // enqueueMessage gate invariant. Snapshot proves the flag was
     // false at the moment drain ran.
@@ -3159,7 +3246,7 @@ describe("wakeAgentForOpportunity", () => {
       expect(conversation.drainQueueCalls).toBe(1);
     });
 
-    test("suppressed wake treats an unrelated rewrapped error as a generic no-op, not an overflow", async () => {
+    test("suppressed wake treats an unrelated rewrapped error as a run_error, not an overflow", async () => {
       const conversation = makeWakeConversation({
         estimatedInputTokens: 0,
         runImpl: async () => {
@@ -3177,7 +3264,13 @@ describe("wakeAgentForOpportunity", () => {
         { resolveTarget: async () => conversation },
       );
 
-      expect(result).toEqual({ invoked: true, producedToolCalls: false });
+      // Not mapped to "context_overflow" (the error is unrelated), but the
+      // run still died before producing output — reported as run_error.
+      expect(result).toEqual({
+        invoked: false,
+        producedToolCalls: false,
+        reason: "run_error",
+      });
     });
 
     test("the compaction gate is sized with the wake's call site and forced profile", async () => {
