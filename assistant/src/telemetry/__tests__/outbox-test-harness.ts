@@ -4,6 +4,10 @@ let shareAnalytics = true;
 
 // Installed when this harness is imported. bun's mock.module patches
 // retroactively (live bindings), so importers need no special import order.
+// This harness is imported by *.test.ts files only — never by the test
+// preload — so it runs after the per-test workspace override, where src/
+// imports are as safe as in the test files themselves (AGENTS.md "Test
+// machinery isolation" scopes its no-src/ rule to preload-time machinery).
 mock.module("../../platform/consent-cache.js", () => ({
   getCachedShareAnalytics: () => shareAnalytics,
 }));
