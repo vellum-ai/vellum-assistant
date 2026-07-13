@@ -209,8 +209,9 @@ async function dispatchGuardianQuestionInner(
       },
       conversationAffinityHint,
       dedupeKey: `guardian:${request.id}`,
-      // Synchronous callback: the write is kicked off here and awaited before
-      // the post-broadcast recording loop reuses its row id.
+      // The broadcaster awaits the returned promise, so the delivery row is
+      // durable before the client can act on the conversation; the
+      // post-broadcast recording loop reuses its row id.
       onConversationCreated: (info) => {
         if (
           info.sourceEventName !== "guardian.question" ||
@@ -223,6 +224,7 @@ async function dispatchGuardianQuestionInner(
           channel: "vellum",
           conversationId: info.conversationId,
         }).then((delivery) => delivery?.id);
+        return vellumDeliveryIdPromise.then(() => undefined);
       },
     });
 

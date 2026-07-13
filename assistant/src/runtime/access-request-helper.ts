@@ -392,8 +392,9 @@ export async function notifyGuardianOfAccessRequest(
       ...(trigger === "admitted" ? { trigger } : {}),
     },
     dedupeKey: `access-request:${guardianRequest.id}`,
-    // The callback must stay synchronous; the write is kicked off here and
-    // awaited before the post-broadcast recording loop reuses its row id.
+    // The returned promise is awaited by the broadcaster before the client
+    // can learn of the conversation, so the delivery row exists before the
+    // in-app card is actionable; the post-broadcast loop reuses its row id.
     onConversationCreated: (info) => {
       if (
         info.sourceEventName !== "ingress.access_request" ||
@@ -406,6 +407,7 @@ export async function notifyGuardianOfAccessRequest(
         channel: "vellum",
         conversationId: info.conversationId,
       }).then((delivery) => delivery?.id);
+      return vellumDeliveryIdPromise.then(() => undefined);
     },
   })
     .then(async (signalResult) => {

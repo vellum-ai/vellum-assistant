@@ -9,9 +9,11 @@
  * the m0015 copy pass reruns as a final catch-up — rows written to the
  * assistant tables between the backfill checkpoint and the daemon's flip to
  * the gateway client would otherwise be dropped with their source tables.
- * INSERT OR IGNORE keeps the rerun idempotent and gateway rows authoritative,
- * and a decision-carry pass then copies terminal statuses onto gateway rows
- * the earlier backfill left pending (never overwriting a gateway decision).
+ * INSERT OR IGNORE keeps the rerun idempotent and gateway rows authoritative;
+ * carry passes then copy late assistant-side mutations onto backfilled gateway
+ * rows — terminal request decisions onto still-pending requests, and delivery
+ * message-id/status patches onto unpatched deliveries — never overwriting a
+ * gateway-side value.
  *
  * Drops, in FK order (children before parents):
  * - `canonical_guardian_deliveries`, `canonical_guardian_requests` — moved to
@@ -135,6 +137,74 @@ export async function up(): Promise<MigrationResult> {
     log.warn(
       { err },
       "m0016: decision catch-up failed — deferring drops to next startup",
+    );
+    return "skip";
+  }
+
+  // Delivery catch-up: a delivery row copied by the backfill can be patched
+  // assistant-side afterwards with the channel-native message id (reaction
+  // routing / card withdrawal need it) or a terminal status. Carry both onto
+  // the gateway copy — an already-set gateway message id or non-pending
+  // gateway status always wins.
+  try {
+    const sourcePresent = await assistantDbQuery(
+      `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?`,
+      ["canonical_guardian_deliveries"],
+    );
+    if (sourcePresent.length > 0) {
+      const patched = await assistantDbQuery<{
+        id: string;
+        destination_message_id: string | null;
+        status: string;
+        updated_at: number;
+      }>(
+        `SELECT id, destination_message_id, status, updated_at
+           FROM canonical_guardian_deliveries
+          WHERE destination_message_id IS NOT NULL OR status != 'pending'`,
+      );
+
+      if (patched.length > 0) {
+        const carryDelivery = gwDb.prepare(
+          `UPDATE guardian_request_deliveries
+              SET destination_message_id =
+                    COALESCE(destination_message_id, ?),
+                  status = CASE
+                    WHEN status = 'pending' AND ? != 'pending' THEN ?
+                    ELSE status
+                  END,
+                  updated_at = ?
+            WHERE id = ?
+              AND (
+                (destination_message_id IS NULL AND ? IS NOT NULL)
+                OR (status = 'pending' AND ? != 'pending')
+              )`,
+        );
+        let carried = 0;
+        gwDb.transaction(() => {
+          for (const row of patched) {
+            carried += carryDelivery.run(
+              row.destination_message_id,
+              row.status,
+              row.status,
+              row.updated_at,
+              row.id,
+              row.destination_message_id,
+              row.status,
+            ).changes;
+          }
+        })();
+        if (carried > 0) {
+          log.info(
+            { carried },
+            "m0016: carried late assistant-side delivery updates onto gateway rows",
+          );
+        }
+      }
+    }
+  } catch (err) {
+    log.warn(
+      { err },
+      "m0016: delivery catch-up failed — deferring drops to next startup",
     );
     return "skip";
   }

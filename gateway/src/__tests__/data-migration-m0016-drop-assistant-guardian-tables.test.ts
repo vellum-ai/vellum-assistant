@@ -114,7 +114,15 @@ mock.module("../db/assistant-db-proxy.js", () => ({
       return rows;
     }
     if (lower.includes("from canonical_guardian_deliveries")) {
-      return Array.from(fakeAssistantDb.deliveries.values());
+      const rows = Array.from(fakeAssistantDb.deliveries.values());
+      // The delivery-carry pass selects only patched rows.
+      if (lower.includes("destination_message_id is not null")) {
+        return rows.filter(
+          (row) =>
+            row.destination_message_id !== null || row.status !== "pending",
+        );
+      }
+      return rows;
     }
     return [];
   }),
@@ -385,6 +393,98 @@ describe("m0016-drop-assistant-guardian-tables", () => {
 
     const row = gatewayRequest("req-gw-decided")!;
     expect(row.status).toBe("denied");
+    expect(row.updated_at).toBe(900);
+  });
+
+  test("carries late delivery message-id and status patches onto unpatched gateway rows", async () => {
+    getGatewayDb()
+      .insert(guardianRequests)
+      .values({
+        id: "req-del",
+        kind: "access_request",
+        sourceChannel: "slack",
+        status: "pending",
+        createdAt: 100,
+        updatedAt: 200,
+      })
+      .run();
+    getGatewayDb()
+      .insert(guardianRequestDeliveries)
+      .values({
+        id: "del-patched-late",
+        requestId: "req-del",
+        destinationChannel: "slack",
+        destinationChatId: "slack-chat-1",
+        destinationMessageId: null,
+        status: "pending",
+        createdAt: 100,
+        updatedAt: 200,
+      })
+      .run();
+    seedAssistantRequest({ id: "req-del", source_channel: "slack" });
+    seedAssistantDelivery({
+      id: "del-patched-late",
+      request_id: "req-del",
+      destination_channel: "slack",
+      destination_chat_id: "slack-chat-1",
+      destination_message_id: "ts-123",
+      status: "sent",
+      updated_at: 500,
+    });
+
+    expect(await m0016Up()).toBe("done");
+
+    const row = getGatewayDb()
+      .$client.prepare("SELECT * FROM guardian_request_deliveries WHERE id = ?")
+      .get("del-patched-late") as Record<string, unknown>;
+    expect(row.destination_message_id).toBe("ts-123");
+    expect(row.status).toBe("sent");
+    expect(row.updated_at).toBe(500);
+  });
+
+  test("never overwrites a gateway-set delivery message id or terminal status", async () => {
+    getGatewayDb()
+      .insert(guardianRequests)
+      .values({
+        id: "req-del-gw",
+        kind: "access_request",
+        sourceChannel: "slack",
+        status: "pending",
+        createdAt: 100,
+        updatedAt: 200,
+      })
+      .run();
+    getGatewayDb()
+      .insert(guardianRequestDeliveries)
+      .values({
+        id: "del-gw-owned",
+        requestId: "req-del-gw",
+        destinationChannel: "slack",
+        destinationChatId: "slack-chat-1",
+        destinationMessageId: "ts-gateway",
+        status: "expired",
+        createdAt: 100,
+        updatedAt: 900,
+      })
+      .run();
+    seedAssistantRequest({ id: "req-del-gw", source_channel: "slack" });
+    seedAssistantDelivery({
+      id: "del-gw-owned",
+      request_id: "req-del-gw",
+      destination_channel: "slack",
+      destination_chat_id: "slack-chat-1",
+      destination_message_id: "ts-stale",
+      status: "sent",
+      updated_at: 950,
+    });
+
+    expect(await m0016Up()).toBe("done");
+
+    const row = getGatewayDb()
+      .$client.prepare("SELECT * FROM guardian_request_deliveries WHERE id = ?")
+      .get("del-gw-owned") as Record<string, unknown>;
+    expect(row.destination_message_id).toBe("ts-gateway");
+    expect(row.status).toBe("expired");
     expect(row.updated_at).toBe(900);
   });
 

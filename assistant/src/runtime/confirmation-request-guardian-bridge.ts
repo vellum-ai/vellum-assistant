@@ -187,12 +187,15 @@ export async function bridgeConfirmationRequestToGuardian(
       commandPreview: guardianRequest.commandPreview ?? undefined,
     },
     dedupeKey: `tc-confirmation-request:${guardianRequest.id}`,
+    // The broadcaster awaits the returned promise, so the delivery row is
+    // durable before the client can act on the conversation.
     onConversationCreated: (info) => {
       vellumDeliveryIdPromise ??= recordApprovalCardDelivery({
         requestId: guardianRequest.id,
         channel: "vellum",
         conversationId: info.conversationId,
       }).then((delivery) => delivery?.id);
+      return vellumDeliveryIdPromise.then(() => undefined);
     },
   });
 
