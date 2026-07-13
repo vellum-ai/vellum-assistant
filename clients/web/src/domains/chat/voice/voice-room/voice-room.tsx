@@ -310,33 +310,20 @@ function VoiceRoomOverlay() {
         ) : null}
       </AnimatePresence>
 
-      {/* Bottom-center session controls, the call-app idiom: the mic mute
+      {/* Bottom-right session controls, the call-app idiom: the mic mute
           toggle always (an open mic demands an always-reachable mute), and —
           while the assistant speaks in a hands-free session — a ■ that stops
           the response without ending the session (web barge-in by just
-          talking is not reliable yet, so this is the room's only interrupt). */}
+          talking is not reliable yet, so this is the room's only interrupt).
+          Anchored bottom-right (the mic sits in the corner, the transient stop
+          to its left), clamped to the same insets as the top-right cluster. */}
       <div
-        className="absolute left-1/2 z-10 flex -translate-x-1/2 items-center gap-3"
-        style={{ bottom: `max(2.5rem, ${SAFE_AREA_BOTTOM})` }}
+        className="absolute z-10 flex items-center gap-3"
+        style={{
+          bottom: `max(2.5rem, ${SAFE_AREA_BOTTOM})`,
+          right: `max(1.25rem, ${SAFE_AREA_RIGHT})`,
+        }}
       >
-        <Tooltip content={muted ? "Unmute microphone" : "Mute microphone"}>
-          <button
-            type="button"
-            onClick={() => setLiveVoiceMuted(!muted)}
-            aria-label={muted ? "Unmute microphone" : "Mute microphone"}
-            aria-pressed={muted}
-            className={cn(
-              SESSION_CONTROL_CLASS,
-              muted
-                ? tone?.isLight
-                  ? "border-red-700/50 bg-red-600/15 text-red-800 hover:bg-red-600/25"
-                  : "border-red-400/50 bg-red-500/20 text-red-300 hover:bg-red-500/30"
-                : SESSION_CONTROL_NEUTRAL_CLASS,
-            )}
-          >
-            {muted ? <MicOff className="size-5" /> : <Mic className="size-5" />}
-          </button>
-        </Tooltip>
         <AnimatePresence>
           {handsFree && state === "speaking" ? (
             <motion.div
@@ -362,6 +349,24 @@ function VoiceRoomOverlay() {
             </motion.div>
           ) : null}
         </AnimatePresence>
+        <Tooltip content={muted ? "Unmute microphone" : "Mute microphone"}>
+          <button
+            type="button"
+            onClick={() => setLiveVoiceMuted(!muted)}
+            aria-label={muted ? "Unmute microphone" : "Mute microphone"}
+            aria-pressed={muted}
+            className={cn(
+              SESSION_CONTROL_CLASS,
+              muted
+                ? tone?.isLight
+                  ? "border-red-700/50 bg-red-600/15 text-red-800 hover:bg-red-600/25"
+                  : "border-red-400/50 bg-red-500/20 text-red-300 hover:bg-red-500/30"
+                : SESSION_CONTROL_NEUTRAL_CLASS,
+            )}
+          >
+            {muted ? <MicOff className="size-5" /> : <Mic className="size-5" />}
+          </button>
+        </Tooltip>
       </div>
 
       {/* Screen readers get session-state changes here; the avatar is the
