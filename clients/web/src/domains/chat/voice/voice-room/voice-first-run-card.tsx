@@ -1,3 +1,5 @@
+import { AudioLines, Captions, MicOff } from "lucide-react";
+
 import { Button } from "@vellumai/design-library/components/button";
 import { Modal } from "@vellumai/design-library/components/modal";
 
@@ -66,15 +68,49 @@ export function VoiceFirstRunCard({
             <Modal.Title>Voice mode</Modal.Title>
           </div>
           <Modal.Description>
-            A hands-free, spoken conversation. Speak naturally and your
-            assistant listens, then replies out loud.
+            A hands-free, spoken conversation with your assistant.
           </Modal.Description>
         </Modal.Header>
         <Modal.Body>
-          <p className="text-body-small-default text-[var(--content-tertiary)]">
-            You can mute the mic or turn on captions anytime during the
-            session, and fine-tune everything in Settings.
-          </p>
+          <div className="flex flex-col gap-3">
+            {/* Each bullet's icon matches the in-session control it describes,
+                so the card doubles as a legend for the room. */}
+            <ul className="flex flex-col gap-2.5">
+              <li className="flex items-start gap-2.5">
+                <AudioLines
+                  aria-hidden
+                  className="mt-0.5 size-4 shrink-0 text-[var(--content-secondary)]"
+                />
+                <span className="text-body-medium-default">
+                  Speak naturally — your assistant listens and replies out
+                  loud.
+                </span>
+              </li>
+              <li className="flex items-start gap-2.5">
+                <MicOff
+                  aria-hidden
+                  className="mt-0.5 size-4 shrink-0 text-[var(--content-secondary)]"
+                />
+                <span className="text-body-medium-default">
+                  Mute the mic whenever you need to, without ending the
+                  session.
+                </span>
+              </li>
+              <li className="flex items-start gap-2.5">
+                <Captions
+                  aria-hidden
+                  className="mt-0.5 size-4 shrink-0 text-[var(--content-secondary)]"
+                />
+                <span className="text-body-medium-default">
+                  Turn on live captions from the session controls.
+                </span>
+              </li>
+            </ul>
+            <p className="text-body-small-default text-[var(--content-tertiary)]">
+              You can change any of this anytime, in the session or in
+              Settings.
+            </p>
+          </div>
         </Modal.Body>
         <Modal.Footer>
           <Button variant="primary" onClick={onStart}>
