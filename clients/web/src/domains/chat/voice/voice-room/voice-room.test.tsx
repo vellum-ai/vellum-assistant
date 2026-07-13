@@ -272,37 +272,6 @@ describe("VoiceRoom — minimize (session keeps running)", () => {
   });
 });
 
-describe("VoiceRoom — send now (manual turn release)", () => {
-  const sendNowButton = () => screen.queryByRole("button", { name: /Send now/ });
-
-  test("the Send now control releases the turn while listening", () => {
-    startOwnedSession("listening");
-    render(<VoiceRoom />);
-    fireEvent.click(sendNowButton()!);
-    expect(controls.release).toHaveBeenCalledTimes(1);
-  });
-
-  test("no Send now control outside listening", () => {
-    startOwnedSession("speaking");
-    render(<VoiceRoom />);
-    expect(sendNowButton()).toBeNull();
-  });
-
-  test("Enter releases the turn while listening", () => {
-    startOwnedSession("listening");
-    render(<VoiceRoom />);
-    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }));
-    expect(controls.release).toHaveBeenCalledTimes(1);
-  });
-
-  test("Enter is inert outside listening", () => {
-    startOwnedSession("speaking");
-    render(<VoiceRoom />);
-    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }));
-    expect(controls.release).not.toHaveBeenCalled();
-  });
-});
-
 describe("VoiceRoom — captions toggle", () => {
   test("toggling captions on flips both persisted transcript prefs", () => {
     startOwnedSession("listening");
@@ -363,11 +332,12 @@ describe("VoiceRoom — placement variants", () => {
   });
 });
 
-describe("VoiceRoom — no push-to-talk affordance (hands-free)", () => {
+describe("VoiceRoom — no push-to-talk / manual-release affordance (hands-free)", () => {
   // Sessions are hands-free (server-VAD): the user just speaks, so the room
-  // offers no push-to-talk control. Space is not intercepted and there is no
-  // tappable "Speak" orb — the "Send now" control is a manual turn RELEASE
-  // (like the composer bar's ↑), not a hold-to-talk affordance.
+  // offers no push-to-talk control and no manual "send now" — the controller's
+  // `release` seam is a no-op for hands-free sessions, so such a control would
+  // be dead (PR #37913 review). Space and Enter are not intercepted; a focused
+  // room control keeps its native Enter activation.
   test("Space does not release the current turn while listening", () => {
     startOwnedSession("listening");
     render(<VoiceRoom />);
@@ -382,9 +352,23 @@ describe("VoiceRoom — no push-to-talk affordance (hands-free)", () => {
     expect(event.defaultPrevented).toBe(false);
   });
 
-  test("there is no tappable Speak orb", () => {
+  test("Enter is not intercepted while listening — no dead send-now shortcut", () => {
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+    const event = new KeyboardEvent("keydown", {
+      key: "Enter",
+      cancelable: true,
+    });
+    window.dispatchEvent(event);
+    expect(controls.release).not.toHaveBeenCalled();
+    // No preventDefault: a focused room control keeps native Enter activation.
+    expect(event.defaultPrevented).toBe(false);
+  });
+
+  test("there is no tappable Speak orb and no Send now control", () => {
     startOwnedSession("listening");
     render(<VoiceRoom />);
     expect(screen.queryByRole("button", { name: "Speak" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Send now/ })).toBeNull();
   });
 });

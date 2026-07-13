@@ -23,18 +23,19 @@
  * dead room.
  *
  * Sessions are hands-free (server-VAD): the user just speaks, so there is no
- * push-to-talk control — but while `listening` a subtle "Send now" control
- * (and the Enter key) manually releases the turn for users who don't want to
- * wait out the silence detector. Exit is first-class: a persistent ✕ control
- * (always rendered, even while the avatar/assistant data is loading or
- * failed) ends the session; Escape and the minimize control collapse the room
- * to the composer's voice bar WITHOUT ending the session (the bar's expand
- * control reopens it). Key handlers attach only while the room is mounted.
+ * push-to-talk control — and deliberately no manual "send now" either: the
+ * controller's `release` seam is a no-op for hands-free sessions, so such a
+ * control would be dead (PR #37913 review). Exit is first-class: a persistent
+ * ✕ control (always rendered, even while the avatar/assistant data is loading
+ * or failed) ends the session; Escape and the minimize control collapse the
+ * room to the composer's voice bar WITHOUT ending the session (the bar's
+ * expand control reopens it). The key handler attaches only while the room is
+ * mounted.
  */
 
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useEffect } from "react";
-import { ArrowUp, Captions, CaptionsOff, Minimize2, X } from "lucide-react";
+import { Captions, CaptionsOff, Minimize2, X } from "lucide-react";
 
 import { Tooltip, cn } from "@vellumai/design-library";
 
@@ -44,7 +45,6 @@ import {
   getLiveVoiceOutputAmplitude,
   liveVoiceStateLabel,
   minimizeLiveVoiceRoom,
-  releaseLiveVoiceTurn,
   useLiveVoiceStore,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
@@ -134,25 +134,17 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
   const { components, traits } = useAssistantAvatar(assistantId);
   const accentHex = resolveWaveAccentHex(components, traits);
 
-  // Global keys, live only while the room is mounted. Escape minimizes the
-  // room (the session keeps running; the composer's voice bar takes over as
-  // the control surface) — ending is reserved for the explicit ✕. Enter is a
-  // manual turn release ("send now") while listening. Both fire even when the
-  // composer textarea (or any other focused element) still holds focus as the
-  // room opens, so they are intentionally not guarded by the event target.
+  // Global Escape, live only while the room is mounted: minimizes the room
+  // (the session keeps running; the composer's voice bar takes over as the
+  // control surface) — ending is reserved for the explicit ✕. It fires even
+  // when the composer textarea (or any other focused element) still holds
+  // focus as the room opens, so it is intentionally not guarded by the event
+  // target.
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
         event.preventDefault();
         minimizeLiveVoiceRoom();
-        return;
-      }
-      if (
-        event.key === "Enter" &&
-        useLiveVoiceStore.getState().state === "listening"
-      ) {
-        event.preventDefault();
-        releaseLiveVoiceTurn();
       }
     }
     window.addEventListener("keydown", onKeyDown);
@@ -303,35 +295,6 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
           >
             {stateLabel}
           </motion.p>
-        ) : null}
-      </AnimatePresence>
-
-      {/* Manual turn release while listening — for users who don't want to
-          wait out the server-VAD silence detector. Mirrors the green ↑ on the
-          composer voice bar and the title-bar pill, in the room's own muted
-          idiom. */}
-      <AnimatePresence>
-        {state === "listening" ? (
-          <motion.div
-            key="send-now"
-            className="absolute left-1/2 z-10 -translate-x-1/2"
-            style={{ bottom: `max(2.5rem, ${SAFE_AREA_BOTTOM})` }}
-            initial={reduce ? false : { opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 8 }}
-            transition={{ duration: reduce ? 0 : 0.25 }}
-          >
-            <Tooltip content="Send now (Enter)">
-              <button
-                type="button"
-                onClick={releaseLiveVoiceTurn}
-                className="flex items-center gap-1.5 rounded-full border border-white/15 px-4 py-2 text-sm text-white/60 transition hover:border-white/30 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white/60"
-              >
-                <ArrowUp aria-hidden className="size-4" />
-                Send now
-              </button>
-            </Tooltip>
-          </motion.div>
         ) : null}
       </AnimatePresence>
 
