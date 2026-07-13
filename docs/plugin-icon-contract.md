@@ -2,7 +2,7 @@
 
 This doc is the single cross-repo source of truth for **marketplace plugin icons** — the small glyph shown next to a plugin in `assistant plugins search`, the desktop/web catalog, and the marketing site. It mirrors how skill icons work. Two repos consume this contract and MUST enforce identical rules:
 
-- **`vellum-ai/vellum-assistant`** (this repo) — the TS daemon validator at [`assistant/src/cli/lib/plugin-icon-file.ts`](../assistant/src/cli/lib/plugin-icon-file.ts) is the authoritative implementation. In-repo curation lives here (`plugins/marketplace.json`, `plugins/assets/`, `plugins/plugin-icons.json`).
+- **`vellum-ai/vellum-assistant`** (this repo) — the assistant validator at [`assistant/src/cli/lib/plugin-icon-file.ts`](../assistant/src/cli/lib/plugin-icon-file.ts) is the authoritative implementation. In-repo curation lives here (`plugins/marketplace.json`, `plugins/assets/`, `plugins/plugin-icons.json`).
 - **`vellum-ai/vellum-assistant-platform`** — a Django validator behind `/v1/plugins/` that MUST match this doc byte-for-byte. Uploads the PNGs to GCS and serves the combined catalog `icon` value.
 
 Any change to the format, limits, or manifest shape below is a **coordinated cross-repo change** — the TS validator and the Python validator move together, or a plugin that validates in one repo silently gets "no icon" in the other.
@@ -39,7 +39,7 @@ Each entry in [`plugins/marketplace.json`](../plugins/marketplace.json) MAY carr
 }
 ```
 
-The marketplace entry schema (name, `source.{repo,ref,path}` with `ref` pinned to a **full commit SHA**, description, category, homepage, license) is defined in [`plugin-marketplace.ts`](../assistant/src/cli/lib/plugin-marketplace.ts). The `icon` field is a subset addition curated in-repo, not fetched from the third-party plugin.
+The marketplace entry schema (name, `source.{repo,ref,path}` with `ref` pinned to a **full commit SHA**, description, category, homepage, license, and the optional `icon`) is defined in [`plugin-marketplace.ts`](../assistant/src/cli/lib/plugin-marketplace.ts). The `icon` field is curated in-repo, not fetched from the third-party plugin. It is wired end to end: `marketplaceEntrySchema` carries it through `marketplaceMatch` into the catalog projection and the `assistant plugins search` response, and the platform's `/v1/plugins/` reads the same curated emoji independently to render the marketing site.
 
 ### 2. PNG — vendored asset + derived manifest
 
