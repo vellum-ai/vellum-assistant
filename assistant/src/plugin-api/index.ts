@@ -246,9 +246,11 @@ export { synthesizeText, TtsSynthesisError } from "../tts/synthesize-text.js";
 export type { TtsSynthesisResult } from "../tts/types.js";
 // Conversation agent-loop turn — run a full conversation turn (persist user
 // message, execute the agent loop with history/tools/compaction/injections,
-// return the assistant's text response). Plugins that need to drive
-// conversation turns (e.g. meeting-bot flushing a transcript excerpt) should
-// prefer this over the stateless `provider.sendMessage()` call.
+// return the assistant's full content-block response). Accepts ContentBlock[]
+// input (text, images, files) and an optional conversationId (creates a new
+// conversation when omitted). Plugins that need to drive conversation turns
+// (e.g. meeting-bot flushing a transcript excerpt) should prefer this over the
+// stateless `provider.sendMessage()` call.
 export type {
   RunConversationTurnOptions,
   RunConversationTurnResult,
