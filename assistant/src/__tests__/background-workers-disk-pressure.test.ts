@@ -142,6 +142,7 @@ mock.module("../persistence/jobs-store.js", () => ({
   failStalledJobs: mockFailStalledJobs,
   getMemoryJobCounts: mock(() => ({})),
   hasActiveJobOfType: mock(() => false),
+  hasPendingJobOfType: mock(() => false),
   isMemoryEnabled: () => true,
   MEMORY_V2_CONSOLIDATION_JOB_TRIGGERS: {
     automatic: "automatic",
