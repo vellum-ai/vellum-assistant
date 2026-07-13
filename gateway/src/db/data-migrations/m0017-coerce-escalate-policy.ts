@@ -9,6 +9,10 @@
  * row to allow.
  *
  * Idempotent: on a DB with no escalate rows, the UPDATE is a no-op.
+ *
+ * The m0006/m0008 backfills can retry (skip) past this migration's checkpoint
+ * and import from an older assistant DB afterwards; they coerce escalate to
+ * deny on import, so ordering against them doesn't matter.
  */
 
 import { Database } from "bun:sqlite";
