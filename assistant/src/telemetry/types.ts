@@ -522,3 +522,21 @@ export type TelemetryEvent =
   | SkillLoadedTelemetryEvent
   | WatchdogTelemetryEvent
   | ConfigSettingTelemetryEvent;
+
+/**
+ * Event names backed by the `telemetry_events` outbox. Each name doubles as
+ * the wire `type` discriminant and the flush-group key, so names must never
+ * change once shipped. The watermark-flushed types (`llm_usage`, `turn`,
+ * `tool_executed`) live on their own tables and are deliberately excluded.
+ */
+export type OutboxTelemetryEventName =
+  | "lifecycle"
+  | "onboarding"
+  | "auth_fallback"
+  | "skill_loaded"
+  | "watchdog"
+  | "config_setting";
+
+/** Wire event type for one outbox event name. */
+export type OutboxTelemetryEventOf<N extends OutboxTelemetryEventName> =
+  Extract<TelemetryEvent, { type: N }>;
