@@ -7,11 +7,16 @@
  * The waves always drift horizontally (a slow CSS loop); the user's live mic
  * amplitude drives how high they rise and how bright they are, written
  * imperatively to `--voice-amp` from a requestAnimationFrame loop — never React
- * state, matching `voice-avatar.tsx`. Purely decorative; the cyan→indigo accent
- * is a fixed constant (like the listening sonar), not a theme token.
+ * state, matching `voice-avatar.tsx`. The polled amplitude is near-instant RMS
+ * (see `createAmplitudeSmoother`), so the loop runs it through a VU-meter-style
+ * attack/release smoother before writing — raw, it jerks the waves' large
+ * vertical travel every frame. Purely decorative; the cyan→indigo accent is a
+ * fixed constant (like the listening sonar), not a theme token.
  */
 
 import { useEffect, useRef } from "react";
+
+import { createAmplitudeSmoother } from "./voice-motion";
 
 // Wave geometry is authored in a fixed viewBox; the path spans two viewBox
 // widths so a `-1200px` horizontal drift loops seamlessly (each wave's cycle
@@ -84,11 +89,17 @@ export function VoiceListeningWaves({
     if (!node) {
       return;
     }
+    // Rise quickly with speech onset (~80 ms) but settle gently (~350 ms), so
+    // the band swells and subsides instead of twitching with raw RMS.
+    const smoother = createAmplitudeSmoother({ attackMs: 80, releaseMs: 350 });
     let raf = 0;
     let lastWritten = "";
-    const tick = () => {
-      const amp = Math.min(1, Math.max(0, getAmplitudeRef.current()));
-      const next = amp.toFixed(3);
+    let lastTime = performance.now();
+    const tick = (now: number) => {
+      const dt = now - lastTime;
+      lastTime = now;
+      const target = Math.min(1, Math.max(0, getAmplitudeRef.current()));
+      const next = smoother.step(target, dt).toFixed(3);
       if (next !== lastWritten) {
         lastWritten = next;
         node.style.setProperty("--voice-amp", next);
