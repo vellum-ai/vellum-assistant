@@ -397,11 +397,16 @@ type VoidStory = StoryObj<typeof RoomScene>;
 export const Playground: Story = {};
 
 /**
- * Every session state, all sharing the simulated-speech driver. Wired so far:
- * `idle` (eyes centered, no waveform) and `listening` (the centered waveform
- * plus the eyes sinking toward the lower rest with the voice). The remaining
- * states — `thinking`, `responding`, `reconnecting` — still show the resting
- * centered eyes; their own treatments are the next thing to design.
+ * Every session state, all sharing the simulated-speech driver:
+ * - `idle` — eyes centered, no treatment.
+ * - `listening` — centered waveform, eyes sunk toward the lower rest with the
+ *   voice.
+ * - `thinking` — eyes ride back up to center, the dot triad hangs just above
+ *   them (the listening→thinking hand-off cross-fades the waves out / dots in).
+ * - `responding` — eyes centered, the responding treatment radiates outward.
+ * - `reconnecting` — eyes centered but dimmed.
+ *
+ * Scrub `visual` in the Playground to watch the transitions between them.
  */
 export const States: Story = {
   render: (args) => (
