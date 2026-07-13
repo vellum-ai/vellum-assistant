@@ -11,6 +11,7 @@ import { z } from "zod";
 
 import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
+import { resolveCapabilities } from "../capabilities.js";
 import { BadRequestError, NotFoundError } from "./errors.js";
 import {
   findPersistedSurfaceState,
@@ -95,13 +96,17 @@ async function handleGetSurfaceContent({
   // so later fetches, action routing, and `findConversationBySurfaceId`
   // resolve in-memory — the same O(1) registration that helper already
   // performs; no DB state is written on this GET.
-  const persisted = findPersistedSurfaceState(
-    conversationId,
-    surfaceId,
+  const persisted = findPersistedSurfaceState(conversationId, surfaceId, {
     // Share the live window's compaction boundary so the scan can never
     // resurrect (and memoize) a surface the compacted-away prefix owned.
-    conversation.contextCompactedMessageCount,
-  );
+    liveHistoryStartRow: conversation.contextCompactedMessageCount,
+    // Mirror the loaded view's trust scope (`loadFromDb` resolves the same
+    // capability from the trust class it loaded under) so an actor-scoped
+    // view can't name a guardian-provenance surface the history filter
+    // deliberately dropped.
+    canAccessMemory: resolveCapabilities(conversation.loadedHistoryTrustClass)
+      .canAccessMemory,
+  });
   if (persisted) {
     conversation.surfaceState.set(surfaceId, persisted);
     log.info(

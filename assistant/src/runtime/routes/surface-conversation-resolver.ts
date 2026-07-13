@@ -20,6 +20,7 @@ import {
   findConversationBySurfaceId,
 } from "../../daemon/conversation-registry.js";
 import { getOrCreateConversation } from "../../daemon/conversation-store.js";
+import { isRowVisibleToUntrustedActor } from "../../daemon/message-provenance.js";
 import type {
   SurfaceData,
   SurfaceType,
@@ -55,7 +56,9 @@ export async function resolveSurfaceConversation(
   const found = conversationId
     ? findConversation(conversationId)
     : findConversationBySurfaceId(surfaceId);
-  if (found) return found;
+  if (found) {
+    return found;
+  }
 
   // Escape LIKE wildcards so a `surfaceId` like "%" or "_" can't match
   // unrelated rows.
@@ -68,9 +71,12 @@ export async function resolveSurfaceConversation(
      LIMIT 1`,
     `%"surfaceId":"${escaped}"%`,
   );
-  if (!row) return undefined;
-  if (conversationId && conversationId !== row.conversation_id)
+  if (!row) {
     return undefined;
+  }
+  if (conversationId && conversationId !== row.conversation_id) {
+    return undefined;
+  }
   return await getOrCreateConversation(row.conversation_id);
 }
 
@@ -118,19 +124,31 @@ export interface PersistedSurfaceState {
  * resurrecting one here would let later surface-action routing operate on
  * state the compaction dropped. The scan skips that same prefix (rows are
  * numbered in the store's `created_at ASC` order).
+ *
+ * `canAccessMemory` preserves actor provenance: when the live view was
+ * loaded for an untrusted actor, `loadFromDb` builds history (and therefore
+ * `surfaceState`) from `filterMessagesForUntrustedActor(...)`, so a
+ * guardian-authored or provenance-less row is deliberately absent from the
+ * actor-scoped view. The scan applies the identical per-row predicate
+ * before parsing, serving, or memoizing — otherwise naming a hidden
+ * surface id would expose the payload the trust filter dropped.
  */
 export function findPersistedSurfaceState(
   conversationId: string,
   surfaceId: string,
-  liveHistoryStartRow: number,
+  opts: {
+    liveHistoryStartRow: number;
+    canAccessMemory: boolean;
+  },
 ): PersistedSurfaceState | undefined {
   // Escape LIKE wildcards so a `surfaceId` like "%" or "_" can't match
   // unrelated rows.
   const escaped = surfaceId.replace(/[\\%_]/g, "\\$&");
-  const rows = rawAll<{ content: string }>(
+  const rows = rawAll<{ content: string; metadata: string | null }>(
     "surfaceResolver:findPersistedSurface",
-    `SELECT content FROM (
-       SELECT content, ROW_NUMBER() OVER (ORDER BY created_at ASC) AS rn
+    `SELECT content, metadata FROM (
+       SELECT content, metadata,
+              ROW_NUMBER() OVER (ORDER BY created_at ASC) AS rn
        FROM messages
        WHERE conversation_id = ?
      )
@@ -138,20 +156,27 @@ export function findPersistedSurfaceState(
      ORDER BY rn DESC
      LIMIT 10`,
     conversationId,
-    Math.max(0, Math.floor(liveHistoryStartRow)),
+    Math.max(0, Math.floor(opts.liveHistoryStartRow)),
     `%"surfaceId":"${escaped}"%`,
   );
   for (const row of rows) {
+    if (!opts.canAccessMemory && !isRowVisibleToUntrustedActor(row.metadata)) {
+      continue;
+    }
     let blocks: unknown;
     try {
       blocks = JSON.parse(row.content);
     } catch {
       continue;
     }
-    if (!Array.isArray(blocks)) continue;
+    if (!Array.isArray(blocks)) {
+      continue;
+    }
     for (const block of blocks) {
       const b = block as Record<string, unknown>;
-      if (b.type !== "ui_surface" || b.surfaceId !== surfaceId) continue;
+      if (b.type !== "ui_surface" || b.surfaceId !== surfaceId) {
+        continue;
+      }
       // Same field mapping and validation as
       // `restoreSurfaceStateFromHistory` — a malformed daemon-only
       // `activationMoment` is dropped, never served or memoized.

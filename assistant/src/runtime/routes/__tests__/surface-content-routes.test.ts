@@ -35,6 +35,7 @@ interface StubConversation {
   id: string;
   surfaceState: Map<string, StoredSurface>;
   contextCompactedMessageCount: number;
+  loadedHistoryTrustClass: string;
   currentTurnSurfaces?: Array<{
     surfaceId: string;
     surfaceType: string;
@@ -46,7 +47,7 @@ interface StubConversation {
 let memoryById: StubConversation | null = null;
 let rehydrated: StubConversation | null = null;
 let rawGetReturn: { conversation_id: string } | null = null;
-let rawAllReturn: Array<{ content: string }> = [];
+let rawAllReturn: Array<{ content: string; metadata?: string | null }> = [];
 
 const findConvCalls: string[] = [];
 const findBySurfaceCalls: string[] = [];
@@ -100,7 +101,12 @@ function findHandler(operationId: string): RouteDefinition["handler"] {
 }
 
 function makeStub(id: string): StubConversation {
-  return { id, surfaceState: new Map(), contextCompactedMessageCount: 0 };
+  return {
+    id,
+    surfaceState: new Map(),
+    contextCompactedMessageCount: 0,
+    loadedHistoryTrustClass: "guardian",
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -304,6 +310,91 @@ describe("surfaces_get_content handler", () => {
       42,
       `%"surfaceId":"surf-old"%`,
     ]);
+  });
+
+  test("actor-scoped view never serves a surface the provenance filter dropped", async () => {
+    // `loadFromDb` builds an untrusted actor's history (and surfaceState)
+    // through `filterMessagesForUntrustedActor`, so guardian-authored and
+    // provenance-less rows are deliberately absent from that view. The
+    // fallback must apply the same per-row predicate — naming a hidden
+    // surface id must 404, not expose (and memoize) the dropped payload.
+    const conv = makeStub("conv-actor");
+    conv.loadedHistoryTrustClass = "unknown";
+    memoryById = conv;
+    rawAllReturn = [
+      {
+        content: JSON.stringify([
+          {
+            type: "ui_surface",
+            surfaceId: "surf-hidden",
+            surfaceType: "card",
+            title: "Guardian only",
+            data: { secret: true },
+          },
+        ]),
+        metadata: JSON.stringify({ provenanceTrustClass: "guardian" }),
+      },
+      {
+        content: JSON.stringify([
+          {
+            type: "ui_surface",
+            surfaceId: "surf-hidden",
+            surfaceType: "card",
+            title: "No provenance",
+            data: { secret: true },
+          },
+        ]),
+        metadata: null,
+      },
+    ];
+
+    const handler = findHandler("surfaces_get_content");
+
+    let caught: unknown;
+    try {
+      await handler({
+        pathParams: { surfaceId: "surf-hidden" },
+        queryParams: { conversationId: "conv-actor" },
+      });
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeInstanceOf(NotFoundError);
+    expect(conv.surfaceState.has("surf-hidden")).toBe(false);
+  });
+
+  test("actor-scoped view still serves actor-visible provenance rows", async () => {
+    const conv = makeStub("conv-actor-ok");
+    conv.loadedHistoryTrustClass = "unknown";
+    memoryById = conv;
+    rawAllReturn = [
+      {
+        content: JSON.stringify([
+          {
+            type: "ui_surface",
+            surfaceId: "surf-visible",
+            surfaceType: "card",
+            title: "Contact-authored",
+            data: { ok: true },
+          },
+        ]),
+        metadata: JSON.stringify({ provenanceTrustClass: "trusted_contact" }),
+      },
+    ];
+
+    const handler = findHandler("surfaces_get_content");
+    const result = await handler({
+      pathParams: { surfaceId: "surf-visible" },
+      queryParams: { conversationId: "conv-actor-ok" },
+    });
+
+    expect(result).toEqual({
+      surfaceId: "surf-visible",
+      surfaceType: "card",
+      title: "Contact-authored",
+      data: { ok: true },
+    });
   });
 
   test("persisted-history fallback skips rows that merely quote the surfaceId", async () => {
