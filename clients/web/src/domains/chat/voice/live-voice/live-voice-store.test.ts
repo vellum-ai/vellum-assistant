@@ -11,11 +11,13 @@ import { makeControlsSpies } from "@/domains/chat/voice/live-voice/live-voice-fa
 import {
   dismissLiveVoiceFailure,
   endLiveVoiceSession,
+  expandLiveVoiceRoom,
   getLiveVoiceInputAmplitude,
   isLiveVoiceMicLive,
   isLiveVoiceSessionActive,
   isLiveVoiceSessionOwnedBy,
   liveVoiceStateLabel,
+  minimizeLiveVoiceRoom,
   releaseLiveVoiceTurn,
   useLiveVoiceStore,
   type LiveVoiceSessionState,
@@ -107,6 +109,31 @@ describe("useLiveVoiceStore — reconnecting", () => {
     useLiveVoiceStore.getState().setReconnecting(true);
     useLiveVoiceStore.getState().reset();
     expect(useLiveVoiceStore.getState().reconnecting).toBe(false);
+  });
+});
+
+describe("useLiveVoiceStore — room minimize", () => {
+  test("defaults to expanded", () => {
+    expect(useLiveVoiceStore.getState().roomMinimized).toBe(false);
+  });
+
+  test("the module-level helpers minimize and re-expand the room", () => {
+    minimizeLiveVoiceRoom();
+    expect(useLiveVoiceStore.getState().roomMinimized).toBe(true);
+    expandLiveVoiceRoom();
+    expect(useLiveVoiceStore.getState().roomMinimized).toBe(false);
+  });
+
+  test("reset clears a minimized room", () => {
+    minimizeLiveVoiceRoom();
+    useLiveVoiceStore.getState().reset();
+    expect(useLiveVoiceStore.getState().roomMinimized).toBe(false);
+  });
+
+  test("setSessionContext re-expands — a fresh session always opens with the room", () => {
+    minimizeLiveVoiceRoom();
+    useLiveVoiceStore.getState().setSessionContext("assistant-1", "conv-1");
+    expect(useLiveVoiceStore.getState().roomMinimized).toBe(false);
   });
 });
 

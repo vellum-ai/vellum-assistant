@@ -37,6 +37,7 @@ import { type TurnPhase, useTurnStore } from "@/domains/chat/turn-store";
 import {
     dismissLiveVoiceFailure,
     endLiveVoiceSession,
+    expandLiveVoiceRoom,
     getLiveVoiceInputAmplitude,
     isLiveVoiceSessionActive,
     releaseLiveVoiceTurn,
@@ -259,6 +260,9 @@ export function ChatComposer({
   // global live-voice store but must never swap its row.
   const ownsLiveVoiceSession = useIsLiveVoiceSessionOwnedBy(conversationId);
   const isLiveVoiceActive = showVoiceInput && ownsLiveVoiceSession;
+  // Whether the user minimized the voice room (Escape / its minimize control)
+  // — the case where this bar is the session surface and offers re-expand.
+  const liveVoiceRoomMinimized = useLiveVoiceStore.use.roomMinimized();
   // Whether the session has any speech transcript to show. A boolean
   // *presence* subscription, not the text itself: zustand only re-renders
   // when the selected value changes identity, so per-delta transcript
@@ -731,6 +735,11 @@ export function ChatComposer({
                 getAmplitude={getLiveVoiceInputAmplitude}
                 onEnd={endLiveVoiceSession}
                 onSend={releaseLiveVoiceTurn}
+                // Expand is offered only while the room is actually minimized
+                // — the one case where this bar is on screen and the room can
+                // be reopened. In pop-outs the room never mounts, so the flag
+                // never flips there and no dead control renders.
+                onExpand={liveVoiceRoomMinimized ? expandLiveVoiceRoom : undefined}
               />
             ) : (
               <div className="flex items-center justify-between gap-1 px-2 pb-2">

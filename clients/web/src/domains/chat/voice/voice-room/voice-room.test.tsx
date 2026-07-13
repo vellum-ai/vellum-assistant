@@ -9,14 +9,15 @@
  * assistant-avatar React Query graph — irrelevant to room chrome, and stubbed
  * so the exit control's independence from avatar readiness is testable).
  *
- * Exit is the load-bearing behavior: the ✕ control and the global Escape key
- * both end the session, the control renders even with no assistant resolved,
- * and the key listeners are removed on unmount (no leaks).
+ * Exit and minimize are the load-bearing behaviors: the ✕ control ends the
+ * session, Escape / the minimize control collapse the room WITHOUT ending the
+ * session (the composer's voice bar takes over), the ✕ renders even with no
+ * assistant resolved, and the key listeners are removed on unmount (no leaks).
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 
 import type { MainView } from "@/stores/viewer-store";
 import { routes } from "@/utils/routes";
@@ -30,6 +31,7 @@ import {
   type LiveVoiceSessionState,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
 import { useConversationStore } from "@/stores/conversation-store";
+import { useVoicePrefsStore } from "@/stores/voice-prefs-store";
 
 const OWNING_CONVERSATION_ID = "conv-owning";
 const OTHER_CONVERSATION_ID = "conv-other";
@@ -112,6 +114,11 @@ beforeEach(() => {
   useConversationStore
     .getState()
     .setActiveConversationId(OWNING_CONVERSATION_ID);
+  // Captions default off; individual tests flip them through the room control.
+  useVoicePrefsStore.setState({
+    showUserTranscript: false,
+    showAssistantTranscript: false,
+  });
 });
 
 afterEach(() => {
@@ -200,27 +207,6 @@ describe("VoiceRoom — exit", () => {
     expect(controls.stop).toHaveBeenCalledTimes(1);
   });
 
-  test("Escape ends the session via controls.stop", () => {
-    startOwnedSession("listening");
-    render(<VoiceRoom />);
-    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
-    expect(controls.stop).toHaveBeenCalledTimes(1);
-  });
-
-  test("Escape ends the session even when an editable element holds focus (global exit)", () => {
-    startOwnedSession("listening");
-    render(<VoiceRoom />);
-    // The room can open while the composer textarea still owns focus; Escape is
-    // a global exit and must fire regardless of the editable target guard.
-    const input = document.createElement("input");
-    document.body.appendChild(input);
-    input.dispatchEvent(
-      new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
-    );
-    expect(controls.stop).toHaveBeenCalledTimes(1);
-    input.remove();
-  });
-
   test("the exit control renders even with no assistant resolved", () => {
     startOwnedSession("listening");
     useLiveVoiceStore.setState({ assistantId: null });
@@ -229,19 +215,159 @@ describe("VoiceRoom — exit", () => {
     expect(screen.getByTestId("voice-avatar").textContent).toBe("no-assistant");
   });
 
-  test("key listeners are removed on unmount — no stray Escape teardown", () => {
+  test("key listeners are removed on unmount — no stray Escape handling", () => {
     startOwnedSession("listening");
     const { unmount } = render(<VoiceRoom />);
     unmount();
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    expect(useLiveVoiceStore.getState().roomMinimized).toBe(false);
     expect(controls.stop).not.toHaveBeenCalled();
+  });
+});
+
+describe("VoiceRoom — minimize (session keeps running)", () => {
+  test("Escape minimizes the room without ending the session", () => {
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+    // act: minimizing flips the store flag, which re-renders (unmounts) the room.
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    });
+    expect(useLiveVoiceStore.getState().roomMinimized).toBe(true);
+    expect(controls.stop).not.toHaveBeenCalled();
+  });
+
+  test("Escape minimizes even when an editable element holds focus (global key)", () => {
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+    // The room can open while the composer textarea still owns focus; the key
+    // is global and must fire regardless of the editable target guard.
+    const input = document.createElement("input");
+    document.body.appendChild(input);
+    act(() => {
+      input.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      );
+    });
+    expect(useLiveVoiceStore.getState().roomMinimized).toBe(true);
+    expect(controls.stop).not.toHaveBeenCalled();
+    input.remove();
+  });
+
+  test("the minimize control minimizes without ending the session", () => {
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Minimize voice room" }),
+    );
+    expect(useLiveVoiceStore.getState().roomMinimized).toBe(true);
+    expect(controls.stop).not.toHaveBeenCalled();
+  });
+
+  test("a minimized room does not render for an owned active session", () => {
+    startOwnedSession("listening");
+    useLiveVoiceStore.getState().setRoomMinimized(true);
+    render(<VoiceRoom />);
+    expect(roomDialog()).toBeNull();
+  });
+});
+
+describe("VoiceRoom — send now (manual turn release)", () => {
+  const sendNowButton = () => screen.queryByRole("button", { name: /Send now/ });
+
+  test("the Send now control releases the turn while listening", () => {
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+    fireEvent.click(sendNowButton()!);
+    expect(controls.release).toHaveBeenCalledTimes(1);
+  });
+
+  test("no Send now control outside listening", () => {
+    startOwnedSession("speaking");
+    render(<VoiceRoom />);
+    expect(sendNowButton()).toBeNull();
+  });
+
+  test("Enter releases the turn while listening", () => {
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }));
+    expect(controls.release).toHaveBeenCalledTimes(1);
+  });
+
+  test("Enter is inert outside listening", () => {
+    startOwnedSession("speaking");
+    render(<VoiceRoom />);
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }));
+    expect(controls.release).not.toHaveBeenCalled();
+  });
+});
+
+describe("VoiceRoom — captions toggle", () => {
+  test("toggling captions on flips both persisted transcript prefs", () => {
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+    fireEvent.click(screen.getByRole("button", { name: "Show captions" }));
+    const prefs = useVoicePrefsStore.getState();
+    expect(prefs.showUserTranscript).toBe(true);
+    expect(prefs.showAssistantTranscript).toBe(true);
+  });
+
+  test("with any transcript pref on, the control offers to hide and clears both", () => {
+    useVoicePrefsStore.setState({ showUserTranscript: true });
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+    fireEvent.click(screen.getByRole("button", { name: "Hide captions" }));
+    const prefs = useVoicePrefsStore.getState();
+    expect(prefs.showUserTranscript).toBe(false);
+    expect(prefs.showAssistantTranscript).toBe(false);
+  });
+});
+
+describe("VoiceRoom — connect feedback", () => {
+  test("shows the connecting label while the session connects", () => {
+    startOwnedSession("connecting");
+    render(<VoiceRoom />);
+    expect(
+      screen.getByTestId("voice-room-connect-label").textContent,
+    ).toBe("Connecting…");
+  });
+
+  test("relabels to Reconnecting… while retrying a dropped connection", () => {
+    startOwnedSession("connecting");
+    useLiveVoiceStore.getState().setReconnecting(true);
+    render(<VoiceRoom />);
+    expect(
+      screen.getByTestId("voice-room-connect-label").textContent,
+    ).toBe("Reconnecting…");
+  });
+
+  test("no connect label once listening", () => {
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+    expect(screen.queryByTestId("voice-room-connect-label")).toBeNull();
+  });
+});
+
+describe("VoiceRoom — placement variants", () => {
+  test("the fullscreen (mobile) variant is modal", () => {
+    startOwnedSession("listening");
+    render(<VoiceRoom variant="fullscreen" />);
+    expect(roomDialog()!.getAttribute("aria-modal")).toBe("true");
+  });
+
+  test("the content (desktop) variant is not modal — surrounding chrome stays usable", () => {
+    startOwnedSession("listening");
+    render(<VoiceRoom variant="content" />);
+    expect(roomDialog()!.getAttribute("aria-modal")).toBeNull();
   });
 });
 
 describe("VoiceRoom — no push-to-talk affordance (hands-free)", () => {
   // Sessions are hands-free (server-VAD): the user just speaks, so the room
   // offers no push-to-talk control. Space is not intercepted and there is no
-  // tappable "Speak" orb — only Escape / ✕ are wired (see the exit suite).
+  // tappable "Speak" orb — the "Send now" control is a manual turn RELEASE
+  // (like the composer bar's ↑), not a hold-to-talk affordance.
   test("Space does not release the current turn while listening", () => {
     startOwnedSession("listening");
     render(<VoiceRoom />);

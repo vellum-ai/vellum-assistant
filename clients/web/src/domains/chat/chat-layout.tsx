@@ -327,16 +327,12 @@ export function ChatLayout() {
     consumeSidebarCollapse();
   }, [sidebarCollapseRequested, consumeSidebarCollapse]);
 
-  // The full-screen voice room takes over the viewport, so the sidebar reads as
-  // collapsed and the chat body blurs while it is visible. This override is
-  // EPHEMERAL — it is OR'd into the rendered collapsed value (`sideMenuCollapsed`
-  // below) rather than routed through `setCollapsed`, so it never touches the
-  // persistence effect above. Keeping it out of the persisted `collapsed` state
-  // means a reload / tab-close while the room is open cannot write the forced
-  // value to `localStorage`: on exit the override drops and the sidebar returns
-  // to exactly the user's persisted value.
+  // Voice-room visibility. On desktop the room is a content-scoped overlay
+  // (mounted inside `<main>` below) that deliberately leaves the sidebar and
+  // header interactive, so the user can keep navigating mid-session — any
+  // navigation away hands the session off to the title-bar pill. Only the
+  // mobile mount is a full-viewport takeover.
   const voiceRoomVisible = useIsVoiceRoomVisible();
-  const sideMenuCollapsed = collapsed || voiceRoomVisible;
 
   const drawerVisible = isMobile && drawerOpen;
 
@@ -728,12 +724,15 @@ export function ChatLayout() {
     />
   );
 
-  // Blur + freeze the chat body under the voice room. The room is an opaque
-  // overlay, so this mainly matters for the header strip peeking around it and
-  // to stop stray interaction with the covered chat.
-  const mainRoomClass = voiceRoomVisible
-    ? "pointer-events-none blur-sm opacity-40 transition-[filter,opacity]"
-    : "";
+  // Blur + freeze the chat body under the MOBILE voice room, which is a
+  // full-viewport takeover. The room is an opaque overlay, so this mainly
+  // matters for the fade transition and to stop stray interaction with the
+  // covered chat. Desktop must NOT get this: its room renders inside `<main>`
+  // itself, so blurring/freezing main would blur and freeze the room too.
+  const mainRoomClass =
+    voiceRoomVisible && isMobile
+      ? "pointer-events-none blur-sm opacity-40 transition-[filter,opacity]"
+      : "";
 
   return (
     <>
@@ -741,7 +740,7 @@ export function ChatLayout() {
         <ChatLayoutHeader
           isMobile={isMobile}
           drawerOpen={drawerOpen}
-          collapsed={sideMenuCollapsed}
+          collapsed={collapsed}
           sidebarWidth={sidebarWidth}
           toggleSidebar={toggleSidebar}
           topBarCenter={topBarCenter}
@@ -848,16 +847,19 @@ export function ChatLayout() {
             aria-label="Navigation"
           >
             {renderSideMenu({
-              collapsed: sideMenuCollapsed,
+              collapsed,
               variant: "rail",
               width: sidebarWidth,
               onWidthChange: handleSidebarWidthChange,
             })}
           </aside>
-          <main
-            className={`flex min-w-0 flex-1 min-h-0 flex-col overflow-hidden ${mainRoomClass}`}
-          >
+          <main className="relative flex min-w-0 flex-1 min-h-0 flex-col overflow-hidden">
             <Outlet />
+            {/* Desktop voice room — content-scoped (`absolute inset-0` within
+                this `<main>`), so the header and sidebar stay visible and
+                interactive during a session. Self-gates on
+                `useIsVoiceRoomVisible()`. */}
+            <VoiceRoom variant="content" />
           </main>
         </div>
       )}
@@ -868,12 +870,12 @@ export function ChatLayout() {
           overlay; it never remounts the chat, so a suggestion click's
           navigate + `?prompt=` auto-send isn't raced by a remount. */}
       {isFocused ? <ResearchResultsOverlay /> : null}
-      {/* Full-screen live-voice room — a purely additive overlay mounted at
-          layout scope, next to the other full-viewport overlays. Self-gates on
-          `useIsVoiceRoomVisible()` (the exact complement of the title-bar
-          session pill); the composer's voice bar and transcript render
-          underneath, hidden by it. */}
-      <VoiceRoom />
+      {/* Mobile live-voice room — a full-viewport takeover mounted at layout
+          scope, next to the other full-viewport overlays (the desktop mount is
+          content-scoped inside `<main>` above). Self-gates on
+          `useIsVoiceRoomVisible()`; the composer's voice bar and transcript
+          render underneath, hidden by it. */}
+      {isMobile ? <VoiceRoom variant="fullscreen" /> : null}
       {/* First step of the focused flow: the gcal "Let's chat tomorrow" page,
           shown over the streaming research output until connect/skip. Self-gates
           on `checkinPending`; top-level so it can compose the onboarding screen. */}
