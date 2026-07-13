@@ -56,9 +56,7 @@ describe("getBuilderManagedEnvKeys", () => {
 
   test("gateway hostForwarded equals the three spec host entries", () => {
     const { hostForwarded } = getBuilderManagedEnvKeys("gateway");
-    const sorted = [...hostForwarded].sort((a, b) =>
-      a.name.localeCompare(b.name),
-    );
+    const sorted = [...hostForwarded].sort((a, b) => a.name.localeCompare(b.name));
     expect(sorted).toEqual([
       { name: "VELAY_BASE_URL", hostVar: "VELAY_BASE_URL" },
       { name: "VELLUM_ENVIRONMENT", hostVar: "VELLUM_ENVIRONMENT" },
@@ -78,12 +76,6 @@ describe("getBuilderManagedEnvKeys", () => {
     expect(hostForwarded).toContainEqual({
       name: "VELLUM_PLATFORM_URL",
       hostVar: "VELLUM_PLATFORM_URL",
-    });
-    // Managed speech dials velay from inside the assistant process, so the
-    // relay override must reach this container, not just the gateway.
-    expect(hostForwarded).toContainEqual({
-      name: "VELAY_BASE_URL",
-      hostVar: "VELAY_BASE_URL",
     });
   });
 

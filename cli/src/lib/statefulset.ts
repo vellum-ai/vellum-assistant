@@ -198,7 +198,6 @@ export const DOCKER_STATEFUL_SET_SPEC: DockerStatefulSetSpec = {
         ),
         { kind: "host", name: "VELLUM_ENVIRONMENT" },
         { kind: "host", name: "VELLUM_PLATFORM_URL" },
-        { kind: "host", name: "VELAY_BASE_URL" },
       ],
       volumeMounts: [
         { volumeName: "assistant-workspace",  mountPath: "/workspace" },
