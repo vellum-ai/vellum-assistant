@@ -7,11 +7,14 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
   checkPluginIcons,
   generatePluginIcons,
+  isTransientUpstreamStatus,
   validatePluginIconBytes,
 } from "../generate-plugin-icons.mjs";
 
 // The assistant validator is the source of truth for the byte format; assert
-// the mirrored .mjs validator agrees with it on the same inputs.
+// the mirrored .mjs validator agrees with it on the same inputs. (The transient
+// classifier is covered separately below without a TS import — plugin-marketplace.ts
+// pulls in zod, which this install-free CI job cannot resolve.)
 import { validatePluginIconBytes as tsValidate } from "../../../assistant/src/cli/lib/plugin-icon-file.ts";
 
 /** Build a minimal but structurally valid PNG with the given IHDR dimensions. */
@@ -119,7 +122,47 @@ describe("validatePluginIconBytes mirrors the assistant validator", () => {
   });
 });
 
+describe("isTransientUpstreamStatus mirrors the assistant classifier", () => {
+  // Spec: `isTransientUpstreamStatus` in
+  // assistant/src/cli/lib/plugin-marketplace.ts — 429/5xx always transient; a
+  // 403 is transient only when the rate-limit quota header is exhausted.
+  test("classifies statuses per the TS spec", () => {
+    const res = (status, headers = {}) => ({ status, headers: new Headers(headers) });
+    const cases = [
+      [res(200), false],
+      [res(403), false], // hard authorization failure — quota not exhausted
+      [res(403, { "x-ratelimit-remaining": "0" }), true], // rate-limit signal
+      [res(404), false],
+      [res(408), false],
+      [res(429), true],
+      [res(500), true],
+      [res(503), true],
+    ];
+    for (const [r, expected] of cases) {
+      expect(isTransientUpstreamStatus(r)).toBe(expected);
+    }
+  });
+});
+
 describe("generatePluginIcons (write mode)", () => {
+  test("rejects an oversize Content-Length before buffering the body", async () => {
+    writeMarketplace([pluginEntry("big", "owner/big")]);
+
+    let buffered = false;
+    const fetch = async () => ({
+      ok: true,
+      status: 200,
+      headers: new Headers({ "content-length": String(32 * 1024 + 1) }),
+      arrayBuffer: async () => {
+        buffered = true;
+        return new ArrayBuffer(0);
+      },
+    });
+
+    await expect(run(fetch)).rejects.toThrow(/Aborting icon generation.*over the .*-byte cap/s);
+    expect(buffered).toBe(false);
+  });
+
   test("valid PNG is vendored and indexed with the correct iconVersion", async () => {
     const png = makePng(64, 64);
     writeMarketplace([pluginEntry("good", "owner/good")]);

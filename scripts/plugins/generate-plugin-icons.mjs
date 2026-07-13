@@ -94,7 +94,7 @@ export function validatePluginIconBytes(bytes) {
 }
 
 /** First 16 hex chars of sha256(bytes) — the stable content version. */
-export function iconVersionOf(bytes) {
+function iconVersionOf(bytes) {
   return createHash("sha256").update(bytes).digest("hex").slice(0, 16);
 }
 
@@ -146,7 +146,7 @@ export class IconFetchError extends Error {
  * is always transient; a 403 is a rate-limit signal only when the remaining
  * quota header is exhausted, otherwise it is a hard authorization failure.
  */
-function isTransientUpstreamStatus(res) {
+export function isTransientUpstreamStatus(res) {
   if (res.status === 429 || res.status >= 500) return true;
   if (res.status === 403) {
     return res.headers?.get?.("x-ratelimit-remaining") === "0";
@@ -187,6 +187,17 @@ async function fetchIconBytes(fetchImpl, entry, token) {
       transient: isTransientUpstreamStatus(res),
       status: res.status,
     });
+  }
+  // Reject an oversized icon on its advertised Content-Length before buffering
+  // it — a huge upstream icon.png would otherwise be materialized whole only to
+  // be rejected by the byte cap. A hard (non-transient) failure: the validator
+  // still catches a missing/lying length once the bytes are in memory.
+  const contentLength = Number(res.headers?.get?.("content-length"));
+  if (Number.isFinite(contentLength) && contentLength > MAX_ICON_BYTES) {
+    throw new IconFetchError(
+      `icon.png is ${contentLength} bytes, over the ${MAX_ICON_BYTES}-byte cap`,
+      { transient: false, status: res.status },
+    );
   }
   return Buffer.from(await res.arrayBuffer());
 }
