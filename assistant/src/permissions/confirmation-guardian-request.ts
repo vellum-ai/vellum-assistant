@@ -36,7 +36,7 @@ export async function createGuardianRequestForConfirmation(
   try {
     const [
       { findConversation },
-      { createGuardianRequest },
+      { createGuardianRequest, expireGuardianRequest },
       { redactSecrets },
       { summarizeToolInput },
       { DAEMON_INTERNAL_ASSISTANT_ID },
@@ -86,6 +86,21 @@ export async function createGuardianRequestForConfirmation(
       status: "pending",
       expiresAt: Date.now() + 5 * 60 * 1000,
     });
+
+    // The prompt is actionable before this fire-and-forget create lands, so
+    // an instant in-app decision can resolve the confirmation while the row
+    // is still in flight — its status CAS misses (no row yet) and the create
+    // would strand a pending row for an already-resolved tool call. Reconcile:
+    // if the confirmation is no longer pending, expire the fresh row (the
+    // interaction-bound terminal state) and skip the guardian card fan-out.
+    if (conversation && !conversation.hasPendingConfirmation(msg.requestId)) {
+      await expireGuardianRequest(guardianRequest.id);
+      log.info(
+        { conversationId, requestId: msg.requestId },
+        "Confirmation resolved before its guardian request landed; expired the row",
+      );
+      return;
+    }
 
     if (trustContext && conversation) {
       await bridgeConfirmationRequestToGuardian({
