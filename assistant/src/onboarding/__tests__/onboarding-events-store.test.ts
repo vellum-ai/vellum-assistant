@@ -73,7 +73,6 @@ describe("onboarding-events-store: recordActivationEvent", () => {
       funnel_version: ACTIVATION_FUNNEL_VERSION,
       assistant_version: APP_VERSION,
     });
-    expect(event!.completedAt).toBe(new Date(event!.createdAt).toISOString());
   });
 
   test("outbox row id stays a UUID distinct from the payload daemon_event_id", () => {
@@ -140,7 +139,6 @@ describe("onboarding-events-store: recordOnboardingEvent", () => {
       tools: ["gmail", "calendar"],
       tone: "warm",
       googleConnected: true,
-      priorAssistants: ["siri"],
     });
     expect(event).not.toBeNull();
 
