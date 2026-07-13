@@ -27,19 +27,27 @@ const { createSurfaceMutex, handleSurfaceAction, surfaceProxyResolver } =
 
 import type { SurfaceConversationContext } from "../daemon/conversation-surfaces.js";
 import type { SurfaceType, UiSurfaceShow } from "../daemon/message-protocol.js";
-import { queryUnreportedOnboardingEvents } from "../onboarding/onboarding-events-store.js";
 import { getDb, getTelemetryDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import {
   activationSessions,
-  onboardingEvents,
+  telemetryEvents,
 } from "../persistence/schema/index.js";
 import {
   isActivationSession,
   markActivationSession,
 } from "../plugins/defaults/memory/activation-session-store.js";
+import { queryTelemetryOutboxBatch } from "../telemetry/telemetry-events-outbox.js";
+import type { OnboardingTelemetryEvent } from "../telemetry/types.js";
 
 await initializeDb();
+
+/** Pending onboarding outbox payloads, parsed, in `(created_at, id)` order. */
+function pendingOnboardingPayloads(): OnboardingTelemetryEvent[] {
+  return queryTelemetryOutboxBatch("onboarding", 10).map(
+    (row) => JSON.parse(row.payload) as OnboardingTelemetryEvent,
+  );
+}
 
 interface ProcessMessageCall {
   content: string;
@@ -84,7 +92,7 @@ function makeContext(
 }
 
 function resetTables(): void {
-  getTelemetryDb()!.delete(onboardingEvents).run();
+  getTelemetryDb()!.delete(telemetryEvents).run();
   getDb().delete(activationSessions).run();
 }
 
@@ -131,11 +139,11 @@ describe("activation moment emission from ui_show surface commits", () => {
       selectedIds: ["inbox"],
     });
 
-    const rows = queryUnreportedOnboardingEvents(0, undefined, 10);
+    const rows = pendingOnboardingPayloads();
     expect(rows).toHaveLength(1);
-    expect(rows[0]!.stepName).toBe("activation_moment_2_complete");
-    expect(rows[0]!.stepIndex).toBe(2);
-    expect(rows[0]!.sessionId).toBe("conv-marked");
+    expect(rows[0]!.step_name).toBe("activation_moment_2_complete");
+    expect(rows[0]!.step_index).toBe(2);
+    expect(rows[0]!.session_id).toBe("conv-marked");
   });
 
   test("a queue-rejected commit does NOT emit; the tag survives for the retry", async () => {
@@ -156,7 +164,7 @@ describe("activation moment emission from ui_show surface commits", () => {
       choiceId: "inbox",
       selectedIds: ["inbox"],
     });
-    expect(queryUnreportedOnboardingEvents(0, undefined, 10)).toHaveLength(0);
+    expect(pendingOnboardingPayloads()).toHaveLength(0);
 
     // Retry is accepted → records exactly one row.
     ctx.enqueueMessage = () => ({ queued: false, requestId: "req-ok" });
@@ -164,9 +172,9 @@ describe("activation moment emission from ui_show surface commits", () => {
       choiceId: "inbox",
       selectedIds: ["inbox"],
     });
-    const rows = queryUnreportedOnboardingEvents(0, undefined, 10);
+    const rows = pendingOnboardingPayloads();
     expect(rows).toHaveLength(1);
-    expect(rows[0]!.stepName).toBe("activation_moment_2_complete");
+    expect(rows[0]!.step_name).toBe("activation_moment_2_complete");
   });
 
   test("first_wow_executed records at SHOW time (no commit) and never double-emits", async () => {
@@ -183,10 +191,10 @@ describe("activation moment emission from ui_show surface commits", () => {
     });
 
     // Recorded immediately on render — no handleSurfaceAction commit needed.
-    let rows = queryUnreportedOnboardingEvents(0, undefined, 10);
+    let rows = pendingOnboardingPayloads();
     expect(rows).toHaveLength(1);
-    expect(rows[0]!.stepName).toBe("activation_first_wow_executed");
-    expect(rows[0]!.stepIndex).toBe(4);
+    expect(rows[0]!.step_name).toBe("activation_first_wow_executed");
+    expect(rows[0]!.step_index).toBe(4);
 
     // If the card later receives a commit (e.g. it carried an action), it must
     // NOT double-emit — a show-timing tag is never stored for the commit path.
@@ -194,7 +202,7 @@ describe("activation moment emission from ui_show surface commits", () => {
       (msg): msg is UiSurfaceShow => msg.type === "ui_surface_show",
     ) as UiSurfaceShow;
     await handleSurfaceAction(ctx, showMessage.surfaceId, "expand", {});
-    rows = queryUnreportedOnboardingEvents(0, undefined, 10);
+    rows = pendingOnboardingPayloads();
     expect(rows).toHaveLength(1);
   });
 
@@ -207,7 +215,7 @@ describe("activation moment emission from ui_show surface commits", () => {
       data: { body: "x" },
       activation_moment: "first_wow_executed",
     });
-    expect(queryUnreportedOnboardingEvents(0, undefined, 10)).toHaveLength(0);
+    expect(pendingOnboardingPayloads()).toHaveLength(0);
   });
 
   test("does not forward the daemon-only tag to the client", async () => {
@@ -236,7 +244,7 @@ describe("activation moment emission from ui_show surface commits", () => {
       selectedIds: ["inbox"],
     });
 
-    expect(queryUnreportedOnboardingEvents(0, undefined, 10)).toHaveLength(0);
+    expect(pendingOnboardingPayloads()).toHaveLength(0);
   });
 
   test("tagged surface in an UNMARKED session writes no row", async () => {
@@ -249,7 +257,7 @@ describe("activation moment emission from ui_show surface commits", () => {
       selectedIds: ["inbox"],
     });
 
-    expect(queryUnreportedOnboardingEvents(0, undefined, 10)).toHaveLength(0);
+    expect(pendingOnboardingPayloads()).toHaveLength(0);
   });
 
   test("an invalid activation_moment token is ignored (no row)", async () => {
@@ -263,7 +271,7 @@ describe("activation moment emission from ui_show surface commits", () => {
       selectedIds: ["inbox"],
     });
 
-    expect(queryUnreportedOnboardingEvents(0, undefined, 10)).toHaveLength(0);
+    expect(pendingOnboardingPayloads()).toHaveLength(0);
   });
 
   test("FIX 1: launch_conversation commit on a tagged surface records exactly one row", async () => {
@@ -292,10 +300,10 @@ describe("activation moment emission from ui_show surface commits", () => {
       seedPrompt: "Write a draft",
     });
 
-    const rows = queryUnreportedOnboardingEvents(0, undefined, 10);
+    const rows = pendingOnboardingPayloads();
     expect(rows).toHaveLength(1);
-    expect(rows[0]!.stepName).toBe("activation_moment_1_complete");
-    expect(rows[0]!.sessionId).toBe("conv-launch");
+    expect(rows[0]!.step_name).toBe("activation_moment_1_complete");
+    expect(rows[0]!.session_id).toBe("conv-launch");
   });
 
   test("FIX 2: commit-timing tag survives a surfaceState restore from history", async () => {
@@ -346,10 +354,10 @@ describe("activation moment emission from ui_show surface commits", () => {
       selectedIds: ["inbox"],
     });
 
-    const rows = queryUnreportedOnboardingEvents(0, undefined, 10);
+    const rows = pendingOnboardingPayloads();
     expect(rows).toHaveLength(1);
-    expect(rows[0]!.stepName).toBe("activation_moment_2_complete");
-    expect(rows[0]!.sessionId).toBe("conv-restore");
+    expect(rows[0]!.step_name).toBe("activation_moment_2_complete");
+    expect(rows[0]!.session_id).toBe("conv-restore");
   });
 
   test("intermediate selection_changed does NOT emit; the terminal commit does", async () => {
@@ -381,12 +389,12 @@ describe("activation moment emission from ui_show surface commits", () => {
     await handleSurfaceAction(ctx, surfaceId, "selection_changed", {
       selectedIds: ["r1"],
     });
-    expect(queryUnreportedOnboardingEvents(0, undefined, 10)).toHaveLength(0);
+    expect(pendingOnboardingPayloads()).toHaveLength(0);
 
     // Terminal commit — emits exactly once.
     await handleSurfaceAction(ctx, surfaceId, "run", { selectedIds: ["r1"] });
-    const rows = queryUnreportedOnboardingEvents(0, undefined, 10);
+    const rows = pendingOnboardingPayloads();
     expect(rows).toHaveLength(1);
-    expect(rows[0]!.stepName).toBe("activation_moment_3_complete");
+    expect(rows[0]!.step_name).toBe("activation_moment_3_complete");
   });
 });

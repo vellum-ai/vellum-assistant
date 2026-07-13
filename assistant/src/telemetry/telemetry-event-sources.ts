@@ -9,7 +9,6 @@
  * which sources its reporter instance is constructed with.
  */
 
-import { queryUnreportedOnboardingEvents } from "../onboarding/onboarding-events-store.js";
 import { queryUnreportedLifecycleEvents } from "../persistence/lifecycle-events-store.js";
 import { queryUnreportedUsageEvents } from "../persistence/llm-usage-store.js";
 import {
@@ -20,10 +19,6 @@ import { queryUnreportedAuthFallbackEvents } from "../security/auth-fallback-eve
 import type { UsageAttributionProfileSource } from "../usage/types.js";
 import { getLogger } from "../util/logger.js";
 import { APP_VERSION } from "../version.js";
-import {
-  type ActivationStepName,
-  buildActivationDaemonEventId,
-} from "./activation-funnel.js";
 import { queryUnreportedSkillLoadedEvents } from "./skill-loaded-events-store.js";
 import {
   deleteTelemetryOutboxEvents,
@@ -422,52 +417,9 @@ const lifecycleSource = simpleSource(
   }),
 );
 
-const onboardingSource = simpleSource(
-  "onboarding",
-  (afterCreatedAt, afterId, limit) =>
-    queryUnreportedOnboardingEvents(afterCreatedAt, afterId, limit),
-  (e): TelemetryEvent => ({
-    type: "onboarding",
-    // Wire-only override for activation rows: a deterministic id keyed
-    // on funnel_version/session/step lets dbt collapse a moment that
-    // fires more than once. Key on the ROW's stored `funnelVersion`
-    // (not the binary's current constant) so rows recorded under an
-    // older version — flushed offline or after an upgrade — keep a
-    // stable id and still collapse with already-ingested rows. The
-    // SQLite watermark cursor still uses `e.id`/`e.createdAt`, so this
-    // override is checkpoint-safe.
-    daemon_event_id:
-      e.sessionId && e.stepName && e.funnelVersion
-        ? buildActivationDaemonEventId(
-            e.sessionId,
-            e.stepName as ActivationStepName,
-            e.funnelVersion,
-          )
-        : e.id,
-    recorded_at: e.createdAt,
-    screen: e.screen,
-    ...(e.toolsJson ? { tools: JSON.parse(e.toolsJson) } : {}),
-    ...(e.tasksJson ? { tasks: JSON.parse(e.tasksJson) } : {}),
-    ...(e.tone ? { tone: e.tone } : {}),
-    ...(e.googleConnected != null
-      ? { google_connected: e.googleConnected }
-      : {}),
-    ...(e.googleScopesJson
-      ? { google_scopes: JSON.parse(e.googleScopesJson) }
-      : {}),
-    ...(e.abVariant ? { ab_variant: e.abVariant } : {}),
-    // Activation funnel fields — only present on activation rows.
-    ...(e.sessionId ? { session_id: e.sessionId } : {}),
-    ...(e.stepName ? { step_name: e.stepName } : {}),
-    ...(e.stepIndex != null ? { step_index: e.stepIndex } : {}),
-    ...(e.completedAt ? { completed_at: e.completedAt } : {}),
-    ...(e.funnelVersion ? { funnel_version: e.funnelVersion } : {}),
-    // Onboarding events carry no record-time version column — stamp the
-    // running binary's `APP_VERSION`. Adding one (mirroring
-    // `llm_usage_events`) is a known follow-up.
-    assistant_version: APP_VERSION,
-  }),
-);
+// Onboarding/activation events are outbox-backed: the store builds the wire
+// event (including the activation daemon_event_id override) at record time.
+const onboardingSource = outboxSource("onboarding");
 
 const authFallbackSource = simpleSource(
   "auth_fallback",
