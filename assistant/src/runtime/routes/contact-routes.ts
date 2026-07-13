@@ -17,6 +17,7 @@ import type { ContactRead } from "@vellumai/gateway-client/gateway-ipc-contracts
 import {
   GetContactIpcResponseSchema,
   ListContactsIpcResponseSchema,
+  MergeContactsIpcResponseSchema,
   UpdateContactChannelIpcResponseSchema,
 } from "@vellumai/gateway-client/gateway-ipc-contracts";
 import { IpcCallError } from "@vellumai/gateway-client/ipc-client";
@@ -30,11 +31,7 @@ import {
   redeemInviteByVoiceCode,
   revokeInvite,
 } from "../../channels/gateway-invites.js";
-import {
-  listContacts,
-  mergeContacts,
-  searchContacts,
-} from "../../contacts/contact-store.js";
+import { listContacts, searchContacts } from "../../contacts/contact-store.js";
 import { getGuardianContactIds } from "../../contacts/guardian-contact-reader.js";
 import type {
   ContactChannel,
@@ -950,7 +947,7 @@ export const ROUTES: RouteDefinition[] = [
     }),
     responseBody: z.object({
       ok: z.boolean(),
-      contact: contactSchema.describe("Merged contact"),
+      contact: contactSchema.optional().describe("Merged (surviving) contact"),
     }),
     handler: (args: RouteHandlerArgs) => handleMergeContactsRoute(args),
   },
@@ -985,49 +982,32 @@ export const ROUTES: RouteDefinition[] = [
 // ---------------------------------------------------------------------------
 
 /**
- * DIVERGENCE RISK — daemon-local merge, NOT the canonical path.
+ * Relay the contact merge to the gateway-native handler.
  *
- * This executes the LOCAL `mergeContacts` (assistant DB only). The canonical
- * merge is the gateway control plane (POST /v1/contacts/merge →
- * contacts-control-plane-proxy.handleMergeContacts), which merges the gateway
- * DB — the ACL source of truth — and mirrors here via
- * `contacts_mirror_merge_contact`. A merge through THIS route leaves the
- * gateway DB untouched: the donor contact and its ACL channel rows survive
- * gateway-side while the assistant mirror deletes them. Gateway-fronted
- * clients never reach this route (the control-plane route-match intercepts
- * the path), but direct daemon callers — notably the bundled `contact_merge`
- * tool — do.
- *
- * Not converted to a relay yet because no gateway IPC/SDK merge surface
- * exists (unlike `update_contact_channel` below); relaying requires new
- * gateway-client contracts + a gateway IPC route + a core extraction of the
- * HTTP handler. Until then, prefer the gateway route wherever reachable.
+ * The gateway DB is the source of truth: it owns validation (self-merge,
+ * not-found, guardian donor), the merge transaction, the assistant-DB mirror
+ * (`contacts_mirror_merge_contact`), and the `contacts_changed` emit. This
+ * daemon handler writes NOTHING to the assistant DB directly — it forwards
+ * `{ keepId, mergeId }` and returns the gateway response verbatim. No
+ * fallback: an unexpected relay failure surfaces as an error (never a silent
+ * second write).
  */
-async function handleMergeContactsRoute(args: RouteHandlerArgs) {
-  const { body } = args;
-  const keepId = body?.keepId as string | undefined;
-  const mergeId = body?.mergeId as string | undefined;
+export async function handleMergeContactsRoute(args: RouteHandlerArgs) {
+  const keepId = args.body?.keepId as string | undefined;
+  const mergeId = args.body?.mergeId as string | undefined;
 
   if (!keepId || !mergeId) {
     throw new BadRequestError("keepId and mergeId are required");
   }
 
   try {
-    const contact = mergeContacts(keepId, mergeId);
-    // Daemon-native read (assistant DB): telemetry is gateway-owned, so overlay
-    // it (fail-soft to null) and derive role from the guardian-id set. Both hit
-    // the gateway and are independent — run them concurrently.
-    const [[hydrated], guardianIds] = await Promise.all([
-      hydrateTelemetryFromGateway([contact]),
-      getGuardianContactIds(),
-    ]);
-    return {
-      ok: true,
-      contact: prepareContactResponse(hydrated, guardianIds),
-    };
+    const result = await ipcCallPersistent("merge_contacts", {
+      keepId,
+      mergeId,
+    });
+    return MergeContactsIpcResponseSchema.parse(result);
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    throw new BadRequestError(message);
+    rethrowGatewayError(err);
   }
 }
 
