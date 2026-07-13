@@ -254,13 +254,27 @@ export class VellumManagedRealtimeTranscriber implements StreamingTranscriber {
         if (this.stopping) {
           return;
         }
-        this.emit({
-          type: "error",
-          category: "provider-error",
-          message: `Managed speech relay re-dial failed after the session cap: ${
-            err instanceof Error ? err.message : String(err)
-          }`,
-        });
+        // Same diagnosis as start(): a rejected upgrade hides the relay's
+        // {code, detail} — mid-call credit exhaustion or a revoked
+        // connection must surface with its mapped message, not a generic
+        // transport error.
+        const rejection = await probeVelayRejection(this.probeUrl());
+        if (rejection) {
+          const mapped = mapVelayError(rejection);
+          this.emit({
+            type: "error",
+            category: mapped.category,
+            message: mapped.message,
+          });
+        } else {
+          this.emit({
+            type: "error",
+            category: "provider-error",
+            message: `Managed speech relay re-dial failed after the session cap: ${
+              err instanceof Error ? err.message : String(err)
+            }`,
+          });
+        }
         this.emitClosedOnce();
       }
     })();

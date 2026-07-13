@@ -105,6 +105,12 @@ export function mapVelayError(error: VelayErrorInfo): {
         message:
           "Managed speech needs a working Vellum platform connection — reconnect with 'assistant platform connect'.",
       };
+    case "invalid_token":
+      return {
+        category: "auth",
+        message:
+          "The gateway rejected the daemon's service token for managed speech — the daemon and gateway may be out of sync; restart the assistant services.",
+      };
     case "insufficient_balance":
       return {
         category: "provider-error",

@@ -272,6 +272,33 @@ describe("VellumManagedRealtimeTranscriber", () => {
     expect(events).toEqual([{ type: "finalized" }]);
   });
 
+  test("a rejected cap re-dial surfaces the relay's mapped error via the probe", async () => {
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({ code: "insufficient_balance", detail: "empty" }),
+        { status: 402 },
+      )) as unknown as typeof fetch;
+    const { events } = await startAdapter();
+
+    sockets[0]!.simulateMessage(velayErrorFrame("session_duration_exceeded"));
+    sockets[0]!.simulateClose(1000, "session_duration_exceeded");
+    await tick();
+
+    // The re-dial's handshake is rejected (credits ran out mid-call).
+    sockets[1]!.simulateClose(1006, "");
+    await tick();
+    await tick();
+
+    expect(events).toEqual([
+      expect.objectContaining({
+        type: "error",
+        category: "provider-error",
+        message: expect.stringContaining("credits"),
+      }),
+      { type: "closed" },
+    ]);
+  });
+
   test("stop during the initial dial tears down the session it raced", async () => {
     const adapter = new VellumManagedRealtimeTranscriber(CONNECTION);
     const { events, onEvent } = collector();

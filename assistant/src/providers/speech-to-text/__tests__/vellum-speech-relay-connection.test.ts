@@ -61,6 +61,10 @@ describe("mapVelayError", () => {
       category: "auth",
       message: expect.stringContaining("platform connect"),
     });
+    expect(mapVelayError({ code: "invalid_token" })).toMatchObject({
+      category: "auth",
+      message: expect.stringContaining("service token"),
+    });
     expect(mapVelayError({ code: "insufficient_balance" })).toMatchObject({
       category: "provider-error",
       message: expect.stringContaining("credits"),
