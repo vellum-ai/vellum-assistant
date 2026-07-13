@@ -73,10 +73,15 @@ describe("merge contacts relay", () => {
     contactStoreWriteGuard.mockClear();
   });
 
-  test("forwards { keepId, mergeId } unchanged and returns the gateway response verbatim", async () => {
+  test("forwards { keepId, mergeId } unchanged and returns the gateway contact", async () => {
     const gatewayResponse = {
       ok: true as const,
-      contact: { id: "ct_keep", displayName: "Alice", channels: [] },
+      contact: {
+        id: "ct_keep",
+        displayName: "Alice",
+        contactType: "human",
+        channels: [],
+      },
     };
     ipcResult = gatewayResponse;
 
@@ -91,9 +96,29 @@ describe("merge contacts relay", () => {
         timeoutMs: undefined,
       },
     ]);
-    expect(result).toEqual(gatewayResponse);
+    expect(result as unknown).toEqual(gatewayResponse);
     // Must NOT write the assistant DB directly.
     expect(contactStoreWriteGuard).not.toHaveBeenCalled();
+  });
+
+  test("coerces degraded assistant-owned fields to the contact schema (null contactType → human)", async () => {
+    ipcResult = {
+      ok: true as const,
+      // A mirror soft-fail on the gateway leaves assistant-owned info fields
+      // null; the relay must still satisfy the route's non-null contactType.
+      contact: {
+        id: "ct_keep",
+        displayName: "Alice",
+        contactType: null,
+        channels: [{ id: "ch_1", type: "telegram", address: "alice" }],
+      },
+    };
+
+    const result = (await handleMergeContactsRoute({
+      body: { keepId: "ct_keep", mergeId: "ct_merge" },
+    })) as { ok: boolean; contact?: { contactType?: string } };
+
+    expect(result.contact?.contactType).toBe("human");
   });
 
   test("missing keepId/mergeId is rejected before any relay call", async () => {

@@ -460,9 +460,7 @@ export async function handleCreateInvite({ body = {} }: RouteHandlerArgs) {
       note: body.note as string | undefined,
       maxUses: body.maxUses as number | undefined,
       expiresInMs: body.expiresInMs as number | undefined,
-      expectedExternalUserId: body.expectedExternalUserId as
-        | string
-        | undefined,
+      expectedExternalUserId: body.expectedExternalUserId as string | undefined,
       ...(guardianName ? { guardianName } : {}),
       ...(typeof body.sourceConversationId === "string"
         ? { sourceConversationId: body.sourceConversationId }
@@ -743,7 +741,10 @@ export const ROUTES: RouteDefinition[] = [
         .string()
         .optional()
         .describe("Invite token (token-based redemption)"),
-      code: z.string().optional().describe("Voice code (voice-code redemption)"),
+      code: z
+        .string()
+        .optional()
+        .describe("Voice code (voice-code redemption)"),
       callerExternalUserId: z
         .string()
         .optional()
@@ -1005,7 +1006,18 @@ export async function handleMergeContactsRoute(args: RouteHandlerArgs) {
       keepId,
       mergeId,
     });
-    return MergeContactsIpcResponseSchema.parse(result);
+    const parsed = MergeContactsIpcResponseSchema.parse(result);
+    // Relayed write: coerce degraded assistant-owned fields (a null
+    // contactType under a mirror soft-fail) back to the route's contact
+    // schema, like the list/get relays.
+    return {
+      ok: parsed.ok,
+      contact: parsed.contact
+        ? prepareContactResponse(
+            parsed.contact as unknown as PreparableContact & { role: string },
+          )
+        : undefined,
+    };
   } catch (err) {
     rethrowGatewayError(err);
   }
