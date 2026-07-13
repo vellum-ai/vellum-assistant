@@ -118,6 +118,9 @@ export interface GuardianReplyContext {
   emissionContext?: ResolverEmissionContext;
 }
 
+// The "canonical_*" result-type strings are frozen: they travel in HTTP
+// responses (the `canonicalRouter` field) and log events that clients and
+// dashboards already match on.
 export type GuardianReplyResultType =
   | "canonical_decision_applied"
   | "canonical_decision_stale"
@@ -140,7 +143,7 @@ export interface GuardianReplyResult {
   /** The guardian request ID that was targeted (if any). */
   requestId?: string;
   /** Detailed result from the decision primitive (when a decision was attempted). */
-  canonicalResult?: GuardianDecisionResult;
+  decisionResult?: GuardianDecisionResult;
   /**
    * When true, the caller should skip legacy approval interception for this
    * message. Set by the invite handoff bypass so that "open invite flow"
@@ -689,8 +692,7 @@ export async function routeGuardianReply(
     // but preserve resolver-authored replies (for example verification codes)
     // and explicit resolver-failure text.
     const hasResolverReplyText = Boolean(
-      result.canonicalResult?.applied &&
-      result.canonicalResult.resolverReplyText,
+      result.decisionResult?.applied && result.decisionResult.resolverReplyText,
     );
     if (
       engineResult.replyText &&
@@ -722,7 +724,7 @@ async function applyDecision(
   channelDeliveryContext?: ChannelDeliveryContext,
   emissionContext?: ResolverEmissionContext,
 ): Promise<GuardianReplyResult> {
-  const canonicalResult = await applyGuardianDecision({
+  const decisionResult = await applyGuardianDecision({
     requestId,
     action,
     actorContext: actor,
@@ -731,14 +733,14 @@ async function applyDecision(
     emissionContext,
   });
 
-  if (canonicalResult.applied) {
-    if (canonicalResult.resolverFailed) {
+  if (decisionResult.applied) {
+    if (decisionResult.resolverFailed) {
       log.warn(
         {
           event: "router_resolver_failed",
           requestId,
           action,
-          reason: canonicalResult.resolverFailureReason,
+          reason: decisionResult.resolverFailureReason,
         },
         "Guardian reply router: resolver failed to execute side effects",
       );
@@ -747,9 +749,9 @@ async function applyDecision(
         decisionApplied: false,
         consumed: true,
         type: "canonical_resolver_failed",
-        replyText: `Decision recorded but could not be completed: ${canonicalResult.resolverFailureReason ?? "unknown error"}. Please try again.`,
+        replyText: `Decision recorded but could not be completed: ${decisionResult.resolverFailureReason ?? "unknown error"}. Please try again.`,
         requestId,
-        canonicalResult,
+        decisionResult,
       };
     }
 
@@ -758,7 +760,7 @@ async function applyDecision(
         event: "router_decision_applied",
         requestId,
         action,
-        grantMinted: canonicalResult.grantMinted,
+        grantMinted: decisionResult.grantMinted,
       },
       "Guardian reply router applied guardian decision",
     );
@@ -767,11 +769,11 @@ async function applyDecision(
       decisionApplied: true,
       consumed: true,
       type: "canonical_decision_applied",
-      ...(canonicalResult.resolverReplyText
-        ? { replyText: canonicalResult.resolverReplyText }
+      ...(decisionResult.resolverReplyText
+        ? { replyText: decisionResult.resolverReplyText }
         : {}),
       requestId,
-      canonicalResult,
+      decisionResult,
     };
   }
 
@@ -780,14 +782,14 @@ async function applyDecision(
       event: "router_decision_not_applied",
       requestId,
       action,
-      reason: canonicalResult.reason,
+      reason: decisionResult.reason,
     },
-    `Guardian reply router: decision not applied (${canonicalResult.reason})`,
+    `Guardian reply router: decision not applied (${decisionResult.reason})`,
   );
 
   // When the guardian request doesn't exist, allow the message to fall
   // through so the legacy handleApprovalInterception handler can process it.
-  if (canonicalResult.reason === "not_found") {
+  if (decisionResult.reason === "not_found") {
     return notConsumed();
   }
 
@@ -798,9 +800,9 @@ async function applyDecision(
     consumed: true,
     type: "canonical_decision_stale",
     requestId,
-    canonicalResult,
+    decisionResult,
     replyText: failureReplyText(
-      canonicalResult.reason,
+      decisionResult.reason,
       request?.requestCode,
       request ?? undefined,
     ),
