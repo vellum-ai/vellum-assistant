@@ -39,14 +39,19 @@ function countByConfidence(
  * `onboarding` events, which don't set it) so pending rows redact on
  * conversation deletion via an indexed delete.
  *
- * `daemon_event_id` is a wire-only override keyed on the conversation id
- * (falling back to the row id when absent), the same collapse-on-dbt
- * pattern `buildActivationDaemonEventId` uses for activation-funnel rows:
- * a page refresh mid-poll can re-attach to the same research conversation
- * and re-report it (the client's in-memory "already sent" guard resets on
- * remount), so a stable id lets downstream analytics collapse the retry
- * onto the original attempt instead of double-counting it. The outbox row
- * id stays `id`, so flush acks are unaffected.
+ * `daemon_event_id` is a wire-only override keyed on the conversation id,
+ * the same collapse-on-dbt pattern `buildActivationDaemonEventId` uses for
+ * activation-funnel rows: a page refresh mid-poll can re-attach to the same
+ * research conversation and re-report it (the client's in-memory "already
+ * sent" guard resets on remount), so a stable id lets downstream analytics
+ * collapse the retry onto the original attempt instead of double-counting
+ * it. Scoped to `status: "done"` only: a conversation that timed out client-
+ * side is still resumable and may go on to genuinely complete later, and
+ * that eventual success must NOT collapse onto (and get masked by) its own
+ * earlier provisional timeout report — so a timeout always gets a fresh id
+ * (falling back to the row id, same as when there's no conversation at
+ * all). The outbox row id stays `id` either way, so flush acks are
+ * unaffected.
  *
  * Returns null when usage data collection is disabled or the telemetry
  * database is unavailable.
@@ -58,9 +63,10 @@ export function recordOnboardingResearchEvent(
     "onboarding_research",
     (id, createdAt): OnboardingResearchTelemetryEvent => ({
       type: "onboarding_research",
-      daemon_event_id: params.conversationId
-        ? `onboarding_research:${params.conversationId}`
-        : id,
+      daemon_event_id:
+        params.status === "done" && params.conversationId
+          ? `onboarding_research:${params.conversationId}`
+          : id,
       recorded_at: createdAt,
       conversation_id: params.conversationId,
       status: params.status,

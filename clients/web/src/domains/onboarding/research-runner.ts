@@ -572,11 +572,14 @@ export function useResearchRunner(): UseResearchRunner {
           // Last-known partial result, so a poll-ceiling timeout (the loop
           // exits without ever seeing `complete`) can still report what had
           // been parsed so far instead of the turn silently never being
-          // reported at all.
+          // reported at all. `lastInstalledPlugins` seeds from the
+          // deterministic floor (already fired above, before any poll tick)
+          // rather than `[]`, so a timeout on a turn that never produced any
+          // assistant text doesn't undercount installs that already happened.
           let lastClaims: ResearchFact[] = [];
           let lastSuggestions: ResearchSuggestion[] = [];
           let lastPlugins: string[] = [];
-          let lastInstalledPlugins: string[] = [];
+          let lastInstalledPlugins: string[] = deterministicPlugins;
           // The model's `plugins` picks fire as soon as its array closes — emitted
           // first in the reply, so this lands early while claims/suggestions are
           // still streaming. These union on top of the deterministic floor already

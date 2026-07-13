@@ -159,4 +159,30 @@ describe("onboarding-research-events-store", () => {
       "onboarding_research:conv-resume",
     );
   });
+
+  test("a timeout report gets a fresh id, not the conversation's collapse id, so it can never mask a later genuine success", () => {
+    recordOnboardingResearchEvent({
+      conversationId: "conv-slow",
+      status: "error",
+      claims: [],
+      suggestions: [],
+      plugins: [],
+      installedPlugins: [],
+    });
+    recordOnboardingResearchEvent({
+      conversationId: "conv-slow",
+      status: "done",
+      claims: [],
+      suggestions: [],
+      plugins: [],
+      installedPlugins: [],
+    });
+
+    const rows = pendingRows();
+    expect(rows).toHaveLength(2);
+    const errorRow = rows.find((r) => r.payload.status === "error")!;
+    const doneRow = rows.find((r) => r.payload.status === "done")!;
+    expect(errorRow.payload.daemon_event_id).toBe(errorRow.id);
+    expect(doneRow.payload.daemon_event_id).toBe("onboarding_research:conv-slow");
+  });
 });
