@@ -26,6 +26,11 @@ import {
 } from "./activation-funnel.js";
 import { queryUnreportedConfigSettingEvents } from "./config-setting-events-store.js";
 import { queryUnreportedSkillLoadedEvents } from "./skill-loaded-events-store.js";
+import {
+  deleteTelemetryOutboxEvents,
+  discardPendingTelemetryOutboxEvents,
+  queryTelemetryOutboxBatch,
+} from "./telemetry-events-outbox.js";
 import { queryUnreportedToolExecutedEvents } from "./tool-executed-events-store.js";
 import { isDiagnosticsConsentVersionEligible } from "./trace-collection-policy.js";
 import { queryUnreportedTurnEvents } from "./turn-events-store.js";
@@ -127,6 +132,60 @@ function simpleSource<Row extends { id: string; createdAt: number }>(
         lastCursor: last ? { createdAt: last.createdAt, id: last.id } : null,
         fullBatch: rows.length === limit,
       };
+    },
+  };
+}
+
+/**
+ * Build an ack-mode source over the generic `telemetry_events` outbox for one
+ * event name. `collect` ignores the cursor args — acknowledged rows are
+ * deleted, so the head of the queue is always the next batch — and parses
+ * each stored payload into its wire event. A row whose payload does not parse
+ * to an object is purged immediately with a warn: an early empty-batch return
+ * in the reporter would otherwise strand it at the head of the queue forever.
+ */
+export function outboxSource(name: string): TelemetryEventSource {
+  return {
+    id: name,
+    collect(_afterCreatedAt, _afterId, limit) {
+      const rows = queryTelemetryOutboxBatch(name, limit);
+      const events: TelemetryEvent[] = [];
+      const rowIds: string[] = [];
+      const corruptIds: string[] = [];
+      for (const row of rows) {
+        let event: TelemetryEvent | null = null;
+        try {
+          const parsed = JSON.parse(row.payload) as unknown;
+          if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+            event = parsed as TelemetryEvent;
+          }
+        } catch {
+          // Fall through to the purge below.
+        }
+        if (event) {
+          events.push(event);
+          rowIds.push(row.id);
+        } else {
+          corruptIds.push(row.id);
+          log.warn(
+            { name, rowId: row.id, payload: row.payload.slice(0, 200) },
+            "Telemetry outbox: unparseable payload — purging row",
+          );
+        }
+      }
+      if (corruptIds.length > 0) {
+        deleteTelemetryOutboxEvents(corruptIds);
+      }
+      return {
+        events,
+        rowIds,
+        lastCursor: null,
+        fullBatch: rows.length === limit,
+      };
+    },
+    ack: {
+      acknowledge: (rowIds) => deleteTelemetryOutboxEvents(rowIds),
+      discardPending: () => discardPendingTelemetryOutboxEvents(name),
     },
   };
 }
