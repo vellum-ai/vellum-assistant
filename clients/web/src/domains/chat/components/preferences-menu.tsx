@@ -126,7 +126,10 @@ export function PreferencesMenu({
             side="top"
             align="start"
             sideOffset={8}
-            onOpenAutoFocus={(event) => event.preventDefault()}
+            onOpenAutoFocus={(event) => {
+              event.preventDefault();
+              event.currentTarget.focus();
+            }}
             className="w-64 rounded-lg p-4"
           >
             {content}
