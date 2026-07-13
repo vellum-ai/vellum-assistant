@@ -1,5 +1,6 @@
-import { beforeEach, describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, spyOn, test } from "bun:test";
 
+import * as dbConnection from "../persistence/db-connection.js";
 import { getTelemetryDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { telemetryEvents } from "../persistence/schema/index.js";
@@ -7,6 +8,7 @@ import {
   deleteTelemetryOutboxEvents,
   discardPendingTelemetryOutboxEvents,
   insertTelemetryOutboxEvent,
+  insertTelemetryOutboxEvents,
   queryTelemetryOutboxBatch,
 } from "./telemetry-events-outbox.js";
 import type { LifecycleTelemetryEvent } from "./types.js";
@@ -57,6 +59,85 @@ describe("telemetry-events-outbox", () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ id: "evt-1", createdAt: 1000 });
     expect(JSON.parse(rows[0]!.payload)).toEqual(lifecycleEvent("evt-1", 1000));
+  });
+
+  test("batch insert lands every row", () => {
+    const inserted = insertTelemetryOutboxEvents([
+      {
+        id: "evt-1",
+        name: "lifecycle",
+        createdAt: 1000,
+        event: lifecycleEvent("evt-1", 1000),
+      },
+      {
+        id: "evt-2",
+        name: "lifecycle",
+        createdAt: 2000,
+        event: lifecycleEvent("evt-2", 2000),
+      },
+      {
+        id: "evt-3",
+        name: "lifecycle",
+        createdAt: 3000,
+        event: lifecycleEvent("evt-3", 3000),
+      },
+    ]);
+    expect(inserted).toBe(true);
+    expect(allIds()).toEqual(["evt-1", "evt-2", "evt-3"]);
+  });
+
+  test("batch insert is all-or-nothing on a mid-batch failure", () => {
+    insert("evt-dup", 500);
+
+    expect(() =>
+      insertTelemetryOutboxEvents([
+        {
+          id: "evt-new-1",
+          name: "lifecycle",
+          createdAt: 1000,
+          event: lifecycleEvent("evt-new-1", 1000),
+        },
+        {
+          id: "evt-dup",
+          name: "lifecycle",
+          createdAt: 2000,
+          event: lifecycleEvent("evt-dup", 2000),
+        },
+        {
+          id: "evt-new-2",
+          name: "lifecycle",
+          createdAt: 3000,
+          event: lifecycleEvent("evt-new-2", 3000),
+        },
+      ]),
+    ).toThrow();
+
+    // The primary-key conflict aborts the whole statement — no partial batch.
+    expect(allIds()).toEqual(["evt-dup"]);
+  });
+
+  test("batch insert returns false when the telemetry DB is unavailable", () => {
+    const spy = spyOn(dbConnection, "getTelemetryDb").mockReturnValue(null);
+    try {
+      expect(
+        insertTelemetryOutboxEvents([
+          {
+            id: "evt-1",
+            name: "lifecycle",
+            createdAt: 1000,
+            event: lifecycleEvent("evt-1", 1000),
+          },
+        ]),
+      ).toBe(false);
+    } finally {
+      spy.mockRestore();
+    }
+    expect(allIds()).toEqual([]);
+  });
+
+  test("empty batch is a successful no-op", () => {
+    expect(insertTelemetryOutboxEvents([])).toBe(true);
+    expect(allIds()).toEqual([]);
   });
 
   test("conversation_id persists in its dedicated column", () => {

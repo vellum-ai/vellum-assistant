@@ -25,12 +25,6 @@ function pendingRows() {
   return queryTelemetryOutboxBatch("auth_fallback", 100);
 }
 
-function pendingPayloads(): AuthFallbackTelemetryEvent[] {
-  return pendingRows().map(
-    (r) => JSON.parse(r.payload) as AuthFallbackTelemetryEvent,
-  );
-}
-
 const SAMPLE: AuthFallbackCount[] = [
   {
     guard: "edge",
@@ -99,31 +93,15 @@ describe("auth-fallback-events-store", () => {
     expect(pendingRows().length).toBe(0);
   });
 
-  test("returns 0 when the telemetry DB is unavailable", () => {
+  test("records all-or-nothing: db unavailable returns 0 with no rows", () => {
     const spy = spyOn(dbConnection, "getTelemetryDb").mockReturnValue(null);
     try {
       expect(recordAuthFallbackCounts(1000, 2000, SAMPLE)).toBe(0);
     } finally {
       spy.mockRestore();
     }
+    // No partial batch: the gateway's `recorded === 0` retry contract means
+    // any committed remnant would later double-count.
     expect(pendingRows().length).toBe(0);
-  });
-
-  test("returns the partial count when the telemetry DB vanishes mid-batch", () => {
-    const realDb = dbConnection.getTelemetryDb();
-    // Call order: the store's own upfront check, then one call per insert.
-    // Let the check and the first insert see the DB, then lose it.
-    const spy = spyOn(dbConnection, "getTelemetryDb")
-      .mockReturnValueOnce(realDb)
-      .mockReturnValueOnce(realDb)
-      .mockReturnValue(null);
-    try {
-      expect(recordAuthFallbackCounts(1000, 2000, SAMPLE)).toBe(1);
-    } finally {
-      spy.mockRestore();
-    }
-    const payloads = pendingPayloads();
-    expect(payloads.length).toBe(1);
-    expect(payloads[0].guard).toBe("edge");
   });
 });

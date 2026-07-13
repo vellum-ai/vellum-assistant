@@ -20,31 +20,53 @@ export interface TelemetryOutboxRow {
   payload: string;
 }
 
-/**
- * Insert one pending telemetry event. Returns false when the telemetry DB is
- * unavailable (degraded mode), true once the row is inserted.
- */
-export function insertTelemetryOutboxEvent(row: {
+/** One pending telemetry event to insert; `event` is the wire payload. */
+export interface TelemetryOutboxInsert {
   id: string;
   name: string;
   createdAt: number;
   conversationId?: string | null;
   event: TelemetryEvent;
-}): boolean {
+}
+
+/**
+ * Insert a batch of pending telemetry events as one multi-row INSERT —
+ * all-or-nothing, so a mid-batch failure never leaves a partial batch
+ * committed. Returns false when the telemetry DB is unavailable (degraded
+ * mode), true once every row is inserted (or the batch is empty).
+ */
+export function insertTelemetryOutboxEvents(
+  rows: TelemetryOutboxInsert[],
+): boolean {
   const db = getTelemetryDb();
   if (!db) {
     return false;
   }
+  if (rows.length === 0) {
+    return true;
+  }
   db.insert(telemetryEvents)
-    .values({
-      id: row.id,
-      name: row.name,
-      createdAt: row.createdAt,
-      conversationId: row.conversationId ?? null,
-      payload: JSON.stringify(row.event),
-    })
+    .values(
+      rows.map((row) => ({
+        id: row.id,
+        name: row.name,
+        createdAt: row.createdAt,
+        conversationId: row.conversationId ?? null,
+        payload: JSON.stringify(row.event),
+      })),
+    )
     .run();
   return true;
+}
+
+/**
+ * Insert one pending telemetry event. Returns false when the telemetry DB is
+ * unavailable (degraded mode), true once the row is inserted.
+ */
+export function insertTelemetryOutboxEvent(
+  row: TelemetryOutboxInsert,
+): boolean {
+  return insertTelemetryOutboxEvents([row]);
 }
 
 /**
