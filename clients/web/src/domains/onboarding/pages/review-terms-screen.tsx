@@ -81,15 +81,17 @@ export function ReviewTermsScreen() {
       : "We've updated our terms. Please review and accept to continue.";
 
   const onContinue = useCallback(() => {
-    // Only persist analytics when its toggle was actually on screen — a user
+    // Only persist a share toggle when it was actually on screen — a user
     // routed here for other stale sections must not silently grant (or
-    // re-stamp) analytics consent; the server keeps null until they choose.
+    // re-stamp) consent for a toggle they never saw; the server keeps null
+    // until they choose. A toggle that WAS on screen persists on Continue
+    // even if untouched — shown + acknowledged is an explicit choice.
     saveConsent({
       userId,
       tos: tosAccepted,
       privacy: privacyConsent,
       shareAnalytics: showAnalytics ? shareAnalytics : null,
-      shareDiagnostics,
+      shareDiagnostics: showDiagnostics ? shareDiagnostics : null,
       hasPlatformSession,
     });
 
@@ -103,6 +105,7 @@ export function ReviewTermsScreen() {
     shareAnalytics,
     shareDiagnostics,
     showAnalytics,
+    showDiagnostics,
     tosAccepted,
     userId,
   ]);

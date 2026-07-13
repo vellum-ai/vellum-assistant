@@ -9,7 +9,8 @@ import { isConfirmedPlatformSession } from "@/stores/session-status";
  * `sentry-control`, which imports the flavor — that would be a cycle.
  *
  * Grants only on a probe-confirmed live platform session AND the effective
- * diagnostics-reporting gate (preference && version-current). See
+ * diagnostics-reporting gate. Diagnostics is opt-out, so an absent device gate
+ * (never resolved) reads as open — only an explicit opt-out closes it. See
  * `sentry-control.ts` for the full rationale.
  */
 export function diagnosticsConsentGranted(): boolean {
@@ -20,5 +21,5 @@ export function diagnosticsConsentGranted(): boolean {
   ) {
     return false;
   }
-  return getDeviceBool("diagnosticsReporting", false);
+  return getDeviceBool("diagnosticsReporting", true);
 }

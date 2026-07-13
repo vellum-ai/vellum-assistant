@@ -3,8 +3,8 @@
  * backstop, so a platform-side revoke is picked up without a fresh login.
  *
  * Everything routes through {@link applyResolvedDiagnosticsConsent} — the single
- * version-aware, direction-asymmetric chokepoint that writes the saved
- * preference, the effective Sentry gate, and the Electron main-process mirror.
+ * direction-asymmetric chokepoint that writes the saved preference, the
+ * effective Sentry gate, and the Electron main-process mirror.
  * A failed/timed-out fetch is swallowed and leaves all diagnostics state
  * unchanged (never flips the gate on or off).
  */
@@ -42,16 +42,13 @@ export async function refreshDiagnosticsConsent(): Promise<void> {
     if (useAuthStore.getState().user?.id !== userIdBefore) return;
     const resolved = resolveServerConsent(consent);
     // An empty server record is not authoritative: a platform-side revoke
-    // always arrives as a real record (share_diagnostics=false or a stale
-    // version). Closing the gate here would disable Sentry for a device-
-    // confirmed opted-in user whose server record is just missing (backfill
-    // pending/failed) until a full auth resync. Leave state unchanged, matching
-    // the failed-fetch posture; the auth resync owns the device-fallback reopen.
+    // always arrives as a real record (share_diagnostics=false). Leave state
+    // unchanged, matching the failed-fetch posture; the auth resync owns the
+    // no-record path.
     if (!resolved.hasServerRecord) return;
     applyResolvedDiagnosticsConsent(
       {
         shareDiagnostics: resolved.shareDiagnostics,
-        diagnosticsVersionCurrent: resolved.diagnosticsCurrent,
         hasServerRecord: resolved.hasServerRecord,
       },
       useOnboardingStore.getState().setShareDiagnostics,

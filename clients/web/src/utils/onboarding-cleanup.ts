@@ -226,20 +226,22 @@ export function resolveServerConsent(
       versionIsCurrent(consent.ai_data_sharing_accepted_version, PRIVACY_CONSENT_VERSION),
     shareAnalytics: consent.share_analytics,
     shareDiagnostics: consent.share_diagnostics,
-    // Analytics re-review is owed only for an explicit choice on record.
-    // Onboarding doesn't show the analytics toggle, so `share_analytics`
-    // stays null until the user opts in via settings or review-terms — null
-    // reads as "nothing to re-review", not as stale consent.
+    // Share-toggle re-review is owed only for an explicit choice on record.
+    // Onboarding shows neither toggle, so both stay null until the user
+    // makes a choice via settings or review-terms — null reads as "nothing
+    // to re-review", not as stale consent.
     analyticsCurrent:
       consent.share_analytics === null ||
       versionIsCurrent(
         consent.share_analytics_accepted_version,
         ANALYTICS_CONSENT_VERSION,
       ),
-    diagnosticsCurrent: versionIsCurrent(
-      consent.share_diagnostics_accepted_version,
-      DIAGNOSTICS_CONSENT_VERSION,
-    ),
+    diagnosticsCurrent:
+      consent.share_diagnostics === null ||
+      versionIsCurrent(
+        consent.share_diagnostics_accepted_version,
+        DIAGNOSTICS_CONSENT_VERSION,
+      ),
     hasServerRecord,
   };
 }
@@ -253,14 +255,16 @@ export function saveConsent(opts: {
   tos: boolean;
   privacy: boolean;
   /**
-   * Null when the analytics toggle wasn't shown on the saving surface. No
-   * explicit choice is recorded anywhere — the server keeps
-   * `share_analytics` null and no versioned device ack is stamped — but the
-   * in-memory currency flag is still set: never-asked consent has nothing to
-   * re-review, so it must not bounce the user to review-terms.
+   * Null when the toggle wasn't shown on the saving surface. No explicit
+   * choice is recorded anywhere — the server keeps the column null and no
+   * versioned device ack is stamped — but the in-memory currency flag is
+   * still set: never-asked consent has nothing to re-review, so it must not
+   * bounce the user to review-terms. Telemetry is opt-out, so a null
+   * diagnostics choice leaves the effective reporting gate OPEN.
    */
   shareAnalytics: boolean | null;
-  shareDiagnostics: boolean;
+  /** See {@link shareAnalytics}. */
+  shareDiagnostics: boolean | null;
   hasPlatformSession: boolean;
 }): void {
   const store = useOnboardingStore.getState();
@@ -269,19 +273,21 @@ export function saveConsent(opts: {
   if (opts.shareAnalytics !== null) {
     store.setShareAnalytics(opts.shareAnalytics);
   }
-  store.setShareDiagnostics(opts.shareDiagnostics);
+  if (opts.shareDiagnostics !== null) {
+    store.setShareDiagnostics(opts.shareDiagnostics);
+  }
   store.setAnalyticsConsentCurrent(true);
   store.setDiagnosticsConsentCurrent(true);
   // An explicit user acceptance is authoritative hydration — route guards may
   // trust the flags without waiting for a session sync.
   store.setConsentHydrated(true);
-  // Version is current by construction here, so the gate equals the preference.
-  setDiagnosticsReportingGate(opts.shareDiagnostics);
+  // Opt-out: only an explicit "off" closes the gate; never-asked stays open.
+  setDiagnosticsReportingGate(opts.shareDiagnostics !== false);
 
   persistConsentForUser(opts.userId, opts.tos, opts.privacy);
   persistToggleConsent(opts.userId, {
     ...(opts.shareAnalytics !== null ? { analyticsCurrent: true } : {}),
-    diagnosticsCurrent: true,
+    ...(opts.shareDiagnostics !== null ? { diagnosticsCurrent: true } : {}),
   });
 
   if (opts.hasPlatformSession) {
@@ -295,8 +301,12 @@ export function saveConsent(opts: {
             share_analytics_accepted_version: ANALYTICS_CONSENT_VERSION,
           }
         : {}),
-      share_diagnostics: opts.shareDiagnostics,
-      share_diagnostics_accepted_version: DIAGNOSTICS_CONSENT_VERSION,
+      ...(opts.shareDiagnostics !== null
+        ? {
+            share_diagnostics: opts.shareDiagnostics,
+            share_diagnostics_accepted_version: DIAGNOSTICS_CONSENT_VERSION,
+          }
+        : {}),
     }).catch(() => {});
   }
 }
@@ -322,16 +332,13 @@ export function savePreferenceToggle(
   } else {
     store.setShareDiagnostics(value);
     setDeviceBool("shareDiagnostics", value);
+    // Opt-out: the effective gate equals the preference — an explicit "off"
+    // closes it, anything else keeps it open. The version-currency ack below
+    // is separate: it is only earned with a live session to record it against.
+    setDiagnosticsReportingGate(value);
     if (hasPlatformSession) {
       store.setDiagnosticsConsentCurrent(true);
-      // Version is current here (a live session re-stamps it), so the effective
-      // reporting gate equals the preference.
-      setDiagnosticsReportingGate(value);
       persistToggleConsent(userId, { diagnosticsCurrent: true });
-    } else {
-      // Offline: no version ack is earned, so the effective gate stays closed
-      // regardless of the toggle value until a live session re-confirms.
-      setDiagnosticsReportingGate(false);
     }
   }
 

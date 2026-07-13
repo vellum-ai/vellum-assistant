@@ -169,16 +169,15 @@ export function readConsentHydrated(): boolean {
 /**
  * SSR-safe, non-hook read for telemetry emitters.
  *
- * Unlike the onboarding UI, this treats an absent preference as no consent:
- * direct analytics uploads should only run after the privacy screen or
- * settings page has persisted an explicit opt-in. The in-memory store must
- * also agree so a failed opt-out write cannot leave an older stored opt-in
- * authorizing a new event.
+ * Analytics is opt-out: an absent preference (never asked) authorizes uploads;
+ * only an explicit opt-out stops them. The in-memory store must also agree so
+ * a failed opt-out write cannot leave an older stored opt-in authorizing a new
+ * event.
  */
 export function readShareAnalytics(): boolean {
   return (
     useOnboardingStore.getState().shareAnalytics &&
-    getDeviceBool("shareAnalytics", false)
+    getDeviceBool("shareAnalytics", true)
   );
 }
 

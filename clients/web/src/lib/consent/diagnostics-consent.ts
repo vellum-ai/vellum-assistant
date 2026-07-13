@@ -1,15 +1,18 @@
 /**
- * The single, version-aware, direction-asymmetric decision point for the two
+ * The single, direction-asymmetric decision point for the two
  * diagnostics-consent values:
  *
  * - **Saved preference** (`device:share_diagnostics`) — the user's opt-in/out,
  *   shown and re-submitted by the re-consent screen. It always tracks the
- *   server's `share_diagnostics` value (direction-asymmetric writes), never the
- *   privacy-consent version, so a stale-version record can't silently lose a
- *   prior opt-in.
+ *   server's `share_diagnostics` value (direction-asymmetric writes), so a
+ *   stale-version record can't silently lose a prior explicit choice.
  * - **Effective reporting gate** (`device:diagnostics_reporting`) — what
- *   actually turns Sentry on. It is `preference && versionCurrent`, so a
- *   stale-version acceptance stops reporting until the user re-accepts.
+ *   actually turns Sentry on. Diagnostics is opt-out: the gate is open unless
+ *   the user explicitly opted out (`shareDiagnostics === false`). Never-asked
+ *   (null / no record) and explicit grants — even under a stale version —
+ *   keep reporting on; a stale explicit choice still owes a review-terms
+ *   re-confirmation, but that flow is driven by the consent-currency flags,
+ *   not this gate.
  *
  * Every non-onboarding path that learns a diagnostics-consent value from the
  * server routes through {@link applyResolvedDiagnosticsConsent} so this policy
@@ -20,8 +23,7 @@
  *   stale version; an explicit revoke (`shareDiagnostics === false`) writes
  *   `false`; an unknown input (`null` / no record) leaves the preference
  *   untouched.
- * - **Gate** — opens only for a confident, current grant
- *   (`hasServerRecord && shareDiagnostics === true && diagnosticsVersionCurrent`).
+ * - **Gate** — closes only for an explicit revoke (`shareDiagnostics === false`).
  */
 
 import { setDeviceBool } from "@/utils/device-settings";
@@ -29,8 +31,6 @@ import { setDeviceBool } from "@/utils/device-settings";
 export interface ResolvedDiagnosticsConsent {
   /** The server's `share_diagnostics` value; `null` when unknown/absent. */
   shareDiagnostics: boolean | null;
-  /** Whether the server's accepted version is at least `DIAGNOSTICS_CONSENT_VERSION`. */
-  diagnosticsVersionCurrent: boolean;
   /** Whether the server returned a real consent record (not API defaults). */
   hasServerRecord: boolean;
 }
@@ -53,7 +53,7 @@ export function setDiagnosticsReportingGate(enabled: boolean): void {
  * 1. The saved preference, via `setShareDiagnostics` — written only for a
  *    confident grant or explicit revoke; an unknown input leaves it untouched.
  * 2. The effective reporting gate, via {@link setDiagnosticsReportingGate} —
- *    always set to `preference && versionCurrent`.
+ *    opt-out: closed only for an explicit revoke.
  *
  * @returns the saved-preference decision: `true`/`false` when the preference was
  * written to that value, or `null` when the input is an unknown grant and the
@@ -66,11 +66,7 @@ export function applyResolvedDiagnosticsConsent(
   const preference = resolvePreference(resolved);
   if (preference !== null) setShareDiagnostics(preference);
 
-  const { shareDiagnostics, diagnosticsVersionCurrent, hasServerRecord } =
-    resolved;
-  setDiagnosticsReportingGate(
-    hasServerRecord && shareDiagnostics === true && diagnosticsVersionCurrent,
-  );
+  setDiagnosticsReportingGate(resolved.shareDiagnostics !== false);
 
   return preference;
 }

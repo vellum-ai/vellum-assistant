@@ -15,7 +15,8 @@ export interface UserConsent {
   ai_data_sharing_accepted_at: string | null;
   /** Null until the user makes an explicit choice (settings or review-terms). */
   share_analytics: boolean | null;
-  share_diagnostics: boolean;
+  /** Null until the user makes an explicit choice (settings or review-terms). */
+  share_diagnostics: boolean | null;
   share_analytics_accepted_version: string;
   share_analytics_accepted_at: string | null;
   share_diagnostics_accepted_version: string;

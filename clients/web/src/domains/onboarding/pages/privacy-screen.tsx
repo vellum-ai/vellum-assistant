@@ -1,10 +1,7 @@
 import { useCallback, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
-import {
-    AgreementsCard,
-    PrivacyPreferencesCard,
-} from "@/domains/onboarding/components/consent-controls";
+import { AgreementsCard } from "@/domains/onboarding/components/consent-controls";
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
 import { StepIndicatorDots } from "@/domains/onboarding/components/step-indicator-dots";
 import {
@@ -16,11 +13,7 @@ import {
 } from "@/domains/onboarding/funnel-events";
 import { onboardingDestinationAfterConsent } from "@/domains/onboarding/onboarding-destination";
 import { isLocalMode } from "@/lib/local-mode";
-import {
-    usePrivacyConsent,
-    useShareDiagnostics,
-    useTosAccepted,
-} from "@/domains/onboarding/prefs";
+import { usePrivacyConsent, useTosAccepted } from "@/domains/onboarding/prefs";
 import { isElectron } from "@/runtime/is-electron";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import { useAuthStore, useHasPlatformSession } from "@/stores/auth-store";
@@ -39,7 +32,6 @@ export function PrivacyScreen() {
     useClientFeatureFlagStore.use.stringFlags().preChatOnboardingExperiment20260606 ?? "control";
   const preferredFunnelVariant =
     onboardingFunnelVariantFromExperiment(preChatExperimentArm);
-  const [shareDiagnostics, setShareDiagnosticsReal] = useShareDiagnostics();
   const [tosAccepted, setTosAcceptedReal] = useTosAccepted();
   const [privacyConsent, setPrivacyConsentReal] = usePrivacyConsent();
   const hasPlatformSession = useHasPlatformSession();
@@ -52,7 +44,6 @@ export function PrivacyScreen() {
 
   const isPreview = searchParams.get("preview") === "true";
   const noop = useCallback((_next: boolean) => {}, []);
-  const setShareDiagnostics = isPreview ? noop : setShareDiagnosticsReal;
   const setTosAccepted = isPreview ? noop : setTosAcceptedReal;
   const setPrivacyConsent = isPreview ? noop : setPrivacyConsentReal;
 
@@ -66,9 +57,9 @@ export function PrivacyScreen() {
       return;
     }
 
-    // Analytics isn't asked here — the server keeps share_analytics null
-    // until the user opts in via settings or review-terms.
-    saveConsent({ userId, tos: tosAccepted, privacy: privacyConsent, shareAnalytics: null, shareDiagnostics, hasPlatformSession });
+    // Neither share toggle is asked here — the server keeps both null until
+    // the user makes an explicit choice via settings or review-terms.
+    saveConsent({ userId, tos: tosAccepted, privacy: privacyConsent, shareAnalytics: null, shareDiagnostics: null, hasPlatformSession });
     if (!isNative) {
       const variant = resolveOnboardingFunnelVariant(preferredFunnelVariant);
       emitOnboardingFunnelStepCompleted(ONBOARDING_FUNNEL_STEPS.privacyTos, {
@@ -100,7 +91,6 @@ export function PrivacyScreen() {
     navigate,
     preferredFunnelVariant,
     searchParams,
-    shareDiagnostics,
     tosAccepted,
     userId,
   ]);
@@ -128,20 +118,9 @@ export function PrivacyScreen() {
           className={`text-center text-body-medium-lighter text-[var(--content-tertiary)] ${electron ? "mt-3.5" : "mt-4"}`}
           style={{ animation: "fadeInUp 0.5s ease-out 0.3s both" }}
         >
-          Choose your privacy preferences. You can update these anytime in the
-          Settings.
+          Review and accept our terms to get started. You can manage your
+          privacy preferences anytime in the Settings.
         </p>
-
-        <PrivacyPreferencesCard
-          electron={electron}
-          showAnalytics={false}
-          shareAnalytics={false}
-          shareDiagnostics={shareDiagnostics}
-          onShareAnalyticsChange={noop}
-          onShareDiagnosticsChange={setShareDiagnostics}
-          className="mt-8 w-full"
-          style={{ animation: "fadeInUp 0.5s ease-out 0.4s both" }}
-        />
 
         <AgreementsCard
           electron={electron}
@@ -149,8 +128,8 @@ export function PrivacyScreen() {
           tosAccepted={tosAccepted}
           onPrivacyChange={setPrivacyConsent}
           onTosChange={setTosAccepted}
-          className="mt-6 w-full"
-          style={{ animation: "fadeInUp 0.5s ease-out 0.5s both" }}
+          className="mt-8 w-full"
+          style={{ animation: "fadeInUp 0.5s ease-out 0.4s both" }}
         />
 
         <div

@@ -27,7 +27,9 @@ mock.module("@/lib/sentry/flavor", () => ({
 // Controllable mock state for the composed gate inputs
 // ---------------------------------------------------------------------------
 
-let deviceDiagnostics = false; // device:diagnostics_reporting (effective gate)
+// device:diagnostics_reporting (effective gate); null models "never written",
+// which resolves to the opt-out default (open) via the read fallback.
+let deviceDiagnostics: boolean | null = null;
 let platformSession = "absent";
 let restoredOffline = false;
 
@@ -46,7 +48,7 @@ const syncDiagnosticsToMainMock = mock((_enabled: boolean) => {});
 mock.module("@/utils/device-settings", () => ({
   getDeviceBool: (name: string, fallback: boolean) => {
     readNames.push(name);
-    return deviceDiagnostics ? true : fallback;
+    return deviceDiagnostics ?? fallback;
   },
   watchDeviceSetting: (name: string, cb: () => void) => {
     watchedNames.push(name);
@@ -92,7 +94,7 @@ beforeEach(() => {
   watchedNames.length = 0;
   deviceWatchCallback = null;
   authSubscriber = null;
-  deviceDiagnostics = false;
+  deviceDiagnostics = null;
   platformSession = "absent";
   restoredOffline = false;
   clientEnabled = false;
@@ -122,13 +124,20 @@ describe("diagnosticsConsentGranted (composed gate)", () => {
     expect(diagnosticsConsentGranted()).toBe(false);
   });
 
-  test("true only with a confirmed-live session AND the reporting gate on", () => {
+  test("true only with a confirmed-live session AND the reporting gate not opted out", () => {
     platformSession = "present";
     restoredOffline = false;
     deviceDiagnostics = true;
     expect(diagnosticsConsentGranted()).toBe(true);
     deviceDiagnostics = false;
     expect(diagnosticsConsentGranted()).toBe(false);
+  });
+
+  test("an absent gate (never written) grants with a live session — opt-out default", () => {
+    platformSession = "present";
+    restoredOffline = false;
+    deviceDiagnostics = null;
+    expect(diagnosticsConsentGranted()).toBe(true);
   });
 });
 
@@ -174,7 +183,7 @@ describe("syncSentryClient", () => {
     expect(closeMock).toHaveBeenCalledTimes(1);
   });
 
-  test("live session + gate off: closes the flavor", () => {
+  test("live session + explicit opt-out: closes the flavor", () => {
     deviceDiagnostics = false;
     platformSession = "present";
     syncSentryClient(OPTIONS);

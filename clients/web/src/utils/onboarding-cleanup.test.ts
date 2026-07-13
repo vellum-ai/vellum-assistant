@@ -171,6 +171,20 @@ describe("resolveServerConsent", () => {
     expect(resolved.analyticsCurrent).toBe(false);
   });
 
+  test("null share_diagnostics (never asked) resolves diagnostics current — nothing to re-review", () => {
+    const resolved = resolveServerConsent(
+      makeConsent({ share_diagnostics: null, share_diagnostics_accepted_version: "" }),
+    );
+    expect(resolved.diagnosticsCurrent).toBe(true);
+  });
+
+  test("an explicit diagnostics choice under a stale version still requires re-review", () => {
+    const resolved = resolveServerConsent(
+      makeConsent({ share_diagnostics: false, share_diagnostics_accepted_version: "2026-01-01" }),
+    );
+    expect(resolved.diagnosticsCurrent).toBe(false);
+  });
+
   test("reports stale toggles for empty versions", () => {
     const r = resolveServerConsent(
       makeConsent({
@@ -513,6 +527,42 @@ describe("saveConsent", () => {
     expect(storeState.setAnalyticsConsentCurrent).toHaveBeenCalledWith(true);
   });
 
+  test("null shareDiagnostics (toggle not shown) omits diagnostics from the patch, skips its ack, and keeps the gate open", () => {
+    saveConsent({
+      userId: "user-1",
+      tos: true,
+      privacy: true,
+      shareAnalytics: null,
+      shareDiagnostics: null,
+      hasPlatformSession: true,
+    });
+    const body = patchConsentMock.mock.calls[0][0];
+    expect("share_diagnostics" in body).toBe(false);
+    expect("share_diagnostics_accepted_version" in body).toBe(false);
+    expect(storeState.setShareDiagnostics).not.toHaveBeenCalled();
+    expect(localStorage.getItem(diagnosticsKey("user-1"))).toBe(null);
+    // Never-asked has nothing to re-review — must not bounce to review-terms.
+    expect(storeState.setDiagnosticsConsentCurrent).toHaveBeenCalledWith(true);
+    // Opt-out: never-asked leaves the effective reporting gate OPEN.
+    expect(setDeviceBoolMock).toHaveBeenCalledWith("diagnosticsReporting", true);
+  });
+
+  test("explicit shareDiagnostics=false persists the opt-out and closes the reporting gate", () => {
+    saveConsent({
+      userId: "user-1",
+      tos: true,
+      privacy: true,
+      shareAnalytics: null,
+      shareDiagnostics: false,
+      hasPlatformSession: true,
+    });
+    expect(setDeviceBoolMock).toHaveBeenCalledWith("diagnosticsReporting", false);
+    const body = patchConsentMock.mock.calls[0][0];
+    expect(body.share_diagnostics).toBe(false);
+    expect(body.share_diagnostics_accepted_version).toBe(DIAGNOSTICS_CONSENT_VERSION);
+    expect(localStorage.getItem(diagnosticsKey("user-1"))).toBe("true");
+  });
+
   test("marks consent hydrated — an explicit acceptance is authoritative", () => {
     saveConsent({
       userId: "user-1",
@@ -556,6 +606,19 @@ describe("savePreferenceToggle", () => {
     expect(storeState.setAnalyticsConsentCurrent).not.toHaveBeenCalled();
     expect(localStorage.getItem(analyticsKey("user-1"))).toBeNull();
     expect(patchConsentMock).not.toHaveBeenCalled();
+  });
+
+  test("an offline diagnostics opt-out still closes the reporting gate (opt-out follows the preference)", () => {
+    savePreferenceToggle("share_diagnostics", false, { userId: "user-1", hasPlatformSession: false });
+    expect(setDeviceBoolMock).toHaveBeenCalledWith("shareDiagnostics", false);
+    expect(setDeviceBoolMock).toHaveBeenCalledWith("diagnosticsReporting", false);
+    expect(storeState.setDiagnosticsConsentCurrent).not.toHaveBeenCalled();
+    expect(patchConsentMock).not.toHaveBeenCalled();
+  });
+
+  test("an offline diagnostics opt-in opens the reporting gate", () => {
+    savePreferenceToggle("share_diagnostics", true, { userId: "user-1", hasPlatformSession: false });
+    expect(setDeviceBoolMock).toHaveBeenCalledWith("diagnosticsReporting", true);
   });
 });
 

@@ -632,6 +632,58 @@ describe("auth store onboarding flag reconciliation", () => {
     });
   });
 
+  test("never-asked diagnostics (null on a real record) hydrates current but earns no device ack", async () => {
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    resolveServerConsentMock.mockReturnValueOnce({
+      tos: true,
+      privacy: true,
+      shareAnalytics: true,
+      shareDiagnostics: null,
+      analyticsCurrent: true,
+      // The resolver reads a null share_diagnostics as "nothing to re-review".
+      diagnosticsCurrent: true,
+      hasServerRecord: true,
+    });
+
+    await useAuthStore.getState().initSession();
+
+    // No bounce to review-terms...
+    expect(setDiagnosticsConsentCurrentMock).toHaveBeenCalledWith(true);
+    // ...but no versioned ack either: only an explicit choice may attest a
+    // confirmation that could later backfill a server version stamp.
+    expect(persistToggleConsentMock).toHaveBeenCalledWith("user-1", {
+      analyticsCurrent: true,
+    });
+    // A null server value never overwrites the device-local preference.
+    expect(setShareDiagnosticsMock).not.toHaveBeenCalled();
+  });
+
+  test("no-record fallback without any device acks stays current and backfills neither toggle", async () => {
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    restoreConsentForUserMock.mockReturnValueOnce({
+      tos: true,
+      privacy: true,
+      analyticsCurrent: false,
+      diagnosticsCurrent: false,
+    });
+
+    await useAuthStore.getState().initSession();
+
+    // Never-asked toggles (no server record, no device acks) must not bounce
+    // the user to review-terms.
+    expect(setAnalyticsConsentCurrentMock).toHaveBeenCalledWith(true);
+    expect(setDiagnosticsConsentCurrentMock).toHaveBeenCalledWith(true);
+    // The backfill seeds the server without any share-toggle fields — the
+    // server keeps both null until the user makes an explicit choice.
+    const body = patchConsentMock.mock.calls[0][0] as Record<string, unknown>;
+    expect("share_analytics" in body).toBe(false);
+    expect("share_analytics_accepted_version" in body).toBe(false);
+    expect("share_diagnostics" in body).toBe(false);
+    expect("share_diagnostics_accepted_version" in body).toBe(false);
+    // No ack keys are written for never-asked toggles.
+    expect(persistToggleConsentMock).toHaveBeenCalledWith("user-1", {});
+  });
+
   test("initSession falls through to device keys when server versions are empty", async () => {
     sessionUser = { id: "user-1", email: "user@example.com" };
 
