@@ -11,7 +11,7 @@
  * does not surface a push banner. Urgent signals (`high`/`critical`)
  * broadcast with `silent: false` and fire the banner.
  *
- * Guardian-sensitive notifications (approval requests, escalation alerts)
+ * Guardian-sensitive notifications (approval requests, access requests)
  * are annotated with `targetGuardianPrincipalId` so that only clients
  * bound to the guardian identity display them. Non-guardian clients
  * should ignore notifications with a `targetGuardianPrincipalId` that
@@ -51,13 +51,11 @@ export type BroadcastFn = (
 
 /**
  * Event name prefixes that carry guardian-sensitive content (approval
- * requests, escalation alerts, access requests). Notifications for
- * these events are scoped to bound guardian devices via
- * `targetGuardianPrincipalId`.
+ * requests, access requests). Notifications for these events are scoped
+ * to bound guardian devices via `targetGuardianPrincipalId`.
  */
 const GUARDIAN_SENSITIVE_EVENT_PREFIXES = [
   "guardian.question",
-  "ingress.escalation",
   "ingress.access_request",
   "guardian.channel_activation",
 ] as const;

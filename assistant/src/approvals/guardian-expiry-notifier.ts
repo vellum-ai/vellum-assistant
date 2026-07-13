@@ -84,13 +84,14 @@ export async function notifyExpiredGuardianRequest(
  *
  * `tool_approval` is the one interaction-bound kind the periodic sweep can
  * reach (it carries a 30-minute `expiresAt`). In practice the request
- * id does not key a *blocking* prompter interaction: ingress escalations — the
- * sole producer of this kind — register no interaction at all, and
- * PermissionPrompter confirmations are keyed by their own request id with their
- * own (far shorter) timeout. So this is a safe cleanup: it no-ops when nothing
- * is registered under the request id, and otherwise drops a waiter-less async
- * entry and emits `interaction_resolved` so clients clear the attention
- * indicator. `cancelled` is the documented runtime-termination/timeout outcome.
+ * id does not key a *blocking* prompter interaction: PermissionPrompter
+ * confirmations are keyed by their own request id with their own (far
+ * shorter) timeout, so a `tool_approval` row without a live pending
+ * interaction can occur transiently. So this is a safe cleanup: it no-ops
+ * when nothing is registered under the request id, and otherwise drops a
+ * waiter-less async entry and emits `interaction_resolved` so clients clear
+ * the attention indicator. `cancelled` is the documented
+ * runtime-termination/timeout outcome.
  */
 function releaseExpiredInteraction(request: GuardianRequestWire): void {
   const released = pendingInteractions.resolve(request.id, "cancelled");
