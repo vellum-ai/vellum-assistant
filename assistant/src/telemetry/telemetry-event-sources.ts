@@ -45,6 +45,13 @@ export interface TelemetryCursor {
 export interface TelemetryEventSourceBatch {
   /** Wire events for the rows reportable this cycle, in cursor order. */
   events: TelemetryEvent[];
+  /**
+   * Row ids backing `events`, set by ack-mode sources so the reporter can
+   * acknowledge (delete) exactly the shipped rows. These are ROW ids, not
+   * wire `daemon_event_id`s — the onboarding source overrides
+   * `daemon_event_id` for activation rows, so the two can differ.
+   */
+  rowIds?: string[];
   /** Cursor of the last reportable row; null when nothing is reportable. */
   lastCursor: TelemetryCursor | null;
   /**
@@ -72,6 +79,19 @@ export interface TelemetryEventSource {
     afterId: string | undefined,
     limit: number,
   ): TelemetryEventSourceBatch;
+  /**
+   * Ack-mode (delete-on-flush) acknowledgment: delete the rows behind
+   * `rowIds` (the batch's {@link TelemetryEventSourceBatch.rowIds}). Called
+   * only after a 2xx from the ingest endpoint. Sources that define this
+   * never get watermark writes in `flush_checkpoints`.
+   */
+  acknowledge?(rowIds: string[]): void;
+  /**
+   * Opt-out handling for ack-mode sources: drop all pending rows so events
+   * recorded during the opt-out window are never sent, replacing the
+   * watermark-mode sentinel pin.
+   */
+  discardPending?(): void;
 }
 
 /** The `flush_checkpoints` keys holding a source's compound cursor. */

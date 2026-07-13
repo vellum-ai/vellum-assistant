@@ -245,7 +245,9 @@ import {
   ALL_TELEMETRY_EVENT_SOURCES,
   DAEMON_TELEMETRY_EVENT_SOURCES,
   MONITOR_TELEMETRY_EVENT_SOURCES,
+  type TelemetryEventSource,
 } from "./telemetry-event-sources.js";
+import type { TelemetryEvent } from "./types.js";
 import {
   initToolExecutedWatermarkIfAbsent,
   UsageTelemetryReporter,
@@ -2669,5 +2671,229 @@ describe("UsageTelemetryReporter", () => {
     );
     expect(idCalls.length).toBeGreaterThanOrEqual(1);
     expect(idCalls[idCalls.length - 1][1]).toBe(lastRow.id);
+  });
+
+  // -------------------------------------------------------------------------
+  // Ack-mode sources (acknowledge / discardPending hooks)
+  // -------------------------------------------------------------------------
+
+  // Wire id deliberately differs from the row id: acknowledge must receive
+  // ROW ids, never wire daemon_event_ids.
+  function fakeWireEvent(rowId: string, createdAt: number): TelemetryEvent {
+    return {
+      type: "lifecycle",
+      daemon_event_id: `wire-${rowId}`,
+      event_name: "fake_event",
+      recorded_at: createdAt,
+      assistant_version: "1.2.3-test",
+    };
+  }
+
+  /**
+   * Ack-mode fake backed by a mutable in-memory row array: `collect` ignores
+   * the cursor args, `acknowledge` deletes the acknowledged rows, and
+   * `discardPending` drops everything — mirroring the outbox-store contract.
+   */
+  function makeAckSource(id: string, rowIds: string[] = []) {
+    let rows = rowIds.map((rowId, i) => ({
+      rowId,
+      createdAt: 1700000000000 + i,
+    }));
+    const acknowledge = mock((acked: string[]) => {
+      rows = rows.filter((r) => !acked.includes(r.rowId));
+    });
+    const discardPending = mock(() => {
+      rows = [];
+    });
+    const source: TelemetryEventSource = {
+      id,
+      collect(_afterCreatedAt, _afterId, limit) {
+        const batch = rows.slice(0, limit);
+        return {
+          events: batch.map((r) => fakeWireEvent(r.rowId, r.createdAt)),
+          rowIds: batch.map((r) => r.rowId),
+          lastCursor: null,
+          fullBatch: batch.length === limit,
+        };
+      },
+      acknowledge,
+      discardPending,
+    };
+    return { source, acknowledge, discardPending, pending: () => rows.length };
+  }
+
+  function makeWatermarkSource(
+    id: string,
+    rowIds: string[] = [],
+  ): TelemetryEventSource {
+    const rows = rowIds.map((rowId, i) => ({
+      rowId,
+      createdAt: 1700000000000 + i,
+    }));
+    return {
+      id,
+      collect(_afterCreatedAt, _afterId, limit) {
+        const batch = rows.slice(0, limit);
+        const last = batch.length > 0 ? batch[batch.length - 1] : null;
+        return {
+          events: batch.map((r) => fakeWireEvent(r.rowId, r.createdAt)),
+          lastCursor: last
+            ? { createdAt: last.createdAt, id: last.rowId }
+            : null,
+          fullBatch: batch.length === limit,
+        };
+      },
+    };
+  }
+
+  test("ack-mode source: acknowledge receives ROW ids after a 2xx and no watermark keys are written", async () => {
+    const { source, acknowledge } = makeAckSource("fake_ack", [
+      "row-1",
+      "row-2",
+    ]);
+    const reporter = new UsageTelemetryReporter(
+      [source],
+      fakeFlushCheckpointStore,
+    );
+    await reporter.flush();
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    expect(
+      body.events.map((e: { daemon_event_id: string }) => e.daemon_event_id),
+    ).toEqual(["wire-row-1", "wire-row-2"]);
+    expect(acknowledge).toHaveBeenCalledTimes(1);
+    expect(acknowledge.mock.calls[0][0]).toEqual(["row-1", "row-2"]);
+    // Ack-mode sources never touch flush_checkpoints.
+    expect(mockSetFlushCheckpoint).not.toHaveBeenCalled();
+  });
+
+  test("acknowledge is NOT called when the POST fails", async () => {
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response("error", { status: 500 })),
+    );
+    const { source, acknowledge, pending } = makeAckSource("fake_ack", [
+      "row-1",
+    ]);
+    const reporter = new UsageTelemetryReporter(
+      [source],
+      fakeFlushCheckpointStore,
+    );
+    await reporter.flush();
+
+    expect(acknowledge).not.toHaveBeenCalled();
+    expect(pending()).toBe(1);
+    expect(mockSetFlushCheckpoint).not.toHaveBeenCalled();
+  });
+
+  test("acknowledge is NOT called when platform credentials are missing", async () => {
+    mockPlatformClient = null;
+    const { source, acknowledge, pending } = makeAckSource("fake_ack", [
+      "row-1",
+    ]);
+    const reporter = new UsageTelemetryReporter(
+      [source],
+      fakeFlushCheckpointStore,
+    );
+    await reporter.flush();
+
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(acknowledge).not.toHaveBeenCalled();
+    expect(pending()).toBe(1);
+  });
+
+  test("acknowledge is skipped for an empty ack batch shipped alongside a watermark source", async () => {
+    const { source: ackSource, acknowledge } = makeAckSource("fake_ack");
+    const wmSource = makeWatermarkSource("fake_wm", ["wm-1"]);
+    const reporter = new UsageTelemetryReporter(
+      [wmSource, ackSource],
+      fakeFlushCheckpointStore,
+    );
+    await reporter.flush();
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(acknowledge).not.toHaveBeenCalled();
+  });
+
+  test("opt-out: discardPending drops ack-mode rows while watermark sources get the sentinel pin", async () => {
+    mockGetCachedShareAnalytics.mockReturnValue(false);
+    const {
+      source: ackSource,
+      discardPending,
+      pending,
+    } = makeAckSource("fake_ack", ["row-1"]);
+    const wmSource = makeWatermarkSource("fake_wm", ["wm-1"]);
+    const reporter = new UsageTelemetryReporter(
+      [wmSource, ackSource],
+      fakeFlushCheckpointStore,
+    );
+    await reporter.flush();
+
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(discardPending).toHaveBeenCalledTimes(1);
+    expect(pending()).toBe(0);
+
+    const keys = mockSetFlushCheckpoint.mock.calls.map((c) => c[0]);
+    expect(keys).toContain("telemetry:fake_wm:last_reported_at");
+    const wmIdCall = mockSetFlushCheckpoint.mock.calls.find(
+      (c) => c[0] === "telemetry:fake_wm:last_reported_id",
+    );
+    expect(wmIdCall?.[1]).toBe("ffffffff-ffff-ffff-ffff-ffffffffffff");
+    expect(keys.some((k) => k.includes("fake_ack"))).toBe(false);
+  });
+
+  test("mixed watermark+ack sources flush in construction order, each acknowledged in its own mode", async () => {
+    const wmSource = makeWatermarkSource("fake_wm", ["wm-1", "wm-2"]);
+    const { source: ackSource, acknowledge } = makeAckSource("fake_ack", [
+      "row-1",
+    ]);
+    const reporter = new UsageTelemetryReporter(
+      [wmSource, ackSource],
+      fakeFlushCheckpointStore,
+    );
+    await reporter.flush();
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    expect(
+      body.events.map((e: { daemon_event_id: string }) => e.daemon_event_id),
+    ).toEqual(["wire-wm-1", "wire-wm-2", "wire-row-1"]);
+
+    expect(acknowledge).toHaveBeenCalledTimes(1);
+    expect(acknowledge.mock.calls[0][0]).toEqual(["row-1"]);
+
+    const wmAtCalls = mockSetFlushCheckpoint.mock.calls.filter(
+      (c) => c[0] === "telemetry:fake_wm:last_reported_at",
+    );
+    expect(wmAtCalls[wmAtCalls.length - 1][1]).toBe(String(1700000000001));
+    const wmIdCalls = mockSetFlushCheckpoint.mock.calls.filter(
+      (c) => c[0] === "telemetry:fake_wm:last_reported_id",
+    );
+    expect(wmIdCalls[wmIdCalls.length - 1][1]).toBe("wm-2");
+    expect(
+      mockSetFlushCheckpoint.mock.calls.some((c) => c[0].includes("fake_ack")),
+    ).toBe(false);
+  });
+
+  test("an ack-mode full batch drives recursion until the backlog drains", async () => {
+    // 501 rows: the first collect fills BATCH_SIZE (500), acknowledge drains
+    // them, and the fullBatch recursion ships the remaining row.
+    const rowIds = Array.from({ length: 501 }, (_, i) => `row-${i}`);
+    const { source, acknowledge, pending } = makeAckSource("fake_ack", rowIds);
+    const reporter = new UsageTelemetryReporter(
+      [source],
+      fakeFlushCheckpointStore,
+    );
+    await reporter.flush();
+
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    expect(acknowledge).toHaveBeenCalledTimes(2);
+    expect(acknowledge.mock.calls[0][0]).toHaveLength(500);
+    expect(acknowledge.mock.calls[1][0]).toEqual(["row-500"]);
+    expect(pending()).toBe(0);
   });
 });

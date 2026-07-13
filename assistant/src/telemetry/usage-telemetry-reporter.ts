@@ -5,9 +5,11 @@
  * lifecycle, ...) from the local SQLite databases and POSTs them to the
  * platform telemetry endpoint. Each event type is a
  * {@link TelemetryEventSource}; the reporter is a generic engine over the
- * source list it is constructed with, advancing one compound
- * `(createdAt, id)` watermark cursor per source in the telemetry DB's
- * `flush_checkpoints` table after each successful upload.
+ * source list it is constructed with, acknowledging each source after a
+ * successful upload in one of two modes: watermark-mode sources advance a
+ * compound `(createdAt, id)` cursor in the telemetry DB's
+ * `flush_checkpoints` table, and ack-mode sources (those defining
+ * `acknowledge`) delete their shipped rows instead.
  *
  * Flushing is split across two processes, each running its own reporter
  * instance over a disjoint source partition: the daemon flushes turn events
@@ -300,9 +302,10 @@ export class UsageTelemetryReporter {
       // opted-out tool_invocations rows persist NULL telemetry columns and
       // are unreportable by construction regardless of watermark timing.
       if (!getCachedShareAnalytics()) {
-        // Advance the timestamp watermarks and pin the ID watermarks to a
-        // sentinel that sorts above any real UUID. The sentinel (rather than
-        // "") keeps the compound-cursor branch active — a falsy ID would
+        // Ack-mode sources drop their pending rows outright. Watermark-mode
+        // sources advance the timestamp watermarks and pin the ID watermarks
+        // to a sentinel that sorts above any real UUID. The sentinel (rather
+        // than "") keeps the compound-cursor branch active — a falsy ID would
         // downgrade the query to a timestamp-only `gt(createdAt, watermark)`
         // — while making its same-millisecond arm unsatisfiable, so a row
         // written in the same millisecond as this flush's Date.now() can
@@ -310,6 +313,10 @@ export class UsageTelemetryReporter {
         // ships events overwrites the sentinel with a real row ID.
         const now = String(Date.now());
         for (const source of this.sources) {
+          if (source.discardPending) {
+            source.discardPending();
+            continue;
+          }
           const keys = watermarkKeysForSource(source.id);
           this.checkpoints.set(keys.at, now);
           this.checkpoints.set(keys.id, OPT_OUT_WATERMARK_ID_SENTINEL);
@@ -402,9 +409,16 @@ export class UsageTelemetryReporter {
       }
       await resp.text(); // consume body to release connection
 
-      // Advance each source's watermark to its last reported row.
+      // Acknowledge each source's shipped rows: ack-mode sources delete them
+      // (never touching flush_checkpoints), watermark-mode sources advance
+      // their compound cursor to the last reported row.
       for (const { source, batch } of batches) {
-        if (batch.lastCursor) {
+        if (source.acknowledge) {
+          const rowIds = batch.rowIds ?? [];
+          if (rowIds.length > 0) {
+            source.acknowledge(rowIds);
+          }
+        } else if (batch.lastCursor) {
           const keys = watermarkKeysForSource(source.id);
           this.checkpoints.set(keys.at, String(batch.lastCursor.createdAt));
           this.checkpoints.set(keys.id, batch.lastCursor.id);
