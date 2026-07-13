@@ -5,6 +5,7 @@ import { Command } from "commander";
 import { initFeatureFlagOverrides } from "../config/assistant-feature-flags.js";
 import { getWorkspaceDir } from "../util/platform.js";
 import { APP_VERSION } from "../version.js";
+import { registerAppsCommand } from "./commands/apps.js";
 import { registerAttachmentCommand } from "./commands/attachment.js";
 import { registerAuditCommand } from "./commands/audit.js";
 import { registerAuthCommand } from "./commands/auth.js";
@@ -101,6 +102,7 @@ Examples:
 
   registerDefaultAction(program);
 
+  registerAppsCommand(program);
   registerAttachmentCommand(program);
   registerAuditCommand(program);
   registerAuthCommand(program);
