@@ -2976,27 +2976,30 @@ export async function clearAll(): Promise<{
     }
   };
 
+  // skill_loaded_events lives in the dedicated telemetry connection. Redact
+  // it FIRST, before any destructive delete: unshipped skill events reference
+  // conversations this wipe must redact, so a telemetry failure must abort
+  // the clear-all while the workspace is still fully intact — never after
+  // memory state is already gone.
+  rawTelemetryRun(
+    "conversation:clearAll:skillLoadedEvents",
+    "DELETE FROM skill_loaded_events",
+  );
+
   // Delete in dependency order. Cascades handle memory_segments and
   // tool_invocations, but we explicitly clear non-cascading memory
   // tables too.
   await runOrThrow("DELETE FROM memory_segments");
   await runOrThrow("DELETE FROM memory_summaries");
   await runOrThrow("DELETE FROM memory_embeddings");
-  // memory_jobs, llm_request_logs, and skill_loaded_events each live in their
-  // own dedicated connection; clear them directly on those connections rather
-  // than through a sqlite3 subprocess. Throw-on-failure like the main-DB
-  // deletes: unshipped skill events reference conversations this wipe must
-  // redact, so a failed delete must fail the clear-all rather than let them
-  // flush later.
+  // memory_jobs and llm_request_logs each live in their own dedicated
+  // connection; clear them directly on those connections rather than through
+  // a sqlite3 subprocess.
   rawMemoryRun("conversation:clearAll:memoryJobs", "DELETE FROM memory_jobs");
   await runOrThrow("DELETE FROM memory_checkpoints");
   rawLogsRun(
     "conversation:clearAll:requestLogs",
     "DELETE FROM llm_request_logs",
-  );
-  rawTelemetryRun(
-    "conversation:clearAll:skillLoadedEvents",
-    "DELETE FROM skill_loaded_events",
   );
   await runOrThrow("DELETE FROM llm_usage_events");
   await runOrThrow("DELETE FROM message_attachments");
