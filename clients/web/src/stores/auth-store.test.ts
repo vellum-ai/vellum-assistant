@@ -763,11 +763,13 @@ describe("auth store onboarding flag reconciliation", () => {
 
   test("device-consent fallback reopens the diagnostics reporting gate for a device-confirmed opt-in", async () => {
     // Empty server record, but the user has a current device-side diagnostics
-    // ack and an opted-in preference. The no-server-record chokepoint closes
-    // the gate; the fallback must reopen it so a confirmed opted-in user isn't
-    // left with Sentry disabled.
+    // ack and an opted-in preference. The chokepoint resolves the unknown
+    // server value from the device preference, reopening a gate an earlier
+    // build left closed so a confirmed opted-in user isn't left with Sentry
+    // disabled.
     sessionUser = { id: "user-1", email: "user@example.com" };
     mockStoreShareDiagnostics = true;
+    localStorage.setItem("device:share_diagnostics", "true");
     localStorage.setItem("device:diagnostics_reporting", "false");
     restoreConsentForUserMock.mockReturnValueOnce({
       tos: true,
@@ -782,10 +784,12 @@ describe("auth store onboarding flag reconciliation", () => {
   });
 
   test("device-consent fallback keeps the gate closed for a device opt-out", async () => {
-    // Same empty-record fallback, but the device preference is opted out — the
-    // gate must stay false even though the device ack is current.
+    // Same empty-record fallback, but the device preference is an explicit
+    // opt-out — the unknown server value must not reopen the gate even though
+    // the device ack is current.
     sessionUser = { id: "user-1", email: "user@example.com" };
     mockStoreShareDiagnostics = false;
+    localStorage.setItem("device:share_diagnostics", "false");
     localStorage.setItem("device:diagnostics_reporting", "true");
     restoreConsentForUserMock.mockReturnValueOnce({
       tos: true,

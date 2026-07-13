@@ -7,12 +7,15 @@
  *   server's `share_diagnostics` value (direction-asymmetric writes), so a
  *   stale-version record can't silently lose a prior explicit choice.
  * - **Effective reporting gate** (`device:diagnostics_reporting`) — what
- *   actually turns Sentry on. Diagnostics is opt-out: the gate is open unless
- *   the user explicitly opted out (`shareDiagnostics === false`). Never-asked
- *   (null / no record) and explicit grants — even under a stale version —
- *   keep reporting on; a stale explicit choice still owes a review-terms
- *   re-confirmation, but that flow is driven by the consent-currency flags,
- *   not this gate.
+ *   actually turns Sentry on. Diagnostics is opt-out: an explicit server
+ *   value sets the gate directly (even a stale-version grant keeps reporting
+ *   on — the review-terms re-confirmation is driven by the consent-currency
+ *   flags, not this gate), while an unknown server value (null / no record)
+ *   makes the gate follow the saved device preference, absent reading open.
+ *   Following the preference — rather than forcing open — keeps an explicit
+ *   local opt-out closed while its `patchConsent` write is still in flight
+ *   (or failed), yet heals gates stuck closed by earlier strict-opt-in
+ *   builds for users who never opted out.
  *
  * Every non-onboarding path that learns a diagnostics-consent value from the
  * server routes through {@link applyResolvedDiagnosticsConsent} so this policy
@@ -23,10 +26,11 @@
  *   stale version; an explicit revoke (`shareDiagnostics === false`) writes
  *   `false`; an unknown input (`null` / no record) leaves the preference
  *   untouched.
- * - **Gate** — closes only for an explicit revoke (`shareDiagnostics === false`).
+ * - **Gate** — an explicit server value applies directly; an unknown input
+ *   follows the saved device preference (absent reads open).
  */
 
-import { setDeviceBool } from "@/utils/device-settings";
+import { getDeviceBool, setDeviceBool } from "@/utils/device-settings";
 
 export interface ResolvedDiagnosticsConsent {
   /** The server's `share_diagnostics` value; `null` when unknown/absent. */
@@ -53,7 +57,8 @@ export function setDiagnosticsReportingGate(enabled: boolean): void {
  * 1. The saved preference, via `setShareDiagnostics` — written only for a
  *    confident grant or explicit revoke; an unknown input leaves it untouched.
  * 2. The effective reporting gate, via {@link setDiagnosticsReportingGate} —
- *    opt-out: closed only for an explicit revoke.
+ *    an explicit server value directly; an unknown server value follows the
+ *    saved device preference (absent reads open — opt-out default).
  *
  * @returns the saved-preference decision: `true`/`false` when the preference was
  * written to that value, or `null` when the input is an unknown grant and the
@@ -66,7 +71,9 @@ export function applyResolvedDiagnosticsConsent(
   const preference = resolvePreference(resolved);
   if (preference !== null) setShareDiagnostics(preference);
 
-  setDiagnosticsReportingGate(resolved.shareDiagnostics !== false);
+  setDiagnosticsReportingGate(
+    resolved.shareDiagnostics ?? getDeviceBool("shareDiagnostics", true),
+  );
 
   return preference;
 }

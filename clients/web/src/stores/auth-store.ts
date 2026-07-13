@@ -72,10 +72,7 @@ import {
   DIAGNOSTICS_CONSENT_VERSION,
 } from "@/utils/onboarding-cleanup";
 import { useOnboardingStore } from "@/domains/onboarding/onboarding-store";
-import {
-  applyResolvedDiagnosticsConsent,
-  setDiagnosticsReportingGate,
-} from "@/lib/consent/diagnostics-consent";
+import { applyResolvedDiagnosticsConsent } from "@/lib/consent/diagnostics-consent";
 import {
   clearOrganization,
   useOrganizationStore,
@@ -378,11 +375,6 @@ async function syncUserScopedState(nextUserId: string | null): Promise<void> {
         analyticsAck = deviceConsent.analyticsCurrent;
         diagnosticsCurrent = true;
         diagnosticsAck = deviceConsent.diagnosticsCurrent;
-        // The chokepoint above left the gate open (no record reads as
-        // never-asked, and telemetry is opt-out). Re-apply the device-local
-        // preference so an explicit device opt-out whose backfill patch
-        // hasn't landed on the server yet still closes the gate.
-        setDiagnosticsReportingGate(store.shareDiagnostics);
         if (deviceConsent.tos && deviceConsent.privacy) {
           tos = true;
           privacy = true;
