@@ -126,6 +126,7 @@ export function PreferencesMenu({
             side="top"
             align="start"
             sideOffset={8}
+            tabIndex={-1}
             onOpenAutoFocus={(event) => {
               const content = event.currentTarget as HTMLElement | null;
               event.preventDefault();
