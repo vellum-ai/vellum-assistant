@@ -36,6 +36,7 @@ import {
 } from "@/domains/chat/transcript/message-content";
 import { parseInlineSurfaces } from "@/domains/chat/utils/parse-inline-surfaces";
 import { useSmoothStreamText } from "@/domains/chat/hooks/use-smooth-stream-text";
+import { useSupportsRedactedCredentialChips } from "@/lib/backwards-compat/use-supports-redacted-credential-chips";
 import { stopAcpRun } from "@/domains/chat/utils/acp-run-actions";
 import { stopBackgroundTask } from "@/domains/chat/utils/background-task-actions";
 import { captureError } from "@/lib/sentry/capture-error";
@@ -117,6 +118,9 @@ export function TranscriptMessageBody({
   const isSlackReaction = message.slackMessage?.eventKind === "reaction";
   const isUser = message.role === "user";
   const hasAttachments = Boolean(message.attachments?.length);
+  // Version-gated: an older daemon neutralizes nothing, so sentinel-shaped
+  // text in its transcripts must never chip-ify (see the gate module).
+  const supportsRedactedCredentialChips = useSupportsRedactedCredentialChips();
 
   // User-typed thinking tags must render verbatim; only assistant text splits.
   const groups = groupContentBlocks(message.contentBlocks ?? [], {
@@ -475,7 +479,7 @@ export function TranscriptMessageBody({
                   attachments={message.attachments}
                   assistantId={assistantId}
                   streamWordFade={streamWordFade}
-                  redactedCredentialChips={!isUser}
+                  redactedCredentialChips={!isUser && supportsRedactedCredentialChips}
                 />
               </div>
             );
@@ -492,7 +496,7 @@ export function TranscriptMessageBody({
           attachments={message.attachments}
           assistantId={assistantId}
           streamWordFade={streamWordFade}
-          redactedCredentialChips={!isUser}
+          redactedCredentialChips={!isUser && supportsRedactedCredentialChips}
         />
       </div>
     );

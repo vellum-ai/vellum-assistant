@@ -17,9 +17,9 @@
  *   static badge — by design there is nothing to reveal, and no fuzzy
  *   fallback is attempted.
  *
- * Interaction duplicated from `credentials-page.tsx` (#37931) rather than
- * extracted while that PR is still in review; unify into a shared primitive
- * once it lands.
+ * The reveal interaction is intentionally kept in sync with the settings
+ * page's `CredentialValue` (`credentials-page.tsx`) but not yet shared;
+ * extract a common primitive when unifying the two surfaces.
  */
 
 import { Check, Copy, Eye, EyeOff, KeyRound, Loader2 } from "lucide-react";

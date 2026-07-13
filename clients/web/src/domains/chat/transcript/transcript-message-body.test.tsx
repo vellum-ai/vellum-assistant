@@ -38,16 +38,21 @@ mock.module("@/domains/chat/components/chat-markdown-message", () => ({
     content,
     hardLineBreaks,
     onVellumLinkClick,
+    redactedCredentialChips,
   }: {
     content: string;
     hardLineBreaks?: boolean;
     onVellumLinkClick?: (href: string, linkText: string) => void;
+    redactedCredentialChips?: boolean;
   }) => {
     lastVellumLinkClick = onVellumLinkClick;
     return (
       <div
         data-testid="markdown"
         data-hard-line-breaks={hardLineBreaks ? "true" : "false"}
+        data-redacted-credential-chips={
+          redactedCredentialChips ? "true" : "false"
+        }
       >
         {content}
       </div>
@@ -213,6 +218,8 @@ import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { DisplayMessage, Surface } from "@/domains/chat/types/types";
 
 import { TranscriptMessageBody } from "@/domains/chat/transcript/transcript-message-body";
+import { MIN_VERSION as REDACTED_CHIPS_MIN_VERSION } from "@/lib/backwards-compat/use-supports-redacted-credential-chips";
+import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 
 const noop = () => {};
 
@@ -1584,5 +1591,52 @@ describe("TranscriptMessageBody — generic inline process cards", () => {
 
     fireEvent.click(getByTestId("inline-process-card-stop"));
     expect(stopBackgroundTaskMock).toHaveBeenCalledWith("bg-1");
+  });
+});
+
+describe("TranscriptMessageBody — redacted-credential chip version gate", () => {
+  function chipFlag(role: "assistant" | "user"): string | null {
+    const { container } = render(
+      <TranscriptMessageBody
+        message={{
+          id: `m-gate-${role}`,
+          role,
+          contentBlocks: [textBlock("some text")],
+          timestamp: 1_000,
+        }}
+        onSurfaceAction={noop}
+      />,
+    );
+    return container
+      .querySelector("[data-testid='markdown']")!
+      .getAttribute("data-redacted-credential-chips");
+  }
+
+  afterEach(() => {
+    useAssistantIdentityStore.getState().clearIdentity();
+  });
+
+  test("chips stay off while the assistant version is unknown", () => {
+    useAssistantIdentityStore.getState().clearIdentity();
+    expect(chipFlag("assistant")).toBe("false");
+  });
+
+  test("chips stay off against an assistant below the gate (no neutralization)", () => {
+    useAssistantIdentityStore.getState().setIdentity("test-asst", "0.10.8");
+    expect(chipFlag("assistant")).toBe("false");
+  });
+
+  test("chips enable for assistant messages at the gated version", () => {
+    useAssistantIdentityStore
+      .getState()
+      .setIdentity("test-asst", REDACTED_CHIPS_MIN_VERSION);
+    expect(chipFlag("assistant")).toBe("true");
+  });
+
+  test("user messages never enable chips, even at the gated version", () => {
+    useAssistantIdentityStore
+      .getState()
+      .setIdentity("test-asst", REDACTED_CHIPS_MIN_VERSION);
+    expect(chipFlag("user")).toBe("false");
   });
 });
