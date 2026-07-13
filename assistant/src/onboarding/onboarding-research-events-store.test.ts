@@ -11,10 +11,26 @@ import { APP_VERSION } from "../version.js";
 import { recordOnboardingResearchEvent } from "./onboarding-research-events-store.js";
 
 const SAMPLE_CLAIMS = [
-  { claim: "Senior engineer at an AI infra startup", confidence: "confident" as const, sources: ["https://linkedin.com/in/example"] },
-  { claim: "Based in Boulder, CO", confidence: "confident" as const, sources: [] },
-  { claim: "Active climber on Mountain Project", confidence: "maybe" as const, sources: [] },
-  { claim: "Focused on evals", confidence: "guessing" as const, sources: ["https://github.com/example"] },
+  {
+    claim: "Senior engineer at an AI infra startup",
+    confidence: "confident" as const,
+    sources: ["https://linkedin.com/in/example"],
+  },
+  {
+    claim: "Based in Boulder, CO",
+    confidence: "confident" as const,
+    sources: [],
+  },
+  {
+    claim: "Active climber on Mountain Project",
+    confidence: "maybe" as const,
+    sources: [],
+  },
+  {
+    claim: "Focused on evals",
+    confidence: "guessing" as const,
+    sources: ["https://github.com/example"],
+  },
 ];
 
 function pendingRows(): Array<{
@@ -85,7 +101,9 @@ describe("onboarding-research-events-store", () => {
       conversationId: "conv-xyz",
       status: "done",
       claims: SAMPLE_CLAIMS,
-      suggestions: [{ suggestion: "I'll find 3 papers", prompt: "Find me 3 papers" }],
+      suggestions: [
+        { suggestion: "I'll find 3 papers", prompt: "Find me 3 papers" },
+      ],
       plugins: ["marketing-expert"],
       installedPlugins: ["marketing-expert", "web-research"],
     });
@@ -112,7 +130,9 @@ describe("onboarding-research-events-store", () => {
       claims_confident: 2,
       claims_maybe: 1,
       claims_guessing: 1,
-      suggestions: [{ suggestion: "I'll find 3 papers", prompt: "Find me 3 papers" }],
+      suggestions: [
+        { suggestion: "I'll find 3 papers", prompt: "Find me 3 papers" },
+      ],
       suggestion_count: 1,
       plugins: ["marketing-expert"],
       installed_plugins: ["marketing-expert", "web-research"],
@@ -203,6 +223,8 @@ describe("onboarding-research-events-store", () => {
     const errorRow = rows.find((r) => r.payload.status === "error")!;
     const doneRow = rows.find((r) => r.payload.status === "done")!;
     expect(errorRow.payload.daemon_event_id).toBe(errorRow.id);
-    expect(doneRow.payload.daemon_event_id).toBe("onboarding_research:conv-slow");
+    expect(doneRow.payload.daemon_event_id).toBe(
+      "onboarding_research:conv-slow",
+    );
   });
 });

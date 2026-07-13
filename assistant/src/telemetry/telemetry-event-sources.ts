@@ -186,6 +186,47 @@ export function outboxSource(
   };
 }
 
+/**
+ * Build an ack-mode source like {@link outboxSource}, but additionally
+ * re-checks `share_diagnostics` eligibility (at an eligible accepted
+ * version) on every collect, not just at record time. A writer's record-
+ * time gate only covers the moment the row is recorded — if the owner
+ * revokes diagnostics consent after that but before the next flush, a
+ * still-pending row must not ship anyway (unlike `turnSource`'s trace,
+ * which is assembled fresh at flush time and so re-evaluates consent for
+ * free, a pre-built outbox payload has no such natural re-check point).
+ * Ineligible pending rows are purged outright rather than held for a later
+ * re-check, mirroring the corrupt-payload purge above — consent revocation
+ * calls for dropping the backlog, not retrying it.
+ */
+function diagnosticsGatedOutboxSource(
+  name: OutboxTelemetryEventName,
+): TelemetryEventSource {
+  const base = outboxSource(name);
+  return {
+    id: base.id,
+    collect(afterCreatedAt, afterId, limit) {
+      if (
+        !getCachedShareDiagnostics() ||
+        !isDiagnosticsConsentVersionEligible(getCachedShareDiagnosticsVersion())
+      ) {
+        const rows = queryTelemetryOutboxBatch(name, limit);
+        if (rows.length > 0) {
+          deleteTelemetryOutboxEvents(rows.map((row) => row.id));
+        }
+        return {
+          events: [],
+          rowIds: [],
+          lastCursor: null,
+          fullBatch: rows.length === limit,
+        };
+      }
+      return base.collect(afterCreatedAt, afterId, limit);
+    },
+    ack: base.ack,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Sources
 // ---------------------------------------------------------------------------
@@ -457,8 +498,9 @@ export const ALL_TELEMETRY_EVENT_SOURCES: readonly TelemetryEventSource[] = [
   // Onboarding research-turn results are client-orchestrated (the web
   // client reports the settled `{claims, suggestions, plugins}` payload
   // once via POST /v1/telemetry/onboarding-research) but land in the same
-  // outbox as every other event type.
-  outboxSource("onboarding_research"),
+  // outbox as every other event type. Diagnostics-gated at flush time (not
+  // just record time) since the payload carries raw inferred claims.
+  diagnosticsGatedOutboxSource("onboarding_research"),
 ];
 
 /**

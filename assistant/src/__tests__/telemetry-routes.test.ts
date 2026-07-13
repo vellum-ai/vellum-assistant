@@ -23,17 +23,19 @@ const route = ROUTES.find(
 );
 
 function call(body: unknown) {
-  if (!route) {throw new Error("route not found");}
+  if (!route) {
+    throw new Error("route not found");
+  }
   return route.handler({ body } as RouteHandlerArgs);
 }
 
 const VALID_BODY = {
   conversation_id: "conv-xyz",
   status: "done",
-  claims: [
-    { claim: "Senior engineer", confidence: "confident", sources: [] },
+  claims: [{ claim: "Senior engineer", confidence: "confident", sources: [] }],
+  suggestions: [
+    { suggestion: "I'll find 3 papers", prompt: "Find me 3 papers" },
   ],
-  suggestions: [{ suggestion: "I'll find 3 papers", prompt: "Find me 3 papers" }],
   plugins: ["marketing-expert"],
   installed_plugins: ["marketing-expert", "web-research"],
 };
@@ -87,9 +89,9 @@ describe("telemetry-routes: onboarding-research", () => {
     expect(() => call({ ...VALID_BODY, status: "not-a-status" })).toThrow(
       RouteError,
     );
-    expect(() =>
-      call({ ...VALID_BODY, claims: [{ claim: "x" }] }),
-    ).toThrow(RouteError);
+    expect(() => call({ ...VALID_BODY, claims: [{ claim: "x" }] })).toThrow(
+      RouteError,
+    );
     expect(pendingPayloads().length).toBe(0);
   });
 });
