@@ -1,27 +1,15 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  Check,
-  Copy,
-  Eye,
-  EyeOff,
-  KeyRound,
-  Link2,
-  Loader2,
-  Plus,
-  Trash2,
-} from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Copy, KeyRound, Link2, Loader2, Plus, Search } from "lucide-react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
+import { DetailCard } from "@/components/detail-card";
 import { NotFound } from "@/components/not-found";
 import {
   useCredentialsDeletePostMutation,
   useCredentialsSetPostMutation,
 } from "@/generated/daemon/@tanstack/react-query.gen";
-import {
-  credentialsListPost,
-  credentialsRevealPost,
-} from "@/generated/daemon/sdk.gen";
+import { credentialsListPost } from "@/generated/daemon/sdk.gen";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { shouldRetryDaemonError } from "@/utils/daemon-errors";
@@ -30,31 +18,20 @@ import { Card } from "@vellumai/design-library/components/card";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 import { Input } from "@vellumai/design-library/components/input";
 import { Modal } from "@vellumai/design-library/components/modal";
+import {
+  SegmentControl,
+  type SegmentControlItem,
+} from "@vellumai/design-library/components/segment-control";
+import { Tag } from "@vellumai/design-library/components/tag";
 import { toast } from "@vellumai/design-library/components/toast";
 
+import { CredentialRow, type StoredCredential } from "./credential-row";
 import {
   createCredentialRequest,
   credentialRequestExpiryToEpochMs,
 } from "./credential-requests-api";
 
-/**
- * A locally stored credential row from `POST /v1/credentials/list`. The route's
- * response schema types entries as unknown; this mirrors the daemon's
- * `buildCredentialOutput` shape for the fields the page renders.
- */
-interface CredentialRow {
-  service: string;
-  field: string;
-  credentialId: string | null;
-  scrubbedValue: string;
-  hasSecret: boolean;
-  alias: string | null;
-  usageDescription: string | null;
-  createdAt: string | null;
-  updatedAt: string | null;
-}
-
-/** A platform-managed credential from the same response. Read-only. */
+/** A platform-managed credential from the credentials list. Read-only. */
 interface ManagedCredentialRow {
   handle: string;
   provider: string;
@@ -75,197 +52,11 @@ function credentialsListQueryKey(assistantId: string) {
   return ["credentials-list", assistantId] as const;
 }
 
-function formatCreatedAt(iso: string | null): string {
-  if (!iso) {
-    return "";
-  }
-  try {
-    return new Date(iso).toLocaleDateString(undefined, {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-    });
-  } catch {
-    return "";
-  }
-}
+/** Below this count, scanning the list beats typing — so we hide the search. */
+const SEARCH_VISIBILITY_THRESHOLD = 6;
 
-/** How long the "copied" checkmark stays up after copying a revealed value. */
-const COPIED_FEEDBACK_MS = 1500;
-
-/**
- * The masked/revealed secret preview for a single local credential row.
- *
- * Owns its own reveal + copy state so the parent stays a thin orchestrator.
- * The masked preview (`****last4`) is rendered blurred until the user reveals
- * it, at which point the plaintext is fetched on demand via
- * `POST /v1/credentials/reveal` — the value is never held in the list query
- * cache, only in this component's transient state, and is dropped on re-hide.
- */
-function CredentialValue({
-  assistantId,
-  credential,
-}: {
-  assistantId: string;
-  credential: CredentialRow;
-}) {
-  const [revealed, setRevealed] = useState<string | null>(null);
-  const [isRevealing, setIsRevealing] = useState(false);
-  const [justCopied, setJustCopied] = useState(false);
-  const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // Monotonic token used to ignore stale reveal responses. Incremented on
-  // every reveal, hide, and credential change so that an in-flight promise
-  // whose row has since changed (or been hidden) is silently dropped instead
-  // of overwriting newer state with an obsolete secret.
-  const revealVersionRef = useRef(0);
-
-  const name = `${credential.service}:${credential.field}`;
-
-  const hide = useCallback(() => {
-    revealVersionRef.current++;
-    setRevealed(null);
-    setIsRevealing(false);
-    setJustCopied(false);
-    if (copiedTimer.current) {
-      clearTimeout(copiedTimer.current);
-      copiedTimer.current = null;
-    }
-  }, []);
-
-  // Clear any revealed plaintext when the underlying secret changes (e.g. the
-  // user replaces the credential via the form). The row key stays stable for
-  // an upsert, so without this the stale plaintext from the previous value
-  // would remain visible and copyable until the row remounts. Using
-  // `updatedAt` (not `scrubbedValue`) avoids a false negative when the
-  // replacement masks to the same preview (e.g. same last four chars or any
-  // value ≤ 4 chars where scrubSecret() returns "****").
-  useEffect(() => {
-    hide();
-  }, [credential.updatedAt, hide]);
-
-  const reveal = useCallback(async () => {
-    const myVersion = ++revealVersionRef.current;
-    setIsRevealing(true);
-    try {
-      const { data } = await credentialsRevealPost({
-        path: { assistant_id: assistantId },
-        body: { service: credential.service, field: credential.field },
-        throwOnError: true,
-      });
-      // Only apply the result if no newer reveal, hide, or credential change
-      // has superseded this request.
-      if (revealVersionRef.current === myVersion) {
-        setRevealed(data.value);
-      }
-    } catch {
-      if (revealVersionRef.current === myVersion) {
-        toast.error(`Couldn't reveal ${name}.`);
-      }
-    } finally {
-      if (revealVersionRef.current === myVersion) {
-        setIsRevealing(false);
-      }
-    }
-  }, [assistantId, credential.service, credential.field, name]);
-
-  const copy = useCallback(() => {
-    if (revealed == null) {
-      return;
-    }
-    void navigator.clipboard.writeText(revealed).then(
-      () => {
-        setJustCopied(true);
-        if (copiedTimer.current) {
-          clearTimeout(copiedTimer.current);
-        }
-        copiedTimer.current = setTimeout(
-          () => setJustCopied(false),
-          COPIED_FEEDBACK_MS,
-        );
-      },
-      () => toast.error("Couldn't copy — reveal and copy manually."),
-    );
-  }, [revealed]);
-
-  const isRevealed = revealed !== null;
-
-  // Metadata-only rows (e.g. transient credential prompts or OAuth entries)
-  // have no storable secret — `hasSecret` is false and the reveal handler can
-  // only return "Credential not found". Render the inert scrubbed preview
-  // (typically "(not set)") without any reveal/copy affordances.
-  if (!credential.hasSecret) {
-    return (
-      <span className="min-w-0 truncate text-[var(--content-tertiary)]">
-        {credential.scrubbedValue}
-      </span>
-    );
-  }
-
-  return (
-    <span className="inline-flex min-w-0 items-center gap-1.5 align-middle">
-      <button
-        type="button"
-        onClick={() => (isRevealed ? hide() : void reveal())}
-        disabled={isRevealing}
-        aria-label={
-          isRevealed ? `Hide value for ${name}` : `Reveal value for ${name}`
-        }
-        title={isRevealed ? "Hide value" : "Click to reveal"}
-        // Prevent session-replay (LogRocket) from recording the credential
-        // value. The attribute is always present so the masked preview
-        // (****last4) is also excluded, not just the revealed plaintext.
-        // https://docs.logrocket.com/reference/dom#sanitizing-individual-elements
-        data-private
-        className={`min-w-0 truncate rounded-sm text-left transition-[filter,color] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--border-focus)] ${
-          isRevealed
-            ? "text-[var(--content-secondary)]"
-            : "select-none blur-[3px] hover:blur-[2px]"
-        }`}
-      >
-        {isRevealed ? revealed : credential.scrubbedValue}
-      </button>
-      {isRevealing ? (
-        <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" aria-hidden />
-      ) : isRevealed ? (
-        <>
-          <button
-            type="button"
-            onClick={copy}
-            aria-label={`Copy value for ${name}`}
-            title="Copy value"
-            className="shrink-0 rounded-sm p-0.5 text-[var(--content-tertiary)] transition-colors hover:text-[var(--content-secondary)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--border-focus)]"
-          >
-            {justCopied ? (
-              <Check className="h-3.5 w-3.5" aria-hidden />
-            ) : (
-              <Copy className="h-3.5 w-3.5" aria-hidden />
-            )}
-          </button>
-          <button
-            type="button"
-            onClick={hide}
-            aria-label={`Hide value for ${name}`}
-            title="Hide value"
-            className="shrink-0 rounded-sm p-0.5 text-[var(--content-tertiary)] transition-colors hover:text-[var(--content-secondary)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--border-focus)]"
-          >
-            <EyeOff className="h-3.5 w-3.5" aria-hidden />
-          </button>
-        </>
-      ) : (
-        <button
-          type="button"
-          onClick={() => void reveal()}
-          aria-label={`Reveal value for ${name}`}
-          title="Click to reveal"
-          className="shrink-0 rounded-sm p-0.5 text-[var(--content-tertiary)] transition-colors hover:text-[var(--content-secondary)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--border-focus)]"
-        >
-          <Eye className="h-3.5 w-3.5" aria-hidden />
-        </button>
-      )}
-    </span>
-  );
-}
+/** Which credential group the segment control is showing. */
+type CredentialView = "own" | "managed";
 
 export function CredentialsPage() {
   const credentialsSettingsEnabled =
@@ -298,7 +89,7 @@ function CredentialsPageInner() {
         throwOnError: true,
       });
       return {
-        credentials: data.credentials as CredentialRow[],
+        credentials: data.credentials as StoredCredential[],
         managedCredentials: data.managedCredentials as ManagedCredentialRow[],
       };
     },
@@ -306,8 +97,14 @@ function CredentialsPageInner() {
     retry: shouldRetryDaemonError,
   });
 
-  const credentials = listQuery.data?.credentials ?? [];
-  const managedCredentials = listQuery.data?.managedCredentials ?? [];
+  const credentials = useMemo(
+    () => listQuery.data?.credentials ?? [],
+    [listQuery.data],
+  );
+  const managedCredentials = useMemo(
+    () => listQuery.data?.managedCredentials ?? [],
+    [listQuery.data],
+  );
 
   const setMutation = useCredentialsSetPostMutation({
     onSuccess: () => {
@@ -328,13 +125,14 @@ function CredentialsPageInner() {
   // --- Ephemeral UI state ---
 
   const [isShowingAddForm, setIsShowingAddForm] = useState(false);
+  const [credentialView, setCredentialView] = useState<CredentialView>("own");
+  const [searchText, setSearchText] = useState("");
   const [service, setService] = useState("");
   const [field, setField] = useState("");
   const [value, setValue] = useState("");
   const [label, setLabel] = useState("");
-  const [pendingDeletion, setPendingDeletion] = useState<CredentialRow | null>(
-    null,
-  );
+  const [pendingDeletion, setPendingDeletion] =
+    useState<StoredCredential | null>(null);
   const [generatedLink, setGeneratedLink] = useState<GeneratedLink | null>(
     null,
   );
@@ -347,6 +145,43 @@ function CredentialsPageInner() {
     ? `${deleteMutation.variables?.body?.service}:${deleteMutation.variables?.body?.field}`
     : null;
 
+  const filteredCredentials = useMemo(() => {
+    const needle = searchText.trim().toLowerCase();
+    if (!needle) {
+      return credentials;
+    }
+    return credentials.filter((credential) => {
+      const haystack = [
+        credential.service,
+        credential.field,
+        `${credential.service}:${credential.field}`,
+        credential.alias ?? "",
+      ]
+        .join(" ")
+        .toLowerCase();
+      return haystack.includes(needle);
+    });
+  }, [credentials, searchText]);
+
+  // When the list shrinks below the search threshold the input is unmounted, so
+  // an in-progress query would keep filtering invisibly with no way to clear it.
+  // Reset the text whenever search is hidden to avoid a stale, un-clearable filter.
+  useEffect(() => {
+    if (credentials.length <= SEARCH_VISIBILITY_THRESHOLD) {
+      setSearchText("");
+    }
+  }, [credentials.length]);
+
+  // When the own credential list is empty but managed credentials exist, default
+  // to the Managed tab so users see their credentials instead of an empty state.
+  // The user can still switch to "Your own" to add one — this only fires when the
+  // data changes, not on every view toggle.
+  useEffect(() => {
+    if (credentials.length === 0 && managedCredentials.length > 0) {
+      setCredentialView("managed");
+    }
+  }, [credentials.length, managedCredentials.length]);
+
   // --- Handlers ---
 
   const resetAddForm = () => {
@@ -357,7 +192,8 @@ function CredentialsPageInner() {
     setLabel("");
   };
 
-  const handleSave = () => {
+  const handleSave = (e?: FormEvent) => {
+    e?.preventDefault();
     const trimmedService = service.trim();
     const trimmedField = field.trim();
     // The secret value is stored verbatim — some secrets legitimately carry
@@ -400,7 +236,7 @@ function CredentialsPageInner() {
     );
   };
 
-  const handleGenerateLink = async (credential: CredentialRow) => {
+  const handleGenerateLink = async (credential: StoredCredential) => {
     const name = `${credential.service}:${credential.field}`;
     setGeneratingLinkName(name);
     try {
@@ -451,204 +287,151 @@ function CredentialsPageInner() {
     );
   }
 
-  const shouldShowForm = isShowingAddForm || credentials.length === 0;
+  const hasCredentials = credentials.length > 0;
+  const hasManaged = managedCredentials.length > 0;
+
+  // Search stays hidden for short lists where scanning is faster than typing;
+  // it only earns its place once the list is long enough to get unwieldy.
+  const showSearch = credentials.length > SEARCH_VISIBILITY_THRESHOLD;
+
+  const showManaged = credentialView === "managed" && hasManaged;
+  const showOwn = !showManaged;
+  const segmentItems: SegmentControlItem<CredentialView>[] = [
+    { value: "own", label: "Your own" },
+    { value: "managed", label: "Managed" },
+  ];
 
   return (
-    <div className="flex flex-col gap-4">
-      <p className="text-body-small-default leading-relaxed text-[var(--content-tertiary)]">
-        Credentials are stored encrypted in your assistant&apos;s credential
-        vault. Values stay masked — click a value to reveal it, or replace and
-        delete them here.
-      </p>
-
-      {credentials.length > 0 ? (
-        <Card.Root>
-          <Card.Body className="flex flex-col divide-y divide-[var(--border-default)]">
-            {credentials.map((credential) => {
-              const name = `${credential.service}:${credential.field}`;
-              return (
-                <div
-                  key={credential.credentialId ?? name}
-                  className="flex items-center gap-3 py-3 first:pt-0 last:pb-0"
-                >
-                  <KeyRound
-                    className="h-4 w-4 shrink-0 text-[var(--content-tertiary)]"
-                    aria-hidden
-                  />
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-body-medium-default text-[var(--content-default)]">
-                      {credential.alias || name}
-                    </p>
-                    <div className="flex min-w-0 items-center gap-1.5 font-mono text-body-small-default text-[var(--content-tertiary)]">
-                      {credential.alias ? (
-                        <span className="shrink-0">{name} ·</span>
-                      ) : null}
-                      <CredentialValue
-                        assistantId={assistantId}
-                        credential={credential}
-                      />
-                      {credential.createdAt ? (
-                        <span className="shrink-0 truncate">
-                          · added {formatCreatedAt(credential.createdAt)}
-                        </span>
-                      ) : null}
-                    </div>
-                  </div>
-                  {credentialRequestsEnabled ? (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="compact"
-                      onClick={() => void handleGenerateLink(credential)}
-                      disabled={generatingLinkName === name}
-                      aria-label={`Generate one-time link for ${name}`}
-                      title="Generate one-time link"
-                      iconOnly={
-                        generatingLinkName === name ? (
-                          <Loader2 className="animate-spin" aria-hidden />
-                        ) : (
-                          <Link2 aria-hidden />
-                        )
-                      }
-                    />
-                  ) : null}
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="compact"
-                    onClick={() => setPendingDeletion(credential)}
-                    disabled={deletingName === name}
-                    aria-label={`Delete ${name}`}
-                    iconOnly={
-                      deletingName === name ? (
-                        <Loader2 className="animate-spin" aria-hidden />
-                      ) : (
-                        <Trash2 aria-hidden />
-                      )
-                    }
-                  />
-                </div>
-              );
-            })}
-          </Card.Body>
-        </Card.Root>
-      ) : null}
-
-      {shouldShowForm ? (
-        <Card.Root>
-          <Card.Body className="flex flex-col gap-3">
-            <p className="text-body-medium-default text-[var(--content-default)]">
-              {credentials.length === 0
-                ? "Add a credential"
-                : "Add another credential"}
-            </p>
-            <div className="flex flex-col gap-3 sm:flex-row">
-              <Input
-                label="Service"
-                type="text"
-                value={service}
-                onChange={(e) => setService(e.target.value)}
-                placeholder="e.g. github"
-                fullWidth
+    <div className="space-y-4">
+      <DetailCard
+        title="Credentials"
+        subtitle={
+          showManaged
+            ? "Provided through your Vellum-managed integrations. These are read-only here."
+            : "Stored encrypted in your assistant's credential vault. Reveal a value on demand, or replace or delete it at any time."
+        }
+        accessory={
+          <div className="flex items-center gap-2">
+            {hasManaged ? (
+              <SegmentControl
+                items={segmentItems}
+                value={credentialView}
+                onChange={setCredentialView}
+                ariaLabel="Credential source"
               />
-              <Input
-                label="Field"
-                type="text"
-                value={field}
-                onChange={(e) => setField(e.target.value)}
-                placeholder="e.g. api_token"
-                fullWidth
-              />
-            </div>
-            <Input
-              label="Value"
-              type="password"
-              value={value}
-              onChange={(e) => setValue(e.target.value)}
-              placeholder="Enter the secret value"
-              fullWidth
-            />
-            <Input
-              label="Label (optional)"
-              type="text"
-              value={label}
-              onChange={(e) => setLabel(e.target.value)}
-              placeholder="e.g. GitHub personal access token"
-              fullWidth
-            />
-            <div className="flex items-center justify-end gap-2 pt-1">
-              {credentials.length > 0 ? (
-                <Button
-                  type="button"
-                  variant="outlined"
-                  size="compact"
-                  onClick={resetAddForm}
-                  disabled={saving}
-                >
-                  Cancel
-                </Button>
-              ) : null}
+            ) : null}
+            {showOwn && hasCredentials ? (
               <Button
                 type="button"
-                size="compact"
-                onClick={handleSave}
-                disabled={
-                  saving || !service.trim() || !field.trim() || !value.trim()
-                }
-                leftIcon={
-                  saving ? (
-                    <Loader2 className="animate-spin" aria-hidden />
-                  ) : undefined
-                }
+                variant="primary"
+                size="regular"
+                onClick={() => setIsShowingAddForm(true)}
+                leftIcon={<Plus aria-hidden />}
               >
-                Save Credential
+                Add
               </Button>
-            </div>
-          </Card.Body>
-        </Card.Root>
-      ) : (
-        <Button
-          type="button"
-          variant="outlined"
-          size="compact"
-          onClick={() => setIsShowingAddForm(true)}
-          className="w-full border-dashed"
-          leftIcon={<Plus aria-hidden />}
-        >
-          Add Credential
-        </Button>
-      )}
-
-      {managedCredentials.length > 0 ? (
-        <div className="flex flex-col gap-2">
-          <p className="text-body-small-default text-[var(--content-secondary)]">
-            Managed by Vellum
-          </p>
-          <Card.Root>
-            <Card.Body className="flex flex-col divide-y divide-[var(--border-default)]">
-              {managedCredentials.map((managed) => (
-                <div
-                  key={managed.handle}
-                  className="flex items-center gap-3 py-3 first:pt-0 last:pb-0"
+            ) : null}
+          </div>
+        }
+      >
+        {showManaged ? (
+          <div className="space-y-2">
+            {managedCredentials.map((managed) => (
+              <Card.Root key={managed.handle}>
+                <Card.Body
+                  padding="sm"
+                  className="flex items-center gap-4 px-4"
                 >
                   <KeyRound
-                    className="h-4 w-4 shrink-0 text-[var(--content-tertiary)]"
+                    className="h-5 w-5 shrink-0 text-[var(--content-secondary)]"
                     aria-hidden
                   />
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-body-medium-default text-[var(--content-default)]">
+                    <p className="truncate text-title-small text-[var(--content-default)]">
                       {managed.provider}
                     </p>
-                    <p className="truncate text-body-small-default text-[var(--content-tertiary)]">
+                    <p className="truncate text-body-medium-lighter text-[var(--content-tertiary)]">
                       {managed.accountInfo ?? managed.handle} · {managed.status}
                     </p>
                   </div>
+                  <Tag tone="neutral">Managed</Tag>
+                </Card.Body>
+              </Card.Root>
+            ))}
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {hasCredentials ? (
+              <div className="space-y-3">
+                {showSearch ? (
+                  <Input
+                    type="text"
+                    value={searchText}
+                    onChange={(e) => setSearchText(e.target.value)}
+                    placeholder="Search credentials"
+                    aria-label="Search credentials"
+                    leftIcon={<Search className="h-3.5 w-3.5" aria-hidden />}
+                    fullWidth
+                  />
+                ) : null}
+                {filteredCredentials.length === 0 ? (
+                  <p className="px-1 py-2 text-body-medium-lighter text-[var(--content-tertiary)]">
+                    No credentials matched &ldquo;{searchText.trim()}&rdquo;.
+                  </p>
+                ) : (
+                  <div className="space-y-2">
+                    {filteredCredentials.map((credential) => {
+                      const name = `${credential.service}:${credential.field}`;
+                      return (
+                        <CredentialRow
+                          key={credential.credentialId ?? name}
+                          credential={credential}
+                          assistantId={assistantId}
+                          canGenerateLink={credentialRequestsEnabled}
+                          generatingLink={generatingLinkName === name}
+                          deleting={deletingName === name}
+                          onGenerateLink={() =>
+                            void handleGenerateLink(credential)
+                          }
+                          onDelete={() => setPendingDeletion(credential)}
+                        />
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center px-6 py-12 text-center">
+                <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[var(--surface-base)]">
+                  <KeyRound
+                    className="h-6 w-6 text-[var(--content-disabled)] dark:text-[var(--content-default)]"
+                    aria-hidden
+                  />
                 </div>
-              ))}
-            </Card.Body>
-          </Card.Root>
-        </div>
-      ) : null}
+                <h3 className="mt-4 text-title-small text-[var(--content-default)]">
+                  No credentials yet
+                </h3>
+                <p className="mt-1 text-body-medium-lighter text-[var(--content-tertiary)]">
+                  Add an API key or token to let tools and integrations use it.
+                </p>
+              </div>
+            )}
+
+            {hasCredentials ? null : (
+              <Button
+                type="button"
+                variant="outlined"
+                size="compact"
+                onClick={() => setIsShowingAddForm(true)}
+                className="w-full border-dashed"
+                leftIcon={<Plus aria-hidden />}
+              >
+                Add Credential
+              </Button>
+            )}
+          </div>
+        )}
+      </DetailCard>
 
       <ConfirmDialog
         open={pendingDeletion !== null}
@@ -663,6 +446,92 @@ function CredentialsPageInner() {
         onConfirm={confirmDelete}
         onCancel={() => setPendingDeletion(null)}
       />
+
+      <Modal.Root
+        open={isShowingAddForm}
+        onOpenChange={(open) => {
+          // Ignore dismissal (Escape / backdrop) while a save is in flight so a
+          // slow or failing mutation can't discard the entered secret, which
+          // the user may not be able to recover. The form clears only once the
+          // mutation settles (resetAddForm runs on success and on explicit
+          // Cancel, which is itself disabled while saving).
+          if (!open && !saving) {
+            resetAddForm();
+          }
+        }}
+      >
+        <Modal.Content size="sm">
+          <form onSubmit={handleSave}>
+            <Modal.Header>
+              <Modal.Title icon={KeyRound}>Add credential</Modal.Title>
+              <Modal.Description>
+                Add an API key or token to let tools and integrations use it.
+              </Modal.Description>
+            </Modal.Header>
+            <Modal.Body className="flex flex-col gap-3">
+              <div className="flex flex-col gap-3 sm:flex-row">
+                <Input
+                  label="Service"
+                  type="text"
+                  value={service}
+                  onChange={(e) => setService(e.target.value)}
+                  placeholder="e.g. github"
+                  autoFocus
+                  fullWidth
+                />
+                <Input
+                  label="Field"
+                  type="text"
+                  value={field}
+                  onChange={(e) => setField(e.target.value)}
+                  placeholder="e.g. api_token"
+                  fullWidth
+                />
+              </div>
+              <Input
+                label="Value"
+                type="password"
+                value={value}
+                onChange={(e) => setValue(e.target.value)}
+                placeholder="Enter the secret value"
+                fullWidth
+              />
+              <Input
+                label="Label (optional)"
+                type="text"
+                value={label}
+                onChange={(e) => setLabel(e.target.value)}
+                placeholder="e.g. GitHub personal access token"
+                fullWidth
+              />
+            </Modal.Body>
+            <Modal.Footer>
+              <Button
+                type="button"
+                variant="outlined"
+                onClick={resetAddForm}
+                disabled={saving}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                variant="primary"
+                disabled={
+                  saving || !service.trim() || !field.trim() || !value.trim()
+                }
+                leftIcon={
+                  saving ? (
+                    <Loader2 className="animate-spin" aria-hidden />
+                  ) : undefined
+                }
+              >
+                Save
+              </Button>
+            </Modal.Footer>
+          </form>
+        </Modal.Content>
+      </Modal.Root>
 
       <Modal.Root
         open={generatedLink !== null}
