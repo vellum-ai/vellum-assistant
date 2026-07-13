@@ -212,6 +212,11 @@ function CredentialValue({
           isRevealed ? `Hide value for ${name}` : `Reveal value for ${name}`
         }
         title={isRevealed ? "Hide value" : "Click to reveal"}
+        // Prevent session-replay (LogRocket) from recording the credential
+        // value. The attribute is always present so the masked preview
+        // (****last4) is also excluded, not just the revealed plaintext.
+        // https://docs.logrocket.com/reference/dom#sanitizing-individual-elements
+        data-private
         className={`min-w-0 truncate rounded-sm text-left transition-[filter,color] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--border-focus)] ${
           isRevealed
             ? "text-[var(--content-secondary)]"
