@@ -209,6 +209,7 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "daemon/conversation-process.ts", // masked provider key display
       "daemon/handlers/config-model.ts", // masked provider key display
       "providers/speech-to-text/resolve.ts", // STT provider API key lookup
+      "providers/speech-to-text/vellum-velay-connection.ts", // velay speech relay dial credential (assistant API key for the managed speech WebSocket)
       "calls/telephony-tts-capability.ts", // TTS provider API key availability check (presence only)
       "credential-execution/ces-runtime.ts", // CES runtime owns the daemon CES connection (setCesClient/onCesClientChanged/reconnect wiring at startup)
       "runtime/routes/credential-prompt-routes.ts", // Route for secure credential prompt (stores secret via setSecureKeyAsync)
