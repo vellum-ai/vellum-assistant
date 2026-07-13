@@ -60,9 +60,9 @@ export function IntelligenceLayout() {
   // catalog. `useSupportsPluginsSurface` returns false until the version
   // hydrates, so the tab appears once identity resolves.
   //
-  // The Channels tab is an unreleased surface gated on the
-  // `channel-trust-floors` flag (it ships with that arc); while the flag is
-  // off, channels are managed from the Contacts assistant detail instead.
+  // The Channels tab is gated on the `channel-trust-floors` flag (on by
+  // default); while the flag is off, channels are managed from the Contacts
+  // assistant detail instead.
   const withPlugins: readonly IntelligenceTab[] = supportsPlugins
     ? [BASE_INTELLIGENCE_TABS[0], PLUGINS_TAB, ...BASE_INTELLIGENCE_TABS.slice(1)]
     : BASE_INTELLIGENCE_TABS;

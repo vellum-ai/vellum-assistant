@@ -19,7 +19,6 @@
 import { PRESERVED_ENTRIES } from "../../plugins/plugin-tree-walk.js";
 import type { FetchLike } from "./fetch-like.js";
 import {
-  DEFAULT_PLUGIN_REF,
   type InstallMeta,
   readInstallMeta,
   sanitizePluginName,
@@ -28,6 +27,7 @@ import {
   type InstalledPluginInfo,
   readInstalledPlugin,
 } from "./list-installed-plugins.js";
+import { DEFAULT_PLUGIN_REF } from "./plugin-constants.js";
 import {
   compareFingerprint,
   type FingerprintComparison,

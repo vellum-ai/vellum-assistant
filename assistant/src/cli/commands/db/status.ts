@@ -33,6 +33,7 @@ import { getMemoryDbPath } from "../../../util/memory-db-path.js";
 import { getDbPath } from "../../../util/platform.js";
 import { getTelemetryDbPath } from "../../../util/telemetry-db-path.js";
 import { red } from "../../lib/cli-colors.js";
+import { subcommand } from "../../lib/cli-command-help.js";
 import { shouldOutputJson, writeOutput } from "../../output.js";
 import {
   formatAge,
@@ -482,100 +483,95 @@ function renderMissing(path: string): string {
 // ---------------------------------------------------------------------------
 
 export function registerDbStatus(parent: Command): void {
-  parent
-    .command("status")
-    .description(
-      "Show database path, size, key pragmas, and the 5 largest tables",
-    )
-    .action(function (this: Command) {
-      const file = readFileFacts(getDbPath());
+  subcommand(parent, "status").action(function (this: Command) {
+    const file = readFileFacts(getDbPath());
 
-      if (!file.exists) {
-        if (shouldOutputJson(this)) {
-          const report: StatusReport = { file, db: null };
-          writeOutput(this, report);
-        } else {
-          process.stderr.write(renderMissing(file.path));
-        }
-        process.exit(1);
-      }
-
-      let db: DbFacts;
-      try {
-        db = readDbFacts(file.path);
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        if (shouldOutputJson(this)) {
-          const report: StatusReport = { file, db: null };
-          writeOutput(this, { ...report, openError: msg });
-        } else {
-          process.stderr.write(
-            `${red("ERROR")}  Failed to open ${file.path}: ${msg}\n` +
-              `\nThe file exists but bun:sqlite couldn't open it. Run\n` +
-              `\`assistant db repair\` (when available) for a full integrity check.\n`,
-          );
-        }
-        process.exit(1);
-      }
-
-      // Best-effort probe of the dedicated append-only DB. It may not exist
-      // yet (fresh install that has never started the daemon), and a probe
-      // failure must never mask the main-DB report.
-      const logsFile = readFileFacts(getLogsDbPath());
-      let logsDb: DbFacts | null = null;
-      if (logsFile.exists) {
-        try {
-          logsDb = readDbFacts(logsFile.path);
-        } catch {
-          logsDb = null;
-        }
-      }
-
-      // Same best-effort probe for the dedicated memory DB.
-      const memoryFile = readFileFacts(getMemoryDbPath());
-      let memoryDb: DbFacts | null = null;
-      if (memoryFile.exists) {
-        try {
-          memoryDb = readDbFacts(memoryFile.path);
-        } catch {
-          memoryDb = null;
-        }
-      }
-
-      // Same best-effort probe for the dedicated telemetry DB.
-      const telemetryFile = readFileFacts(getTelemetryDbPath());
-      let telemetryDb: DbFacts | null = null;
-      if (telemetryFile.exists) {
-        try {
-          telemetryDb = readDbFacts(telemetryFile.path);
-        } catch {
-          telemetryDb = null;
-        }
-      }
-
-      // Cross-database migration summary from the main DB's checkpoint ledger.
-      let migration: MigrationSummary | null = null;
-      try {
-        migration = readMigrationSummary(file.path);
-      } catch {
-        migration = null;
-      }
-
-      const report: StatusReport = {
-        file,
-        db,
-        migration: migration ?? undefined,
-        logsFile,
-        logsDb,
-        memoryFile,
-        memoryDb,
-        telemetryFile,
-        telemetryDb,
-      };
+    if (!file.exists) {
       if (shouldOutputJson(this)) {
+        const report: StatusReport = { file, db: null };
         writeOutput(this, report);
       } else {
-        process.stdout.write(renderHuman(report));
+        process.stderr.write(renderMissing(file.path));
       }
-    });
+      process.exit(1);
+    }
+
+    let db: DbFacts;
+    try {
+      db = readDbFacts(file.path);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (shouldOutputJson(this)) {
+        const report: StatusReport = { file, db: null };
+        writeOutput(this, { ...report, openError: msg });
+      } else {
+        process.stderr.write(
+          `${red("ERROR")}  Failed to open ${file.path}: ${msg}\n` +
+            `\nThe file exists but bun:sqlite couldn't open it. Run\n` +
+            `\`assistant db repair\` (when available) for a full integrity check.\n`,
+        );
+      }
+      process.exit(1);
+    }
+
+    // Best-effort probe of the dedicated append-only DB. It may not exist
+    // yet (fresh install that has never started the daemon), and a probe
+    // failure must never mask the main-DB report.
+    const logsFile = readFileFacts(getLogsDbPath());
+    let logsDb: DbFacts | null = null;
+    if (logsFile.exists) {
+      try {
+        logsDb = readDbFacts(logsFile.path);
+      } catch {
+        logsDb = null;
+      }
+    }
+
+    // Same best-effort probe for the dedicated memory DB.
+    const memoryFile = readFileFacts(getMemoryDbPath());
+    let memoryDb: DbFacts | null = null;
+    if (memoryFile.exists) {
+      try {
+        memoryDb = readDbFacts(memoryFile.path);
+      } catch {
+        memoryDb = null;
+      }
+    }
+
+    // Same best-effort probe for the dedicated telemetry DB.
+    const telemetryFile = readFileFacts(getTelemetryDbPath());
+    let telemetryDb: DbFacts | null = null;
+    if (telemetryFile.exists) {
+      try {
+        telemetryDb = readDbFacts(telemetryFile.path);
+      } catch {
+        telemetryDb = null;
+      }
+    }
+
+    // Cross-database migration summary from the main DB's checkpoint ledger.
+    let migration: MigrationSummary | null = null;
+    try {
+      migration = readMigrationSummary(file.path);
+    } catch {
+      migration = null;
+    }
+
+    const report: StatusReport = {
+      file,
+      db,
+      migration: migration ?? undefined,
+      logsFile,
+      logsDb,
+      memoryFile,
+      memoryDb,
+      telemetryFile,
+      telemetryDb,
+    };
+    if (shouldOutputJson(this)) {
+      writeOutput(this, report);
+    } else {
+      process.stdout.write(renderHuman(report));
+    }
+  });
 }

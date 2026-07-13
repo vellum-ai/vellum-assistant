@@ -42,6 +42,11 @@ const USAGE_ATTRIBUTION_HEADER_NAMES = {
   resolvedMixArm: "X-Vellum-Resolved-Mix-Arm",
 } as const;
 
+/** Providers whose transports consume `promptCacheKey` (OpenAI Responses
+ *  `prompt_cache_key`); `RetryProvider` derives it from `selectionSeed` for
+ *  these only. */
+const PROMPT_CACHE_KEY_PROVIDERS = new Set(["openai", "openrouter"]);
+
 /** Providers that support the `effort` config (extended thinking / reasoning). */
 const EFFORT_SUPPORTED_PROVIDERS = new Set([
   "anthropic",
@@ -117,6 +122,11 @@ const RETRYABLE_STREAM_PATTERNS = [
   "stream ended without producing",
   "request ended without sending any chunks",
   "stream has ended, this shouldn't happen",
+  // The SDK's stream accumulator throws this when the model emits tool-call
+  // arguments that don't parse as JSON (e.g. a raw control character inside a
+  // string). It's a stochastic model degeneration, not a request problem — a
+  // resend almost always succeeds.
+  "Unable to parse tool parameter JSON",
 ];
 
 /**
@@ -273,11 +283,29 @@ function normalizeSendMessageOptions(
   delete nextConfig.usageAttributionHeaders;
   delete nextConfig.usageTracking;
 
+  // Preserve the per-conversation prompt-cache key before `selectionSeed` is
+  // stripped below. Gated to providers whose Responses transport consumes it
+  // as `prompt_cache_key` (direct OpenAI, and OpenRouter's `openai/*`
+  // Responses delegate); creating it elsewhere would leak a non-wire field
+  // through clients that spread config into request bodies. The Anthropic
+  // client strips `promptCacheKey` from its wire config, which also covers
+  // OpenRouter's `anthropic/*` delegation path. An explicit caller-set value
+  // wins.
+  if (
+    PROMPT_CACHE_KEY_PROVIDERS.has(providerName) &&
+    nextConfig.promptCacheKey === undefined &&
+    typeof config.selectionSeed === "string" &&
+    config.selectionSeed.length > 0
+  ) {
+    nextConfig.promptCacheKey = config.selectionSeed;
+  }
+
   // `overrideProfile`, `forceOverrideProfile`, and `selectionSeed` are
   // routing/resolution-time concerns (consumed by the resolver below and
   // `CallSiteRoutingProvider`'s provider selection); none is a wire-format
-  // field. Strip unconditionally so they never leak into provider request
-  // bodies even when callers set them without a `callSite`.
+  // field. Strip unconditionally (after the `openai` promptCacheKey copy
+  // above) so they never leak into provider request bodies even when callers
+  // set them without a `callSite`.
   delete nextConfig.overrideProfile;
   delete nextConfig.forceOverrideProfile;
   delete nextConfig.selectionSeed;

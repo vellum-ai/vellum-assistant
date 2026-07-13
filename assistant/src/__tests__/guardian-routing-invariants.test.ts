@@ -43,14 +43,6 @@ mock.module("../daemon/conversation-registry.js", () => ({
   findConversation: (id: string) => _conversationMocks.get(id),
 }));
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-  truncateForLog: (value: string) => value,
-}));
-
 import { createGuardianGatewaySim } from "./guardian-gateway-sim.js";
 
 const sim = createGuardianGatewaySim();

@@ -400,6 +400,7 @@ export class MediaStreamSttSession {
       transcriber = await resolveStreamingTranscriber({
         sampleRate: STREAMING_SAMPLE_RATE,
         utteranceBoundaryFinals: true,
+        utteranceEndMs: getConfig().calls.voice.utteranceEndMs,
       });
     } catch (err) {
       log.warn(

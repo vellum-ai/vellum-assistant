@@ -7,32 +7,15 @@ import type {
 import type { Conversation } from "../daemon/conversation.js";
 import { persistUserMessage as persistUserMessageImpl } from "../daemon/conversation-messaging.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
+import { setConfig } from "./helpers/set-config.js";
 
-let mockedConfig: {
-  secretDetection: { enabled: boolean };
-  calls: { disclosure: { enabled: boolean; text: string } };
-  memory: { enabled: boolean };
-} = {
-  secretDetection: { enabled: false },
-  calls: {
-    disclosure: {
-      enabled: false,
-      text: "",
-    },
-  },
-  memory: { enabled: false },
-};
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => mockedConfig,
-}));
+/** Seed the config the voice bridge reads: disclosure copy, plus disabled
+ * secret detection and memory so the real persist path stays inert. */
+function seedVoiceConfig(disclosure: { enabled: boolean; text: string }): void {
+  setConfig("secretDetection", { enabled: false });
+  setConfig("calls", { disclosure });
+  setConfig("memory", { enabled: false, v2: { enabled: false } });
+}
 
 let voiceConversationFactory: (() => Conversation) | null = null;
 
@@ -69,10 +52,6 @@ function makeStreamingSession(events: ServerMessage[]): Conversation {
       id: "test-msg-id",
       deduplicated: false,
     }),
-    memoryPolicy: {
-      scopeId: "default",
-      includeDefaultFallback: false,
-    },
     setChannelCapabilities: () => {},
     setAssistantId: () => {},
     setTrustContext: () => {},
@@ -113,10 +92,6 @@ function makePersistingStreamingSession(
     currentRequestId: undefined,
     queue: {} as never,
     trustContext: undefined,
-    memoryPolicy: {
-      scopeId: "default",
-      includeDefaultFallback: false,
-    },
     isProcessing: () => processing,
     setProcessing: (value: boolean) => {
       processing = value;
@@ -182,16 +157,7 @@ function injectDeps(conversationFactory: () => Conversation): void {
 
 describe("voice-session-bridge", () => {
   beforeEach(() => {
-    mockedConfig = {
-      secretDetection: { enabled: false },
-      calls: {
-        disclosure: {
-          enabled: false,
-          text: "",
-        },
-      },
-      memory: { enabled: false },
-    };
+    seedVoiceConfig({ enabled: false, text: "" });
     const db = getDb();
     db.run("DELETE FROM messages");
     db.run("DELETE FROM conversations");
@@ -280,10 +246,6 @@ describe("voice-session-bridge", () => {
         session.currentRequestId = options.requestId;
         return { id: "test-msg-id", deduplicated: false };
       },
-      memoryPolicy: {
-        scopeId: "default",
-        includeDefaultFallback: false,
-      },
       setChannelCapabilities: () => {},
       setAssistantId: () => {},
       setTrustContext: () => {},
@@ -368,10 +330,6 @@ describe("voice-session-bridge", () => {
       persistUserMessage: (options: { requestId?: string }) => {
         session.currentRequestId = options.requestId;
         return { id: "test-msg-id", deduplicated: false };
-      },
-      memoryPolicy: {
-        scopeId: "default",
-        includeDefaultFallback: false,
       },
       setChannelCapabilities: () => {},
       setAssistantId: () => {},
@@ -666,16 +624,10 @@ describe("voice-session-bridge", () => {
   });
 
   test("inbound disclosure guidance is rewritten for pickup context", async () => {
-    mockedConfig = {
-      secretDetection: { enabled: false },
-      calls: {
-        disclosure: {
-          enabled: true,
-          text: "At the very beginning of the call, introduce yourself as an assistant calling on behalf of the person you represent.",
-        },
-      },
-      memory: { enabled: false },
-    };
+    seedVoiceConfig({
+      enabled: true,
+      text: "At the very beginning of the call, introduce yourself as an assistant calling on behalf of the person you represent.",
+    });
 
     const conversation = createConversation(
       "voice bridge inbound disclosure rewrite test",
@@ -744,10 +696,6 @@ describe("voice-session-bridge", () => {
         id: "test-msg-id",
         deduplicated: false,
       }),
-      memoryPolicy: {
-        scopeId: "default",
-        includeDefaultFallback: false,
-      },
       setChannelCapabilities: () => {},
       setAssistantId: () => {},
       setTrustContext: () => {},
@@ -834,10 +782,6 @@ describe("voice-session-bridge", () => {
         id: "test-msg-id",
         deduplicated: false,
       }),
-      memoryPolicy: {
-        scopeId: "default",
-        includeDefaultFallback: false,
-      },
       setChannelCapabilities: () => {},
       setAssistantId: () => {},
       setTrustContext: () => {},
@@ -905,10 +849,6 @@ describe("voice-session-bridge", () => {
         id: "test-msg-id",
         deduplicated: false,
       }),
-      memoryPolicy: {
-        scopeId: "default",
-        includeDefaultFallback: false,
-      },
       setChannelCapabilities: () => {},
       setAssistantId: () => {},
       setTrustContext: () => {},
@@ -982,10 +922,6 @@ describe("voice-session-bridge", () => {
         id: "test-msg-id",
         deduplicated: false,
       }),
-      memoryPolicy: {
-        scopeId: "default",
-        includeDefaultFallback: false,
-      },
       setChannelCapabilities: () => {},
       setAssistantId: () => {},
       setTrustContext: () => {},
@@ -1075,10 +1011,6 @@ describe("voice-session-bridge", () => {
         id: "test-msg-id",
         deduplicated: false,
       }),
-      memoryPolicy: {
-        scopeId: "default",
-        includeDefaultFallback: false,
-      },
       setChannelCapabilities: () => {},
       setAssistantId: () => {},
       setTrustContext: () => {},
@@ -1151,10 +1083,6 @@ describe("voice-session-bridge", () => {
         id: "test-msg-id",
         deduplicated: false,
       }),
-      memoryPolicy: {
-        scopeId: "default",
-        includeDefaultFallback: false,
-      },
       setChannelCapabilities: () => {},
       setAssistantId: () => {},
       setTrustContext: () => {},
@@ -1223,10 +1151,6 @@ describe("voice-session-bridge", () => {
       persistUserMessage: async () => {
         throw new Error("simulated persistence failure");
       },
-      memoryPolicy: {
-        scopeId: "default",
-        includeDefaultFallback: false,
-      },
       setChannelCapabilities: () => {},
       setAssistantId: () => {},
       setTrustContext: () => {},
@@ -1285,10 +1209,6 @@ describe("voice-session-bridge", () => {
       callSessionId: undefined as string | undefined,
       persistUserMessage: async () => {
         throw new Error("simulated persistence failure");
-      },
-      memoryPolicy: {
-        scopeId: "default",
-        includeDefaultFallback: false,
       },
       setChannelCapabilities: recordLast("setChannelCapabilities"),
       setAssistantId: recordLast("setAssistantId"),
@@ -1356,10 +1276,6 @@ describe("voice-session-bridge", () => {
       persistUserMessage: async () => {
         throw new Error("persist failed before bridge installed callback");
       },
-      memoryPolicy: {
-        scopeId: "default",
-        includeDefaultFallback: false,
-      },
       setChannelCapabilities: () => {},
       setAssistantId: () => {},
       setTrustContext: () => {},
@@ -1419,10 +1335,6 @@ describe("voice-session-bridge", () => {
       persistUserMessage: (options: { requestId?: string }) => {
         session.currentRequestId = options.requestId;
         return { id: "test-msg-id", deduplicated: false };
-      },
-      memoryPolicy: {
-        scopeId: "default",
-        includeDefaultFallback: false,
       },
       setChannelCapabilities: () => {},
       setAssistantId: () => {},

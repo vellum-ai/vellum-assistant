@@ -162,7 +162,9 @@ class XAIBatchTranscriber implements BatchTranscriber {
  * `BatchTranscriber.transcribe()` calls with this utility.
  */
 export function normalizeSttError(err: unknown): SttError {
-  if (err instanceof SttError) return err;
+  if (err instanceof SttError) {
+    return err;
+  }
 
   const message = err instanceof Error ? err.message : String(err);
 
@@ -203,11 +205,40 @@ export function normalizeSttError(err: unknown): SttError {
  * Returns `null` when `apiKey` is falsy, signalling to the caller that
  * batch transcription is unavailable.
  */
+// ---------------------------------------------------------------------------
+// Vellum managed adapter — implements BatchTranscriber on top of the
+// platform's managed speech endpoint. No API key: the platform connection
+// is the credential.
+// ---------------------------------------------------------------------------
+
+class VellumManagedBatchTranscriber implements BatchTranscriber {
+  readonly providerId = "vellum" as const;
+  readonly boundaryId = "daemon-batch" as const;
+
+  async transcribe(
+    request: SttTranscribeRequest,
+  ): Promise<SttTranscribeResult> {
+    const { vellumManagedTranscribe } =
+      await import("../providers/speech-to-text/vellum-managed.js");
+    return vellumManagedTranscribe(
+      request.audio,
+      request.mimeType,
+      request.signal,
+    );
+  }
+}
+
 export function createDaemonBatchTranscriber(
   apiKey: string | null | undefined,
   providerId: SttProviderId,
 ): BatchTranscriber | null {
-  if (!apiKey) return null;
+  // vellum authenticates via the platform connection, not an API key.
+  if (providerId === "vellum") {
+    return new VellumManagedBatchTranscriber();
+  }
+  if (!apiKey) {
+    return null;
+  }
 
   switch (providerId) {
     case "openai-whisper":

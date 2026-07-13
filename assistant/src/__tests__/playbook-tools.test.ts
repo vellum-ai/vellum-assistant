@@ -1,19 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-    memory: {},
-  }),
-}));
-
 // Stub memory job queue to avoid side effects
 mock.module("../persistence/jobs-store.js", () => ({
   enqueueMemoryJob: () => {},

@@ -3,36 +3,6 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import type { ToolExecutionResult } from "../tools/types.js";
 import type { UsageAttributionSnapshot } from "../usage/attribution.js";
 
-const mockConfig = {
-  provider: "anthropic",
-  model: "test",
-  maxTokens: 4096,
-  dataDir: "/tmp",
-  timeouts: {
-    shellDefaultTimeoutSec: 120,
-    shellMaxTimeoutSec: 600,
-    permissionTimeoutSec: 300,
-  },
-  sandbox: {
-    enabled: false,
-    backend: "native" as const,
-    docker: {
-      image: "vellum-sandbox:latest",
-      cpus: 1,
-      memoryMb: 512,
-      pidsLimit: 256,
-      network: "none" as const,
-    },
-  },
-  rateLimit: { maxRequestsPerMinute: 0 },
-  secretDetection: {
-    enabled: false,
-  },
-  permissions: {
-    mode: "workspace" as const,
-  },
-};
-
 let checkerDecision: "allow" | "prompt" | "deny" = "allow";
 let checkerReason = "allowed";
 let checkerRisk = "low";
@@ -108,28 +78,10 @@ mock.module("../telemetry/tool-audit.js", () => ({
   },
 }));
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => mockConfig,
-  loadConfig: () => mockConfig,
-  invalidateConfigCache: () => {},
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-  getNestedValue: () => undefined,
-  setNestedValue: () => {},
-}));
-
 // Analytics consent is granted so any consent-gated telemetry path the audit
 // terminals consult sees the opted-in state.
 mock.module("../platform/consent-cache.js", () => ({
   getCachedShareAnalytics: () => true,
-}));
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-  truncateForLog: (value: string) => value,
 }));
 
 mock.module("../permissions/checker.js", () => ({
@@ -158,8 +110,8 @@ mock.module("../telemetry/tool-usage-store.js", () => ({
   rotateToolInvocations: async () => 0,
 }));
 
-mock.module("../tools/registry.js", () => ({
-  getTool: (name: string) => {
+mock.module("../tools/registry.js", () => {
+  const lookup = (name: string) => {
     if (name === "unknown_tool") {
       return undefined;
     }
@@ -242,21 +194,25 @@ mock.module("../tools/registry.js", () => ({
         return fakeToolResult;
       },
     };
-  },
-  // Ownership lives on the registry post-refactor. Mirror that by surfacing
-  // the optional `owner`-shaped field set inline on the override-produced
-  // tool (see the skill_* branches above).
-  getToolOwner: (name: string) => {
-    if (
-      name === "skill_host_tool" ||
-      name === "skill_sandbox_tool" ||
-      name === "host_skill_sandboxed"
-    ) {
-      return { kind: "skill" as const, id: "test-skill" };
-    }
-    return undefined;
-  },
-}));
+  };
+  return {
+    getTool: lookup,
+    resolveTool: lookup,
+    // Ownership lives on the registry post-refactor. Mirror that by surfacing
+    // the optional `owner`-shaped field set inline on the override-produced
+    // tool (see the skill_* branches above).
+    getToolOwner: (name: string) => {
+      if (
+        name === "skill_host_tool" ||
+        name === "skill_sandbox_tool" ||
+        name === "host_skill_sandboxed"
+      ) {
+        return { kind: "skill" as const, id: "test-skill" };
+      }
+      return undefined;
+    },
+  };
+});
 
 mock.module("../tools/shared/filesystem/path-policy.js", () => ({
   sandboxPolicy: () => ({ ok: false }),

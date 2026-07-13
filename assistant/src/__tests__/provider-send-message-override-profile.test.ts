@@ -11,7 +11,7 @@
  * makes per-conversation pinned profiles (PR 6+) work.
  */
 
-import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeAll, beforeEach, describe, expect, test } from "bun:test";
 
 import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
 
@@ -24,20 +24,6 @@ beforeAll(() => {
   setOverridesForTesting({ "override-or-default-resolution": false });
 });
 
-import { makeMockLogger } from "./helpers/mock-logger.js";
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () => makeMockLogger(),
-}));
-
-// Mutable LLM config consumed by the resolver via `getConfig()`.
-let mockLlmConfig: Record<string, unknown> = {};
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({ llm: mockLlmConfig }),
-}));
-
-import { LLMSchema } from "../config/schemas/llm.js";
 import { CallSiteRoutingProvider } from "../providers/call-site-routing.js";
 import { CallSiteConfiguredProvider } from "../providers/provider-send-message.js";
 import { RetryProvider } from "../providers/retry.js";
@@ -47,6 +33,7 @@ import type {
   ProviderResponse,
   SendMessageOptions,
 } from "../providers/types.js";
+import { setConfig } from "./helpers/set-config.js";
 
 const DUMMY_MESSAGES: Message[] = [
   { role: "user", content: [{ type: "text", text: "hi" }] },
@@ -61,12 +48,14 @@ function makeResponse(model: string): ProviderResponse {
   };
 }
 
+// Seed `llm` into the real workspace config; the loader schema-merges the
+// raw partial over defaults exactly as `LLMSchema.parse` did for the mock.
 function setLlmConfig(raw: unknown): void {
-  mockLlmConfig = LLMSchema.parse(raw) as Record<string, unknown>;
+  setConfig("llm", raw);
 }
 
 beforeEach(() => {
-  mockLlmConfig = LLMSchema.parse({}) as Record<string, unknown>;
+  setLlmConfig({});
 });
 
 describe("SendMessageOptions.config.overrideProfile", () => {

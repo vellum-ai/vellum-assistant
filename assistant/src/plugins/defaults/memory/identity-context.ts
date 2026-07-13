@@ -1,7 +1,7 @@
 import { resolveGuardianPersona } from "../../../prompts/persona-resolver.js";
 import { readPromptFile } from "../../../prompts/system-prompt.js";
 import { isTemplateContent } from "../../../prompts/template-detection.js";
-import { getWorkspacePromptPath } from "../../../util/platform.js";
+import { getWorkspacePromptPath } from "./paths.js";
 
 const IDENTITY_PROMPT_FILES = ["IDENTITY.md", "SOUL.md"] as const;
 

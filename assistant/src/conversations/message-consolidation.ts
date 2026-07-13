@@ -32,6 +32,7 @@
  */
 
 import type { MessageRow } from "../persistence/conversation-crud.js";
+import type { ContentBlock } from "../providers/types.js";
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("message-consolidation");
@@ -42,11 +43,11 @@ function isToolResultType(type: string): boolean {
   return type === "tool_result" || type === "web_search_tool_result";
 }
 
-function isSystemNoticeText(block: Record<string, unknown>): boolean {
-  if (block.type !== "text") return false;
-  const text = typeof block.text === "string" ? block.text : "";
+function isSystemNoticeText(block: ContentBlock): boolean {
   return (
-    text.startsWith("<system_notice>") && text.endsWith("</system_notice>")
+    block.type === "text" &&
+    block.text.startsWith("<system_notice>") &&
+    block.text.endsWith("</system_notice>")
   );
 }
 
@@ -59,31 +60,16 @@ function isSystemNoticeText(block: Record<string, unknown>): boolean {
  * must treat them as part of the surrounding assistant turn.
  */
 export function isToolResultOnlyUserMessage(msg: MessageRow): boolean {
-  if (msg.role !== "user") return false;
-  let blocks: unknown[];
-  try {
-    const parsed = JSON.parse(msg.content);
-    if (!Array.isArray(parsed)) return false;
-    blocks = parsed;
-  } catch {
+  if (msg.role !== "user") {
     return false;
   }
-
   let sawToolResult = false;
-  for (const block of blocks) {
-    if (
-      typeof block !== "object" ||
-      block === null ||
-      typeof (block as Record<string, unknown>).type !== "string"
-    ) {
-      return false;
-    }
-    const rec = block as Record<string, unknown>;
-    if (isToolResultType(rec.type as string)) {
+  for (const block of msg.content) {
+    if (isToolResultType(block.type)) {
       sawToolResult = true;
       continue;
     }
-    if (isSystemNoticeText(rec)) {
+    if (isSystemNoticeText(block)) {
       continue;
     }
     return false;
@@ -117,13 +103,19 @@ export function findDisplayTurnEndIndex(
   messages: MessageRow[],
   startIdx: number,
 ): number {
-  if (startIdx < 0 || startIdx >= messages.length) return startIdx;
-  if (messages[startIdx]?.role !== "assistant") return startIdx;
+  if (startIdx < 0 || startIdx >= messages.length) {
+    return startIdx;
+  }
+  if (messages[startIdx]?.role !== "assistant") {
+    return startIdx;
+  }
 
   let endIdx = startIdx;
   while (endIdx + 1 < messages.length) {
     const next = messages[endIdx + 1];
-    if (!next) break;
+    if (!next) {
+      break;
+    }
     if (next.role === "assistant") {
       endIdx += 1;
       continue;
@@ -154,7 +146,7 @@ export function mergeToolResultsIntoAssistantMessages(
   // Index of the most recent assistant message in the output array.
   let lastAssistantIdx = -1;
   // Parsed content caches — lazily populated per assistant message.
-  const parsedAssistantContent = new Map<number, unknown[]>();
+  const parsedAssistantContent = new Map<number, ContentBlock[]>();
 
   const result: MessageRow[] = [];
 
@@ -171,38 +163,12 @@ export function mergeToolResultsIntoAssistantMessages(
       continue;
     }
 
-    let blocks: unknown[];
-    try {
-      const parsed = JSON.parse(msg.content);
-      if (!Array.isArray(parsed)) {
-        result.push(msg);
-        continue;
-      }
-      blocks = parsed;
-    } catch {
-      result.push(msg);
-      continue;
-    }
-
     // Separate tool-result blocks from real user content.
-    const toolResultBlocks: unknown[] = [];
-    const otherBlocks: unknown[] = [];
-    for (const block of blocks) {
-      if (
-        typeof block === "object" &&
-        block !== null &&
-        typeof (block as Record<string, unknown>).type === "string"
-      ) {
-        const rec = block as Record<string, unknown>;
-        if (isToolResultType(rec.type as string)) {
-          toolResultBlocks.push(block);
-        } else if (isSystemNoticeText(rec)) {
-          // System notices don't count as user content — drop them when
-          // the message is otherwise tool-result-only.
-          otherBlocks.push(block);
-        } else {
-          otherBlocks.push(block);
-        }
+    const toolResultBlocks: ContentBlock[] = [];
+    const otherBlocks: ContentBlock[] = [];
+    for (const block of msg.content) {
+      if (isToolResultType(block.type)) {
+        toolResultBlocks.push(block);
       } else {
         otherBlocks.push(block);
       }
@@ -224,12 +190,7 @@ export function mergeToolResultsIntoAssistantMessages(
       const assistant = result[lastAssistantIdx];
       let assistantContent = parsedAssistantContent.get(lastAssistantIdx);
       if (!assistantContent) {
-        try {
-          const parsed = JSON.parse(assistant.content);
-          assistantContent = Array.isArray(parsed) ? parsed : [parsed];
-        } catch {
-          assistantContent = [];
-        }
+        assistantContent = [...assistant.content];
         parsedAssistantContent.set(lastAssistantIdx, assistantContent);
       }
       assistantContent.push(...toolResultBlocks);
@@ -237,63 +198,24 @@ export function mergeToolResultsIntoAssistantMessages(
 
     // If the user message had only tool_result (+ system_notice) blocks,
     // suppress it entirely. Otherwise keep the non-tool-result content.
-    const realUserContent = otherBlocks.filter(
-      (b) =>
-        !(
-          typeof b === "object" &&
-          b !== null &&
-          isSystemNoticeText(b as Record<string, unknown>)
-        ),
-    );
+    // System notices don't count as real user content — they are only
+    // injected alongside tool results in the agent loop.
+    const realUserContent = otherBlocks.filter((b) => !isSystemNoticeText(b));
     if (realUserContent.length > 0) {
-      result.push({ ...msg, content: JSON.stringify(otherBlocks) });
+      result.push({ ...msg, content: otherBlocks });
     }
     // else: tool-result-only → suppressed
   }
 
   // Write back any modified assistant message content.
   for (const [idx, content] of parsedAssistantContent) {
-    result[idx] = { ...result[idx], content: JSON.stringify(content) };
+    result[idx] = { ...result[idx], content };
   }
 
   return result;
 }
 
 // ── Pass 2: consecutive-assistant merging ───────────────────────────
-
-/** Parse a message's JSON content into an array of content blocks. */
-function parseContentBlocks(content: string): unknown[] {
-  try {
-    const parsed = JSON.parse(content);
-    return Array.isArray(parsed) ? parsed : [parsed];
-  } catch (err) {
-    log.warn(
-      { err },
-      "Failed to parse content blocks during assistant message merge",
-    );
-    return [];
-  }
-}
-
-/**
- * Append content blocks from a donor message onto a target block array.
- * Parses the donor's JSON content and pushes each block into `target`.
- */
-function appendContentBlocks(target: unknown[], donorContent: string): void {
-  try {
-    const parsed = JSON.parse(donorContent);
-    if (Array.isArray(parsed)) {
-      target.push(...parsed);
-    } else {
-      target.push(parsed);
-    }
-  } catch (err) {
-    log.warn(
-      { err },
-      "Failed to parse donor content blocks during assistant message merge",
-    );
-  }
-}
 
 /**
  * Promote metadata fields from a donor message to the surviving message
@@ -354,7 +276,7 @@ export function mergeConsecutiveAssistantMessages(messages: MessageRow[]): {
 } {
   const result: MessageRow[] = [];
   // Key = index in `result`, value = accumulated content blocks.
-  const pendingMerges = new Map<number, unknown[]>();
+  const pendingMerges = new Map<number, ContentBlock[]>();
   // Key = index in `result`, value = IDs of messages merged into the target.
   const mergedIds = new Map<number, string[]>();
 
@@ -381,17 +303,17 @@ export function mergeConsecutiveAssistantMessages(messages: MessageRow[]): {
     // Lazily parse the target's content on first merge.
     let targetContent = pendingMerges.get(lastIdx);
     if (!targetContent) {
-      targetContent = parseContentBlocks(result[lastIdx].content);
+      targetContent = [...result[lastIdx].content];
       pendingMerges.set(lastIdx, targetContent);
     }
 
-    appendContentBlocks(targetContent, msg.content);
+    targetContent.push(...msg.content);
     result[lastIdx] = promoteMetadata(result[lastIdx], msg);
   }
 
   // Write back merged content for any messages that were targets.
   for (const [idx, content] of pendingMerges) {
-    result[idx] = { ...result[idx], content: JSON.stringify(content) };
+    result[idx] = { ...result[idx], content };
   }
 
   // Build the merged ID map keyed by surviving message ID.

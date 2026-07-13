@@ -39,7 +39,6 @@ import { wrapMemoryBlock } from "../memory-marker.js";
 const realDb = {
   ...(await import("../../../../persistence/db-connection.js")),
 };
-const realConfigLoader = { ...(await import("../../../../config/loader.js")) };
 const realMemoryConfig = { ...(await import("../config.js")) };
 
 let pruneMockActive = false;
@@ -79,16 +78,9 @@ mock.module("../../../../persistence/db-connection.js", () => ({
       : realDb.getSqliteFrom(db as Parameters<typeof realDb.getSqliteFrom>[0]),
 }));
 
-mock.module("../../../../config/loader.js", () => ({
-  ...realConfigLoader,
-  getConfig: () =>
-    pruneMockActive
-      ? { memory: { v3: { prune: pruneConfig ?? undefined } } }
-      : realConfigLoader.getConfig(),
-}));
-
-// Memory code resolves its config through the plugin's own accessor, not
-// getConfig(); stub the same conditional slice there.
+// Memory code resolves its config through the plugin's own accessor
+// (`getMemoryConfig`), not `getConfig()`; the prune valve reads its bounds
+// there, so only this stub is needed.
 mock.module("../config.js", () => ({
   getMemoryConfig: () =>
     pruneMockActive

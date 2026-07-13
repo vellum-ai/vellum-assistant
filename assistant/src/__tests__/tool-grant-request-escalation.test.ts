@@ -12,14 +12,6 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 const testDir = process.env.VELLUM_WORKSPACE_DIR!;
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-  truncateForLog: (value: string) => value,
-}));
-
 // Mock task run rules — no task run rules by default
 mock.module("../tasks/ephemeral-permissions.js", () => ({
   getTaskRunRules: () => [],
@@ -37,6 +29,7 @@ const fakeTool = {
 
 mock.module("../tools/registry.js", () => ({
   getTool: (name: string) => (name === "bash" ? fakeTool : undefined),
+  resolveTool: (name: string) => (name === "bash" ? fakeTool : undefined),
   getAllTools: () => [fakeTool],
 }));
 

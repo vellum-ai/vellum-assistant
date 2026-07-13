@@ -11,16 +11,8 @@ import {
   test,
 } from "bun:test";
 
+import { setConfig } from "../../../__tests__/helpers/set-config.js";
 import type { ToolContext } from "../../../tools/types.js";
-import { PKB_WORKSPACE_SCOPE } from "./pkb/types.js";
-
-// This test exercises v1 PKB re-index enqueue. `config.memory.v2.enabled`
-// (default `true`) makes the enqueue path skipped — force it off so the
-// v1 PKB index path stays under test.
-mock.module("../../../config/loader.js", () => ({
-  getConfig: () => ({ memory: { v2: { enabled: false } } }),
-  loadConfig: () => ({ memory: { v2: { enabled: false } } }),
-}));
 
 let tmpWorkspace: string;
 let previousWorkspaceEnv: string | undefined;
@@ -31,7 +23,6 @@ let previousWorkspaceEnv: string | undefined;
 const enqueueCalls: Array<{
   pkbRoot: string;
   absPath: string;
-  memoryScopeId: string;
 }> = [];
 let enqueueShouldThrow = false;
 
@@ -42,11 +33,7 @@ const recallCalls: Array<{
 let recallContent = "agentic recall answer";
 
 mock.module("./jobs/embed-pkb-file.js", () => ({
-  enqueuePkbIndexJob: (input: {
-    pkbRoot: string;
-    absPath: string;
-    memoryScopeId: string;
-  }) => {
+  enqueuePkbIndexJob: (input: { pkbRoot: string; absPath: string }) => {
     enqueueCalls.push(input);
     if (enqueueShouldThrow) {
       throw new Error("simulated enqueue failure");
@@ -74,6 +61,11 @@ beforeAll(() => {
   tmpWorkspace = mkdtempSync(join(tmpdir(), "remember-tool-test-"));
   previousWorkspaceEnv = process.env.VELLUM_WORKSPACE_DIR;
   process.env.VELLUM_WORKSPACE_DIR = tmpWorkspace;
+  // This test exercises the v1 PKB re-index enqueue. `memory.v2.enabled`
+  // (default true) skips the enqueue path — force it off so the v1 PKB index
+  // path stays under test. Seed into the just-overridden workspace so the real
+  // loader reads it.
+  setConfig("memory", { v2: { enabled: false } });
 });
 
 afterAll(() => {
@@ -301,12 +293,10 @@ describe("rememberTool.execute — PKB re-index enqueue", () => {
     expect(enqueueCalls[0]).toEqual({
       pkbRoot,
       absPath: bufferPath,
-      memoryScopeId: PKB_WORKSPACE_SCOPE,
     });
     expect(enqueueCalls[1]).toEqual({
       pkbRoot,
       absPath: archivePath,
-      memoryScopeId: PKB_WORKSPACE_SCOPE,
     });
   });
 

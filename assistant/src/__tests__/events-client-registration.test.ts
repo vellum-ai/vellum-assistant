@@ -12,25 +12,7 @@
  *   - Duplicate clientId subscribers are deduplicated on reconnect
  *   - disposeClient() force-disconnects all subscribers for a clientId
  */
-import { describe, expect, mock, test } from "bun:test";
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-    model: "test",
-    provider: "test",
-    memory: { enabled: false },
-    rateLimit: { maxRequestsPerMinute: 0 },
-    secretDetection: { enabled: false },
-  }),
-}));
+import { describe, expect, test } from "bun:test";
 
 import { initializeDb } from "../persistence/db-init.js";
 import { AssistantEventHub } from "../runtime/assistant-event-hub.js";

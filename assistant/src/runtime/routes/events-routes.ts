@@ -58,6 +58,7 @@ const ALL_CAPABILITIES: HostProxyCapability[] = [
   "host_cu",
   "host_app_control",
   "host_browser",
+  "host_ui_snapshot",
 ];
 
 /**

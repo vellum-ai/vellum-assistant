@@ -16,13 +16,6 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { z } from "zod";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 mock.module("../config/env.js", () => ({
   isHttpAuthDisabled: () => true,
   hasUngatedHttpAuthDisabled: () => false,
@@ -35,10 +28,6 @@ let summarizeFlagEnabled = true;
 mock.module("../config/assistant-feature-flags.js", () => ({
   isAssistantFeatureFlagEnabled: (key: string) =>
     key === "summarize-up-to-here" && summarizeFlagEnabled,
-}));
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({}),
 }));
 
 const formatSummarizeUpToResultMock = mock(

@@ -1,10 +1,5 @@
 import { describe, expect, mock, test } from "bun:test";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
-}));
-
 // Only mock sleep so retries complete instantly; keep real retry logic.
 // NOTE: We must NOT use `await import()` inside mock.module — it deadlocks
 // bun's module resolver. Instead, inline the real exports and only replace sleep.
@@ -449,7 +444,11 @@ describe("RetryProvider — server error retries", () => {
 // ---------------------------------------------------------------------------
 
 describe("RetryProvider — reason-driven retryability", () => {
-  for (const reason of ["rate_limited", "overloaded", "server_error"] as const) {
+  for (const reason of [
+    "rate_limited",
+    "overloaded",
+    "server_error",
+  ] as const) {
     test(`retries a ProviderError with reason=${reason}`, async () => {
       const inner = makeFlaky(
         1,
@@ -689,6 +688,21 @@ describe("RetryProvider — streaming corruption retries", () => {
     const provider = new RetryProvider(inner);
 
     await provider.sendMessage(MESSAGES);
+    expect(inner.calls).toBe(2);
+  });
+
+  test("retries on 'Unable to parse tool parameter JSON' (invalid tool-args JSON in stream)", async () => {
+    const inner = makeFlaky(
+      1,
+      new ProviderError(
+        'Anthropic request failed: Unable to parse tool parameter JSON from model. Please retry your request or adjust your prompt. Error: SyntaxError: JSON Parse error: Unterminated string. JSON: {"path": "/workspace/config.json", "content',
+        "anthropic",
+      ),
+    );
+    const provider = new RetryProvider(inner);
+
+    const result = await provider.sendMessage(MESSAGES);
+    expect(result.stopReason).toBe("end_turn");
     expect(inner.calls).toBe(2);
   });
 

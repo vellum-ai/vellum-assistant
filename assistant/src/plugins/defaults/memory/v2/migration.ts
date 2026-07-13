@@ -30,8 +30,8 @@ import {
   getSqliteFrom,
 } from "../../../../persistence/db-connection.js";
 import { enqueueMemoryJob } from "../../../../persistence/jobs-store.js";
-import { getLogger } from "../../../../util/logger.js";
 import { extractText, userMessage } from "../llm-helpers.js";
+import { getLogger } from "../logging.js";
 import { deletePage, listPages, slugify, writePage } from "./page-store.js";
 import type { ConceptPage } from "./types.js";
 

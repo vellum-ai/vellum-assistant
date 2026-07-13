@@ -35,21 +35,6 @@ mock.module("../persistence/conversation-crud.js", () => ({
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    daemon: { standaloneRecording: false },
-    secretDetection: {},
-  }),
-  loadConfig: () => ({}),
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-  invalidateConfigCache: () => {},
-  applyNestedDefaults: (c: unknown) => c,
-  getNestedValue: () => undefined,
-  setNestedValue: () => {},
-  API_KEY_PROVIDERS: [],
-}));
-
 const realLocalActorIdentity =
   await import("../runtime/local-actor-identity.js");
 mock.module("../runtime/local-actor-identity.js", () => ({

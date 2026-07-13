@@ -23,7 +23,6 @@ import {
 } from "bun:test";
 
 let mockIngressPublicBaseUrl = "https://ingress.example.com";
-let mockRawConfigStore: Record<string, unknown> = {};
 let mockSecureKeyStore: Record<string, string | undefined> = {};
 let mockAvailableNumbers = [{ phoneNumber: "+15556667777" }];
 let mockProvisionedNumber = { phoneNumber: "+15556667777" };
@@ -41,7 +40,8 @@ let mockTwilioApiValidationBody = JSON.stringify({ sid: "AC_test" });
 const originalFetch = globalThis.fetch;
 
 function readMockTwilioAccountSid(): string | undefined {
-  const twilio = (mockRawConfigStore.twilio ?? {}) as Record<string, unknown>;
+  const raw = loadRawConfig() as Record<string, unknown>;
+  const twilio = (raw.twilio ?? {}) as Record<string, unknown>;
   return (
     (twilio.accountSid as string | undefined) ??
     mockSecureKeyStore[credentialKey("twilio", "account_sid")]
@@ -53,7 +53,8 @@ function readMockTwilioAuthToken(): string | undefined {
 }
 
 function readMockTwilioPhoneNumber(): string | undefined {
-  const twilio = (mockRawConfigStore.twilio ?? {}) as Record<string, unknown>;
+  const raw = loadRawConfig() as Record<string, unknown>;
+  const twilio = (raw.twilio ?? {}) as Record<string, unknown>;
   return twilio.phoneNumber as string | undefined;
 }
 
@@ -172,59 +173,6 @@ mock.module("../util/logger.js", () => ({
   }),
 }));
 
-const mockConfigObj = {
-  model: "test",
-  provider: "test",
-  memory: { enabled: false },
-  rateLimit: { maxRequestsPerMinute: 0 },
-  secretDetection: { enabled: false },
-  elevenlabs: { voiceId: DEFAULT_ELEVENLABS_VOICE_ID },
-  calls: {
-    voice: {
-      language: "en-US",
-      transcriptionProvider: "Deepgram",
-      elevenlabs: {},
-    },
-  },
-  services: {
-    stt: {
-      mode: "your-own" as const,
-      provider: "deepgram" as const,
-      providers: {},
-    },
-    tts: {
-      mode: "your-own" as const,
-      provider: "elevenlabs" as const,
-      providers: {
-        elevenlabs: {
-          voiceId: DEFAULT_ELEVENLABS_VOICE_ID,
-          voiceModelId: "",
-          speed: 1.0,
-          stability: 0.5,
-          similarityBoost: 0.75,
-          conversationTimeoutSeconds: 30,
-        },
-        "fish-audio": {
-          referenceId: "",
-          chunkLength: 200,
-          format: "mp3" as const,
-          latency: "normal" as const,
-          speed: 1.0,
-        },
-      },
-    },
-  },
-};
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => mockConfigObj,
-  loadConfig: () => mockConfigObj,
-  loadRawConfig: () => ({ ...mockRawConfigStore }),
-  saveRawConfig: (cfg: Record<string, unknown>) => {
-    mockRawConfigStore = { ...cfg };
-  },
-}));
-
 mock.module("../security/secure-keys.js", () => ({
   setSecureKeyAsync: async (key: string, value: string) => {
     mockSecureKeyStore[key] = value;
@@ -258,7 +206,7 @@ mock.module("../calls/twilio-config.js", () => ({
   getTwilioConfig: () => ({
     accountSid: "AC_test",
     authToken: "test-auth-token-for-webhooks",
-    phoneNumber: "+15550001111",
+    phoneNumber: "+14155550111",
   }),
   resolveTwilioPhoneNumber: () => readMockTwilioPhoneNumber(),
 }));
@@ -381,7 +329,7 @@ import {
   handleStatusCallback,
   handleVoiceWebhook,
 } from "../calls/twilio-routes.js";
-import { DEFAULT_ELEVENLABS_VOICE_ID } from "../config/schemas/elevenlabs.js";
+import { loadRawConfig } from "../config/loader.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { conversations } from "../persistence/schema/index.js";
@@ -393,6 +341,7 @@ import {
 } from "../runtime/routes/integrations/twilio.js";
 import { credentialKey } from "../security/credential-key.js";
 import { resetDbForTesting } from "./db-test-helpers.js";
+import { setConfig } from "./helpers/set-config.js";
 
 await initializeDb();
 
@@ -440,7 +389,7 @@ function createTestSession(
   const session = createCallSession({
     conversationId: convId,
     provider: "twilio",
-    fromNumber: "+15550001111",
+    fromNumber: "+14155550111",
     toNumber: "+15559998888",
     task,
   });
@@ -485,9 +434,10 @@ describe("twilio webhook routes", () => {
     resetTables();
     clearActiveCallLeases();
     mockIngressPublicBaseUrl = "https://ingress.example.com";
-    mockRawConfigStore = {
-      twilio: { accountSid: "AC_existing", phoneNumber: "+15550001111" },
-    };
+    setConfig("twilio", {
+      accountSid: "AC_existing",
+      phoneNumber: "+14155550111",
+    });
     mockSecureKeyStore = {
       [credentialKey("twilio", "account_sid")]: "AC_existing",
       [credentialKey("twilio", "auth_token")]: "test-auth-token",
@@ -497,8 +447,6 @@ describe("twilio webhook routes", () => {
     updatePhoneNumberWebhookCalls = [];
     mockTwilioApiValidationStatus = 200;
     mockTwilioApiValidationBody = JSON.stringify({ sid: "AC_validated" });
-    // Reset STT config to defaults between tests
-    mockConfigObj.services.stt.provider = "deepgram" as any;
     // Reset admission policy + captured routeSetup context between tests
     mockAdmissionPolicy = null;
     admissionPolicyReads = 0;
@@ -1024,8 +972,8 @@ describe("twilio webhook routes", () => {
     test("creates a new session from CallSid when callSessionId is absent", async () => {
       const req = makeInboundVoiceRequest({
         CallSid: "CA_inbound_new_1",
-        From: "+14155551234",
-        To: "+15550001111",
+        From: "+14155550134",
+        To: "+14155550111",
       });
 
       const res = await handleVoiceWebhook(req);
@@ -1038,16 +986,16 @@ describe("twilio webhook routes", () => {
       // Verify session was created with the CallSid
       const session = getCallSessionByCallSid("CA_inbound_new_1");
       expect(session).not.toBeNull();
-      expect(session!.fromNumber).toBe("+14155551234");
-      expect(session!.toNumber).toBe("+15550001111");
+      expect(session!.fromNumber).toBe("+14155550134");
+      expect(session!.toNumber).toBe("+14155550111");
       expect(session!.providerCallSid).toBe("CA_inbound_new_1");
     });
 
     test("replayed inbound webhook for same CallSid does not create duplicate sessions", async () => {
       const params = {
         CallSid: "CA_inbound_replay_1",
-        From: "+14155551234",
-        To: "+15550001111",
+        From: "+14155550134",
+        To: "+14155550111",
       };
 
       // First call — creates the session
@@ -1068,8 +1016,8 @@ describe("twilio webhook routes", () => {
 
     test("inbound webhook without CallSid returns 400", async () => {
       const req = makeInboundVoiceRequest({
-        From: "+14155551234",
-        To: "+15550001111",
+        From: "+14155550134",
+        To: "+14155550111",
       });
 
       const res = await handleVoiceWebhook(req);
@@ -1079,8 +1027,8 @@ describe("twilio webhook routes", () => {
     test("inbound webhook creates session with internal scope assistantId", async () => {
       const req = makeInboundVoiceRequest({
         CallSid: "CA_inbound_assist_1",
-        From: "+14155551234",
-        To: "+15550001111",
+        From: "+14155550134",
+        To: "+14155550111",
       });
 
       const res = await handleVoiceWebhook(req);
@@ -1124,7 +1072,6 @@ describe("twilio webhook routes", () => {
 
     for (const provider of providers) {
       test(`outbound: ${provider} -> Stream TwiML`, async () => {
-        mockConfigObj.services.stt.provider = provider as any;
         const session = createTestSession(
           `conv-stt-${provider}-1`,
           `CA_stt_${provider}_1`,
@@ -1147,11 +1094,10 @@ describe("twilio webhook routes", () => {
       });
 
       test(`inbound: ${provider} -> Stream TwiML`, async () => {
-        mockConfigObj.services.stt.provider = provider as any;
         const req = makeInboundVoiceRequest({
           CallSid: `CA_stt_${provider}_inbound_1`,
-          From: "+14155551234",
-          To: "+15550001111",
+          From: "+14155550134",
+          To: "+14155550111",
         });
 
         const res = await handleVoiceWebhook(req);
@@ -1196,17 +1142,17 @@ describe("twilio webhook routes", () => {
       {
         action: "verification",
         assistantId: "self",
-        fromNumber: "+14155551234",
+        fromNumber: "+14155550134",
       },
       {
         action: "name_capture",
         assistantId: "self",
-        fromNumber: "+14155551234",
+        fromNumber: "+14155550134",
       },
       {
         action: "invite_redemption",
         assistantId: "self",
-        fromNumber: "+14155551234",
+        fromNumber: "+14155550134",
         inviteeName: "Alice",
       },
     ];
@@ -1218,7 +1164,7 @@ describe("twilio webhook routes", () => {
           resolved: {
             assistantId: "self",
             isInbound: true,
-            otherPartyNumber: "+14155551234",
+            otherPartyNumber: "+14155550134",
             actorTrust: { trustClass: "unknown", memberRecord: null },
           },
         };
@@ -1243,7 +1189,7 @@ describe("twilio webhook routes", () => {
       mockAdmissionPolicy = "guardian_only";
       mockInboundVerdict = {
         channelType: "phone",
-        actorExternalId: "+14155551234",
+        actorExternalId: "+14155550134",
         status: "verified",
         policy: "allow",
         resolutionFailed: false,
@@ -1251,8 +1197,8 @@ describe("twilio webhook routes", () => {
 
       const req = makeInboundVoiceRequest({
         CallSid: "CA_no_routing_at_twiml_1",
-        From: "+14155551234",
-        To: "+15550001111",
+        From: "+14155550134",
+        To: "+14155550111",
       });
 
       const res = await handleVoiceWebhook(req);
@@ -1290,8 +1236,8 @@ describe("twilio webhook routes", () => {
 
       const req = makeInboundVoiceRequest({
         CallSid: "CA_preflight_inbound_1",
-        From: "+14155551234",
-        To: "+15550001111",
+        From: "+14155550134",
+        To: "+14155550111",
       });
 
       const res = await handleVoiceWebhook(req);
@@ -1380,8 +1326,8 @@ describe("twilio webhook routes", () => {
         body: {
           params: {
             CallSid: "CA_internal_fwd_1",
-            From: "+14155551234",
-            To: "+15550001111",
+            From: "+14155550134",
+            To: "+14155550111",
           },
           originalUrl: "https://ingress.example.com/webhooks/twilio/voice",
         },
@@ -1422,8 +1368,8 @@ describe("twilio webhook routes", () => {
         body: {
           params: {
             CallSid: "CA_internal_fwd_3",
-            From: "+14155551234",
-            To: "+15550001111",
+            From: "+14155550134",
+            To: "+14155550111",
           },
           originalUrl: "https://ingress.example.com/webhooks/twilio/voice",
         },
@@ -1438,7 +1384,7 @@ describe("twilio webhook routes", () => {
 
   describe("Twilio control-plane credential and number operations", () => {
     test("setting credentials stores them and returns success", async () => {
-      mockRawConfigStore = {};
+      setConfig("twilio", {});
       mockSecureKeyStore = {};
 
       const result = await handleSetTwilioCredentials({
@@ -1450,7 +1396,7 @@ describe("twilio webhook routes", () => {
 
       expect(result.success).toBe(true);
       expect(result.hasCredentials).toBe(true);
-      expect(mockRawConfigStore.twilio).toEqual({
+      expect((loadRawConfig() as Record<string, unknown>).twilio).toEqual({
         accountSid: "AC_new_credentials",
         setupStarted: true,
       });
@@ -1466,9 +1412,7 @@ describe("twilio webhook routes", () => {
       mockIngressPublicBaseUrl = "https://numbers.example.com";
       mockAvailableNumbers = [{ phoneNumber: "+15557778888" }];
       mockProvisionedNumber = { phoneNumber: "+15557778888" };
-      mockRawConfigStore = {
-        twilio: { accountSid: "AC_existing" },
-      };
+      setConfig("twilio", { accountSid: "AC_existing" });
 
       const result = await handleProvisionTwilioNumber({
         body: { country: "US" },

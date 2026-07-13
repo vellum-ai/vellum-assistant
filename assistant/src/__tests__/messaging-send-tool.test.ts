@@ -94,13 +94,6 @@ mock.module("../persistence/external-conversation-store.js", () => ({
   getBindingByChannelChat: getBindingByChannelChatMock,
 }));
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 import { run } from "../config/bundled-skills/messaging/tools/messaging-send.js";
 
 describe("messaging-send tool", () => {

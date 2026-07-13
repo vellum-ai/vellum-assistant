@@ -2,7 +2,7 @@
  * Side-drawer body shown when a tool-call step pill is clicked. Mirrors the
  * web `SubagentDetailPanel` shell (outer container, header with leading icon /
  * title / close, scrollable body with sections). The call's risk level lives
- * in the body's "Reasoning" section (badge + trust-rule button), not the
+ * in the body's "Risk Level" section (badge + tolerance hint), not the
  * header.
  *
  * Driven by the `ToolDetailPayload` opened into `viewer-store`. Both variants
@@ -30,12 +30,11 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
-import { Button, Typography } from "@vellumai/design-library";
+import { Typography } from "@vellumai/design-library";
 
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
 import { DetailShell } from "@/domains/chat/components/detail-shell";
 import { RiskBadge } from "@/domains/chat/components/risk-badge";
-import { useViewerStore } from "@/stores/viewer-store";
 import { titleCaseToolName } from "@/domains/chat/components/tool-call-chip/utils";
 import { useLiveThinkingText } from "@/domains/chat/hooks/use-live-thinking-text";
 import { useLiveToolCall } from "@/domains/chat/hooks/use-live-tool-call";
@@ -194,33 +193,14 @@ export function ToolDetailBody({ detail }: { detail: ToolDetailPayload }) {
   // classifier jargon and is deliberately NOT shown.
   const riskLevel = liveTc?.riskLevel ?? detail.riskLevel;
   const riskHint = getRiskToleranceHint(riskLevel);
-  // The trust-rule editor needs the raw tool call (its allowlist ladder /
-  // scope options), which the bridge resolves from the transcript — offer the
-  // button only when the call resolves live, so it never opens on nothing.
-  const canCreateTrustRule = liveTc != null;
 
   return (
     <>
-      {/* Reasoning — the call's risk level and the affordance to persist
-          that judgement as a trust rule. Label row (with the trust-rule
-          button trailing) over the badge in an overlay card. */}
+      {/* Risk Level — the call's risk badge and tolerance hint in an
+          overlay card. */}
       {riskLevel && (
         <div className="mb-5">
-          <div className="mb-1.5 flex items-center justify-between gap-3">
-            <SectionLabel className="mb-0">Reasoning</SectionLabel>
-            {canCreateTrustRule && (
-              <Button
-                variant="outlined"
-                size="compact"
-                className="shrink-0"
-                onClick={() =>
-                  useViewerStore.getState().requestRuleEditor(detail.toolCallId)
-                }
-              >
-                Create Trust Rule
-              </Button>
-            )}
-          </div>
+          <SectionLabel>Risk Level</SectionLabel>
           <div className="rounded-lg border border-[var(--border-base)] bg-[var(--surface-overlay)] p-3">
             <RiskBadge level={riskLevel} />
             {riskHint && (

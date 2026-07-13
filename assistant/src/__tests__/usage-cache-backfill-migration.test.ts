@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 
 let mockPricingOverrides: Array<{
   provider: string;
@@ -7,20 +7,10 @@ let mockPricingOverrides: Array<{
   outputPer1M: number;
 }> = [];
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    llm: {
-      pricingOverrides: mockPricingOverrides,
-    },
-  }),
-}));
+/** Seed the current pricing overrides into the workspace config for real. */
+function seedPricingOverrides(): void {
+  setConfig("llm", { pricingOverrides: mockPricingOverrides });
+}
 
 import { getDb, getSqlite } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
@@ -31,6 +21,7 @@ import {
   resolvePricing,
   resolvePricingForUsageWithOverrides,
 } from "../util/pricing.js";
+import { setConfig } from "./helpers/set-config.js";
 
 await initializeDb();
 
@@ -162,6 +153,7 @@ describe("migrateBackfillUsageCacheAccounting", () => {
     getSqlite().run(`DELETE FROM main.llm_request_logs`);
     getSqlite().run(`DELETE FROM llm_usage_events`);
     mockPricingOverrides = [];
+    seedPricingOverrides();
   });
 
   test("rewrites historical Anthropic rows from request logs, ignores foreign logs, and leaves missing-log rows unchanged", () => {
@@ -320,6 +312,7 @@ describe("migrateBackfillUsageCacheAccounting", () => {
         outputPer1M: 7.25,
       },
     ];
+    seedPricingOverrides();
 
     insertUsageEvent({
       id: "usage-target",

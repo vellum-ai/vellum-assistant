@@ -13,11 +13,7 @@ import { readFileSync } from "node:fs";
 
 import type { Command } from "commander";
 
-import {
-  runToolStandalone,
-  UnknownToolError,
-} from "../../tools/run-standalone.js";
-import { registerCommand } from "../lib/register-command.js";
+import { subcommand } from "../lib/cli-command-help.js";
 
 /**
  * Resolve the `--input` / `--input-file` options to a parsed JSON object.
@@ -66,49 +62,38 @@ function resolveToolInput(opts: {
 }
 
 export function registerToolsRunCommand(parent: Command): void {
-  registerCommand(parent, {
-    name: "run",
-    transport: "local",
-    description: "Execute a single registered tool directly",
-    build: (run) => {
-      run
-        .argument("<name>", "Name of the registered tool to execute")
-        .option("--input <json>", "Tool input as a JSON object (default: {})")
-        .option(
-          "--input-file <path>",
-          'Read JSON input from a file ("-" reads stdin)',
-        )
-        .option("--json", "Emit the full machine-readable result as JSON")
-        .action(
-          async (
-            name: string,
-            opts: { input?: string; inputFile?: string; json?: boolean },
-          ) => {
-            const input = resolveToolInput(opts);
+  subcommand(parent, "run").action(
+    async (
+      name: string,
+      opts: { input?: string; inputFile?: string; json?: boolean },
+    ) => {
+      const input = resolveToolInput(opts);
 
-            let result;
-            try {
-              result = await runToolStandalone(name, input);
-            } catch (error) {
-              if (error instanceof UnknownToolError) {
-                process.stderr.write(`Error: ${error.message}\n`);
-                process.exit(2);
-              }
-              throw error;
-            }
+      // Deferred: the executor graph loads only when a tool runs.
+      const { runToolStandalone, UnknownToolError } =
+        await import("../../tools/run-standalone.js");
 
-            if (opts.json) {
-              console.log(JSON.stringify(result, null, 2));
-            } else {
-              console.log(result.content);
-            }
+      let result;
+      try {
+        result = await runToolStandalone(name, input);
+      } catch (error) {
+        if (error instanceof UnknownToolError) {
+          process.stderr.write(`Error: ${error.message}\n`);
+          process.exit(2);
+        }
+        throw error;
+      }
 
-            // A tool error exits non-zero so scripts and `&&` chains can react.
-            if (result.isError) {
-              process.exit(1);
-            }
-          },
-        );
+      if (opts.json) {
+        console.log(JSON.stringify(result, null, 2));
+      } else {
+        console.log(result.content);
+      }
+
+      // A tool error exits non-zero so scripts and `&&` chains can react.
+      if (result.isError) {
+        process.exit(1);
+      }
     },
-  });
+  );
 }

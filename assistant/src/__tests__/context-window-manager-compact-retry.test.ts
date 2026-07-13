@@ -6,27 +6,6 @@
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-function makeLoggerStub(): Record<string, unknown> {
-  const stub: Record<string, unknown> = {};
-  for (const m of [
-    "info",
-    "warn",
-    "error",
-    "debug",
-    "trace",
-    "fatal",
-    "silent",
-    "child",
-  ]) {
-    stub[m] = m === "child" ? () => makeLoggerStub() : () => {};
-  }
-  return stub;
-}
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () => makeLoggerStub(),
-}));
-
 mock.module("../daemon/conversation-registry.js", () => ({
   findConversationOrSubagent: () => ({
     systemPrompt: "you are a test assistant",
@@ -81,12 +60,6 @@ mock.module("../context/token-estimator.js", () => ({
     }
     return next;
   },
-}));
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    compaction: { enabled: true, autoThreshold: 0.7, prompt: null },
-  }),
 }));
 
 mock.module("../context/compactor.js", () => ({

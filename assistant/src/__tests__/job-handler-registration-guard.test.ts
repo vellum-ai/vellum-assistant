@@ -32,6 +32,7 @@ const MEMORY_JOB_TYPES = [
   "memory_v2_activation_recompute",
   "memory_v3_maintain",
   "memory_retrospective",
+  "skill_card_insert",
   "pkb_filing",
   "pkb_compaction",
 ].sort();
@@ -52,7 +53,6 @@ const NON_PLUGIN_JOB_TYPES = [
   "backfill_lexical_index",
   "build_conversation_summary",
   "media_processing",
-  "conversation_analyze",
   "generate_conversation_starters",
 ].sort();
 

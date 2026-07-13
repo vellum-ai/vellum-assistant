@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 
 import { createAssistantMessage } from "../agent/message-types.js";
 import type { Conversation } from "../daemon/conversation.js";
@@ -25,70 +25,18 @@ import type { AuthContext } from "../runtime/auth/types.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { handleSendMessage } from "../runtime/routes/conversation-routes.js";
 import { callHandler } from "./helpers/call-route-handler.js";
+import { setConfig } from "./helpers/set-config.js";
 
 const testDir = process.env.VELLUM_WORKSPACE_DIR!;
 const conversationsDir = join(testDir, "conversations");
 mkdirSync(conversationsDir, { recursive: true });
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-    model: "test",
-    provider: "test",
-    memory: { enabled: false },
-    rateLimit: { maxRequestsPerMinute: 0 },
-    secretDetection: { enabled: false },
-    contextWindow: { maxInputTokens: 200000 },
-    llm: {
-      default: {
-        provider: "anthropic",
-        model: "claude-opus-4-7",
-        maxTokens: 64000,
-        effort: "max" as const,
-        speed: "standard" as const,
-        temperature: null,
-        thinking: { enabled: true, streamThinking: true },
-        contextWindow: {
-          enabled: true,
-          maxInputTokens: 200000,
-          targetBudgetRatio: 0.3,
-          compactThreshold: 0.8,
-          summaryBudgetRatio: 0.05,
-          overflowRecovery: {
-            enabled: true,
-            safetyMarginRatio: 0.05,
-            maxAttempts: 3,
-            interactiveLatestTurnCompression: "summarize",
-            nonInteractiveLatestTurnCompression: "truncate",
-          },
-        },
-      },
-      profiles: {},
-      callSites: {},
-      pricingOverrides: [],
-    },
-    services: {
-      inference: {
-        mode: "your-own",
-        provider: "anthropic",
-        model: "claude-opus-4-7",
-      },
-      "image-generation": {
-        mode: "your-own",
-        provider: "gemini",
-        model: "gemini-3.1-flash-image-preview",
-      },
-      "web-search": { mode: "your-own", provider: "inference-provider-native" },
-    },
-  }),
-}));
+// Seed the workspace config for real: memory off so `addMessage` (called
+// without `skipIndexing` by the fake agent loop) does not index into the
+// memory subsystem, and secret detection off to match the prior behavior of
+// these route sends.
+setConfig("memory", { enabled: false, v2: { enabled: false } });
+setConfig("secretDetection", { enabled: false });
 
 await initializeDb();
 
@@ -146,10 +94,6 @@ function createFakeConversation(conversationId: string): Conversation {
     messages: [] as Array<unknown>,
     hostCuProxy: undefined as unknown,
     usageStats: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
-    memoryPolicy: {
-      scopeId: "default",
-      includeDefaultFallback: false,
-    },
     isProcessing(this: { processing: boolean }) {
       return this.processing;
     },

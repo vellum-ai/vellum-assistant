@@ -20,36 +20,6 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ── Platform + logger mocks (must come before any source imports) ────
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-  truncateForLog: (value: string) => value,
-}));
-
-// ── Config mock ─────────────────────────────────────────────────────
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-
-    provider: "anthropic",
-    calls: {
-      enabled: true,
-      provider: "twilio",
-      maxDurationSeconds: 12 * 60,
-      userConsultTimeoutSeconds: 90,
-      userConsultationTimeoutSeconds: 90,
-      silenceTimeoutSeconds: 30,
-      disclosure: { enabled: false, text: "" },
-      safety: { denyCategories: [] },
-      model: undefined,
-    },
-    memory: { enabled: false },
-  }),
-}));
-
 // ── Assistant event hub mock ───────────────────────────────────────
 
 mock.module("../runtime/assistant-event-hub.js", () => ({
@@ -139,7 +109,6 @@ function createMockSession(opts?: {
 
   const session = {
     isProcessing: () => false,
-    memoryPolicy: {},
     setAssistantId: () => {},
     setTrustContext: () => {},
     setCommandIntent: () => {},

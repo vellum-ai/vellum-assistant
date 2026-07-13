@@ -7,12 +7,6 @@
  */
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { makeMockLogger } from "./helpers/mock-logger.js";
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () => makeMockLogger(),
-}));
-
 mock.module("../runtime/assistant-event-hub.js", () => ({
   assistantEventHub: { publish: async () => {} },
   broadcastMessage: () => {},
@@ -22,20 +16,9 @@ mock.module("../runtime/assistant-event.js", () => ({
   buildAssistantEvent: (event: unknown) => event,
 }));
 
-mock.module("../config/loader.js", () => ({
-  loadConfig: () => ({
-    llm: {
-      profiles: { balanced: {}, "cost-optimized": {} },
-      profileSession: { defaultTtlSeconds: 1800, maxTtlSeconds: 43200 },
-    },
-  }),
-  getConfig: () => ({
-    llm: {
-      profiles: { balanced: {}, "cost-optimized": {} },
-      profileSession: { defaultTtlSeconds: 1800, maxTtlSeconds: 43200 },
-    },
-  }),
-}));
+// The handler resolves "balanced"/"cost-optimized" through the code-defined
+// default profile catalog and reads `llm.profileSession` schema defaults
+// (1800/43200), so real config with no seeding covers these tests.
 
 import { createConversation } from "../persistence/conversation-crud.js";
 import { getDb } from "../persistence/db-connection.js";

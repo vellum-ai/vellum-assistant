@@ -20,53 +20,10 @@ import type { ToolExecutionResult } from "../tools/types.js";
 // Mock setup — mirrors require-fresh-approval.test.ts patterns
 // ---------------------------------------------------------------------------
 
-const mockConfig = {
-  provider: "anthropic",
-  model: "test",
-  maxTokens: 4096,
-  dataDir: "/tmp",
-  timeouts: {
-    shellDefaultTimeoutSec: 120,
-    shellMaxTimeoutSec: 600,
-    permissionTimeoutSec: 300,
-  },
-  sandbox: {
-    enabled: false,
-    backend: "native" as const,
-    docker: {
-      image: "vellum-sandbox:latest",
-      cpus: 1,
-      memoryMb: 512,
-      pidsLimit: 256,
-      network: "none" as const,
-    },
-  },
-  rateLimit: { maxRequestsPerMinute: 0 },
-  secretDetection: { enabled: false },
-};
-
 const fakeToolResult: ToolExecutionResult = { content: "ok", isError: false };
 
 /** Controls what isDynamicSkillLoadInvocation reports for the invocation. */
 let dynamicSkillLoad = false;
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => mockConfig,
-  loadConfig: () => mockConfig,
-  invalidateConfigCache: () => {},
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-  getNestedValue: () => undefined,
-  setNestedValue: () => {},
-}));
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-  truncateForLog: (value: string) => value,
-}));
 
 mock.module("../permissions/channel-permission-query.js", () => ({
   buildChannelPermissionCellQuery: () => undefined,

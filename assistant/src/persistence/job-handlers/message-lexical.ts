@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 
 import type { AssistantConfig } from "../../config/types.js";
 import { getLogger } from "../../util/logger.js";
@@ -90,7 +90,7 @@ export async function indexMessageLexicalJob(
       createdAt: messages.createdAt,
     })
     .from(messages)
-    .where(eq(messages.id, messageId))
+    .where(and(eq(messages.id, messageId), eq(messages.finalized, 1)))
     .get();
 
   // The message may have been deleted between enqueue and dispatch — no-op.

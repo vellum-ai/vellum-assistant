@@ -26,7 +26,6 @@ const realMemoryV3Gate = {
 const realV2Qdrant = {
   ...(await import("../../plugins/defaults/memory/v2/qdrant.js")),
 };
-const realLoader = { ...(await import("../../config/loader.js")) };
 const realSectionDenseStore = {
   ...(await import("../../plugins/defaults/memory/v3/section-dense-store.js")),
 };
@@ -370,16 +369,6 @@ async function withDefaultDepsMocks(opts: {
     recreateConceptPageCollection: delegate(
       spies.recreateConceptPageCollection,
       realV2Qdrant.recreateConceptPageCollection,
-    ),
-  }));
-  mock.module("../../config/loader.js", () => ({
-    ...realLoader,
-    loadRawConfig: delegate(() => ({}), realLoader.loadRawConfig),
-    saveRawConfig: delegate(() => undefined, realLoader.saveRawConfig),
-    setNestedValue: delegate(() => undefined, realLoader.setNestedValue),
-    invalidateConfigCache: delegate(
-      () => undefined,
-      realLoader.invalidateConfigCache,
     ),
   }));
   mock.module(

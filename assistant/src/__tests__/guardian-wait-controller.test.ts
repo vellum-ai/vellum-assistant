@@ -35,23 +35,6 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-// Config loader — drives the intervals access-request-wait reads directly.
-const mockConfig = {
-  calls: {
-    userConsultTimeoutSeconds: 120 as number,
-    ttsPlaybackDelayMs: 0,
-    accessRequestPollIntervalMs: 50 as number,
-    guardianWaitUpdateInitialIntervalMs: 100,
-    guardianWaitUpdateInitialWindowMs: 300,
-    guardianWaitUpdateSteadyMinIntervalMs: 150,
-    guardianWaitUpdateSteadyMaxIntervalMs: 200,
-  },
-};
-mock.module("../config/loader.js", () => ({
-  getConfig: () => mockConfig,
-  loadConfig: () => mockConfig,
-}));
-
 // Gateway guardian-request client — in-memory map driven by tests.
 const guardianRequests = new Map<string, GuardianRequestWire>();
 mock.module("../channels/gateway-guardian-requests.js", () => ({
@@ -100,6 +83,20 @@ import {
   type GuardianWaitResolutionContext,
   IN_WAIT_REPLY_COOLDOWN_MS,
 } from "../calls/guardian-wait-controller.js";
+import { setConfig } from "./helpers/set-config.js";
+
+// Seed the intervals the wait controller reads from config. All values sit at
+// or near the schema minimums so fake-timer advances stay small; polling and
+// heartbeat cadences are still far apart enough to assert independently.
+function seedWaitIntervals(): void {
+  setConfig("calls", {
+    accessRequestPollIntervalMs: 50,
+    guardianWaitUpdateInitialIntervalMs: 1000,
+    guardianWaitUpdateInitialWindowMs: 3000,
+    guardianWaitUpdateSteadyMinIntervalMs: 1500,
+    guardianWaitUpdateSteadyMaxIntervalMs: 2000,
+  });
+}
 
 // ── Fixtures ─────────────────────────────────────────────────────────
 
@@ -185,8 +182,7 @@ beforeEach(() => {
   guardianRequests.clear();
   emitSignalCalls = [];
   storeEvents = [];
-  mockConfig.calls.userConsultTimeoutSeconds = 120;
-  mockConfig.calls.accessRequestPollIntervalMs = 50;
+  seedWaitIntervals();
 });
 
 afterEach(() => {
@@ -313,10 +309,10 @@ describe("GuardianWaitController", () => {
 
       // Margins are generous because bun's fake clock bases timer due
       // times on real registration timestamps (a few ms of drift).
-      jest.advanceTimersByTime(80);
+      jest.advanceTimersByTime(800);
       expect(spoken).toHaveLength(1); // hold message only
 
-      jest.advanceTimersByTime(40);
+      jest.advanceTimersByTime(400);
       expect(spoken).toHaveLength(2);
       expect(spoken[1]).toBe(
         "Still waiting to hear back from Alice. Thank you for your patience.",
@@ -332,26 +328,26 @@ describe("GuardianWaitController", () => {
 
     test("uses the jittered steady interval past the initial window and advances the sequence", () => {
       seedRequest("pending");
-      // Stamp the wait start 10s in the past so elapsed exceeds the 300ms
-      // initial window and the steady interval range [150, 200) applies.
-      // Pin the jitter to the midpoint (175ms): with live randomness, two
+      // Stamp the wait start 10s in the past so elapsed exceeds the 3000ms
+      // initial window and the steady interval range [1500, 2000) applies.
+      // Pin the jitter to the midpoint (1750ms): with live randomness, two
       // consecutive near-minimum intervals can fit a second heartbeat into
-      // the 210ms window below and flake the exact-count assertions.
+      // the 2100ms window below and flake the exact-count assertions.
       const randomSpy = spyOn(Math, "random").mockReturnValue(0.5);
       try {
         nowValue = Date.now() - 10_000;
         const { controller, spoken } = createController();
         controller.start(START_PARAMS);
 
-        jest.advanceTimersByTime(140);
+        jest.advanceTimersByTime(1400);
         expect(spoken).toHaveLength(1);
 
-        jest.advanceTimersByTime(120);
+        jest.advanceTimersByTime(1200);
         expect(spoken).toHaveLength(2);
 
         // The next heartbeat is rescheduled and uses the next message in the
         // rotation.
-        jest.advanceTimersByTime(210);
+        jest.advanceTimersByTime(2100);
         expect(spoken).toHaveLength(3);
         expect(spoken[2]).not.toBe(spoken[1]);
 
@@ -367,16 +363,16 @@ describe("GuardianWaitController", () => {
       const { controller, spoken } = createController();
       controller.start(START_PARAMS);
 
-      jest.advanceTimersByTime(60);
+      jest.advanceTimersByTime(600);
       controller.handleTranscript("any update?");
       expect(spoken).toHaveLength(2);
       expect(spoken[1]).toContain("still here");
 
-      // The pre-reply timer (40ms remaining) was cleared; a fresh full
+      // The pre-reply timer (400ms remaining) was cleared; a fresh full
       // interval applies from the reply.
-      jest.advanceTimersByTime(80);
+      jest.advanceTimersByTime(800);
       expect(spoken).toHaveLength(2);
-      jest.advanceTimersByTime(40);
+      jest.advanceTimersByTime(400);
       expect(spoken).toHaveLength(3);
       expect(spoken[2]).toBe(
         "Still waiting to hear back from Alice. Thank you for your patience.",

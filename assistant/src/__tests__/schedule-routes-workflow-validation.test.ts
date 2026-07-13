@@ -1,24 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-// These tests exercise the PATCH-side `workflowName` validation.
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    migrations: { worker: { enabled: false } },
-    llm: { pricingOverrides: {} },
-    timeouts: { scheduleTurnTimeoutSec: 600 },
-  }),
-  invalidateConfigCache: () => {},
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-}));
-
 // Capture workflow-mode run-now dispatch. `handleRunScheduleNow`'s workflow
 // branch calls `getWorkflowRunManager().start(...)`; stub the singleton so the
 // trigger is observable without spinning up the real engine.

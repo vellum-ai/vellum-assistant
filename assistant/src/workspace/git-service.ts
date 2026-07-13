@@ -2,6 +2,7 @@ import { execFile, spawn, spawnSync } from "node:child_process";
 import {
   chmodSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   readFileSync,
   unlinkSync,
@@ -60,6 +61,7 @@ function cleanGitEnv(workspaceDir: string): Record<string, string> {
  * These are written to .gitignore on init and appended to existing .gitignore files.
  */
 const WORKSPACE_GITIGNORE_RULES = [
+  // Runtime state directories
   "data/db/",
   "data/qdrant/",
   "data/monitoring/",
@@ -69,24 +71,129 @@ const WORKSPACE_GITIGNORE_RULES = [
   "data/apps/*/records/",
   "data/apps/*/dist/",
   "data/apps/*.preview",
-  "plugins/*/node_modules/",
+  // Runtime-managed installs and caches — large and restorable
+  "/embedding-models/",
+  "/external/",
+  "/bin/",
+  "/plugins-data/",
+  "node_modules/",
+  "__pycache__/",
+  ".venv/",
+  // Logs and process state
   "logs/",
   "*.log",
+  "*.jsonl",
   "*.sock",
   "*.pid",
-  "*.sqlite",
-  "*.sqlite-journal",
-  "*.sqlite-wal",
-  "*.sqlite-shm",
-  "*.db",
-  "*.db-journal",
-  "*.db-wal",
-  "*.db-shm",
-  "vellum.pid",
+  "daemon-startup.lock",
   "session-token",
+  // Databases (covers sidecar -journal/-wal/-shm files)
+  "*.sqlite*",
+  "*.db",
+  "*.db-*",
+  // OS junk
+  ".DS_Store",
+  // Archives and disk images
+  "*.zip",
+  "*.tar",
+  "*.gz",
+  "*.tgz",
+  "*.bz2",
+  "*.xz",
+  "*.7z",
+  "*.rar",
+  "*.dmg",
+  "*.iso",
+  // Images (svg is text-based and stays tracked)
+  "*.png",
+  "*.jpg",
+  "*.jpeg",
+  "*.gif",
+  "*.webp",
+  "*.heic",
+  "*.bmp",
+  "*.tiff",
+  // Audio and video
+  "*.mp3",
+  "*.wav",
+  "*.m4a",
+  "*.flac",
+  "*.ogg",
+  "*.mp4",
+  "*.mov",
+  "*.avi",
+  "*.mkv",
+  "*.webm",
+  // Documents and model weights
+  "*.pdf",
+  "*.gguf",
+  "*.onnx",
+  "*.safetensors",
+  "*.pt",
+  "*.pth",
+  // Canonical user state re-included despite the extension rules above.
+  // Must stay after the extension rules: last matching pattern wins.
+  // (Not a broad !data/apps/** — that would also re-include dist/.)
+  // conversations/ holds the messages.jsonl disk view that DB recovery
+  // rebuilds from, so it survives the *.jsonl rule.
+  "!data/avatar/**",
+  "!data/sounds/**",
+  "!data/apps/*/icon.png",
+  "!conversations/**",
 ];
 
+/**
+ * Paths exempt from the oversized-file guard. Mirrors the `!` re-include
+ * rules in WORKSPACE_GITIGNORE_RULES above: canonical state the product
+ * explicitly insists on tracking (e.g. conversation disk views that DB
+ * recovery rebuilds from) must keep committing even past
+ * workspaceGit.maxFileSizeBytes. Keep in sync with the negation rules.
+ */
+const SIZE_GUARD_EXEMPT_PATTERNS: RegExp[] = [
+  /^conversations\//,
+  /^data\/avatar\//,
+  /^data\/sounds\//,
+  /^data\/apps\/[^/]+\/icon\.png$/,
+];
+
+function isSizeGuardExempt(relPath: string): boolean {
+  return SIZE_GUARD_EXEMPT_PATTERNS.some((re) => re.test(relPath));
+}
+
+/** Default identity for automated workspace commits. */
+const DEFAULT_GIT_NAME = "Vellum Assistant";
+// generic-examples:ignore-next-line — reason: real daemon commit identity, not an example
+const DEFAULT_GIT_EMAIL = "assistant@vellum.ai";
+
 const NULL_GIT_OID = "0000000000000000000000000000000000000000";
+
+/**
+ * Git's well-known empty tree object id, used as the diff/reset base when
+ * HEAD does not exist yet (unborn branch, before the initial commit).
+ */
+const EMPTY_TREE_OID = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+
+const DEFAULT_MAX_FILE_SIZE_BYTES = 256000;
+
+/**
+ * History compaction keeps commits younger than this; older ones are
+ * squashed into a scrubbed base commit so oversized blobs referenced only
+ * by old history can be pruned from .git.
+ */
+const HISTORY_RETENTION_DAYS = 7;
+
+/** Timeout for one-shot history rewrite / gc operations. */
+const HISTORY_COMPACTION_TIMEOUT_MS = 10 * 60_000;
+
+/**
+ * Delay between init and the first compaction attempt, so boot-time
+ * foreground work (first turn commit, status reads) never queues on the
+ * git mutex behind a detection scan or rewrite.
+ */
+const HISTORY_COMPACTION_INITIAL_DELAY_MS = 60_000;
+
+/** Lower bound between compaction retries while blobs wait out retention. */
+const HISTORY_COMPACTION_MIN_RETRY_MS = 60 * 60_000;
 
 const WORKSPACE_BRANCH_GUARD_HOOK = `#!/bin/sh
 set -eu
@@ -120,6 +227,32 @@ done
 
 exit 0
 `;
+
+/**
+ * Parse NUL-terminated `git status --porcelain -z` output into status/path
+ * pairs. NUL termination is required so paths with special characters
+ * (non-ASCII, quotes, newlines) arrive verbatim instead of C-style quoted.
+ * A rename/copy record is followed by a bare origin-path entry, which is
+ * skipped.
+ */
+function parsePorcelainZ(
+  stdout: string,
+): Array<{ status: string; path: string }> {
+  const entries = stdout.split("\0");
+  const parsed: Array<{ status: string; path: string }> = [];
+  for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i] ?? "";
+    if (entry.length < 4) {
+      continue;
+    }
+    const status = entry.substring(0, 2);
+    parsed.push({ status, path: entry.substring(3) });
+    if (status[0] === "R" || status[0] === "C") {
+      i++;
+    }
+  }
+  return parsed;
+}
 
 /** Properties added by Node's child_process errors. */
 interface ExecError extends Error {
@@ -155,6 +288,7 @@ interface GitStatus {
  * - Mutex-protected operations: prevents concurrent git command conflicts
  * - Handles both new and existing workspaces transparently
  * - Synchronous initial commit within mutex to prevent races
+ * - Size guard: files over workspaceGit.maxFileSizeBytes never enter commits
  */
 export class WorkspaceGitService {
   private readonly workspaceDir: string;
@@ -165,6 +299,10 @@ export class WorkspaceGitService {
   private nextAllowedAttemptMs = 0;
   private initConsecutiveFailures = 0;
   private initNextAllowedAttemptMs = 0;
+  /** Oversized paths already logged, to avoid re-warning every commit cycle. */
+  private readonly warnedOversizedPaths = new Set<string>();
+  private historyCompactionTimer: ReturnType<typeof setTimeout> | null = null;
+  private historyCompactionDueAtMs = 0;
 
   constructor(workspaceDir: string) {
     this.workspaceDir = workspaceDir;
@@ -434,13 +572,19 @@ export class WorkspaceGitService {
                 // created before these helpers existed, or by external tools.
                 // These calls are OUTSIDE the rev-parse try/catch so that
                 // normalization errors are not misclassified as "no commits".
-                this.ensureGitignoreRulesLocked();
                 this.ensureBranchGuardHookLocked();
                 await this.ensureCommitIdentityLocked();
                 await this.ensureBranchGuardConfigLocked();
                 await this.ensureOnMainLocked();
+                // After the main switch: ensureOnMainLocked can discard
+                // local changes, which would wipe appended gitignore rules
+                // and staged deletions alike.
+                this.ensureGitignoreRulesLocked();
+                await this.untrackIgnoredFilesLocked();
+                await this.untrackOversizedFilesLocked();
                 this.initialized = true;
                 this.recordInitSuccess();
+                this.scheduleHistoryCompaction();
                 return;
               }
             }
@@ -450,15 +594,20 @@ export class WorkspaceGitService {
           // Initialize new git repository
           await this.execGit(["init", "-b", "main"]);
 
-          // Run normalization (gitignore + identity + branch enforcement).
+          // Run normalization (identity + branch enforcement + gitignore).
           // For fresh `git init -b main` the branch is already main, but
           // in the corruption-recovery path we fall through here after
           // removing .git, so branch enforcement is still useful.
-          this.ensureGitignoreRulesLocked();
           this.ensureBranchGuardHookLocked();
           await this.ensureCommitIdentityLocked();
           await this.ensureBranchGuardConfigLocked();
           await this.ensureOnMainLocked();
+          // After the main switch (see above). A partial init (`.git`
+          // exists, no commit) can carry staged now-ignored paths from an
+          // interrupted `git add -A`; untracking must precede the initial
+          // commit.
+          this.ensureGitignoreRulesLocked();
+          await this.untrackIgnoredFilesLocked();
 
           // Create initial commit synchronously within the lock to prevent
           // races with the first commitChanges() call. Without this, the
@@ -474,7 +623,7 @@ export class WorkspaceGitService {
             (f) => !autoCreatedInitFiles.has(f),
           );
 
-          await this.execGit(["add", "-A"]);
+          await this.stageAllLocked();
 
           const message = hasExistingFiles
             ? "Initial commit: migrated existing workspace"
@@ -506,8 +655,8 @@ export class WorkspaceGitService {
     await this.mutex.withLock(async () => {
       this.cleanStaleLockFile();
 
-      // Stage all changes
-      await this.execGit(["add", "-A"]);
+      // Stage all changes (minus oversized files)
+      await this.stageAllLocked();
 
       // Build commit message with metadata if provided
       let fullMessage = message;
@@ -652,7 +801,7 @@ export class WorkspaceGitService {
           return { committed: false, status, didRunGit: true as const };
         }
 
-        await this.execGit(["add", "-A"]);
+        await this.stageAllLocked();
 
         // Verify something was actually staged. Another service instance
         // (or external process) could have committed between our status
@@ -709,18 +858,23 @@ export class WorkspaceGitService {
   private async getStatusInternal(): Promise<GitStatus> {
     // Streamed via spawn (not execFile) so an oversized status from a bloated
     // working tree cannot exceed Node's default 1 MB maxBuffer and fail.
-    const { stdout } = await this.execGitStreaming(["status", "--porcelain"]);
+    // --untracked-files=all enumerates files inside untracked directories
+    // instead of a "dir/" placeholder, so the per-file size filter below can
+    // see them — otherwise a directory holding only oversized files would
+    // keep the workspace dirty forever. -z delivers special-character paths
+    // verbatim (unquoted) for the same reason.
+    const { stdout } = await this.execGitStreaming([
+      "status",
+      "--porcelain",
+      "--untracked-files=all",
+      "-z",
+    ]);
 
     const staged: string[] = [];
     const modified: string[] = [];
     const untracked: string[] = [];
 
-    for (const line of stdout.split("\n")) {
-      if (!line) continue;
-
-      const status = line.substring(0, 2);
-      const file = line.substring(3);
-
+    for (const { status, path: file } of parsePorcelainZ(stdout)) {
       // First character is staged status, second is working tree status
       const stagedStatus = status[0];
       const workingStatus = status[1];
@@ -728,10 +882,16 @@ export class WorkspaceGitService {
       if (stagedStatus !== " " && stagedStatus !== "?") {
         staged.push(file);
       }
+      // Oversized files are invisible to auto-commit: they can never be
+      // committed (stageAllLocked unstages them), so reporting them here
+      // would keep the workspace permanently dirty and make every turn /
+      // heartbeat cycle re-attempt a commit that stages nothing.
       if (workingStatus === "M" || workingStatus === "D") {
-        modified.push(file);
+        if (!this.isOversized(file)) {
+          modified.push(file);
+        }
       }
-      if (status === "??") {
+      if (status === "??" && !this.isOversized(file)) {
         untracked.push(file);
       }
     }
@@ -743,6 +903,627 @@ export class WorkspaceGitService {
       clean:
         staged.length === 0 && modified.length === 0 && untracked.length === 0,
     };
+  }
+
+  private maxFileSizeBytes(): number {
+    return (
+      getConfig().workspaceGit?.maxFileSizeBytes ?? DEFAULT_MAX_FILE_SIZE_BYTES
+    );
+  }
+
+  /**
+   * Working-tree size check for a repo-relative path. Uses lstat so a
+   * symlink is measured by the link itself, not its target. Missing or
+   * unreadable paths (deletions, races) are treated as not oversized.
+   */
+  private isOversized(relPath: string): boolean {
+    if (isSizeGuardExempt(relPath)) {
+      return false;
+    }
+    try {
+      const stats = lstatSync(join(this.workspaceDir, relPath));
+      return stats.isFile() && stats.size > this.maxFileSizeBytes();
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Resolve the base for staged-change comparisons: HEAD when it exists,
+   * the empty tree on an unborn branch. Transient git errors propagate so
+   * callers abort instead of diffing/resetting against the wrong base.
+   */
+  private async resolveStagedDiffBaseLocked(): Promise<string> {
+    try {
+      await this.execGit(["rev-parse", "--quiet", "--verify", "HEAD"]);
+      return "HEAD";
+    } catch (err) {
+      if ((err as ExecError).code === 1) {
+        return EMPTY_TREE_OID;
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * Drop tracked files whose on-disk size exceeds
+   * workspaceGit.maxFileSizeBytes from the index (working tree untouched) —
+   * files committed before the size guard existed, or before a limit
+   * decrease. Blobs referenced by older commits remain in .git. Like
+   * {@link untrackIgnoredFilesLocked}, the staged deletions ride along with
+   * the next commit and failures are logged, never blocking init. Must be
+   * called with the mutex lock held.
+   */
+  private async untrackOversizedFilesLocked(): Promise<void> {
+    try {
+      const tracked = await this.execGitStreaming(["ls-files", "-z"]);
+      const oversized = tracked.stdout
+        .split("\0")
+        .filter((p) => p.length > 0 && this.isOversized(p));
+      if (oversized.length === 0) {
+        return;
+      }
+
+      await this.execGitStreaming(
+        [
+          "rm",
+          "--cached",
+          "-q",
+          "--ignore-unmatch",
+          "--pathspec-from-file=-",
+          "--pathspec-file-nul",
+        ],
+        { input: oversized.map((p) => `:(literal)${p}`).join("\0") },
+      );
+
+      for (const p of oversized) {
+        this.warnedOversizedPaths.add(p);
+      }
+      log.warn(
+        {
+          workspaceDir: this.workspaceDir,
+          files: oversized,
+          maxFileSizeBytes: this.maxFileSizeBytes(),
+        },
+        "Untracked oversized files from workspace index",
+      );
+    } catch (err) {
+      log.warn({ err }, "Failed to untrack oversized files");
+    }
+  }
+
+  /**
+   * Schedule a background history compaction attempt. The delay keeps the
+   * run off the git mutex during boot, so foreground commits and status
+   * reads are never queued behind a rewrite. When blobs exist but all
+   * history is still within retention, the attempt reschedules itself for
+   * when the oldest commit ages past the cutoff. Best-effort like the
+   * untrack sweeps: failures are logged and never affect commits.
+   */
+  private scheduleHistoryCompaction(
+    delayMs = HISTORY_COMPACTION_INITIAL_DELAY_MS,
+  ): void {
+    const dueAtMs = Date.now() + delayMs;
+    if (this.historyCompactionTimer) {
+      if (dueAtMs >= this.historyCompactionDueAtMs) {
+        // An earlier-or-equal run is already pending; it covers this request.
+        return;
+      }
+      // A retention retry can be days out — a fresh request (e.g. a newly
+      // unstaged external blob) must not wait behind it.
+      clearTimeout(this.historyCompactionTimer);
+      this.historyCompactionTimer = null;
+    }
+    const timer = setTimeout(() => {
+      void (async () => {
+        let retryAfterMs: number | undefined;
+        try {
+          const result = await this.compactHistoryNow();
+          retryAfterMs = result.retryAfterMs;
+        } catch (err) {
+          log.warn(
+            { err, workspaceDir: this.workspaceDir },
+            "Workspace history compaction failed",
+          );
+        }
+        this.historyCompactionTimer = null;
+        if (retryAfterMs !== undefined) {
+          this.scheduleHistoryCompaction(retryAfterMs);
+        }
+      })();
+    }, delayMs);
+    // Never keep the process alive just for maintenance.
+    timer.unref?.();
+    this.historyCompactionTimer = timer;
+    this.historyCompactionDueAtMs = dueAtMs;
+  }
+
+  /**
+   * Rewrite workspace history so blobs over workspaceGit.maxFileSizeBytes
+   * stop occupying .git. Commits older than HISTORY_RETENTION_DAYS are
+   * squashed into a single base commit whose tree is scrubbed of oversized
+   * entries; younger commits are replayed verbatim (trees, messages,
+   * authors, and dates preserved); reflogs are then expired and unreachable
+   * objects pruned. Runs only when the object store contains an oversized
+   * blob that is actionable — unreachable, or reachable at a non-exempt
+   * path (see SIZE_GUARD_EXEMPT_PATTERNS) — so the steady state is a cheap
+   * detection scan and exempt canonical state never triggers rewrites.
+   *
+   * Oversized blobs still referenced by replayed recent commits survive
+   * until those commits age past retention — the result carries
+   * `retryAfterMs` so the background scheduler re-runs then, and bloat
+   * disappears automatically within the retention window. The working
+   * tree and index are never touched (the tip tree is reused unchanged).
+   * Git notes attached to rewritten commits are orphaned; enrichment only
+   * targets commits created after the rewrite, so this is cosmetic.
+   */
+  async compactHistoryNow(): Promise<{
+    rewrote: boolean;
+    squashedCommits: number;
+    keptCommits: number;
+    /** Set when blobs remain but history must first age past retention. */
+    retryAfterMs?: number;
+  }> {
+    await this.ensureInitialized();
+    return this.mutex.withLock(() => this.compactHistoryLocked());
+  }
+
+  /**
+   * Expire all reflogs and prune unreachable objects so dropped blobs are
+   * physically deleted from .git. Hooks are disabled for the same reason as
+   * in {@link buildSafeCommitArgs} — workspace hooks are model-writable and
+   * untrusted, and gc's pack-refs would otherwise run the branch guard
+   * against legacy refs. Must be called with the mutex lock held.
+   */
+  private async expireReflogsAndPruneLocked(): Promise<void> {
+    await this.execGit(
+      [
+        "-c",
+        "core.hooksPath=/dev/null",
+        "reflog",
+        "expire",
+        "--expire=now",
+        "--expire-unreachable=now",
+        "--all",
+      ],
+      { timeoutMs: HISTORY_COMPACTION_TIMEOUT_MS },
+    );
+    await this.execGit(
+      ["-c", "core.hooksPath=/dev/null", "gc", "--prune=now", "--quiet"],
+      { timeoutMs: HISTORY_COMPACTION_TIMEOUT_MS },
+    );
+  }
+
+  /**
+   * Object ids of every blob in the object store exceeding the size limit.
+   * Reads object metadata only — no history walk.
+   */
+  private async collectOversizedBlobOidsLocked(
+    limit: number,
+  ): Promise<Set<string>> {
+    const objects = await this.execGitStreaming(
+      [
+        "cat-file",
+        "--batch-all-objects",
+        "--unordered",
+        "--batch-check=%(objectname) %(objecttype) %(objectsize)",
+      ],
+      { timeoutMs: HISTORY_COMPACTION_TIMEOUT_MS },
+    );
+    const oids = new Set<string>();
+    for (const line of objects.stdout.split("\n")) {
+      const [oid, type, size] = line.split(" ");
+      if (oid && type === "blob" && Number(size) > limit) {
+        oids.add(oid);
+      }
+    }
+    return oids;
+  }
+
+  /**
+   * Classify the given oversized blobs for compaction:
+   * - "rewrite": at least one is reachable from main at a non-exempt path —
+   *   only a history rewrite removes it.
+   * - "prunable": none require a rewrite, but at least one is referenced by
+   *   no ref at all — reflog expiry + gc reclaims it without touching
+   *   history (no hash changes, no orphaned notes).
+   * - "none": everything is exempt canonical state (conversation disk
+   *   views) or retained by non-main refs that rewriting main can never
+   *   free — nothing to do and nothing to retry.
+   */
+  private async classifyOversizedBlobsLocked(
+    oversized: Set<string>,
+  ): Promise<"none" | "prunable" | "rewrite"> {
+    if (oversized.size === 0) {
+      return "none";
+    }
+    // Lines are "<oid>" for commits and "<oid> <path>" for trees/blobs.
+    const fromMain = await this.execGitStreaming(
+      ["rev-list", "--objects", "main"],
+      { timeoutMs: HISTORY_COMPACTION_TIMEOUT_MS },
+    );
+    const remaining = new Set(oversized);
+    for (const line of fromMain.stdout.split("\n")) {
+      if (!line) {
+        continue;
+      }
+      const spaceIdx = line.indexOf(" ");
+      const oid = spaceIdx === -1 ? line : line.substring(0, spaceIdx);
+      if (!remaining.has(oid)) {
+        continue;
+      }
+      const path = spaceIdx === -1 ? "" : line.substring(spaceIdx + 1);
+      if (isSizeGuardExempt(path)) {
+        remaining.delete(oid);
+      } else {
+        return "rewrite";
+      }
+    }
+    if (remaining.size === 0) {
+      return "none";
+    }
+    // Drop blobs retained by any other ref — gc keeps them regardless of
+    // what happens to main. Whatever is left is truly unreferenced, hence
+    // prunable.
+    const fromAll = await this.execGitStreaming(
+      ["rev-list", "--objects", "--all"],
+      { timeoutMs: HISTORY_COMPACTION_TIMEOUT_MS },
+    );
+    for (const line of fromAll.stdout.split("\n")) {
+      const spaceIdx = line.indexOf(" ");
+      remaining.delete(spaceIdx === -1 ? line : line.substring(0, spaceIdx));
+    }
+    return remaining.size > 0 ? "prunable" : "none";
+  }
+
+  private async compactHistoryLocked(): Promise<{
+    rewrote: boolean;
+    squashedCommits: number;
+    keptCommits: number;
+    retryAfterMs?: number;
+  }> {
+    const noop = { rewrote: false, squashedCommits: 0, keptCommits: 0 };
+    const limit = this.maxFileSizeBytes();
+
+    // Any oversized blobs at all? Bounds the cost of every boot where there
+    // is nothing to do.
+    const oversizedOids = await this.collectOversizedBlobOidsLocked(limit);
+    if (oversizedOids.size === 0) {
+      return noop;
+    }
+
+    // Only rewrite linear main history from its tip.
+    const head = await this.execGit(["symbolic-ref", "--short", "HEAD"]);
+    if (head.stdout.trim() !== "main") {
+      return noop;
+    }
+
+    // %x1f field / %x1e record separators — %B is the raw multi-line body.
+    const logOut = await this.execGitStreaming(
+      [
+        "log",
+        "--first-parent",
+        "--reverse",
+        "--format=%H%x1f%T%x1f%ct%x1f%an%x1f%ae%x1f%aD%x1f%cn%x1f%ce%x1f%cD%x1f%B%x1e",
+        "main",
+      ],
+      { timeoutMs: HISTORY_COMPACTION_TIMEOUT_MS },
+    );
+    const commits = logOut.stdout
+      .split("\x1e")
+      .map((record) => record.replace(/^\n/, ""))
+      .filter((record) => record.includes("\x1f"))
+      .map((record) => {
+        const f = record.split("\x1f");
+        return {
+          sha: f[0] ?? "",
+          tree: f[1] ?? "",
+          committedAtSec: Number(f[2] ?? "0"),
+          authorName: f[3] ?? "",
+          authorEmail: f[4] ?? "",
+          authorDate: f[5] ?? "",
+          committerName: f[6] ?? "",
+          committerEmail: f[7] ?? "",
+          committerDate: f[8] ?? "",
+          body: f[9] ?? "",
+        };
+      });
+    if (commits.length === 0) {
+      return noop;
+    }
+
+    const verdict = await this.classifyOversizedBlobsLocked(oversizedOids);
+    if (verdict === "none") {
+      // Exempt canonical state or ref-retained only — nothing to reclaim.
+      return { ...noop, keptCommits: commits.length };
+    }
+    if (verdict === "prunable") {
+      // Only unreachable blobs (e.g. an external add that stageAllLocked
+      // reset) — prune reclaims them without rewriting any history.
+      await this.expireReflogsAndPruneLocked();
+      log.info(
+        { workspaceDir: this.workspaceDir },
+        "Pruned unreachable oversized blobs from workspace git",
+      );
+      return { ...noop, keptCommits: commits.length };
+    }
+
+    // Squash a PREFIX of the chain so replay order stays consistent even if
+    // commit timestamps are not monotonic.
+    const cutoffSec =
+      Math.floor(Date.now() / 1000) - HISTORY_RETENTION_DAYS * 86400;
+    let splitIdx = commits.findIndex((c) => c.committedAtSec >= cutoffSec);
+    if (splitIdx === -1) {
+      splitIdx = commits.length;
+    }
+    if (splitIdx === 0) {
+      // Main holds the blobs, but only in commits still within retention.
+      // A mixed case can also carry unreachable blobs — prune those now,
+      // and re-check in case they were all that remained actionable.
+      await this.expireReflogsAndPruneLocked();
+      const afterPrune = await this.collectOversizedBlobOidsLocked(limit);
+      if ((await this.classifyOversizedBlobsLocked(afterPrune)) === "none") {
+        log.info(
+          { workspaceDir: this.workspaceDir },
+          "Pruned unreachable oversized blobs from workspace git",
+        );
+        return { ...noop, keptCommits: commits.length };
+      }
+
+      // Report when the oldest commit ages past the cutoff so the caller
+      // can retry then — otherwise a long-running daemon would keep the
+      // bloat until restart.
+      const oldestCommittedAtSec = commits[0]?.committedAtSec ?? cutoffSec;
+      const oldestAgesOutMs =
+        (oldestCommittedAtSec + HISTORY_RETENTION_DAYS * 86400) * 1000 -
+        Date.now() +
+        60_000;
+      const retryAfterMs = Math.max(
+        oldestAgesOutMs,
+        HISTORY_COMPACTION_MIN_RETRY_MS,
+      );
+      log.debug(
+        { workspaceDir: this.workspaceDir, retryAfterMs },
+        "Oversized blobs present but all history is within retention",
+      );
+      return { ...noop, keptCommits: commits.length, retryAfterMs };
+    }
+
+    const kept = commits.slice(splitIdx);
+    const boundary = commits[splitIdx - 1];
+    if (!boundary) {
+      return noop;
+    }
+    const identityEnv = (c: (typeof commits)[number]) => ({
+      GIT_AUTHOR_NAME: c.authorName || DEFAULT_GIT_NAME,
+      GIT_AUTHOR_EMAIL: c.authorEmail || DEFAULT_GIT_EMAIL,
+      GIT_AUTHOR_DATE: c.authorDate,
+      GIT_COMMITTER_NAME: c.committerName || DEFAULT_GIT_NAME,
+      GIT_COMMITTER_EMAIL: c.committerEmail || DEFAULT_GIT_EMAIL,
+      GIT_COMMITTER_DATE: c.committerDate,
+    });
+
+    const baseTree = await this.scrubTreeLocked(boundary.tree, limit);
+    let newHead = (
+      await this.execGit(
+        [
+          "commit-tree",
+          baseTree,
+          "-m",
+          `Compacted workspace history (${splitIdx} commits squashed)`,
+        ],
+        { env: identityEnv(boundary) },
+      )
+    ).stdout.trim();
+    for (const c of kept) {
+      newHead = (
+        await this.execGit(
+          [
+            "commit-tree",
+            c.tree,
+            "-p",
+            newHead,
+            "-m",
+            c.body.trim() || "(no message)",
+          ],
+          { env: identityEnv(c) },
+        )
+      ).stdout.trim();
+    }
+
+    // Compare-and-swap against the tip we read, in case an external git
+    // process moved main while we rewrote.
+    const oldHead = commits[commits.length - 1]?.sha ?? "";
+    await this.execGit([
+      "-c",
+      "core.hooksPath=/dev/null",
+      "update-ref",
+      "refs/heads/main",
+      newHead,
+      oldHead,
+    ]);
+    await this.expireReflogsAndPruneLocked();
+
+    // Blobs referenced by a replayed kept commit survive the prune (the
+    // common case: a large file untracked only days ago). Request a retry
+    // for when the oldest kept commit ages past retention, so they are
+    // reclaimed without waiting for a daemon restart.
+    let retryAfterMs: number | undefined;
+    const afterGc = await this.collectOversizedBlobOidsLocked(limit);
+    if ((await this.classifyOversizedBlobsLocked(afterGc)) !== "none") {
+      const oldestKeptSec =
+        kept[0]?.committedAtSec ?? Math.floor(Date.now() / 1000);
+      retryAfterMs = Math.max(
+        (oldestKeptSec + HISTORY_RETENTION_DAYS * 86400) * 1000 -
+          Date.now() +
+          60_000,
+        HISTORY_COMPACTION_MIN_RETRY_MS,
+      );
+    }
+
+    log.info(
+      {
+        workspaceDir: this.workspaceDir,
+        squashedCommits: splitIdx,
+        keptCommits: kept.length,
+        maxFileSizeBytes: limit,
+        ...(retryAfterMs !== undefined ? { retryAfterMs } : {}),
+      },
+      "Compacted workspace git history",
+    );
+    return {
+      rewrote: true,
+      squashedCommits: splitIdx,
+      keptCommits: kept.length,
+      retryAfterMs,
+    };
+  }
+
+  /**
+   * Return a copy of `tree` with entries whose blob size exceeds the limit
+   * removed, built in a temporary index so the real index is untouched.
+   * Returns the original tree when nothing in it is oversized.
+   */
+  private async scrubTreeLocked(tree: string, limit: number): Promise<string> {
+    const listing = await this.execGitStreaming(
+      ["ls-tree", "-r", "-l", "-z", tree],
+      {
+        timeoutMs: HISTORY_COMPACTION_TIMEOUT_MS,
+      },
+    );
+    const oversizedPaths: string[] = [];
+    for (const entry of listing.stdout.split("\0")) {
+      const tab = entry.indexOf("\t");
+      if (tab < 0) {
+        continue;
+      }
+      // "<mode> <type> <oid> <size>\t<path>" — size is right-aligned.
+      const meta = entry.substring(0, tab).trim().split(/\s+/);
+      const path = entry.substring(tab + 1);
+      if (
+        meta[1] === "blob" &&
+        Number(meta[3]) > limit &&
+        !isSizeGuardExempt(path)
+      ) {
+        oversizedPaths.push(path);
+      }
+    }
+    if (oversizedPaths.length === 0) {
+      return tree;
+    }
+
+    const tmpIndex = join(this.workspaceDir, ".git", "vellum-compact-index");
+    const env = { GIT_INDEX_FILE: tmpIndex };
+    try {
+      await this.execGit(["read-tree", tree], { env });
+      await this.execGitStreaming(
+        [
+          "rm",
+          "--cached",
+          "-q",
+          "--ignore-unmatch",
+          "--pathspec-from-file=-",
+          "--pathspec-file-nul",
+        ],
+        { input: oversizedPaths.map((p) => `:(literal)${p}`).join("\0"), env },
+      );
+      return (await this.execGit(["write-tree"], { env })).stdout.trim();
+    } finally {
+      try {
+        unlinkSync(tmpIndex);
+      } catch {
+        // Never created, or already gone.
+      }
+    }
+  }
+
+  /**
+   * Stage all workspace changes except files whose working-tree size exceeds
+   * workspaceGit.maxFileSizeBytes. Oversized files stay on disk untouched —
+   * they just never enter workspace history. Deletions always stage (they
+   * shrink the repo). Must be called with the lock held.
+   *
+   * Oversized paths are excluded from the add pathspec up front so git never
+   * hashes their blobs: an `add` of a multi-GB artifact would be slow enough
+   * to trip interactiveGitTimeoutMs and would bloat .git/objects even if the
+   * file were unstaged afterwards. A post-add scan then unstages any
+   * oversized blob that reached the index anyway (e.g. staged by an external
+   * `git add` before this ran).
+   */
+  private async stageAllLocked(): Promise<void> {
+    // Streamed: output scales with the number of changed files.
+    const changed = await this.execGitStreaming([
+      "status",
+      "--porcelain",
+      "--untracked-files=all",
+      "-z",
+    ]);
+    const oversized = new Set<string>();
+    for (const { path } of parsePorcelainZ(changed.stdout)) {
+      if (this.isOversized(path)) {
+        oversized.add(path);
+      }
+    }
+
+    if (oversized.size === 0) {
+      await this.execGit(["add", "-A"]);
+    } else {
+      // Pathspecs via stdin to stay clear of OS argv limits; literal magic
+      // so filenames containing glob characters are not pattern-matched.
+      const pathspecs = [
+        ".",
+        ...[...oversized].map((p) => `:(exclude,literal)${p}`),
+      ];
+      await this.execGitStreaming(
+        ["add", "-A", "--pathspec-from-file=-", "--pathspec-file-nul"],
+        { input: pathspecs.join("\0") },
+      );
+    }
+
+    const base = await this.resolveStagedDiffBaseLocked();
+    // Everything but deletions — T covers a tracked symlink/submodule
+    // replaced by a staged regular file, which ACMR alone would miss.
+    const staged = await this.execGitStreaming([
+      "diff",
+      "--cached",
+      "--name-only",
+      "-z",
+      "--diff-filter=ACMRT",
+      base,
+    ]);
+    const stagedOversized = staged.stdout
+      .split("\0")
+      .filter((p) => p.length > 0 && this.isOversized(p));
+
+    if (stagedOversized.length > 0) {
+      // Literal pathspecs via stdin, mirroring the add above: a filename
+      // containing glob characters must not unstage other matching paths.
+      await this.execGitStreaming(
+        ["reset", "-q", base, "--pathspec-from-file=-", "--pathspec-file-nul"],
+        { input: stagedOversized.map((p) => `:(literal)${p}`).join("\0") },
+      );
+      // The external add already hashed these blobs into .git/objects; a
+      // compaction pass prunes them even if the boot-time one already ran.
+      this.scheduleHistoryCompaction();
+    }
+
+    const excluded = [...new Set([...oversized, ...stagedOversized])];
+    const newlyWarned = excluded.filter(
+      (p) => !this.warnedOversizedPaths.has(p),
+    );
+    if (newlyWarned.length > 0) {
+      for (const p of newlyWarned) {
+        this.warnedOversizedPaths.add(p);
+      }
+      log.warn(
+        {
+          workspaceDir: this.workspaceDir,
+          files: newlyWarned,
+          maxFileSizeBytes: this.maxFileSizeBytes(),
+        },
+        "Excluded oversized files from workspace commit",
+      );
+    }
   }
 
   /**
@@ -766,18 +1547,38 @@ export class WorkspaceGitService {
         }
       }
 
+      // Exact line matching: a substring check would let an existing rule like
+      // "plugins/*/node_modules/" mask the broader "node_modules/" rule.
+      const existingLines = new Set(
+        content.split("\n").map((line) => line.trim()),
+      );
       const missingRules = WORKSPACE_GITIGNORE_RULES.filter(
-        (rule) => !content.includes(rule),
+        (rule) => !existingLines.has(rule),
       );
       if (hadLegacyDataRule || missingRules.length > 0) {
         let updated = content;
         if (missingRules.length > 0) {
+          // Negation rules must trail every Vellum rule (last matching
+          // pattern wins), so pull existing ones out and re-append them
+          // after the additions instead of leaving them mid-file.
+          const negationRules = WORKSPACE_GITIGNORE_RULES.filter((rule) =>
+            rule.startsWith("!"),
+          );
+          const negationSet = new Set(negationRules);
+          updated = updated
+            .split("\n")
+            .filter((line) => !negationSet.has(line.trim()))
+            .join("\n");
           if (!updated.endsWith("\n")) {
             updated += "\n";
           }
+          const additions = [
+            ...missingRules.filter((rule) => !rule.startsWith("!")),
+            ...negationRules,
+          ];
           updated +=
             "# Vellum runtime state (auto-added)\n" +
-            missingRules.join("\n") +
+            additions.join("\n") +
             "\n";
         }
         writeFileSync(gitignorePath, updated, "utf-8");
@@ -792,14 +1593,74 @@ export class WorkspaceGitService {
   }
 
   /**
+   * Drop tracked files matched by the Vellum-managed ignore rules from the
+   * index (working tree untouched). Ignore rules only affect untracked
+   * paths, so committed runtime state (e.g. embedding-models/) stays in the
+   * index — and churns every commit — until explicitly removed here. The
+   * staged deletions ride along with the next commit. Best-effort: failures
+   * are logged, never block init. Must be called with the mutex lock held.
+   *
+   * Deliberately matches against the Vellum-managed rules only — not the
+   * workspace .gitignore (which may carry user-authored rules whose matches
+   * are force-added on purpose) and not --exclude-standard (the user's
+   * global/local exclude files). The rules are passed via a temp file under
+   * .git so gitignore semantics, including negation order, are preserved.
+   */
+  private async untrackIgnoredFilesLocked(): Promise<void> {
+    const rulesPath = join(this.workspaceDir, ".git", "vellum-untrack-rules");
+    try {
+      writeFileSync(
+        rulesPath,
+        WORKSPACE_GITIGNORE_RULES.join("\n") + "\n",
+        "utf-8",
+      );
+      const { stdout } = await this.execGitStreaming([
+        "ls-files",
+        "-z",
+        "--cached",
+        "--ignored",
+        `--exclude-from=${rulesPath}`,
+      ]);
+      const files = stdout.split("\0").filter(Boolean);
+      if (files.length === 0) {
+        return;
+      }
+      // Chunked to stay under OS argv limits on bloated workspaces.
+      const chunkSize = 200;
+      for (let i = 0; i < files.length; i += chunkSize) {
+        await this.execGit([
+          "rm",
+          "--cached",
+          "-r",
+          "-q",
+          "--ignore-unmatch",
+          "--",
+          ...files.slice(i, i + chunkSize),
+        ]);
+      }
+      log.info(
+        { fileCount: files.length },
+        "Untracked newly ignored files from workspace index",
+      );
+    } catch (err) {
+      log.warn({ err }, "Failed to untrack newly ignored files");
+    } finally {
+      try {
+        unlinkSync(rulesPath);
+      } catch {
+        // Never created, or already gone.
+      }
+    }
+  }
+
+  /**
    * Ensure local git identity is configured for automated commits.
    * Idempotent: git config set is a no-op if the value is already correct.
    * Must be called with the mutex lock held.
    */
   private async ensureCommitIdentityLocked(): Promise<void> {
-    const gitName = process.env.ASSISTANT_GIT_USER_NAME || "Vellum Assistant";
-    const gitEmail =
-      process.env.ASSISTANT_GIT_USER_EMAIL || "assistant@vellum.ai";
+    const gitName = process.env.ASSISTANT_GIT_USER_NAME || DEFAULT_GIT_NAME;
+    const gitEmail = process.env.ASSISTANT_GIT_USER_EMAIL || DEFAULT_GIT_EMAIL;
     await this.execGit(["config", "user.name", gitName]);
     await this.execGit(["config", "user.email", gitEmail]);
   }
@@ -891,16 +1752,23 @@ export class WorkspaceGitService {
    */
   private async execGit(
     args: string[],
-    options?: { signal?: AbortSignal },
+    options?: {
+      signal?: AbortSignal;
+      timeoutMs?: number;
+      env?: Record<string, string>;
+    },
   ): Promise<{ stdout: string; stderr: string }> {
     const config = getConfig();
-    const timeoutMs = config.workspaceGit?.interactiveGitTimeoutMs ?? 10_000;
+    const timeoutMs =
+      options?.timeoutMs ??
+      config.workspaceGit?.interactiveGitTimeoutMs ??
+      10_000;
     try {
       const { stdout, stderr } = await execFileAsync("git", args, {
         cwd: this.workspaceDir,
         encoding: "utf-8",
         timeout: timeoutMs,
-        env: cleanGitEnv(this.workspaceDir),
+        env: { ...cleanGitEnv(this.workspaceDir), ...options?.env },
         signal: options?.signal,
       });
       return { stdout, stderr };
@@ -925,19 +1793,34 @@ export class WorkspaceGitService {
    * workspace) cannot fail with `ERR_CHILD_PROCESS_STDIO_MAXBUFFER`. Used for
    * read paths where output is unbounded; errors are enhanced identically to
    * {@link execGit} so callers can still distinguish timeouts and permissions.
+   * `options.input` is written to the child's stdin, which is closed either
+   * way so commands reading stdin to EOF (`--pathspec-from-file=-`) terminate.
    */
   private execGitStreaming(
     args: string[],
-    options?: { signal?: AbortSignal },
+    options?: {
+      signal?: AbortSignal;
+      input?: string;
+      timeoutMs?: number;
+      env?: Record<string, string>;
+    },
   ): Promise<{ stdout: string; stderr: string }> {
     const config = getConfig();
-    const timeoutMs = config.workspaceGit?.interactiveGitTimeoutMs ?? 10_000;
+    const timeoutMs =
+      options?.timeoutMs ??
+      config.workspaceGit?.interactiveGitTimeoutMs ??
+      10_000;
     return new Promise((resolve, reject) => {
       const child = spawn("git", args, {
         cwd: this.workspaceDir,
-        env: cleanGitEnv(this.workspaceDir),
+        env: { ...cleanGitEnv(this.workspaceDir), ...options?.env },
         signal: options?.signal,
       });
+
+      // Swallow EPIPE from a child that exits without reading stdin; the
+      // failure still surfaces through the close/error handlers below.
+      child.stdin?.on("error", () => {});
+      child.stdin?.end(options?.input ?? "");
 
       const stdoutChunks: Buffer[] = [];
       const stderrChunks: Buffer[] = [];
@@ -1232,4 +2115,16 @@ export function _getInitConsecutiveFailures(
 ): number {
   return (service as unknown as { initConsecutiveFailures: number })
     .initConsecutiveFailures;
+}
+
+/**
+ * @internal Test-only: whether a history compaction run is pending
+ */
+export function _hasPendingHistoryCompaction(
+  service: WorkspaceGitService,
+): boolean {
+  return (
+    (service as unknown as { historyCompactionTimer: unknown })
+      .historyCompactionTimer !== null
+  );
 }

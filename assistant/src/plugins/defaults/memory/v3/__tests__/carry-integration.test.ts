@@ -56,6 +56,7 @@ import type {
 } from "@vellumai/plugin-api";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
+import { setConfig } from "../../../../../__tests__/helpers/set-config.js";
 import { stripSpotlightInjections } from "../../../../../context/strip-injections.js";
 import { migrateAddMemoryV3Selections } from "../../../../../persistence/migrations/268-add-memory-v3-selections.js";
 import { migrateAddMemoryV3EverInjected } from "../../../../../persistence/migrations/277-add-memory-v3-ever-injected.js";
@@ -85,9 +86,6 @@ let carryMockActive = false;
 const realPluginApi = await import("@vellumai/plugin-api");
 const realFlags = {
   ...(await import("../../../../../config/assistant-feature-flags.js")),
-};
-const realConfigLoader = {
-  ...(await import("../../../../../config/loader.js")),
 };
 const realMemoryConfig = { ...(await import("../../config.js")) };
 const realDbConnection = {
@@ -170,27 +168,14 @@ let pruneConfig: {
 } | null = null;
 const SPOTLIGHT_N = 6;
 const SPOTLIGHT_WINDOW_TURNS = 2;
-mock.module("../../../../../config/loader.js", () => ({
-  ...realConfigLoader,
-  getConfig: () =>
-    carryMockActive
-      ? {
-          memory: {
-            v3: {
-              live: true,
-              spotlight: {
-                n: SPOTLIGHT_N,
-                windowTurns: SPOTLIGHT_WINDOW_TURNS,
-              },
-              prune: pruneConfig ?? undefined,
-            },
-          },
-        }
-      : realConfigLoader.getConfig(),
-}));
+// The injector reads `memory.v3.live` (via `isMemoryV3Live`) and
+// `memory.v3.spotlight` through the real `getConfig()`; `beforeAll` seeds
+// `memory.v3.live: true` for real. `SPOTLIGHT_N` / `SPOTLIGHT_WINDOW_TURNS`
+// equal the schema defaults, so the seeded slice needs only `live`.
 
 // Memory code resolves its config through the plugin's own accessor, not
-// getConfig(); stub the same conditional slice there.
+// getConfig(); the prune valve reads its bounds there — stub the same
+// conditional slice.
 mock.module("../../config.js", () => ({
   getMemoryConfig: () =>
     carryMockActive
@@ -809,6 +794,9 @@ const SCRIPT: Array<{ query: string; keep: Slug[]; expectNetNew: Slug[] }> = [
 
 beforeAll(async () => {
   carryMockActive = true;
+  // The injector gates on `memory.v3.live` (read via real `getConfig()`),
+  // which defaults false — seed it true so the live path runs.
+  setConfig("memory", { v3: { live: true } });
   testDb = makeDb();
   providerStub = makeProviderStub();
   resetMemoryV3InjectorStateForTests();

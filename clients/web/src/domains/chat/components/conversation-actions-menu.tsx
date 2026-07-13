@@ -13,7 +13,6 @@ import {
     Pin,
     PinOff,
     RefreshCw,
-    Sparkles,
     type LucideIcon,
 } from "lucide-react";
 import { useState, type ReactNode } from "react";
@@ -91,7 +90,7 @@ export interface ConversationMenuItemsProps {
    */
   onMarkRead?: () => void;
   /**
-   * Hide write-affording menu items (Mark-as-read/unread, Analyze) when
+   * Hide write-affording menu items (Mark-as-read/unread) when
    * the conversation is read-only. Items are hidden entirely, not
    * disabled. Today this fires for channel-bound conversations (Slack,
    * Telegram, voice) where outbound writes aren't mirrored back to the
@@ -105,8 +104,6 @@ export interface ConversationMenuItemsProps {
    * to be able to tidy them up.
    */
   isReadonly?: boolean;
-  /** Trigger an analysis of this conversation via the daemon. */
-  onAnalyze?: () => void;
   /** Open this conversation in a new browser tab. */
   onOpenInNewWindow?: () => void;
   /** Fork the conversation through the latest persisted message. */
@@ -146,7 +143,6 @@ export function renderConversationMenuItems({
   isMarkUnreadDisabled = false,
   onMarkRead,
   isReadonly = false,
-  onAnalyze,
   onForkConversation,
   onOpenInNewWindow,
   onShareFeedback,
@@ -204,13 +200,6 @@ export function renderConversationMenuItems({
       </Primitive.Item>
     ) : null;
 
-  const analyzeItem =
-    !isReadonly && onAnalyze ? (
-      <Primitive.Item leftIcon={<Sparkles size={14} />} onSelect={onAnalyze}>
-        {variant === "header" ? "Analyze conversation" : "Analyze"}
-      </Primitive.Item>
-    ) : null;
-
   const openInNewWindowItem =
     onOpenInNewWindow ? (
       <Primitive.Item
@@ -248,7 +237,6 @@ export function renderConversationMenuItems({
           </Primitive.Item>
         ) : null}
 
-        {analyzeItem}
         {openInNewWindowItem}
 
         {onRefresh ? (
@@ -275,7 +263,6 @@ export function renderConversationMenuItems({
       {archiveItem}
 
       {markReadUnreadItem}
-      {analyzeItem}
       {openInNewWindowItem}
 
       {onShareFeedback ? (
@@ -378,7 +365,6 @@ function renderConversationMenuItemsAsPanelItems({
   isMarkUnreadDisabled = false,
   onMarkRead,
   isReadonly = false,
-  onAnalyze,
   onForkConversation,
   onOpenInNewWindow,
   onShareFeedback,
@@ -451,17 +437,6 @@ function renderConversationMenuItemsAsPanelItems({
           })
         : null;
 
-  const analyzeItem =
-    !isReadonly && onAnalyze
-      ? buildPanelItem({
-          key: "analyze",
-          icon: Sparkles,
-          label: variant === "header" ? "Analyze conversation" : "Analyze",
-          run: onAnalyze,
-          onClose,
-        })
-      : null;
-
   const openInNewWindowItem =
     onOpenInNewWindow && !isNativePlatform
       ? buildPanelItem({
@@ -507,7 +482,6 @@ function renderConversationMenuItemsAsPanelItems({
             })
           : null}
 
-        {analyzeItem}
         {openInNewWindowItem}
 
         {onRefresh
@@ -534,7 +508,6 @@ function renderConversationMenuItemsAsPanelItems({
       {renameItem}
       {archiveItem}
       {markReadUnreadItem}
-      {analyzeItem}
       {openInNewWindowItem}
 
       {onShareFeedback ? (

@@ -19,13 +19,6 @@ import type { AssistantConfig } from "../config/types.js";
 
 // ── Mocks (must precede imports of tested module) ──────────────────
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 let convCalls: Array<number | undefined> = [];
 let llmCalls: Array<number | undefined> = [];
 let toolCalls: Array<number | undefined> = [];
@@ -62,11 +55,6 @@ mock.module("../persistence/checkpoints.js", () => ({
   deleteMemoryCheckpoint: (key: string) => {
     checkpointStore.delete(key);
   },
-}));
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({ memory: { enabled: false } }),
-  loadConfig: () => ({ memory: { enabled: false } }),
 }));
 
 import { resetCleanupScheduleThrottle } from "../persistence/cleanup-schedule-state.js";

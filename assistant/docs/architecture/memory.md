@@ -155,7 +155,6 @@ graph TB
         EMBED_Q["Generate dense + sparse<br/>query embeddings"]
         HYBRID["Hybrid Search<br/>dense + sparse RRF on Qdrant"]
         MERGE["Merge + Deduplicate<br/>weighted score combination"]
-        SCOPE["Scope Filter<br/>scope_id filtering<br/>(strict | global_fallback)<br/>Subagents: own scope + 'default'"]
         TIER["Tier Classification<br/>score > 0.8 → tier 1<br/>score > 0.6 → tier 2<br/>below → dropped"]
         STALE["Staleness Computation<br/>kind-specific lifetimes<br/>+ reinforcement from<br/>source conversation count"]
         DEMOTE["Stale Demotion<br/>very_stale tier 1 → tier 2"]
@@ -215,8 +214,7 @@ graph TB
     EMBED_Q --> SPARSE_GEN
     EMBED_Q --> HYBRID
     HYBRID --> RRF
-    HYBRID --> SCOPE
-    SCOPE --> MERGE
+    HYBRID --> MERGE
     MERGE --> TIER
     TIER --> STALE
     STALE --> DEMOTE

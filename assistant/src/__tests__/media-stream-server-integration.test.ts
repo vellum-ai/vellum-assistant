@@ -21,16 +21,6 @@ mock.module("../providers/speech-to-text/resolve.js", () => ({
   resolveStreamingTranscriber: jest.fn(async () => null),
 }));
 
-// Mock the logger to suppress output during tests
-mock.module("../util/logger.js", () => ({
-  getLogger: () => ({
-    info: () => {},
-    warn: () => {},
-    error: () => {},
-    debug: () => {},
-  }),
-}));
-
 // Mock the call store — lightweight in-memory stubs
 const mockSessions = new Map<string, Record<string, unknown>>();
 const mockEvents: Array<{

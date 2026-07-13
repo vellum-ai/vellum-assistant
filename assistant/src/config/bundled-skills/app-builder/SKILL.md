@@ -270,6 +270,29 @@ useEffect(() => {
 }, []);
 ```
 
+**Bundled media — `window.vellum.asset(path)`.** For binary assets too big to inline (images, audio, short video, custom fonts), bundle the file under the app directory with `file_write` and load it at runtime via `window.vellum.asset("assets/intro.mp4")`, which resolves to a `blob:` URL the sandbox can use directly. Don't reach for giant base64 data-URIs.
+
+```tsx
+const [src, setSrc] = useState("");
+useEffect(() => {
+  window.vellum.asset("assets/intro.mp4").then(setSrc).catch(() => notifyError("Couldn't load media"));
+}, []);
+return src ? <video src={src} controls /> : null;
+```
+
+Paths are validated server-side (no traversal, no `records/`); the file is served only from this app's own directory.
+
+**Live updates — `window.vellum.subscribe({ tags }, cb)`.** Instead of polling on a timer, subscribe to your own invalidation tags and refresh when the data actually changes. After a route mutates data it publishes a `sync_changed` event (`context.assistantEventHub.publish({ …, message: { type: "sync_changed", tags: ["my-app:items"] } })`); the app subscribes to that tag and re-fetches when it fires. Returns an unsubscribe function — call it on cleanup. Only your own custom tags are delivered (host namespaces like `conversation:`/`assistant:` are never forwarded), and the payload is just the changed tags — re-fetch through `window.vellum.fetch` for the data.
+
+```tsx
+useEffect(() => {
+  const off = window.vellum.subscribe({ tags: ["my-app:items"] }, () => {
+    void loadItems(); // re-fetch on change — no polling
+  });
+  return off;
+}, []);
+```
+
 **Writing a route handler.** Routes are `.ts`/`.js` files in `{workspaceDir}/routes/`, served at `/v1/x/<filename>` (`routes/items.ts` → `/v1/x/items`; `routes/bar/index.ts` → `/v1/x/bar`). Write them with `file_write` **before** `app_refresh`. Each exports named functions per HTTP method (`GET`/`POST`/`PUT`/`PATCH`/`DELETE`), receiving the Web `Request` and an optional `context`. Full Node API access (`fs`, `path`, `crypto`), 30s timeout, hot-reloaded on change. No `[id].ts` dynamic segments — use query params.
 
 ```typescript

@@ -20,13 +20,6 @@ import { describe, expect, mock, test } from "bun:test";
 import type { SkillSource } from "../../config/skills.js";
 import type { OwnerInfo } from "../types.js";
 
-mock.module("../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // Map managed skill id → recorded author, consulted by the mocked
 // `readInstallMeta` below. Tests set entries to drive the author join.
 const installMetaAuthors: Record<string, "assistant" | "user" | undefined> = {};
@@ -343,10 +336,13 @@ describe("find_similar_skills — per-chat plugin scope", () => {
     ];
     const rankThenLimit = async (
       _goal: string,
-      opts?: { limit?: number; loadCatalog?: () => { id: string }[] },
+      opts?: {
+        limit?: number;
+        loadCatalog?: () => { id: string }[] | Promise<{ id: string }[]>;
+      },
     ) => {
       const candidateIds = new Set(
-        (opts?.loadCatalog?.() ?? FULL_CATALOG()).map((s) => s.id),
+        (await (opts?.loadCatalog?.() ?? FULL_CATALOG())).map((s) => s.id),
       );
       return RANKED.filter((h) => candidateIds.has(h.skillId)).slice(
         0,

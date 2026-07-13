@@ -15,6 +15,9 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { Command } from "commander";
 
+import { applyCommandHelp } from "../../../lib/cli-command-help.js";
+import { memoryHelp } from "../index.help.js";
+
 // ---------------------------------------------------------------------------
 // Mock state
 // ---------------------------------------------------------------------------
@@ -91,6 +94,7 @@ function buildProgram(): Command {
     writeOut: () => {},
   });
   const memory = program.command("memory");
+  applyCommandHelp(memory, memoryHelp);
   registerMemoryItemsCommand(memory);
   return program;
 }

@@ -406,7 +406,7 @@ export function resolveDefaultProfileForProvider(
   );
 }
 
-function isDefaultProfileKey(name: string): name is DefaultProfileKey {
+export function isDefaultProfileKey(name: string): name is DefaultProfileKey {
   return (DEFAULT_PROFILE_KEYS as readonly string[]).includes(name);
 }
 
@@ -445,6 +445,34 @@ export function getEffectiveProfiles(
   };
   for (const name of Object.keys(catalogEntries)) {
     const entry = getEffectiveProfile(workspaceProfiles, name, catalogEntries);
+    if (entry != null) {
+      effective[name] = entry;
+    }
+  }
+  return effective;
+}
+
+/**
+ * Like `getEffectiveProfiles`, but resolves each default profile key through
+ * the same `llm.defaultProvider`-aware path the runtime resolver uses
+ * (`resolveDefaultProfileForProvider`) rather than always the `vellum` column.
+ * On BYOK installs this is what makes the reported provider/model/availability
+ * for `balanced`/`quality-optimized`/`cost-optimized` match what actually runs.
+ * A `null` defaultProvider reduces to `getEffectiveProfiles`.
+ */
+export function getEffectiveProfilesForProvider(
+  workspaceProfiles: Record<string, ProfileEntry> | undefined,
+  defaultProvider: DefaultProviderConfig | null,
+): Record<string, ProfileEntry> {
+  const effective: Record<string, ProfileEntry> = {
+    ...(workspaceProfiles ?? {}),
+  };
+  for (const name of Object.keys(CODE_DEFAULT_PROFILE_ENTRIES)) {
+    const entry = resolveDefaultProfileForProvider(
+      workspaceProfiles,
+      name,
+      defaultProvider,
+    );
     if (entry != null) {
       effective[name] = entry;
     }

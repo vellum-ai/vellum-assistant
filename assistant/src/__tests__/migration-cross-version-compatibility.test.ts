@@ -51,28 +51,10 @@ const testDbDir = join(testDir, "data", "db");
 const testDbPath = join(testDbDir, "assistant.db");
 const testConfigPath = join(testDir, "config.json");
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 mock.module("../permissions/trust-store.js", () => ({
   getAllRules: () => [],
   isStarterBundleAccepted: () => false,
   clearCache: () => {},
-}));
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-    model: "test",
-    provider: "test",
-    memory: { enabled: false },
-    rateLimit: { maxRequestsPerMinute: 0 },
-    secretDetection: { enabled: false },
-  }),
 }));
 
 mock.module("../config/env.js", () => ({

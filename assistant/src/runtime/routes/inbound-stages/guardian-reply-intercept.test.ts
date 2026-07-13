@@ -15,15 +15,6 @@ mock.module("../../../channels/gateway-guardian-requests.js", () => ({
   listGuardianRequestsOrEmpty: async () => mockIdentityRequests,
 }));
 
-mock.module("../../../util/logger.js", () => ({
-  getLogger: () => ({
-    debug: () => {},
-    info: () => {},
-    warn: () => {},
-    error: () => {},
-  }),
-}));
-
 mock.module("../../gateway-client.js", () => ({
   deliverChannelReply: (url: unknown, payload: unknown, token: unknown) => {
     deliverChannelReplyCalls.push([url, payload, token]);

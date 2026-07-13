@@ -1,25 +1,8 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 
 import { eq, like } from "drizzle-orm";
-
-import { makeMockLogger } from "./helpers/mock-logger.js";
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () => makeMockLogger(),
-}));
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-    model: "test",
-    provider: "test",
-    memory: { enabled: false },
-    rateLimit: { maxRequestsPerMinute: 0 },
-    secretDetection: { enabled: false },
-  }),
-}));
 
 import {
   getAttachmentsForMessage,
@@ -41,6 +24,7 @@ import { getConversationDirPath } from "../persistence/conversation-disk-view.js
 import { getDb, getLogsDb, getMemoryDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { getRequestLogsByMessageId } from "../persistence/llm-request-log-store.js";
+import { stringifyMessageContent } from "../persistence/message-content.js";
 import { rawGet, rawRun } from "../persistence/raw-query.js";
 import {
   activationState,
@@ -175,10 +159,9 @@ describe("forkConversation", () => {
     const fork = forkConversation({ conversationId: source.id });
     const forkMessages = getMessages(fork.id);
 
-    expect(sourceMessages.map((message) => message.content)).toEqual([
-      "first",
-      "second",
-    ]);
+    expect(
+      sourceMessages.map((message) => stringifyMessageContent(message.content)),
+    ).toEqual(["first", "second"]);
     expect(forkMessages.map((message) => message.content)).toEqual(
       sourceMessages.map((message) => message.content),
     );
@@ -209,10 +192,11 @@ describe("forkConversation", () => {
 
     expect(fork.forkParentConversationId).toBe(source.id);
     expect(fork.forkParentMessageId).toBe(branchPoint.id);
-    expect(getMessages(fork.id).map((message) => message.content)).toEqual([
-      "Message 1",
-      "Message 2",
-    ]);
+    expect(
+      getMessages(fork.id).map((message) =>
+        stringifyMessageContent(message.content),
+      ),
+    ).toEqual(["Message 1", "Message 2"]);
   });
 
   test("pinned fork through a (createdAt, id) cutoff matches the cursor slice for same-timestamp rows", () => {
@@ -242,11 +226,11 @@ describe("forkConversation", () => {
       throughMessageId: "msg-c",
     });
 
-    expect(getMessages(fork.id).map((message) => message.content)).toEqual([
-      "msg-a",
-      "msg-b",
-      "msg-c",
-    ]);
+    expect(
+      getMessages(fork.id).map((message) =>
+        stringifyMessageContent(message.content),
+      ),
+    ).toEqual(["msg-a", "msg-b", "msg-c"]);
   });
 
   test("advances fork boundary through consecutive assistant rows after the requested message", async () => {
@@ -283,7 +267,11 @@ describe("forkConversation", () => {
 
     // Boundary advances past the entire consecutive-assistant cluster, so the
     // full turn is preserved in the fork — not just the anchor row.
-    expect(getMessages(fork.id).map((message) => message.content)).toEqual([
+    expect(
+      getMessages(fork.id).map((message) =>
+        stringifyMessageContent(message.content),
+      ),
+    ).toEqual([
       "Message 1",
       "Assistant text segment",
       "Tool turn row",
@@ -339,12 +327,14 @@ describe("forkConversation", () => {
 
     // All three DB rows of the assistant display turn — including the
     // suppressed tool-result user row in the middle — land in the fork.
-    const forkedContent = getMessages(fork.id).map((m) => m.content);
+    const forkedContent = getMessages(fork.id).map((m) =>
+      JSON.stringify(m.content),
+    );
     expect(forkedContent).toHaveLength(4);
-    expect(forkedContent[0]).toBe("Find the latest sales numbers");
+    expect(forkedContent[0]).toContain("Find the latest sales numbers");
     expect(forkedContent[1]).toContain("tool_use");
     expect(forkedContent[2]).toContain("tool_result");
-    expect(forkedContent[3]).toBe("Here are the numbers.");
+    expect(forkedContent[3]).toContain("Here are the numbers.");
     expect(fork.forkParentMessageId).toBe(tailAssistantRow.id);
     expect(toolResultUserRow.id).not.toBe(anchor.id);
   });
@@ -460,12 +450,11 @@ describe("forkConversation", () => {
     expect(fork.contextSummary).toBeNull();
     expect(fork.contextCompactedMessageCount).toBe(0);
     expect(fork.contextCompactedAt).toBeNull();
-    expect(getMessages(fork.id).map((message) => message.content)).toEqual([
-      "Message 1",
-      "Message 2",
-      "Message 3",
-      "Message 4",
-    ]);
+    expect(
+      getMessages(fork.id).map((message) =>
+        stringifyMessageContent(message.content),
+      ),
+    ).toEqual(["Message 1", "Message 2", "Message 3", "Message 4"]);
   });
 
   test("forks from the compacted-away prefix without inheriting source compaction state", async () => {
@@ -476,16 +465,29 @@ describe("forkConversation", () => {
       "Message 1",
       { skipIndexing: true },
     );
-    await addMessage(source.id, "assistant", "Message 2", {
+    const m2 = await addMessage(source.id, "assistant", "Message 2", {
       skipIndexing: true,
     });
-    await addMessage(source.id, "user", "Message 3", {
+    const m3 = await addMessage(source.id, "user", "Message 3", {
       skipIndexing: true,
     });
 
-    const compactedAt = Date.now();
-    getDb()
-      .update(conversations)
+    // Pin timestamps so the compaction event sits strictly after every
+    // message — same-millisecond inserts would otherwise make the event
+    // "at-or-before" the branch point and inherit.
+    const db = getDb();
+    const base = Date.now();
+    db.run(
+      `UPDATE messages SET created_at = ${base} WHERE id = '${compactedBranchPoint.id}'`,
+    );
+    db.run(
+      `UPDATE messages SET created_at = ${base + 1} WHERE id = '${m2.id}'`,
+    );
+    db.run(
+      `UPDATE messages SET created_at = ${base + 2} WHERE id = '${m3.id}'`,
+    );
+    const compactedAt = base + 3;
+    db.update(conversations)
       .set({
         contextSummary: "Compacted summary",
         contextCompactedMessageCount: 2,
@@ -509,9 +511,11 @@ describe("forkConversation", () => {
     expect(fork.contextCompactedAt).toBeNull();
     expect(fork.forkParentConversationId).toBe(source.id);
     expect(fork.forkParentMessageId).toBe(compactedBranchPoint.id);
-    expect(getMessages(fork.id).map((message) => message.content)).toEqual([
-      "Message 1",
-    ]);
+    expect(
+      getMessages(fork.id).map((message) =>
+        stringifyMessageContent(message.content),
+      ),
+    ).toEqual(["Message 1"]);
   });
 
   test("inherits historyStrippedAt when forking past the clean event", async () => {

@@ -12,14 +12,6 @@ import { afterEach, describe, expect, mock, test } from "bun:test";
 
 import JSZip from "jszip";
 
-// Mock the logger before importing the module under test
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // Temp directory for fake app data used in packageApp tests
 const testAppsDir = join(tmpdir(), `app-bundler-test-${Date.now()}`);
 

@@ -34,12 +34,6 @@ import {
   test,
 } from "bun:test";
 
-import { makeMockLogger } from "../../../../../__tests__/helpers/mock-logger.js";
-
-mock.module("../../../../../util/logger.js", () => ({
-  getLogger: () => makeMockLogger(),
-}));
-
 // ── runBackgroundJob mock ───────────────────────────────────────────
 //
 // The consolidation handler delegates the bootstrap + processMessage +
@@ -493,6 +487,54 @@ describe("memoryV2ConsolidateJob — non-empty buffer", () => {
     // Cutoff is a buffer-entry-format timestamp (`Mon D, h:mm AM/PM`) so it
     // compares like-with-like against `buffer.md` lines at minute precision.
     expect(prompt).toMatch(/\b[A-Z][a-z]{2} \d{1,2}, \d{1,2}:\d{2} (AM|PM)\b/);
+  });
+
+  test("wire-scopes the run to local memory-file tools — no network egress or host tools", async () => {
+    // Security: the consolidation run is guardian-trust + non-interactive, so
+    // the permission checker auto-approves any tool within the background
+    // threshold (a public web_fetch classifies Low). The run must therefore be
+    // handed an explicit allowlist that excludes every egress/host tool, so
+    // prompt injection embedded in buffer/page content cannot exfiltrate
+    // memory over an auto-approved channel. Wire gate mode (the default) means
+    // the excluded tools are never even presented to the model.
+    await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    expect(runnerCalls).toBe(1);
+    const allowed = runnerLastArgs?.allowedTools as string[] | undefined;
+    expect(allowed).toBeDefined();
+    const allowedSet = new Set(allowed);
+
+    // The local file-reorganization surface the pass actually uses.
+    for (const tool of [
+      "file_read",
+      "file_write",
+      "file_edit",
+      "file_list",
+      "code_search",
+      "bash",
+      "recall",
+    ]) {
+      expect(allowedSet.has(tool)).toBe(true);
+    }
+
+    // Network egress + host-proxy tools must NOT be reachable.
+    for (const tool of [
+      "web_fetch",
+      "web_search",
+      "network_request",
+      "host_bash",
+      "host_file_read",
+      "host_file_write",
+      "host_file_edit",
+      "host_cu",
+    ]) {
+      expect(allowedSet.has(tool)).toBe(false);
+    }
+    // Belt-and-suspenders: nothing host-prefixed slipped in.
+    expect((allowed ?? []).some((t) => t.startsWith("host_"))).toBe(false);
+    // Gate mode is left at the default ("wire") so excluded tools are filtered
+    // off the wire, not merely rejected at execution time.
+    expect(runnerLastArgs?.toolGateMode).toBeUndefined();
   });
 
   test("honors memory.v2.consolidation_prompt_path override when set", async () => {

@@ -13,11 +13,13 @@
 import { existsSync, unlinkSync, writeFileSync } from "node:fs";
 
 import { getConfig } from "../../../config/loader.js";
+import { rehydratePlatformCredentials } from "../../../config/platform-rehydration.js";
+import { resetDb } from "../../../persistence/db-connection.js";
 import { initializeTools } from "../../../tools/registry.js";
-import { getLogger } from "../../../util/logger.js";
-import { getMemoryWorkerPidPath } from "../../../util/platform.js";
 import { registerMemoryPluginJobHandlers } from "./job-handler-registration.js";
-import { startInProcessMemoryJobsWorker } from "./jobs-worker.js";
+import { startMemoryJobsWorkerLoop } from "./jobs-worker.js";
+import { getLogger } from "./logging.js";
+import { getMemoryWorkerPidPath } from "./paths.js";
 
 const log = getLogger("memory-worker-process");
 
@@ -45,6 +47,16 @@ async function main(): Promise<void> {
   writeFileSync(pidPath, String(process.pid), { flag: "w" });
   log.info({ pid: process.pid, pidPath }, "Memory worker process started");
 
+  // Rehydrate the platform base URL and IDs from the credential store before
+  // any job runs. The daemon does this in initializeProvidersAndTools(); this
+  // standalone process must do it itself so getPlatformBaseUrl() resolves to
+  // the persisted platform environment instead of the VELLUM_ENVIRONMENT
+  // default. Retrospective and consolidation passes wake real agent
+  // conversations whose inference and background-wake requests go through the
+  // platform proxy — without rehydration those requests hit the wrong platform
+  // and are rejected.
+  await rehydratePlatformCredentials();
+
   // This process does not run plugin bootstrap, so self-register the job
   // handlers the worker dispatches from before starting it — the memory
   // plugin's own plus the host's non-plugin domain handlers.
@@ -67,7 +79,7 @@ async function main(): Promise<void> {
     );
   }
 
-  const worker = startInProcessMemoryJobsWorker();
+  const worker = startMemoryJobsWorkerLoop();
 
   // Keep-alive: the worker's setTimeout timers are unref'd, so without
   // this interval the process would exit immediately.
@@ -83,6 +95,11 @@ async function main(): Promise<void> {
 
   process.on("SIGTERM", () => shutdown("SIGTERM"));
   process.on("SIGINT", () => shutdown("SIGINT"));
+
+  process.on("SIGUSR1", () => {
+    log.info("Received SIGUSR1 — refreshing database connections");
+    resetDb();
+  });
 
   // Catch stray exceptions that escape the worker loop so they produce a
   // clean pino-formatted log entry (and PID-file cleanup) instead of a raw

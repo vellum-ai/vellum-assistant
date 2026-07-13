@@ -10,6 +10,7 @@ import {
   activationStepIndex,
   type ActivationStepName,
 } from "../telemetry/activation-funnel.js";
+import { getTelemetryMainDb } from "../telemetry/telemetry-main-db.js";
 
 export interface OnboardingEvent {
   id: string;
@@ -58,7 +59,9 @@ function insertOnboardingEvent(event: OnboardingEvent): OnboardingEvent {
 export function recordOnboardingEvent(
   params: RecordOnboardingEventParams,
 ): OnboardingEvent | null {
-  if (!getCachedShareAnalytics()) return null;
+  if (!getCachedShareAnalytics()) {
+    return null;
+  }
   return insertOnboardingEvent({
     id: uuid(),
     createdAt: Date.now(),
@@ -93,7 +96,9 @@ export function recordActivationEvent(params: {
   userId?: string | null;
   abVariant?: string;
 }): OnboardingEvent | null {
-  if (!getCachedShareAnalytics()) return null;
+  if (!getCachedShareAnalytics()) {
+    return null;
+  }
   const createdAt = Date.now();
   return insertOnboardingEvent({
     id: uuid(),
@@ -123,7 +128,7 @@ export function queryUnreportedOnboardingEvents(
   afterId: string | undefined,
   limit: number,
 ): OnboardingEvent[] {
-  const db = getDb();
+  const db = getTelemetryMainDb();
   const rows = db
     .select({
       id: onboardingEvents.id,

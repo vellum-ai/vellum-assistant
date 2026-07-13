@@ -13,20 +13,34 @@
  * @see {@link @/utils/sandbox-bridge} for the in-iframe bridge that sends these messages
  */
 
-import { type RefObject, useEffect } from "react";
+import { type RefObject, useEffect, useRef } from "react";
 
 import { client } from "@/generated/api/client.gen";
+import { subscribe as busSubscribe } from "@/lib/event-bus";
 import { FETCH_PROXY_PATH_RE } from "@/utils/sandbox-bridge";
+import { forwardableSyncTags } from "@/utils/sandbox-sync-filter";
 
 export interface SandboxFetchProxyOptions {
   /** Unique identifier matching the bridge's `frameId`. */
   frameId: string;
   /** Assistant ID for constructing proxy URLs. */
   assistantId: string;
+  /**
+   * The app whose bundled assets `window.vellum.asset()` may read. Scopes
+   * asset requests to this app so a sandboxed frame can only reach its own
+   * files. Omit for non-app sandboxes — asset requests then fail gracefully.
+   */
+  appId?: string;
   /** Whether the fetch proxy is active. Surface actions are always forwarded regardless. Default: true. */
   enabled?: boolean;
   /** Handler for surface action messages from the sandboxed app. */
   onAction?: (actionId: string, data?: Record<string, unknown>) => void;
+  /**
+   * Handler for `vellum://` file link clicks forwarded from the sandboxed app.
+   * Always invoked regardless of the `enabled` flag (like surface actions),
+   * since the parent — not the sandbox — must resolve and download the file.
+   */
+  onOpenVellumLink?: (href: string, linkText: string) => void;
 }
 
 /**
@@ -41,20 +55,129 @@ export function useSandboxFetchProxy(
   iframeRef: RefObject<HTMLIFrameElement | null>,
   options: SandboxFetchProxyOptions,
 ): void {
-  const { frameId, assistantId, enabled = true, onAction } = options;
+  const {
+    frameId,
+    assistantId,
+    appId,
+    enabled = true,
+    onAction,
+    onOpenVellumLink,
+  } = options;
+
+  // subId → the sync tags the sandboxed app asked to hear about. Held in a ref,
+  // not effect-local state, so it survives effect restarts: a dependency change
+  // (e.g. assistantId resolving, or a new callback identity) re-runs the effect
+  // while the iframe stays mounted and never re-sends vellum_subscribe — a local
+  // map would be wiped and later matching events silently dropped. The ref is
+  // discarded with the component on unmount.
+  const subscriptionsRef = useRef<Map<string, Set<string>>>(new Map());
 
   useEffect(() => {
+    const subscriptions = subscriptionsRef.current;
+
     const handler = async (event: MessageEvent) => {
       const msg = event.data;
-      if (!msg || msg.frameId !== frameId) return;
-      if (event.source !== iframeRef.current?.contentWindow) return;
+      if (!msg || msg.frameId !== frameId) {return;}
+      if (event.source !== iframeRef.current?.contentWindow) {return;}
+
+      if (msg.type === "vellum_subscribe") {
+        if (!enabled) {return;}
+        const { subId, tags } = msg as { subId: string; tags: unknown };
+        if (typeof subId === "string" && Array.isArray(tags)) {
+          subscriptions.set(
+            subId,
+            new Set(tags.filter((t): t is string => typeof t === "string")),
+          );
+        }
+        return;
+      }
+
+      if (msg.type === "vellum_unsubscribe") {
+        const { subId } = msg as { subId: string };
+        if (typeof subId === "string") {
+          subscriptions.delete(subId);
+        }
+        return;
+      }
 
       if (msg.type === "vellum_surface_action") {
         onAction?.(msg.actionId, msg.data);
         return;
       }
 
-      if (!enabled || msg.type !== "vellum_fetch_request") return;
+      if (msg.type === "vellum_open_link") {
+        // Guard against untrusted iframe abuse: the sandboxed component
+        // can read its embedded frameId and send vellum_open_link without
+        // a user click. Only honor the message when there is an active
+        // user activation (transient — typically ~5s after a user
+        // gesture), so programmatic spam on load or in a loop can't
+        // trigger unsolicited downloads.
+        if (!navigator.userActivation?.isActive) {return;}
+        onOpenVellumLink?.(msg.href, msg.linkText);
+        return;
+      }
+
+      if (msg.type === "vellum_asset_request") {
+        const { callId, path } = msg as { callId: string; path: string };
+        const iframe = iframeRef.current;
+        const sendAsset = (
+          response: Record<string, unknown>,
+          transfer?: Transferable[],
+        ) => {
+          iframe?.contentWindow?.postMessage(response, "*", transfer ?? []);
+        };
+        if (!enabled) {
+          sendAsset({ type: "vellum_asset_response", callId, error: "Asset proxy disabled" });
+          return;
+        }
+        if (!appId) {
+          sendAsset({ type: "vellum_asset_response", callId, error: "No app context for assets" });
+          return;
+        }
+        if (typeof path !== "string" || path === "" || path.includes("..")) {
+          sendAsset({ type: "vellum_asset_response", callId, error: "Invalid asset path" });
+          return;
+        }
+        try {
+          const encodedPath = path
+            .split("/")
+            .map(encodeURIComponent)
+            .join("/");
+          const url = `/v1/assistants/${assistantId}/apps/${appId}/asset/${encodedPath}`;
+          const { data: blob, response } = await client.get({
+            url,
+            parseAs: "blob",
+            throwOnError: false,
+          });
+          if (!response?.ok || !(blob instanceof Blob)) {
+            sendAsset({
+              type: "vellum_asset_response",
+              callId,
+              error: `Asset fetch failed (${response?.status ?? 0})`,
+            });
+            return;
+          }
+          const buffer = await blob.arrayBuffer();
+          sendAsset(
+            {
+              type: "vellum_asset_response",
+              callId,
+              buffer,
+              contentType: blob.type || "application/octet-stream",
+            },
+            [buffer],
+          );
+        } catch (err) {
+          sendAsset({
+            type: "vellum_asset_response",
+            callId,
+            error: err instanceof Error ? err.message : "Asset proxy error",
+          });
+        }
+        return;
+      }
+
+      if (!enabled || msg.type !== "vellum_fetch_request") {return;}
 
       const { callId, path, method, headers, body } = msg as {
         callId: string;
@@ -144,6 +267,59 @@ export function useSandboxFetchProxy(
     };
 
     window.addEventListener("message", handler);
-    return () => window.removeEventListener("message", handler);
-  }, [frameId, assistantId, enabled, onAction, iframeRef]);
+
+    // Forward host `sync_changed` invalidations to any sandbox subscription
+    // whose tags match, scoped by `forwardableSyncTags` (reserved host
+    // namespaces are never delivered). Only `sync_changed` is forwarded — no
+    // event carrying a payload crosses into the sandbox.
+    const busUnsubscribe = busSubscribe("sse.event", (envelope) => {
+      const message = envelope.message as
+        | { type?: string; tags?: unknown }
+        | undefined;
+      if (
+        !message ||
+        message.type !== "sync_changed" ||
+        !Array.isArray(message.tags)
+      ) {
+        return;
+      }
+      const contentWindow = iframeRef.current?.contentWindow;
+      if (!contentWindow || subscriptions.size === 0) {
+        return;
+      }
+      const eventTags = message.tags.filter(
+        (t): t is string => typeof t === "string",
+      );
+      for (const [subId, wanted] of subscriptions) {
+        const tags = forwardableSyncTags([...wanted], eventTags);
+        if (tags.length > 0) {
+          contentWindow.postMessage(
+            {
+              type: "vellum_event",
+              frameId,
+              subId,
+              event: { type: "sync_changed", tags },
+            },
+            "*",
+          );
+        }
+      }
+    });
+
+    return () => {
+      window.removeEventListener("message", handler);
+      busUnsubscribe();
+      // Deliberately not clearing `subscriptions`: it must survive effect
+      // re-runs so subscriptions registered before a dependency change keep
+      // receiving events. It is discarded with the component on unmount.
+    };
+  }, [
+    frameId,
+    assistantId,
+    appId,
+    enabled,
+    onAction,
+    onOpenVellumLink,
+    iframeRef,
+  ]);
 }

@@ -17,6 +17,7 @@ import type {
   ScopeOption,
 } from "@/types/interaction-ui-types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
+import { isInteractiveTarget } from "@/utils/interactive-target";
 
 export interface OpenRuleEditorContext {
   toolName: string;
@@ -83,6 +84,16 @@ export interface TranscriptMessageBodyProps {
    * of the turn. Collapses back to the compact default once the turn ends.
    */
   isStreaming?: boolean;
+  /**
+   * True only for the last message of the latest turn — the one that sits
+   * directly above the parked assistant avatar (trailing non-message rows
+   * like the thinking slot don't count). Collapses the hover-actions
+   * row to zero height so the avatar hugs the message, then animates it open
+   * on hover/focus/tap-reveal (the avatar slides down to make room). History
+   * rows leave it `false` and keep the always-reserved row height so hovering
+   * mid-transcript never shifts layout.
+   */
+  isLatestMessage?: boolean;
 }
 
 /**
@@ -463,9 +474,7 @@ function getSlackSenderLabel(
 }
 
 export function isInteractiveClickTarget(target: Element | null): boolean {
-  return Boolean(
-    target?.closest('a, button, [role="button"], input, textarea, select'),
-  );
+  return isInteractiveTarget(target);
 }
 
 export function SlackMessageAttribution({

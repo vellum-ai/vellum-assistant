@@ -1,13 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-  truncateForLog: (value: string) => value,
-}));
-
 // Mock the shared `runBackgroundJob` runner so the scheduler's fresh-bootstrap
 // talk-mode path stays observable in unit tests. Each invocation creates a new
 // conversation row (so `getLastScheduleConversationId` lookups reflect reality)
@@ -80,38 +72,37 @@ mock.module("../runtime/background-job-runner.js", () => ({
 
 // The scheduler's reuse path dispatches into the existing conversation through
 // `processMessage`; capture those calls into the same shared log as the
-// fresh-bootstrap runner so assertions don't need to know which path ran.
+// fresh-bootstrap runner so assertions don't need to know which path ran. The
+// real `processMessage` resolves to `{ messageId, turnFailure? }`, so the mock
+// mirrors that shape — the scheduler destructures `turnFailure` off it.
+type ProcessMessageResult = {
+  messageId: string;
+  turnFailure?: { failureCode?: string };
+};
 const captureProcessedMessage = async (
   conversationId: string,
   message: string,
-): Promise<void> => {
+): Promise<ProcessMessageResult> => {
   processedMessages.push({ conversationId, message });
+  return { messageId: "test-message-id" };
 };
 let processMessageImpl: (
   conversationId: string,
   message: string,
-) => Promise<void> = captureProcessedMessage;
+) => Promise<ProcessMessageResult> = captureProcessedMessage;
 mock.module("../daemon/process-message.js", () => ({
   processMessage: (conversationId: string, message: string) =>
     processMessageImpl(conversationId, message),
 }));
 
-import { loadRawConfig, saveRawConfig } from "../config/loader.js";
 import { deleteConversation } from "../persistence/conversation-crud.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { createSchedule, getScheduleRuns } from "../schedule/schedule-store.js";
-import { runScheduleDueWorkOnce } from "../schedule/scheduler.js";
+import { runDueSchedulesOnce } from "../schedule/scheduler.js";
 
 await initializeDb();
-
-// The schedule worker is on by default, which stands the daemon's in-process
-// scheduler down. These tests exercise that in-process execution path directly,
-// so pin the worker flag off for this test process.
-const rawConfig = loadRawConfig();
-rawConfig.schedules = { worker: { enabled: false } };
-saveRawConfig(rawConfig);
 
 /** Access the underlying bun:sqlite Database for raw parameterized queries. */
 function getRawDb(): import("bun:sqlite").Database {
@@ -174,7 +165,7 @@ describe("scheduler conversation reuse", () => {
     // WHEN the schedule fires for the first time
     forceScheduleDue(schedule.id);
 
-    await runScheduleDueWorkOnce();
+    await runDueSchedulesOnce();
 
     // THEN a conversation is created and recorded
     expect(processedMessages).toHaveLength(1);
@@ -191,7 +182,7 @@ describe("scheduler conversation reuse", () => {
     forceScheduleDue(schedule.id);
     processedMessages.length = 0;
 
-    await runScheduleDueWorkOnce();
+    await runDueSchedulesOnce();
 
     // THEN the same conversation is reused
     expect(processedMessages).toHaveLength(1);
@@ -226,7 +217,7 @@ describe("scheduler conversation reuse", () => {
     // WHEN the schedule fires for the first time
     forceScheduleDue(schedule.id);
 
-    await runScheduleDueWorkOnce();
+    await runDueSchedulesOnce();
 
     expect(processedMessages).toHaveLength(1);
     const firstConversationId = processedMessages[0].conversationId;
@@ -236,7 +227,7 @@ describe("scheduler conversation reuse", () => {
     forceScheduleDue(schedule.id);
     processedMessages.length = 0;
 
-    await runScheduleDueWorkOnce();
+    await runDueSchedulesOnce();
 
     // THEN a fresh conversation is created instead of reusing the first
     expect(processedMessages).toHaveLength(1);
@@ -262,7 +253,7 @@ describe("scheduler conversation reuse", () => {
     // WHEN the schedule fires for the first time
     forceScheduleDue(schedule.id);
 
-    await runScheduleDueWorkOnce();
+    await runDueSchedulesOnce();
 
     expect(processedMessages).toHaveLength(1);
     const firstConversationId = processedMessages[0].conversationId;
@@ -271,7 +262,7 @@ describe("scheduler conversation reuse", () => {
     forceScheduleDue(schedule.id);
     processedMessages.length = 0;
 
-    await runScheduleDueWorkOnce();
+    await runDueSchedulesOnce();
 
     // THEN a different conversation is created
     expect(processedMessages).toHaveLength(1);
@@ -297,7 +288,7 @@ describe("scheduler conversation reuse", () => {
 
     forceScheduleDue(schedule.id);
 
-    await runScheduleDueWorkOnce();
+    await runDueSchedulesOnce();
 
     expect(processedMessages).toHaveLength(1);
     const firstConversationId = processedMessages[0].conversationId;
@@ -309,7 +300,7 @@ describe("scheduler conversation reuse", () => {
     forceScheduleDue(schedule.id);
     processedMessages.length = 0;
 
-    await runScheduleDueWorkOnce();
+    await runDueSchedulesOnce();
 
     // THEN a new conversation is created (not the deleted one)
     expect(processedMessages).toHaveLength(1);
@@ -333,7 +324,7 @@ describe("scheduler conversation reuse", () => {
     });
 
     // WHEN the schedule fires
-    await runScheduleDueWorkOnce();
+    await runDueSchedulesOnce();
 
     // THEN the message is processed with a new conversation
     expect(processedMessages).toHaveLength(1);
@@ -369,9 +360,10 @@ describe("scheduler conversation reuse", () => {
     processMessageImpl = async (conversationId, message) => {
       processedMessages.push({ conversationId, message });
       if (shouldFail) throw new Error("Simulated failure");
+      return { messageId: "test-message-id" };
     };
 
-    await runScheduleDueWorkOnce();
+    await runDueSchedulesOnce();
 
     expect(processedMessages).toHaveLength(1);
     const successConversationId = processedMessages[0].conversationId;
@@ -381,7 +373,7 @@ describe("scheduler conversation reuse", () => {
     processedMessages.length = 0;
     shouldFail = true;
 
-    await runScheduleDueWorkOnce();
+    await runDueSchedulesOnce();
 
     // The failed run created a different conversation (since it failed
     // before the run could reuse — actually it does reuse the same one
@@ -393,12 +385,58 @@ describe("scheduler conversation reuse", () => {
     processedMessages.length = 0;
     shouldFail = false;
 
-    await runScheduleDueWorkOnce();
+    await runDueSchedulesOnce();
 
     // THEN the third run reuses the conversation from the first successful run
     // (the lookup queries for status="ok", so it picks the first run's conversation)
     expect(processedMessages).toHaveLength(1);
     expect(processedMessages[0].conversationId).toBe(successConversationId);
+  });
+
+  test("reuse path records an error when the turn fails without throwing", async () => {
+    /**
+     * Regression: an execute-mode LLM call that fails (e.g. an invalid
+     * provider) ends the turn without throwing — `processMessage` resolves
+     * normally and reports the failure via `turnFailure`. The scheduler must
+     * record the run as an error, not "ok".
+     */
+
+    // GIVEN a recurring reuse schedule whose first run succeeds
+    const rruleExpr = buildEveryMinuteRrule();
+    const schedule = await createSchedule({
+      name: "Turn Failure Reuse",
+      cronExpression: rruleExpr,
+      message: "Do the thing",
+      syntax: "rrule",
+      expression: rruleExpr,
+      reuseConversation: true,
+    });
+
+    forceScheduleDue(schedule.id);
+    await runDueSchedulesOnce();
+
+    const runs1 = getScheduleRuns(schedule.id);
+    expect(runs1[0].status).toBe("ok");
+
+    // WHEN the next run's turn fails at the LLM call (reported via turnFailure,
+    // no exception thrown)
+    forceScheduleDue(schedule.id);
+    processedMessages.length = 0;
+    processMessageImpl = async (conversationId, message) => {
+      processedMessages.push({ conversationId, message });
+      return {
+        messageId: "test-message-id",
+        turnFailure: { failureCode: "provider_error" },
+      };
+    };
+
+    await runDueSchedulesOnce();
+
+    // THEN the run is recorded as an error (not "ok") and carries the code
+    const runs2 = getScheduleRuns(schedule.id);
+    expect(runs2.length).toBe(2);
+    expect(runs2[0].status).toBe("error");
+    expect(runs2[0].error).toContain("provider_error");
   });
 });
 
@@ -428,7 +466,7 @@ describe("scheduler talk-mode runner option propagation", () => {
     });
     forceScheduleDue(schedule.id);
 
-    await runScheduleDueWorkOnce();
+    await runDueSchedulesOnce();
 
     expect(runBackgroundJobOptions).toHaveLength(1);
     const opts = runBackgroundJobOptions[0]!;
@@ -450,7 +488,7 @@ describe("scheduler talk-mode runner option propagation", () => {
     });
     forceScheduleDue(schedule.id);
 
-    await runScheduleDueWorkOnce();
+    await runDueSchedulesOnce();
 
     expect(runBackgroundJobOptions).toHaveLength(1);
     expect(runBackgroundJobOptions[0]!.suppressFailureNotifications).toBe(
@@ -476,7 +514,7 @@ describe("scheduler talk-mode runner option propagation", () => {
     forceScheduleDue(schedule.id);
     runBackgroundJobBootstrapFails = true;
 
-    await runScheduleDueWorkOnce();
+    await runDueSchedulesOnce();
 
     const runs = getScheduleRuns(schedule.id);
     expect(runs.length).toBe(1);
@@ -515,7 +553,7 @@ describe("scheduler talk-mode runner option propagation", () => {
         }
       },
     });
-    await runScheduleDueWorkOnce();
+    await runDueSchedulesOnce();
     subscription.dispose();
 
     expect(sseCalls).toHaveLength(1);

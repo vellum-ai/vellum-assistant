@@ -52,10 +52,6 @@ import {
   getWorkspaceDir,
 } from "../util/platform.js";
 import { APP_VERSION } from "../version.js";
-import {
-  listWorkItems,
-  updateWorkItem,
-} from "../work-items/work-item-store.js";
 import { getWorkflowRunManager } from "../workflows/run-manager.js";
 import { repairAdaptiveThinkingOnManagedProfiles } from "../workspace/adaptive-thinking-repair.js";
 import { ensureCompleteCustomProfiles } from "../workspace/custom-profile-ensure.js";
@@ -392,26 +388,6 @@ export async function runDaemon(): Promise<void> {
       log.warn(
         { err },
         "Startup guardian-request expiry failed — continuing in degraded mode",
-      );
-    }
-
-    // Recover orphaned work items that were left in 'running' state when the
-    // daemon previously crashed or was killed mid-task.
-    const orphanedRunning = listWorkItems({ status: "running" });
-    if (orphanedRunning.length > 0) {
-      for (const item of orphanedRunning) {
-        updateWorkItem(item.id, {
-          status: "failed",
-          lastRunStatus: "interrupted",
-        });
-        log.info(
-          { workItemId: item.id, title: item.title },
-          "Recovered orphaned running work item → failed (interrupted)",
-        );
-      }
-      log.info(
-        { count: orphanedRunning.length },
-        "Recovered orphaned running work items",
       );
     }
 

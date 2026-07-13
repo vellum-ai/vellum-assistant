@@ -1,3 +1,4 @@
+import { parseMessageMetadata } from "@vellumai/plugin-api";
 import { and, asc, eq, gt, or } from "drizzle-orm";
 
 import type { AssistantConfig } from "../../../../config/types.js";
@@ -6,7 +7,6 @@ import {
   resetMessageCursorCheckpoint,
   writeMessageCursorCheckpoint,
 } from "../../../../persistence/checkpoints.js";
-import { parseMessageMetadata } from "../../../../persistence/conversation-crud.js";
 import { getDb } from "../../../../persistence/db-connection.js";
 import {
   enqueueMemoryJob,
@@ -39,11 +39,14 @@ export async function backfillJob(
     .select()
     .from(messages)
     .where(
-      or(
-        gt(messages.createdAt, cursor.createdAt),
-        and(
-          eq(messages.createdAt, cursor.createdAt),
-          gt(messages.id, cursor.messageId),
+      and(
+        eq(messages.finalized, 1),
+        or(
+          gt(messages.createdAt, cursor.createdAt),
+          and(
+            eq(messages.createdAt, cursor.createdAt),
+            gt(messages.id, cursor.messageId),
+          ),
         ),
       ),
     )
@@ -53,7 +56,7 @@ export async function backfillJob(
 
   if (batch.length > 0) {
     for (const message of batch) {
-      const meta = parseMessageMetadata(message.metadata ?? null);
+      const meta = await parseMessageMetadata(message.metadata ?? null);
       await indexMessageNow(
         {
           messageId: message.id,
@@ -61,7 +64,6 @@ export async function backfillJob(
           role: message.role,
           content: message.content,
           createdAt: message.createdAt,
-          scopeId: "default",
           provenanceTrustClass: meta?.provenanceTrustClass,
           automated: meta?.automated,
         },

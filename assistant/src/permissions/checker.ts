@@ -16,7 +16,7 @@ import {
   looksLikeHostPortShorthand,
   looksLikePathOnlyInput,
 } from "../tools/network/url-safety.js";
-import { getTool, getToolOwner } from "../tools/registry.js";
+import { getTool, getToolOwner, resolveTool } from "../tools/registry.js";
 import { resolveRealPath } from "../tools/shared/filesystem/path-policy.js";
 import type { Tool } from "../tools/types.js";
 import {
@@ -862,7 +862,7 @@ export async function check(
   const hasSandboxAutoApprove = classification.sandboxAutoApprove ?? false;
 
   // Build approval context from local variables
-  const tool = getTool(toolName);
+  const tool = await resolveTool(toolName);
   const cellQuery = buildChannelPermissionCellQuery(policyContext);
   const threshold = await getAutoApproveThreshold(
     policyContext?.conversationId,

@@ -11,15 +11,6 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-// Silence logging.
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-  truncateForLog: (value: string) => value,
-}));
-
 // Capture requester channel deliveries; optionally fail to exercise the
 // best-effort path.
 const deliveredReplies: Array<{

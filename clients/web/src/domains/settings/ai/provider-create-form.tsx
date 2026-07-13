@@ -43,21 +43,14 @@ import { useProviderCredentialsList } from "@/domains/settings/ai/use-provider-c
 // same create UX, validation strings, and submit sequence
 // (`secretsPost` → `inferenceProviderconnectionsPost`).
 //
-// Edit / managed-edit live in `ProviderEditorContent` and are intentionally
-// NOT handled here — this component is create-only.
+// Edit lives in `ProviderEditorContent` and is intentionally NOT handled
+// here — this component is create-only.
 
 export interface ProviderCreateFormProps {
   assistantId: string;
   existingNames: string[];
-  /** Pre-selected provider type (e.g. when cloning a managed connection). */
+  /** Pre-selected provider type. */
   defaultProviderType?: ConnectionProvider;
-  /**
-   * Pre-selected auth type. When omitted, managed-capable providers default
-   * to `platform` (and ollama to `none`). The Save-as-New clone flow passes
-   * `api_key` here so cloning a managed connection seeds the "bring your own
-   * credential" path rather than another managed-proxy connection.
-   */
-  defaultAuthType?: AuthType;
   onCreated: (connection: ProviderConnection) => void;
   onCancel: () => void;
   /** "modal" wraps the form in Modal chrome; "inline" drops it for embedding. */
@@ -68,7 +61,6 @@ export function ProviderCreateForm({
   assistantId,
   existingNames,
   defaultProviderType,
-  defaultAuthType,
   onCreated,
   onCancel,
   variant = "modal",
@@ -90,14 +82,12 @@ export function ProviderCreateForm({
   const [label, setLabel] = useState(initialDefaults.name);
   const [name, setName] = useState(initialDefaults.key);
   const [provider, setProvider] = useState<ConnectionProvider>(initialProvider);
-  const [authType, setAuthType] = useState<AuthType>(
-    () =>
-      defaultAuthType ??
-      (initialProvider === "ollama"
-        ? "none"
-        : providerSupportsPlatformAuth(initialProvider)
-          ? "platform"
-          : "api_key"),
+  const [authType, setAuthType] = useState<AuthType>(() =>
+    initialProvider === "ollama"
+      ? "none"
+      : providerSupportsPlatformAuth(initialProvider)
+        ? "platform"
+        : "api_key",
   );
   const [credential, setCredential] = useState(() =>
     initialProvider === "ollama" ? "" : `credential/${initialProvider}/api_key`,
@@ -309,9 +299,6 @@ export function ProviderCreateForm({
           className={`h-4 w-4 transition-transform ${detailsOpen ? "rotate-90" : ""}`}
         />
         <span>Advanced</span>
-        <span className="text-[var(--content-tertiary)] ml-1">
-          · Display name &amp; key
-        </span>
       </button>
 
       {detailsOpen && (
@@ -496,7 +483,6 @@ export function ProviderCreateForm({
           onApiKeyChange={setApiKeyValue}
           credential={credential}
           onCredentialChange={setCredential}
-          isAuthLocked={false}
           isLoadingCredential={isLoadingCredential}
           apiKeyPlaceholder={apiKeyPlaceholder}
           provider={provider}

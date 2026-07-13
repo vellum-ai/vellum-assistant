@@ -1,6 +1,7 @@
 import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { setOverridesForTesting } from "../../__tests__/feature-flag-test-helpers.js";
+import { setConfig } from "../../__tests__/helpers/set-config.js";
 
 // Legacy-shaped fixtures (llm.default-centric resolution): pinned to the
 // flag-off cascade. Override-or-default (flag-on) semantics are pinned by
@@ -11,25 +12,10 @@ beforeAll(() => {
 
 // ── Module mocks ────────────────────────────────────────────────────────────
 //
-// Stub the logger so retry diagnostics don't pollute test output.
-mock.module("../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
-}));
-
 // Mutable test fixtures for `getConfig()`. Each test rebuilds the relevant
 // pieces via `setLlmConfig(...)` before exercising the path. The mock is
 // registered once and reads from these closures so subsequent tests don't
 // need to remock the module.
-let mockLlmConfig: Record<string, unknown> = {};
-
-mock.module("../../config/loader.js", () => ({
-  getConfig: () => ({
-    llm: mockLlmConfig,
-    services: { inference: { mode: "your-own" } },
-  }),
-}));
-
 // Provider registry mock. Tests populate `mockProviders` via `beforeEach` /
 // per-test `set` so `getProvider(name)` can return the right stub.
 const mockProviders = new Map<string, { name: string }>();
@@ -48,7 +34,6 @@ mock.module("../registry.js", () => ({
 
 // ── Imports (after mocks) ───────────────────────────────────────────────────
 
-import { LLMSchema } from "../../config/schemas/llm.js";
 import { RetryProvider } from "../retry.js";
 import type {
   Message,
@@ -96,13 +81,13 @@ function makeProvider(
 }
 
 function setLlmConfig(raw: unknown): void {
-  // Parse through the schema so defaults cascade through every nesting level,
-  // matching what `getConfig().llm` would produce in production.
-  mockLlmConfig = LLMSchema.parse(raw) as Record<string, unknown>;
+  // Seed the raw fixture; the real loader schema-merges it over defaults, the
+  // same cascade `getConfig().llm` produces in production.
+  setConfig("llm", raw);
 }
 
 beforeEach(() => {
-  mockLlmConfig = LLMSchema.parse({}) as Record<string, unknown>;
+  setConfig("llm", {});
   mockProviders.clear();
 });
 

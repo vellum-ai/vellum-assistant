@@ -970,6 +970,17 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     ).toBeUndefined();
   });
 
+  test("promptCacheKey is not forwarded to the Anthropic API", async () => {
+    // Reaches this client on OpenRouter's anthropic/* delegation path;
+    // Anthropic rejects unknown fields with "Extra inputs are not permitted".
+    await provider.sendMessage([userMsg("Hi")], {
+      config: { promptCacheKey: "conv-1" },
+    });
+    expect(
+      (lastStreamParams as Record<string, unknown>).promptCacheKey,
+    ).toBeUndefined();
+  });
+
   // -----------------------------------------------------------------------
   // Negative: assistant messages never get cache_control
   // -----------------------------------------------------------------------

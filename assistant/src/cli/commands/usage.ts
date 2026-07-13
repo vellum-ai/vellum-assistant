@@ -1,20 +1,21 @@
 import type { Command } from "commander";
 
 import { cliIpcCall, exitFromIpcResult } from "../../ipc/cli-client.js";
+import { applyCommandHelp, subcommand } from "../lib/cli-command-help.js";
+import { formatCostUsd } from "../lib/cli-output.js";
 import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
+import { usageHelp } from "./usage.help.js";
 
 // ── Formatting helpers ───────────────────────────────────────────
 
-function formatCost(usd: number): string {
-  if (usd === 0) return "$0.00";
-  if (usd < 0.01) return `$${usd.toFixed(6)}`;
-  return `$${usd.toFixed(2)}`;
-}
-
 function formatTokens(count: number): string {
-  if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1)}M`;
-  if (count >= 1_000) return `${(count / 1_000).toFixed(1)}k`;
+  if (count >= 1_000_000) {
+    return `${(count / 1_000_000).toFixed(1)}M`;
+  }
+  if (count >= 1_000) {
+    return `${(count / 1_000).toFixed(1)}k`;
+  }
   return String(count);
 }
 
@@ -84,7 +85,9 @@ function printTotalsTable(totals: UsageTotals): void {
   log.info("");
   log.info("  Usage Totals");
   log.info("  ────────────────────────────────────");
-  log.info(`  Estimated Cost     ${formatCost(totals.totalEstimatedCostUsd)}`);
+  log.info(
+    `  Estimated Cost     ${formatCostUsd(totals.totalEstimatedCostUsd)}`,
+  );
   log.info(`  LLM Calls          ${totals.eventCount}`);
   log.info(`  Input Tokens       ${formatTokens(totals.totalInputTokens)}`);
   log.info(`  Output Tokens      ${formatTokens(totals.totalOutputTokens)}`);
@@ -115,7 +118,7 @@ function printDailyTable(buckets: UsageDayBucket[]): void {
   );
   const costW = Math.max(
     "COST".length,
-    ...buckets.map((b) => formatCost(b.totalEstimatedCostUsd).length),
+    ...buckets.map((b) => formatCostUsd(b.totalEstimatedCostUsd).length),
   );
   const callsW = Math.max(
     "CALLS".length,
@@ -132,7 +135,7 @@ function printDailyTable(buckets: UsageDayBucket[]): void {
 
   for (const b of buckets) {
     log.info(
-      `  ${pad(b.date, dateW)}  ${pad(formatTokens(b.totalInputTokens), inputW, "right")}  ${pad(formatTokens(b.totalOutputTokens), outputW, "right")}  ${pad(formatCost(b.totalEstimatedCostUsd), costW, "right")}  ${pad(String(b.eventCount), callsW, "right")}`,
+      `  ${pad(b.date, dateW)}  ${pad(formatTokens(b.totalInputTokens), inputW, "right")}  ${pad(formatTokens(b.totalOutputTokens), outputW, "right")}  ${pad(formatCostUsd(b.totalEstimatedCostUsd), costW, "right")}  ${pad(String(b.eventCount), callsW, "right")}`,
     );
   }
   log.info("");
@@ -167,7 +170,7 @@ function printBreakdownTable(
   );
   const costW = Math.max(
     "COST".length,
-    ...entries.map((e) => formatCost(e.totalEstimatedCostUsd).length),
+    ...entries.map((e) => formatCostUsd(e.totalEstimatedCostUsd).length),
   );
   const callsW = Math.max(
     "CALLS".length,
@@ -184,7 +187,7 @@ function printBreakdownTable(
 
   for (const e of entries) {
     log.info(
-      `  ${pad(e.group, groupW)}  ${pad(formatTokens(e.totalInputTokens), inputW, "right")}  ${pad(formatTokens(e.totalOutputTokens), outputW, "right")}  ${pad(formatCost(e.totalEstimatedCostUsd), costW, "right")}  ${pad(String(e.eventCount), callsW, "right")}`,
+      `  ${pad(e.group, groupW)}  ${pad(formatTokens(e.totalInputTokens), inputW, "right")}  ${pad(formatTokens(e.totalOutputTokens), outputW, "right")}  ${pad(formatCostUsd(e.totalEstimatedCostUsd), costW, "right")}  ${pad(String(e.eventCount), callsW, "right")}`,
     );
   }
   log.info("");
@@ -203,202 +206,118 @@ const VALID_GROUP_BY_DIMENSIONS = [
 
 export function registerUsageCommand(program: Command): void {
   registerCommand(program, {
-    name: "usage",
+    name: usageHelp.name,
     transport: "ipc",
-    description: "Query LLM token usage and cost data",
+    description: usageHelp.description,
     build: (usage) => {
-      usage.addHelpText(
-        "after",
-        `
-Queries LLM usage event data via the daemon to display token consumption
-and cost data. Requires the assistant to be running.
+      applyCommandHelp(usage, usageHelp);
 
-Time range can be specified with --range presets (today, week, month, all)
-or explicit --from / --to epoch-millisecond timestamps.
-
-Examples:
-  $ assistant usage totals
-  $ assistant usage daily --range week
-  $ assistant usage breakdown --group-by provider
-  $ assistant usage totals --range all --json`,
+      subcommand(usage, "totals").action(
+        async (opts: {
+          range: string;
+          from?: string;
+          to?: string;
+          schedule?: string;
+          json?: boolean;
+        }) => {
+          const { from, to } = resolveRange(opts);
+          const response = await cliIpcCall<UsageTotals>("usage_totals", {
+            queryParams: buildUsageQueryParams(from, to, opts.schedule),
+          });
+          if (!response.ok) {
+            return exitFromIpcResult(response);
+          }
+          const totals = response.result!;
+          if (opts.json) {
+            log.info(JSON.stringify(totals, null, 2));
+          } else {
+            printTotalsTable(totals);
+          }
+        },
       );
 
-      const rangeOption = [
-        "-r, --range <preset>",
-        "Time range preset: today, week, month, all",
-        "today",
-      ] as const;
-      const fromOption = [
-        "--from <epoch_ms>",
-        "Start of range (epoch ms)",
-      ] as const;
-      const toOption = [
-        "--to <epoch_ms>",
-        "End of range (epoch ms)",
-      ] as const;
-      const jsonOption = ["--json", "Output raw JSON"] as const;
+      subcommand(usage, "daily").action(
+        async (opts: {
+          range: string;
+          from?: string;
+          to?: string;
+          schedule?: string;
+          json?: boolean;
+        }) => {
+          const { from, to } = resolveRange(opts);
+          const response = await cliIpcCall<{ buckets: UsageDayBucket[] }>(
+            "usage_daily",
+            { queryParams: buildUsageQueryParams(from, to, opts.schedule) },
+          );
+          if (!response.ok) {
+            return exitFromIpcResult(response);
+          }
+          const { buckets } = response.result!;
+          if (opts.json) {
+            log.info(JSON.stringify({ buckets }, null, 2));
+          } else {
+            printDailyTable(buckets);
+          }
+        },
+      );
 
-      usage
-        .command("totals", { isDefault: true })
-        .description("Aggregate totals for a time range")
-        .option(...rangeOption)
-        .option(...fromOption)
-        .option(...toOption)
-        .option(...jsonOption)
-        .addHelpText(
-          "after",
-          `
-Shows aggregate token counts and estimated cost across all LLM calls
-within the time range.
-
-Columns: estimated cost, LLM call count, input/output tokens, cache
-creation/read tokens, unpriced event count (if any).
-
-Examples:
-  $ assistant usage totals
-  $ assistant usage totals --range all
-  $ assistant usage totals --from 1709856000000 --to 1709942400000`,
-        )
-        .action(
-          async (opts: {
-            range: string;
-            from?: string;
-            to?: string;
-            json?: boolean;
-          }) => {
-            const { from, to } = resolveRange(opts);
-            const response = await cliIpcCall<UsageTotals>("usage_totals", {
-              queryParams: { from: String(from), to: String(to) },
-            });
-            if (!response.ok) {
-              return exitFromIpcResult(response);
-            }
-            const totals = response.result!;
-            if (opts.json) {
-              log.info(JSON.stringify(totals, null, 2));
-            } else {
-              printTotalsTable(totals);
-            }
-          },
-        );
-
-      usage
-        .command("daily")
-        .description("Per-day token and cost breakdown")
-        .option(...rangeOption)
-        .option(...fromOption)
-        .option(...toOption)
-        .option(...jsonOption)
-        .addHelpText(
-          "after",
-          `
-Shows one row per day (UTC) with input tokens, output tokens, estimated
-cost, and LLM call count.
-
-Examples:
-  $ assistant usage daily
-  $ assistant usage daily --range week
-  $ assistant usage daily --range month --json`,
-        )
-        .action(
-          async (opts: {
-            range: string;
-            from?: string;
-            to?: string;
-            json?: boolean;
-          }) => {
-            const { from, to } = resolveRange(opts);
-            const response = await cliIpcCall<{ buckets: UsageDayBucket[] }>(
-              "usage_daily",
-              { queryParams: { from: String(from), to: String(to) } },
+      subcommand(usage, "breakdown").action(
+        async (opts: {
+          range: string;
+          from?: string;
+          to?: string;
+          schedule?: string;
+          json?: boolean;
+          groupBy: string;
+        }) => {
+          const validDimensions = new Set<string>(VALID_GROUP_BY_DIMENSIONS);
+          if (!validDimensions.has(opts.groupBy)) {
+            log.error(
+              `Invalid --group-by value: '${opts.groupBy}'. Must be one of: ${VALID_GROUP_BY_DIMENSIONS.join(", ")}`,
             );
-            if (!response.ok) {
-              return exitFromIpcResult(response);
-            }
-            const { buckets } = response.result!;
-            if (opts.json) {
-              log.info(JSON.stringify({ buckets }, null, 2));
-            } else {
-              printDailyTable(buckets);
-            }
-          },
-        );
-
-      usage
-        .command("breakdown")
-        .description(
-          "Grouped breakdown by task, profile, provider, model, or conversation",
-        )
-        .option(...rangeOption)
-        .option(...fromOption)
-        .option(...toOption)
-        .option(...jsonOption)
-        .option(
-          "-g, --group-by <dimension>",
-          "Grouping dimension: call_site, inference_profile, provider, model, conversation, actor",
-          "model",
-        )
-        .addHelpText(
-          "after",
-          `
-Grouping dimensions:
-  call_site          Groups by user-facing task (Main Agent, Memory Extraction,
-                     Conversation Title, etc.)
-  inference_profile  Groups by inference profile; unset historical rows are
-                     shown as Default / Unset
-  provider           Groups by LLM provider (anthropic, openai, etc.)
-  model              Groups by model name (claude-sonnet-4-20250514, etc.)
-  conversation       Groups by conversation ID
-  actor              Legacy/internal subsystem grouping (main_agent, etc.)
-
-Shows one row per group with input/output tokens, estimated cost, and
-call count. Rows are sorted by cost descending.
-
-Examples:
-  $ assistant usage breakdown
-  $ assistant usage breakdown --group-by call_site
-  $ assistant usage breakdown --group-by inference_profile
-  $ assistant usage breakdown --group-by provider
-  $ assistant usage breakdown --group-by actor --range week`,
-        )
-        .action(
-          async (opts: {
-            range: string;
-            from?: string;
-            to?: string;
-            json?: boolean;
-            groupBy: string;
-          }) => {
-            const validDimensions = new Set<string>(VALID_GROUP_BY_DIMENSIONS);
-            if (!validDimensions.has(opts.groupBy)) {
-              log.error(
-                `Invalid --group-by value: '${opts.groupBy}'. Must be one of: ${VALID_GROUP_BY_DIMENSIONS.join(", ")}`,
-              );
-              process.exit(1);
-            }
-            const { from, to } = resolveRange(opts);
-            const response = await cliIpcCall<{
-              breakdown: UsageGroupBreakdown[];
-            }>("usage_breakdown", {
-              queryParams: {
-                from: String(from),
-                to: String(to),
-                groupBy: opts.groupBy,
-              },
-            });
-            if (!response.ok) {
-              return exitFromIpcResult(response);
-            }
-            const { breakdown } = response.result!;
-            if (opts.json) {
-              log.info(JSON.stringify({ breakdown }, null, 2));
-            } else {
-              printBreakdownTable(breakdown, opts.groupBy);
-            }
-          },
-        );
+            process.exit(1);
+          }
+          const { from, to } = resolveRange(opts);
+          const response = await cliIpcCall<{
+            breakdown: UsageGroupBreakdown[];
+          }>("usage_breakdown", {
+            queryParams: {
+              ...buildUsageQueryParams(from, to, opts.schedule),
+              groupBy: opts.groupBy,
+            },
+          });
+          if (!response.ok) {
+            return exitFromIpcResult(response);
+          }
+          const { breakdown } = response.result!;
+          if (opts.json) {
+            log.info(JSON.stringify({ breakdown }, null, 2));
+          } else {
+            printBreakdownTable(breakdown, opts.groupBy);
+          }
+        },
+      );
     },
   });
+}
+
+/**
+ * Build the shared usage query params, including scheduleId only when a
+ * schedule filter is provided.
+ */
+function buildUsageQueryParams(
+  from: number,
+  to: number,
+  schedule?: string,
+): Record<string, string> {
+  const queryParams: Record<string, string> = {
+    from: String(from),
+    to: String(to),
+  };
+  if (schedule !== undefined) {
+    queryParams.scheduleId = schedule;
+  }
+  return queryParams;
 }
 
 /** Resolve the time range from commander options. */

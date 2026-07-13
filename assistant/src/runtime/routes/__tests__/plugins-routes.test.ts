@@ -14,7 +14,7 @@
  *   - A catalog fetch failure degrades `category` to null without erroring
  *
  * GET /v1/plugins/search (catalog search):
- *   - Forwards `?q=` and `?ref=` to the `searchPlugins` lib
+ *   - Resolves the catalog for `?ref=` and filters it by `?q=`
  *   - Empty / missing `?q=` is passed through as the empty-regex
  *     ("match-all") query — the lib's documented contract
  *   - Wraps `InvalidSearchPatternError` into a 400 (BadRequestError)
@@ -76,13 +76,13 @@ import {
   sanitizePluginName,
 } from "../../../cli/lib/install-from-github.js";
 import type { InstalledPluginInfo } from "../../../cli/lib/list-installed-plugins.js";
+import { DEFAULT_PIN_HISTORY_LIMIT } from "../../../cli/lib/plugin-constants.js";
 import {
   type PluginDetails,
   PluginDetailsNotFoundError,
   type PluginDetailsOptions,
 } from "../../../cli/lib/plugin-details.js";
 import {
-  DEFAULT_PIN_HISTORY_LIMIT,
   type PluginPinHistoryEntry,
   PluginPinHistoryError,
 } from "../../../cli/lib/plugin-pin-history.js";
@@ -341,7 +341,9 @@ import { RouteResponse } from "../types.js";
 
 function findHandler(operationId: string): RouteDefinition["handler"] {
   const route = PLUGINS_ROUTES.find((r) => r.operationId === operationId);
-  if (!route) throw new Error(`Route ${operationId} not found`);
+  if (!route) {
+    throw new Error(`Route ${operationId} not found`);
+  }
   return route.handler;
 }
 
@@ -2441,7 +2443,9 @@ function makeIconPng(width = 64, height = 64): Buffer {
 function makePluginDir(name: string, icon?: Buffer): string {
   const dir = join(getWorkspacePluginsDir(), name);
   mkdirSync(dir, { recursive: true });
-  if (icon) writeFileSync(join(dir, "icon.png"), icon);
+  if (icon) {
+    writeFileSync(join(dir, "icon.png"), icon);
+  }
   return dir;
 }
 

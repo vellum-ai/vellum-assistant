@@ -61,6 +61,14 @@ export interface CatalogModel {
    * default.
    */
   maxEffort?: "high" | "xhigh" | "max";
+  /**
+   * Daemon-only: when true, the direct-OpenAI Responses transport sends
+   * explicit prompt-cache breakpoints for this model (GPT-5.6+ semantics:
+   * request-wide `prompt_cache_options: { mode: "explicit" }` plus
+   * block-level `prompt_cache_breakpoint` markers and `prompt_cache_key`).
+   * Not projected into the client catalog (see scripts/sync-llm-catalog.ts).
+   */
+  supportsPromptCacheBreakpoints?: boolean;
   /** When set, this model is only visible when the named feature flag is enabled. */
   featureFlag?: string;
 }
@@ -325,6 +333,96 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
       linkLabel: "Open OpenAI Platform",
     },
     models: [
+      // GPT-5.6 family (Sol / Terra / Luna). cacheRead is the 90% cached-read
+      // discount; cacheWrite is the 1.25x-input rate GPT-5.6+ bills for
+      // prompt tokens written to the cache (reported as `cache_write_tokens`
+      // in usage, tracked as `cacheCreationInputTokens`). Long-context
+      // (>272K input) is 2x input / 1.5x output / 2x cache-read+write for
+      // the whole request, per OpenAI's model cards.
+      {
+        id: "gpt-5.6-sol",
+        displayName: "GPT-5.6 Sol",
+        contextWindowTokens: 1050000,
+        maxOutputTokens: 128000,
+        longContextPricingThresholdTokens:
+          OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        supportsPromptCacheBreakpoints: true,
+        pricing: {
+          inputPer1mTokens: 5.0,
+          outputPer1mTokens: 30.0,
+          cacheWritePer1mTokens: 6.25,
+          cacheReadPer1mTokens: 0.5,
+          tiers: [
+            {
+              inputTokenThreshold: OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
+              inputPer1mTokens: 10,
+              outputPer1mTokens: 45,
+              cacheWritePer1mTokens: 12.5,
+              cacheReadPer1mTokens: 1,
+            },
+          ],
+        },
+      },
+      {
+        id: "gpt-5.6-terra",
+        displayName: "GPT-5.6 Terra",
+        contextWindowTokens: 1050000,
+        maxOutputTokens: 128000,
+        longContextPricingThresholdTokens:
+          OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        supportsPromptCacheBreakpoints: true,
+        pricing: {
+          inputPer1mTokens: 2.5,
+          outputPer1mTokens: 15.0,
+          cacheWritePer1mTokens: 3.125,
+          cacheReadPer1mTokens: 0.25,
+          tiers: [
+            {
+              inputTokenThreshold: OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
+              inputPer1mTokens: 5,
+              outputPer1mTokens: 22.5,
+              cacheWritePer1mTokens: 6.25,
+              cacheReadPer1mTokens: 0.5,
+            },
+          ],
+        },
+      },
+      {
+        id: "gpt-5.6-luna",
+        displayName: "GPT-5.6 Luna",
+        contextWindowTokens: 1050000,
+        maxOutputTokens: 128000,
+        longContextPricingThresholdTokens:
+          OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        supportsPromptCacheBreakpoints: true,
+        pricing: {
+          inputPer1mTokens: 1.0,
+          outputPer1mTokens: 6.0,
+          cacheWritePer1mTokens: 1.25,
+          cacheReadPer1mTokens: 0.1,
+          tiers: [
+            {
+              inputTokenThreshold: OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
+              inputPer1mTokens: 2,
+              outputPer1mTokens: 9,
+              cacheWritePer1mTokens: 2.5,
+              cacheReadPer1mTokens: 0.2,
+            },
+          ],
+        },
+      },
       {
         id: "gpt-5.5",
         displayName: "GPT-5.5",
@@ -1007,7 +1105,189 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
           cacheReadPer1mTokens: 0.1,
         },
       },
+      // OpenAI
+      // GPT-5.6 family (Sol / Terra / Luna). The `*-pro` slugs are the same
+      // underlying models served with `reasoning.mode: pro` at identical
+      // rates. cacheWrite is the 1.25x-input rate GPT-5.6+ bills for prompt
+      // tokens written to the cache (reported as `cache_write_tokens` in
+      // usage when the route forwards it, tracked as
+      // `cacheCreationInputTokens`). Long-context (>272K input) is 2x input
+      // / 1.5x output / 2x cache-read+write for the whole request, per
+      // OpenAI's model cards.
+      {
+        id: "openai/gpt-5.6-sol",
+        displayName: "GPT-5.6 Sol",
+        contextWindowTokens: 1050000,
+        maxOutputTokens: 128000,
+        longContextPricingThresholdTokens:
+          OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        supportsPromptCacheBreakpoints: true,
+        pricing: {
+          inputPer1mTokens: 5.0,
+          outputPer1mTokens: 30.0,
+          cacheWritePer1mTokens: 6.25,
+          cacheReadPer1mTokens: 0.5,
+          tiers: [
+            {
+              inputTokenThreshold: OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
+              inputPer1mTokens: 10,
+              outputPer1mTokens: 45,
+              cacheWritePer1mTokens: 12.5,
+              cacheReadPer1mTokens: 1,
+            },
+          ],
+        },
+      },
+      {
+        id: "openai/gpt-5.6-sol-pro",
+        displayName: "GPT-5.6 Sol Pro",
+        contextWindowTokens: 1050000,
+        maxOutputTokens: 128000,
+        longContextPricingThresholdTokens:
+          OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        supportsPromptCacheBreakpoints: true,
+        pricing: {
+          inputPer1mTokens: 5.0,
+          outputPer1mTokens: 30.0,
+          cacheWritePer1mTokens: 6.25,
+          cacheReadPer1mTokens: 0.5,
+          tiers: [
+            {
+              inputTokenThreshold: OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
+              inputPer1mTokens: 10,
+              outputPer1mTokens: 45,
+              cacheWritePer1mTokens: 12.5,
+              cacheReadPer1mTokens: 1,
+            },
+          ],
+        },
+      },
+      {
+        id: "openai/gpt-5.6-terra",
+        displayName: "GPT-5.6 Terra",
+        contextWindowTokens: 1050000,
+        maxOutputTokens: 128000,
+        longContextPricingThresholdTokens:
+          OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        supportsPromptCacheBreakpoints: true,
+        pricing: {
+          inputPer1mTokens: 2.5,
+          outputPer1mTokens: 15.0,
+          cacheWritePer1mTokens: 3.125,
+          cacheReadPer1mTokens: 0.25,
+          tiers: [
+            {
+              inputTokenThreshold: OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
+              inputPer1mTokens: 5,
+              outputPer1mTokens: 22.5,
+              cacheWritePer1mTokens: 6.25,
+              cacheReadPer1mTokens: 0.5,
+            },
+          ],
+        },
+      },
+      {
+        id: "openai/gpt-5.6-terra-pro",
+        displayName: "GPT-5.6 Terra Pro",
+        contextWindowTokens: 1050000,
+        maxOutputTokens: 128000,
+        longContextPricingThresholdTokens:
+          OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        supportsPromptCacheBreakpoints: true,
+        pricing: {
+          inputPer1mTokens: 2.5,
+          outputPer1mTokens: 15.0,
+          cacheWritePer1mTokens: 3.125,
+          cacheReadPer1mTokens: 0.25,
+          tiers: [
+            {
+              inputTokenThreshold: OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
+              inputPer1mTokens: 5,
+              outputPer1mTokens: 22.5,
+              cacheWritePer1mTokens: 6.25,
+              cacheReadPer1mTokens: 0.5,
+            },
+          ],
+        },
+      },
+      {
+        id: "openai/gpt-5.6-luna",
+        displayName: "GPT-5.6 Luna",
+        contextWindowTokens: 1050000,
+        maxOutputTokens: 128000,
+        longContextPricingThresholdTokens:
+          OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        supportsPromptCacheBreakpoints: true,
+        pricing: {
+          inputPer1mTokens: 1.0,
+          outputPer1mTokens: 6.0,
+          cacheWritePer1mTokens: 1.25,
+          cacheReadPer1mTokens: 0.1,
+          tiers: [
+            {
+              inputTokenThreshold: OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
+              inputPer1mTokens: 2,
+              outputPer1mTokens: 9,
+              cacheWritePer1mTokens: 2.5,
+              cacheReadPer1mTokens: 0.2,
+            },
+          ],
+        },
+      },
+      {
+        id: "openai/gpt-5.6-luna-pro",
+        displayName: "GPT-5.6 Luna Pro",
+        contextWindowTokens: 1050000,
+        maxOutputTokens: 128000,
+        longContextPricingThresholdTokens:
+          OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        supportsPromptCacheBreakpoints: true,
+        pricing: {
+          inputPer1mTokens: 1.0,
+          outputPer1mTokens: 6.0,
+          cacheWritePer1mTokens: 1.25,
+          cacheReadPer1mTokens: 0.1,
+          tiers: [
+            {
+              inputTokenThreshold: OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
+              inputPer1mTokens: 2,
+              outputPer1mTokens: 9,
+              cacheWritePer1mTokens: 2.5,
+              cacheReadPer1mTokens: 0.2,
+            },
+          ],
+        },
+      },
       // xAI
+      // OpenRouter lists an `input_cache_read` rate for xAI models but its
+      // xAI endpoints report `supports_implicit_caching: false`, and observed
+      // usage never includes cached tokens. `supportsCaching` therefore stays
+      // false; the `cacheReadPer1mTokens` rates below only apply if OpenRouter
+      // starts reporting cached tokens in usage.
       {
         id: "x-ai/grok-4.5",
         displayName: "Grok 4.5",
@@ -1019,7 +1299,11 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: false,
         supportsVision: true,
         supportsToolUse: true,
-        pricing: { inputPer1mTokens: 2, outputPer1mTokens: 6 },
+        pricing: {
+          inputPer1mTokens: 2,
+          outputPer1mTokens: 6,
+          cacheReadPer1mTokens: 0.5,
+        },
       },
       {
         id: "x-ai/grok-4.3",
@@ -1030,7 +1314,11 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: false,
         supportsVision: true,
         supportsToolUse: true,
-        pricing: { inputPer1mTokens: 1.25, outputPer1mTokens: 2.5 },
+        pricing: {
+          inputPer1mTokens: 1.25,
+          outputPer1mTokens: 2.5,
+          cacheReadPer1mTokens: 0.2,
+        },
       },
       {
         id: "x-ai/grok-4.20",
@@ -1041,7 +1329,11 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: false,
         supportsVision: true,
         supportsToolUse: true,
-        pricing: { inputPer1mTokens: 1.25, outputPer1mTokens: 2.5 },
+        pricing: {
+          inputPer1mTokens: 1.25,
+          outputPer1mTokens: 2.5,
+          cacheReadPer1mTokens: 0.2,
+        },
       },
       // DeepSeek
       {
@@ -1671,6 +1963,20 @@ export function isModelInCatalog(provider: string, modelId: string): boolean {
   const entry = PROVIDER_CATALOG.find((p) => p.id === provider);
   return entry?.models.some((m) => m.id === modelId) ?? false;
 }
+
+/**
+ * Model IDs (across all catalog providers) flagged
+ * `supportsPromptCacheBreakpoints`. Consumed by the OpenAI Responses
+ * transport to gate explicit prompt-cache params, and by the OpenRouter
+ * client to route flagged `openai/*` models onto that transport. IDs are
+ * provider-shaped (bare for direct OpenAI, `openai/`-prefixed for
+ * OpenRouter), so a single set serves both consumers without collisions.
+ */
+export const PROMPT_CACHE_BREAKPOINT_MODEL_IDS: ReadonlySet<string> = new Set(
+  PROVIDER_CATALOG.flatMap((p) =>
+    p.models.flatMap((m) => (m.supportsPromptCacheBreakpoints ? [m.id] : [])),
+  ),
+);
 
 /**
  * Return the catalog provider that owns a model ID, if known. When multiple

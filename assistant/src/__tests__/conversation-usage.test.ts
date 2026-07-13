@@ -16,21 +16,6 @@ const updateConversationUsageCalls: Array<{
   estimatedCost: number;
 }> = [];
 
-let mockLlmConfig = createMockLlmConfig();
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    llm: mockLlmConfig,
-  }),
-}));
-
 mock.module("../persistence/conversation-crud.js", () => ({
   setConversationProcessingStartedAt: () => {},
   isConversationProcessing: () => false,
@@ -58,63 +43,36 @@ import type { Provider, ProviderResponse } from "../providers/types.js";
 import { UsageTrackingProvider } from "../providers/usage-tracking.js";
 import type { PricingUsage } from "../usage/types.js";
 import { resolvePricingForUsageWithOverrides } from "../util/pricing.js";
+import { setConfig } from "./helpers/set-config.js";
 
 await initializeDb();
 
-function createMockLlmConfig() {
-  return {
-    default: {
-      provider: "anthropic" as const,
-      model: "claude-opus-4-6",
-      maxTokens: 64_000,
-      effort: "max" as const,
-      speed: "standard" as const,
-      verbosity: "medium" as const,
-      temperature: null,
-      thinking: { enabled: true, streamThinking: true },
-      contextWindow: {
-        enabled: true,
-        maxInputTokens: 200_000,
-        targetBudgetRatio: 0.3,
-        compactThreshold: 0.8,
-        summaryBudgetRatio: 0.05,
-        overflowRecovery: {
-          enabled: true,
-          safetyMarginRatio: 0.05,
-          maxAttempts: 3,
-          interactiveLatestTurnCompression: "summarize" as const,
-          nonInteractiveLatestTurnCompression: "truncate" as const,
-        },
-      },
-      openrouter: { only: [] },
+// The attribution assertions resolve profiles/call sites through the real
+// workspace config, so seed the fixtures the tests reference.
+setConfig("llm", {
+  default: { model: "claude-opus-4-6" },
+  profiles: {
+    conversationProfile: {
+      provider: "openai",
+      model: "gpt-4o",
     },
-    profiles: {
-      conversationProfile: {
-        provider: "openai" as const,
-        model: "gpt-4o",
-      },
-      summaryProfile: {
-        provider: "anthropic" as const,
-        model: "claude-haiku-3",
-      },
+    summaryProfile: {
+      provider: "anthropic",
+      model: "claude-haiku-3",
     },
-    profileOrder: [],
-    callSites: {
-      conversationSummarization: {
-        profile: "summaryProfile",
-      },
+  },
+  callSites: {
+    conversationSummarization: {
+      profile: "summaryProfile",
     },
-    activeProfile: undefined,
-    pricingOverrides: [],
-  };
-}
+  },
+});
 
 describe("recordUsage", () => {
   beforeEach(() => {
     const db = getDb();
     db.run(`DELETE FROM llm_usage_events`);
     updateConversationUsageCalls.length = 0;
-    mockLlmConfig = createMockLlmConfig();
   });
 
   test("applies fast mode pricing when any response has speed: fast", () => {

@@ -5,6 +5,7 @@ import { dirname, join } from "path";
 
 import { __resetRegistryForTesting, getTool } from "../tools/registry.js";
 import type { ToolContext } from "../tools/types.js";
+import { setConfig } from "./helpers/set-config.js";
 
 // ---------------------------------------------------------------------------
 // Mock dependencies for the tool wrapper
@@ -12,8 +13,6 @@ import type { ToolContext } from "../tools/types.js";
 
 let mockGeminiKey: string | undefined = "test-gemini-key";
 let mockOpenAIKey: string | undefined = "test-openai-key";
-let mockImageGenMode: "your-own" | "managed" = "your-own";
-let mockImageGenProvider: "gemini" | "openai" = "gemini";
 let mockGenerateResult = {
   images: [{ mimeType: "image/png", dataBase64: "generated-data" }],
   text: "A beautiful image",
@@ -23,34 +22,37 @@ let mockGenerateError: Error | null = null;
 let lastGenerateProvider: unknown = null;
 let lastGenerateCredentials: unknown = null;
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-    services: {
-      inference: {
-        mode: "your-own",
-        provider: "anthropic",
-        model: "claude-opus-4-6",
-      },
-      "image-generation": {
-        mode: mockImageGenMode,
-        provider: mockImageGenProvider,
-        model: "gemini-3.1-flash-image-preview",
-      },
-      "web-search": { mode: "your-own", provider: "inference-provider-native" },
-    },
-  }),
-}));
+/**
+ * Seed the image-generation service entry in the real workspace config.
+ * Omitted fields fall back to the schema defaults (`mode: "your-own"`,
+ * `provider: "gemini"`, model `gemini-3.1-flash-image-preview`).
+ */
+function seedImageGenService(
+  overrides: {
+    mode?: "your-own" | "managed";
+    provider?: "gemini" | "openai";
+  } = {},
+): void {
+  setConfig("services", { "image-generation": overrides });
+}
 
 mock.module("../security/secure-keys.js", () => ({
   getSecureKeyAsync: async (account: string) => {
-    if (account === "gemini") return mockGeminiKey;
-    if (account === "openai") return mockOpenAIKey;
+    if (account === "gemini") {
+      return mockGeminiKey;
+    }
+    if (account === "openai") {
+      return mockOpenAIKey;
+    }
     return undefined;
   },
   getProviderKeyAsync: async (provider: string) => {
-    if (provider === "gemini") return mockGeminiKey;
-    if (provider === "openai") return mockOpenAIKey;
+    if (provider === "gemini") {
+      return mockGeminiKey;
+    }
+    if (provider === "openai") {
+      return mockOpenAIKey;
+    }
     return undefined;
   },
 }));
@@ -63,13 +65,16 @@ mock.module("../media/image-service.js", () => ({
   ) => {
     lastGenerateProvider = provider;
     lastGenerateCredentials = credentials;
-    if (mockGenerateError) throw mockGenerateError;
+    if (mockGenerateError) {
+      throw mockGenerateError;
+    }
     return mockGenerateResult;
   },
   mapImageGenError: (provider: unknown, error: unknown) => {
     const providerLabel = provider === "openai" ? "OpenAI" : "Gemini";
-    if (error instanceof Error)
+    if (error instanceof Error) {
       return `Mock ${providerLabel} error: ${error.message}`;
+    }
     return `Mock ${providerLabel} unknown error`;
   },
 }));
@@ -108,8 +113,7 @@ const CONFIG_DIR = join(
 beforeEach(() => {
   mockGeminiKey = "test-gemini-key";
   mockOpenAIKey = "test-openai-key";
-  mockImageGenMode = "your-own";
-  mockImageGenProvider = "gemini";
+  seedImageGenService();
   mockGenerateResult = {
     images: [{ mimeType: "image/png", dataBase64: "generated-data" }],
     text: "A beautiful image",
@@ -148,7 +152,7 @@ describe("image-studio skill script wrapper", () => {
   });
 
   test("managed mode uses managed proxy credentials", async () => {
-    mockImageGenMode = "managed";
+    seedImageGenService({ mode: "managed" });
     mockManagedBaseUrl = "https://platform.example.com/v1/runtime-proxy/gemini";
     mockManagedProxyContext = {
       enabled: true,
@@ -169,7 +173,7 @@ describe("image-studio skill script wrapper", () => {
   });
 
   test("managed mode returns error when managed proxy is unavailable", async () => {
-    mockImageGenMode = "managed";
+    seedImageGenService({ mode: "managed" });
     mockGeminiKey = "direct-key"; // should be ignored in managed mode
     mockManagedBaseUrl = undefined;
 
@@ -180,7 +184,7 @@ describe("image-studio skill script wrapper", () => {
   });
 
   test("your-own mode uses direct API key", async () => {
-    mockImageGenMode = "your-own";
+    seedImageGenService({ mode: "your-own" });
     mockGeminiKey = "direct-key";
     mockManagedBaseUrl = "https://platform.example.com/v1/runtime-proxy/gemini";
     mockManagedProxyContext = {
@@ -199,7 +203,7 @@ describe("image-studio skill script wrapper", () => {
   });
 
   test("openai provider dispatches to OpenAI with its key", async () => {
-    mockImageGenProvider = "openai";
+    seedImageGenService({ provider: "openai" });
     mockOpenAIKey = "openai-direct-key";
 
     const result = await run({ prompt: "a robot" }, fakeContext);
@@ -213,7 +217,7 @@ describe("image-studio skill script wrapper", () => {
   });
 
   test("openai provider returns OpenAI-specific error hint when no key", async () => {
-    mockImageGenProvider = "openai";
+    seedImageGenService({ provider: "openai" });
     mockOpenAIKey = undefined;
 
     const result = await run({ prompt: "a robot" }, fakeContext);
@@ -227,7 +231,7 @@ describe("image-studio skill script wrapper", () => {
     // Config says the user's default provider is gemini, but the LLM
     // explicitly requests a gpt-* model. The tool must dispatch to OpenAI
     // and resolve OpenAI credentials, not fall back to Gemini's default.
-    mockImageGenProvider = "gemini";
+    seedImageGenService({ provider: "gemini" });
     mockOpenAIKey = "openai-direct-key";
 
     const result = await run(
@@ -245,7 +249,7 @@ describe("image-studio skill script wrapper", () => {
 
   test("explicit model override routes to owning provider (openai config → gemini call)", async () => {
     // The inverse: config says openai but the LLM asks for a gemini-* model.
-    mockImageGenProvider = "openai";
+    seedImageGenService({ provider: "openai" });
     mockGeminiKey = "gemini-direct-key";
 
     const result = await run(
@@ -265,7 +269,7 @@ describe("image-studio skill script wrapper", () => {
     // Config: gemini (with a gemini key). LLM asks for gpt-image-2 but the
     // OpenAI key is missing. The error hint must reference OpenAI, not
     // Gemini, because the dispatch target is OpenAI.
-    mockImageGenProvider = "gemini";
+    seedImageGenService({ provider: "gemini" });
     mockGeminiKey = "test-gemini-key";
     mockOpenAIKey = undefined;
 
@@ -333,7 +337,7 @@ describe("image-studio skill script wrapper", () => {
   });
 
   test("openai generation error uses OpenAI-specific mapping", async () => {
-    mockImageGenProvider = "openai";
+    seedImageGenService({ provider: "openai" });
     mockGenerateError = new Error("openai failure");
 
     const result = await run({ prompt: "a cat" }, fakeContext);
@@ -362,7 +366,7 @@ describe("image-studio skill script wrapper", () => {
   });
 
   test("managed mode credential error includes guidance not to change service config", async () => {
-    mockImageGenMode = "managed";
+    seedImageGenService({ mode: "managed" });
     mockManagedBaseUrl = undefined;
 
     const result = await run({ prompt: "a cat" }, fakeContext);
@@ -394,7 +398,9 @@ describe("image-studio skill script wrapper", () => {
       expect(result.content).toContain("Generated 1 image");
     } finally {
       const { unlink } = await import("fs/promises");
-      if (await Bun.file(tmpPath).exists()) await unlink(tmpPath);
+      if (await Bun.file(tmpPath).exists()) {
+        await unlink(tmpPath);
+      }
     }
   });
 

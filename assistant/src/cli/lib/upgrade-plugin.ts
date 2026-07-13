@@ -43,7 +43,6 @@ import {
   type PluginRemoteInfo,
 } from "./inspect-plugin.js";
 import {
-  DEFAULT_PLUGIN_REF,
   finalizeStagedInstall,
   type GitRunner,
   installPlugin,
@@ -56,9 +55,6 @@ import {
   sanitizePluginName,
 } from "./install-from-github.js";
 import { type ConflictLabels, mergePluginTree } from "./merge-plugin-tree.js";
-import { computeFingerprint, fingerprintsEqual } from "./plugin-fingerprint.js";
-import { PluginNotInstalledError } from "./uninstall-plugin.js";
-
 /**
  * How local edits to an installed plugin are reconciled with the marketplace
  * pin during an upgrade.
@@ -70,23 +66,13 @@ import { PluginNotInstalledError } from "./uninstall-plugin.js";
  * - `assistant` — three-way merge that writes git conflict markers into
  *   conflicting files and reports them for the assistant to resolve.
  */
-export type PluginUpgradeStrategy =
-  | "ours"
-  | "theirs"
-  | "overwrite"
-  | "assistant";
-
-/** The set of accepted `--strategy` values, for validation and help text. */
-export const PLUGIN_UPGRADE_STRATEGIES: readonly PluginUpgradeStrategy[] = [
-  "ours",
-  "theirs",
-  "overwrite",
-  "assistant",
-];
-
-/** The strategy applied when a caller omits `--strategy`. */
-export const DEFAULT_PLUGIN_UPGRADE_STRATEGY: PluginUpgradeStrategy =
-  "overwrite";
+import {
+  DEFAULT_PLUGIN_REF,
+  DEFAULT_PLUGIN_UPGRADE_STRATEGY,
+  type PluginUpgradeStrategy,
+} from "./plugin-constants.js";
+import { computeFingerprint, fingerprintsEqual } from "./plugin-fingerprint.js";
+import { PluginNotInstalledError } from "./uninstall-plugin.js";
 
 /**
  * Outcome of an upgrade attempt.

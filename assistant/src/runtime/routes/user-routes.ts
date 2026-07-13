@@ -12,6 +12,7 @@
  * over both HTTP and IPC.
  */
 
+import { postRouteConversationMessage } from "../../daemon/route-conversation-post.js";
 import { assistantEventHub } from "../assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
@@ -23,6 +24,9 @@ const dispatcher = new UserRouteDispatcher({
   context: {
     assistantEventHub,
     assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
+    conversations: {
+      postMessage: postRouteConversationMessage,
+    },
   },
 });
 

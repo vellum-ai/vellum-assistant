@@ -72,7 +72,7 @@ export interface CapabilitySet {
   // --- Data & memory ---
   /**
    * May access long-term / cross-conversation memory — both the memory *tools*
-   * (recall, auto-analysis, retrospection, graph extraction) and *visibility*
+   * (recall, retrospection, graph extraction) and *visibility*
    * of cross-conversation history in assembled context. Untrusted actors are
    * walled off from both.
    */

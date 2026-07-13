@@ -12,20 +12,6 @@ mock.module("../../../../config/assistant-feature-flags.js", () => ({
   isAssistantFeatureFlagEnabled: () => true,
 }));
 
-mock.module("../../../../config/loader.js", () => ({
-  getConfig: () => ({
-    llm: {
-      default: {
-        contextWindow: {
-          enabled: true,
-          maxInputTokens: 200_000,
-          compactThreshold: 0.8,
-        },
-      },
-    },
-  }),
-}));
-
 mock.module("../../../../context/token-estimator.js", () => ({
   estimatePromptTokens: (messages: unknown[]): number => messages.length * 10,
 }));

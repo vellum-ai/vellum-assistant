@@ -22,9 +22,10 @@ export interface MemoryWorkerToggleProps {
 
 /**
  * Sub-row of the Memory settings card that controls the out-of-process memory
- * worker. Enabling it spawns a dedicated worker process to drain the memory job
- * queue; disabling it hands the queue back to the daemon's synchronous
- * in-process runner.
+ * worker. The worker is spun up by default; this row lets you stop it (SIGTERM)
+ * or respawn it. The toggle reflects the worker process's live liveness — the
+ * daemon respawns it on the next restart, so this is a transient process
+ * control, not a persisted setting.
  *
  * The status query gates the row's visibility: assistants whose daemon predates
  * the worker control routes return no status, so the row stays hidden rather
@@ -41,19 +42,20 @@ export function MemoryWorkerToggle({ memoryEnabled }: MemoryWorkerToggleProps) {
 
   // Optimistically reflect the new state in the status cache so the toggle
   // settles immediately; the next status fetch reconciles against the daemon.
-  const setWorkerEnabled = (enabled: boolean) => {
+  const setWorkerRunning = (running: boolean) => {
     memoryWorkerStatusGetSetQueryData(
       queryClient,
       { path: { assistant_id: assistantId } },
-      (old) => (old ? { ...old, workerEnabled: enabled } : old),
+      (old) =>
+        old ? { ...old, status: running ? "running" : "not_running" } : old,
     );
   };
 
   const startMutation = useMemoryWorkerStartPostMutation({
-    onSuccess: () => setWorkerEnabled(true),
+    onSuccess: () => setWorkerRunning(true),
   });
   const stopMutation = useMemoryWorkerStopPostMutation({
-    onSuccess: () => setWorkerEnabled(false),
+    onSuccess: () => setWorkerRunning(false),
   });
 
   const handleWorkerToggle = async (enabled: boolean) => {
@@ -62,20 +64,22 @@ export function MemoryWorkerToggle({ memoryEnabled }: MemoryWorkerToggleProps) {
         await startMutation.mutateAsync({
           path: { assistant_id: assistantId },
         });
-        toast.success("Background worker enabled.");
+        toast.success("Background worker started.");
       } else {
         await stopMutation.mutateAsync({
           path: { assistant_id: assistantId },
         });
-        toast.success("Background worker disabled.");
+        toast.success("Background worker stopped.");
       }
     } catch (error) {
       captureError(error, { context: "settings-memory-worker-toggle" });
-      toast.error("Failed to update background worker setting.");
+      toast.error("Failed to update background worker.");
     }
   };
 
-  if (!status) return null;
+  if (!status) {
+    return null;
+  }
 
   const isPending = startMutation.isPending || stopMutation.isPending;
 
@@ -86,12 +90,13 @@ export function MemoryWorkerToggle({ memoryEnabled }: MemoryWorkerToggleProps) {
           Background worker
         </h3>
         <p className="text-body-medium-default text-[var(--content-tertiary)]">
-          Run memory consolidation in a dedicated background process instead of
-          inline. Recommended for heavier memory workloads.
+          Run memory consolidation in a dedicated background process. It starts
+          automatically; stop it to pause background memory processing until the
+          next restart.
         </p>
       </div>
       <Toggle
-        checked={status.workerEnabled === true}
+        checked={status.status === "running"}
         onChange={(enabled) => void handleWorkerToggle(enabled)}
         aria-label="Enable background memory worker"
         disabled={!memoryEnabled || isPending}

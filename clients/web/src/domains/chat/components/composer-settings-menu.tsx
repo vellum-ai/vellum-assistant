@@ -365,21 +365,21 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
         if (conversationIdRef.current === capturedConversationId) {
           lastConfirmedProfileRef.current = name;
         }
-        // Invalidate shared caches so all consumers refresh.
         const configKey = configGetQueryKey({
           path: { assistant_id: assistantId },
         });
-        void queryClient.invalidateQueries({ queryKey: configKey }).then(() => {
-          // Clear optimistic only after refetch settles — avoids flash of stale value.
-          setOptimisticActiveProfile((current) =>
-            current === name ? null : current,
-          );
-        });
-        void queryClient.invalidateQueries({
-          queryKey: conversationsByIdGetQueryKey({
-            path: { assistant_id: assistantId, id: capturedConversationId },
-          }),
-        });
+        void queryClient.invalidateQueries({ queryKey: configKey });
+        void queryClient
+          .invalidateQueries({
+            queryKey: conversationsByIdGetQueryKey({
+              path: { assistant_id: assistantId, id: capturedConversationId },
+            }),
+          })
+          .then(() => {
+            setOptimisticActiveProfile((current) =>
+              current === name ? null : current,
+            );
+          });
         return true;
       } catch {
         if (conversationIdRef.current === capturedConversationId) {

@@ -2,8 +2,9 @@
 // Fork message-copy — off-event-loop bulk copy of a conversation's messages.
 // ---------------------------------------------------------------------------
 //
-// The fork-based memory retrospective copies the entire source conversation's
-// message rows into a throwaway background conversation. Done in-process via
+// The fork-based memory retrospective copies the visible tail of the source
+// conversation's message rows (rows at-or-after the inherited compaction
+// boundary) into a throwaway background conversation. Done in-process via
 // `bun:sqlite` (synchronous), that copy is the single longest uninterruptible
 // block on the daemon's event loop — on a multi-GB database it pegs the CPU
 // for minutes, stalling `/healthz` and the gateway's IPC calls (see the
@@ -35,6 +36,7 @@
 
 import { setTimeout as sleep } from "node:timers/promises";
 
+import { BULK_BATCH_TIMEOUT_MS, withBulkWriteGate } from "./bulk-write-gate.js";
 import {
   type AsyncSqliteBackend,
   type AsyncSqliteResult,
@@ -164,7 +166,10 @@ FROM messages m JOIN _fork_id_map map ON map.old_id = m.id;`,
  * batches. Each batch runs as its own subprocess call with a brief yield in
  * between (see {@link DEFAULT_FORK_COPY_INTER_BATCH_DELAY_MS}) so foreground
  * writers reliably acquire the write lock between batches instead of losing
- * every race to the copy's greedy lock re-acquisition. Resolves once every
+ * every race to the copy's greedy lock re-acquisition. The whole batch stream
+ * runs under the process-wide {@link withBulkWriteGate} so two copies (or a
+ * copy and a batched delete) never convoy on the write lock — and the yields
+ * go to foreground writers, not a sibling bulk stream. Resolves once every
  * batch has committed (or returns the failing batch's `ok: false` result on
  * subprocess failure — the caller is responsible for cleaning up the
  * partially-built fork).
@@ -183,6 +188,15 @@ export async function copyForkMessagesViaSubprocess(
     };
   }
 
+  return await withBulkWriteGate(
+    `fork-message-copy:${options.forkConversationId}`,
+    () => copyBatches(options),
+  );
+}
+
+async function copyBatches(
+  options: CopyForkMessagesOptions,
+): Promise<AsyncSqliteResult> {
   const batchSize = Math.max(
     1,
     options.batchSize ?? DEFAULT_FORK_COPY_BATCH_SIZE,
@@ -207,7 +221,7 @@ export async function copyForkMessagesViaSubprocess(
     const result = await runAsyncSqlite(
       sql,
       `fork-message-copy:copy-batch:${options.forkConversationId}`,
-      runOptions,
+      { ...runOptions, timeoutMs: BULK_BATCH_TIMEOUT_MS },
     );
     totalElapsedMs += result.elapsedMs;
     backend = result.backend;

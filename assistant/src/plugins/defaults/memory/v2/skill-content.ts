@@ -1,5 +1,18 @@
 import { getConfig } from "../../../../config/loader.js";
-import type { SkillCapabilityInput } from "../../../../skills/skill-memory.js";
+
+/**
+ * Generic input for building capability statements: the capability fields of
+ * a skill, decoupled from any one catalog shape. `ResolvedSkillEntry` values
+ * from `@vellumai/plugin-api` satisfy it structurally, as do the converter
+ * outputs in `graph/capability-seed.ts`.
+ */
+export interface SkillCapabilityInput {
+  id: string;
+  displayName: string;
+  description: string;
+  activationHints?: string[];
+  avoidWhen?: string[];
+}
 
 /**
  * Character budget for an always-candidate skill's capability statement. Larger
@@ -47,13 +60,19 @@ export function buildSkillContent(
 export function augmentMcpSetupDescription(
   input: SkillCapabilityInput,
 ): SkillCapabilityInput {
-  if (input.id !== "mcp-setup") return input;
+  if (input.id !== "mcp-setup") {
+    return input;
+  }
   const servers = getConfig().mcp?.servers;
-  if (!servers) return input;
+  if (!servers) {
+    return input;
+  }
   const names = Object.keys(servers).filter(
     (name) => servers[name]?.enabled !== false,
   );
-  if (names.length === 0) return input;
+  if (names.length === 0) {
+    return input;
+  }
   return {
     ...input,
     description: `${input.description} Configured: ${names.join(", ")}`,

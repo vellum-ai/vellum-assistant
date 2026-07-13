@@ -26,9 +26,16 @@ const {
   downloadAttachment,
   forwardTwilioVoiceWebhook,
   forwardTwilioStatusWebhook,
+  resolvePublicHttpBaseUrl,
   CircuitBreakerOpenError,
   resetCircuitBreaker,
 } = await import("../runtime/client.js");
+
+const fakeConfigFile = (publicBaseUrl?: string) =>
+  ({
+    getString: (_section: string, field: string) =>
+      field === "publicBaseUrl" ? publicBaseUrl : undefined,
+  }) as unknown as import("../config-file-cache.js").ConfigFileCache;
 
 function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
   const merged: GatewayConfig = {
@@ -407,6 +414,62 @@ describe("forwardTwilioVoiceWebhook", () => {
   });
 });
 
+describe("resolvePublicHttpBaseUrl", () => {
+  const getId = (id?: string) => mock(async () => id);
+
+  test("prefers the config publicBaseUrl and strips its trailing slash", async () => {
+    const result = await resolvePublicHttpBaseUrl(
+      makeConfig({ velayBaseUrl: "https://velay-dev.vellum.ai" }),
+      fakeConfigFile("https://assistant.example.com/"),
+      getId("assistant-123"),
+    );
+    expect(result).toBe("https://assistant.example.com");
+  });
+
+  test("does not read the platform assistant id when the config URL resolves", async () => {
+    const platformIdGetter = getId("assistant-123");
+    await resolvePublicHttpBaseUrl(
+      makeConfig({ velayBaseUrl: "https://velay-dev.vellum.ai" }),
+      fakeConfigFile("https://assistant.example.com"),
+      platformIdGetter,
+    );
+    // The credential store must not be touched on the config-resolved path.
+    expect(platformIdGetter).not.toHaveBeenCalled();
+  });
+
+  test("falls back to velayBaseUrl + platform assistant id when config is empty", async () => {
+    const result = await resolvePublicHttpBaseUrl(
+      makeConfig({ velayBaseUrl: "https://velay-dev.vellum.ai" }),
+      fakeConfigFile(undefined),
+      getId("assistant-123"),
+    );
+    expect(result).toBe("https://velay-dev.vellum.ai/assistant-123");
+  });
+
+  test("strips a trailing slash on velayBaseUrl before joining the assistant id", async () => {
+    const result = await resolvePublicHttpBaseUrl(
+      makeConfig({ velayBaseUrl: "https://velay-dev.vellum.ai/" }),
+      fakeConfigFile(undefined),
+      getId("assistant-123"),
+    );
+    expect(result).toBe("https://velay-dev.vellum.ai/assistant-123");
+  });
+
+  test("returns undefined when neither the config URL nor the velay fallback resolve", async () => {
+    expect(
+      await resolvePublicHttpBaseUrl(makeConfig(), fakeConfigFile(undefined)),
+    ).toBeUndefined();
+    // velayBaseUrl present but no platform assistant id → no fallback.
+    expect(
+      await resolvePublicHttpBaseUrl(
+        makeConfig({ velayBaseUrl: "https://velay-dev.vellum.ai" }),
+        fakeConfigFile(undefined),
+        getId(undefined),
+      ),
+    ).toBeUndefined();
+  });
+});
+
 describe("forwardTwilioStatusWebhook", () => {
   afterEach(() => {
     fetchMock = mock(async () => new Response());
@@ -430,4 +493,3 @@ describe("forwardTwilioStatusWebhook", () => {
     expect(sentBody.params).toEqual(params);
   });
 });
-

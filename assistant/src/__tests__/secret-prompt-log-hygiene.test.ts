@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { SecretRequestEvent } from "../api/events/secret-request.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
+import { setConfig } from "./helpers/set-config.js";
 
 // Capture all logger calls so we can verify secret values never appear
 const logCalls: Array<{ level: string; args: unknown[] }> = [];
@@ -55,15 +56,8 @@ mock.module("../runtime/pending-interactions.js", () => ({
 }));
 
 // Use a tiny timeout so the setTimeout branch fires quickly in tests
-const mockConfig = {
-  timeouts: { permissionTimeoutSec: 0.01 },
-  secretDetection: { allowOneTimeSend: false },
-};
-mock.module("../config/loader.js", () => ({
-  getConfig: () => mockConfig,
-  loadConfig: () => mockConfig,
-  invalidateConfigCache: () => {},
-}));
+setConfig("timeouts", { permissionTimeoutSec: 0.01 });
+setConfig("secretDetection", { allowOneTimeSend: false });
 
 // Import after mock so SecretPrompter picks up the captured logger
 const { SecretPrompter } = await import("../permissions/secret-prompter.js");
@@ -107,7 +101,7 @@ describe("secret prompt log hygiene", () => {
 
   test("prompt timeout logs only metadata, not the secret value", async () => {
     // Let the setTimeout branch in SecretPrompter.prompt() actually fire
-    // (mockConfig sets permissionTimeoutSec to 0.01s = 10ms)
+    // (config seeds permissionTimeoutSec to 0.01s = 10ms)
     const result = await prompter.prompt("svc", "key", "Label");
 
     // Timeout resolves with null value

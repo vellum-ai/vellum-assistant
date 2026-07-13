@@ -200,13 +200,13 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("subcommand registration", () => {
-  test("registers request and confirm subcommands under ui", () => {
+  test("registers request, confirm, and snapshot subcommands under ui", () => {
     const program = new Command();
     registerUiCommand(program);
     const ui = program.commands.find((c) => c.name() === "ui");
     expect(ui).toBeDefined();
     const subcommandNames = ui!.commands.map((c) => c.name()).sort();
-    expect(subcommandNames).toEqual(["confirm", "request"]);
+    expect(subcommandNames).toEqual(["confirm", "request", "snapshot"]);
   });
 });
 

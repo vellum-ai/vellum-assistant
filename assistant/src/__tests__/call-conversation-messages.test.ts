@@ -1,11 +1,4 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
+import { beforeEach, describe, expect, test } from "bun:test";
 
 import {
   buildCallCompletionMessage,
@@ -51,7 +44,7 @@ function getLatestAssistantText(conversationId: string): string {
   );
   expect(rows.length).toBeGreaterThan(0);
   const latest = rows[rows.length - 1];
-  const parsed = JSON.parse(latest.content) as Array<{
+  const parsed = latest.content as unknown as Array<{
     type: string;
     text?: string;
     surfaceType?: string;

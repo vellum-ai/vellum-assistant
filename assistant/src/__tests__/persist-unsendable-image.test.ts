@@ -22,8 +22,8 @@ import {
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import {
-  oversizedImageReplacement,
   persistUnsendableImageDowngrades,
+  unsendableImageReplacement,
 } from "../plugins/defaults/image-recovery/recover.js";
 import type { ContentBlock } from "../providers/types.js";
 
@@ -105,9 +105,7 @@ function toolResultWithImage(data: string): ContentBlock {
 }
 
 function storedContent(conversationId: string): ContentBlock[][] {
-  return getMessages(conversationId).map(
-    (row) => JSON.parse(row.content) as ContentBlock[],
-  );
+  return getMessages(conversationId).map((row) => row.content);
 }
 
 const PROVIDER_MAX_IMAGE_DIMENSION = 8000;
@@ -211,6 +209,28 @@ describe("persistUnsendableImageDowngrades", () => {
     expect(content.some((b) => b.type === "image")).toBe(false);
   });
 
+  /** The minimum-size floor is enforced alongside the oversized caps: an
+   *  image the provider rejects with "Could not process image" (e.g. a
+   *  16×14 px upload) must not rehydrate and re-reject on later turns. */
+  test("removes an image below the minimum-size floor", async () => {
+    // GIVEN a message holding a tiny image below the provider minimum
+    const conv = createConversation();
+    await addMessage(
+      conv.id,
+      "user",
+      JSON.stringify([imageBlock(makePngBase64(16, 14))]),
+      { skipIndexing: true },
+    );
+
+    // WHEN the downgrade is persisted
+    const rewritten = persistUnsendableImageDowngrades(conv.id);
+
+    // THEN the undersized image is removed (upscale is a no-op on this host)
+    expect(rewritten).toBe(1);
+    const [content] = storedContent(conv.id);
+    expect(content.some((b) => b.type === "image")).toBe(false);
+  });
+
   /** JARVIS-1041: the oversized image is nested inside a tool_result (e.g. a
    *  browser screenshot), not a top-level block. The downgrade must descend
    *  into tool_result.contentBlocks and swap the nested image for a note, while
@@ -286,7 +306,7 @@ describe("persistUnsendableImageDowngrades", () => {
   });
 });
 
-describe("oversizedImageReplacement", () => {
+describe("unsendableImageReplacement", () => {
   /** A still-sendable image must be left alone — never replaced with a note.
    *  This is the gate that keeps the in-memory recovery from discarding valid
    *  screenshots when only one image in the turn was actually oversized. */
@@ -295,7 +315,7 @@ describe("oversizedImageReplacement", () => {
       ContentBlock,
       { type: "image" }
     >;
-    expect(oversizedImageReplacement(sendable)).toBeNull();
+    expect(unsendableImageReplacement(sendable)).toBeNull();
   });
 
   /** An image past the provider caps that cannot be shrunk on this host (fake
@@ -305,7 +325,19 @@ describe("oversizedImageReplacement", () => {
       ContentBlock,
       { type: "image" }
     >;
-    const replacement = oversizedImageReplacement(oversized);
+    const replacement = unsendableImageReplacement(oversized);
+    expect(replacement?.type).toBe("text");
+  });
+
+  /** An image below the provider's minimum-size floor (rejected with "Could
+   *  not process image") that cannot be upscaled on this host collapses to
+   *  the unsendable note, same as the oversized direction. */
+  test("returns the unsendable note when an undersized image cannot be upscaled", () => {
+    const undersized = imageBlock(makePngBase64(16, 14)) as Extract<
+      ContentBlock,
+      { type: "image" }
+    >;
+    const replacement = unsendableImageReplacement(undersized);
     expect(replacement?.type).toBe("text");
   });
 });

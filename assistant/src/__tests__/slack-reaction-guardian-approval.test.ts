@@ -11,14 +11,6 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-  truncateForLog: (value: string) => value,
-}));
-
 const _conversationMocks = new Map<string, unknown>();
 mock.module("../daemon/conversation-registry.js", () => ({
   findConversation: (id: string) => _conversationMocks.get(id),

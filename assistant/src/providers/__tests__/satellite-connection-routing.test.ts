@@ -25,6 +25,7 @@
 import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { setOverridesForTesting } from "../../__tests__/feature-flag-test-helpers.js";
+import { setConfig } from "../../__tests__/helpers/set-config.js";
 
 // Connection-routing plumbing over legacy-shaped fixtures (llm.default /
 // activeProfile-centric, no defaultProvider): pinned to the flag-off
@@ -40,24 +41,6 @@ import type { Provider, ProviderResponse } from "../types.js";
 // ---------------------------------------------------------------------------
 // Module mocks (must be declared before the import-under-test).
 // ---------------------------------------------------------------------------
-
-mock.module("../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
-}));
-
-let mockLlmConfig: Record<string, unknown> = {};
-
-mock.module("../../config/loader.js", () => ({
-  getConfig: () => ({
-    llm: mockLlmConfig,
-    services: { inference: {} },
-  }),
-  loadConfig: () => ({
-    llm: mockLlmConfig,
-    services: { inference: {} },
-  }),
-}));
 
 const mockDbSentinel = { __mock: "db" };
 mock.module("../../persistence/db-connection.js", () => ({
@@ -150,7 +133,7 @@ import { ConnectionResolutionError } from "../connection-resolution.js";
 // ---------------------------------------------------------------------------
 
 function setLlmConfig(c: Record<string, unknown>): void {
-  mockLlmConfig = c;
+  setConfig("llm", c);
 }
 
 function registerConnection(
@@ -167,7 +150,7 @@ function reset(): void {
   fakeConnections.clear();
   fakeProviders.clear();
   connectionsThatThrowOnResolve.clear();
-  mockLlmConfig = {};
+  setConfig("llm", {});
 }
 
 // ProvidersConfig stub used by the wrapper helper. The connection-resolution

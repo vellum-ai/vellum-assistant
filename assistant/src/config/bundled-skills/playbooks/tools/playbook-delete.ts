@@ -20,13 +20,10 @@ export async function executePlaybookDelete(
     };
   }
 
-  const scopeId = "default";
-
   try {
     const existing = getNode(playbookId);
     if (
       !existing ||
-      existing.scopeId !== scopeId ||
       !existing.sourceConversations.some((s) => s.startsWith("playbook:")) ||
       existing.fidelity === "gone"
     ) {

@@ -17,31 +17,6 @@ mock.module("../util/logger.js", () => ({
   pruneOldLogFiles: () => 0,
 }));
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-    services: {
-      inference: {
-        mode: "your-own",
-        provider: "anthropic",
-        model: "claude-opus-4-6",
-      },
-      "image-generation": {
-        mode: "your-own",
-        provider: "gemini",
-        model: "gemini-3.1-flash-image-preview",
-      },
-      "web-search": { mode: "your-own", provider: "inference-provider-native" },
-    },
-  }),
-  loadConfig: () => ({}),
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-  invalidateConfigCache: () => {},
-  getNestedValue: () => undefined,
-  setNestedValue: () => {},
-}));
-
 // ── Import after mocks ───────────────────────────────────────────────
 const { buildSystemPrompt } = await import("../prompts/system-prompt.js");
 
@@ -90,16 +65,6 @@ describe("schedule_create tool description", () => {
     ).toContain("what it does and why");
   });
 
-  test('warns against using for "add to my tasks" requests', () => {
-    expect(scheduleCreateDef.description).toContain(
-      'Do NOT use this for "add to my tasks"',
-    );
-  });
-
-  test("redirects to task_list_add for task queue items", () => {
-    expect(scheduleCreateDef.description).toContain("task_list_add");
-  });
-
   test("does NOT suggest it handles task queue items", () => {
     expect(scheduleCreateDef.description).not.toContain("task queue");
     expect(scheduleCreateDef.description).not.toContain("one-off");
@@ -107,21 +72,7 @@ describe("schedule_create tool description", () => {
 });
 
 // =====================================================================
-// 3. Cross-tool consistency: schedule and task tools agree on routing boundaries
-// =====================================================================
-
-describe("cross-tool routing consistency", () => {
-  test("schedule_create redirects task requests to task_list_add", () => {
-    expect(scheduleCreateDef.description).toContain("task_list_add");
-  });
-
-  test('schedule_create rejects "add to my queue" usage', () => {
-    expect(scheduleCreateDef.description).toContain("add to my queue");
-  });
-});
-
-// =====================================================================
-// 4. Activation hints in skills catalog (replaces domain routing sections)
+// 3. Activation hints in skills catalog (replaces domain routing sections)
 // =====================================================================
 
 describe("Skills catalog and routing sections removed from system prompt", () => {

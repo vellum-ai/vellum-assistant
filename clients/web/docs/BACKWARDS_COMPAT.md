@@ -111,6 +111,31 @@ awaits `resolveSupportsAvatarStateManifest()` before branching).
 Keep the old code path until the gate is removed — the gate _is_ the
 contract that says it still has callers.
 
+## When a gate is unnecessary
+
+A new-endpoint feature may ship **without** a version gate when all of
+these hold:
+
+- it is a **read-only query** (no write whose legacy fallback could
+  mutate state a newer assistant ignores),
+- an older assistant's **404 degrades to exactly the feature-off
+  state** — the UI renders identically to "feature absent," with no
+  error surfaced to the user, and
+- the request stays quiet under failure: the app QueryClient **never
+  retries 4xx** (see `providers.tsx`), and the query disables refetch
+  triggers that would re-issue the failing request (e.g.
+  `refetchOnWindowFocus: false` when changes only arrive via
+  `sync_changed` invalidations).
+
+The cost of gatelessness is a single, unretried 404 per trigger from
+assistants that predate the endpoint. The benefit is that same-source
+self-hosted setups — where the daemon runs unreleased code but reports
+the last released `package.json` version, so every future-versioned
+gate reads as "unsupported" — get the feature without debug overrides.
+The workspace-theme query (`useWorkspaceTheme`) is the reference
+example. Writes, and reads whose fallback diverges from feature-off,
+still gate.
+
 ## The gates
 
 Each module owns one feature's old/new split. Current registry:

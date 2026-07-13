@@ -6,24 +6,13 @@
  * of "Unknown" after a conversation reload.
  */
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
+import { setConfig } from "./helpers/set-config.js";
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-    model: "test",
-    provider: "test",
-    memory: { enabled: false },
-    rateLimit: { maxRequestsPerMinute: 0 },
-  }),
-}));
+// The `addMessage` calls below don't skip indexing; keep memory off so no
+// background indexing kicks in.
+setConfig("memory", { enabled: false, v2: { enabled: false } });
 
 import {
   addMessage,

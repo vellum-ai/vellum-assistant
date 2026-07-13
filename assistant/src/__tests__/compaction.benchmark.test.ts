@@ -9,11 +9,6 @@
  */
 import { describe, expect, mock, test } from "bun:test";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
-}));
-
 // The compactor reads the conversation's image attachments from the DB to
 // build its manifest; with no images these return empty.
 mock.module("../persistence/conversation-crud.js", () => ({

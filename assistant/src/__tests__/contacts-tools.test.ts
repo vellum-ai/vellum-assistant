@@ -11,20 +11,6 @@ import {
 // Track the gateway URL; updated once the test server starts.
 let testGatewayUrl = "http://127.0.0.1:0";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-    memory: {},
-  }),
-}));
-
 // The tool implementations now call the gateway over HTTP.
 // Mock the env/token modules and spin up a lightweight test server
 // that delegates to the real route handlers (backed by the test DB).

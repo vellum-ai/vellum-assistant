@@ -1,6 +1,7 @@
 import type { Command } from "commander";
 
 import { cliIpcCall, exitFromIpcResult } from "../../../ipc/cli-client.js";
+import { subcommand } from "../../lib/cli-command-help.js";
 import { getCliLogger } from "../../logger.js";
 import { shouldOutputJson, writeOutput } from "../../output.js";
 
@@ -11,33 +12,8 @@ const log = getCliLogger("cli");
 // ---------------------------------------------------------------------------
 
 export function registerModeCommand(oauth: Command): void {
-  oauth
-    .command("mode <provider>")
-    .description("Get or set the OAuth mode for a provider")
-    .option(
-      "--set <mode>",
-      'Set the mode to "managed" (platform-handled credentials) or "your-own" (bring-your-own client ID and secret). Omit to show the current mode.',
-    )
-    .addHelpText(
-      "after",
-      `
-Arguments:
-  provider   Provider name (e.g. google, slack).
-             Run "assistant oauth providers list" to see available providers.
-
-Modes:
-  managed    OAuth credentials are managed by the Vellum platform. The
-             assistant connects via a platform-hosted authorization flow.
-             No local client ID or secret is needed.
-  your-own   You supply your own OAuth app credentials (client ID and
-             secret). The assistant runs the OAuth flow locally.
-
-Examples:
-  $ assistant oauth mode google
-  $ assistant oauth mode google --set your-own
-  $ assistant oauth mode google --set managed`,
-    )
-    .action(async (provider: string, opts: { set?: string }, cmd: Command) => {
+  subcommand(oauth, "mode").action(
+    async (provider: string, opts: { set?: string }, cmd: Command) => {
       try {
         if (opts.set === undefined) {
           // GET mode
@@ -107,5 +83,6 @@ Examples:
         writeOutput(cmd, { ok: false, error: message });
         process.exitCode = 1;
       }
-    });
+    },
+  );
 }

@@ -3,22 +3,9 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import type { ConversationCreatedInfo } from "../notifications/broadcaster.js";
 import type { NotificationDeliveryResult } from "../notifications/types.js";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-
-    calls: {
-      userConsultTimeoutSeconds: 120,
-    },
-  }),
-}));
+// Note: stale mock for channel-guardian-store.js removed — the barrel was
+// deleted and none of the functions it mocked (getActiveBinding, createBinding,
+// listActiveBindingsByAssistant) existed in the barrel.
 
 // The pending_question request principal is resolved via the gateway guardian
 // delivery for the vellum channel — the SAME source the Vellum actor uses — so

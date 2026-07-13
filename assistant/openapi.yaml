@@ -3,7 +3,7 @@
 openapi: 3.1.0
 info:
   title: Vellum Assistant API
-  version: 0.10.7
+  version: 0.10.8
   description: Auto-generated OpenAPI specification for the Vellum Assistant runtime HTTP server.
 servers:
   - url: http://127.0.0.1:7821
@@ -617,6 +617,27 @@ paths:
                 required:
                   - apps
                 additionalProperties: false
+  /v1/apps/{appId}/asset/{path}:
+    get:
+      operationId: apps_by_appId_asset_by_path_get
+      summary: Serve app asset
+      description: Serve a bundled binary asset (image, audio, video, font) from anywhere in an app's directory.
+      tags:
+        - apps
+      parameters:
+        - name: appId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: path
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
   /v1/apps/{appId}/dist/{filename}:
     get:
       operationId: apps_by_appId_dist_by_filename_get
@@ -6143,12 +6164,6 @@ paths:
           schema:
             type: integer
           description: Pagination offset (default 0)
-        - name: scope_id
-          in: query
-          required: false
-          schema:
-            type: string
-          description: Scope ID (default "default")
       responses:
         "200":
           description: Successful response
@@ -6648,221 +6663,6 @@ paths:
       operationId: conversations_by_id_get
       summary: Get conversation detail
       description: Retrieve a single conversation with full metadata.
-      tags:
-        - conversations
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        "200":
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  conversation:
-                    type: object
-                    properties:
-                      id:
-                        type: string
-                      title:
-                        type: string
-                      createdAt:
-                        type: number
-                      updatedAt:
-                        type: number
-                      lastMessageAt:
-                        anyOf:
-                          - type: number
-                          - type: "null"
-                      conversationType:
-                        type: string
-                        enum:
-                          - standard
-                          - background
-                          - scheduled
-                      source:
-                        type: string
-                      scheduleJobId:
-                        type: string
-                      channelBinding:
-                        type: object
-                        properties:
-                          sourceChannel:
-                            type: string
-                          externalChatId:
-                            type: string
-                          externalChatName:
-                            type: string
-                          externalThreadId:
-                            type: string
-                          externalUserId:
-                            anyOf:
-                              - type: string
-                              - type: "null"
-                          displayName:
-                            anyOf:
-                              - type: string
-                              - type: "null"
-                          username:
-                            anyOf:
-                              - type: string
-                              - type: "null"
-                          slackThread:
-                            type: object
-                            properties:
-                              channelId:
-                                type: string
-                              threadTs:
-                                type: string
-                              link:
-                                type: object
-                                properties:
-                                  appUrl:
-                                    type: string
-                                  webUrl:
-                                    type: string
-                                additionalProperties: false
-                            required:
-                              - channelId
-                              - threadTs
-                            additionalProperties: false
-                          slackChannel:
-                            type: object
-                            properties:
-                              channelId:
-                                type: string
-                              name:
-                                type: string
-                              link:
-                                type: object
-                                properties:
-                                  webUrl:
-                                    type: string
-                                required:
-                                  - webUrl
-                                additionalProperties: false
-                            required:
-                              - channelId
-                            additionalProperties: false
-                          sourceLink:
-                            type: object
-                            properties:
-                              appUrl:
-                                type: string
-                              webUrl:
-                                type: string
-                            additionalProperties: false
-                        required:
-                          - sourceChannel
-                          - externalChatId
-                          - externalUserId
-                          - displayName
-                          - username
-                        additionalProperties: false
-                      conversationOriginChannel:
-                        anyOf:
-                          - type: string
-                            enum:
-                              - telegram
-                              - phone
-                              - vellum
-                              - whatsapp
-                              - slack
-                              - email
-                              - platform
-                              - a2a
-                          - type: "null"
-                      assistantAttention:
-                        type: object
-                        properties:
-                          hasUnseenLatestAssistantMessage:
-                            type: boolean
-                          latestAssistantMessageAt:
-                            type: number
-                          lastSeenAssistantMessageAt:
-                            type: number
-                          lastSeenConfidence:
-                            type: string
-                            enum:
-                              - explicit
-                              - inferred
-                          lastSeenSignalType:
-                            type: string
-                            enum:
-                              - macos_notification_view
-                              - macos_conversation_opened
-                              - ios_conversation_opened
-                              - web_bulk_mark_read
-                              - telegram_inbound_message
-                              - telegram_callback
-                              - slack_inbound_message
-                              - slack_callback
-                        required:
-                          - hasUnseenLatestAssistantMessage
-                        additionalProperties: false
-                      isPinned:
-                        type: boolean
-                        const: true
-                      displayOrder:
-                        anyOf:
-                          - type: number
-                          - type: "null"
-                      groupId:
-                        anyOf:
-                          - type: string
-                          - type: "null"
-                      forkParent:
-                        type: object
-                        properties:
-                          conversationId:
-                            type: string
-                          messageId:
-                            type: string
-                          title:
-                            type: string
-                        required:
-                          - conversationId
-                          - messageId
-                          - title
-                        additionalProperties: false
-                      archivedAt:
-                        type: number
-                      surfacedAt:
-                        type: number
-                      inferenceProfile:
-                        type: string
-                      enabledPlugins:
-                        anyOf:
-                          - type: array
-                            items:
-                              type: string
-                          - type: "null"
-                      isProcessing:
-                        type: boolean
-                    required:
-                      - id
-                      - title
-                      - createdAt
-                      - updatedAt
-                      - lastMessageAt
-                      - conversationType
-                      - source
-                      - groupId
-                      - isProcessing
-                    additionalProperties: false
-                required:
-                  - conversation
-                additionalProperties: false
-  /v1/conversations/{id}/analyze:
-    post:
-      operationId: conversations_by_id_analyze_post
-      summary: Analyze a conversation
-      description: Create a new conversation with a structured self-assessment of an existing conversation.
       tags:
         - conversations
       parameters:
@@ -13909,6 +13709,57 @@ paths:
           description:
             Submitting client does not match the targeted client, or the submitting actor's principal does not match
             the target client's actor.
+  /v1/host-ui-snapshot-result:
+    post:
+      operationId: hostuisnapshotresult_post
+      summary: Submit host UI-snapshot result
+      description:
+        Resolve a pending UI-snapshot request by requestId. Returns 200 even when no pending interaction matches
+        (late delivery is tolerated).
+      tags:
+        - host
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                requestId:
+                  type: string
+                  description: Pending UI-snapshot request ID
+                pngBase64:
+                  type: string
+                  description: Base64 PNG capture of the staged view
+                widthPx:
+                  type: number
+                heightPx:
+                  type: number
+                isError:
+                  type: boolean
+                errorMessage:
+                  type: string
+              required:
+                - requestId
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  accepted:
+                    type: boolean
+                required:
+                  - accepted
+                additionalProperties: false
+        "400":
+          description: x-vellum-client-id header is missing for a targeted UI-snapshot request.
+        "403":
+          description:
+            Submitting client does not match the targeted client, or the submitting actor's principal does not match
+            the target client's actor.
   /v1/identity:
     get:
       operationId: identity_get
@@ -14016,6 +13867,96 @@ paths:
                   - images
                   - resolvedModel
                 additionalProperties: false
+  /v1/inference/active-profile:
+    put:
+      operationId: inference_activeprofile_put
+      summary: Set the active (chat) inference profile
+      description:
+        Set llm.activeProfile after validating the name against the effective profile catalog (provider-aware
+        default expansion included). Unknown or disabled profiles are rejected so the chat-model selection cannot be
+        silently stripped on the next config load.
+      tags:
+        - inference
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+              required:
+                - name
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                    const: true
+                  activeProfile:
+                    type: string
+                required:
+                  - ok
+                  - activeProfile
+                additionalProperties: false
+        "400":
+          description: Unknown or disabled profile name
+  /v1/inference/callsites:
+    get:
+      operationId: inference_callsites_get
+      summary: List call-site resolutions
+      description:
+        "Return the effective resolution for every LLM call site: the winning profile, its source (override /
+        active / call-site pin / shipped default), and the resolved provider/model plus notable tuning."
+      tags:
+        - inference
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  callSites:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/CallSiteResolutionSummary"
+                required:
+                  - callSites
+                additionalProperties: false
+  /v1/inference/callsites/{site}:
+    get:
+      operationId: inference_callsites_by_site_get
+      summary: Get a call-site resolution detail
+      description:
+        "Return the full resolution for one call site: the winner, the resolution chain (rungs considered and
+        skipped), the shipped default fragment, the user's pin fragment, and a preflight-derived resolution error when
+        dispatch would provably fail."
+      tags:
+        - inference
+      parameters:
+        - name: site
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CallSiteResolutionDetail"
+        "400":
+          description: Unknown call site
   /v1/inference/chatgpt-subscription/auth:
     post:
       operationId: inference_chatgptsubscription_auth_post
@@ -14077,6 +14018,239 @@ paths:
                 required:
                   - ok
                 additionalProperties: false
+  /v1/inference/models:
+    get:
+      operationId: inference_models_get
+      summary: List inference catalog models
+      description:
+        Return every model in the code-owned provider catalog, each tagged with its provider. Optionally filter by
+        provider with ?provider=<id>.
+      tags:
+        - inference
+      parameters:
+        - name: provider
+          in: query
+          required: false
+          schema:
+            type: string
+          description:
+            "Filter by provider id. One of: anthropic, openai, gemini, ollama, fireworks, together, openrouter,
+            vercel-ai-gateway, openai-compatible, minimax, atlascloud"
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  models:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/CatalogModel"
+                required:
+                  - models
+                additionalProperties: false
+        "400":
+          description: Unknown provider filter
+  /v1/inference/profiles:
+    get:
+      operationId: inference_profiles_get
+      summary: List effective inference profiles
+      description:
+        "Return the effective profile catalog: code-defined managed defaults merged with user profiles, each
+        annotated with source and (when it has a connection) availability."
+      tags:
+        - inference
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  profiles:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/InferenceProfileSummary"
+                required:
+                  - profiles
+                additionalProperties: false
+    post:
+      operationId: inference_profiles_post
+      summary: Create an inference profile
+      description:
+        Create a validated custom profile. The provider must be a known LLM provider, the model must be in the
+        catalog (unless allowUnlisted), and a referenced connection must exist. Managed default names cannot be created.
+      tags:
+        - inference
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                provider:
+                  type: string
+                  minLength: 1
+                model:
+                  type: string
+                  minLength: 1
+                connection:
+                  type: string
+                  minLength: 1
+                label:
+                  type: string
+                  minLength: 1
+                effort:
+                  type: string
+                maxTokens:
+                  type: integer
+                  exclusiveMinimum: 0
+                  maximum: 9007199254740991
+                temperature:
+                  type: number
+                thinking:
+                  type: boolean
+                description:
+                  type: string
+                allowUnlisted:
+                  type: boolean
+              required:
+                - name
+                - provider
+                - model
+      responses:
+        "201":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InferenceProfileWriteResult"
+        "400":
+          description: Invalid provider, uncataloged model, or missing connection
+        "409":
+          description: A profile with this name already exists
+  /v1/inference/profiles/{name}:
+    delete:
+      operationId: inference_profiles_by_name_delete
+      summary: Delete an inference profile
+      description: Delete a custom profile. Managed default profiles cannot be deleted (they are re-seeded on boot).
+      tags:
+        - inference
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                    const: true
+                  name:
+                    type: string
+                required:
+                  - ok
+                  - name
+                additionalProperties: false
+        "400":
+          description: Attempt to delete a managed profile
+        "404":
+          description: Profile not found
+        "409":
+          description: Profile is still referenced by activeProfile, advisorProfile, a call site, or a mix arm
+    get:
+      operationId: inference_profiles_by_name_get
+      summary: Get an effective inference profile
+      description: Return a single effective profile by name, with availability.
+      tags:
+        - inference
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InferenceProfileDetail"
+        "404":
+          description: Profile not found
+    patch:
+      operationId: inference_profiles_by_name_patch
+      summary: Update an inference profile
+      description:
+        Partial update of a custom profile with the same write-time validation as create. Managed default profiles
+        are read-only.
+      tags:
+        - inference
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                provider:
+                  type: string
+                  minLength: 1
+                model:
+                  type: string
+                  minLength: 1
+                connection:
+                  type: string
+                  minLength: 1
+                label:
+                  type: string
+                  minLength: 1
+                effort:
+                  type: string
+                maxTokens:
+                  type: integer
+                  exclusiveMinimum: 0
+                  maximum: 9007199254740991
+                temperature:
+                  type: number
+                thinking:
+                  type: boolean
+                description:
+                  type: string
+                allowUnlisted:
+                  type: boolean
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InferenceProfileWriteResult"
+        "400":
+          description: Invalid fields, or attempt to edit a managed profile
+        "404":
+          description: Profile not found
   /v1/inference/provider-connections:
     get:
       operationId: inference_providerconnections_get
@@ -16511,7 +16685,7 @@ paths:
                     type: object
                     properties: {}
                     additionalProperties: {}
-                    description: Memory item with scopeLabel and graph metadata
+                    description: Memory item with graph metadata
                 required:
                   - item
                 additionalProperties: false
@@ -16562,6 +16736,147 @@ paths:
                 additionalProperties: false
         "409":
           description: Another memory item with this content already exists
+  /v1/memory-nodes:
+    get:
+      operationId: memorynodes_get
+      summary: List memory graph nodes
+      description:
+        Return active memory graph nodes ordered by significance. With `search`, all nodes are scanned so the
+        content filter is exhaustive; without it the query is capped at `limit` rows.
+      tags:
+        - memory
+      parameters:
+        - name: search
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter nodes whose content contains the query
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: Max results (default 50, max 200)
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                  nodes:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        content:
+                          type: string
+                        type:
+                          type: string
+                        fidelity:
+                          type: string
+                        created:
+                          type: number
+                      required:
+                        - id
+                        - content
+                        - type
+                        - fidelity
+                        - created
+                      additionalProperties: false
+                  total:
+                    type: number
+                required:
+                  - success
+                  - message
+                  - nodes
+                  - total
+                additionalProperties: false
+  /v1/memory-nodes/delete:
+    post:
+      operationId: memorynodes_delete_post
+      summary: Delete a memory graph node by content match
+      description:
+        "Delete the single memory graph node matching `content`: a case-insensitive exact match takes priority;
+        with no exact match, a substring match is tried. Fails as `{ success: false }` when zero or multiple nodes
+        match."
+      tags:
+        - memory
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                content:
+                  type: string
+              required:
+                - content
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                required:
+                  - success
+                  - message
+                additionalProperties: false
+  /v1/memory-nodes/update:
+    post:
+      operationId: memorynodes_update_post
+      summary: Update a memory graph node by content match
+      description:
+        "Replace the content of the single memory graph node matching `oldContent`: a case-insensitive exact match
+        takes priority; with no exact match, a substring match is tried. Fails as `{ success: false }` when zero or
+        multiple nodes match, or when another active node already has `newContent`."
+      tags:
+        - memory
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                oldContent:
+                  type: string
+                newContent:
+                  type: string
+              required:
+                - oldContent
+                - newContent
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                required:
+                  - success
+                  - message
+                additionalProperties: false
   /v1/memory/eval/run:
     post:
       operationId: memory_eval_run_post
@@ -17292,7 +17607,7 @@ paths:
     post:
       operationId: memory_worker_start_post
       summary: Start the memory worker
-      description: Spawns (or reuses) the memory worker process as a child of the daemon and enables memory.worker.enabled.
+      description: Spawns (or reuses) the memory worker process as a child of the daemon.
       tags:
         - system
       responses:
@@ -17307,15 +17622,11 @@ paths:
                     type: number
                   alreadyRunning:
                     type: boolean
-                  workerEnabled:
-                    type: boolean
-                    const: true
                   pidPath:
                     type: string
                 required:
                   - pid
                   - alreadyRunning
-                  - workerEnabled
                   - pidPath
                 additionalProperties: false
   /v1/memory/worker/status:
@@ -17323,8 +17634,8 @@ paths:
       operationId: memory_worker_status_get
       summary: Memory worker status
       description:
-        Reports the memory worker process state, memory.worker.enabled, the synchronous in-process runner, and the
-        embedding-backend status (including a degraded flag and reason when no backend resolves).
+        Reports the memory worker process liveness and the embedding-backend status (including a degraded flag and
+        reason when no backend resolves).
       tags:
         - system
       responses:
@@ -17342,21 +17653,6 @@ paths:
                       - not_running
                   pid:
                     type: number
-                  workerEnabled:
-                    type: boolean
-                  syncRunner:
-                    type: object
-                    properties:
-                      status:
-                        type: string
-                        enum:
-                          - running
-                          - not_running
-                      pid:
-                        type: number
-                    required:
-                      - status
-                    additionalProperties: false
                   embedding:
                     type: object
                     properties:
@@ -17390,15 +17686,13 @@ paths:
                     additionalProperties: false
                 required:
                   - status
-                  - workerEnabled
-                  - syncRunner
                   - embedding
                 additionalProperties: false
   /v1/memory/worker/stop:
     post:
       operationId: memory_worker_stop_post
       summary: Stop the memory worker
-      description: Disables memory.worker.enabled and SIGTERMs the memory worker process if it is running.
+      description: SIGTERMs the memory worker process if it is running.
       tags:
         - system
       responses:
@@ -17413,12 +17707,8 @@ paths:
                     type: boolean
                   pid:
                     type: number
-                  workerEnabled:
-                    type: boolean
-                    const: false
                 required:
                   - workerWasRunning
-                  - workerEnabled
                 additionalProperties: false
   /v1/messages:
     get:
@@ -17484,10 +17774,6 @@ paths:
                           enum:
                             - user
                             - assistant
-                        content:
-                          type: string
-                          deprecated: true
-                          description: "Deprecated: superseded by contentBlocks. Flat plain-text body (joined text segments)."
                         timestamp:
                           type: string
                         attachments:
@@ -17539,6 +17825,10 @@ paths:
                               imageData:
                                 type: string
                               imageDataList:
+                                type: array
+                                items:
+                                  type: string
+                              imageAttachmentIds:
                                 type: array
                                 items:
                                   type: string
@@ -17971,6 +18261,10 @@ paths:
                                       imageData:
                                         type: string
                                       imageDataList:
+                                        type: array
+                                        items:
+                                          type: string
+                                      imageAttachmentIds:
                                         type: array
                                         items:
                                           type: string
@@ -22816,7 +23110,10 @@ paths:
           required: false
           schema:
             type: string
-          description: Optional git ref to list the catalog at. Defaults to the CLI's `DEFAULT_PLUGIN_REF` (typically `main`).
+          description:
+            Accepted for backward compatibility. The catalog is resolved from the Vellum platform (or the bundled
+            manifest when platform features are disabled); this ref does not select a git revision — it is echoed back
+            and used as the cache key. Defaults to the CLI's `DEFAULT_PLUGIN_REF` (typically `main`).
       responses:
         "200":
           description: Successful response
@@ -25203,9 +25500,7 @@ paths:
     post:
       operationId: schedules_worker_start_post
       summary: Start the schedule worker
-      description:
-        Spawns (or reuses) the schedule worker process as a child of the daemon and enables
-        schedules.worker.enabled, so scheduled jobs run out of process.
+      description: Spawns (or reuses) the schedule worker process as a child of the daemon.
       tags:
         - system
       responses:
@@ -25220,24 +25515,18 @@ paths:
                     type: number
                   alreadyRunning:
                     type: boolean
-                  workerEnabled:
-                    type: boolean
-                    const: true
                   pidPath:
                     type: string
                 required:
                   - pid
                   - alreadyRunning
-                  - workerEnabled
                   - pidPath
                 additionalProperties: false
   /v1/schedules/worker/status:
     get:
       operationId: schedules_worker_status_get
       summary: Schedule worker status
-      description:
-        Reports the schedule worker process state, schedules.worker.enabled, and whether the daemon's in-process
-        scheduler is currently executing schedules.
+      description: Reports the schedule worker process liveness.
       tags:
         - system
       responses:
@@ -25255,33 +25544,14 @@ paths:
                       - not_running
                   pid:
                     type: number
-                  workerEnabled:
-                    type: boolean
-                  inProcessScheduler:
-                    type: object
-                    properties:
-                      status:
-                        type: string
-                        enum:
-                          - running
-                          - not_running
-                      pid:
-                        type: number
-                    required:
-                      - status
-                    additionalProperties: false
                 required:
                   - status
-                  - workerEnabled
-                  - inProcessScheduler
                 additionalProperties: false
   /v1/schedules/worker/stop:
     post:
       operationId: schedules_worker_stop_post
       summary: Stop the schedule worker
-      description:
-        Disables schedules.worker.enabled (handing schedule execution back to the in-process scheduler) and
-        SIGTERMs the schedule worker process if it is running.
+      description: SIGTERMs the schedule worker process if it is running.
       tags:
         - system
       responses:
@@ -25296,12 +25566,8 @@ paths:
                     type: boolean
                   pid:
                     type: number
-                  workerEnabled:
-                    type: boolean
-                    const: false
                 required:
                   - workerWasRunning
-                  - workerEnabled
                 additionalProperties: false
   /v1/search:
     get:
@@ -28705,375 +28971,13 @@ paths:
                   - title
                   - data
                 additionalProperties: false
-  /v1/tasks/delete:
-    post:
-      operationId: tasks_delete_post
-      summary: Delete task templates
-      description: Delete one or more task templates by ID.
-      tags:
-        - tasks
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                task_ids:
-                  minItems: 1
-                  type: array
-                  items:
-                    type: string
-                    minLength: 1
-              required:
-                - task_ids
-      responses:
-        "200":
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  ok:
-                    type: boolean
-                  content:
-                    type: string
-                required:
-                  - ok
-                  - content
-                additionalProperties: false
-  /v1/tasks/list:
-    post:
-      operationId: tasks_list_post
-      summary: List task templates
-      description: List all saved task templates.
-      tags:
-        - tasks
-      responses:
-        "200":
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  ok:
-                    type: boolean
-                  content:
-                    type: string
-                required:
-                  - ok
-                  - content
-                additionalProperties: false
-  /v1/tasks/queue/add:
-    post:
-      operationId: tasks_queue_add_post
-      summary: Add to task queue
-      description: Add a new work item to the task queue.
-      tags:
-        - tasks
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                task_id:
-                  type: string
-                task_name:
-                  type: string
-                title:
-                  type: string
-                execution_prompt:
-                  type: string
-                notes:
-                  type: string
-                priority_tier:
-                  type: number
-                sort_index:
-                  type: number
-                if_exists:
-                  type: string
-                  enum:
-                    - create_duplicate
-                    - reuse_existing
-                    - update_existing
-                required_tools:
-                  type: array
-                  items:
-                    type: string
-      responses:
-        "200":
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  content:
-                    type: string
-                  isError:
-                    type: boolean
-                required:
-                  - content
-                additionalProperties: false
-  /v1/tasks/queue/remove:
-    post:
-      operationId: tasks_queue_remove_post
-      summary: Remove from task queue
-      description: Remove a work item from the task queue.
-      tags:
-        - tasks
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                work_item_id:
-                  type: string
-                task_id:
-                  type: string
-                task_name:
-                  type: string
-                title:
-                  type: string
-                priority_tier:
-                  type: number
-                status:
-                  type: string
-                created_order:
-                  type: number
-      responses:
-        "200":
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  content:
-                    type: string
-                  isError:
-                    type: boolean
-                required:
-                  - content
-                additionalProperties: false
-  /v1/tasks/queue/run:
-    post:
-      operationId: tasks_queue_run_post
-      summary: Run next task queue item
-      description: Pick up and execute the next work item from the queue.
-      tags:
-        - tasks
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                work_item_id:
-                  type: string
-                task_name:
-                  type: string
-                title:
-                  type: string
-      responses:
-        "200":
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  content:
-                    type: string
-                  isError:
-                    type: boolean
-                required:
-                  - content
-                additionalProperties: false
-  /v1/tasks/queue/show:
-    post:
-      operationId: tasks_queue_show_post
-      summary: Show task queue
-      description: List work items in the task queue, optionally filtered by status.
-      tags:
-        - tasks
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                status:
-                  anyOf:
-                    - type: string
-                    - type: array
-                      items:
-                        type: string
-      responses:
-        "200":
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  content:
-                    type: string
-                  isError:
-                    type: boolean
-                required:
-                  - content
-                additionalProperties: false
-  /v1/tasks/queue/update:
-    post:
-      operationId: tasks_queue_update_post
-      summary: Update a task queue item
-      description: Update an existing work item in the task queue.
-      tags:
-        - tasks
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                work_item_id:
-                  type: string
-                task_id:
-                  type: string
-                task_name:
-                  type: string
-                title:
-                  type: string
-                priority_tier:
-                  type: number
-                notes:
-                  type: string
-                status:
-                  type: string
-                  enum:
-                    - queued
-                    - running
-                    - awaiting_review
-                    - done
-                    - failed
-                    - cancelled
-                    - archived
-                sort_index:
-                  type: number
-                filter_priority_tier:
-                  type: number
-                filter_status:
-                  type: string
-                created_order:
-                  type: number
-      responses:
-        "200":
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  content:
-                    type: string
-                  isError:
-                    type: boolean
-                required:
-                  - content
-                additionalProperties: false
-  /v1/tasks/run:
-    post:
-      operationId: tasks_run_post
-      summary: Run a task template
-      description: Execute a saved task template by name or ID.
-      tags:
-        - tasks
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                task_name:
-                  type: string
-                  minLength: 1
-                task_id:
-                  type: string
-                  minLength: 1
-                inputs:
-                  type: object
-                  propertyNames:
-                    type: string
-                  additionalProperties:
-                    type: string
-      responses:
-        "200":
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  ok:
-                    type: boolean
-                  content:
-                    type: string
-                required:
-                  - ok
-                  - content
-                additionalProperties: false
-  /v1/tasks/save:
-    post:
-      operationId: tasks_save_post
-      summary: Save a task template
-      description: Save the current conversation as a reusable task template.
-      tags:
-        - tasks
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                conversation_id:
-                  type: string
-                  minLength: 1
-                title:
-                  type: string
-                  minLength: 1
-      responses:
-        "200":
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  ok:
-                    type: boolean
-                  content:
-                    type: string
-                required:
-                  - ok
-                  - content
-                additionalProperties: false
   /v1/telemetry/flush:
     post:
       operationId: telemetry_flush_post
       summary: Flush pending telemetry events
-      description: Force-flush all pending usage, turn, and lifecycle telemetry events to the platform.
+      description:
+        Force-flush the telemetry events owned by the assistant process (turn events) to the platform. Other event
+        types are flushed on their own cycle by the resource monitor process.
       tags:
         - telemetry
       responses:
@@ -29705,6 +29609,71 @@ paths:
       responses:
         "200":
           description: Successful response
+  /v1/ui/snapshot:
+    post:
+      operationId: ui_snapshot_post
+      summary: Capture a staged UI snapshot
+      description:
+        Ask the connected desktop client to render a staged view of the app (sampler or chat) with the current
+        workspace-theme tokens applied and return a PNG capture. The staged views contain only fixed generic content.
+        Blocks until the client responds or the timeout elapses.
+      tags:
+        - host
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                view:
+                  default: sampler
+                  description: Which staged composition to capture
+                  type: string
+                  enum:
+                    - sampler
+                    - chat
+                timeoutMs:
+                  description: How long to wait for the client capture
+                  type: integer
+                  exclusiveMinimum: 0
+                  maximum: 120000
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  pngBase64:
+                    type: string
+                    description: Base64 PNG capture of the staged view
+                  widthPx:
+                    type: number
+                  heightPx:
+                    type: number
+                  themeSource:
+                    type: string
+                    enum:
+                      - workspace
+                      - invalid
+                      - none
+                  themeIssues:
+                    type: array
+                    items:
+                      type: string
+                  timedOut:
+                    type: boolean
+                  error:
+                    type: string
+                required:
+                  - ok
+                  - themeSource
+                  - themeIssues
+                additionalProperties: false
   /v1/usage/breakdown:
     get:
       operationId: usage_breakdown_get
@@ -30360,270 +30329,6 @@ paths:
                   - path
                   - mode
                 additionalProperties: false
-  /v1/work-items:
-    get:
-      operationId: workitems_get
-      summary: List work items
-      description: Return work items, optionally filtered by status.
-      tags:
-        - work-items
-      parameters:
-        - name: status
-          in: query
-          required: false
-          schema:
-            type: string
-            enum:
-              - pending
-              - running
-              - awaiting_review
-              - done
-              - failed
-              - cancelled
-              - archived
-          description: Filter by work item status
-      responses:
-        "200":
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  items:
-                    type: array
-                    items: {}
-                required:
-                  - items
-                additionalProperties: false
-  /v1/work-items/{id}:
-    delete:
-      operationId: workitems_by_id_delete
-      summary: Delete a work item
-      description: Permanently remove a work item.
-      tags:
-        - work-items
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        "200":
-          description: Successful response
-    get:
-      operationId: workitems_by_id_get
-      summary: Get a work item
-      description: Return a single work item by ID.
-      tags:
-        - work-items
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        "200":
-          description: Successful response
-    patch:
-      operationId: workitems_by_id_patch
-      summary: Update a work item
-      description: Partially update a work item's title, notes, status, or priority.
-      tags:
-        - work-items
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                title:
-                  type: string
-                notes:
-                  type: string
-                status:
-                  type: string
-                priorityTier:
-                  type: integer
-                  minimum: -9007199254740991
-                  maximum: 9007199254740991
-                sortIndex:
-                  type: integer
-                  minimum: -9007199254740991
-                  maximum: 9007199254740991
-              required:
-                - title
-                - notes
-                - status
-                - priorityTier
-                - sortIndex
-      responses:
-        "200":
-          description: Successful response
-  /v1/work-items/{id}/approve-permissions:
-    post:
-      operationId: workitems_by_id_approvepermissions_post
-      summary: Approve tool permissions
-      description: Pre-approve a set of tools for a work item before it runs.
-      tags:
-        - work-items
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                approvedTools:
-                  type: array
-                  items: {}
-                  description: Array of tool names to approve
-              required:
-                - approvedTools
-      responses:
-        "200":
-          description: Successful response
-  /v1/work-items/{id}/cancel:
-    post:
-      operationId: workitems_by_id_cancel_post
-      summary: Cancel a running work item
-      description: Abort a running work item and set its status to cancelled.
-      tags:
-        - work-items
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        "200":
-          description: Successful response
-        "404":
-          description: Work item not found
-        "409":
-          description: Work item is not running
-  /v1/work-items/{id}/complete:
-    post:
-      operationId: workitems_by_id_complete_post
-      summary: Complete a work item
-      description: Transition a work item from awaiting_review to done.
-      tags:
-        - work-items
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        "200":
-          description: Successful response
-  /v1/work-items/{id}/output:
-    get:
-      operationId: workitems_by_id_output_get
-      summary: Get work item output
-      description: Return the final output of a completed work item run.
-      tags:
-        - work-items
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        "200":
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  id:
-                    type: string
-                  success:
-                    type: boolean
-                  output:
-                    type: object
-                    properties: {}
-                    additionalProperties: {}
-                required:
-                  - id
-                  - success
-                  - output
-                additionalProperties: false
-  /v1/work-items/{id}/preflight:
-    post:
-      operationId: workitems_by_id_preflight_post
-      summary: Preflight check
-      description: Check tool permissions needed before running a work item.
-      tags:
-        - work-items
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        "200":
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  id:
-                    type: string
-                  success:
-                    type: boolean
-                  permissions:
-                    type: object
-                    properties: {}
-                    additionalProperties: {}
-                required:
-                  - id
-                  - success
-                  - permissions
-                additionalProperties: false
-  /v1/work-items/{id}/run:
-    post:
-      operationId: workitems_by_id_run_post
-      summary: Run a work item
-      description: Execute the task associated with a work item. Returns immediately; execution happens in the background.
-      tags:
-        - work-items
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        "200":
-          description: Successful response
-        "403":
-          description: Required tool permissions not approved
-        "404":
-          description: Work item or associated task not found
-        "409":
-          description: Work item is already running or not runnable
   /v1/workflows:
     get:
       operationId: workflows_get
@@ -31194,6 +30899,93 @@ paths:
                 required:
                   - oldPath
                   - newPath
+                additionalProperties: false
+  /v1/workspace/theme:
+    get:
+      operationId: workspace_theme_get
+      summary: Get workspace theme
+      description:
+        "Return validated design-token overrides from the workspace ui/theme.json. Absent or rejected files yield
+        theme: null with the rejection reasons in issues; clients fall back to built-in theme defaults."
+      tags:
+        - workspace
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  theme:
+                    anyOf:
+                      - type: object
+                        properties:
+                          version:
+                            type: number
+                            const: 1
+                          base:
+                            type: string
+                            enum:
+                              - light
+                              - dark
+                              - velvet
+                              - system
+                          tokens:
+                            type: object
+                            properties:
+                              accent:
+                                type: string
+                                pattern: ^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$
+                              background:
+                                type: string
+                                pattern: ^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$
+                              surface:
+                                type: string
+                                pattern: ^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$
+                              surfaceRaised:
+                                type: string
+                                pattern: ^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$
+                              border:
+                                type: string
+                                pattern: ^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$
+                              text:
+                                type: string
+                                pattern: ^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$
+                              textMuted:
+                                type: string
+                                pattern: ^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$
+                              assistantBubbleBackground:
+                                type: string
+                                pattern: ^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$
+                              assistantBubbleText:
+                                type: string
+                                pattern: ^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$
+                              userBubbleBackground:
+                                type: string
+                                pattern: ^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$
+                              userBubbleText:
+                                type: string
+                                pattern: ^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$
+                            additionalProperties: false
+                        required:
+                          - version
+                        additionalProperties: false
+                      - type: "null"
+                  source:
+                    type: string
+                    enum:
+                      - workspace
+                      - invalid
+                      - none
+                  issues:
+                    type: array
+                    items:
+                      type: string
+                required:
+                  - theme
+                  - source
+                  - issues
                 additionalProperties: false
   /v1/workspace/tree:
     get:
@@ -32656,6 +32448,274 @@ components:
       required:
         - provider
         - resolvedConnectionName
+        - availability
+      additionalProperties: false
+    CallSiteResolutionSummary:
+      type: object
+      properties:
+        callSite:
+          type: string
+        profile:
+          anyOf:
+            - type: string
+            - type: "null"
+        label:
+          anyOf:
+            - type: string
+            - type: "null"
+        source:
+          type: string
+          enum:
+            - override
+            - active
+            - call_site
+            - default
+        provider:
+          type: string
+        model:
+          type: string
+        effort:
+          type: string
+        maxTokens:
+          type: number
+        maxInputTokens:
+          type: number
+      required:
+        - callSite
+        - profile
+        - label
+        - source
+        - provider
+        - model
+        - effort
+        - maxTokens
+      additionalProperties: false
+    CallSiteResolutionDetail:
+      type: object
+      properties:
+        callSite:
+          type: string
+        winner:
+          type: object
+          properties:
+            profile:
+              anyOf:
+                - type: string
+                - type: "null"
+            label:
+              anyOf:
+                - type: string
+                - type: "null"
+            source:
+              type: string
+              enum:
+                - override
+                - active
+                - call_site
+                - default
+          required:
+            - profile
+            - label
+            - source
+          additionalProperties: false
+        resolved:
+          type: object
+          properties:
+            provider:
+              type: string
+            model:
+              type: string
+            maxTokens:
+              type: number
+            effort:
+              type: string
+            temperature:
+              anyOf:
+                - type: number
+                - type: "null"
+            maxInputTokens:
+              type: number
+          required:
+            - provider
+            - model
+            - maxTokens
+            - effort
+            - temperature
+          additionalProperties: false
+        resolutionChain:
+          type: array
+          items:
+            type: object
+            properties:
+              requested:
+                type: string
+              reason:
+                type: string
+                enum:
+                  - missing
+                  - disabled
+                  - incomplete
+            required:
+              - requested
+              - reason
+            additionalProperties: false
+        shippedDefault:
+          type: object
+          propertyNames:
+            type: string
+          additionalProperties: {}
+        userPin:
+          anyOf:
+            - type: object
+              propertyNames:
+                type: string
+              additionalProperties: {}
+            - type: "null"
+        resolutionError:
+          type: object
+          properties:
+            reason:
+              type: string
+            message:
+              type: string
+          required:
+            - reason
+            - message
+          additionalProperties: false
+      required:
+        - callSite
+        - winner
+        - resolved
+        - resolutionChain
+        - shippedDefault
+        - userPin
+      additionalProperties: false
+    CatalogModel:
+      type: object
+      properties:
+        provider:
+          type: string
+        id:
+          type: string
+        displayName:
+          type: string
+        contextWindowTokens:
+          type: number
+        maxOutputTokens:
+          type: number
+        supportsThinking:
+          type: boolean
+        supportsVision:
+          type: boolean
+        supportsToolUse:
+          type: boolean
+        featureFlag:
+          type: string
+      required:
+        - provider
+        - id
+        - displayName
+      additionalProperties: false
+    InferenceProfileSummary:
+      type: object
+      properties:
+        name:
+          type: string
+        label:
+          anyOf:
+            - type: string
+            - type: "null"
+        provider:
+          anyOf:
+            - type: string
+            - type: "null"
+        model:
+          anyOf:
+            - type: string
+            - type: "null"
+        status:
+          type: string
+          enum:
+            - active
+            - disabled
+        source:
+          type: string
+          enum:
+            - managed
+            - user
+        provider_connection:
+          type: string
+        availability:
+          anyOf:
+            - $ref: "#/components/schemas/ProfileConnectionAvailability"
+            - type: "null"
+      required:
+        - name
+        - label
+        - provider
+        - model
+        - status
+        - source
+        - availability
+      additionalProperties: false
+    ProfileConnectionAvailability:
+      type: object
+      properties:
+        status:
+          type: string
+          enum:
+            - ok
+            - missing_connection
+            - missing_credential
+            - provider_mismatch
+            - unsupported_auth
+            - vellum_unauthenticated
+            - unknown
+        message:
+          type: string
+      required:
+        - status
+      additionalProperties: false
+    InferenceProfileWriteResult:
+      type: object
+      properties:
+        ok:
+          type: boolean
+          const: true
+        name:
+          type: string
+        entry:
+          type: object
+          propertyNames:
+            type: string
+          additionalProperties: {}
+        warnings:
+          type: array
+          items:
+            type: string
+      required:
+        - ok
+        - name
+        - entry
+        - warnings
+      additionalProperties: false
+    InferenceProfileDetail:
+      type: object
+      properties:
+        name:
+          type: string
+        entry:
+          type: object
+          propertyNames:
+            type: string
+          additionalProperties: {}
+        availability:
+          anyOf:
+            - $ref: "#/components/schemas/ProfileConnectionAvailability"
+            - type: "null"
+      required:
+        - name
+        - entry
         - availability
       additionalProperties: false
     ProviderConnection:

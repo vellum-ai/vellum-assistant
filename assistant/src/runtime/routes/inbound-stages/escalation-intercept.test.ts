@@ -10,11 +10,6 @@
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-mock.module("../../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
-}));
-
 let mockBindingPrincipalId: string | null = null;
 let mockBindingPresent = true;
 mock.module("../../channel-verification-service.js", () => ({

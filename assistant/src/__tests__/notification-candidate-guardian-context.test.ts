@@ -12,13 +12,6 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // The recorder and candidate builder go through the gateway client; serve
 // that surface from the in-memory sim the tests seed.
 import {

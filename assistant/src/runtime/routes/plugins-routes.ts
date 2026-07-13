@@ -37,7 +37,6 @@ import {
   PluginInspectNotFoundError,
 } from "../../cli/lib/inspect-plugin.js";
 import {
-  DEFAULT_PLUGIN_REF,
   installPlugin,
   InvalidPluginNameError,
   PluginAlreadyInstalledError,
@@ -51,12 +50,16 @@ import {
 } from "../../cli/lib/list-installed-plugins.js";
 import { getPluginCatalog } from "../../cli/lib/plugin-catalog-cache.js";
 import {
+  DEFAULT_PIN_HISTORY_LIMIT,
+  DEFAULT_PLUGIN_REF,
+  type PluginUpgradeStrategy,
+} from "../../cli/lib/plugin-constants.js";
+import {
   getPluginDetails,
   PluginDetailsNotFoundError,
 } from "../../cli/lib/plugin-details.js";
 import { readValidatedPluginIcon } from "../../cli/lib/plugin-icon-file.js";
 import {
-  DEFAULT_PIN_HISTORY_LIMIT,
   listPinHistory,
   PluginPinHistoryError,
   resolvePinToMarketplaceCommit,
@@ -82,10 +85,10 @@ import {
 import {
   PluginMergeBaselineError,
   PluginNotUpgradableError,
-  type PluginUpgradeStrategy,
   upgradePlugin,
 } from "../../cli/lib/upgrade-plugin.js";
 import { isPluginDisabled } from "../../plugins/disabled-state.js";
+import { ensurePluginApiShim } from "../../plugins/ensure-plugin-api-shim.js";
 import { getLocalCategorySlugs } from "../../skills/categories-cache.js";
 import { getWorkspacePluginsDir } from "../../util/platform.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
@@ -753,9 +756,13 @@ export function normalizeMarketplaceCategory(
   raw: string | null | undefined,
   validSlugs: Set<string>,
 ): string | null {
-  if (!raw) return null;
+  if (!raw) {
+    return null;
+  }
   const slug = raw.trim().toLowerCase();
-  if (!slug) return null;
+  if (!slug) {
+    return null;
+  }
   const aliased = MARKETPLACE_CATEGORY_ALIASES[slug] ?? slug;
   return validSlugs.has(aliased) ? aliased : null;
 }
@@ -812,8 +819,12 @@ function projectMatch(
 
 function matchesQuery(plugin: PluginView, needle: string): boolean {
   const q = needle.toLowerCase();
-  if (plugin.id.toLowerCase().includes(q)) return true;
-  if (plugin.name.toLowerCase().includes(q)) return true;
+  if (plugin.id.toLowerCase().includes(q)) {
+    return true;
+  }
+  if (plugin.name.toLowerCase().includes(q)) {
+    return true;
+  }
   if (plugin.description && plugin.description.toLowerCase().includes(q)) {
     return true;
   }
@@ -857,12 +868,16 @@ export async function loadCategoryMapBounded(
         timer = setTimeout(() => resolve(null), timeoutMs);
       }),
     ]);
-    if (!catalog) return new Map();
+    if (!catalog) {
+      return new Map();
+    }
     return new Map(catalog.matches.map((m) => [m.name, m.category]));
   } catch {
     return new Map();
   } finally {
-    if (timer) clearTimeout(timer);
+    if (timer) {
+      clearTimeout(timer);
+    }
   }
 }
 
@@ -943,12 +958,11 @@ async function handleSearchPlugins({
 
   try {
     // Reject a malformed regex before any network I/O so a user typo is a
-    // cheap deterministic 400 — never a wasted GitHub request that could
-    // surface as 503 on a cold cache when upstream is rate-limited.
+    // cheap deterministic 400 rather than a wasted catalog fetch.
     assertValidSearchPattern(query);
-    // The catalog is cached per ref (and served stale on upstream failure),
-    // so repeated searches don't re-hit GitHub's unauthenticated rate limit.
-    // Filtering by the query is an in-memory operation over that catalog.
+    // getPluginCatalog is platform-first (or the bundled manifest when platform
+    // features are disabled) and fails hard on a platform error — never served
+    // stale. Filtering by the query is in-memory over the resolved catalog.
     const catalog = await getPluginCatalog(ref, {
       fetch: globalThis.fetch.bind(globalThis),
     });
@@ -969,8 +983,8 @@ async function handleSearchPlugins({
     if (err instanceof InvalidSearchPatternError) {
       throw new BadRequestError(err.message);
     }
-    // A rate-limited or unavailable upstream (with no cache to fall back on)
-    // is transient and retryable — surface it as 503 rather than a
+    // A rate-limited or unavailable platform (no stale catalog to fall back
+    // on) is transient and retryable — surface it as 503 rather than a
     // misleading 500 so the client can show a "temporarily unavailable"
     // state and retry later.
     if (err instanceof PluginCatalogUnavailableError) {
@@ -1000,6 +1014,16 @@ async function handleUninstallPlugin({
   // `sanitizePluginName` check the CLI uses, so attacker-supplied
   // `../escape` style names get rejected before `rmSync` is reached.
   const rawName = pathParams.name ?? "";
+
+  // The daemon marks itself DB-ready and serves HTTP before
+  // `initializePlugins()` materializes the workspace `@vellumai/plugin-api`
+  // shim, so a DELETE that lands in that boot window would run a plugin's
+  // `shutdown` hook before the shim exists — a hook importing the package
+  // would fail to resolve and be silently skipped before the directory is
+  // removed. Ensure the shim here first. Best-effort and idempotent: outside
+  // that window it's a cheap no-op rewrite, and a failure just means such a
+  // hook's import may not resolve.
+  await ensurePluginApiShim().catch(() => {});
 
   try {
     const result = await uninstallPlugin({ name: rawName });
@@ -1062,7 +1086,9 @@ async function resolveInstallMarketplaceRef(
   name: string,
   pin: string | undefined,
 ): Promise<string> {
-  if (!pin) return DEFAULT_PLUGIN_REF;
+  if (!pin) {
+    return DEFAULT_PLUGIN_REF;
+  }
   const entry = await resolvePinToMarketplaceCommit(name, pin, {
     fetch: globalThis.fetch.bind(globalThis),
   });
@@ -1470,7 +1496,7 @@ export const ROUTES: RouteDefinition[] = [
         name: "ref",
         schema: { type: "string" },
         description:
-          "Optional git ref to list the catalog at. Defaults to the CLI's `DEFAULT_PLUGIN_REF` (typically `main`).",
+          "Accepted for backward compatibility. The catalog is resolved from the Vellum platform (or the bundled manifest when platform features are disabled); this ref does not select a git revision — it is echoed back and used as the cache key. Defaults to the CLI's `DEFAULT_PLUGIN_REF` (typically `main`).",
       },
     ],
     responseBody: pluginsSearchResponseSchema,

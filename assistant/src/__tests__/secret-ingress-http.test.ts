@@ -1,64 +1,12 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { setConfig } from "./helpers/set-config.js";
+
 // ---------------------------------------------------------------------------
 // Mocks — must be declared before any imports that depend on them
 // ---------------------------------------------------------------------------
 
-const BASE_CONFIG = {
-  contextWindow: { maxInputTokens: 100000 },
-  services: { inference: { model: "test-model", provider: "test-provider" } },
-  llm: {
-    default: {
-      provider: "anthropic",
-      model: "claude-opus-4-7",
-      maxTokens: 64000,
-      effort: "max" as const,
-      speed: "standard" as const,
-      temperature: null,
-      thinking: { enabled: true, streamThinking: true },
-      contextWindow: {
-        enabled: true,
-        maxInputTokens: 200000,
-        targetBudgetRatio: 0.3,
-        compactThreshold: 0.8,
-        summaryBudgetRatio: 0.05,
-        overflowRecovery: {
-          enabled: true,
-          safetyMarginRatio: 0.05,
-          maxAttempts: 3,
-          interactiveLatestTurnCompression: "summarize",
-          nonInteractiveLatestTurnCompression: "truncate",
-        },
-      },
-    },
-    profiles: {},
-    callSites: {},
-    pricingOverrides: [],
-  },
-};
-
-let mockConfig: Record<string, unknown> = {
-  secretDetection: {
-    enabled: true,
-    blockIngress: true,
-  },
-  ...BASE_CONFIG,
-};
-
 mock.module("../config/env.js", () => ({ isHttpAuthDisabled: () => true }));
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => mockConfig,
-  loadConfig: () => mockConfig,
-  invalidateConfigCache: () => {},
-}));
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
 
 mock.module("../persistence/conversation-key-store.js", () => ({
   getOrCreateConversation: () => ({ conversationId: "conv-test" }),
@@ -245,13 +193,10 @@ function makeSendMessageDeps() {
 
 describe("secret ingress — HTTP route", () => {
   beforeEach(() => {
-    mockConfig = {
-      secretDetection: {
-        enabled: true,
-        blockIngress: true,
-      },
-      ...BASE_CONFIG,
-    };
+    setConfig("secretDetection", {
+      enabled: true,
+      blockIngress: true,
+    });
     persistUserMessageMock.mockClear();
     runAgentLoopMock.mockClear();
     addMessageMock.mockClear();
@@ -321,13 +266,10 @@ describe("secret ingress — HTTP route", () => {
   });
 
   test("POST /v1/messages with blockIngress: false config and secret returns 202", async () => {
-    mockConfig = {
-      secretDetection: {
-        enabled: true,
-        blockIngress: false,
-      },
-      ...BASE_CONFIG,
-    };
+    setConfig("secretDetection", {
+      enabled: true,
+      blockIngress: false,
+    });
 
     const req = makeRequest({
       content: "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij1234",

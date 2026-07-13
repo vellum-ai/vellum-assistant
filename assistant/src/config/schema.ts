@@ -3,7 +3,6 @@ import { z } from "zod";
 import { getDataDir } from "../util/platform.js";
 
 // Re-export domain schemas that have external consumers
-export { AnalysisConfigSchema } from "./schemas/analysis.js";
 export type { BackupConfig, BackupDestination } from "./schemas/backup.js";
 export { BackupConfigSchema } from "./schemas/backup.js";
 export { VALID_CALLER_IDENTITY_MODES } from "./schemas/calls.js";
@@ -16,7 +15,6 @@ export type { SkillEntryConfig } from "./schemas/skills.js";
 
 // Imports for AssistantConfigSchema composition
 import { AcpConfigSchema } from "./acp-schema.js";
-import { AnalysisConfigSchema } from "./schemas/analysis.js";
 import { BackupConfigSchema } from "./schemas/backup.js";
 import { CallsConfigSchema } from "./schemas/calls.js";
 import {
@@ -51,7 +49,6 @@ import {
   PlatformConfigSchema,
   UiConfigSchema,
 } from "./schemas/platform.js";
-import { SchedulesConfigSchema } from "./schemas/schedules.js";
 import { SecretDetectionConfigSchema } from "./schemas/security.js";
 import { ServicesSchema } from "./schemas/services.js";
 import { SkillsConfigSchema } from "./schemas/skills.js";
@@ -70,7 +67,6 @@ export const AssistantConfigSchema = z
     monitoring: MonitoringConfigSchema.default(
       MonitoringConfigSchema.parse({}),
     ),
-    schedules: SchedulesConfigSchema.default(SchedulesConfigSchema.parse({})),
     migrations: MigrationsConfigSchema.default(
       MigrationsConfigSchema.parse({}),
     ),
@@ -107,7 +103,6 @@ export const AssistantConfigSchema = z
       ConversationsConfigSchema.parse({}),
     ),
     journal: JournalConfigSchema.default(JournalConfigSchema.parse({})),
-    analysis: AnalysisConfigSchema.default(AnalysisConfigSchema.parse({})),
     backup: BackupConfigSchema.default(BackupConfigSchema.parse({})),
     mcp: McpConfigSchema.default(McpConfigSchema.parse({})),
     acp: AcpConfigSchema.default(AcpConfigSchema.parse({})),
