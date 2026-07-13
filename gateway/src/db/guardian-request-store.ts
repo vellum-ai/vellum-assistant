@@ -19,11 +19,11 @@ import {
   or,
 } from "drizzle-orm";
 
-import type {
-  GuardianRequestDeliveryWire,
-  GuardianRequestSourceType,
-  GuardianRequestStatus,
-  GuardianRequestWire,
+import {
+  type GuardianRequestDeliveryWire,
+  type GuardianRequestStatus,
+  type GuardianRequestWire,
+  isGuardianRequestExpired,
 } from "@vellumai/gateway-client";
 
 import { getGatewayDb } from "./connection.js";
@@ -41,11 +41,6 @@ function rawClient(): Database {
 // Types (single-sourced from the shared contract)
 // ---------------------------------------------------------------------------
 
-export type {
-  GuardianRequestSourceType,
-  GuardianRequestStatus,
-} from "@vellumai/gateway-client";
-
 /**
  * Request row as the store returns it — the wire DTO minus `sourceType`,
  * which is computed by the service mapper (the column is not stored).
@@ -57,9 +52,11 @@ export type GuardianRequestDelivery = GuardianRequestDeliveryWire;
 
 /**
  * Thrown when a create violates a store integrity invariant. Carries a
- * stable machine-readable `code` so the IPC layer can map it onto the wire.
+ * stable machine-readable `code` and a 4xx `statusCode` so the IPC error
+ * envelope surfaces it as a client error.
  */
 export class GuardianRequestIntegrityError extends Error {
+  readonly statusCode = 400;
   readonly code = "guardian_principal_required";
 
   constructor(message: string) {
@@ -69,38 +66,8 @@ export class GuardianRequestIntegrityError extends Error {
 }
 
 // ---------------------------------------------------------------------------
-// Expiry / source-type helpers
+// Source-type filter translation
 // ---------------------------------------------------------------------------
-
-/**
- * Returns true when a request has passed its `expiresAt` deadline.
- * Requests without an `expiresAt` are never considered expired by this check.
- */
-export function isRequestExpired(
-  request: Pick<GuardianRequest, "expiresAt">,
-): boolean {
-  if (!request.expiresAt) {
-    return false;
-  }
-  return request.expiresAt < Date.now();
-}
-
-/**
- * Derive the presentation-level source type from the provenance channel.
- * The gateway table does not store source_type — it is mechanical:
- * phone → voice, vellum → desktop, everything else (incl. null) → channel.
- */
-export function deriveSourceType(
-  sourceChannel: string | null,
-): GuardianRequestSourceType {
-  if (sourceChannel === "phone") {
-    return "voice";
-  }
-  if (sourceChannel === "vellum") {
-    return "desktop";
-  }
-  return "channel";
-}
 
 function sourceTypeCondition(sourceType: string) {
   if (sourceType === "voice") {
@@ -237,7 +204,9 @@ export interface CreateGuardianRequestParams {
 /**
  * Request kinds that require a guardian decision (approve/deny). These kinds
  * MUST have a `guardianPrincipalId` bound at creation time so the decision
- * can be attributed to a specific principal. Informational kinds are exempt.
+ * can be attributed to a specific principal. The contract already requires
+ * the principal for every admitted kind — this guard is a second layer of
+ * defense for callers that reach the store without IPC-schema validation.
  */
 const DECISIONABLE_KINDS = new Set([
   "tool_approval",
@@ -846,7 +815,7 @@ export function listPendingByConversationScope(
   const result: GuardianRequest[] = [];
 
   for (const req of [...bySource, ...byDestination]) {
-    if (!seen.has(req.id) && !isRequestExpired(req)) {
+    if (!seen.has(req.id) && !isGuardianRequestExpired(req)) {
       seen.add(req.id);
       result.push(req);
     }

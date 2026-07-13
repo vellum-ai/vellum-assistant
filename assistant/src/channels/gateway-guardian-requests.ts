@@ -11,14 +11,14 @@
  * pinned to.
  *
  * Error posture (fail-closed — there is no local fallback):
- * - Lifecycle writes (create, update, decide, reopen, expire, sweep,
- *   delivery writes) THROW on any transport failure or malformed response.
- *   A guardian decision that cannot persist must fail loudly, never fake
- *   success.
- * - Reads used for hints/dedup/scope export a throwing default plus a
- *   degrading variant (`...OrNull` / `...OrEmpty` / `...OrFalse`) that logs
- *   the failure and returns the empty value — for deny-path callers that
- *   must degrade to "no data" instead of blocking.
+ * - Lifecycle writes (create, update, decide, expire, sweep, delivery
+ *   writes) THROW on any transport failure or malformed response. A guardian
+ *   decision that cannot persist must fail loudly, never fake success.
+ * - Reads used for hints/dedup/scope THROW by default; ones whose only
+ *   callers are deny paths that must degrade to "no data" instead of
+ *   blocking are exported solely as a degrading variant (`...OrNull` /
+ *   `...OrEmpty` / `...OrFalse`) that logs the failure and returns the
+ *   empty value.
  */
 
 import {
@@ -39,7 +39,6 @@ import {
   GuardianRequestMutationIpcResponseSchema,
   type GuardianRequestPatch,
   type GuardianRequestsIpcMethod,
-  type GuardianRequestStatus,
   type GuardianRequestWire,
   type ListGuardianRequestsIpcParams,
   type ListPendingGuardianRequestsByDestinationIpcParams,
@@ -142,7 +141,7 @@ export const getGuardianRequestOrNull = degradeOnFailure(
  * Look up a PENDING guardian request by its short request code. Throws on
  * transport failure.
  */
-export async function getGuardianRequestByCode(
+async function getGuardianRequestByCode(
   code: string,
 ): Promise<GuardianRequestWire | null> {
   return callGateway(
@@ -159,7 +158,7 @@ export const getGuardianRequestByCodeOrNull = degradeOnFailure(
 );
 
 /** List guardian requests matching the filters. Throws on transport failure. */
-export async function listGuardianRequests(
+async function listGuardianRequests(
   filters: ListGuardianRequestsIpcParams = {},
 ): Promise<GuardianRequestWire[]> {
   return callGateway(
@@ -199,17 +198,6 @@ export async function decideGuardianRequest(
     params as unknown as Record<string, unknown>,
     DecideGuardianRequestIpcResponseSchema,
   );
-}
-
-/**
- * Reopen a terminal request back to pending (CAS from `fromStatus`). Throws
- * on any failure (fail-closed).
- */
-export async function reopenGuardianRequest(
-  id: string,
-  fromStatus: GuardianRequestStatus,
-): Promise<void> {
-  await callMutation(GUARDIAN_REQUESTS_IPC_METHODS.reopen, { id, fromStatus });
 }
 
 /**
@@ -297,7 +285,7 @@ export const listGuardianRequestDeliveriesOrEmpty = degradeOnFailure(
  * Reaction routing: the pending request whose delivered card is the
  * reacted-to message. Throws on transport failure.
  */
-export async function getPendingRequestByDestinationMessage(
+async function getPendingRequestByDestinationMessage(
   channel: string,
   chatId: string,
   messageId: string,
@@ -320,7 +308,7 @@ export const getPendingRequestByDestinationMessageOrNull = degradeOnFailure(
  * (`conversationId`, optionally narrowed by `channel`) or chat
  * (`channel` + `chatId`). Throws on transport failure.
  */
-export async function listPendingRequestsByDestination(
+async function listPendingRequestsByDestination(
   params: ListPendingGuardianRequestsByDestinationIpcParams,
 ): Promise<GuardianRequestWire[]> {
   return callGateway(
@@ -362,7 +350,7 @@ export const listPendingRequestsByScopeOrEmpty = degradeOnFailure(
  * match, or delivery match optionally narrowed by `channel`)? Throws on
  * transport failure.
  */
-export async function isGuardianRequestInScope(
+async function isGuardianRequestInScope(
   requestId: string,
   conversationId: string,
   channel?: string,
@@ -405,7 +393,7 @@ export const getPendingRequestByCallSessionOrNull = degradeOnFailure(
  * The request carrying a specific voice pending-question id. Throws on
  * transport failure.
  */
-export async function getRequestByPendingQuestion(
+async function getRequestByPendingQuestion(
   pendingQuestionId: string,
 ): Promise<GuardianRequestWire | null> {
   return callGateway(

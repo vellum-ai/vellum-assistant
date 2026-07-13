@@ -7,7 +7,6 @@ import { guardianRequestDeliveries, guardianRequests } from "../schema.js";
 import {
   createDelivery,
   createGuardianRequest,
-  deriveSourceType,
   expireAllPendingInteractionBound,
   expireGuardianRequest,
   generateRequestCode,
@@ -145,6 +144,8 @@ describe("createGuardianRequest", () => {
       expect((thrown as GuardianRequestIntegrityError).code).toBe(
         "guardian_principal_required",
       );
+      // Surfaces as a 4xx client error over IPC.
+      expect((thrown as GuardianRequestIntegrityError).statusCode).toBe(400);
     }
     expect(listGuardianRequests()).toHaveLength(0);
   });
@@ -289,15 +290,6 @@ describe("listGuardianRequests", () => {
         .map((r) => r.id)
         .sort(),
     ).toEqual([telegram.id, channelless.id].sort());
-  });
-});
-
-describe("deriveSourceType", () => {
-  test("maps phone → voice, vellum → desktop, else channel", () => {
-    expect(deriveSourceType("phone")).toBe("voice");
-    expect(deriveSourceType("vellum")).toBe("desktop");
-    expect(deriveSourceType("telegram")).toBe("channel");
-    expect(deriveSourceType(null)).toBe("channel");
   });
 });
 

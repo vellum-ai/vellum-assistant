@@ -3,8 +3,8 @@
  *
  * Thin lifecycle layer over the guardian-request store, serving the
  * `guardian_requests_*` IPC routes. Store-row ↔ wire-DTO mapping lives here:
- * the row type is the wire DTO minus `sourceType`, which the mapper computes
- * from `sourceChannel` (phone → voice, vellum → desktop, else channel).
+ * the row type is the wire DTO minus `sourceType`, which the mapper derives
+ * from `sourceChannel` via the shared contract helper.
  *
  * Create integrity: the store throws `GuardianRequestIntegrityError` (with a
  * machine-readable `code` the IPC error envelope mirrors into `errorCode`)
@@ -20,22 +20,22 @@
  * post-commit, best-effort.
  */
 
-import type {
-  CreateGuardianRequestDeliveryIpcParams,
-  CreateGuardianRequestIpcParams,
-  CreateOutboundSessionIpcResponse,
-  DecideGuardianRequestIpcParams,
-  DecideGuardianRequestIpcResponse,
-  ExpireInteractionBoundIpcResponse,
-  GuardianRequestAclOutcome,
-  GuardianRequestDeliveryWire,
-  GuardianRequestPatch,
-  GuardianRequestStatus,
-  GuardianRequestWire,
-  ListGuardianRequestsIpcParams,
-  ListPendingGuardianRequestsByDestinationIpcParams,
-  SweepExpiredGuardianRequestsIpcResponse,
-  UpdateGuardianRequestDeliveryIpcParams,
+import {
+  type CreateGuardianRequestDeliveryIpcParams,
+  type CreateGuardianRequestIpcParams,
+  type CreateOutboundSessionIpcResponse,
+  type DecideGuardianRequestIpcParams,
+  type DecideGuardianRequestIpcResponse,
+  deriveGuardianRequestSourceType,
+  type ExpireInteractionBoundIpcResponse,
+  type GuardianRequestAclOutcome,
+  type GuardianRequestDeliveryWire,
+  type GuardianRequestPatch,
+  type GuardianRequestWire,
+  type ListGuardianRequestsIpcParams,
+  type ListPendingGuardianRequestsByDestinationIpcParams,
+  type SweepExpiredGuardianRequestsIpcResponse,
+  type UpdateGuardianRequestDeliveryIpcParams,
 } from "@vellumai/gateway-client";
 
 import { getGatewayDb } from "../db/connection.js";
@@ -44,7 +44,6 @@ import type { GuardianRequest } from "../db/guardian-request-store.js";
 import {
   createDelivery,
   createGuardianRequest as storeCreateGuardianRequest,
-  deriveSourceType,
   expireAllPendingInteractionBound,
   expireGuardianRequest as storeExpireGuardianRequest,
   getByPendingQuestionId,
@@ -77,11 +76,12 @@ const log = getLogger("guardian-request-service");
 // Stateless facade over the gateway DB (the connection resolves per call).
 const contactStore = new ContactStore();
 
-/** Map a store row onto the wire DTO by computing `sourceType`. */
-export function toGuardianRequestWire(
-  row: GuardianRequest,
-): GuardianRequestWire {
-  return { ...row, sourceType: deriveSourceType(row.sourceChannel) };
+/** Map a store row onto the wire DTO by deriving `sourceType`. */
+function toGuardianRequestWire(row: GuardianRequest): GuardianRequestWire {
+  return {
+    ...row,
+    sourceType: deriveGuardianRequestSourceType(row.sourceChannel),
+  };
 }
 
 function toWireOrNull(row: GuardianRequest | null): GuardianRequestWire | null {
@@ -120,14 +120,6 @@ export function updateGuardianRequest(
   patch: GuardianRequestPatch,
 ): void {
   storeUpdateGuardianRequest(id, patch);
-}
-
-/** CAS reopen (`fromStatus` → pending); a missed swap is a no-op. */
-export function reopenGuardianRequest(
-  id: string,
-  fromStatus: GuardianRequestStatus,
-): void {
-  resolveGuardianRequest(id, fromStatus, { status: "pending" });
 }
 
 export function expireGuardianRequest(id: string): void {

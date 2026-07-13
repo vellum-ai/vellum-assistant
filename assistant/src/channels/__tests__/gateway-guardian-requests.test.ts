@@ -315,20 +315,22 @@ describe("request lookups", () => {
     expect(await client.getGuardianRequest("req-404")).toBeNull();
   });
 
-  test("getGuardianRequestByCode maps the method and params", async () => {
+  test("getGuardianRequestByCodeOrNull maps the method and params", async () => {
     const request = makeWireRequest();
     ipcResponse = request;
-    expect(await client.getGuardianRequestByCode("AB12")).toEqual(request);
+    expect(await client.getGuardianRequestByCodeOrNull("AB12")).toEqual(
+      request,
+    );
     expect(ipcCalls[0]).toEqual({
       method: "guardian_requests_get_by_code",
       params: { code: "AB12" },
     });
   });
 
-  test("getPendingRequestByDestinationMessage maps the destination triple", async () => {
+  test("getPendingRequestByDestinationMessageOrNull maps the destination triple", async () => {
     ipcResponse = null;
     expect(
-      await client.getPendingRequestByDestinationMessage(
+      await client.getPendingRequestByDestinationMessageOrNull(
         "telegram",
         "chat-456",
         "msg-1",
@@ -340,7 +342,7 @@ describe("request lookups", () => {
     });
   });
 
-  test("getPendingRequestByCallSession and getRequestByPendingQuestion map params", async () => {
+  test("getPendingRequestByCallSession and getRequestByPendingQuestionOrNull map params", async () => {
     const request = makeWireRequest({ callSessionId: "call-1" });
     ipcResponse = request;
     expect(await client.getPendingRequestByCallSession("call-1")).toEqual(
@@ -352,7 +354,7 @@ describe("request lookups", () => {
     });
 
     ipcResponse = makeWireRequest({ pendingQuestionId: "pq-1" });
-    await client.getRequestByPendingQuestion("pq-1");
+    await client.getRequestByPendingQuestionOrNull("pq-1");
     expect(ipcCalls[1]).toEqual({
       method: "guardian_requests_get_by_pending_question",
       params: { pendingQuestionId: "pq-1" },
@@ -364,9 +366,9 @@ describe("request lookups", () => {
     await expect(client.getGuardianRequest("req-1")).rejects.toThrow(
       "guardian_requests_get",
     );
-    await expect(client.getGuardianRequestByCode("AB12")).rejects.toThrow(
-      "guardian_requests_get_by_code",
-    );
+    await expect(
+      client.getPendingRequestByCallSession("call-1"),
+    ).rejects.toThrow("guardian_requests_get_by_call_session");
   });
 
   test("OrNull variants degrade to null and log instead of throwing", async () => {
@@ -399,11 +401,11 @@ describe("request lookups", () => {
 });
 
 describe("request lists", () => {
-  test("listGuardianRequests passes filters through and validates the array", async () => {
+  test("listGuardianRequestsOrEmpty passes filters through and validates the array", async () => {
     const requests = [makeWireRequest(), makeWireRequest({ id: "req-2" })];
     ipcResponse = requests;
 
-    const result = await client.listGuardianRequests({
+    const result = await client.listGuardianRequestsOrEmpty({
       status: "pending",
       guardianPrincipalId: "principal-1",
       sourceType: "channel",
@@ -422,9 +424,9 @@ describe("request lists", () => {
     expect(result).toEqual(requests);
   });
 
-  test("listPendingRequestsByDestination and listPendingRequestsByScope map params", async () => {
+  test("listPendingRequestsByDestinationOrEmpty and listPendingRequestsByScope map params", async () => {
     ipcResponse = [];
-    await client.listPendingRequestsByDestination({
+    await client.listPendingRequestsByDestinationOrEmpty({
       channel: "telegram",
       chatId: "chat-456",
     });
@@ -442,14 +444,14 @@ describe("request lists", () => {
 
   test("throwing lists throw on transport failure and malformed payloads", async () => {
     ipcError = new Error("gateway unavailable");
-    await expect(client.listGuardianRequests()).rejects.toThrow(
+    await expect(client.listPendingRequestsByScope("conv-1")).rejects.toThrow(
       "gateway unavailable",
     );
 
     ipcError = null;
     ipcResponse = [{ id: "req-1" }];
-    await expect(client.listGuardianRequests()).rejects.toThrow(
-      "guardian_requests_list",
+    await expect(client.listPendingRequestsByScope("conv-1")).rejects.toThrow(
+      "guardian_requests_list_pending_by_scope",
     );
   });
 
@@ -486,16 +488,10 @@ describe("mutations", () => {
     ]);
   });
 
-  test("reopenGuardianRequest and expireGuardianRequest map params", async () => {
+  test("expireGuardianRequest maps params", async () => {
     ipcResponse = { ok: true };
-    await client.reopenGuardianRequest("req-1", "expired");
-    expect(ipcCalls[0]).toEqual({
-      method: "guardian_requests_reopen",
-      params: { id: "req-1", fromStatus: "expired" },
-    });
-
     await client.expireGuardianRequest("req-1");
-    expect(ipcCalls[1]).toEqual({
+    expect(ipcCalls[0]).toEqual({
       method: "guardian_requests_expire",
       params: { id: "req-1" },
     });
@@ -513,9 +509,9 @@ describe("mutations", () => {
 
   test("mutations throw when the gateway does not ack ok", async () => {
     ipcResponse = { ok: false };
-    await expect(
-      client.reopenGuardianRequest("req-1", "expired"),
-    ).rejects.toThrow("guardian_requests_reopen");
+    await expect(client.expireGuardianRequest("req-1")).rejects.toThrow(
+      "guardian_requests_expire",
+    );
   });
 });
 
@@ -631,11 +627,15 @@ describe("deliveries", () => {
   });
 });
 
-describe("isGuardianRequestInScope", () => {
+describe("isGuardianRequestInScopeOrFalse", () => {
   test("returns the gateway scope verdict", async () => {
     ipcResponse = { inScope: true };
     expect(
-      await client.isGuardianRequestInScope("req-1", "conv-1", "telegram"),
+      await client.isGuardianRequestInScopeOrFalse(
+        "req-1",
+        "conv-1",
+        "telegram",
+      ),
     ).toBe(true);
     expect(ipcCalls).toEqual([
       {
@@ -649,21 +649,21 @@ describe("isGuardianRequestInScope", () => {
     ]);
 
     ipcResponse = { inScope: false };
-    expect(await client.isGuardianRequestInScope("req-1", "conv-2")).toBe(
-      false,
-    );
+    expect(
+      await client.isGuardianRequestInScopeOrFalse("req-1", "conv-2"),
+    ).toBe(false);
   });
 
-  test("throws on a malformed response; OrFalse degrades to not-in-scope", async () => {
+  test("degrades to not-in-scope on malformed responses and transport failures", async () => {
     ipcResponse = { allowed: true };
-    await expect(
-      client.isGuardianRequestInScope("req-1", "conv-1"),
-    ).rejects.toThrow("guardian_requests_in_scope");
+    expect(
+      await client.isGuardianRequestInScopeOrFalse("req-1", "conv-1"),
+    ).toBe(false);
 
     ipcError = new Error("gateway unavailable");
     expect(
       await client.isGuardianRequestInScopeOrFalse("req-1", "conv-1"),
     ).toBe(false);
-    expect(warnCalls).toHaveLength(1);
+    expect(warnCalls).toHaveLength(2);
   });
 });

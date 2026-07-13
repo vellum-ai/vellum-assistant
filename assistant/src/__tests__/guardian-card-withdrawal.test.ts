@@ -284,7 +284,7 @@ describe("recordApprovalCardDelivery", () => {
     });
 
     const resolved =
-      await bridgeState.module.getPendingRequestByDestinationMessage(
+      await bridgeState.module.getPendingRequestByDestinationMessageOrNull(
         "slack",
         "C-guardian",
         "1700000000.5678",

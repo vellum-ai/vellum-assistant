@@ -15,6 +15,11 @@
  * daemon's client-facing HTTP surface owns the distinct `guardian_actions_*`
  * operationIds (`guardian_actions_pending` / `guardian_actions_decision`),
  * which do not change.
+ *
+ * Destination lookups are deliberately split into a single-message lookup
+ * (`get_by_destination_message`) and a pending-list read
+ * (`list_pending_by_destination`) so each response schema has exactly one
+ * shape instead of a params-dependent polymorphic result.
  */
 
 import { z } from "zod";
@@ -66,6 +71,38 @@ export const GuardianRequestSourceTypeSchema = z.enum(
 export type GuardianRequestSourceType = z.infer<
   typeof GuardianRequestSourceTypeSchema
 >;
+
+// ---------------------------------------------------------------------------
+// Shared pure helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Derive the presentation-level source type from the provenance channel:
+ * phone → voice, vellum → desktop, everything else (incl. null) → channel.
+ * `sourceType` is never stored — gateway and daemon both derive it here.
+ */
+export function deriveGuardianRequestSourceType(
+  sourceChannel: string | null,
+): GuardianRequestSourceType {
+  if (sourceChannel === "phone") {
+    return "voice";
+  }
+  if (sourceChannel === "vellum") {
+    return "desktop";
+  }
+  return "channel";
+}
+
+/**
+ * True when a request has passed its `expiresAt` deadline. Requests without
+ * an `expiresAt` never expire by this check.
+ */
+export function isGuardianRequestExpired(
+  request: Pick<GuardianRequestWire, "expiresAt">,
+  now = Date.now(),
+): boolean {
+  return Boolean(request.expiresAt && request.expiresAt < now);
+}
 
 // ---------------------------------------------------------------------------
 // Wire DTOs
@@ -142,11 +179,6 @@ export type GuardianRequestDeliveryWire = z.infer<
 /**
  * Gateway IPC method names for the guardian-request lifecycle. Keys match the
  * daemon-side wrapper names; values are the wire method strings.
- *
- * Destination lookups are split into `get_by_destination_message` (single
- * nullable DTO — reaction routing) and `list_pending_by_destination` (DTO
- * array — reply routing by chat or conversation) so each response schema has
- * exactly one shape instead of a params-dependent polymorphic result.
  */
 export const GUARDIAN_REQUESTS_IPC_METHODS = {
   create: "guardian_requests_create",
@@ -155,7 +187,6 @@ export const GUARDIAN_REQUESTS_IPC_METHODS = {
   list: "guardian_requests_list",
   update: "guardian_requests_update",
   decide: "guardian_requests_decide",
-  reopen: "guardian_requests_reopen",
   expire: "guardian_requests_expire",
   expireInteractionBound: "guardian_requests_expire_interaction_bound",
   sweepExpired: "guardian_requests_sweep_expired",
@@ -387,11 +418,10 @@ const OUTCOME_TYPES_BY_DECISION_STATUS: Record<
 /**
  * Request for `guardian_requests_decide` (status CAS + optional ACL outcome).
  * Decisions only resolve a pending request to approved/denied — expiry has
- * `guardian_requests_expire`/`_sweep_expired`, terminal→pending has
- * `guardian_requests_reopen` — so a malformed call can never apply an
- * `aclOutcome` while leaving the request decidable again. The outcome type
- * must agree with the status: activation/minting only on approval,
- * seeding/blocking only on denial.
+ * `guardian_requests_expire`/`_sweep_expired` — so a malformed call can never
+ * apply an `aclOutcome` while leaving the request decidable again. The
+ * outcome type must agree with the status: activation/minting only on
+ * approval, seeding/blocking only on denial.
  */
 export const DecideGuardianRequestIpcParamsSchema = z
   .object({
@@ -442,21 +472,8 @@ export type DecideGuardianRequestIpcResponse = z.infer<
 >;
 
 // ---------------------------------------------------------------------------
-// Reopen / expiry
+// Expiry
 // ---------------------------------------------------------------------------
-
-/**
- * Request for `guardian_requests_reopen` (terminal → pending CAS). Kept for
- * the migration flip window; deleted once genuinely unused.
- */
-export const ReopenGuardianRequestIpcParamsSchema = z.object({
-  id: z.string().min(1),
-  fromStatus: GuardianRequestStatusSchema,
-});
-
-export type ReopenGuardianRequestIpcParams = z.infer<
-  typeof ReopenGuardianRequestIpcParamsSchema
->;
 
 /**
  * Request for `guardian_requests_expire` (CAS pending → expired; also expires

@@ -12,6 +12,7 @@ import {
   CreateGuardianRequestIpcParamsSchema,
   DecideGuardianRequestIpcParamsSchema,
   DecideGuardianRequestIpcResponseSchema,
+  deriveGuardianRequestSourceType,
   ExpireGuardianRequestIpcParamsSchema,
   ExpireInteractionBoundIpcResponseSchema,
   GetGuardianRequestByCallSessionIpcParamsSchema,
@@ -26,10 +27,10 @@ import {
   GuardianRequestLookupIpcResponseSchema,
   GuardianRequestMutationIpcResponseSchema,
   GuardianRequestSchema,
+  isGuardianRequestExpired,
   ListGuardianRequestsIpcParamsSchema,
   ListPendingGuardianRequestsByDestinationIpcParamsSchema,
   ListPendingGuardianRequestsByScopeIpcParamsSchema,
-  ReopenGuardianRequestIpcParamsSchema,
   SweepExpiredGuardianRequestsIpcParamsSchema,
   SweepExpiredGuardianRequestsIpcResponseSchema,
   UpdateGuardianRequestIpcParamsSchema,
@@ -37,10 +38,10 @@ import {
 } from "../guardian-request-contract.js";
 
 describe("IPC method names", () => {
-  test("exposes 19 unique methods under the guardian_requests_ prefix", () => {
+  test("exposes 18 unique methods under the guardian_requests_ prefix", () => {
     const methods = Object.values(GUARDIAN_REQUESTS_IPC_METHODS);
-    expect(methods).toHaveLength(19);
-    expect(new Set(methods).size).toBe(19);
+    expect(methods).toHaveLength(18);
+    expect(new Set(methods).size).toBe(18);
     for (const method of methods) {
       expect(method).toMatch(/^guardian_requests_[a-z_]+$/);
     }
@@ -107,6 +108,24 @@ const pendingQuestion: GuardianRequestWire = {
   decidedByPrincipalId: "principal-1",
   expiresAt: null,
 };
+
+describe("shared pure helpers", () => {
+  test("deriveGuardianRequestSourceType maps phone → voice, vellum → desktop, else channel", () => {
+    expect(deriveGuardianRequestSourceType("phone")).toBe("voice");
+    expect(deriveGuardianRequestSourceType("vellum")).toBe("desktop");
+    expect(deriveGuardianRequestSourceType("telegram")).toBe("channel");
+    expect(deriveGuardianRequestSourceType(null)).toBe("channel");
+  });
+
+  test("isGuardianRequestExpired compares expiresAt to now; null never expires", () => {
+    const now = 1_700_000_000_000;
+    expect(isGuardianRequestExpired({ expiresAt: now - 1 }, now)).toBe(true);
+    expect(isGuardianRequestExpired({ expiresAt: now }, now)).toBe(false);
+    expect(isGuardianRequestExpired({ expiresAt: now + 1 }, now)).toBe(false);
+    expect(isGuardianRequestExpired({ expiresAt: null }, now)).toBe(false);
+    expect(isGuardianRequestExpired({ expiresAt: Date.now() - 1 })).toBe(true);
+  });
+});
 
 describe("GuardianRequestSchema", () => {
   test("round-trips channel and voice requests", () => {
@@ -419,11 +438,8 @@ describe("decide IPC schemas", () => {
   });
 });
 
-describe("reopen + expiry IPC schemas", () => {
-  test("reopen, expire, and sweep round-trip", () => {
-    const reopen = { id: "req-1", fromStatus: "approved" } as const;
-    expect(ReopenGuardianRequestIpcParamsSchema.parse(reopen)).toEqual(reopen);
-
+describe("expiry IPC schemas", () => {
+  test("expire and sweep round-trip", () => {
     expect(ExpireGuardianRequestIpcParamsSchema.parse({ id: "req-1" })).toEqual(
       { id: "req-1" },
     );

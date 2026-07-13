@@ -23,6 +23,8 @@
  * to allow for incremental migration and independent testability.
  */
 
+import { isGuardianRequestExpired } from "@vellumai/gateway-client";
+
 import {
   applyGuardianDecision,
   type GuardianDecisionResult,
@@ -59,13 +61,6 @@ import type {
 import { parseReactionCallbackData } from "./routes/channel-route-shared.js";
 
 const log = getLogger("guardian-reply-router");
-
-/** True when a request has passed its `expiresAt` deadline. */
-function isRequestExpired(
-  request: Pick<GuardianRequestWire, "expiresAt">,
-): boolean {
-  return Boolean(request.expiresAt && request.expiresAt < Date.now());
-}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -280,7 +275,7 @@ async function findPendingGuardianRequests(
   // Exclude requests that have passed their expiresAt deadline — they can
   // no longer be resolved and should not trigger disambiguation or NL
   // classification.
-  return results.filter((r) => !isRequestExpired(r));
+  return results.filter((r) => !isGuardianRequestExpired(r));
 }
 
 /** Map an approval action string to the NL engine's allowed actions for guardians. */

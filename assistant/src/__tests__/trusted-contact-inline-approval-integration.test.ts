@@ -522,7 +522,7 @@ describe("(d) unknown actor flow: fail-closed with no interactive approval", () 
     expect(result.result.content).toContain("verified channel identity");
 
     // No guardian request created — unknown actors don't escalate
-    const requests = await sim.module.listGuardianRequests({
+    const requests = await sim.module.listGuardianRequestsOrEmpty({
       kind: "tool_grant_request",
       status: "pending",
     });

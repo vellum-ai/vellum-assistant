@@ -392,7 +392,7 @@ describe("guardian_requests_update", () => {
   });
 });
 
-describe("guardian_requests_expire / reopen", () => {
+describe("guardian_requests_expire", () => {
   test("expire CAS-expires the request and bulk-expires its deliveries", async () => {
     const created = await createRequest({});
     const delivery = GuardianRequestDeliverySchema.parse(
@@ -410,20 +410,16 @@ describe("guardian_requests_expire / reopen", () => {
     expect(getDeliveryRow(delivery.id)?.status).toBe("expired");
   });
 
-  test("reopen CAS-transitions fromStatus back to pending; a missed swap is a no-op", async () => {
+  test("guardian_requests_reopen is not a route — the retired method 404s", async () => {
     const created = await createRequest({});
     await call(METHODS.expire, { id: created.id });
 
-    // Wrong fromStatus: acks without touching the row.
-    expect(
-      await call(METHODS.reopen, { id: created.id, fromStatus: "denied" }),
-    ).toEqual({ ok: true });
+    const res = await rpc("guardian_requests_reopen", {
+      id: created.id,
+      fromStatus: "expired",
+    });
+    expect(res.statusCode).toBe(404);
     expect(getRequestRow(created.id)?.status).toBe("expired");
-
-    expect(
-      await call(METHODS.reopen, { id: created.id, fromStatus: "expired" }),
-    ).toEqual({ ok: true });
-    expect(getRequestRow(created.id)?.status).toBe("pending");
   });
 });
 
@@ -737,7 +733,6 @@ describe("schema rejection", () => {
           },
         },
       ],
-      [METHODS.reopen, { id: "req-x" }], // fromStatus required
       [METHODS.expire, {}],
       [METHODS.sweepExpired, { now: "yesterday" }],
       [METHODS.createDelivery, { requestId: "req-x" }], // channel required
