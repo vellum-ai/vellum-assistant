@@ -69,11 +69,11 @@ const vellumStreamCtorCalls: Array<{ connection: unknown; options: unknown }> =
 let mockVelayConnection: {
   wsBaseUrl: string;
   httpBaseUrl: string;
-  apiKey: string;
+  mintServiceToken: () => string;
 } | null = null;
 
-mock.module("../vellum-velay-connection.js", () => ({
-  resolveVelaySpeechConnection: async () => mockVelayConnection,
+mock.module("../vellum-speech-relay-connection.js", () => ({
+  resolveSpeechRelayConnection: async () => mockVelayConnection,
 }));
 
 mock.module("../vellum-managed-realtime.js", () => ({
@@ -1000,9 +1000,9 @@ describe("vellum managed resolution", () => {
   test("streaming resolver constructs the vellum adapter with the velay connection and sample rate", async () => {
     mockVellumAvailable = true;
     mockVelayConnection = {
-      wsBaseUrl: "wss://velay.test",
-      httpBaseUrl: "https://velay.test",
-      apiKey: "vk-test",
+      wsBaseUrl: "ws://gateway.test",
+      httpBaseUrl: "http://gateway.test",
+      mintServiceToken: () => "vk-test",
     };
     applyConfig({ provider: "openai-whisper", mode: "managed" });
 

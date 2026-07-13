@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import type { SttStreamServerEvent } from "../../../stt/types.js";
 import { VellumManagedRealtimeTranscriber } from "../vellum-managed-realtime.js";
-import type { VelaySpeechConnection } from "../vellum-velay-connection.js";
+import type { SpeechRelayConnection } from "../vellum-speech-relay-connection.js";
 
 type WsListener = (...args: unknown[]) => void;
 
@@ -91,10 +91,10 @@ function velayErrorFrame(code: string, detail = ""): string {
   return JSON.stringify({ type: "velay_error", code, detail });
 }
 
-const CONNECTION: VelaySpeechConnection = {
-  wsBaseUrl: "wss://velay.test",
-  httpBaseUrl: "https://velay.test",
-  apiKey: "vk-secret",
+const CONNECTION: SpeechRelayConnection = {
+  wsBaseUrl: "ws://gateway.test",
+  httpBaseUrl: "http://gateway.test",
+  mintServiceToken: () => "vk-secret",
 };
 
 const tick = () => new Promise<void>((r) => setTimeout(r, 0));
@@ -148,7 +148,7 @@ describe("VellumManagedRealtimeTranscriber", () => {
 
     const ws = sockets[0]!;
     const url = new URL(ws.url);
-    expect(url.origin).toBe("wss://velay.test");
+    expect(url.origin).toBe("ws://gateway.test");
     expect(url.pathname).toBe("/v1/speech/stt/stream");
     expect(url.searchParams.get("key")).toBe("vk-secret");
     expect(url.searchParams.get("encoding")).toBe("linear16");

@@ -1,14 +1,17 @@
 /**
- * Managed realtime STT through velay's speech relay.
+ * Managed realtime STT through the gateway's speech relay
+ * (gateway → velay → Deepgram; velay contact is gateway-only).
  *
- * Composes {@link DeepgramRealtimeTranscriber} — velay speaks Deepgram's
- * live wire protocol verbatim, so all frame handling (Results parsing,
- * backpressure, finalize/flush serialization) is inherited, not duplicated.
- * This wrapper owns what is relay-specific:
+ * Composes {@link DeepgramRealtimeTranscriber} — both relay legs speak
+ * Deepgram's live wire protocol verbatim, so all frame handling (Results
+ * parsing, backpressure, finalize/flush serialization) is inherited, not
+ * duplicated. This wrapper owns what is relay-specific:
  *
- * - Dialing velay (`/v1/speech/stt/stream`, `?key=` auth, no `model`
- *   param — velay pins the model server-side).
- * - Surfacing `velay_error` control frames as categorized SttErrors
+ * - Dialing the gateway (`/v1/speech/stt/stream`, `?key=` carries a
+ *   daemon-minted service token, no `model` param — the model is pinned
+ *   server-side).
+ * - Surfacing `velay_error` control frames (velay's own, or synthesized
+ *   by the gateway for upstream failures) as categorized SttErrors
  *   instead of generic socket failures.
  * - Transparent re-dial on velay's 30-minute session cap: live-voice
  *   reuses ONE streaming transcriber across utterance cycles (#37662), so
@@ -26,9 +29,9 @@ import { DeepgramRealtimeTranscriber } from "./deepgram-realtime.js";
 import {
   mapVelayError,
   probeVelayRejection,
+  type SpeechRelayConnection,
   type VelayErrorInfo,
-  type VelaySpeechConnection,
-} from "./vellum-velay-connection.js";
+} from "./vellum-speech-relay-connection.js";
 
 const log = getLogger("vellum-managed-realtime");
 
@@ -51,7 +54,7 @@ export class VellumManagedRealtimeTranscriber implements StreamingTranscriber {
   readonly providerId = "vellum" as const;
   readonly boundaryId = "daemon-streaming" as const;
 
-  private readonly connection: VelaySpeechConnection;
+  private readonly connection: SpeechRelayConnection;
   private readonly options: VellumManagedRealtimeOptions;
 
   private onEvent: ((event: SttStreamServerEvent) => void) | null = null;
@@ -74,7 +77,7 @@ export class VellumManagedRealtimeTranscriber implements StreamingTranscriber {
   private closedEmitted = false;
 
   constructor(
-    connection: VelaySpeechConnection,
+    connection: SpeechRelayConnection,
     options: VellumManagedRealtimeOptions = {},
   ) {
     this.connection = connection;
@@ -90,7 +93,9 @@ export class VellumManagedRealtimeTranscriber implements StreamingTranscriber {
       this.inner = await this.dial();
     } catch (err) {
       // A failed WebSocket upgrade exposes no HTTP details; replay the
-      // request as plain HTTPS to recover velay's {code, detail} rejection.
+      // request as a plain GET to recover the relay's {code, detail}
+      // rejection (the gateway replays its whole gate on non-upgrade
+      // requests, including velay's own).
       const rejection = await probeVelayRejection(this.probeUrl());
       if (rejection) {
         throw new Error(mapVelayError(rejection).message);
@@ -133,24 +138,29 @@ export class VellumManagedRealtimeTranscriber implements StreamingTranscriber {
 
   private async dial(): Promise<DeepgramRealtimeTranscriber> {
     this.pendingRelayError = null;
-    const inner = new DeepgramRealtimeTranscriber(this.connection.apiKey, {
-      baseUrl: this.connection.wsBaseUrl,
-      path: STT_STREAM_PATH,
-      queryAuth: true,
-      omitModelParam: true,
-      sampleRate: this.options.sampleRate,
-      ...(this.options.language ? { language: this.options.language } : {}),
-      ...(this.options.utteranceBoundaryFinals
-        ? { utteranceBoundaryFinals: true }
-        : {}),
-      onUnhandledFrame: (frame) => this.handleRelayFrame(frame),
-    });
+    // Fresh per dial — a session-cap re-dial happens ~30 minutes in, long
+    // after any previously minted token expired.
+    const inner = new DeepgramRealtimeTranscriber(
+      this.connection.mintServiceToken(),
+      {
+        baseUrl: this.connection.wsBaseUrl,
+        path: STT_STREAM_PATH,
+        queryAuth: true,
+        omitModelParam: true,
+        sampleRate: this.options.sampleRate,
+        ...(this.options.language ? { language: this.options.language } : {}),
+        ...(this.options.utteranceBoundaryFinals
+          ? { utteranceBoundaryFinals: true }
+          : {}),
+        onUnhandledFrame: (frame) => this.handleRelayFrame(frame),
+      },
+    );
     await inner.start((event) => this.handleInnerEvent(inner, event));
     return inner;
   }
 
   private probeUrl(): string {
-    const key = encodeURIComponent(this.connection.apiKey);
+    const key = encodeURIComponent(this.connection.mintServiceToken());
     return `${this.connection.httpBaseUrl}${STT_STREAM_PATH}?key=${key}`;
   }
 
