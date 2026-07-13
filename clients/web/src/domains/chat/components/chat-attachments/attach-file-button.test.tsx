@@ -40,41 +40,84 @@ function makeFileList(files: File[]): FileList {
   return list;
 }
 
-describe("AttachFileButton — composer refocus on picker close", () => {
-  test("refocuses the composer after a file is selected", () => {
-    const onFilesSelected = mock(() => {});
-    const { container } = render(
-      <AttachFileButton onFilesSelected={onFilesSelected} />,
-    );
-    const input = container.querySelector(
-      'input[type="file"]',
-    ) as HTMLInputElement;
-    expect(input).not.toBeNull();
+/** All three hidden source inputs, in DOM order: library, camera, files. */
+function sourceInputs(container: HTMLElement): HTMLInputElement[] {
+  return Array.from(
+    container.querySelectorAll('input[type="file"]'),
+  ) as HTMLInputElement[];
+}
 
-    const file = new File(["hi"], "note.txt", { type: "text/plain" });
-    Object.defineProperty(input, "files", {
-      configurable: true,
-      value: makeFileList([file]),
-    });
-    fireEvent.change(input);
-
-    expect(onFilesSelected).toHaveBeenCalledTimes(1);
-    // Keyboard/layout restored after selection.
-    expect(requestComposerFocusMock).toHaveBeenCalled();
+function selectFileOn(input: HTMLInputElement, name = "note.txt") {
+  const file = new File(["hi"], name, { type: "text/plain" });
+  Object.defineProperty(input, "files", {
+    configurable: true,
+    value: makeFileList([file]),
   });
+  fireEvent.change(input);
+}
 
-  test("refocuses the composer when the picker is cancelled (input cancel event)", () => {
+describe("AttachFileButton — source inputs", () => {
+  test("renders three hidden inputs: image library, camera capture, unrestricted files", () => {
     const { container } = render(
       <AttachFileButton onFilesSelected={() => {}} />,
     );
-    const input = container.querySelector(
-      'input[type="file"]',
-    ) as HTMLInputElement;
+    const [library, camera, files] = sourceInputs(container);
 
-    // A cancel fires no `change`; WebKit dispatches `cancel` on the input when
-    // the native picker is dismissed without a selection.
-    fireEvent(input, new Event("cancel"));
-    expect(requestComposerFocusMock).toHaveBeenCalledTimes(1);
+    // Photo Library: images only, multi-select, no capture device.
+    expect(library.getAttribute("accept")).toBe("image/*");
+    expect(library.hasAttribute("multiple")).toBe(true);
+    expect(library.hasAttribute("capture")).toBe(false);
+
+    // Take Photo: images only, requests the environment-facing camera.
+    expect(camera.getAttribute("accept")).toBe("image/*");
+    expect(camera.getAttribute("capture")).toBe("environment");
+
+    // Choose Files: unrestricted, multi-select.
+    expect(files.getAttribute("accept")).toBeNull();
+    expect(files.hasAttribute("multiple")).toBe(true);
+  });
+
+  test("exposes the paperclip trigger with an accessible label", () => {
+    const { getByLabelText } = render(
+      <AttachFileButton onFilesSelected={() => {}} />,
+    );
+    expect(getByLabelText("Attach file")).not.toBeNull();
+  });
+});
+
+describe("AttachFileButton — composer refocus on picker close", () => {
+  test("forwards selected files and refocuses the composer, from any source input", () => {
+    const onFilesSelected = mock((_files: FileList) => {});
+    const { container } = render(
+      <AttachFileButton onFilesSelected={onFilesSelected} />,
+    );
+    // Each of the three inputs must forward files + restore the keyboard, so
+    // the behaviour is source-agnostic.
+    const inputs = sourceInputs(container);
+    expect(inputs).toHaveLength(3);
+
+    for (const input of inputs) {
+      onFilesSelected.mockClear();
+      requestComposerFocusMock.mockClear();
+      selectFileOn(input);
+      expect(onFilesSelected).toHaveBeenCalledTimes(1);
+      expect(requestComposerFocusMock).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  test("refocuses the composer when the picker is cancelled, from any source input", () => {
+    const { container } = render(
+      <AttachFileButton onFilesSelected={() => {}} />,
+    );
+    const inputs = sourceInputs(container);
+
+    for (const input of inputs) {
+      requestComposerFocusMock.mockClear();
+      // A cancel fires no `change`; WebKit dispatches `cancel` on the input
+      // when the native picker is dismissed without a selection.
+      fireEvent(input, new Event("cancel"));
+      expect(requestComposerFocusMock).toHaveBeenCalledTimes(1);
+    }
   });
 
   test("does not refocus before any picker interaction", () => {
@@ -83,61 +126,32 @@ describe("AttachFileButton — composer refocus on picker close", () => {
     expect(requestComposerFocusMock).not.toHaveBeenCalled();
   });
 
-  test("refocuses via the one-shot window focus fallback (iOS 15–16.3)", () => {
-    const { getByLabelText } = render(
-      <AttachFileButton onFilesSelected={() => {}} />,
-    );
-    // Opening the picker arms the fallback; a window focus (web view regains
-    // first responder as the picker closes) restores the keyboard on engines
-    // that never fire the input `cancel` event.
-    fireEvent.click(getByLabelText("Attach file"));
+  // Regression guard for the bug this component replaced: a prior version armed
+  // a one-shot `window` `focus` listener to refocus on iOS 15–16.3, but that
+  // listener fired on *any* window focus (app foregrounding, dismissing an
+  // unrelated overlay) and popped the keyboard back up on unrelated taps. The
+  // refocus signal must now come only from the file input's own `change`/
+  // `cancel` events — never from a bare window focus.
+  test("does NOT refocus on a bare window focus (no window-focus fallback)", () => {
+    render(<AttachFileButton onFilesSelected={() => {}} />);
+
+    window.dispatchEvent(new Event("focus"));
+    window.dispatchEvent(new Event("focus"));
+
     expect(requestComposerFocusMock).not.toHaveBeenCalled();
-
-    window.dispatchEvent(new Event("focus"));
-    expect(requestComposerFocusMock).toHaveBeenCalledTimes(1);
-
-    // One-shot: a later focus (unrelated) does not refocus again.
-    window.dispatchEvent(new Event("focus"));
-    expect(requestComposerFocusMock).toHaveBeenCalledTimes(1);
   });
 
-  test("disarms the focus fallback once the picker closes via cancel", () => {
-    const { getByLabelText, container } = render(
+  test("still does not refocus on window focus after a real picker close", () => {
+    const { container } = render(
       <AttachFileButton onFilesSelected={() => {}} />,
     );
-    const input = container.querySelector(
-      'input[type="file"]',
-    ) as HTMLInputElement;
+    const [library] = sourceInputs(container);
 
-    // Open the picker (arms the fallback), then close it via `cancel`.
-    fireEvent.click(getByLabelText("Attach file"));
-    fireEvent(input, new Event("cancel"));
+    // A real close (file selected) refocuses exactly once...
+    selectFileOn(library);
     expect(requestComposerFocusMock).toHaveBeenCalledTimes(1);
 
-    // A later unrelated window focus must NOT refocus — the fallback was
-    // disarmed by the cancel path, not left registered.
-    window.dispatchEvent(new Event("focus"));
-    expect(requestComposerFocusMock).toHaveBeenCalledTimes(1);
-  });
-
-  test("disarms the focus fallback once the picker closes via file select", () => {
-    const { getByLabelText, container } = render(
-      <AttachFileButton onFilesSelected={() => {}} />,
-    );
-    const input = container.querySelector(
-      'input[type="file"]',
-    ) as HTMLInputElement;
-
-    fireEvent.click(getByLabelText("Attach file"));
-    const file = new File(["hi"], "note.txt", { type: "text/plain" });
-    Object.defineProperty(input, "files", {
-      configurable: true,
-      value: makeFileList([file]),
-    });
-    fireEvent.change(input);
-    expect(requestComposerFocusMock).toHaveBeenCalledTimes(1);
-
-    // Fallback disarmed by the change path — a later focus does not refocus.
+    // ...and a later unrelated window focus must not add a second refocus.
     window.dispatchEvent(new Event("focus"));
     expect(requestComposerFocusMock).toHaveBeenCalledTimes(1);
   });

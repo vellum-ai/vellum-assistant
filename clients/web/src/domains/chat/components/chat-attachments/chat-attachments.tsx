@@ -1,8 +1,15 @@
-import { AlertCircle, Folder, Paperclip, X } from "lucide-react";
+import {
+  AlertCircle,
+  Camera,
+  Folder,
+  Image as ImageIcon,
+  Paperclip,
+  X,
+} from "lucide-react";
 import type { ChangeEvent, FC } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { Button } from "@vellumai/design-library";
+import { Button, Menu } from "@vellumai/design-library";
 
 import { requestComposerFocus } from "@/domains/chat/composer-focus";
 import { AttachmentChip } from "@/domains/chat/components/chat-attachments/attachment-chip";
@@ -131,66 +138,81 @@ interface AttachFileButtonProps {
   title?: string;
 }
 
+/** A selectable attachment source rendered as a row in the menu. */
+type AttachSource = "library" | "camera" | "files";
+
 /**
- * Paperclip button that triggers a hidden file input. Lives in the lower-left
- * of the composer action bar to match the macOS layout.
+ * Paperclip button in the lower-left of the composer action bar (matches the
+ * macOS layout). Opens a Vellum-styled {@link Menu} of attachment sources
+ * anchored to the button; picking a source triggers that source's hidden
+ * `<input type="file">`, which presents the native picker.
  *
- * On iOS (Capacitor WKWebView), clicking the hidden `<input type="file">`
- * presents the native document/photo picker, which resigns the web view's
- * first responder — dismissing the soft keyboard and collapsing the
- * keyboard-aware layout (`root-layout.tsx` sizes the shell from
- * `visualViewport`). The native picker and the keyboard are mutually
- * exclusive first responders, so the keyboard cannot stay up *during* the
- * picker. Instead we re-focus the composer the moment the picker closes,
- * keyed off the file input's own events so the signal is tied to the picker
- * (not to app foregrounding, which also fires when the app is backgrounded
- * and returned to while the picker is still open):
+ * ## Why our own menu instead of the bare file input
+ *
+ * A plain `<input type="file">` on iOS opens the *native* action sheet
+ * (Photo Library / Take Photo / Choose File). That sheet is drawn by the OS
+ * and its position is not ours to control — WKWebView gives no hook to anchor
+ * it to the paperclip, so it renders wherever iOS decides (and, once the soft
+ * keyboard collapses, visibly detached from the button that launched it).
+ *
+ * Rendering our own menu puts positioning back under our control: it anchors
+ * above the paperclip (`side="top"`) via the design-library `Menu`, matching
+ * the composer settings menu. Radix positions it against the trigger and
+ * repositions on viewport/scroll changes, so it stays pinned to the button
+ * even as the keyboard collapses. Choosing a source then opens that source's
+ * native picker (the OS still owns *that* surface).
+ *
+ * ## Keyboard restore after the picker closes
+ *
+ * Presenting the native picker resigns the web view's first responder, so the
+ * soft keyboard drops while the picker is up — an OS constraint with no web
+ * workaround. Once the picker closes we re-focus the composer, keyed off the
+ * file input's own events so the signal is tied to the picker (not to app
+ * foregrounding, which also fires if the app is backgrounded and resumed while
+ * the picker is still open):
  *
  * - `change` — a file was selected.
  * - `cancel` — the picker was dismissed without a selection (WebKit / Safari
- *   16.4+). Precise: tied to the picker dismissal itself.
- * - one-shot `window` `focus` — fallback for iOS 15–16.3 WKWebViews (the app's
- *   deployment target is iOS 15) that predate the `cancel` event. Armed on
- *   picker open and removed after firing once, so a later real `cancel` on
- *   newer engines still works and the fallback can't linger. `focus` fires
- *   when the web view regains first responder as the picker closes.
+ *   16.4+). Tied precisely to the picker dismissal.
  *
- * `requestComposerFocus()` is idempotent and a no-op on desktop (the textarea
- * is already focused there and the OS file dialog doesn't steal focus), so
- * running it from more than one of these paths is harmless.
+ * iOS 15–16.3 predates the `cancel` event, so on those engines a *cancelled*
+ * picker won't auto-restore the keyboard — the user taps the composer to bring
+ * it back. A previous implementation used a one-shot `window` `focus` fallback
+ * for those engines, but it fired on *any* window focus (app foregrounding,
+ * dismissing an unrelated overlay) and popped the keyboard back up on unrelated
+ * taps, so it was removed. Leaving the keyboard down until an explicit tap is
+ * strictly better than re-raising it on the wrong event.
+ *
+ * `requestComposerFocus()` is idempotent and a no-op on desktop.
  */
 export const AttachFileButton: FC<AttachFileButtonProps> = ({
   disabled = false,
   onFilesSelected,
   title = "Attach file",
 }) => {
-  const inputRef = useRef<HTMLInputElement | null>(null);
-  // Cleanup for the armed iOS 15–16.3 focus fallback (see handleClick). Held
-  // in a ref so every picker-close path (change, cancel, unmount) can disarm
-  // it, not just a window focus event.
-  const disarmFocusFallbackRef = useRef<(() => void) | null>(null);
+  // One input per source. `library`/`camera` narrow to images (and, for
+  // `camera`, request the capture device); `files` is unrestricted.
+  const libraryInputRef = useRef<HTMLInputElement | null>(null);
+  const cameraInputRef = useRef<HTMLInputElement | null>(null);
+  const filesInputRef = useRef<HTMLInputElement | null>(null);
 
-  const refocusComposer = useCallback(() => {
-    // Any picker-close path lands here: disarm the pending focus fallback so it
-    // can't fire on a later unrelated window focus, then restore the keyboard.
-    disarmFocusFallbackRef.current?.();
-    disarmFocusFallbackRef.current = null;
-    requestComposerFocus();
+  const inputRefFor = useCallback((source: AttachSource) => {
+    switch (source) {
+      case "library":
+        return libraryInputRef;
+      case "camera":
+        return cameraInputRef;
+      case "files":
+        return filesInputRef;
+    }
   }, []);
 
-  const handleClick = useCallback(() => {
-    // Fallback for iOS 15–16.3 WKWebViews that don't fire the input `cancel`
-    // event: refocus the composer the first time the window regains focus
-    // after the picker opens (the picker resigned it). On iOS 16.4+ the
-    // `cancel`/`change` paths fire first and disarm this via refocusComposer,
-    // so it never lingers past the picker session.
-    disarmFocusFallbackRef.current?.();
-    const onFocus = () => refocusComposer();
-    window.addEventListener("focus", onFocus, { once: true });
-    disarmFocusFallbackRef.current = () =>
-      window.removeEventListener("focus", onFocus);
-    inputRef.current?.click();
-  }, [refocusComposer]);
+  const openSource = useCallback(
+    (source: AttachSource) => {
+      inputRefFor(source).current?.click();
+    },
+    [inputRefFor],
+  );
 
   const handleChange = useCallback(
     (event: ChangeEvent<HTMLInputElement>) => {
@@ -201,49 +223,99 @@ export const AttachFileButton: FC<AttachFileButtonProps> = ({
       // Reset so selecting the same file twice still fires onChange.
       event.target.value = "";
       // Restore the keyboard/layout after the picker closes on selection.
-      refocusComposer();
+      requestComposerFocus();
     },
-    [onFilesSelected, refocusComposer],
+    [onFilesSelected],
   );
 
   // Cancel path: the native picker fires `cancel` (not `change`) when
-  // dismissed without a selection. Refocusing here restores the keyboard
-  // without relying on app-foreground signals, which would misfire if the app
-  // is backgrounded and resumed while the picker is still open. Attached
-  // imperatively because the installed React typings don't yet expose the
-  // `onCancel` prop for `<input>` (the DOM event exists in WebKit 16.4+). The
-  // effect cleanup also disarms any pending focus fallback on unmount.
+  // dismissed without a selection (WebKit 16.4+). Refocusing here restores the
+  // keyboard without relying on app-foreground signals, which would misfire if
+  // the app is backgrounded and resumed while the picker is still open.
+  // Attached imperatively because the installed React typings don't expose an
+  // `onCancel` prop for `<input>`. Registered on every source input.
   useEffect(() => {
-    const input = inputRef.current;
-    const onCancel = () => refocusComposer();
-    input?.addEventListener("cancel", onCancel);
+    const inputs = [
+      libraryInputRef.current,
+      cameraInputRef.current,
+      filesInputRef.current,
+    ];
+    const onCancel = () => requestComposerFocus();
+    for (const input of inputs) {
+      input?.addEventListener("cancel", onCancel);
+    }
     return () => {
-      input?.removeEventListener("cancel", onCancel);
-      disarmFocusFallbackRef.current?.();
-      disarmFocusFallbackRef.current = null;
+      for (const input of inputs) {
+        input?.removeEventListener("cancel", onCancel);
+      }
     };
-  }, [refocusComposer]);
+  }, []);
+
+  const hiddenInputClassName = "absolute inset-0 opacity-0 pointer-events-none";
 
   return (
     <div className="relative">
       <input
-        ref={inputRef}
+        ref={libraryInputRef}
         type="file"
+        accept="image/*"
         multiple
-        className="absolute inset-0 opacity-0 pointer-events-none"
+        className={hiddenInputClassName}
         onChange={handleChange}
         aria-hidden="true"
         tabIndex={-1}
       />
-      <Button
-        variant="ghost"
-        iconOnly={<Paperclip />}
-        onClick={handleClick}
-        disabled={disabled}
-        aria-label="Attach file"
-        title={title}
-        className="[--vbtn-fg:var(--content-secondary)]"
+      <input
+        ref={cameraInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className={hiddenInputClassName}
+        onChange={handleChange}
+        aria-hidden="true"
+        tabIndex={-1}
       />
+      <input
+        ref={filesInputRef}
+        type="file"
+        multiple
+        className={hiddenInputClassName}
+        onChange={handleChange}
+        aria-hidden="true"
+        tabIndex={-1}
+      />
+      <Menu.Root>
+        <Menu.Trigger asChild>
+          <Button
+            variant="ghost"
+            iconOnly={<Paperclip />}
+            disabled={disabled}
+            aria-label="Attach file"
+            title={title}
+            className="[--vbtn-fg:var(--content-secondary)]"
+          />
+        </Menu.Trigger>
+        <Menu.Content side="top" align="start">
+          <Menu.Item
+            onSelect={() => openSource("library")}
+            leftIcon={<ImageIcon className="h-3.5 w-3.5" />}
+          >
+            Photo Library
+          </Menu.Item>
+          <Menu.Item
+            onSelect={() => openSource("camera")}
+            leftIcon={<Camera className="h-3.5 w-3.5" />}
+          >
+            Take Photo
+          </Menu.Item>
+          <Menu.Item
+            onSelect={() => openSource("files")}
+            leftIcon={<Folder className="h-3.5 w-3.5" />}
+          >
+            Choose Files
+          </Menu.Item>
+        </Menu.Content>
+      </Menu.Root>
     </div>
   );
 };
