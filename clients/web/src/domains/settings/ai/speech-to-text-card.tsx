@@ -6,8 +6,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import {
-    configGetOptions,
-    configGetQueryKey,
+  configGetOptions,
+  configGetQueryKey,
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import { configPatch, credentialsSetPost } from "@/generated/daemon/sdk.gen";
 import { useDraftOverride } from "@/domains/settings/ai/use-draft-override";
@@ -19,13 +19,19 @@ import { Input } from "@vellumai/design-library/components/input";
 import { toast } from "@vellumai/design-library/components/toast";
 
 import {
-    ByoServiceCard,
-    CredentialsGuide,
-    ResetButton,
-    SaveButton,
+  ByoServiceCard,
+  CredentialsGuide,
+  ResetButton,
+  SaveButton,
 } from "@/domains/settings/ai/shared-ui";
-import { LS_STT_API_KEY_PREFIX, LS_STT_PROVIDER } from "@/domains/settings/ai/local-storage-keys";
-import { MACOS_NATIVE_STT_PROVIDER_ID, STT_PROVIDERS } from "@/domains/settings/ai/provider-catalogs";
+import {
+  LS_STT_API_KEY_PREFIX,
+  LS_STT_PROVIDER,
+} from "@/domains/settings/ai/local-storage-keys";
+import {
+  MACOS_NATIVE_STT_PROVIDER_ID,
+  STT_PROVIDERS,
+} from "@/domains/settings/ai/provider-catalogs";
 
 /**
  * How the daemon addresses each card provider: `provider` is the
@@ -76,10 +82,11 @@ export function SpeechToTextCard() {
     staleTime: 30_000,
   });
   // `services.stt` falls under the ConfigGetResponse index signature
-  // (`unknown`), so narrow it explicitly to read the provider.
-  const daemonSttProvider = (
-    daemonConfig?.services?.stt as { provider?: string } | undefined
-  )?.provider;
+  // (`unknown`), so narrow it explicitly to read the provider and mode.
+  const daemonStt = daemonConfig?.services?.stt as
+    { provider?: string; mode?: string } | undefined;
+  const daemonSttProvider = daemonStt?.provider;
+  const daemonManaged = daemonStt?.mode === "managed";
 
   const serverProvider = useMemo(() => {
     const mapped = daemonSttProvider
@@ -87,7 +94,9 @@ export function SpeechToTextCard() {
       : undefined;
     // Keep the dropdown on a representable value even when the daemon uses one
     // the card can't show, so we never coerce or clobber it.
-    if (mapped && providers.some((p) => p.id === mapped)) {return mapped;}
+    if (mapped && providers.some((p) => p.id === mapped)) {
+      return mapped;
+    }
     const stored = getLocalSetting(LS_STT_PROVIDER, defaultProviderId);
     return providers.some((p) => p.id === stored) ? stored : defaultProviderId;
   }, [daemonSttProvider, providers, defaultProviderId]);
@@ -172,23 +181,40 @@ export function SpeechToTextCard() {
             throwOnError: false,
           });
           if (!keyRes?.ok) {
-            throw new Error(`Failed to store API key (HTTP ${keyRes?.status ?? "?"})`);
+            throw new Error(
+              `Failed to store API key (HTTP ${keyRes?.status ?? "?"})`,
+            );
           }
         }
         // Only PATCH the provider when it truly diverges from the persisted
         // value (or the daemon has none yet); otherwise a re-save with just a
         // new key would silently switch a provider set elsewhere — including
-        // one the dropdown can't represent.
+        // one the dropdown can't represent. Saving a key from this card is
+        // explicit BYOK intent, so a managed-mode daemon is also switched
+        // back to your-own — otherwise the saved key would appear to take
+        // effect while the daemon kept using managed speech. Without an
+        // effective key the mode stays managed: flipping would trade a
+        // working managed setup for a credential-less BYOK provider.
+        const escapeManaged = daemonManaged && effectiveKey.length > 0;
         const shouldSetProvider =
           draftProvider !== serverProvider || !daemonHasProvider;
-        if (shouldSetProvider) {
+        if (shouldSetProvider || escapeManaged) {
           const { response: cfgRes } = await configPatch({
             path: { assistant_id: assistantId },
-            body: { services: { stt: { provider: daemon.provider } } },
+            body: {
+              services: {
+                stt: {
+                  provider: daemon.provider,
+                  ...(escapeManaged ? { mode: "your-own" } : {}),
+                },
+              },
+            },
             throwOnError: false,
           });
           if (!cfgRes?.ok) {
-            throw new Error(`Failed to save configuration (HTTP ${cfgRes?.status ?? "?"})`);
+            throw new Error(
+              `Failed to save configuration (HTTP ${cfgRes?.status ?? "?"})`,
+            );
           }
         }
       }
@@ -217,6 +243,7 @@ export function SpeechToTextCard() {
     selectedProvider,
     serverProvider,
     daemonHasProvider,
+    daemonManaged,
     queryClient,
   ]);
 
@@ -231,10 +258,7 @@ export function SpeechToTextCard() {
     : selectedProvider.apiKeyPlaceholder;
 
   return (
-    <ByoServiceCard
-      title="Speech-to-Text"
-      subtitle={selectedProvider.subtitle}
-    >
+    <ByoServiceCard title="Speech-to-Text" subtitle={selectedProvider.subtitle}>
       <div className="space-y-4">
         <div className="space-y-1">
           <label className="block text-body-small-default text-[var(--content-tertiary)]">

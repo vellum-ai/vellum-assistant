@@ -17,6 +17,7 @@ import {
   setPlatformUserId,
 } from "../../config/env.js";
 import { getConfig, invalidateConfigCache } from "../../config/loader.js";
+import { maybeDefaultSpeechToManaged } from "../../config/managed-speech-defaults.js";
 import { getCesClient } from "../../credential-execution/ces-runtime.js";
 import type { CesClient } from "../../credential-execution/client.js";
 import { evictConversationsForReload } from "../../daemon/conversation-store.js";
@@ -319,6 +320,19 @@ async function handleAddSecret({ body }: RouteHandlerArgs) {
             }
           }
         }
+      }
+      if (
+        service === "vellum" &&
+        (field === "assistant_api_key" ||
+          field === "platform_assistant_id" ||
+          field === "platform_base_url")
+      ) {
+        // Managed-speech availability needs the API key, the assistant ID,
+        // and the base URL, and the CLI connect path stores all three
+        // concurrently — fire on each so the last write to land triggers the
+        // defaulting; the hook no-ops until the connection is complete.
+        // Detached — must not block the response.
+        void maybeDefaultSpeechToManaged();
       }
       log.info({ service, field }, "Credential added via HTTP");
       return { success: true, type, name };

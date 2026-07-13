@@ -75,10 +75,10 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
   },
 }));
 
-const { SpeechToTextCard } = await import(
-  "@/domains/settings/ai/speech-to-text-card"
-);
-const { LS_STT_PROVIDER } = await import("@/domains/settings/ai/local-storage-keys");
+const { SpeechToTextCard } =
+  await import("@/domains/settings/ai/speech-to-text-card");
+const { LS_STT_PROVIDER } =
+  await import("@/domains/settings/ai/local-storage-keys");
 
 function renderCard() {
   const queryClient = new QueryClient({
@@ -95,7 +95,9 @@ function openProviderDropdown(): void {
   const trigger = document.querySelector<HTMLButtonElement>(
     'button[role="combobox"][aria-label="STT provider"]',
   );
-  if (!trigger) {throw new Error("expected the STT provider dropdown trigger");}
+  if (!trigger) {
+    throw new Error("expected the STT provider dropdown trigger");
+  }
   fireEvent.click(trigger);
 }
 
@@ -170,7 +172,9 @@ describe("SpeechToTextCard — macOS Native Dictation option", () => {
 
     await waitFor(() => expect(configPatchCalls.length).toBe(1));
     expect(credentialsSetCalls).toHaveLength(1);
-    expect(credentialsSetCalls[0]!.path).toEqual({ assistant_id: ASSISTANT_ID });
+    expect(credentialsSetCalls[0]!.path).toEqual({
+      assistant_id: ASSISTANT_ID,
+    });
     expect(credentialsSetCalls[0]!.body).toMatchObject({
       service: "deepgram",
       field: "api_key",
@@ -220,8 +224,46 @@ describe("SpeechToTextCard — macOS Native Dictation option", () => {
     // The provider is unchanged and the daemon already has one, so no config
     // PATCH must fire (which would re-assert / risk clobbering the provider).
     const sttBody = configPatchCalls[0]?.body as
-      | { services?: { stt?: Record<string, unknown> } }
-      | undefined;
+      { services?: { stt?: Record<string, unknown> } } | undefined;
     expect(sttBody?.services?.stt ?? {}).not.toHaveProperty("provider");
+  });
+
+  test("saving a key switches a managed-mode daemon back to your-own", async () => {
+    // Managed speech was auto-defaulted on connection; saving a BYOK key from
+    // this card is explicit intent to use it, so the mode must flip too —
+    // otherwise the key appears to save but the daemon stays on managed.
+    daemonConfigData = {
+      services: { stt: { provider: "deepgram", mode: "managed" } },
+    };
+    renderCard();
+
+    const keyInput = screen.getByPlaceholderText(/Enter your Deepgram API key/);
+    fireEvent.change(keyInput, { target: { value: "dg-secret" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(configPatchCalls.length).toBe(1));
+    expect(configPatchCalls[0]!.body).toMatchObject({
+      services: { stt: { provider: "deepgram", mode: "your-own" } },
+    });
+  });
+
+  test("a provider change with no key keeps managed mode", async () => {
+    // Switching the BYOK preference without supplying a credential must not
+    // trade a working managed setup for a credential-less provider.
+    daemonConfigData = {
+      services: { stt: { provider: "deepgram", mode: "managed" } },
+    };
+    renderCard();
+
+    openProviderDropdown();
+    selectOption("OpenAI");
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(configPatchCalls.length).toBe(1));
+    const sttBody = configPatchCalls[0]!.body as {
+      services: { stt: Record<string, unknown> };
+    };
+    expect(sttBody.services.stt.mode).toBeUndefined();
+    expect(credentialsSetCalls).toHaveLength(0);
   });
 });

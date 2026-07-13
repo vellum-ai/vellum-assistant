@@ -67,9 +67,8 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
   },
 }));
 
-const { TextToSpeechCard } = await import(
-  "@/domains/settings/ai/text-to-speech-card"
-);
+const { TextToSpeechCard } =
+  await import("@/domains/settings/ai/text-to-speech-card");
 
 function renderCard() {
   const queryClient = new QueryClient({
@@ -86,12 +85,16 @@ function selectProvider(label: string): void {
   const trigger = document.querySelector<HTMLButtonElement>(
     'button[role="combobox"][aria-label="TTS provider"]',
   );
-  if (!trigger) {throw new Error("expected the TTS provider dropdown trigger");}
+  if (!trigger) {
+    throw new Error("expected the TTS provider dropdown trigger");
+  }
   fireEvent.click(trigger);
   const option = Array.from(
     document.querySelectorAll<HTMLElement>('[role="option"]'),
   ).find((o) => o.textContent?.trim() === label);
-  if (!option) {throw new Error(`expected option "${label}"`);}
+  if (!option) {
+    throw new Error(`expected option "${label}"`);
+  }
   fireEvent.click(option);
 }
 
@@ -122,7 +125,9 @@ describe("TextToSpeechCard — daemon provisioning on Save", () => {
 
     await waitFor(() => expect(configPatchCalls.length).toBe(1));
     expect(credentialsSetCalls).toHaveLength(1);
-    expect(credentialsSetCalls[0]!.path).toEqual({ assistant_id: ASSISTANT_ID });
+    expect(credentialsSetCalls[0]!.path).toEqual({
+      assistant_id: ASSISTANT_ID,
+    });
     expect(credentialsSetCalls[0]!.body).toMatchObject({
       service: "fish-audio",
       field: "api_key",
@@ -153,8 +158,81 @@ describe("TextToSpeechCard — daemon provisioning on Save", () => {
     // The config PATCH (if any) must not carry a `provider` key — re-saving a
     // key must not switch the live provider.
     const ttsBody = configPatchCalls[0]?.body as
-      | { services?: { tts?: Record<string, unknown> } }
-      | undefined;
+      { services?: { tts?: Record<string, unknown> } } | undefined;
     expect(ttsBody?.services?.tts ?? {}).not.toHaveProperty("provider");
+  });
+
+  test("saving a key switches a managed-mode daemon back to your-own", async () => {
+    // Managed speech was auto-defaulted on connection; saving a BYOK key from
+    // this card is explicit intent to use it, so the mode must flip too —
+    // otherwise the key appears to save but the daemon stays on managed.
+    daemonConfigData = {
+      services: { tts: { provider: "fish-audio", mode: "managed" } },
+    };
+    renderCard();
+
+    fireEvent.change(screen.getByPlaceholderText(/Fish Audio API key/), {
+      target: { value: "fish-secret" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(configPatchCalls.length).toBe(1));
+    expect(configPatchCalls[0]!.body).toMatchObject({
+      services: { tts: { provider: "fish-audio", mode: "your-own" } },
+    });
+  });
+
+  test("a voice-ID-only save with no key keeps managed mode", async () => {
+    // Editing a voice preference without supplying a credential must not
+    // trade a working managed setup for a credential-less BYOK provider.
+    daemonConfigData = {
+      services: { tts: { provider: "fish-audio", mode: "managed" } },
+    };
+    renderCard();
+
+    fireEvent.change(screen.getByPlaceholderText("Enter a voice ID"), {
+      target: { value: "voice-456" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(configPatchCalls.length).toBe(1));
+    const ttsBody = configPatchCalls[0]!.body as {
+      services: { tts: Record<string, unknown> };
+    };
+    expect(ttsBody.services.tts.mode).toBeUndefined();
+    expect(ttsBody.services.tts.provider).toBeUndefined();
+    expect(credentialsSetCalls).toHaveLength(0);
+  });
+
+  test("a managed daemon reporting the reserved vellum provider gets a representable one", async () => {
+    // A managed daemon may report provider "vellum", which the dropdown cannot
+    // show and which is schema-invalid outside managed mode — the PATCH must
+    // carry the card's selected provider instead.
+    daemonConfigData = {
+      services: { tts: { provider: "vellum", mode: "managed" } },
+    };
+    renderCard();
+
+    // The dropdown falls back to the first representable provider
+    // (ElevenLabs, whose key placeholder is "sk_…").
+    fireEvent.change(screen.getByPlaceholderText("sk_…"), {
+      target: { value: "byok-secret" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(configPatchCalls.length).toBe(1));
+    const ttsBody = configPatchCalls[0]!.body as {
+      services: { tts: Record<string, unknown> };
+    };
+    expect(ttsBody.services.tts.mode).toBe("your-own");
+    expect(ttsBody.services.tts.provider).toBeDefined();
+    expect(ttsBody.services.tts.provider).not.toBe("vellum");
+    // The credential must land under the same provider the PATCH activates —
+    // storing it under the reserved id would leave the activated provider
+    // keyless while the save appears successful.
+    expect(credentialsSetCalls).toHaveLength(1);
+    expect((credentialsSetCalls[0]!.body as { service: string }).service).toBe(
+      ttsBody.services.tts.provider as string,
+    );
   });
 });
