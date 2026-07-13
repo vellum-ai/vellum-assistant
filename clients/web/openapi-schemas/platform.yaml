@@ -408,9 +408,9 @@ paths:
       description: |-
         Restore an assistant from a named backup snapshot.
 
-        Enforces ownership and verifies the snapshot belongs to the requested
-        assistant by listing backups first.  Restore is never attempted if the
-        snapshot is absent from the list.
+        Enforces ownership; the shared restore flow verifies the snapshot
+        belongs to the requested assistant by listing backups first, and
+        never attempts the restore if the snapshot is absent from the list.
       parameters:
       - in: header
         name: Vellum-Organization-Id
@@ -1450,6 +1450,76 @@ paths:
               schema:
                 $ref: '#/components/schemas/ManagedSpeechSTTResponse'
           description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManagedSpeechErrorResponse'
+          description: ''
+        '402':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManagedSpeechErrorResponse'
+          description: ''
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManagedSpeechErrorResponse'
+          description: ''
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManagedSpeechErrorResponse'
+          description: ''
+        '502':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManagedSpeechErrorResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+  /v1/assistants/{assistant_id}/managed-speech/tts/synthesize/:
+    post:
+      operationId: assistants_managed_speech_tts_synthesize_create
+      description: Synthesize speech audio from text through Vellum's managed Deepgram
+        text-to-speech proxy. Vellum validates the request, checks billing eligibility,
+        calls Deepgram with managed credentials, bills the input character count,
+        and returns the synthesized audio bytes.
+      parameters:
+      - in: path
+        name: assistant_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - assistants
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ManagedSpeechTTSRequestRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ManagedSpeechTTSRequestRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ManagedSpeechTTSRequestRequest'
+        required: true
+      security:
+      - AssistantAPIKey: []
+      responses:
+        '200':
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+          description: Synthesized audio
         '400':
           content:
             application/json:
@@ -6682,6 +6752,16 @@ components:
           format: uuid
       required:
       - id
+    FormatEnum:
+      enum:
+      - mp3
+      - wav_8000
+      - pcm_16000
+      type: string
+      description: |-
+        * `mp3` - mp3
+        * `wav_8000` - wav_8000
+        * `pcm_16000` - pcm_16000
     FrequencyEnum:
       enum:
       - daily
@@ -6966,6 +7046,20 @@ components:
       - durationSeconds
       - model
       - providerId
+      - text
+    ManagedSpeechTTSRequestRequest:
+      type: object
+      description: Request body for the managed speech TTS (text-to-speech) endpoint.
+      properties:
+        text:
+          type: string
+          minLength: 1
+          maxLength: 2000
+        format:
+          allOf:
+          - $ref: '#/components/schemas/FormatEnum'
+          default: mp3
+      required:
       - text
     MfaEnrollResponse:
       type: object
@@ -7577,8 +7671,16 @@ components:
         was recorded against. The versioned legal-consent fields (ToS, privacy
         policy, AI data sharing) are intentionally excluded — the daemon only needs
         the share preferences.
+
+        Released daemons parse ``share_analytics`` as a strict boolean, so this
+        projection must stay additive: a never-chosen (null) value is coerced to
+        ``False`` (fail closed) and surfaced separately via
+        ``share_analytics_chosen``.
       properties:
         share_analytics:
+          type: boolean
+          readOnly: true
+        share_analytics_chosen:
           type: boolean
           readOnly: true
         share_analytics_accepted_version:
@@ -7604,6 +7706,7 @@ components:
       - share_analytics
       - share_analytics_accepted_at
       - share_analytics_accepted_version
+      - share_analytics_chosen
       - share_diagnostics
       - share_diagnostics_accepted_at
       - share_diagnostics_accepted_version
