@@ -8,12 +8,17 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import type { LifecycleEvent } from "../../persistence/lifecycle-events-store.js";
+
 const checkpoints = new Map<string, string>();
 const recordedEvents: string[] = [];
 let fakeEnabledWatchers: Array<{ providerId: string }> = [];
-let recordImpl: (name: string) => void = (name) => {
+let shareAnalytics = true;
+const recordAndReturnEvent = (name: string): LifecycleEvent => {
   recordedEvents.push(name);
+  return { id: "evt-1", eventName: name, createdAt: 0 };
 };
+let recordImpl: (name: string) => LifecycleEvent | null = recordAndReturnEvent;
 
 mock.module("../../persistence/checkpoints.js", () => ({
   getMemoryCheckpoint: (key: string) => checkpoints.get(key) ?? null,
@@ -23,10 +28,11 @@ mock.module("../../persistence/checkpoints.js", () => ({
 }));
 
 mock.module("../../persistence/lifecycle-events-store.js", () => ({
-  recordLifecycleEvent: (name: string) => {
-    recordImpl(name);
-    return null;
-  },
+  recordLifecycleEvent: (name: string) => recordImpl(name),
+}));
+
+mock.module("../../platform/consent-cache.js", () => ({
+  getCachedShareAnalytics: () => shareAnalytics,
 }));
 
 mock.module("../watcher-store.js", () => ({
@@ -48,9 +54,8 @@ beforeEach(() => {
   checkpoints.clear();
   recordedEvents.length = 0;
   fakeEnabledWatchers = [];
-  recordImpl = (name) => {
-    recordedEvents.push(name);
-  };
+  shareAnalytics = true;
+  recordImpl = recordAndReturnEvent;
 });
 
 describe("recordWatcherInventoryIfDue", () => {
@@ -108,13 +113,38 @@ describe("recordWatcherInventoryIfDue", () => {
     // instead of skipping a day of inventory.
     expect(checkpoints.get(INVENTORY_KEY)).toBeUndefined();
 
-    recordImpl = (name) => {
-      recordedEvents.push(name);
-    };
+    recordImpl = recordAndReturnEvent;
     recordWatcherInventoryIfDue(BASE + 3);
 
     expect(recordedEvents).toEqual(["watcher_enabled:gmail"]);
     expect(checkpoints.get(INVENTORY_KEY)).toBe(String(BASE + 3));
+  });
+
+  test("leaves the checkpoint for retry when the telemetry DB is unavailable with consent on", () => {
+    fakeEnabledWatchers = [{ providerId: "gmail" }];
+    // Degraded mode: consent granted but the store reports nothing recorded.
+    recordImpl = () => null;
+
+    recordWatcherInventoryIfDue(BASE + 2);
+    expect(checkpoints.get(INVENTORY_KEY)).toBeUndefined();
+
+    recordImpl = recordAndReturnEvent;
+    recordWatcherInventoryIfDue(BASE + 3);
+
+    expect(recordedEvents).toEqual(["watcher_enabled:gmail"]);
+    expect(checkpoints.get(INVENTORY_KEY)).toBe(String(BASE + 3));
+  });
+
+  test("advances the checkpoint when consent is off", () => {
+    fakeEnabledWatchers = [{ providerId: "gmail" }];
+    shareAnalytics = false;
+    // Consent-off skip: the store records nothing and returns null.
+    recordImpl = () => null;
+
+    recordWatcherInventoryIfDue(BASE + 4);
+
+    expect(recordedEvents).toEqual([]);
+    expect(checkpoints.get(INVENTORY_KEY)).toBe(String(BASE + 4));
   });
 });
 

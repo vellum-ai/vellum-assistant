@@ -1,11 +1,10 @@
 import { and, asc, eq, gt, or } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
-import { getDb } from "../persistence/db-connection.js";
+import { getTelemetryDb } from "../persistence/db-connection.js";
 import { skillLoadedEvents } from "../persistence/schema/index.js";
 import { getCachedShareAnalytics } from "../platform/consent-cache.js";
 import type { UsageAttributionColumns } from "../usage/attribution.js";
-import { getTelemetryMainDb } from "./telemetry-main-db.js";
 
 /**
  * Input for one `skill_loaded` telemetry event. Metadata only — never skill
@@ -42,7 +41,10 @@ export function recordSkillLoadedEvent(record: SkillLoadedEventRecord): void {
   if (!getCachedShareAnalytics()) {
     return;
   }
-  const db = getDb();
+  const db = getTelemetryDb();
+  if (!db) {
+    return;
+  }
   db.insert(skillLoadedEvents)
     .values({
       id: uuid(),
@@ -67,7 +69,10 @@ export function queryUnreportedSkillLoadedEvents(
   afterId: string | undefined,
   limit: number,
 ): SkillLoadedEvent[] {
-  const db = getTelemetryMainDb();
+  const db = getTelemetryDb();
+  if (!db) {
+    return [];
+  }
   return db
     .select({
       id: skillLoadedEvents.id,

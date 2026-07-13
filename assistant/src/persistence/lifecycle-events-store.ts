@@ -2,8 +2,7 @@ import { and, asc, eq, gt, or } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { getCachedShareAnalytics } from "../platform/consent-cache.js";
-import { getTelemetryMainDb } from "../telemetry/telemetry-main-db.js";
-import { getDb } from "./db-connection.js";
+import { getTelemetryDb } from "./db-connection.js";
 import { lifecycleEvents } from "./schema.js";
 
 export interface LifecycleEvent {
@@ -12,12 +11,19 @@ export interface LifecycleEvent {
   createdAt: number;
 }
 
-/** Record a lifecycle event (e.g. app_open, hatch). Returns null when usage data collection is disabled. */
+/**
+ * Record a lifecycle event (e.g. app_open, hatch). Returns null when usage
+ * data collection is disabled or the telemetry database is unavailable
+ * (degraded mode).
+ */
 export function recordLifecycleEvent(eventName: string): LifecycleEvent | null {
   if (!getCachedShareAnalytics()) {
     return null;
   }
-  const db = getDb();
+  const db = getTelemetryDb();
+  if (!db) {
+    return null;
+  }
   const event: LifecycleEvent = {
     id: uuid(),
     eventName,
@@ -42,7 +48,10 @@ export function queryUnreportedLifecycleEvents(
   afterId: string | undefined,
   limit: number,
 ): LifecycleEvent[] {
-  const db = getTelemetryMainDb();
+  const db = getTelemetryDb();
+  if (!db) {
+    return [];
+  }
   const rows = db
     .select({
       id: lifecycleEvents.id,

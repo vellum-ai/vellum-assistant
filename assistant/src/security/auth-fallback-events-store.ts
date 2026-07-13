@@ -1,10 +1,9 @@
 import { and, asc, eq, gt, or } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
-import { getDb } from "../persistence/db-connection.js";
+import { getTelemetryDb } from "../persistence/db-connection.js";
 import { authFallbackEvents } from "../persistence/schema/index.js";
 import { getCachedShareAnalytics } from "../platform/consent-cache.js";
-import { getTelemetryMainDb } from "../telemetry/telemetry-main-db.js";
 
 /** A single aggregated auth-fallback count for one (guard, path, failure_kind). */
 export interface AuthFallbackCount {
@@ -30,7 +29,9 @@ export interface AuthFallbackEvent {
  * Record a batch of aggregated auth-fallback counts forwarded by the gateway —
  * one row per count entry, all sharing the same flush window. Returns the
  * number of rows recorded, or 0 when usage data collection is disabled (the
- * counts are dropped to honor the opt-out, matching the rest of telemetry).
+ * counts are dropped to honor the opt-out, matching the rest of telemetry) or
+ * the telemetry database is unavailable (degraded mode). Callers that must
+ * tell those apart check `getCachedShareAnalytics()` themselves.
  */
 export function recordAuthFallbackCounts(
   windowStart: number,
@@ -43,7 +44,10 @@ export function recordAuthFallbackCounts(
   if (counts.length === 0) {
     return 0;
   }
-  const db = getDb();
+  const db = getTelemetryDb();
+  if (!db) {
+    return 0;
+  }
   const createdAt = Date.now();
   const rows = counts.map((c) => ({
     id: uuid(),
@@ -68,7 +72,10 @@ export function queryUnreportedAuthFallbackEvents(
   afterId: string | undefined,
   limit: number,
 ): AuthFallbackEvent[] {
-  const db = getTelemetryMainDb();
+  const db = getTelemetryDb();
+  if (!db) {
+    return [];
+  }
   const rows = db
     .select({
       id: authFallbackEvents.id,

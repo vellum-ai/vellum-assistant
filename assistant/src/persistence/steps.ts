@@ -436,6 +436,10 @@ import { createConfigSettingEventsTable } from "./migrations/325-create-config-s
 import { migrateMoveInjectionEventsToMemoryDb } from "./migrations/326-move-injection-events-to-memory-db.js";
 import { createFlushCheckpointsTable } from "./migrations/327-create-flush-checkpoints.js";
 import { migrateDropMemoryV3LearnedEdgeTables } from "./migrations/328-drop-memory-v3-learned-edge-tables.js";
+import { migrateMoveOnboardingEventsToTelemetryDb } from "./migrations/329-move-onboarding-events-to-telemetry-db.js";
+import { migrateMoveAuthFallbackEventsToTelemetryDb } from "./migrations/330-move-auth-fallback-events-to-telemetry-db.js";
+import { migrateMoveLifecycleEventsToTelemetryDb } from "./migrations/331-move-lifecycle-events-to-telemetry-db.js";
+import { migrateMoveSkillLoadedEventsToTelemetryDb } from "./migrations/332-move-skill-loaded-events-to-telemetry-db.js";
 import type { MigrationStep } from "./migrations/run-migrations.js";
 
 export const migrationSteps: MigrationStep[] = [
@@ -1343,4 +1347,8 @@ export const migrationSteps: MigrationStep[] = [
   migrateMoveInjectionEventsToMemoryDb,
   createFlushCheckpointsTable,
   migrateDropMemoryV3LearnedEdgeTables,
+  migrateMoveOnboardingEventsToTelemetryDb,
+  migrateMoveAuthFallbackEventsToTelemetryDb,
+  migrateMoveLifecycleEventsToTelemetryDb,
+  migrateMoveSkillLoadedEventsToTelemetryDb,
 ];

@@ -1,7 +1,7 @@
 import { and, asc, eq, gt, or } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
-import { getDb } from "../persistence/db-connection.js";
+import { getTelemetryDb } from "../persistence/db-connection.js";
 import { onboardingEvents } from "../persistence/schema/index.js";
 import { getCachedShareAnalytics } from "../platform/consent-cache.js";
 import {
@@ -10,7 +10,6 @@ import {
   activationStepIndex,
   type ActivationStepName,
 } from "../telemetry/activation-funnel.js";
-import { getTelemetryMainDb } from "../telemetry/telemetry-main-db.js";
 
 export interface OnboardingEvent {
   id: string;
@@ -46,15 +45,22 @@ export interface RecordOnboardingEventParams {
   funnelVersion?: string | null;
 }
 
-/** Insert a fully-built event row. Shared by all record* entry points. */
-function insertOnboardingEvent(event: OnboardingEvent): OnboardingEvent {
-  getDb().insert(onboardingEvents).values(event).run();
+/**
+ * Insert a fully-built event row. Shared by all record* entry points.
+ * Returns null when the telemetry database is unavailable — the event is
+ * dropped, matching the degraded-mode behavior of the other telemetry stores.
+ */
+function insertOnboardingEvent(event: OnboardingEvent): OnboardingEvent | null {
+  const db = getTelemetryDb();
+  if (!db) return null;
+  db.insert(onboardingEvents).values(event).run();
   return event;
 }
 
 /**
  * Record an onboarding event (pre-chat selections and Google connect status).
- * Returns null when usage data collection is disabled.
+ * Returns null when usage data collection is disabled or the telemetry
+ * database is unavailable.
  */
 export function recordOnboardingEvent(
   params: RecordOnboardingEventParams,
@@ -88,7 +94,8 @@ export function recordOnboardingEvent(
 /**
  * Record an activation-funnel milestone event. Reuses the onboarding telemetry
  * substrate (`screen` carries the step name to satisfy the NOT NULL column).
- * Returns null when usage data collection is disabled.
+ * Returns null when usage data collection is disabled or the telemetry
+ * database is unavailable.
  */
 export function recordActivationEvent(params: {
   stepName: ActivationStepName;
@@ -128,7 +135,10 @@ export function queryUnreportedOnboardingEvents(
   afterId: string | undefined,
   limit: number,
 ): OnboardingEvent[] {
-  const db = getTelemetryMainDb();
+  const db = getTelemetryDb();
+  if (!db) {
+    return [];
+  }
   const rows = db
     .select({
       id: onboardingEvents.id,

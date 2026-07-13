@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
 import type { AssistantConfig } from "../config/schema.js";
-import { getDb } from "../persistence/db-connection.js";
+import { getDb, getTelemetryDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { pruneOldConversationsJob } from "../persistence/job-handlers/cleanup.js";
 import type { MemoryJob } from "../persistence/jobs-store.js";
@@ -39,7 +39,9 @@ function seedConversation(id: string, updatedAt: number): void {
       createdAt: updatedAt,
     })
     .run();
-  db.insert(skillLoadedEvents)
+  // skill_loaded_events lives in the dedicated telemetry DB.
+  getTelemetryDb()!
+    .insert(skillLoadedEvents)
     .values({
       id: `sl-${id}`,
       createdAt: updatedAt,
@@ -60,7 +62,7 @@ function countRows(conversationId: string): {
       .from(toolInvocations)
       .all()
       .filter((r) => r.conversationId === conversationId).length,
-    skillLoads: db
+    skillLoads: getTelemetryDb()!
       .select()
       .from(skillLoadedEvents)
       .all()
@@ -71,7 +73,7 @@ function countRows(conversationId: string): {
 describe("pruneOldConversationsJob", () => {
   beforeEach(() => {
     const db = getDb();
-    db.delete(skillLoadedEvents).run();
+    getTelemetryDb()!.delete(skillLoadedEvents).run();
     db.delete(toolInvocations).run();
     db.delete(conversations).run();
   });

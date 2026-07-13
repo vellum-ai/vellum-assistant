@@ -78,6 +78,7 @@ import {
   getDb,
   getLogsDb,
   getSqliteFrom,
+  getTelemetryDb,
 } from "./db-connection.js";
 import {
   copyForkMessagesViaSubprocess,
@@ -97,6 +98,7 @@ import {
   rawLogsRun,
   rawMemoryRun,
   rawRun,
+  rawTelemetryRun,
 } from "./raw-query.js";
 import {
   channelInboundEvents,
@@ -122,6 +124,20 @@ function logsDb(): DrizzleDb {
   const db = getLogsDb();
   if (!db) {
     throw new Error("logs database unavailable");
+  }
+  return db;
+}
+
+/**
+ * The telemetry connection (`assistant-telemetry.db`), where
+ * `skill_loaded_events` lives. Throws if the file cannot be opened — the
+ * conversation-delete call sites must not report success while unshipped
+ * skill events referencing the deleted conversation survive to be flushed.
+ */
+function telemetryDb(): DrizzleDb {
+  const db = getTelemetryDb();
+  if (!db) {
+    throw new Error("telemetry database unavailable");
   }
   return db;
 }
@@ -1639,11 +1655,17 @@ export function deleteConversation(id: string): DeletedMemoryIds {
   const convBeforeDelete = getConversation(id);
   const createdAtForDiskCleanup = convBeforeDelete?.createdAt;
 
-  // llm_request_logs lives in the dedicated logs connection, so it is deleted
-  // there — separately from the main-DB transaction below.
+  // llm_request_logs and skill_loaded_events live in the dedicated logs and
+  // telemetry connections, so they are deleted there — separately from (and
+  // before) the main-DB transaction below, so a failure leaves the
+  // conversation intact for a retried delete.
   logsDb()
     .delete(llmRequestLogs)
     .where(eq(llmRequestLogs.conversationId, id))
+    .run();
+  telemetryDb()
+    .delete(skillLoadedEvents)
+    .where(eq(skillLoadedEvents.conversationId, id))
     .run();
 
   db.transaction((tx) => {
@@ -1668,9 +1690,6 @@ export function deleteConversation(id: string): DeletedMemoryIds {
       tx.delete(toolInvocations)
         .where(eq(toolInvocations.conversationId, id))
         .run();
-      tx.delete(skillLoadedEvents)
-        .where(eq(skillLoadedEvents.conversationId, id))
-        .run();
       // Cascade deletes memory_segments, message_attachments.
       tx.delete(messages).where(eq(messages.conversationId, id)).run();
 
@@ -1689,9 +1708,6 @@ export function deleteConversation(id: string): DeletedMemoryIds {
       // No messages — just clean up non-message tables.
       tx.delete(toolInvocations)
         .where(eq(toolInvocations.conversationId, id))
-        .run();
-      tx.delete(skillLoadedEvents)
-        .where(eq(skillLoadedEvents.conversationId, id))
         .run();
     }
 
@@ -1768,6 +1784,15 @@ export async function deleteConversationGently(
     .all()
     .map((r) => r.id);
 
+  // skill_loaded_events lives in the dedicated telemetry connection; delete
+  // it there before ANY destructive work so a telemetry failure leaves the
+  // conversation fully intact for a retried delete — a throw after the bulk
+  // drains below would strand unredacted rows that could still flush.
+  telemetryDb()
+    .delete(skillLoadedEvents)
+    .where(eq(skillLoadedEvents.conversationId, id))
+    .run();
+
   // llm_request_logs lives in the dedicated logs connection, and each row is
   // bulky, so drain it off the event loop in batches against the logs DB file.
   const logsDel = await deleteConversationRowsInBatches({
@@ -1799,9 +1824,6 @@ export async function deleteConversationGently(
   db.transaction((tx) => {
     tx.delete(toolInvocations)
       .where(eq(toolInvocations.conversationId, id))
-      .run();
-    tx.delete(skillLoadedEvents)
-      .where(eq(skillLoadedEvents.conversationId, id))
       .run();
 
     // Clean up segment embeddings (not FK-linked to segments, so the message
@@ -2954,6 +2976,16 @@ export async function clearAll(): Promise<{
     }
   };
 
+  // skill_loaded_events lives in the dedicated telemetry connection. Redact
+  // it FIRST, before any destructive delete: unshipped skill events reference
+  // conversations this wipe must redact, so a telemetry failure must abort
+  // the clear-all while the workspace is still fully intact — never after
+  // memory state is already gone.
+  rawTelemetryRun(
+    "conversation:clearAll:skillLoadedEvents",
+    "DELETE FROM skill_loaded_events",
+  );
+
   // Delete in dependency order. Cascades handle memory_segments and
   // tool_invocations, but we explicitly clear non-cascading memory
   // tables too.
@@ -2961,8 +2993,8 @@ export async function clearAll(): Promise<{
   await runOrThrow("DELETE FROM memory_summaries");
   await runOrThrow("DELETE FROM memory_embeddings");
   // memory_jobs and llm_request_logs each live in their own dedicated
-  // connection; clear them directly on those connections rather than through a
-  // sqlite3 subprocess.
+  // connection; clear them directly on those connections rather than through
+  // a sqlite3 subprocess.
   rawMemoryRun("conversation:clearAll:memoryJobs", "DELETE FROM memory_jobs");
   await runOrThrow("DELETE FROM memory_checkpoints");
   rawLogsRun(
@@ -2973,19 +3005,25 @@ export async function clearAll(): Promise<{
   await runOrThrow("DELETE FROM message_attachments");
   await runOrThrow("DELETE FROM attachments");
   await runOrThrow("DELETE FROM tool_invocations");
-  await runOrThrow("DELETE FROM skill_loaded_events");
   await runOrThrow("DELETE FROM messages");
   await runOrThrow("DELETE FROM conversations");
 
-  // Record audit event — lifecycle_events is NOT deleted by clearAll(),
-  // so this survives the wipe and provides a permanent trail.
-  rawRun(
-    "conversation:clearAll:auditEvent",
-    `INSERT INTO lifecycle_events (id, event_name, created_at) VALUES (?, ?, ?)`,
-    uuid(),
-    "conversations_clear_all",
-    Date.now(),
-  );
+  // Record audit event — lifecycle_events lives in the telemetry DB and is
+  // NOT deleted by clearAll(), so this survives the wipe as a permanent trail.
+  // Best-effort: the destructive deletes above already completed, so telemetry
+  // degradation must not turn a finished wipe into a failure or skip the
+  // cleanup below.
+  try {
+    rawTelemetryRun(
+      "conversation:clearAll:auditEvent",
+      `INSERT INTO lifecycle_events (id, event_name, created_at) VALUES (?, ?, ?)`,
+      uuid(),
+      "conversations_clear_all",
+      Date.now(),
+    );
+  } catch (err) {
+    log.warn({ err }, "clearAll: failed to record audit event");
+  }
 
   // Drop the whole lexical (Qdrant) collection — a "delete all" leaves no ids
   // to key per-message cleanup on. AWAITED so the drop completes before
