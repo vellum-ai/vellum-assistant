@@ -1,6 +1,16 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Copy, KeyRound, Link2, Loader2, Plus, Trash2 } from "lucide-react";
-import { useState } from "react";
+import {
+  Check,
+  Copy,
+  Eye,
+  EyeOff,
+  KeyRound,
+  Link2,
+  Loader2,
+  Plus,
+  Trash2,
+} from "lucide-react";
+import { useCallback, useRef, useState } from "react";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { NotFound } from "@/components/not-found";
@@ -8,7 +18,10 @@ import {
   useCredentialsDeletePostMutation,
   useCredentialsSetPostMutation,
 } from "@/generated/daemon/@tanstack/react-query.gen";
-import { credentialsListPost } from "@/generated/daemon/sdk.gen";
+import {
+  credentialsListPost,
+  credentialsRevealPost,
+} from "@/generated/daemon/sdk.gen";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { shouldRetryDaemonError } from "@/utils/daemon-errors";
@@ -62,7 +75,9 @@ function credentialsListQueryKey(assistantId: string) {
 }
 
 function formatCreatedAt(iso: string | null): string {
-  if (!iso) {return "";}
+  if (!iso) {
+    return "";
+  }
   try {
     return new Date(iso).toLocaleDateString(undefined, {
       year: "numeric",
@@ -72,6 +87,138 @@ function formatCreatedAt(iso: string | null): string {
   } catch {
     return "";
   }
+}
+
+/** How long the "copied" checkmark stays up after copying a revealed value. */
+const COPIED_FEEDBACK_MS = 1500;
+
+/**
+ * The masked/revealed secret preview for a single local credential row.
+ *
+ * Owns its own reveal + copy state so the parent stays a thin orchestrator.
+ * The masked preview (`****last4`) is rendered blurred until the user reveals
+ * it, at which point the plaintext is fetched on demand via
+ * `POST /v1/credentials/reveal` — the value is never held in the list query
+ * cache, only in this component's transient state, and is dropped on re-hide.
+ */
+function CredentialValue({
+  assistantId,
+  credential,
+}: {
+  assistantId: string;
+  credential: CredentialRow;
+}) {
+  const [revealed, setRevealed] = useState<string | null>(null);
+  const [isRevealing, setIsRevealing] = useState(false);
+  const [justCopied, setJustCopied] = useState(false);
+  const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const name = `${credential.service}:${credential.field}`;
+
+  const hide = useCallback(() => {
+    setRevealed(null);
+    setJustCopied(false);
+    if (copiedTimer.current) {
+      clearTimeout(copiedTimer.current);
+      copiedTimer.current = null;
+    }
+  }, []);
+
+  const reveal = useCallback(async () => {
+    setIsRevealing(true);
+    try {
+      const { data } = await credentialsRevealPost({
+        path: { assistant_id: assistantId },
+        body: { service: credential.service, field: credential.field },
+        throwOnError: true,
+      });
+      setRevealed(data.value);
+    } catch {
+      toast.error(`Couldn't reveal ${name}.`);
+    } finally {
+      setIsRevealing(false);
+    }
+  }, [assistantId, credential.service, credential.field, name]);
+
+  const copy = useCallback(() => {
+    if (revealed == null) {
+      return;
+    }
+    void navigator.clipboard.writeText(revealed).then(
+      () => {
+        setJustCopied(true);
+        if (copiedTimer.current) {
+          clearTimeout(copiedTimer.current);
+        }
+        copiedTimer.current = setTimeout(
+          () => setJustCopied(false),
+          COPIED_FEEDBACK_MS,
+        );
+      },
+      () => toast.error("Couldn't copy — reveal and copy manually."),
+    );
+  }, [revealed]);
+
+  const isRevealed = revealed !== null;
+
+  return (
+    <span className="inline-flex min-w-0 items-center gap-1.5 align-middle">
+      <button
+        type="button"
+        onClick={() => (isRevealed ? hide() : void reveal())}
+        disabled={isRevealing}
+        aria-label={
+          isRevealed ? `Hide value for ${name}` : `Reveal value for ${name}`
+        }
+        title={isRevealed ? "Hide value" : "Click to reveal"}
+        className={`min-w-0 truncate rounded-sm text-left transition-[filter,color] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--border-focus)] ${
+          isRevealed
+            ? "text-[var(--content-secondary)]"
+            : "select-none blur-[3px] hover:blur-[2px]"
+        }`}
+      >
+        {isRevealed ? revealed : credential.scrubbedValue}
+      </button>
+      {isRevealing ? (
+        <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" aria-hidden />
+      ) : isRevealed ? (
+        <>
+          <button
+            type="button"
+            onClick={copy}
+            aria-label={`Copy value for ${name}`}
+            title="Copy value"
+            className="shrink-0 rounded-sm p-0.5 text-[var(--content-tertiary)] transition-colors hover:text-[var(--content-secondary)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--border-focus)]"
+          >
+            {justCopied ? (
+              <Check className="h-3.5 w-3.5" aria-hidden />
+            ) : (
+              <Copy className="h-3.5 w-3.5" aria-hidden />
+            )}
+          </button>
+          <button
+            type="button"
+            onClick={hide}
+            aria-label={`Hide value for ${name}`}
+            title="Hide value"
+            className="shrink-0 rounded-sm p-0.5 text-[var(--content-tertiary)] transition-colors hover:text-[var(--content-secondary)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--border-focus)]"
+          >
+            <EyeOff className="h-3.5 w-3.5" aria-hidden />
+          </button>
+        </>
+      ) : (
+        <button
+          type="button"
+          onClick={() => void reveal()}
+          aria-label={`Reveal value for ${name}`}
+          title="Click to reveal"
+          className="shrink-0 rounded-sm p-0.5 text-[var(--content-tertiary)] transition-colors hover:text-[var(--content-secondary)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--border-focus)]"
+        >
+          <Eye className="h-3.5 w-3.5" aria-hidden />
+        </button>
+      )}
+    </span>
+  );
 }
 
 export function CredentialsPage() {
@@ -190,7 +337,9 @@ function CredentialsPageInner() {
   const confirmDelete = () => {
     const credential = pendingDeletion;
     setPendingDeletion(null);
-    if (!credential) {return;}
+    if (!credential) {
+      return;
+    }
     deleteMutation.mutate(
       {
         path: { assistant_id: assistantId },
@@ -199,9 +348,7 @@ function CredentialsPageInner() {
       {
         onSuccess: () => {
           void queryClient.invalidateQueries({ queryKey: listQueryKey });
-          toast.success(
-            `Deleted ${credential.service}:${credential.field}.`,
-          );
+          toast.success(`Deleted ${credential.service}:${credential.field}.`);
         },
       },
     );
@@ -243,7 +390,8 @@ function CredentialsPageInner() {
     }
     void navigator.clipboard.writeText(url).then(
       () => toast.success("Link copied to clipboard."),
-      () => toast.error("Couldn't copy the link — select it and copy manually."),
+      () =>
+        toast.error("Couldn't copy the link — select it and copy manually."),
     );
   };
 
@@ -263,8 +411,8 @@ function CredentialsPageInner() {
     <div className="flex flex-col gap-4">
       <p className="text-body-small-default leading-relaxed text-[var(--content-tertiary)]">
         Credentials are stored encrypted in your assistant&apos;s credential
-        vault. Values are write-only — they can be replaced or deleted, but not
-        viewed here.
+        vault. Values stay masked — click a value to reveal it, or replace and
+        delete them here.
       </p>
 
       {credentials.length > 0 ? (
@@ -285,13 +433,20 @@ function CredentialsPageInner() {
                     <p className="truncate text-body-medium-default text-[var(--content-default)]">
                       {credential.alias || name}
                     </p>
-                    <p className="truncate font-mono text-body-small-default text-[var(--content-tertiary)]">
-                      {credential.alias ? `${name} · ` : ""}
-                      {credential.scrubbedValue}
-                      {credential.createdAt
-                        ? ` · added ${formatCreatedAt(credential.createdAt)}`
-                        : ""}
-                    </p>
+                    <div className="flex min-w-0 items-center gap-1.5 font-mono text-body-small-default text-[var(--content-tertiary)]">
+                      {credential.alias ? (
+                        <span className="shrink-0">{name} ·</span>
+                      ) : null}
+                      <CredentialValue
+                        assistantId={assistantId}
+                        credential={credential}
+                      />
+                      {credential.createdAt ? (
+                        <span className="shrink-0 truncate">
+                          · added {formatCreatedAt(credential.createdAt)}
+                        </span>
+                      ) : null}
+                    </div>
                   </div>
                   {credentialRequestsEnabled ? (
                     <Button
@@ -439,8 +594,7 @@ function CredentialsPageInner() {
                       {managed.provider}
                     </p>
                     <p className="truncate text-body-small-default text-[var(--content-tertiary)]">
-                      {managed.accountInfo ?? managed.handle} ·{" "}
-                      {managed.status}
+                      {managed.accountInfo ?? managed.handle} · {managed.status}
                     </p>
                   </div>
                 </div>
