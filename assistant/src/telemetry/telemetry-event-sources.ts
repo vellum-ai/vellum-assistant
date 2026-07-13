@@ -403,6 +403,12 @@ const lifecycleSource = outboxSource("lifecycle");
 // event (including the activation daemon_event_id override) at record time.
 const onboardingSource = outboxSource("onboarding");
 
+// Onboarding research-turn results are client-orchestrated (the web client
+// reports the settled `{claims, suggestions, plugins}` payload once via
+// POST /v1/telemetry/onboarding-research) but land in the same outbox as
+// every other event type.
+const onboardingResearchSource = outboxSource("onboarding_research");
+
 const authFallbackSource = outboxSource("auth_fallback");
 
 const toolExecutedSource = simpleSource(
@@ -462,6 +468,7 @@ export const ALL_TELEMETRY_EVENT_SOURCES: readonly TelemetryEventSource[] = [
   skillLoadedSource,
   watchdogSource,
   configSettingSource,
+  onboardingResearchSource,
 ];
 
 /**

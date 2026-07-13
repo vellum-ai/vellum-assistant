@@ -511,6 +511,48 @@ export interface ConfigSettingTelemetryEvent extends TelemetryEventBase {
   config_value: string;
 }
 
+/** One inferred fact from the onboarding research-onboarding web-search turn. */
+export interface OnboardingResearchClaim {
+  claim: string;
+  confidence: "confident" | "maybe" | "guessing";
+  sources: string[];
+}
+
+/** One clickable follow-up offer from the research-onboarding turn. */
+export interface OnboardingResearchSuggestion {
+  suggestion: string;
+  prompt: string;
+}
+
+/**
+ * Onboarding-research event — one per "research me" web-search turn's
+ * settled result during onboarding. Client-orchestrated: the web client
+ * knows exactly when the turn completes and what it produced (claims,
+ * suggestions, plugin picks), and reports it once via
+ * `POST /v1/telemetry/onboarding-research` — the daemon never detects this
+ * turn on its own.
+ *
+ * Carries both the raw claim/suggestion text (+ source URLs) and structural
+ * counts by confidence tier, so downstream consumers can aggregate cheaply
+ * without parsing the arrays.
+ */
+export interface OnboardingResearchTelemetryEvent extends TelemetryEventBase {
+  type: "onboarding_research";
+  conversation_id: string | null;
+  status: "done" | "error";
+  claims: OnboardingResearchClaim[];
+  claim_count: number;
+  claims_confident: number;
+  claims_maybe: number;
+  claims_guessing: number;
+  suggestions: OnboardingResearchSuggestion[];
+  suggestion_count: number;
+  /** The model's raw top-level `plugins` picks, before the deterministic-floor merge. */
+  plugins: string[];
+  /** The final resolved install set (deterministic floor ∪ model picks, catalog-filtered). */
+  installed_plugins: string[];
+}
+
 /** Discriminated union of all telemetry event types. */
 export type TelemetryEvent =
   | LlmUsageTelemetryEvent
@@ -521,4 +563,5 @@ export type TelemetryEvent =
   | ToolExecutedTelemetryEvent
   | SkillLoadedTelemetryEvent
   | WatchdogTelemetryEvent
-  | ConfigSettingTelemetryEvent;
+  | ConfigSettingTelemetryEvent
+  | OnboardingResearchTelemetryEvent;

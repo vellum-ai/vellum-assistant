@@ -29051,6 +29051,103 @@ paths:
                     required:
                       - skipped
                     additionalProperties: false
+  /v1/telemetry/onboarding-research:
+    post:
+      operationId: telemetry_onboardingresearch_post
+      summary: Record onboarding-research event
+      description:
+        'Record the settled result of an onboarding "research me" web-search turn (claims, suggestions, and plugin
+        picks). Client-orchestrated: the web client reports this once it has observed the turn complete.'
+      tags:
+        - telemetry
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                conversation_id:
+                  anyOf:
+                    - type: string
+                    - type: "null"
+                status:
+                  type: string
+                  enum:
+                    - done
+                    - error
+                claims:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      claim:
+                        type: string
+                      confidence:
+                        type: string
+                        enum:
+                          - confident
+                          - maybe
+                          - guessing
+                      sources:
+                        type: array
+                        items:
+                          type: string
+                    required:
+                      - claim
+                      - confidence
+                      - sources
+                suggestions:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      suggestion:
+                        type: string
+                      prompt:
+                        type: string
+                    required:
+                      - suggestion
+                      - prompt
+                plugins:
+                  type: array
+                  items:
+                    type: string
+                installed_plugins:
+                  type: array
+                  items:
+                    type: string
+              required:
+                - conversation_id
+                - status
+                - claims
+                - suggestions
+                - plugins
+                - installed_plugins
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      id:
+                        type: string
+                        description: Event ID
+                    required:
+                      - id
+                    additionalProperties: false
+                  - type: object
+                    properties:
+                      skipped:
+                        type: boolean
+                        const: true
+                        description: Event skipped due to usage data collection being disabled
+                    required:
+                      - skipped
+                    additionalProperties: false
   /v1/tools:
     get:
       operationId: tools_get

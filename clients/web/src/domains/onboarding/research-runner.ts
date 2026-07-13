@@ -29,6 +29,7 @@ import {
   messagesPost,
   pluginsInstallPost,
   pluginsSearchGet,
+  telemetryOnboardingresearchPost,
 } from "@/generated/daemon/sdk.gen";
 import { archiveResearchConversation } from "@/domains/onboarding/archive-research-conversation";
 import { invalidateConversationQueries } from "@/utils/conversation-cache";
@@ -191,6 +192,48 @@ async function installCapabilityBestEffort(
     });
   } catch (err) {
     captureError(err, { context: "research_onboarding_install" });
+  }
+}
+
+/**
+ * Report the settled research turn's output (claims/suggestions/plugin picks)
+ * for analytics. Client-orchestrated: the daemon never detects this turn on
+ * its own, so the client reports it once, right at the point it observes the
+ * reply parse as a complete JSON payload — the raw model output, before the
+ * deterministic-floor merge folds in role-based baseline plugins.
+ * Fire-and-forget: a failure here must never block or surface in the flow,
+ * mirroring `archiveResearchConversation`.
+ */
+async function sendOnboardingResearchTelemetry({
+  assistantId,
+  conversationId,
+  claims,
+  suggestions,
+  plugins,
+  installedPlugins,
+}: {
+  assistantId: string;
+  conversationId: string;
+  claims: ResearchFact[];
+  suggestions: ResearchSuggestion[];
+  plugins: string[];
+  installedPlugins: string[];
+}): Promise<void> {
+  try {
+    await telemetryOnboardingresearchPost({
+      path: { assistant_id: assistantId },
+      body: {
+        conversation_id: conversationId,
+        status: "done",
+        claims,
+        suggestions,
+        plugins,
+        installed_plugins: installedPlugins,
+      },
+      throwOnError: false,
+    });
+  } catch (err) {
+    captureError(err, { context: "research_onboarding_telemetry" });
   }
 }
 
@@ -519,6 +562,10 @@ export function useResearchRunner(): UseResearchRunner {
           const deadline = Date.now() + MAX_POLL_MS;
           let lastText = "";
           let stableReads = 0;
+          // Guards the telemetry report to fire exactly once: `complete` can
+          // stay true across the `STABLE_READS_TO_SETTLE` re-polls before the
+          // loop breaks, and would otherwise re-send on every one of them.
+          let telemetrySent = false;
           // The model's `plugins` picks fire as soon as its array closes — emitted
           // first in the reply, so this lands early while claims/suggestions are
           // still streaming. These union on top of the deterministic floor already
@@ -552,20 +599,34 @@ export function useResearchRunner(): UseResearchRunner {
               // the install set is complete — release the click gate so it waits
               // only on the installs themselves, not the rest of the turn.
               if (pluginsResolved) resolvePluginsReady();
+              // Surface the full set actually installing: the deterministic
+              // floor plus the model's picks, deduped, baseline first. Shared
+              // by the state update and the telemetry report below so it's
+              // only computed once per poll.
+              const installedPlugins = resolveOnboardingPluginInstalls({
+                role: subject.occupation,
+                validNames,
+                modelPlugins: validPlugins,
+              });
               setState({
                 status: "running",
                 claims,
                 suggestions,
-                // Surface the full set actually installing: the deterministic
-                // floor plus the model's picks, deduped, baseline first.
-                installedPlugins: resolveOnboardingPluginInstalls({
-                  role: subject.occupation,
-                  validNames,
-                  modelPlugins: validPlugins,
-                }),
+                installedPlugins,
                 pluginCatalog,
               });
               if (complete) sawCompletePayload = true;
+              if (complete && !telemetrySent) {
+                telemetrySent = true;
+                void sendOnboardingResearchTelemetry({
+                  assistantId,
+                  conversationId,
+                  claims,
+                  suggestions,
+                  plugins,
+                  installedPlugins,
+                });
+              }
               stableReads = text === lastText ? stableReads + 1 : 0;
               lastText = text;
               // Only a complete payload can settle early. A partial JSON object

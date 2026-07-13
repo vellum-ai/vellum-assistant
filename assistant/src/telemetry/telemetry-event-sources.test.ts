@@ -24,6 +24,7 @@ describe("telemetry event source partition", () => {
       "skill_loaded",
       "watchdog",
       "config_setting",
+      "onboarding_research",
     ]);
   });
 
