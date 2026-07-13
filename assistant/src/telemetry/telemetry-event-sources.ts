@@ -19,7 +19,6 @@ import { queryUnreportedAuthFallbackEvents } from "../security/auth-fallback-eve
 import type { UsageAttributionProfileSource } from "../usage/types.js";
 import { getLogger } from "../util/logger.js";
 import { APP_VERSION } from "../version.js";
-import { queryUnreportedConfigSettingEvents } from "./config-setting-events-store.js";
 import { queryUnreportedSkillLoadedEvents } from "./skill-loaded-events-store.js";
 import {
   deleteTelemetryOutboxEvents,
@@ -31,7 +30,6 @@ import { isDiagnosticsConsentVersionEligible } from "./trace-collection-policy.j
 import { queryUnreportedTurnEvents } from "./turn-events-store.js";
 import { assembleBoundedTurnTrace, isTurnSettled } from "./turn-trace-store.js";
 import type { TelemetryEvent, TurnTelemetryClientInfo } from "./types.js";
-import { queryUnreportedWatchdogEvents } from "./watchdog-events-store.js";
 
 const log = getLogger("usage-telemetry");
 
@@ -183,39 +181,6 @@ export function outboxSource(name: string): TelemetryEventSource {
       discardPending: () => discardPendingTelemetryOutboxEvents(name),
     },
   };
-}
-
-// ---------------------------------------------------------------------------
-// Wire-mapping helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Parse a stored `watchdog_events.detail` JSON text column into the object the
- * platform expects. Returns null for a null column or an unparseable/corrupted
- * blob (mirroring the turn `client` metadata parse: a bad blob emits null
- * rather than failing the batch). A non-object (e.g. a bare number or string)
- * also resolves to null, since the platform serializer treats `detail` as a
- * JSON object bag.
- */
-function parseWatchdogDetail(
-  raw: string | null,
-): Record<string, unknown> | null {
-  if (!raw) {
-    return null;
-  }
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-      return parsed as Record<string, unknown>;
-    }
-    return null;
-  } catch {
-    log.warn(
-      { rawDetail: raw.slice(0, 200) },
-      "Telemetry watchdog: failed to parse detail; emitting null",
-    );
-    return null;
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -531,43 +496,9 @@ const skillLoadedSource = simpleSource(
   }),
 );
 
-const watchdogSource = simpleSource(
-  "watchdog",
-  (afterCreatedAt, afterId, limit) =>
-    queryUnreportedWatchdogEvents(afterCreatedAt, afterId, limit),
-  (e): TelemetryEvent => ({
-    type: "watchdog",
-    daemon_event_id: e.id,
-    recorded_at: e.createdAt,
-    check_name: e.checkName,
-    value: e.value,
-    // `detail` is stored as JSON text; parse defensively so a
-    // corrupted blob never fails the batch flush. A parse failure
-    // emits null rather than dropping the event.
-    detail: parseWatchdogDetail(e.detail),
-    // `watchdog_events` has no record-time version column — same
-    // upload-time APP_VERSION stamping as the other non-llm_usage
-    // event types.
-    assistant_version: APP_VERSION,
-  }),
-);
+const watchdogSource = outboxSource("watchdog");
 
-const configSettingSource = simpleSource(
-  "config_setting",
-  (afterCreatedAt, afterId, limit) =>
-    queryUnreportedConfigSettingEvents(afterCreatedAt, afterId, limit),
-  (e): TelemetryEvent => ({
-    type: "config_setting",
-    daemon_event_id: e.id,
-    recorded_at: e.createdAt,
-    config_key: e.configKey,
-    config_value: e.configValue,
-    // `config_setting_events` has no record-time version column —
-    // same upload-time APP_VERSION stamping as the other
-    // non-llm_usage event types.
-    assistant_version: APP_VERSION,
-  }),
-);
+const configSettingSource = outboxSource("config_setting");
 
 /**
  * Watermark key namespace of the tool_executed source — referenced by the
