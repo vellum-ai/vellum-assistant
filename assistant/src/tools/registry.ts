@@ -29,11 +29,10 @@ const DEFAULT_TOOL_OWNER: OwnerInfo = Object.freeze({
   id: "default",
 });
 
-// Flips true once initializeTools() has registered the core manifest tools
-// (the read-only baseline: file_read/web_fetch/etc.). Only ever goes
-// false→true, so a true reading is stable for the process lifetime; callers
-// that must not run before the baseline exists gate on it via
-// {@link areCoreToolsInitialized}.
+// Flips true once initializeTools() has registered the core manifest tools.
+// Read only by __resetRegistryForTesting to decide whether to re-register the
+// baseline; never flips back, so a reset after the first init always restores
+// the core tools.
 let coreToolsInitialized = false;
 
 // Cached promise for the one-time tool-registry initialization. `initializeTools`
@@ -193,17 +192,6 @@ export async function resolveTool(name: string): Promise<Tool | undefined> {
  */
 export function getTool(name: string): Tool | undefined {
   return tools.get(name);
-}
-
-/**
- * True once {@link initializeTools} has registered the core manifest tools.
- * Callers that must not run before the read-only baseline
- * (`file_read`/`web_fetch`/etc.) exists — e.g. the scheduler deferring
- * boot-time workflow triggers — gate on this. It only ever flips false→true,
- * so a true reading is stable for the process lifetime.
- */
-export function areCoreToolsInitialized(): boolean {
-  return coreToolsInitialized;
 }
 
 export function getAllTools(): Tool[] {

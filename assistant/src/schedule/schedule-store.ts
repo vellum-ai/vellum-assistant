@@ -635,47 +635,6 @@ export async function failOneShot(id: string): Promise<void> {
 }
 
 /**
- * Re-arm a just-claimed schedule so it is due again on the very next tick,
- * WITHOUT counting as a run or bumping the retry count. Sets status back to
- * 'active' and pulls `nextRunAt` back to now: `claimDueSchedules` advances
- * `nextRunAt` for recurring jobs (and flips one-shots to 'firing'), so without
- * resetting both the claimed occurrence would be dropped until the next cron
- * time. Used when a tick claims a job it cannot yet process (e.g. a workflow
- * schedule that fired before the tool registry finished initializing at boot);
- * unlike a failure path it does not touch `retryCount`, since the deferral is
- * not the schedule's fault. Keyed by id only (no status guard) because recurring
- * claims leave the row 'active' while one-shot claims leave it 'firing', and it
- * runs immediately after the claim within the same tick.
- *
- * Also restores `enabled: true`. `claimDueSchedules` disables a row whose
- * claimed occurrence was its LAST (a one-shot, or the final fire of a finite
- * RRULE), but the due-claim query requires `enabled = true` — so a deferred
- * final occurrence would never be re-claimed and the run would be silently lost.
- * The deferred occurrence has not actually run yet, so re-enabling is correct;
- * when it later fires, the claim path re-applies the right `enabled` state.
- */
-export async function deferClaimedSchedule(id: string): Promise<void> {
-  const db = getDb();
-  const now = Date.now();
-  const changed = await withSqliteRetry(
-    () => {
-      db.update(scheduleJobs)
-        .set({
-          status: "active",
-          enabled: true,
-          nextRunAt: now,
-          updatedAt: now,
-        })
-        .where(eq(scheduleJobs.id, id))
-        .run();
-      return rawChanges() > 0;
-    },
-    { op: "deferClaimedSchedule", context: { scheduleId: id } },
-  );
-  if (changed) notifySchedulesChanged();
-}
-
-/**
  * Revert a one-shot from 'firing' back to 'active' and increment its
  * retry count. Used when a wake times out waiting for an idle conversation
  * — the job should be retried on the next scheduler tick.

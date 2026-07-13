@@ -13,21 +13,19 @@ mock.module("../workflows/run-manager.js", () => ({
   }),
 }));
 
-// Control the tool-registry readiness gate the run-now workflow branch checks
-// before launching. Defaults to ready; the boot-race test flips it. Only the
-// schedule route consumes registry in this test's graph, so a minimal mock
-// suffices (mirrors task-scheduler.test.ts).
-let coreToolsReady = true;
+// The run-now workflow branch `await`s initializeTools() so the read-only
+// baseline is registered before it launches. Spy on it. Only the schedule
+// route consumes registry in this test's graph, so a minimal mock suffices.
+let initializeToolsCalls = 0;
 mock.module("../tools/registry.js", () => ({
-  areCoreToolsInitialized: () => coreToolsReady,
+  initializeTools: async () => {
+    initializeToolsCalls += 1;
+  },
 }));
 
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
-import {
-  BadRequestError,
-  ServiceUnavailableError,
-} from "../runtime/routes/errors.js";
+import { BadRequestError } from "../runtime/routes/errors.js";
 import { ROUTES as SCHEDULE_ROUTES } from "../runtime/routes/schedule-routes.js";
 import type { RouteDefinition } from "../runtime/routes/types.js";
 import {
@@ -248,7 +246,7 @@ describe("POST /schedules/:id/run — workflow mode triggers the workflow", () =
   beforeEach(() => {
     clearTables();
     workflowStartCalls.length = 0;
-    coreToolsReady = true;
+    initializeToolsCalls = 0;
   });
 
   test("starts the saved workflow instead of running a message turn", async () => {
@@ -359,12 +357,10 @@ describe("POST /schedules/:id/run — workflow mode triggers the workflow", () =
     expect(workflowStartCalls).toHaveLength(0);
   });
 
-  test("defers (503) a manual run during the boot window before tools are ready", async () => {
-    // Mirrors the scheduler's boot-race guard: launching before the read-only
-    // baseline is registered would give the run an empty toolset. A manual run
-    // can't defer to a later tick, so it fails fast with a retryable 503 and
-    // never calls start().
-    coreToolsReady = false;
+  test("ensures the tool baseline is registered before launching the run", async () => {
+    // resolveCapabilities grants the read-only baseline from the tool registry,
+    // so the run-now branch awaits initializeTools() before start() — during the
+    // boot window this blocks until the registry is populated instead of failing.
     const schedule = await createSchedule({
       name: "Nightly triage",
       cronExpression: "0 9 * * *",
@@ -374,11 +370,10 @@ describe("POST /schedules/:id/run — workflow mode triggers the workflow", () =
       workflowName: "triage-inbox",
     });
 
-    await expect(
-      runNowRoute().handler({ pathParams: { id: schedule.id } }),
-    ).rejects.toThrow(ServiceUnavailableError);
-    expect(workflowStartCalls).toHaveLength(0);
-    // No schedule run row was recorded — the guard trips before createScheduleRun.
-    expect(getScheduleRuns(schedule.id)).toHaveLength(0);
+    await runNowRoute().handler({ pathParams: { id: schedule.id } });
+
+    // Baseline ensured, then the workflow launched.
+    expect(initializeToolsCalls).toBe(1);
+    expect(workflowStartCalls).toHaveLength(1);
   });
 });
