@@ -125,12 +125,14 @@ export function recordTelemetryEvent<N extends OutboxTelemetryEventName>(
     (id, createdAt) =>
       // Cast: TS cannot re-associate the `Omit<...>` spread with the stamped
       // base fields across a generic; `fields`' type guarantees the shape.
+      // Base fields are stamped after the spread so a widened `fields` value
+      // carrying base keys can never override them.
       ({
+        ...fields,
         type: name,
         daemon_event_id: id,
         recorded_at: createdAt,
         assistant_version: APP_VERSION,
-        ...fields,
       }) as OutboxTelemetryEventOf<N>,
     opts,
   );

@@ -248,6 +248,28 @@ describe("telemetry-events-outbox", () => {
     });
   });
 
+  test("recordTelemetryEvent stamps win over base keys smuggled in via a widened fields value", () => {
+    // A variable (not a literal) skips excess-property checking, so base
+    // keys can reach the helper structurally. The stamps must still win.
+    const widened = {
+      check_name: "db_size",
+      value: null,
+      detail: null,
+      daemon_event_id: "spoofed-id",
+      recorded_at: 1,
+      assistant_version: "0.0.0-spoof",
+    };
+    const recorded = recordTelemetryEvent("watchdog", widened);
+    expect(recorded).not.toBeNull();
+
+    const payload = JSON.parse(
+      queryTelemetryOutboxBatch("watchdog", 10)[0]!.payload,
+    ) as Record<string, unknown>;
+    expect(payload.daemon_event_id).toBe(recorded!.id);
+    expect(payload.recorded_at).toBe(recorded!.createdAt);
+    expect(payload.assistant_version).toBe(APP_VERSION);
+  });
+
   test("recordTelemetryEvent persists conversation_id in its column", () => {
     const withConv = recordTelemetryEvent(
       "watchdog",
