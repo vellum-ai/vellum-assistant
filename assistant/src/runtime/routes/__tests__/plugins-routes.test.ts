@@ -997,6 +997,32 @@ describe("GET /v1/plugins/search", () => {
     });
   });
 
+  test("projects the marketplace `icon` onto the wire match, omitting it when absent", async () => {
+    getCatalogSpy.mockImplementation(async (ref) =>
+      catalog(ref, [
+        {
+          name: "calendar-sync",
+          path: "github:acme/calendar-sync@v1",
+          icon: "📅",
+          category: null,
+          source: { kind: "github", repo: "acme/calendar-sync", ref: "v1" },
+        },
+        {
+          name: "plain-plugin",
+          path: "github:acme/plain-plugin@v1",
+          category: null,
+          source: { kind: "github", repo: "acme/plain-plugin", ref: "v1" },
+        },
+      ]),
+    );
+
+    const result = await invokeSearch();
+    const byName = new Map(result.matches.map((m) => [m.name, m]));
+    expect(byName.get("calendar-sync")?.icon).toBe("📅");
+    // Absent icon is omitted from the wire object, not set to null/undefined.
+    expect("icon" in byName.get("plain-plugin")!).toBe(false);
+  });
+
   test("normalizes match categories to the Skills taxonomy (`developer` → `development`, `hobby` → null)", async () => {
     getCatalogSpy.mockImplementation(async (ref) =>
       catalog(ref, [

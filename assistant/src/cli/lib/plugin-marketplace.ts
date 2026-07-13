@@ -107,7 +107,7 @@ const marketplaceEntrySchema = z.object({
   icon: z
     .string()
     .refine(
-      (s) => s.length <= 8 && !/[/\\]|^https?:/i.test(s),
+      (s) => [...s].length <= 8 && !/[/\\]|^https?:/i.test(s),
       "expected a short emoji, not a URL or path",
     )
     .optional(),

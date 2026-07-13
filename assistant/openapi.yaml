@@ -23141,6 +23141,9 @@ paths:
                         description:
                           description: Short description, when known (external entries only today).
                           type: string
+                        icon:
+                          description: Curated author/curator emoji from the marketplace entry, when present.
+                          type: string
                         category:
                           anyOf:
                             - type: string

@@ -212,6 +212,30 @@ describe("fetchMarketplaceEntries", () => {
     expect(entries[0]!.icon).toBe("🦣");
   });
 
+  test("accepts a multi-code-unit ZWJ emoji (bounded by code points)", async () => {
+    // GIVEN the family ZWJ emoji: one grapheme, 7 code points, 11 UTF-16 units.
+    const fetch = manifestFetch({
+      name: "x",
+      plugins: [
+        {
+          name: "caveman",
+          source: {
+            source: "github",
+            repo: "JuliusBrussee/caveman",
+            ref: CAVEMAN_SHA,
+          },
+          icon: "👩‍👩‍👧‍👦",
+        },
+      ],
+    });
+
+    // WHEN we fetch the entries
+    const entries = await fetchMarketplaceEntries({ fetch }, { ref: "main" });
+
+    // THEN the ZWJ emoji survives validation (would fail under `.length`)
+    expect(entries[0]!.icon).toBe("👩‍👩‍👧‍👦");
+  });
+
   test("rejects an over-long icon string", async () => {
     // GIVEN an icon far longer than a single emoji
     const fetch = manifestFetch({
