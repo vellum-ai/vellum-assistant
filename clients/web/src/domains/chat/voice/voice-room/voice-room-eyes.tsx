@@ -248,9 +248,13 @@ export function VoiceRoomColorLook({
   const sizeScale = EYE_STATE_SCALE[visual];
   const eyeH = eyeDisplayHeight(look.art, w, h);
   const centeredEyeTop = (h - eyeH) / 2;
-  // The thinking dots hang just above the *shrunken* thinking eyes (centered,
-  // so their top sits below the full-size frame's top by half the size loss).
-  const thinkingEyeTop = centeredEyeTop + (eyeH * (1 - EYE_STATE_SCALE.thinking)) / 2;
+  // Spatial model: above the eyes is the user's space (the user transcript),
+  // below is the assistant's (its speech + status). The thinking dots are
+  // assistant activity, so they hang just *below* the shrunken thinking eyes —
+  // clear of the user transcript above, and pairing with the state caption in
+  // the lower zone. (Centered scaling, so the small eyes' bottom sits above the
+  // full-size bottom by half the size loss.)
+  const thinkingEyeBottom = centeredEyeTop + eyeH - (eyeH * (1 - EYE_STATE_SCALE.thinking)) / 2;
   // The state caption sits in the negative space below the eyes' full-size
   // bottom edge — a stable anchor the per-state resize (centered) doesn't move.
   const captionTop = centeredEyeTop + eyeH + Math.max(24, eyeH * 0.22);
@@ -363,7 +367,7 @@ export function VoiceRoomColorLook({
           >
             <VoiceThinkingIndicator
               viewport={{ w, h }}
-              eyesTop={thinkingEyeTop}
+              eyesBottom={thinkingEyeBottom}
             />
           </motion.div>
         ) : null}
@@ -451,27 +455,28 @@ function VoiceStateCaption({
 }
 
 /**
- * Thinking indicator — a soft triad of dots pulsing in sequence just above the
- * centered eyes, in the room's foreground tone so it reads on any avatar color.
- * `eyesTop` is the top of the centered eyes; the triad hangs a short gap above
- * it (both scaled against the room box) so it stays clear of the eyes in any
- * frame. A first-pass "the assistant is working" motif.
+ * Thinking indicator — a soft triad of dots pulsing in sequence just below the
+ * centered eyes (the lower "assistant status" zone, clear of the user
+ * transcript above), in the room's foreground tone so it reads on any avatar
+ * color. `eyesBottom` is the bottom of the shrunken thinking eyes; the triad
+ * hangs a short gap below it (both scaled against the room box) so it stays
+ * clear of the eyes in any frame. A first-pass "the assistant is working" motif.
  */
 function VoiceThinkingIndicator({
   viewport,
-  eyesTop,
+  eyesBottom,
 }: {
   viewport: { w: number; h: number };
-  /** Top edge (px) of the centered eyes — the triad hangs above this. */
-  eyesTop: number;
+  /** Bottom edge (px) of the centered eyes — the triad hangs below this. */
+  eyesBottom: number;
 }) {
   const reduce = useReducedMotion();
   // Size against the room box (not fixed px) so the dots keep the same
   // proportion in a small Storybook frame and the full-window app.
   const dot = Math.max(8, Math.round(0.04 * Math.min(viewport.w, viewport.h)));
-  // Hang the triad's center a short gap above the eyes' top edge, clamped so it
-  // never rides off the top of a short frame.
-  const top = Math.max(dot * 1.5, eyesTop - dot * 2.5);
+  // Hang the triad's center a short gap below the eyes' bottom edge, clamped so
+  // it never rides off the bottom of a short frame.
+  const top = Math.min(viewport.h - dot * 1.5, eyesBottom + dot * 1.6);
   return (
     <div
       aria-hidden="true"
