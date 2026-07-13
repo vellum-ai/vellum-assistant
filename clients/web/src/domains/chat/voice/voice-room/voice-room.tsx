@@ -9,9 +9,10 @@
  * - Character avatars get the onboarding "full-screen color with eyes"
  *   treatment — entering the room plays the Introduction-step grow (the
  *   avatar's body springs from its on-screen size to BE the screen, the color
- *   fades in behind it, the giant eyes rise into their bottom-edge rest; see
- *   {@link VoiceRoomColorLook}), with the control chrome toned for contrast
- *   against that color ({@link toneForBg}, via the `--room-*` CSS vars).
+ *   fades in behind it, the giant eyes grow into the center; see
+ *   {@link VoiceRoomColorLook}), the mic waveform swells behind the eyes while
+ *   the user speaks, and the control chrome is toned for contrast against that
+ *   color ({@link toneForBg}, via the `--room-*` CSS vars).
  * - Custom-image / no-character avatars fall back to the deep-dark ambient
  *   void with the state-driven avatar at its center and the listening waves —
  *   what this look should become is an open design question.
@@ -202,21 +203,28 @@ function VoiceRoomOverlay() {
       exit={{ opacity: 0 }}
       transition={{ duration: reduce ? 0 : 0.4 }}
     >
-      {/* The color look (body grow entrance + color fade + peeking eyes) is
-          the entire cast; the void look expresses the session through the
-          centered avatar and the listening waves instead. */}
-      {look ? <VoiceRoomColorLook look={look} /> : <VoiceRoomAmbientBackground />}
-
-      {/* Listening waves: the user's voice arriving as energy coming in, rising
-          from the bottom edge with live mic amplitude. Void look only, while
-          listening; responding expresses itself through the avatar's own
-          emanation. Sits above the void, behind the centered avatar. */}
-      {!look && visual === "listening" ? (
-        <VoiceListeningWaves
+      {/* The color look (body grow entrance + color fade + centered waves +
+          centered eyes) is the entire cast; the void look expresses the
+          session through the centered avatar and the bottom listening waves
+          instead. Both draw the waves only while `listening`, from live mic
+          amplitude. */}
+      {look ? (
+        <VoiceRoomColorLook
+          look={look}
+          visual={visual}
           getAmplitude={getLiveVoiceInputAmplitude}
-          palette="accent"
         />
-      ) : null}
+      ) : (
+        <>
+          <VoiceRoomAmbientBackground />
+          {visual === "listening" ? (
+            <VoiceListeningWaves
+              getAmplitude={getLiveVoiceInputAmplitude}
+              palette="accent"
+            />
+          ) : null}
+        </>
+      )}
 
       {/* Optional muted echo of the live transcript, floating above (user) and
           below (assistant) the centered avatar. Pref-gated (the captions

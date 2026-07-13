@@ -397,11 +397,24 @@ describe("VoiceRoom — looks (color-with-eyes vs ambient void)", () => {
     startOwnedSession("listening");
     render(<VoiceRoom />);
     expect(eyes()).not.toBeNull();
-    // The eyes replace the void look's cast: no centered avatar, no waves.
+    // The eyes replace the void look's centered avatar; the mic waveform
+    // still shows while listening (centered, behind the eyes).
     expect(screen.queryByTestId("voice-avatar")).toBeNull();
-    expect(screen.queryByTestId("listening-waves")).toBeNull();
+    expect(screen.getByTestId("listening-waves")).toBeTruthy();
     // The exit control stays available regardless of look.
     expect(exitButton()).not.toBeNull();
+  });
+
+  test("the color look shows no waveform outside listening", () => {
+    mockAvatarData = {
+      components: CHARACTER_COMPONENTS,
+      traits: { bodyShape: "sprout", eyeStyle: "curious", color: "green" },
+      customImageUrl: null,
+    };
+    startOwnedSession("speaking");
+    render(<VoiceRoom />);
+    expect(eyes()).not.toBeNull();
+    expect(screen.queryByTestId("listening-waves")).toBeNull();
   });
 
   test("a default character (no traits) gets first-component eyes", () => {

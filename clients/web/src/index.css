@@ -713,6 +713,68 @@ body {
   stroke: color-mix(in srgb, var(--wave-accent) 82%, transparent);
 }
 
+/* Palette: tone = follows the room's foreground tone (--room-fg), so the waves
+ * read on any solid avatar-color background (white waves on the dark colors,
+ * near-black on the light one). Same rgba-then-color-mix fallback as accent. */
+.voice-listening-waves--tone {
+  --wave-tone: var(--room-fg, #ffffff);
+}
+.voice-listening-waves--tone.voice-listening-waves--fill .voice-wave--back path {
+  fill: rgba(255, 255, 255, 0.1);
+  fill: color-mix(in srgb, var(--wave-tone) 12%, transparent);
+}
+.voice-listening-waves--tone.voice-listening-waves--fill .voice-wave--mid path {
+  fill: rgba(255, 255, 255, 0.14);
+  fill: color-mix(in srgb, var(--wave-tone) 17%, transparent);
+}
+.voice-listening-waves--tone.voice-listening-waves--fill .voice-wave--front path {
+  fill: rgba(255, 255, 255, 0.2);
+  fill: color-mix(in srgb, var(--wave-tone) 24%, transparent);
+}
+.voice-listening-waves--tone.voice-listening-waves--line .voice-wave--back path {
+  stroke: rgba(255, 255, 255, 0.42);
+  stroke: color-mix(in srgb, var(--wave-tone) 45%, transparent);
+}
+.voice-listening-waves--tone.voice-listening-waves--line .voice-wave--mid path {
+  stroke: rgba(255, 255, 255, 0.55);
+  stroke: color-mix(in srgb, var(--wave-tone) 58%, transparent);
+}
+.voice-listening-waves--tone.voice-listening-waves--line .voice-wave--front path {
+  stroke: rgba(255, 255, 255, 0.72);
+  stroke: color-mix(in srgb, var(--wave-tone) 75%, transparent);
+}
+
+/* Placement: center = a symmetric band around the middle of the screen (the
+ * color look), swelling from its center as amplitude grows rather than rising
+ * from the floor. Overrides the base bottom anchoring + amplitude translate.
+ * The band is two mirrored halves whose wave fills meet at the midline, so the
+ * rippling edges open outward from the center (see voice-listening-waves.tsx). */
+.voice-listening-waves--center {
+  top: 50%;
+  bottom: auto;
+  height: 52%;
+  transform-origin: center;
+  transform: translateY(-50%) scaleY(calc(0.5 + var(--voice-amp) * 0.7));
+  opacity: calc(0.3 + var(--voice-amp) * 0.7);
+}
+.voice-listening-waves--center .voice-listening-waves__half {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 50%;
+  overflow: hidden;
+}
+/* Top half sits above the midline; its wave fill hugs the half's bottom edge
+ * (= the center line), rippling upward. */
+.voice-listening-waves--center .voice-listening-waves__half--top {
+  top: 0;
+}
+/* Bottom half is the vertical mirror below the midline. */
+.voice-listening-waves--center .voice-listening-waves__half--bottom {
+  bottom: 0;
+  transform: scaleY(-1);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .voice-listening-waves path {
     animation: none;
@@ -720,6 +782,11 @@ body {
   /* Hold a low, steady band rather than a moving swell. */
   .voice-listening-waves {
     transform: none;
+    opacity: 0.4;
+  }
+  /* Keep the centered band centered (transform: none would drop it by 50%). */
+  .voice-listening-waves--center {
+    transform: translateY(-50%);
     opacity: 0.4;
   }
 }
