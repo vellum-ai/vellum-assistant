@@ -245,18 +245,19 @@ async function incrementalSync(
 /**
  * Establish the initial syncToken (stored as the watermark).
  *
- * Sends a paging-only request (maxResults + pageToken + singleEvents) with
- * the params that are allowed alongside syncToken. The Calendar API
- * only forbids timeMin/timeMax/orderBy/q/updatedMin/iCalUID with syncToken;
- * singleEvents is permitted and mirrors the fallback's expanded-instance view.
- *   1. Filter params (timeMin/timeMax/orderBy/q/...) are omitted because they
- *      would cause Google to withhold nextSyncToken.
- *   2. All non-forbidden params match between the initial and incremental
- *      requests to avoid undefined behavior; incrementalSync() sends the
- *      same { syncToken, maxResults, singleEvents } shape.
+ * Sends a time-scoped request (timeMin + maxResults + singleEvents) to scope
+ * the syncToken to events from now forward. The Calendar API allows timeMin
+ * in the initial token-seeding request (only forbids it alongside syncToken),
+ * and the resulting syncToken encodes the timeMin scope for all incremental
+ * follow-ups.
+ *
+ * Google's sync guide says params must be "consistent" between initial and
+ * incremental requests to avoid undefined behavior: incrementalSync() omits
+ * timeMin (it's forbidden with syncToken) and sends the consistent subset
+ * (syncToken + maxResults + singleEvents).
  *
  * Returns no items; the watermark marks the current point so the first
- * incremental sync picks up everything that changes afterward.
+ * incremental sync picks up only events that change afterward.
  */
 async function fetchInitialSyncToken(
   connection: OAuthConnection,
@@ -265,7 +266,11 @@ async function fetchInitialSyncToken(
   let syncToken: string | undefined;
 
   do {
-    const query: Record<string, string> = { maxResults: "250", singleEvents: "true" };
+    const query: Record<string, string> = {
+      maxResults: "250",
+      singleEvents: "true",
+      timeMin: new Date().toISOString(),
+    };
     if (pageToken) query.pageToken = pageToken;
 
     const resp = await connection.request({
@@ -391,4 +396,5 @@ async function fallbackFetch(
 
   return { items, watermark: syncToken ?? "" };
 }
+
 
