@@ -1,6 +1,4 @@
-import { APP_VERSION } from "../version.js";
-import { recordTelemetryOutboxEvent } from "./telemetry-events-outbox.js";
-import type { WatchdogTelemetryEvent } from "./types.js";
+import { recordTelemetryEvent } from "./telemetry-events-outbox.js";
 
 /**
  * Input for one `watchdog` telemetry event. Metadata only — never conversation
@@ -17,23 +15,14 @@ export interface WatchdogEventRecord {
 }
 
 /**
- * Record a `watchdog` telemetry event for a watchdog check firing. Builds the
- * full wire event and enqueues it on the `telemetry_events` outbox. No-ops
- * when usage data collection is disabled (the event is dropped to honor the
- * opt-out, matching the rest of telemetry) or when the telemetry DB is
- * unavailable.
+ * Record a `watchdog` telemetry event for a watchdog check firing, enqueued
+ * on the `telemetry_events` outbox. Consent gating and degraded-mode behavior
+ * are `recordTelemetryEvent`'s.
  */
 export function recordWatchdogEvent(record: WatchdogEventRecord): void {
-  recordTelemetryOutboxEvent(
-    "watchdog",
-    (id, createdAt): WatchdogTelemetryEvent => ({
-      type: "watchdog",
-      daemon_event_id: id,
-      recorded_at: createdAt,
-      check_name: record.checkName,
-      value: record.value ?? null,
-      detail: record.detail ?? null,
-      assistant_version: APP_VERSION,
-    }),
-  );
+  recordTelemetryEvent("watchdog", {
+    check_name: record.checkName,
+    value: record.value ?? null,
+    detail: record.detail ?? null,
+  });
 }
