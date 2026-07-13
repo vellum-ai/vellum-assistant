@@ -25,7 +25,7 @@ mock.module("../calls/telephony-tts-capability.js", () => ({
   ttsSecretResolves: async () => mockTtsSecretResolves,
 }));
 
-import { invalidateConfigCache } from "../config/loader.js";
+import { getConfig, invalidateConfigCache } from "../config/loader.js";
 import { maybeDefaultSpeechToManaged } from "../config/managed-speech-defaults.js";
 
 const WORKSPACE_DIR = process.env.VELLUM_WORKSPACE_DIR!;
@@ -70,6 +70,10 @@ describe("maybeDefaultSpeechToManaged", () => {
     const config = readConfig();
     expect((config.services as any)?.stt?.mode).toBe("managed");
     expect((config.services as any)?.tts?.mode).toBe("managed");
+    // Sparse configs must stay schema-valid: SttServiceSchema requires
+    // `provider` whenever the stt object exists.
+    expect((config.services as any)?.stt?.provider).toBeDefined();
+    expect(getConfig().services.stt.mode).toBe("managed");
   });
 
   test("leaves a service alone when its BYOK credential resolves", async () => {
@@ -97,14 +101,20 @@ describe("maybeDefaultSpeechToManaged", () => {
   test("no-ops when services are already managed", async () => {
     mockManagedSpeechAvailable = true;
     writeConfig({
-      services: { stt: { mode: "managed" }, tts: { mode: "managed" } },
+      services: {
+        stt: { mode: "managed", provider: "deepgram" },
+        tts: { mode: "managed" },
+      },
     });
 
     await maybeDefaultSpeechToManaged();
 
     const config = readConfig();
     expect(config).toEqual({
-      services: { stt: { mode: "managed" }, tts: { mode: "managed" } },
+      services: {
+        stt: { mode: "managed", provider: "deepgram" },
+        tts: { mode: "managed" },
+      },
     });
   });
 

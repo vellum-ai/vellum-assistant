@@ -6,6 +6,7 @@ import type {
 } from "../../../../tools/types.js";
 import { listCatalogProviderIds } from "../../../../tts/provider-catalog.js";
 import {
+  getConfig,
   invalidateConfigCache,
   loadRawConfig,
   saveRawConfig,
@@ -252,6 +253,18 @@ export async function run(
 
   if (setting === "stt_mode") {
     setNestedValue(raw, "services.stt.mode", validation.coerced);
+    // SttServiceSchema requires `provider` whenever the stt object exists and
+    // forbids provider "vellum" outside managed mode, so writing `mode` alone
+    // (or keeping "vellum" when switching to your-own) would make the saved
+    // config invalid.
+    const currentProvider = getConfig().services.stt.provider;
+    setNestedValue(
+      raw,
+      "services.stt.provider",
+      currentProvider === "vellum" && validation.coerced === "your-own"
+        ? "deepgram"
+        : currentProvider,
+    );
     saveRawConfig(raw);
     invalidateConfigCache();
   }

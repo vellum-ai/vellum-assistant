@@ -94,6 +94,11 @@ export async function maybeDefaultSpeechToManaged(): Promise<void> {
     for (const path of updates) {
       setNestedValue(raw, path, "managed");
     }
+    // SttServiceSchema requires `provider` whenever the stt object exists, so
+    // a sparse config would become invalid if we wrote `mode` alone.
+    if (updates.includes("services.stt.mode")) {
+      setNestedValue(raw, "services.stt.provider", services.stt.provider);
+    }
     saveRawConfig(raw);
     invalidateConfigCache();
     log.info(

@@ -342,7 +342,7 @@ describe("voice_config_update — deepgram", () => {
 // ---------------------------------------------------------------------------
 
 describe("voice_config_update — stt_mode / tts_mode", () => {
-  test("persists stt_mode your-own to services.stt.mode", async () => {
+  test("persists stt_mode your-own to services.stt.mode with a provider", async () => {
     const result = await run(
       { setting: "stt_mode", value: "your-own" },
       makeContext(),
@@ -351,6 +351,26 @@ describe("voice_config_update — stt_mode / tts_mode", () => {
     expect(result.isError).toBe(false);
     const config = readConfig();
     expect((config.services as any)?.stt?.mode).toBe("your-own");
+    // SttServiceSchema requires `provider` whenever the stt object exists —
+    // a mode-only write would invalidate a sparse config.
+    expect((config.services as any)?.stt?.provider).toBeDefined();
+  });
+
+  test("switching stt_mode to your-own replaces a vellum provider", async () => {
+    writeConfig({
+      services: { stt: { mode: "managed", provider: "vellum" } },
+    });
+    invalidateConfigCache();
+
+    const result = await run(
+      { setting: "stt_mode", value: "your-own" },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    const config = readConfig();
+    expect((config.services as any)?.stt?.mode).toBe("your-own");
+    expect((config.services as any)?.stt?.provider).toBe("deepgram");
   });
 
   test("persists tts_mode managed when platform connection is available", async () => {
