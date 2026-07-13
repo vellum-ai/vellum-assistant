@@ -245,11 +245,11 @@ async function incrementalSync(
 /**
  * Establish the initial syncToken (stored as the watermark).
  *
- * Sends a time-scoped request (timeMin + maxResults + singleEvents) to scope
- * the syncToken to events from now forward. The Calendar API allows timeMin
- * in the initial token-seeding request (only forbids it alongside syncToken),
- * and the resulting syncToken encodes the timeMin scope for all incremental
- * follow-ups.
+ * Sends a bare listing request (maxResults + singleEvents) that does NOT
+ * carry timeMin or other filter params — Google withholds nextSyncToken when
+ * the request is filtered. The resulting syncToken encodes the current calendar
+ * state so subsequent incrementalSync() calls detect changes without needing
+ * a time window.
  *
  * Google's sync guide says params must be "consistent" between initial and
  * incremental requests to avoid undefined behavior: incrementalSync() omits
@@ -266,10 +266,10 @@ async function fetchInitialSyncToken(
   let syncToken: string | undefined;
 
   do {
+    // Google withholds nextSyncToken on filtered requests — no timeMin.
     const query: Record<string, string> = {
       maxResults: "250",
       singleEvents: "true",
-      timeMin: new Date().toISOString(),
     };
     if (pageToken) query.pageToken = pageToken;
 
