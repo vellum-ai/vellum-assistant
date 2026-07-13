@@ -1786,10 +1786,10 @@ describe("background channel processing approval prompts", () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-// NL approval routing via destination-scoped canonical requests
+// NL approval routing via destination-scoped guardian requests
 // ═══════════════════════════════════════════════════════════════════════════
 
-describe("NL approval routing via destination-scoped canonical requests", () => {
+describe("NL approval routing via destination-scoped guardian requests", () => {
   beforeEach(() => {
     resetTables();
     noopProcessMessage.mockClear();
@@ -1812,7 +1812,7 @@ describe("NL approval routing via destination-scoped canonical requests", () => 
       guardianPrincipalId: guardianUserId,
     });
 
-    // Create canonical tool_approval request WITHOUT guardianExternalUserId
+    // Create guardian tool_approval request WITHOUT guardianExternalUserId
     // but WITH a conversationId (required by the tool_approval resolver)
     const canonicalReq = bridgeState.seedRequest({
       kind: "tool_approval",
@@ -1828,7 +1828,7 @@ describe("NL approval routing via destination-scoped canonical requests", () => 
     // Register pending interaction so resolver can find it
     registerPendingInteraction(canonicalReq.id, "conv-voice-nl-1", "shell");
 
-    // Create canonical delivery row targeting guardian chat
+    // Create guardian delivery row targeting guardian chat
     bridgeState.seedDelivery({
       requestId: canonicalReq.id,
       destinationChannel: "telegram",
@@ -1855,7 +1855,7 @@ describe("NL approval routing via destination-scoped canonical requests", () => 
     expect(resolved!.status).toBe("pending");
   });
 
-  test("inbound from different chat ID does not auto-match delivery-scoped canonical request", async () => {
+  test("inbound from different chat ID does not auto-match delivery-scoped guardian request", async () => {
     const guardianChatId = "guardian-chat-nl-2";
     const guardianUserId = "guardian-user-nl-2";
     const differentChatId = "different-chat-999";
@@ -1869,7 +1869,7 @@ describe("NL approval routing via destination-scoped canonical requests", () => 
       guardianPrincipalId: guardianUserId,
     });
 
-    // Create canonical pending_question WITHOUT guardianExternalUserId
+    // Create guardian pending_question WITHOUT guardianExternalUserId
     const canonicalReq = bridgeState.seedRequest({
       kind: "tool_approval",
       sourceType: "voice",
@@ -1953,7 +1953,7 @@ describe("trusted-contact self-approval blocked before guardian approval row exi
     const conversationId = events[0]?.conversation_id;
     ensureConversation(conversationId!);
 
-    // Register a pending interaction — but do NOT create a canonical guardian
+    // Register a pending interaction — but do NOT create a guardian
     // request row. This simulates the window between the pending confirmation
     // being created (isInteractive=true) and the guardian approval prompt being
     // delivered.

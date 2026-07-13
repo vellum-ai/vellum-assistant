@@ -249,55 +249,25 @@ The policy is implemented in `src/tools/verification-control-plane-policy.ts`, w
 
 The `guardian-verify-setup` skill is the exclusive handler for channel verification intents in the system prompt. Other skills (e.g., `phone-calls`) hand off to `guardian-verify-setup` rather than orchestrating verification directly.
 
-### Guardian Action Timeout-to-Follow-Up Lifecycle
+### Guardian Question Timeout & Expiry Lifecycle
 
-When a voice call's ASK_GUARDIAN consultation times out before the guardian responds, the system enters a follow-up lifecycle that allows the guardian to act on their late answer after the call has moved on. The entire flow uses LLM-generated copy (never hardcoded user-facing strings) to maintain a natural, conversational tone across voice and text channels.
+Guardian requests (tool approvals, access requests, voice ASK_GUARDIAN questions) live in the gateway's `guardian_requests` / `guardian_request_deliveries` tables and carry an `expiresAt` timestamp. Two paths retire a request the guardian never answered, and all user-facing copy on those paths is LLM-generated (never hardcoded strings) to maintain a natural, conversational tone across voice and text channels.
 
-**Lifecycle stages:**
+**Voice consultation timeout:** When a voice call's ASK_GUARDIAN consultation times out before the guardian responds, the call controller expires the request via the gateway (`guardian_requests_expire` — deliveries expire with it), sends expiry notices to every surface the approval card reached (vellum conversations get an assistant message; external channels get a direct channel reply), and injects a `[GUARDIAN_TIMEOUT]` instruction so the model apologizes to the caller and offers a message or callback on the next voice turn.
 
-```
- ASK_GUARDIAN fires on call
-         |
-         v
- [pending] -- guardian answers in time --> [answered] (normal flow)
-         |
-         | (timeout expires)
-         v
- [expired, followup_state=none]
-         |
-         | (guardian replies late)
-         v
- [expired, followup_state=awaiting_guardian_choice]
-         |
-         | (conversation engine classifies intent)
-         v
- call_back / decline
-         |                        |
-         v                        v
- [dispatching]              [declined] (terminal)
-         |
-         | (executor runs action)
-         v
- [completed] or [failed] (terminal)
-```
+**Background expiry sweep:** Independent of any active call, a 60-second sweep asks the gateway to CAS-expire pending guardian requests past their `expiresAt` (`guardian_requests_sweep_expired` — a concurrent decision that wins the race is never overwritten), then fans out the side effects per expired row: withdrawing the approval cards on every surface, notifying the requester, and releasing any in-memory pending interaction.
 
-**Generated messaging requirement:** All user-facing copy in the guardian timeout/follow-up path is generated through the `guardian-action-message-composer.ts` composition system, which uses a 2-tier priority chain: (1) daemon-injected LLM generator for natural, varied text; (2) deterministic fallback templates for reliability. No hardcoded user-facing strings exist in the flow files (call-controller, inbound-message-handler, conversation-process) outside of internal log messages and LLM-instruction prompts. A guard test (`guardian-action-no-hardcoded-copy.test.ts`) enforces this invariant.
-
-**Callback branch:** When the conversation engine classifies the guardian's intent as `call_back`, the executor starts an outbound call to the counterparty with context about the guardian's answer. The counterparty phone number is resolved from the original call session by call direction (inbound: `fromNumber`; outbound: `toNumber`).
+**Generated messaging requirement:** All user-facing copy in the guardian timeout/expiry path is generated through the `guardian-action-message-composer.ts` composition system, which uses a 2-tier priority chain: (1) daemon-injected LLM generator for natural, varied text; (2) deterministic fallback templates for reliability. No hardcoded user-facing strings exist in the flow files outside of internal log messages and LLM-instruction prompts. A guard test (`guardian-action-no-hardcoded-copy.test.ts`) enforces this invariant.
 
 **Key source files:**
 
-| File                                                         | Purpose                                                                                                                                                                                     |
-| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/memory/guardian-action-store.ts`                        | Follow-up state machine with atomic transitions (`startFollowupFromExpiredRequest`, `progressFollowupState`, `finalizeFollowup`) and query helpers for pending/expired/follow-up deliveries |
-| `src/runtime/guardian-action-message-composer.ts`            | 2-tier text generation: daemon-injected LLM generator with deterministic fallback templates. Covers all scenarios from timeout acknowledgment through follow-up completion                  |
-| `src/runtime/guardian-action-followup-executor.ts`           | Action dispatch: resolves counterparty from call session, executes `call_back` (outbound call via `startCall`), finalizes follow-up state                                                   |
-| `src/daemon/guardian-action-generators.ts`                   | Daemon-injected generator factory: `createGuardianActionCopyGenerator` (latency-optimized text rewriting for guardian-facing copy)                                                          |
-| `src/calls/call-controller.ts`                               | Voice timeout handling: marks requests as timed out, sends expiry notices, injects `[GUARDIAN_TIMEOUT]` instruction for generated voice response                                            |
-| `src/runtime/routes/inbound-message-handler.ts`              | Late reply interception for Telegram channels: matches late answers to expired requests, routes follow-up conversation turns, dispatches actions                                            |
-| `src/daemon/conversation-process.ts`                         | Late reply interception for mac channel: same logic as inbound-message-handler but using conversation-ID-based delivery lookup                                                              |
-| `src/calls/guardian-action-sweep.ts`                         | Periodic sweep for stale pending requests; sends expiry notices to guardian destinations                                                                                                    |
-| `src/persistence/migrations/030-guardian-action-followup.ts` | Schema migration adding follow-up columns (`followup_state`, `late_answer_text`, `late_answered_at`, `followup_action`, `followup_completed_at`)                                            |
+| File                                              | Purpose                                                                                                                                            |
+| ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/channels/gateway-guardian-requests.ts`       | Gateway-backed guardian-request client: typed wrappers over the `guardian_requests_*` IPC routes that own request/delivery state and expiry        |
+| `src/runtime/routes/guardian-expiry-sweep.ts`     | Periodic 60s sweep: gateway CAS-expiry (`guardian_requests_sweep_expired`) plus card-withdrawal, requester-notice, and pending-interaction fan-out |
+| `src/calls/call-controller.ts`                    | Voice timeout handling: expires the request, sends expiry notices, injects `[GUARDIAN_TIMEOUT]` instruction for the generated voice response       |
+| `src/calls/guardian-action-sweep.ts`              | Expiry notice delivery to guardian destinations (vellum conversation message or direct channel reply)                                              |
+| `src/runtime/guardian-action-message-composer.ts` | 2-tier text generation: daemon-injected LLM generator with deterministic fallback templates                                                        |
 
 ### WhatsApp Channel (Meta Cloud API)
 
@@ -1896,7 +1866,7 @@ The pairing function (`pairDeliveryWithConversation`) is resilient — errors ar
 The notification pipeline uses a single conversation materialization path across producers:
 
 1. **Canonical pipeline** (`emitNotificationSignal` → decision engine → broadcaster → conversation pairing → adapters): The broadcaster pairs each delivery with a conversation, then dispatches a `notification_intent` SSE event via the Vellum adapter. The payload includes `deepLinkMetadata` (e.g. `{ conversationId, messageId }`) so the macOS client can deep-link to the relevant context when the user taps the notification. When `messageId` is present, the client scrolls to that specific message within the conversation (message-level anchoring).
-2. **Guardian bookkeeping** (`dispatchGuardianQuestion`): Guardian dispatch creates `guardian_action_request` / `guardian_action_delivery` audit rows derived from pipeline delivery results and the per-dispatch `onConversationCreated` callback — there is no separate conversation-creation path.
+2. **Guardian bookkeeping** (`dispatchGuardianQuestion`): Guardian dispatch creates the gateway `guardian_requests` row and records `guardian_request_deliveries` derived from pipeline delivery results and the per-dispatch `onConversationCreated` callback — there is no separate conversation-creation path.
 
 ### Conversation Surfacing via `notification_conversation_created` (Creation-Only)
 

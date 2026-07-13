@@ -42,7 +42,7 @@ mock.module("../notifications/emit-signal.js", () => ({
   },
 }));
 
-// Guardian resolution: serve a vellum anchor so canonical access requests can
+// Guardian resolution: serve a vellum anchor so guardian access requests can
 // bind a principal (creation requires one for decisionable kinds).
 interface GatewayGuardian {
   contactId: string;

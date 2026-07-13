@@ -420,7 +420,7 @@ export async function handleChannelInbound({
   // notification, and a stranger's reaction creates no conversation/binding.
   // The interceptor drops strangers, records known contacts' reactions as
   // transcript signals, and routes a guardian's reaction on an approval card
-  // through the canonical guardian decision pipeline. Reactions never drive an
+  // through the guardian decision pipeline. Reactions never drive an
   // agent turn.
   if (isSlackReactionEvent(body)) {
     return handleSlackReactionIntercept({

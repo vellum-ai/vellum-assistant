@@ -1538,9 +1538,10 @@ export async function processMessage(
         }
       : undefined;
 
-  // ── Canonical guardian reply router (desktop/conversation path) ──
-  // Desktop/conversation guardian replies are canonical-only. Messages consumed
-  // by the router never hit the general agent loop.
+  // ── Guardian reply router (desktop/conversation path) ──
+  // Desktop/conversation guardian replies route only through the guardian
+  // decision pipeline. Messages consumed by the router never hit the general
+  // agent loop.
   if (trimmedContent.length > 0) {
     const routerResult = await routeGuardianReply({
       messageText: trimmedContent,
@@ -1629,7 +1630,7 @@ export async function processMessage(
           routerType: routerResult.type,
           requestId: routerResult.requestId,
         },
-        "Conversation guardian reply routed through canonical pipeline",
+        "Conversation guardian reply routed through the guardian decision pipeline",
       );
 
       return persisted.id;

@@ -207,7 +207,7 @@ describe("Slack inbound trusted contact verification", () => {
 
   test("a terminally-denied Slack sender gets no challenge and no guardian re-prompt", async () => {
     // Guardian previously denied this sender (terminal). Seed the denied
-    // canonical request under the assistant-scoped conversationId the ingress
+    // guardian request under the assistant-scoped conversationId the ingress
     // path derives for (self, slack, U0123UNKNOWN).
     bridgeState.seedRequest({
       id: `denied-${Date.now()}`,

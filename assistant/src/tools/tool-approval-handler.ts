@@ -183,7 +183,7 @@ export async function waitForInlineGrant(
       return { outcome: "denied", requestId: escalationRequestId };
     }
 
-    // Try to consume the grant - if the guardian approved, the canonical
+    // Try to consume the grant - if the guardian approved, the guardian
     // decision primitive will have minted a scoped grant by now.
     const grantResult = await consumeGrantForInvocation(consumeParams, {
       maxWaitMs: 0,
@@ -650,7 +650,7 @@ export class ToolApprovalHandler {
       //
       // For non-guardian actors with established identity (trusted_contact
       // or unverified_contact) and sufficient context, escalate to the
-      // guardian by creating a canonical tool_grant_request. Then wait
+      // guardian by creating a tool_grant_request guardian request. Then wait
       // bounded for the grant to become available - this lets the tool call
       // succeed inline after guardian approval without the requester having
       // to retry manually.

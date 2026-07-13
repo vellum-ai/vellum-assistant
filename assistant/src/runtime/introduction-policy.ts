@@ -16,7 +16,7 @@
  * own identity confidence — never from per-individual-contact rules.
  *
  * This module is the single source of truth for:
- *   - the requester identity signals persisted on canonical access requests,
+ *   - the requester identity signals persisted on guardian access requests,
  *   - the binding-strength ladder derived from `verifiedVia` provenance,
  *   - the signal-driven action list every card surface renders.
  *
@@ -311,7 +311,7 @@ export interface IntroductionModePolicy {
   cardTitle: string;
   /** Card subtitle (also the Slack card's no-preview body label). */
   cardSubtitle: string;
-  /** questionText persisted on the canonical request row. */
+  /** questionText persisted on the guardian request row. */
   questionText: (senderIdentifier: string) => string;
   /** Contract-text identity line, given the assembled identity fragment. */
   identityLine: (identity: string) => string;

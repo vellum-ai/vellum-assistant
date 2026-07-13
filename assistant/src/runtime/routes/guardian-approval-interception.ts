@@ -92,14 +92,16 @@ export async function handleApprovalInterception(
     approvalMessageTs,
   } = params;
 
-  // Slack emoji reactions are handled by the canonical guardian decision
+  // Slack emoji reactions are handled by the guardian decision
   // pipeline (`routeGuardianReply`), invoked from the inbound reaction stage:
   // it resolves the target request from the reacted card's delivery record.
   // See `guardian-reply-router.ts`.
 
   // ── Standard approval interception (existing flow) ──
   const pendingPrompt = getChannelApprovalPrompt(conversationId);
-  if (!pendingPrompt) return { handled: false };
+  if (!pendingPrompt) {
+    return { handled: false };
+  }
 
   // Unverified sender: unknown trust where either the sender's identity
   // could not be established or no guardian binding exists for the channel.
@@ -139,7 +141,7 @@ export async function handleApprovalInterception(
     const pending = getApprovalInfoByConversation(conversationId);
     if (pending.length > 0) {
       // Guard: a non-guardian actor with a guardian binding must not
-      // self-approve, even in the window before the guardian's canonical
+      // self-approve, even in the window before the guardian's
       // request row is persisted. The pending confirmation (isInteractive=true)
       // can exist before the request is delivered to the guardian; without this
       // guard the actor could fall through to the conversational engine / NL
@@ -155,7 +157,7 @@ export async function handleApprovalInterception(
             conversationExternalId,
             guardianExternalUserId: trustCtx.guardianExternalUserId,
           },
-          "Blocking non-guardian self-approval: pending confirmation exists but canonical guardian request not yet created",
+          "Blocking non-guardian self-approval: pending confirmation exists but guardian request not yet created",
         );
         await deliverStaleApprovalReply({
           scenario: "request_pending_guardian",

@@ -31,11 +31,11 @@ mock.module(
   () => gatewayGuardianRequestsStoreBridge,
 );
 
-import { recordGuardianRequestDeliveries } from "../notifications/canonical-delivery-recorder.js";
 import { buildConversationCandidates } from "../notifications/conversation-candidates.js";
 import { createDecision } from "../notifications/decisions-store.js";
 import { createDelivery } from "../notifications/deliveries-store.js";
 import { createEvent } from "../notifications/events-store.js";
+import { recordGuardianRequestDeliveries } from "../notifications/guardian-delivery-recorder.js";
 import type { NotificationChannel } from "../notifications/types.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
