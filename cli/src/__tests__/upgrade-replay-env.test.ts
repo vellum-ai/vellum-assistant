@@ -9,7 +9,14 @@ const restoreEnv = snapshotEnv([
   "VELLUM_PLATFORM_URL",
   "ANTHROPIC_API_KEY",
   "VELLUM_DEVICE_ID",
+  "VELAY_BASE_URL",
 ]);
+
+beforeEach(() => {
+  // A developer's pre-set relay override would make buildReplayEnv treat
+  // VELAY_BASE_URL as host-managed and skew the replay assertions.
+  delete process.env.VELAY_BASE_URL;
+});
 
 afterEach(() => {
   restoreEnv();
@@ -171,18 +178,14 @@ describe("buildReplayState", () => {
 
   test("host-set VELAY_BASE_URL defers to host forwarding (no replay copy)", () => {
     process.env.VELAY_BASE_URL = "http://host-managed";
-    try {
-      const state = buildReplayState(
-        {},
-        { VELAY_BASE_URL: "http://gateway-value" },
-      );
-      // Filtered from the gateway replay env, so nothing to inherit — the
-      // builder re-forwards the host value to both containers instead.
-      expect(state.extraGatewayEnv.VELAY_BASE_URL).toBeUndefined();
-      expect(state.extraAssistantEnv.VELAY_BASE_URL).toBeUndefined();
-    } finally {
-      delete process.env.VELAY_BASE_URL;
-    }
+    const state = buildReplayState(
+      {},
+      { VELAY_BASE_URL: "http://gateway-value" },
+    );
+    // Filtered from the gateway replay env, so nothing to inherit — the
+    // builder re-forwards the host value to both containers instead.
+    expect(state.extraGatewayEnv.VELAY_BASE_URL).toBeUndefined();
+    expect(state.extraAssistantEnv.VELAY_BASE_URL).toBeUndefined();
   });
 
   test("plucks secrets from the captured envs", () => {
