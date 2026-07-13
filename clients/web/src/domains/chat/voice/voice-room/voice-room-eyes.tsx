@@ -57,9 +57,8 @@ import { createAmplitudeSmoother } from "./voice-motion";
 /** Where the eyes come to rest: cut off at the bottom edge, or centered. */
 export type VoiceEyePlacement = "bottom" | "center";
 
-/** How much of the bottom-placed eyes sits below the edge — rest, and the dip. */
+/** How much of the bottom-placed eyes sits below the edge at rest. */
 const EYE_REST_CUTOFF = 0.25;
-const EYE_DIP_CUTOFF = 0.46;
 /** Eye sizing: height at most 30% of the smaller viewport dimension, capped
  *  so width stays on-screen. */
 const EYE_TARGET_HEIGHT = 0.3;
@@ -171,6 +170,7 @@ export function VoiceRoomColorLook({
   wavePlacement = "center",
   wavePalette = "tone",
   waveStyle = "fill",
+  entryOrigin = null,
   viewport,
 }: {
   look: VoiceRoomLook;
@@ -187,12 +187,19 @@ export function VoiceRoomColorLook({
   wavePlacement?: VoiceWavePlacement;
   wavePalette?: VoiceWavePalette;
   waveStyle?: VoiceWaveStyle;
+  /** Viewport point the entrance grows from (the tapped control). Null → the
+   *  fixed screen-center origin. */
+  entryOrigin?: { x: number; y: number } | null;
   /** Override the room box (Storybook renders in a box, not the full window). */
   viewport?: { w: number; h: number };
 }) {
   const reduce = useReducedMotion();
   const measured = useViewportSize();
   const { w, h } = viewport ?? measured;
+
+  // Where the entrance grows from: the tapped control's viewport point, or the
+  // fixed picker-height screen center when none was captured (or in Storybook).
+  const origin = entryOrigin ?? { x: w / 2, y: (ENTER_FROM_CENTER_VH / 100) * h };
 
   // Per-state treatments. The waveform is the user's live voice (listening
   // only); the eyes hold low through the whole user-owned turn — listening AND
@@ -201,8 +208,10 @@ export function VoiceRoomColorLook({
   const showWaves = visual === "listening";
   const sinkEyes = visual === "listening" || visual === "thinking";
 
-  // Body grows to cover the screen end to end, from the small avatar size —
-  // onboarding's Introduction grow, verbatim.
+  // Body grows to cover the screen end to end, from the small avatar size at
+  // the entry origin — onboarding's Introduction grow, re-anchored to where the
+  // user tapped. The body's rest center is the screen center (w/2, h/2), so it
+  // starts offset by (origin − center) and slides to 0.
   const bodyGeometry = useMemo(() => {
     if (!look.body) return null;
     const coverSize = 1.25 * Math.max(w, h);
@@ -213,9 +222,10 @@ export function VoiceRoomColorLook({
       left: (w - coverSize) / 2,
       top: (h - coverH) / 2,
       startScale: ENTER_FROM_SIZE / coverSize,
-      startY: (ENTER_FROM_CENTER_VH / 100 - 0.5) * h,
+      startX: origin.x - w / 2,
+      startY: origin.y - h / 2,
     };
-  }, [look.body, w, h]);
+  }, [look.body, w, h, origin.x, origin.y]);
 
   return (
     <>
@@ -251,9 +261,13 @@ export function VoiceRoomColorLook({
           initial={
             reduce
               ? false
-              : { scale: bodyGeometry.startScale, y: bodyGeometry.startY }
+              : {
+                  scale: bodyGeometry.startScale,
+                  x: bodyGeometry.startX,
+                  y: bodyGeometry.startY,
+                }
           }
-          animate={{ scale: 1, y: 0 }}
+          animate={{ scale: 1, x: 0, y: 0 }}
           transition={
             reduce
               ? { duration: 0 }
@@ -276,7 +290,9 @@ export function VoiceRoomColorLook({
 
       {/* Thinking: the eyes stay held low (looking down, pondering) while a
           quiet indicator works away above them. */}
-      {visual === "thinking" ? <VoiceThinkingIndicator /> : null}
+      {visual === "thinking" ? (
+        <VoiceThinkingIndicator viewport={{ w, h }} />
+      ) : null}
 
       {/* Responding: the eyes ride back up to center (engaged, addressing the
           user) and the assistant's voice radiates outward from behind them,
@@ -288,6 +304,7 @@ export function VoiceRoomColorLook({
           getAmplitude={getResponseAmplitude ?? getAmplitude}
           waveStyle={waveStyle}
           wavePlacement={wavePlacement}
+          viewport={{ w, h }}
         />
       ) : null}
 
@@ -295,6 +312,7 @@ export function VoiceRoomColorLook({
         art={look.art}
         placement={eyePlacement}
         viewport={{ w, h }}
+        entranceOrigin={origin}
         getAmplitude={getAmplitude}
         // The centered eyes hold low through the user-owned turn (listening +
         // thinking), sinking with the voice while listening (see `VoiceRoomEyes`).
@@ -312,19 +330,30 @@ export function VoiceRoomColorLook({
  * color. A first-pass "the assistant is working" motif; the responding-state
  * treatment (and whether thinking wants something richer) is still open.
  */
-function VoiceThinkingIndicator() {
+function VoiceThinkingIndicator({
+  viewport,
+}: {
+  viewport: { w: number; h: number };
+}) {
   const reduce = useReducedMotion();
+  // Size against the room box (not fixed px) so the dots keep the same
+  // proportion in a small Storybook frame and the full-window app.
+  const dot = Math.max(8, Math.round(0.04 * Math.min(viewport.w, viewport.h)));
   return (
     <div
       aria-hidden="true"
-      className="pointer-events-none absolute left-1/2 z-[1] flex -translate-x-1/2 items-center gap-3"
-      style={{ top: "34%" }}
+      className="pointer-events-none absolute left-1/2 z-[1] flex -translate-x-1/2 items-center"
+      style={{ top: "34%", gap: dot }}
     >
       {[0, 1, 2].map((i) => (
         <motion.span
           key={i}
-          className="block size-3 rounded-full"
-          style={{ backgroundColor: "var(--room-fg, #ffffff)" }}
+          className="block rounded-full"
+          style={{
+            width: dot,
+            height: dot,
+            backgroundColor: "var(--room-fg, #ffffff)",
+          }}
           initial={reduce ? false : { opacity: 0.3, scale: 0.75 }}
           animate={
             reduce
@@ -401,14 +430,19 @@ function VoiceRespondingTreatment({
   getAmplitude,
   waveStyle,
   wavePlacement,
+  viewport,
 }: {
   style: VoiceRespondingStyle;
   getAmplitude?: () => number;
   waveStyle: VoiceWaveStyle;
   wavePlacement: VoiceWavePlacement;
+  viewport: { w: number; h: number };
 }) {
   const ampRef = useRespondingAmp(getAmplitude);
   const reduce = useReducedMotion();
+  // Size against the room box (not `vh`/`vw`, which ignore the Storybook frame
+  // and resolve against the window) so proportions match app and Storybook.
+  const M = Math.min(viewport.w, viewport.h);
 
   if (style === "waveform") {
     // The assistant's own voice — reuse the centered band, output-driven.
@@ -447,8 +481,8 @@ function VoiceRespondingTreatment({
       >
         <div
           style={{
-            width: "min(70vh, 70vw)",
-            aspectRatio: "1 / 1",
+            width: Math.round(0.9 * M),
+            height: Math.round(0.9 * M),
             borderRadius: "9999px",
             background:
               "radial-gradient(circle, color-mix(in srgb, var(--room-fg, #ffffff) 24%, transparent) 0%, transparent 66%)",
@@ -475,8 +509,8 @@ function VoiceRespondingTreatment({
           key={i}
           className="absolute rounded-full border-2"
           style={{
-            width: "min(38vh, 38vw)",
-            height: "min(38vh, 38vw)",
+            width: Math.round(0.5 * M),
+            height: Math.round(0.5 * M),
             borderColor:
               "color-mix(in srgb, var(--room-fg, #ffffff) 55%, transparent)",
           }}
@@ -496,33 +530,39 @@ function VoiceRespondingTreatment({
 }
 
 /**
- * Rest position + entrance travel for the eyes, per placement, plus
- * `sinkTravel`: how far the centered eyes can slide down toward the bottom
- * rest while the user speaks (0 for the bottom placement — nowhere lower).
+ * Rest position + entrance geometry for the eyes, per placement. The eyes grow
+ * from the entry origin (start offset by `origin − restCenter`, scaled down)
+ * and settle at rest with a small dip. `sinkTravel` is how far the centered
+ * eyes can slide toward the bottom rest while the user speaks (0 for the
+ * bottom placement — nowhere lower).
  */
 function eyeLayout(
   placement: VoiceEyePlacement,
+  eyesW: number,
   eyesH: number,
+  w: number,
   h: number,
-): { restTop: number; startY: number; dipY: number; sinkTravel: number } {
+  origin: { x: number; y: number },
+): {
+  restTop: number;
+  startX: number;
+  startY: number;
+  dipY: number;
+  sinkTravel: number;
+} {
   const bottomRestTop = h - (1 - EYE_REST_CUTOFF) * eyesH;
-  if (placement === "center") {
-    const restTop = (h - eyesH) / 2;
-    return {
-      restTop,
-      // Grow in place with a small settle dip — no long travel from the floor.
-      startY: -eyesH * 0.22,
-      dipY: eyesH * 0.12,
-      // Full voice pulls the eyes all the way down to the bottom rest.
-      sinkTravel: Math.max(0, bottomRestTop - restTop),
-    };
-  }
+  const restTop = placement === "center" ? (h - eyesH) / 2 : bottomRestTop;
+  // Rest center (the eyes are horizontally centered: left = (w − eyesW) / 2).
+  const restCenterX = w / 2;
+  const restCenterY = restTop + eyesH / 2;
   return {
-    restTop: bottomRestTop,
-    // Rise from the picker's centered position (40vh), dipping below rest.
-    startY: (ENTER_FROM_CENTER_VH / 100) * h - (bottomRestTop + eyesH / 2),
-    dipY: (EYE_DIP_CUTOFF - EYE_REST_CUTOFF) * eyesH,
-    sinkTravel: 0,
+    restTop,
+    startX: origin.x - restCenterX,
+    startY: origin.y - restCenterY,
+    // A small settle dip below rest as they land.
+    dipY: eyesH * 0.12,
+    sinkTravel:
+      placement === "center" ? Math.max(0, bottomRestTop - restTop) : 0,
   };
 }
 
@@ -530,6 +570,7 @@ export function VoiceRoomEyes({
   art,
   viewport,
   placement = "center",
+  entranceOrigin,
   getAmplitude,
   sink = false,
   dimmed = false,
@@ -538,6 +579,8 @@ export function VoiceRoomEyes({
   /** The room box the eyes are framed in (the caller's live viewport size). */
   viewport: { w: number; h: number };
   placement?: VoiceEyePlacement;
+  /** Viewport point the eyes grow from on entrance. Defaults to screen center. */
+  entranceOrigin?: { x: number; y: number };
   /** Mic amplitude source (0–1); drives the live bob while the eyes are sunk. */
   getAmplitude?: () => number;
   /** Hold the eyes at the low rest (the user-owned turn — listening + thinking). */
@@ -589,6 +632,8 @@ export function VoiceRoomEyes({
     };
   }, [reduce, entranceDone]);
 
+  const originX = entranceOrigin?.x ?? w / 2;
+  const originY = entranceOrigin?.y ?? (ENTER_FROM_CENTER_VH / 100) * h;
   const geometry = useMemo(() => {
     const maxEyesW = w * EYE_MAX_WIDTH;
     const eyesH = Math.min(
@@ -596,17 +641,25 @@ export function VoiceRoomEyes({
       (maxEyesW * art.bbox.h) / art.bbox.w,
     );
     const eyesW = (eyesH * art.bbox.w) / art.bbox.h;
-    const { restTop, startY, dipY, sinkTravel } = eyeLayout(placement, eyesH, h);
+    const { restTop, startX, startY, dipY, sinkTravel } = eyeLayout(
+      placement,
+      eyesW,
+      eyesH,
+      w,
+      h,
+      { x: originX, y: originY },
+    );
     return {
       eyesW,
       eyesH,
       left: (w - eyesW) / 2,
       restTop,
+      startX,
       startY,
       dipY,
       sinkTravel,
     };
-  }, [art, w, h, placement]);
+  }, [art, w, h, placement, originX, originY]);
 
   // Sink: while the user owns the turn (listening + thinking) the centered eyes
   // drop to a low hold near the bottom rest (`EYE_LISTEN_SINK_BASE` of the
@@ -676,11 +729,19 @@ export function VoiceRoomEyes({
         height: geometry.eyesH,
         transformOrigin: "center",
       }}
-      initial={playEntrance ? { y: geometry.startY, scale: 0.35 } : false}
+      initial={
+        playEntrance
+          ? { x: geometry.startX, y: geometry.startY, scale: 0.35 }
+          : false
+      }
       animate={
         playEntrance
-          ? { y: [geometry.startY, geometry.dipY, 0], scale: [0.35, 1, 1] }
-          : { y: 0, scale: 1 }
+          ? {
+              x: [geometry.startX, 0, 0],
+              y: [geometry.startY, geometry.dipY, 0],
+              scale: [0.35, 1, 1],
+            }
+          : { x: 0, y: 0, scale: 1 }
       }
       transition={
         playEntrance

@@ -40,6 +40,7 @@ import {
     getLiveVoiceInputAmplitude,
     isLiveVoiceSessionActive,
     releaseLiveVoiceTurn,
+    setLiveVoiceEntryOrigin,
     setLiveVoiceMuted,
     stopLiveVoiceResponse,
     useIsLiveVoiceSessionOwnedBy,
@@ -304,30 +305,41 @@ export function ChatComposer({
   // `voice-mode` flag off this path is unreachable and the app-editing variant
   // (no voice entry point) never renders the card.
   const [firstRunCardOpen, setFirstRunCardOpen] = useState(false);
+  // Where the user tapped to start — captured at click so the room's entrance
+  // grows from the on-screen control, not screen-center. Stashed here because
+  // the first-run card path defers the actual start to its own handler.
+  const liveVoiceEntryOriginRef = useRef<{ x: number; y: number } | null>(null);
   const startLiveVoiceSession = useCallback(() => {
     if (!assistantId) {
       return;
     }
+    // Publish the entry origin BEFORE starting: the starter drives
+    // `setSessionContext`, which deliberately leaves `entryOrigin` intact.
+    setLiveVoiceEntryOrigin(liveVoiceEntryOriginRef.current);
     useLiveVoiceStore.getState().starter?.(assistantId, conversationId ?? null);
   }, [assistantId, conversationId]);
-  const handleLiveVoiceStart = useCallback(() => {
-    if (!assistantId) {
-      return;
-    }
-    // First-run preferences card — shown on every platform EXCEPT Capacitor
-    // iOS. On the iOS shell a dismissible pre-prompt before the live-voice
-    // `getUserMedia` permission alert violates `docs/CAPACITOR.md` § OS
-    // permission requests (Apple HIG / App Store Review 5.1.1(iv)) and the
-    // `voice/live-voice/pcm-capture.ts` caller contract, which require any
-    // pre-permission UI to lead directly to the system alert. On iOS we
-    // therefore start directly (same as the returning-user path) so the OS
-    // alert is reached without an intervening dismissible modal.
-    if (!useVoicePrefsStore.getState().firstRunSeen && !isNativeIOS()) {
-      setFirstRunCardOpen(true);
-      return;
-    }
-    startLiveVoiceSession();
-  }, [assistantId, startLiveVoiceSession]);
+  const handleLiveVoiceStart = useCallback(
+    (origin?: { x: number; y: number }) => {
+      if (!assistantId) {
+        return;
+      }
+      liveVoiceEntryOriginRef.current = origin ?? null;
+      // First-run preferences card — shown on every platform EXCEPT Capacitor
+      // iOS. On the iOS shell a dismissible pre-prompt before the live-voice
+      // `getUserMedia` permission alert violates `docs/CAPACITOR.md` § OS
+      // permission requests (Apple HIG / App Store Review 5.1.1(iv)) and the
+      // `voice/live-voice/pcm-capture.ts` caller contract, which require any
+      // pre-permission UI to lead directly to the system alert. On iOS we
+      // therefore start directly (same as the returning-user path) so the OS
+      // alert is reached without an intervening dismissible modal.
+      if (!useVoicePrefsStore.getState().firstRunSeen && !isNativeIOS()) {
+        setFirstRunCardOpen(true);
+        return;
+      }
+      startLiveVoiceSession();
+    },
+    [assistantId, startLiveVoiceSession],
+  );
   const handleFirstRunStart = useCallback(() => {
     useVoicePrefsStore.getState().markFirstRunSeen();
     setFirstRunCardOpen(false);

@@ -145,6 +145,12 @@ export interface LiveVoiceTurnLatency {
   readonly clientHeardLatencyMs: number | null;
 }
 
+/** Viewport-space point (px) the color room's entrance grows from. */
+export interface LiveVoiceEntryOrigin {
+  readonly x: number;
+  readonly y: number;
+}
+
 /**
  * Starts a live-voice session for `assistantId`, attaching `conversationId`
  * when non-null. Registered into the store by the persistently mounted
@@ -214,6 +220,15 @@ export interface LiveVoiceState {
    */
   handsFree: boolean;
   /**
+   * Viewport-space center of the control the user tapped to start the session
+   * (the composer's voice button), captured at start. The color room grows its
+   * entrance from here — "the avatar on the screen" the user acted on — instead
+   * of a fixed screen-center point. `null` when a session started without a
+   * captured origin (falls back to center). Cleared on `reset`; NOT cleared by
+   * `setSessionContext`, which the start flow calls after this is set.
+   */
+  entryOrigin: LiveVoiceEntryOrigin | null;
+  /**
    * Latency measurements for the last turn, `null` until a turn is measured.
    * Debug surface only — per the minimal-treatment note on
    * {@link LIVE_VOICE_STATE_LABELS}, no surface renders this: the controller
@@ -274,6 +289,8 @@ export interface LiveVoiceActions {
   setMuted: (muted: boolean) => void;
   /** Record whether the active session runs hands-free (server-VAD). */
   setHandsFree: (handsFree: boolean) => void;
+  /** Record the entry origin (the tapped control's center) for the entrance. */
+  setEntryOrigin: (origin: LiveVoiceEntryOrigin | null) => void;
   /**
    * Replace the last turn's latency pair wholesale (never patch a member in
    * place) so subscribers of the atomic selector see one consistent object.
@@ -376,6 +393,7 @@ const INITIAL_SESSION_STATE: Omit<LiveVoiceState, "starter"> = {
   inputAmplitude: 0,
   muted: false,
   handsFree: false,
+  entryOrigin: null,
   lastTurnLatency: null,
   outputAmplitudeProvider: null,
   error: null,
@@ -408,6 +426,7 @@ const useLiveVoiceStoreBase = create<LiveVoiceStore>()((set) => ({
   setInputAmplitude: (inputAmplitude) => set({ inputAmplitude }),
   setMuted: (muted) => set({ muted }),
   setHandsFree: (handsFree) => set({ handsFree }),
+  setEntryOrigin: (entryOrigin) => set({ entryOrigin }),
   setLastTurnLatency: (lastTurnLatency) => set({ lastTurnLatency }),
   setOutputAmplitudeProvider: (outputAmplitudeProvider) =>
     set({ outputAmplitudeProvider }),
@@ -480,6 +499,18 @@ export function stopLiveVoiceResponse(): void {
  */
 export function setLiveVoiceMuted(muted: boolean): void {
   useLiveVoiceStore.getState().controls?.setMuted(muted);
+}
+
+/**
+ * Record the viewport-space center of the control that started the session, so
+ * the color room grows its entrance from there. Set by the composer just
+ * before it invokes the session `starter`. Module-level for the same
+ * stable-identity reasons as {@link endLiveVoiceSession}.
+ */
+export function setLiveVoiceEntryOrigin(
+  origin: LiveVoiceEntryOrigin | null,
+): void {
+  useLiveVoiceStore.getState().setEntryOrigin(origin);
 }
 
 /**

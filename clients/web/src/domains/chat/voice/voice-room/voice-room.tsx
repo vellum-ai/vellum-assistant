@@ -124,6 +124,9 @@ function VoiceRoomOverlay() {
   // the whole session); room sessions are hands-free except on the
   // version-skew fallback against an older daemon.
   const handsFree = useLiveVoiceStore.use.handsFree();
+  // Viewport point the entrance grows from (the tapped voice button); null →
+  // the color look falls back to its screen-center origin.
+  const entryOrigin = useLiveVoiceStore.use.entryOrigin();
   const reduce = useReducedMotion();
 
   const visual = toVoiceAvatarVisual(state, reconnecting);
@@ -214,6 +217,7 @@ function VoiceRoomOverlay() {
           visual={visual}
           getAmplitude={getLiveVoiceInputAmplitude}
           getResponseAmplitude={getLiveVoiceOutputAmplitude}
+          entryOrigin={entryOrigin}
         />
       ) : (
         <>
