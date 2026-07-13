@@ -30,7 +30,13 @@ function entry(
   name: string,
   repo: string,
   ref: string,
-  extra?: { path?: string; description?: string; category?: string },
+  extra?: {
+    path?: string;
+    description?: string;
+    category?: string;
+    homepage?: string;
+    license?: string;
+  },
 ): MarketplaceEntry {
   return {
     name,
@@ -42,6 +48,8 @@ function entry(
     },
     ...(extra?.description ? { description: extra.description } : {}),
     ...(extra?.category ? { category: extra.category } : {}),
+    ...(extra?.homepage ? { homepage: extra.homepage } : {}),
+    ...(extra?.license ? { license: extra.license } : {}),
   };
 }
 
@@ -146,6 +154,8 @@ describe("marketplaceMatch", () => {
       path: `github:vellum-ai/simple-memory@${SHA_A}`,
       description: undefined,
       category: null,
+      homepage: undefined,
+      license: undefined,
       source: {
         kind: "github",
         repo: "vellum-ai/simple-memory",
@@ -168,6 +178,8 @@ describe("marketplaceMatch", () => {
       path: `github:acme/monorepo/packages/nested@${SHA_B}`,
       description: "A nested plugin.",
       category: null,
+      homepage: undefined,
+      license: undefined,
       source: {
         kind: "github",
         repo: "acme/monorepo",
@@ -189,6 +201,25 @@ describe("marketplaceMatch", () => {
       marketplaceMatch(entry("plain-plugin", "acme/plain-plugin", SHA_B))
         .category,
     ).toBeNull();
+  });
+
+  test("carries homepage/license when the entry declares them", () => {
+    const match = marketplaceMatch(
+      entry("calendar-sync", "acme/calendar-sync", SHA_A, {
+        homepage: "https://example.com/calendar-sync",
+        license: "MIT",
+      }),
+    );
+    expect(match.homepage).toBe("https://example.com/calendar-sync");
+    expect(match.license).toBe("MIT");
+  });
+
+  test("leaves homepage/license undefined when the entry omits them", () => {
+    const match = marketplaceMatch(
+      entry("plain-plugin", "acme/plain-plugin", SHA_B),
+    );
+    expect(match.homepage).toBeUndefined();
+    expect(match.license).toBeUndefined();
   });
 });
 
@@ -215,5 +246,21 @@ describe("projectMarketplaceEntries", () => {
 
   test("returns an empty list for no entries", () => {
     expect(projectMarketplaceEntries([])).toEqual([]);
+  });
+
+  test("carries homepage/license through, undefined when the entry omits them", () => {
+    const [withMeta, without] = projectMarketplaceEntries([
+      entry("calendar-sync", "acme/calendar-sync", SHA_A, {
+        homepage: "https://example.com/calendar-sync",
+        license: "MIT",
+      }),
+      entry("plain-plugin", "acme/plain-plugin", SHA_B),
+    ]);
+    expect(withMeta).toMatchObject({
+      homepage: "https://example.com/calendar-sync",
+      license: "MIT",
+    });
+    expect(without!.homepage).toBeUndefined();
+    expect(without!.license).toBeUndefined();
   });
 });
