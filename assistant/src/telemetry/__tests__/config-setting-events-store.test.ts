@@ -1,14 +1,13 @@
+import { beforeEach, describe, expect, test } from "bun:test";
+
+import { APP_VERSION } from "../../version.js";
+import { recordConfigSettingEvent } from "../config-setting-events-store.js";
 import {
   pendingOutboxPayloads,
   pendingOutboxRows,
   resetOutboxTable,
   setShareAnalytics,
 } from "./outbox-test-harness.js";
-
-import { beforeEach, describe, expect, test } from "bun:test";
-
-import { APP_VERSION } from "../../version.js";
-import { recordConfigSettingEvent } from "../config-setting-events-store.js";
 
 describe("config-setting-events-store", () => {
   beforeEach(() => {

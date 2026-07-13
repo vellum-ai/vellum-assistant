@@ -1,14 +1,13 @@
+import { beforeEach, describe, expect, test } from "bun:test";
+
+import { APP_VERSION } from "../../version.js";
+import { recordWatchdogEvent } from "../watchdog-events-store.js";
 import {
   pendingOutboxPayloads,
   pendingOutboxRows,
   resetOutboxTable,
   setShareAnalytics,
 } from "./outbox-test-harness.js";
-
-import { beforeEach, describe, expect, test } from "bun:test";
-
-import { APP_VERSION } from "../../version.js";
-import { recordWatchdogEvent } from "../watchdog-events-store.js";
 
 describe("watchdog-events-store", () => {
   beforeEach(() => {

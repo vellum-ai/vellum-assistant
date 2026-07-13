@@ -1,13 +1,12 @@
-import {
-  resetOutboxTable,
-  setShareAnalytics,
-} from "./__tests__/outbox-test-harness.js";
-
 import { beforeEach, describe, expect, test } from "bun:test";
 
 import { getTelemetryDb } from "../persistence/db-connection.js";
 import { telemetryEvents } from "../persistence/schema/index.js";
 import { APP_VERSION } from "../version.js";
+import {
+  resetOutboxTable,
+  setShareAnalytics,
+} from "./__tests__/outbox-test-harness.js";
 import { recordSkillLoadedEvent } from "./skill-loaded-events-store.js";
 
 function pendingRows(): Array<{

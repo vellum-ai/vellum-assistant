@@ -2,8 +2,8 @@ import { mock, spyOn } from "bun:test";
 
 let shareAnalytics = true;
 
-// Installed at import time — import this harness BEFORE the module under
-// test so the mock wins the module-registry race.
+// Installed when this harness is imported. bun's mock.module patches
+// retroactively (live bindings), so importers need no special import order.
 mock.module("../../platform/consent-cache.js", () => ({
   getCachedShareAnalytics: () => shareAnalytics,
 }));

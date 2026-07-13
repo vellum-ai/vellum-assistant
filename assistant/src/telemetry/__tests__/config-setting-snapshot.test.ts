@@ -1,9 +1,3 @@
-import {
-  pendingOutboxPayloads,
-  resetOutboxTable,
-  setShareAnalytics,
-} from "./outbox-test-harness.js";
-
 import { beforeEach, describe, expect, test } from "bun:test";
 
 import type { AssistantConfig } from "../../config/schema.js";
@@ -11,6 +5,11 @@ import {
   recordConfigSettingSnapshot,
   resetConfigSettingSnapshotForTesting,
 } from "../config-setting-snapshot.js";
+import {
+  pendingOutboxPayloads,
+  resetOutboxTable,
+  setShareAnalytics,
+} from "./outbox-test-harness.js";
 
 function makeConfig(
   memoryEnabled: boolean,
