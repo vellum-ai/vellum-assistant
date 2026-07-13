@@ -11,6 +11,7 @@ on:
       - 'gateway/**'
       - 'packages/**'
       - 'meta/feature-flags/**'
+      - 'meta/sync-bundled-copies.ts'
       - '.github/workflows/ci-main-gateway.yaml'
 
 jobs:

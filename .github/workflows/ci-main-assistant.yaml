@@ -12,6 +12,7 @@ on:
       - 'credential-executor/**'
       - 'packages/**'
       - 'meta/feature-flags/**'
+      - 'meta/sync-bundled-copies.ts'
       # The daemon LLM catalog parity test reads these files, so hand edits to
       # either catalog JSON must run the assistant tests too.
       - 'meta/llm-provider-catalog.json'

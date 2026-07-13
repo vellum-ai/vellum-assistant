@@ -13,6 +13,7 @@ on:
       - 'packages/**'
       - 'scripts/skills/**'
       - 'meta/feature-flags/**'
+      - 'meta/sync-bundled-copies.ts'
       # The daemon LLM catalog parity test reads these files, so hand edits to
       # either catalog JSON must run the assistant tests on the PR that
       # introduces drift.

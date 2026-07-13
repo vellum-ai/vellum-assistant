@@ -10,6 +10,7 @@ on:
       - 'gateway/**'
       - 'packages/**'
       - 'meta/feature-flags/**'
+      - 'meta/sync-bundled-copies.ts'
       - '.github/workflows/pr-gateway.yaml'
 
 concurrency:
