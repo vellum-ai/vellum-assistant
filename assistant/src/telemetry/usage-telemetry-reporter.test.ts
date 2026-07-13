@@ -217,7 +217,7 @@ import {
   insertTelemetryOutboxEvent,
   queryTelemetryOutboxBatch,
 } from "./telemetry-events-outbox.js";
-import type { TelemetryEvent } from "./types.js";
+import type { OutboxTelemetryEventName, TelemetryEvent } from "./types.js";
 import {
   initToolExecutedWatermarkIfAbsent,
   UsageTelemetryReporter,
@@ -2933,7 +2933,9 @@ describe("UsageTelemetryReporter", () => {
   // outboxSource (real telemetry_events outbox behind an ack-mode source)
   // -------------------------------------------------------------------------
 
-  const OUTBOX_NAME = "test_outbox";
+  // Synthetic name: these tests exercise the generic outbox machinery, not a
+  // shipped event type.
+  const OUTBOX_NAME = "test_outbox" as OutboxTelemetryEventName;
 
   function seedOutboxRow(id: string, createdAt: number): void {
     insertTelemetryOutboxEvent({
