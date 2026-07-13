@@ -17,11 +17,11 @@ import { readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 /** Fixed icon filename in the plugin root — no author path, no traversal. */
-const ICON_FILENAME = "icon.png";
+export const ICON_FILENAME = "icon.png";
 /** Byte cap: reject anything larger (also bounds what we read into memory). */
-const MAX_ICON_BYTES = 32 * 1024;
+export const MAX_ICON_BYTES = 32 * 1024;
 /** Dimension cap (px) enforced against the IHDR width/height. */
-const MAX_ICON_DIMENSION = 128;
+export const MAX_ICON_DIMENSION = 128;
 /** PNG signature: the first 8 bytes of every PNG file. */
 const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 /** The first chunk of a valid PNG is always IHDR with a 13-byte payload. */
@@ -41,29 +41,13 @@ export interface ValidatedPluginIcon {
 }
 
 /**
- * Read and validate `<pluginDir>/icon.png`. Returns `{ hasIcon: true }` with a
- * content-hash `iconVersion` and `path` only when the file is a PNG whose IHDR
- * dimensions are within {@link MAX_ICON_DIMENSION} and whose size is within
- * {@link MAX_ICON_BYTES}. Every other case returns `{ hasIcon: false }`.
+ * Validate in-memory PNG bytes against the icon contract. Returns
+ * `{ hasIcon: true, iconVersion }` — a content-hash version — only when the
+ * bytes are a PNG whose IHDR dimensions are within {@link MAX_ICON_DIMENSION}
+ * and whose size is within {@link MAX_ICON_BYTES}. Every other case returns
+ * `{ hasIcon: false }`. No `path`: the bytes source is caller-defined.
  */
-export function readValidatedPluginIcon(
-  pluginDir: string,
-): ValidatedPluginIcon {
-  const iconPath = join(pluginDir, ICON_FILENAME);
-
-  let bytes: Buffer;
-  try {
-    const stat = statSync(iconPath);
-    // Size-gate before reading so an oversized file never enters memory.
-    // A missing file throws here and is caught as "no icon".
-    if (!stat.isFile() || stat.size > MAX_ICON_BYTES) {
-      return { hasIcon: false };
-    }
-    bytes = readFileSync(iconPath);
-  } catch {
-    return { hasIcon: false };
-  }
-
+export function validatePluginIconBytes(bytes: Buffer): ValidatedPluginIcon {
   if (bytes.length < MIN_HEADER_BYTES || bytes.length > MAX_ICON_BYTES) {
     return { hasIcon: false };
   }
@@ -97,5 +81,33 @@ export function readValidatedPluginIcon(
     .update(bytes)
     .digest("hex")
     .slice(0, 16);
-  return { hasIcon: true, iconVersion, path: iconPath };
+  return { hasIcon: true, iconVersion };
+}
+
+/**
+ * Read and validate `<pluginDir>/icon.png`. Returns `{ hasIcon: true }` with a
+ * content-hash `iconVersion` and `path` only when the file is a PNG whose IHDR
+ * dimensions are within {@link MAX_ICON_DIMENSION} and whose size is within
+ * {@link MAX_ICON_BYTES}. Every other case returns `{ hasIcon: false }`.
+ */
+export function readValidatedPluginIcon(
+  pluginDir: string,
+): ValidatedPluginIcon {
+  const iconPath = join(pluginDir, ICON_FILENAME);
+
+  let bytes: Buffer;
+  try {
+    const stat = statSync(iconPath);
+    // Size-gate before reading so an oversized file never enters memory.
+    // A missing file throws here and is caught as "no icon".
+    if (!stat.isFile() || stat.size > MAX_ICON_BYTES) {
+      return { hasIcon: false };
+    }
+    bytes = readFileSync(iconPath);
+  } catch {
+    return { hasIcon: false };
+  }
+
+  const result = validatePluginIconBytes(bytes);
+  return result.hasIcon ? { ...result, path: iconPath } : result;
 }
