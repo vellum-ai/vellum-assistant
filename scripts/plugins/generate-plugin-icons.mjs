@@ -7,10 +7,11 @@
  * `<source.path>/icon.png` at the pinned `source.ref` via the GitHub Contents
  * API, validate the bytes against the icon contract, and — on success —
  * vendor them to `plugins/assets/<name>/icon.png` and index the plugin in
- * `plugins/plugin-icons.json`. Invalid or missing (404) icons are fail-closed:
- * skipped, pruned, and omitted from the manifest. A non-404 fetch failure
- * (transient 429/5xx/network or a hard error) aborts the whole run before any
- * asset/manifest is written, so an outage never silently drops a pinned icon.
+ * `plugins/plugin-icons.json`. Invalid, oversized, or missing (404) icons are
+ * fail-closed: skipped, pruned, and omitted from the manifest. A genuine non-404
+ * fetch failure (transient 429/5xx/network or a hard error) aborts the whole run
+ * before any asset/manifest is written, so an outage never silently drops a
+ * pinned icon. An invalid plugin name in the manifest also aborts.
  *
  * CHECK mode (`--check`): purely local. Re-validate every vendored `icon.png`
  * against the icon contract and assert its content hash matches the committed
@@ -41,6 +42,13 @@ const MARKETPLACE_PATH = join(REPO_ROOT, "plugins/marketplace.json");
 const ASSETS_DIR = join(REPO_ROOT, "plugins/assets");
 const MANIFEST_PATH = join(REPO_ROOT, "plugins/plugin-icons.json");
 const ICON_FILENAME = "icon.png";
+
+// Canonical single-segment kebab-case install name. Source of truth:
+// `PLUGIN_NAME_RE` in `assistant/src/cli/lib/plugin-marketplace.ts`. marketplace.json
+// is read here via a plain JSON.parse (not the zod schema), so every name must be
+// re-validated before it is used as a filesystem path segment — a name like "../x"
+// must never become a path.
+const PLUGIN_NAME_RE = /^[a-z0-9][a-z0-9_-]*$/;
 
 // ---------------------------------------------------------------------------
 // Icon validation
@@ -154,11 +162,20 @@ export function isTransientUpstreamStatus(res) {
 }
 
 /**
+ * Sentinel: the icon advertised a Content-Length over the byte cap. This is a
+ * per-plugin validation failure under the icon contract (like invalid PNG bytes),
+ * NOT a fetch error — the caller skips + prunes just this plugin instead of
+ * aborting the run, and never buffers the oversized body.
+ */
+const OVERSIZED_ICON = Symbol("oversized-icon");
+
+/**
  * Fetch a plugin's raw `icon.png` bytes at its pinned ref. Returns the Buffer,
- * or `null` for a missing file (404) — the only "no icon" outcome. Every other
- * failure throws {@link IconFetchError}: a network/DNS error or a 429/5xx is
- * `transient`, so the caller aborts rather than silently dropping a still-valid
- * vendored icon.
+ * `null` for a missing file (404), or {@link OVERSIZED_ICON} when the advertised
+ * Content-Length exceeds the byte cap — the two "no valid icon" outcomes the
+ * caller skips + prunes. Every other failure throws {@link IconFetchError}: a
+ * network/DNS error or a 429/5xx is `transient`, so the caller aborts rather than
+ * silently dropping a still-valid vendored icon.
  */
 async function fetchIconBytes(fetchImpl, entry, token) {
   const headers = {
@@ -188,14 +205,12 @@ async function fetchIconBytes(fetchImpl, entry, token) {
   }
   // Reject an oversized icon on its advertised Content-Length before buffering
   // it — a huge upstream icon.png would otherwise be materialized whole only to
-  // be rejected by the byte cap. A hard (non-transient) failure: the validator
-  // still catches a missing/lying length once the bytes are in memory.
+  // be rejected by the byte cap. This is icon-contract validation, not a fetch
+  // failure: skip + prune this one plugin (no abort, no arrayBuffer). The
+  // validator still catches a missing/lying length once the bytes are in memory.
   const contentLength = Number(res.headers?.get?.("content-length"));
   if (Number.isFinite(contentLength) && contentLength > MAX_ICON_BYTES) {
-    throw new IconFetchError(
-      `icon.png is ${contentLength} bytes, over the ${MAX_ICON_BYTES}-byte cap`,
-      { transient: false },
-    );
+    return OVERSIZED_ICON;
   }
   return Buffer.from(await res.arrayBuffer());
 }
@@ -240,6 +255,18 @@ export async function generatePluginIcons({
   // still-valid vendored icon during an outage. Deferring all writes past this
   // loop guarantees an abort leaves the working tree unchanged.
   for (const entry of entries) {
+    // Validate the name before it is ever fetched or turned into a path. A name
+    // that fails PLUGIN_NAME_RE is a manifest-integrity defect (e.g. a traversal
+    // segment like "../evil"), not a "plugin has no icon" case, so abort — the
+    // manifest author must fix it. See PLUGIN_NAME_RE above.
+    if (typeof entry.name !== "string" || !PLUGIN_NAME_RE.test(entry.name)) {
+      throw new Error(
+        `Aborting icon generation: invalid plugin name ${JSON.stringify(entry.name)} ` +
+          `in ${marketplacePath}. Names must match ${PLUGIN_NAME_RE} ` +
+          `(single kebab-case segment). No assets or manifest were modified.`,
+      );
+    }
+
     let bytes;
     try {
       bytes = await fetchIconBytes(fetchImpl, entry, token);
@@ -249,6 +276,12 @@ export async function generatePluginIcons({
         `Aborting icon generation: ${kind}icon fetch failed for ${entry.name} (${err.message}). ` +
           `No assets or manifest were modified; re-run once upstream recovers.`,
       );
+    }
+
+    if (bytes === OVERSIZED_ICON) {
+      log.warn?.(`skip ${entry.name}: icon.png exceeds the ${MAX_ICON_BYTES}-byte cap`);
+      skipped.push(entry.name);
+      continue;
     }
 
     if (!bytes) {
@@ -321,6 +354,13 @@ export function checkPluginIcons({
     : [];
 
   for (const name of assetNames) {
+    // Never derive a path from a name that isn't a canonical install name — a
+    // stray traversal-y dir name must not be joined onto assetsDir. See
+    // PLUGIN_NAME_RE above.
+    if (!PLUGIN_NAME_RE.test(name)) {
+      errors.push(`asset dir "${name}" is not a valid plugin name`);
+      continue;
+    }
     const iconPath = join(assetsDir, name, ICON_FILENAME);
     if (!isFile(iconPath)) {
       errors.push(`asset dir "${name}" has no ${ICON_FILENAME}`);

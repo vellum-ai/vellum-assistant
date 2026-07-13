@@ -145,22 +145,80 @@ describe("isTransientUpstreamStatus mirrors the assistant classifier", () => {
 });
 
 describe("generatePluginIcons (write mode)", () => {
-  test("rejects an oversize Content-Length before buffering the body", async () => {
-    writeMarketplace([pluginEntry("big", "owner/big")]);
+  test("oversized Content-Length skips+prunes only that plugin, without buffering", async () => {
+    // Pre-seed a stale vendored icon for the plugin that will report oversized —
+    // it must be pruned, not left stale.
+    mkdirSync(join(assetsDir, "big"), { recursive: true });
+    writeFileSync(join(assetsDir, "big", "icon.png"), makePng(16, 16));
 
-    let buffered = false;
-    const fetch = async () => ({
-      ok: true,
-      status: 200,
-      headers: new Headers({ "content-length": String(32 * 1024 + 1) }),
-      arrayBuffer: async () => {
-        buffered = true;
-        return new ArrayBuffer(0);
-      },
-    });
+    const good = makePng(64, 64);
+    writeMarketplace([
+      pluginEntry("big", "owner/big"),
+      pluginEntry("good", "owner/good"),
+    ]);
 
-    await expect(run(fetch)).rejects.toThrow(/Aborting icon generation.*over the .*-byte cap/s);
-    expect(buffered).toBe(false);
+    let bigBuffered = false;
+    const fetch = async (url) => {
+      if (url.includes("/repos/owner/big/")) {
+        return {
+          ok: true,
+          status: 200,
+          headers: new Headers({ "content-length": String(32 * 1024 + 1) }),
+          arrayBuffer: async () => {
+            bigBuffered = true;
+            return new ArrayBuffer(0);
+          },
+        };
+      }
+      return {
+        ok: true,
+        status: 200,
+        headers: new Headers(),
+        arrayBuffer: async () =>
+          good.buffer.slice(good.byteOffset, good.byteOffset + good.byteLength),
+      };
+    };
+
+    const result = await run(fetch);
+
+    // Oversized body was never materialized.
+    expect(bigBuffered).toBe(false);
+    // Only the oversized plugin is skipped; the other is still vendored.
+    expect(result.vendored).toEqual(["good"]);
+    expect(result.skipped).toEqual(["big"]);
+    expect(readFileSync(join(assetsDir, "good", "icon.png")).equals(good)).toBe(true);
+    expect(readManifest().plugins).toEqual({ good: { iconVersion: sha16(good) } });
+    // Stale vendored icon for the oversized plugin was pruned.
+    let bigExists = true;
+    try {
+      readFileSync(join(assetsDir, "big", "icon.png"));
+    } catch {
+      bigExists = false;
+    }
+    expect(bigExists).toBe(false);
+  });
+
+  test("aborts on an entry name that fails PLUGIN_NAME_RE, writing nothing", async () => {
+    // A traversal-y name must never become a path segment; the run aborts before
+    // any fetch or write, and nothing is written outside plugins/assets/.
+    writeMarketplace([pluginEntry("../evil", "owner/evil")]);
+
+    let fetched = false;
+    const fetch = async () => {
+      fetched = true;
+      return { ok: true, status: 200, headers: new Headers(), arrayBuffer: async () => new ArrayBuffer(0) };
+    };
+
+    await expect(run(fetch)).rejects.toThrow(/invalid plugin name/);
+    expect(fetched).toBe(false);
+    // No stray asset written anywhere under the temp dir (e.g. a sibling of assets/).
+    let escaped = true;
+    try {
+      readFileSync(join(dir, "evil", "icon.png"));
+    } catch {
+      escaped = false;
+    }
+    expect(escaped).toBe(false);
   });
 
   test("valid PNG is vendored and indexed with the correct iconVersion", async () => {
