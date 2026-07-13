@@ -42,8 +42,9 @@ export const ROUTES: RouteDefinition[] = [
       assertPlaygroundEnabled();
 
       const id = pathParams!.id;
-      const seeded = listConversationsByTitlePrefix(PLAYGROUND_TITLE_PREFIX)
-        .find((c) => c.id === id);
+      const seeded = listConversationsByTitlePrefix(
+        PLAYGROUND_TITLE_PREFIX,
+      ).find((c) => c.id === id);
       if (!seeded) {
         throw new ForbiddenError("Not a playground conversation");
       }
