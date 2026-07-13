@@ -8,7 +8,7 @@
  */
 import { describe, expect, test } from "bun:test";
 
-const { getTelemetrySqlite } = await import("../db-connection.js");
+const { getDb, getTelemetrySqlite } = await import("../db-connection.js");
 const { initializeDb } = await import("../db-init.js");
 const { migrateCreateTelemetryEventsTable } =
   await import("./333-create-telemetry-events-table.js");
@@ -47,7 +47,7 @@ describe("migration 333: create telemetry_events on the telemetry DB", () => {
        VALUES ('row-1', 'lifecycle', 1000, NULL, '{"type":"lifecycle"}')`,
     );
 
-    migrateCreateTelemetryEventsTable();
+    migrateCreateTelemetryEventsTable(getDb());
 
     expect(telemetryTableExists("telemetry_events")).toBe(true);
     const indexes = telemetryIndexNames();
