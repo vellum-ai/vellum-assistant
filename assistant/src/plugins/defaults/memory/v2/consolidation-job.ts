@@ -39,13 +39,18 @@
  *      unchanged. The prompt body is loaded via `resolveConsolidationPrompt`
  *      which bounds any operator-provided override to a regular file under
  *      1 MiB before substitution.
- *   6. On success, enqueue `memory_v2_reembed` (re-index any pages the agent
+ *   6. Verify the run drained the buffer. `runResult.ok` only means the
+ *      background run completed — the trim itself is delegated to the agent.
+ *      A run that completes without shrinking the buffer is reported as
+ *      `invoked` with `noProgress: true` and enqueues no follow-ups.
+ *   7. On progress, enqueue `memory_v2_reembed` (re-index any pages the agent
  *      touched). Tracking touched pages via mtime would be more precise but
  *      is fragile across filesystems; the embedder's content-hash cache makes
- *      a conservative full-reembed effectively free. On failure no follow-ups
+ *      a conservative full-reembed effectively free. Each follow-up coalesces
+ *      with an already-pending job of the same type. On failure no follow-ups
  *      are enqueued — the agent's writes may be partial and re-embedding
  *      partial state would be misleading.
- *   7. Release the lock. A stale lock is taken over automatically on the next
+ *   8. Release the lock. A stale lock is taken over automatically on the next
  *      run (single-writer per workspace): when the holder's PID is no longer
  *      running, or — because the daemon runs as PID 1 in containers and a
  *      restarted daemon collides with the dead holder's PID — when the lock is
@@ -71,6 +76,7 @@ import { isMemoryV3Live } from "../../../../config/memory-v3-gate.js";
 import type { AssistantConfig } from "../../../../config/types.js";
 import {
   enqueueMemoryJob,
+  hasPendingJobOfType,
   type MemoryJob,
   type MemoryJobType,
 } from "../../../../persistence/jobs-store.js";
@@ -181,6 +187,12 @@ export type ConsolidationOutcome =
        */
       deferredEntries: number;
       followUpJobIds: string[];
+      /**
+       * `true` when the run completed without shrinking the buffer — the
+       * agent never trimmed it, so nothing changed worth re-embedding and no
+       * follow-ups were enqueued.
+       */
+      noProgress: boolean;
     };
 
 export async function memoryV2ConsolidateJob(
@@ -217,6 +229,11 @@ export async function memoryV2ConsolidateJob(
       log.debug("buffer.md empty; consolidation skipped");
       return { kind: "empty_buffer" };
     }
+
+    // Baseline for the post-run progress check — same metric the scheduler's
+    // size trigger uses, so "no progress" below means exactly "the trigger
+    // condition still holds".
+    const bufferLinesBefore = countNonEmptyLines(bufferContent);
 
     // Step 3: capture cutoff. Formatted to match `buffer.md` entry timestamps
     // (`Mon D, h:mm AM/PM`, see `formatBufferTimestamp`) so the agent's
@@ -336,10 +353,43 @@ export async function memoryV2ConsolidateJob(
         : { kind: "run_failed" };
     }
 
-    // Step 5: enqueue follow-up jobs. Enqueueing now keeps the dispatch
-    // wiring exercised end-to-end so PR 21 only has to swap in the handler
-    // bodies. v3 maintenance is appended only while v3 is live, so it never
-    // fans out on v2-only installs.
+    // Step 5: verify the run drained the buffer. `runResult.ok` only means
+    // the background run completed — the trim itself is delegated to the
+    // agent, and nothing above checks that it happened. A run that completes
+    // without shrinking the buffer leaves the scheduler's size trigger armed
+    // (it re-fires while the buffer stays over threshold), so enqueuing
+    // follow-ups here would fan out one reembed per re-fire for pages that
+    // never changed. Entries arriving during the run can inflate the
+    // after-count into a false "no progress"; that is benign — the next
+    // progressing run enqueues the same follow-ups.
+    const bufferLinesAfter = countBufferLines(bufferPath);
+    if (bufferLinesAfter >= bufferLinesBefore) {
+      log.warn(
+        {
+          conversationId: runResult.conversationId,
+          cutoff,
+          bufferLinesBefore,
+          bufferLinesAfter,
+        },
+        "consolidation run completed without draining the buffer; follow-ups skipped",
+      );
+      return {
+        kind: "invoked",
+        conversationId: runResult.conversationId,
+        cutoff,
+        deferredEntries,
+        followUpJobIds: [],
+        noProgress: true,
+      };
+    }
+
+    // Step 6: enqueue follow-up jobs. v3 maintenance is appended only while
+    // v3 is live, so it never fans out on v2-only installs. Each enqueue
+    // coalesces with an already-pending job of the same type: follow-ups
+    // carry no payload and read all state at execution time, so one pending
+    // row covers any number of completed consolidations. A running follow-up
+    // does not suppress — it may have snapshotted pre-run state, so a fresh
+    // pending row must be allowed to queue behind it.
     const followUpJobIds: string[] = [];
     const jobTypes: MemoryJobType[] = [...FOLLOW_UP_JOB_TYPES];
     if (memoryV3Live) {
@@ -347,6 +397,13 @@ export async function memoryV2ConsolidateJob(
     }
     for (const jobType of jobTypes) {
       try {
+        if (hasPendingJobOfType(jobType)) {
+          log.debug(
+            { jobType },
+            "consolidation: follow-up already pending; skipping duplicate enqueue",
+          );
+          continue;
+        }
         followUpJobIds.push(enqueueMemoryJob(jobType, {}));
       } catch (err) {
         // Best-effort: a failed enqueue here doesn't undo the agent's writes,
@@ -373,6 +430,7 @@ export async function memoryV2ConsolidateJob(
       cutoff,
       deferredEntries,
       followUpJobIds,
+      noProgress: false,
     };
   } finally {
     releaseLock(lockPath);
@@ -422,8 +480,14 @@ function extractBufferEntryTimestamp(line: string): string | null {
  * newlines don't inflate the count.
  */
 export function countBufferLines(bufferPath: string): number {
-  const content = readBufferContent(bufferPath);
-  if (content.length === 0) return 0;
+  return countNonEmptyLines(readBufferContent(bufferPath));
+}
+
+/** Non-empty-line count of buffer content already in hand. */
+function countNonEmptyLines(content: string): number {
+  if (content.length === 0) {
+    return 0;
+  }
   return content.split("\n").filter((line) => line.trim().length > 0).length;
 }
 

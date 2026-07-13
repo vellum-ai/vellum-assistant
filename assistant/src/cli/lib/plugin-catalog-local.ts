@@ -1,6 +1,6 @@
 /**
  * Offline plugin catalog reader backed by the manifest bundled into the
- * package at build time (see meta/feature-flags/sync-bundled-copies.ts).
+ * package at build time (see meta/sync-bundled-copies.ts).
  *
  * `getPluginCatalog` selects this reader only when platform features are
  * disabled (air-gapped / self-hosted, `VELLUM_DISABLE_PLATFORM=true`). Importing

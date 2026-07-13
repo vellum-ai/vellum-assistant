@@ -12,7 +12,13 @@ import { v4 as uuid } from "uuid";
 import { getTelemetryDb } from "../persistence/db-connection.js";
 import { telemetryEvents } from "../persistence/schema/index.js";
 import { getCachedShareAnalytics } from "../platform/consent-cache.js";
-import type { TelemetryEvent } from "./types.js";
+import { APP_VERSION } from "../version.js";
+import type {
+  OutboxTelemetryEventName,
+  OutboxTelemetryEventOf,
+  TelemetryEvent,
+  TelemetryEventBase,
+} from "./types.js";
 
 /** Ids per DELETE chunk — stays under SQLite's bound-variable limit. */
 const DELETE_CHUNK_SIZE = 500;
@@ -74,12 +80,14 @@ export function insertTelemetryOutboxEvent(
 }
 
 /**
- * Record one telemetry event: gate on usage-data consent, generate the outbox
- * row id and record-time timestamp, build the wire payload via `buildEvent`
- * (which owns per-type stamping, e.g. `daemon_event_id` overrides), and
- * insert. Returns the generated row identity, or null when usage data
- * collection is disabled (the event is dropped to honor the opt-out) or the
- * telemetry DB is unavailable (degraded mode).
+ * Lower-level record escape hatch: for payloads that need the record-time
+ * `(id, createdAt)` inside type-specific fields (onboarding's activation
+ * `daemon_event_id` override and `completed_at`). Gates on usage-data
+ * consent, generates the outbox row identity, builds the wire payload via
+ * `buildEvent` (which owns all stamping), and inserts. Returns the generated
+ * row identity, or null when usage data collection is disabled (the event is
+ * dropped to honor the opt-out) or the telemetry DB is unavailable (degraded
+ * mode). Prefer `recordTelemetryEvent` when the payload doesn't need them.
  */
 export function recordTelemetryOutboxEvent(
   name: string,
@@ -99,6 +107,35 @@ export function recordTelemetryOutboxEvent(
     event: buildEvent(id, createdAt),
   });
   return inserted ? { id, createdAt } : null;
+}
+
+/**
+ * Preferred record API for outbox events whose payload does not depend on
+ * the record-time `(id, createdAt)`: stamps the `TelemetryEventBase` fields
+ * (record-time `assistant_version` included) and inherits
+ * `recordTelemetryOutboxEvent`'s consent gate and degraded-mode `null`.
+ */
+export function recordTelemetryEvent<N extends OutboxTelemetryEventName>(
+  name: N,
+  fields: Omit<OutboxTelemetryEventOf<N>, keyof TelemetryEventBase>,
+  opts?: { conversationId?: string | null },
+): { id: string; createdAt: number } | null {
+  return recordTelemetryOutboxEvent(
+    name,
+    (id, createdAt) =>
+      // Cast: TS cannot re-associate the `Omit<...>` spread with the stamped
+      // base fields across a generic; `fields`' type guarantees the shape.
+      // Base fields are stamped after the spread so a widened `fields` value
+      // carrying base keys can never override them.
+      ({
+        ...fields,
+        type: name,
+        daemon_event_id: id,
+        recorded_at: createdAt,
+        assistant_version: APP_VERSION,
+      }) as OutboxTelemetryEventOf<N>,
+    opts,
+  );
 }
 
 /**

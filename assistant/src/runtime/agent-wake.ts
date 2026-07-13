@@ -37,6 +37,11 @@
  *   - Tool calls produced → normal tool execution runs (the conversation's
  *     `AgentLoop` has its tool executor already wired). Returns
  *     `{ invoked: true, producedToolCalls: true }`.
+ *   - Loop threw before ANY output went live or was persisted → the wake did
+ *     no work. Returns `{ invoked: false, reason: "run_error" }` so callers
+ *     that advance state on success (memory retrospective watermark,
+ *     scheduler feed events) can retry instead of recording a phantom pass.
+ *     A throw after output went live still returns `invoked: true`.
  *
  * Concurrency:
  *   - If a user turn (or another wake) is currently in flight on the same
@@ -369,7 +374,18 @@ export type WakeSkipReason =
    * run cannot proceed without the compaction it was told not to perform.
    * Only possible on suppressed wakes.
    */
-  | "context_overflow";
+  | "context_overflow"
+  /**
+   * The agent loop threw before producing ANY output — no checkpoint fired
+   * and no tail message was emitted or persisted (typically a provider
+   * failure on the run's first LLM call). The wake did no work, so callers
+   * that treat `invoked: true` as "the pass ran" (e.g. the memory
+   * retrospective, which advances its processed-message watermark and
+   * finalizes on success) must see a retryable failure rather than a
+   * silent no-op. A throw AFTER output went live keeps `invoked: true` —
+   * side effects have already landed and the run must not read as skipped.
+   */
+  | "run_error";
 
 export interface WakeResult {
   invoked: boolean;
@@ -1245,6 +1261,11 @@ export async function wakeAgentForOpportunity(
     // block skips its generic outcome log for this path — the failure
     // already logged its own dedicated warn line.
     let failedContextOverflow = false;
+    // Set when a mid-run throw was reported as `invoked: false` (reason
+    // "run_error") because nothing had gone live or been persisted. The
+    // finally's error log names the reported outcome so the line matches
+    // what the caller actually saw.
+    let reportedRunErrorAsFailure = false;
     // Shared failure path for an over-window condition on a
     // compaction-suppressed wake (reached from the pre-flight estimate, from
     // the run's catch when the rejection escaped as a throw, or post-run when
@@ -1381,6 +1402,25 @@ export async function wakeAgentForOpportunity(
         // run threw mid-flight. The outer finally still runs to release
         // `processing` and drain the queue.
         runError = err instanceof Error ? err : new Error(String(err));
+        // Nothing went live and nothing was persisted: no checkpoint fired
+        // (mode never left "buffering") and no tail message was flushed.
+        // The run died before doing any work — typically a provider error
+        // on the first LLM call — so report a failure instead of a silent
+        // no-op. Callers gate real state transitions on `invoked` (the
+        // memory retrospective advances its processed-message watermark
+        // and finalizes on success; the scheduler emits a success feed
+        // event), and a no-op result here permanently consumes their
+        // trigger without a run ever happening. A throw after output went
+        // live keeps `invoked: true`: side effects have already landed,
+        // and the run must not read as skipped.
+        if (mode === "buffering" && persistedTailIndex === 0) {
+          reportedRunErrorAsFailure = true;
+          return {
+            invoked: false,
+            producedToolCalls: false,
+            reason: "run_error" as const,
+          };
+        }
         return { invoked: true, producedToolCalls: false };
       } finally {
         // Restore the pre-wake values so a queued user turn or background read
@@ -1515,7 +1555,9 @@ export async function wakeAgentForOpportunity(
             hintRole,
             err: runError,
           },
-          "agent-wake: agent loop threw; treating as no-op",
+          reportedRunErrorAsFailure
+            ? "agent-wake: agent loop threw before producing output; reported as run_error"
+            : "agent-wake: agent loop threw after output went live; treating as no-op",
         );
       } else if (tailMessageCount === 0) {
         log.info(

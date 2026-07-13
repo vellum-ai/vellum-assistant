@@ -26,7 +26,11 @@ import { queryUnreportedToolExecutedEvents } from "./tool-executed-events-store.
 import { isDiagnosticsConsentVersionEligible } from "./trace-collection-policy.js";
 import { queryUnreportedTurnEvents } from "./turn-events-store.js";
 import { assembleBoundedTurnTrace, isTurnSettled } from "./turn-trace-store.js";
-import type { TelemetryEvent, TurnTelemetryClientInfo } from "./types.js";
+import type {
+  OutboxTelemetryEventName,
+  TelemetryEvent,
+  TurnTelemetryClientInfo,
+} from "./types.js";
 
 const log = getLogger("usage-telemetry");
 
@@ -134,7 +138,9 @@ function simpleSource<Row extends { id: string; createdAt: number }>(
  * to an object is purged immediately with a warn: an early empty-batch return
  * in the reporter would otherwise strand it at the head of the queue forever.
  */
-export function outboxSource(name: string): TelemetryEventSource {
+export function outboxSource(
+  name: OutboxTelemetryEventName,
+): TelemetryEventSource {
   return {
     id: name,
     collect(_afterCreatedAt, _afterId, limit) {
@@ -397,20 +403,6 @@ const turnSource: TelemetryEventSource = {
   },
 };
 
-const lifecycleSource = outboxSource("lifecycle");
-
-// Onboarding/activation events are outbox-backed: the store builds the wire
-// event (including the activation daemon_event_id override) at record time.
-const onboardingSource = outboxSource("onboarding");
-
-// Onboarding research-turn results are client-orchestrated (the web client
-// reports the settled `{claims, suggestions, plugins}` payload once via
-// POST /v1/telemetry/onboarding-research) but land in the same outbox as
-// every other event type.
-const onboardingResearchSource = outboxSource("onboarding_research");
-
-const authFallbackSource = outboxSource("auth_fallback");
-
 const toolExecutedSource = simpleSource(
   "tool_executed",
   (afterCreatedAt, afterId, limit) =>
@@ -440,12 +432,6 @@ const toolExecutedSource = simpleSource(
   }),
 );
 
-const skillLoadedSource = outboxSource("skill_loaded");
-
-const watchdogSource = outboxSource("watchdog");
-
-const configSettingSource = outboxSource("config_setting");
-
 /**
  * Watermark key namespace of the tool_executed source — referenced by the
  * absent-watermark init that runs at daemon startup.
@@ -461,14 +447,18 @@ export const TOOL_EXECUTED_SOURCE_ID = toolExecutedSource.id;
 export const ALL_TELEMETRY_EVENT_SOURCES: readonly TelemetryEventSource[] = [
   usageSource,
   turnSource,
-  lifecycleSource,
-  onboardingSource,
-  authFallbackSource,
+  outboxSource("lifecycle"),
+  outboxSource("onboarding"),
+  outboxSource("auth_fallback"),
   toolExecutedSource,
-  skillLoadedSource,
-  watchdogSource,
-  configSettingSource,
-  onboardingResearchSource,
+  outboxSource("skill_loaded"),
+  outboxSource("watchdog"),
+  outboxSource("config_setting"),
+  // Onboarding research-turn results are client-orchestrated (the web
+  // client reports the settled `{claims, suggestions, plugins}` payload
+  // once via POST /v1/telemetry/onboarding-research) but land in the same
+  // outbox as every other event type.
+  outboxSource("onboarding_research"),
 ];
 
 /**

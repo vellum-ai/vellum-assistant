@@ -11,6 +11,7 @@ import {
   DAEMON_TELEMETRY_EVENT_SOURCES,
   MONITOR_TELEMETRY_EVENT_SOURCES,
 } from "./telemetry-event-sources.js";
+import { OUTBOX_TELEMETRY_EVENT_NAMES } from "./types.js";
 
 describe("telemetry event source partition", () => {
   test("the full source list carries every event type in payload order", () => {
@@ -38,6 +39,13 @@ describe("telemetry event source partition", () => {
         (id) => id !== "turns",
       ),
     );
+  });
+
+  test("every outbox event name has a registered source", () => {
+    const sourceIds = new Set(ALL_TELEMETRY_EVENT_SOURCES.map((s) => s.id));
+    for (const name of OUTBOX_TELEMETRY_EVENT_NAMES) {
+      expect(sourceIds.has(name)).toBe(true);
+    }
   });
 
   test("daemon and monitor partition the full list — no overlap, no gaps", () => {

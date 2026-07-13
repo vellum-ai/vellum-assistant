@@ -84,7 +84,7 @@
         }
       },
       "compatibility": "Works on both the Vellum desktop app (local daemon) and the Vellum web app (platform-hosted). Requires an Unstructured account to authorize during the OAuth step.",
-      "updatedAt": "2026-07-10T22:52:42.000Z"
+      "updatedAt": "2026-07-13T20:48:26.000Z"
     },
     {
       "id": "chatgpt-import",

@@ -389,6 +389,65 @@ export function hasActiveJobOfType(type: MemoryJobType): boolean {
   );
 }
 
+/**
+ * Check whether a pending job of the given type already exists. Enqueue-side
+ * coalesce for follow-up jobs whose payload is empty and whose handler reads
+ * all state at execution time (`memory_v2_reembed`, `memory_v3_maintain`): a
+ * pending row already covers everything a fresh enqueue would, while a
+ * running row may have snapshotted state before the caller's writes — so only
+ * `pending` suppresses, leaving at most one pending row queued behind one
+ * running job.
+ */
+export function hasPendingJobOfType(type: MemoryJobType): boolean {
+  const db = memoryDb();
+  return (
+    db
+      .select({ id: memoryJobs.id })
+      .from(memoryJobs)
+      .where(and(eq(memoryJobs.type, type), eq(memoryJobs.status, "pending")))
+      .get() != null
+  );
+}
+
+/**
+ * Enqueue an `embed_concept_page` job, coalescing with an existing pending
+ * row for the same slug. The payload carries only the slug — the handler
+ * reads the page from disk at execution time — so a pending row is exactly
+ * equivalent to a fresh enqueue and a duplicate would only redo identical
+ * work. A running row never matches: it may have already read a pre-write
+ * snapshot of the page, so the new enqueue must survive it. On a match the
+ * existing row keeps its `runAfter` (a deferred or backed-off row keeps its
+ * backoff). Returns the id of the pending row, existing or newly inserted.
+ *
+ * The check-then-insert pair is deliberately synchronous: bun:sqlite cannot
+ * interleave another same-process write between the SELECT and the INSERT.
+ * A cross-process race (daemon vs. memory worker) can still produce one
+ * duplicate pair, which is harmless — executions are idempotent and the next
+ * coalescing enqueue matches whichever row is still pending. Do not replace
+ * this with a partial UNIQUE index: `failMemoryJob` and
+ * `resetRunningJobsToPending` legitimately flip `running` rows back to
+ * `pending`, and a constraint would make those updates throw whenever a
+ * duplicate pair exists.
+ */
+export function upsertEmbedConceptPageJob(payload: { slug: string }): string {
+  const db = memoryDb();
+  const existing = db
+    .select({ id: memoryJobs.id })
+    .from(memoryJobs)
+    .where(
+      and(
+        eq(memoryJobs.type, "embed_concept_page"),
+        eq(memoryJobs.status, "pending"),
+        sql`json_extract(${memoryJobs.payload}, '$.slug') = ${payload.slug}`,
+      ),
+    )
+    .get();
+  if (existing) {
+    return existing.id;
+  }
+  return enqueueMemoryJob("embed_concept_page", { slug: payload.slug });
+}
+
 export function enqueuePruneOldLlmRequestLogsJob(retentionMs?: number): string {
   const db = memoryDb();
   const existing = db
