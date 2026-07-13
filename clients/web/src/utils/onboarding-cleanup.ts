@@ -187,6 +187,15 @@ export function resolveServerConsent(
   shareDiagnostics: boolean | null;
   analyticsCurrent: boolean;
   diagnosticsCurrent: boolean;
+  /**
+   * Raw version currency for each toggle — true only when the recorded
+   * accepted version is at/past the build's constant. Unlike the `*Current`
+   * flags (which also read never-asked as "nothing to re-review"), these back
+   * the genuine "confirmed under the current version" attestation that may be
+   * device-persisted or backfilled to the server.
+   */
+  analyticsVersionCurrent: boolean;
+  diagnosticsVersionCurrent: boolean;
   hasServerRecord: boolean;
 } {
   if (!consent) {
@@ -197,9 +206,19 @@ export function resolveServerConsent(
       shareDiagnostics: null,
       analyticsCurrent: false,
       diagnosticsCurrent: false,
+      analyticsVersionCurrent: false,
+      diagnosticsVersionCurrent: false,
       hasServerRecord: false,
     };
   }
+  const analyticsVersionCurrent = versionIsCurrent(
+    consent.share_analytics_accepted_version,
+    ANALYTICS_CONSENT_VERSION,
+  );
+  const diagnosticsVersionCurrent = versionIsCurrent(
+    consent.share_diagnostics_accepted_version,
+    DIAGNOSTICS_CONSENT_VERSION,
+  );
   // The endpoint always returns an object; for a user with no stored row it
   // returns the API defaults (empty versions, share booleans true). Any
   // non-empty version or any `false` share boolean can only have come from a
@@ -216,6 +235,18 @@ export function resolveServerConsent(
     !!consent.share_diagnostics_accepted_version ||
     consent.share_analytics === false ||
     consent.share_diagnostics === false;
+  // An implicit grant — true with NO version on record — is never-asked in
+  // disguise, not an explicit choice: a pre-nullable platform materializes
+  // its DB default `true` on rows created without the toggle shown (e.g. a
+  // ToS-only row), while every explicit write stamps a version. Resolve it
+  // to null so no consumer can mistake it for a user grant — the diagnostics
+  // gate chokepoint and the analytics store adoption would otherwise
+  // overwrite an explicit local opt-out whose patch hasn't landed. An
+  // explicit opt-out (false) is never excused this way.
+  const analyticsImplicitDefault =
+    consent.share_analytics === true && !consent.share_analytics_accepted_version;
+  const diagnosticsImplicitDefault =
+    consent.share_diagnostics === true && !consent.share_diagnostics_accepted_version;
   return {
     // The ToS checkbox covers only the Terms of Service. The privacy checkbox
     // covers both the Privacy Policy and the AI Data Sharing Policy, so it is
@@ -224,22 +255,24 @@ export function resolveServerConsent(
     privacy:
       versionIsCurrent(consent.privacy_policy_accepted_version, PRIVACY_CONSENT_VERSION) &&
       versionIsCurrent(consent.ai_data_sharing_accepted_version, PRIVACY_CONSENT_VERSION),
-    shareAnalytics: consent.share_analytics,
-    shareDiagnostics: consent.share_diagnostics,
-    // Analytics re-review is owed only for an explicit choice on record.
-    // Onboarding doesn't show the analytics toggle, so `share_analytics`
-    // stays null until the user opts in via settings or review-terms — null
-    // reads as "nothing to re-review", not as stale consent.
+    shareAnalytics: analyticsImplicitDefault ? null : consent.share_analytics,
+    shareDiagnostics: diagnosticsImplicitDefault ? null : consent.share_diagnostics,
+    // Share-toggle re-review is owed only for an explicit, genuinely stale
+    // choice on record. Onboarding doesn't show the analytics toggle, so
+    // `share_analytics` stays null until the user chooses via settings or
+    // review-terms — null (including an implicit default resolved to null
+    // above) reads as "nothing to re-review", not stale consent. An explicit
+    // false with a stale/empty version still re-reviews.
     analyticsCurrent:
       consent.share_analytics === null ||
-      versionIsCurrent(
-        consent.share_analytics_accepted_version,
-        ANALYTICS_CONSENT_VERSION,
-      ),
-    diagnosticsCurrent: versionIsCurrent(
-      consent.share_diagnostics_accepted_version,
-      DIAGNOSTICS_CONSENT_VERSION,
-    ),
+      analyticsImplicitDefault ||
+      analyticsVersionCurrent,
+    diagnosticsCurrent:
+      consent.share_diagnostics === null ||
+      diagnosticsImplicitDefault ||
+      diagnosticsVersionCurrent,
+    analyticsVersionCurrent,
+    diagnosticsVersionCurrent,
     hasServerRecord,
   };
 }
@@ -253,14 +286,18 @@ export function saveConsent(opts: {
   tos: boolean;
   privacy: boolean;
   /**
-   * Null when the analytics toggle wasn't shown on the saving surface. No
-   * explicit choice is recorded anywhere — the server keeps
-   * `share_analytics` null and no versioned device ack is stamped — but the
-   * in-memory currency flag is still set: never-asked consent has nothing to
-   * re-review, so it must not bounce the user to review-terms.
+   * Null when the toggle wasn't shown on the saving surface. No explicit
+   * choice is recorded anywhere — the server keeps the column null and no
+   * versioned device ack is stamped — but the in-memory currency flag is
+   * still set: never-asked consent has nothing to re-review, so it must not
+   * bounce the user to review-terms. A null diagnostics choice also leaves
+   * the effective reporting gate untouched: a never-written gate reads open
+   * by default (telemetry is opt-out), while an explicit device opt-out must
+   * survive flows that don't show the toggle.
    */
   shareAnalytics: boolean | null;
-  shareDiagnostics: boolean;
+  /** See {@link shareAnalytics}. */
+  shareDiagnostics: boolean | null;
   hasPlatformSession: boolean;
 }): void {
   const store = useOnboardingStore.getState();
@@ -269,19 +306,22 @@ export function saveConsent(opts: {
   if (opts.shareAnalytics !== null) {
     store.setShareAnalytics(opts.shareAnalytics);
   }
-  store.setShareDiagnostics(opts.shareDiagnostics);
+  if (opts.shareDiagnostics !== null) {
+    store.setShareDiagnostics(opts.shareDiagnostics);
+    // Only an explicit choice writes the gate; null leaves the existing
+    // gate (and any explicit device opt-out) untouched.
+    setDiagnosticsReportingGate(opts.shareDiagnostics);
+  }
   store.setAnalyticsConsentCurrent(true);
   store.setDiagnosticsConsentCurrent(true);
   // An explicit user acceptance is authoritative hydration — route guards may
   // trust the flags without waiting for a session sync.
   store.setConsentHydrated(true);
-  // Version is current by construction here, so the gate equals the preference.
-  setDiagnosticsReportingGate(opts.shareDiagnostics);
 
   persistConsentForUser(opts.userId, opts.tos, opts.privacy);
   persistToggleConsent(opts.userId, {
     ...(opts.shareAnalytics !== null ? { analyticsCurrent: true } : {}),
-    diagnosticsCurrent: true,
+    ...(opts.shareDiagnostics !== null ? { diagnosticsCurrent: true } : {}),
   });
 
   if (opts.hasPlatformSession) {
@@ -295,8 +335,12 @@ export function saveConsent(opts: {
             share_analytics_accepted_version: ANALYTICS_CONSENT_VERSION,
           }
         : {}),
-      share_diagnostics: opts.shareDiagnostics,
-      share_diagnostics_accepted_version: DIAGNOSTICS_CONSENT_VERSION,
+      ...(opts.shareDiagnostics !== null
+        ? {
+            share_diagnostics: opts.shareDiagnostics,
+            share_diagnostics_accepted_version: DIAGNOSTICS_CONSENT_VERSION,
+          }
+        : {}),
     }).catch(() => {});
   }
 }
@@ -322,16 +366,13 @@ export function savePreferenceToggle(
   } else {
     store.setShareDiagnostics(value);
     setDeviceBool("shareDiagnostics", value);
+    // Opt-out: the effective gate equals the preference — an explicit "off"
+    // closes it, anything else keeps it open. The version-currency ack below
+    // is separate: it is only earned with a live session to record it against.
+    setDiagnosticsReportingGate(value);
     if (hasPlatformSession) {
       store.setDiagnosticsConsentCurrent(true);
-      // Version is current here (a live session re-stamps it), so the effective
-      // reporting gate equals the preference.
-      setDiagnosticsReportingGate(value);
       persistToggleConsent(userId, { diagnosticsCurrent: true });
-    } else {
-      // Offline: no version ack is earned, so the effective gate stays closed
-      // regardless of the toggle value until a live session re-confirms.
-      setDiagnosticsReportingGate(false);
     }
   }
 

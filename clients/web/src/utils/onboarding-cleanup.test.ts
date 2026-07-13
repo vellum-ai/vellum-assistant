@@ -43,7 +43,7 @@ mock.module("@/domains/account/profile", () => ({
 }));
 mock.module("@/generated/api/client.gen", () => ({ client: {} }));
 
-const setDeviceBoolMock = mock(() => {});
+const setDeviceBoolMock = mock((_name: string, _value: boolean) => {});
 mock.module("@/utils/device-settings", () => ({
   setDeviceBool: setDeviceBoolMock,
 }));
@@ -171,10 +171,58 @@ describe("resolveServerConsent", () => {
     expect(resolved.analyticsCurrent).toBe(false);
   });
 
-  test("reports stale toggles for empty versions", () => {
+  test("null share_diagnostics (never asked) resolves diagnostics current — nothing to re-review", () => {
+    const resolved = resolveServerConsent(
+      makeConsent({ share_diagnostics: null, share_diagnostics_accepted_version: "" }),
+    );
+    expect(resolved.diagnosticsCurrent).toBe(true);
+  });
+
+  test("an explicit diagnostics choice under a stale version still requires re-review", () => {
+    const resolved = resolveServerConsent(
+      makeConsent({ share_diagnostics: false, share_diagnostics_accepted_version: "2026-01-01" }),
+    );
+    expect(resolved.diagnosticsCurrent).toBe(false);
+  });
+
+  test("implicit defaults (true + empty version) read as never-asked, not stale", () => {
+    // A pre-nullable platform materializes its DB default `true` with no
+    // version on rows created without the toggle shown — never-asked in
+    // disguise. Must not bounce to review-terms, but earns no version ack.
     const r = resolveServerConsent(
       makeConsent({
+        share_analytics: true,
         share_analytics_accepted_version: "",
+        share_diagnostics: true,
+        share_diagnostics_accepted_version: "",
+      }),
+    );
+    expect(r.analyticsCurrent).toBe(true);
+    expect(r.diagnosticsCurrent).toBe(true);
+    expect(r.analyticsVersionCurrent).toBe(false);
+    expect(r.diagnosticsVersionCurrent).toBe(false);
+    // The values resolve to null so no consumer treats the materialized
+    // default as an explicit grant — the diagnostics gate chokepoint and
+    // the analytics store adoption must not overwrite an explicit local
+    // opt-out whose patch hasn't landed on such a row.
+    expect(r.shareAnalytics).toBeNull();
+    expect(r.shareDiagnostics).toBeNull();
+  });
+
+  test("an explicit grant with a version on record resolves the raw values", () => {
+    const r = resolveServerConsent(makeConsent());
+    expect(r.shareAnalytics).toBe(true);
+    expect(r.shareDiagnostics).toBe(true);
+  });
+
+  test("reports stale toggles for explicit opt-outs with empty versions", () => {
+    // An explicit false is never excused by an empty version — it still
+    // owes a re-review.
+    const r = resolveServerConsent(
+      makeConsent({
+        share_analytics: false,
+        share_analytics_accepted_version: "",
+        share_diagnostics: false,
         share_diagnostics_accepted_version: "",
       }),
     );
@@ -513,6 +561,59 @@ describe("saveConsent", () => {
     expect(storeState.setAnalyticsConsentCurrent).toHaveBeenCalledWith(true);
   });
 
+  test("null shareDiagnostics (toggle not shown) omits diagnostics from the patch, skips its ack, and keeps the gate open", () => {
+    saveConsent({
+      userId: "user-1",
+      tos: true,
+      privacy: true,
+      shareAnalytics: null,
+      shareDiagnostics: null,
+      hasPlatformSession: true,
+    });
+    const body = patchConsentMock.mock.calls[0][0];
+    expect("share_diagnostics" in body).toBe(false);
+    expect("share_diagnostics_accepted_version" in body).toBe(false);
+    expect(storeState.setShareDiagnostics).not.toHaveBeenCalled();
+    expect(localStorage.getItem(diagnosticsKey("user-1"))).toBe(null);
+    // Never-asked has nothing to re-review — must not bounce to review-terms.
+    expect(storeState.setDiagnosticsConsentCurrent).toHaveBeenCalledWith(true);
+    // Null must not touch the gate: an explicit device opt-out survives
+    // flows that don't show the toggle (a never-written gate reads open by
+    // default via the opt-out read fallback).
+    const gateWrites = setDeviceBoolMock.mock.calls.filter(
+      (call) => call[0] === "diagnosticsReporting",
+    );
+    expect(gateWrites).toEqual([]);
+  });
+
+  test("explicit shareDiagnostics=true opens the reporting gate", () => {
+    saveConsent({
+      userId: "user-1",
+      tos: true,
+      privacy: true,
+      shareAnalytics: null,
+      shareDiagnostics: true,
+      hasPlatformSession: false,
+    });
+    expect(setDeviceBoolMock).toHaveBeenCalledWith("diagnosticsReporting", true);
+  });
+
+  test("explicit shareDiagnostics=false persists the opt-out and closes the reporting gate", () => {
+    saveConsent({
+      userId: "user-1",
+      tos: true,
+      privacy: true,
+      shareAnalytics: null,
+      shareDiagnostics: false,
+      hasPlatformSession: true,
+    });
+    expect(setDeviceBoolMock).toHaveBeenCalledWith("diagnosticsReporting", false);
+    const body = patchConsentMock.mock.calls[0][0];
+    expect(body.share_diagnostics).toBe(false);
+    expect(body.share_diagnostics_accepted_version).toBe(DIAGNOSTICS_CONSENT_VERSION);
+    expect(localStorage.getItem(diagnosticsKey("user-1"))).toBe("true");
+  });
+
   test("marks consent hydrated — an explicit acceptance is authoritative", () => {
     saveConsent({
       userId: "user-1",
@@ -556,6 +657,19 @@ describe("savePreferenceToggle", () => {
     expect(storeState.setAnalyticsConsentCurrent).not.toHaveBeenCalled();
     expect(localStorage.getItem(analyticsKey("user-1"))).toBeNull();
     expect(patchConsentMock).not.toHaveBeenCalled();
+  });
+
+  test("an offline diagnostics opt-out still closes the reporting gate (opt-out follows the preference)", () => {
+    savePreferenceToggle("share_diagnostics", false, { userId: "user-1", hasPlatformSession: false });
+    expect(setDeviceBoolMock).toHaveBeenCalledWith("shareDiagnostics", false);
+    expect(setDeviceBoolMock).toHaveBeenCalledWith("diagnosticsReporting", false);
+    expect(storeState.setDiagnosticsConsentCurrent).not.toHaveBeenCalled();
+    expect(patchConsentMock).not.toHaveBeenCalled();
+  });
+
+  test("an offline diagnostics opt-in opens the reporting gate", () => {
+    savePreferenceToggle("share_diagnostics", true, { userId: "user-1", hasPlatformSession: false });
+    expect(setDeviceBoolMock).toHaveBeenCalledWith("diagnosticsReporting", true);
   });
 });
 

@@ -249,31 +249,37 @@ describe("onboarding funnel events", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  test("does not emit telemetry until analytics sharing is explicitly opted in", () => {
+  test("emits by default (opt-out) but honors an explicit analytics opt-out", () => {
     const fetchMock = mock(
       async (_input: RequestInfo | URL, _init?: RequestInit) =>
         new Response("{}", { status: 200 }),
     );
     globalThis.fetch = fetchMock as unknown as typeof fetch;
 
+    // Never-asked: no device preference on record — analytics is opt-out, so
+    // the event emits.
     emitOnboardingFunnelStepCompleted(ONBOARDING_FUNNEL_STEPS.privacyTos, {
       userId: "user-123",
       variant: ONBOARDING_FUNNEL_VARIANTS.paredDown,
     });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
 
+    // An explicit device opt-out stops uploads.
     localStorage.setItem("device:share_analytics", "false");
     emitOnboardingFunnelStepCompleted(ONBOARDING_FUNNEL_STEPS.gmailConnect, {
       userId: "user-123",
       variant: ONBOARDING_FUNNEL_VARIANTS.paredDown,
     });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
 
+    // The in-memory store must agree: a failed opt-out write cannot leave an
+    // older stored opt-in authorizing a new event.
     localStorage.setItem("device:share_analytics", "true");
     useOnboardingStore.setState({ shareAnalytics: false });
     emitOnboardingFunnelStepCompleted(ONBOARDING_FUNNEL_STEPS.nameVibe, {
       userId: "user-123",
       variant: ONBOARDING_FUNNEL_VARIANTS.paredDown,
     });
-
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

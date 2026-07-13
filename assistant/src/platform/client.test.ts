@@ -265,7 +265,7 @@ describe("VellumPlatformClient", () => {
       expect(await client!.getOwnerConsent()).toBeNull();
     });
 
-    test("null share_analytics (owner never chose) maps to false, keeping diagnostics intact", async () => {
+    test("null share_analytics (owner never chose) maps to true — telemetry is opt-out", async () => {
       globalThis.fetch = mock(
         async () =>
           new Response(
@@ -281,9 +281,97 @@ describe("VellumPlatformClient", () => {
       const client = await VellumPlatformClient.create();
       const consent = await client!.getOwnerConsent();
       expect(consent).toEqual({
-        shareAnalytics: false,
+        shareAnalytics: true,
         shareDiagnostics: true,
         shareDiagnosticsAcceptedVersion: "2026-06-18",
+      });
+    });
+
+    test("coerced false with share_analytics_chosen=false (never chose) maps to true", async () => {
+      globalThis.fetch = mock(
+        async () =>
+          new Response(
+            JSON.stringify({
+              share_analytics: false,
+              share_analytics_chosen: false,
+              share_diagnostics: true,
+              share_diagnostics_accepted_version: "2026-06-18",
+            }),
+            { status: 200 },
+          ),
+      ) as unknown as typeof globalThis.fetch;
+
+      const client = await VellumPlatformClient.create();
+      const consent = await client!.getOwnerConsent();
+      expect(consent!.shareAnalytics).toBe(true);
+    });
+
+    test("explicit false with share_analytics_chosen=true stays an opt-out", async () => {
+      globalThis.fetch = mock(
+        async () =>
+          new Response(
+            JSON.stringify({
+              share_analytics: false,
+              share_analytics_chosen: true,
+              share_diagnostics: false,
+              share_diagnostics_chosen: true,
+              share_diagnostics_accepted_version: "2026-06-18",
+            }),
+            { status: 200 },
+          ),
+      ) as unknown as typeof globalThis.fetch;
+
+      const client = await VellumPlatformClient.create();
+      const consent = await client!.getOwnerConsent();
+      expect(consent).toEqual({
+        shareAnalytics: false,
+        shareDiagnostics: false,
+        shareDiagnosticsAcceptedVersion: "2026-06-18",
+      });
+    });
+
+    test("false without a *_chosen field (older platform) stays authoritative", async () => {
+      globalThis.fetch = mock(
+        async () =>
+          new Response(
+            JSON.stringify({
+              share_analytics: false,
+              share_diagnostics: false,
+              share_diagnostics_accepted_version: "",
+            }),
+            { status: 200 },
+          ),
+      ) as unknown as typeof globalThis.fetch;
+
+      const client = await VellumPlatformClient.create();
+      const consent = await client!.getOwnerConsent();
+      expect(consent).toEqual({
+        shareAnalytics: false,
+        shareDiagnostics: false,
+        shareDiagnosticsAcceptedVersion: "",
+      });
+    });
+
+    test("null share_diagnostics (owner never chose) maps to true with the version gate still closed", async () => {
+      globalThis.fetch = mock(
+        async () =>
+          new Response(
+            JSON.stringify({
+              share_analytics: null,
+              share_diagnostics: null,
+              share_diagnostics_accepted_version: "",
+            }),
+            { status: 200 },
+          ),
+      ) as unknown as typeof globalThis.fetch;
+
+      const client = await VellumPlatformClient.create();
+      const consent = await client!.getOwnerConsent();
+      expect(consent).toEqual({
+        shareAnalytics: true,
+        shareDiagnostics: true,
+        // "" keeps the PII trace-collection version gate fail-closed.
+        shareDiagnosticsAcceptedVersion: "",
       });
     });
 

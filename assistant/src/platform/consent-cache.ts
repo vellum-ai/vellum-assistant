@@ -12,10 +12,12 @@
  *
  * Hot-path gates (record-time telemetry writes, Sentry `beforeSend`) need a
  * synchronous, I/O-free read, so this module owns the values and refreshes them
- * periodically in the background. Default-off until the first successful fetch:
- * an absent session, a disabled platform, or a transient fetch failure all leave
- * the values untouched (initial `false`), so we never report analytics or send
- * crash diagnostics without a confirmed opt-in.
+ * periodically in the background. Consent is opt-out — an owner who never made
+ * an explicit choice reports as consented (the client maps a never-chose wire
+ * value to `true`) — but UNKNOWN consent stays off: an absent session, a
+ * disabled platform, or a transient fetch failure all leave the values
+ * untouched (initial `false`), so we never report analytics or send crash
+ * diagnostics without a confirmed consent state.
  */
 
 import { getConfigReadOnly } from "../config/loader.js";
