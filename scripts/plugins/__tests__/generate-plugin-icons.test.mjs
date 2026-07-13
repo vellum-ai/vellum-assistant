@@ -155,6 +155,87 @@ describe("generatePluginIcons (write mode)", () => {
     expect(readManifest().plugins).toEqual({});
   });
 
+  for (const status of [500, 429]) {
+    test(`transient HTTP ${status} aborts without mutating assets/manifest`, async () => {
+      // Pre-seed a valid vendored icon + manifest for a plugin that will fail
+      // transiently: the run must NOT prune it.
+      const existing = makePng(64, 64);
+      mkdirSync(join(assetsDir, "keep"), { recursive: true });
+      writeFileSync(join(assetsDir, "keep", "icon.png"), existing);
+      writeFileSync(
+        manifestPath,
+        `${JSON.stringify(
+          { version: 1, plugins: { keep: { iconVersion: sha16(existing) } } },
+          null,
+          2,
+        )}\n`,
+      );
+
+      writeMarketplace([pluginEntry("keep", "owner/keep")]);
+
+      await expect(
+        run(stubFetch({ "owner/keep": { status } })),
+      ).rejects.toThrow(/Aborting icon generation/);
+
+      // Working tree untouched: existing icon + manifest survive verbatim.
+      expect(readFileSync(join(assetsDir, "keep", "icon.png")).equals(existing)).toBe(
+        true,
+      );
+      expect(readManifest().plugins).toEqual({ keep: { iconVersion: sha16(existing) } });
+    });
+  }
+
+  test("a network/DNS throw aborts and leaves the tree unchanged", async () => {
+    const existing = makePng(48, 48);
+    mkdirSync(join(assetsDir, "keep"), { recursive: true });
+    writeFileSync(join(assetsDir, "keep", "icon.png"), existing);
+    writeFileSync(
+      manifestPath,
+      `${JSON.stringify(
+        { version: 1, plugins: { keep: { iconVersion: sha16(existing) } } },
+        null,
+        2,
+      )}\n`,
+    );
+    writeMarketplace([pluginEntry("keep", "owner/keep")]);
+
+    const throwingFetch = async () => {
+      throw new Error("getaddrinfo ENOTFOUND api.github.com");
+    };
+
+    await expect(run(throwingFetch)).rejects.toThrow(/Aborting icon generation/);
+    expect(readFileSync(join(assetsDir, "keep", "icon.png")).equals(existing)).toBe(
+      true,
+    );
+    expect(readManifest().plugins).toEqual({ keep: { iconVersion: sha16(existing) } });
+  });
+
+  test("a transient failure does not vendor an earlier-processed plugin", async () => {
+    // "alpha" fetches fine, "bravo" fails transiently: alpha must not be
+    // written to disk since the whole run aborts before any mutation.
+    writeMarketplace([
+      pluginEntry("alpha", "owner/alpha"),
+      pluginEntry("bravo", "owner/bravo"),
+    ]);
+
+    await expect(
+      run(
+        stubFetch({
+          "owner/alpha": { bytes: makePng(32, 32) },
+          "owner/bravo": { status: 503 },
+        }),
+      ),
+    ).rejects.toThrow(/Aborting icon generation/);
+
+    let alphaExists = true;
+    try {
+      readFileSync(join(assetsDir, "alpha", "icon.png"));
+    } catch {
+      alphaExists = false;
+    }
+    expect(alphaExists).toBe(false);
+  });
+
   test("respects source.path when building the fetch URL", async () => {
     const png = makePng(32, 32);
     writeMarketplace([pluginEntry("nested", "owner/mono", { path: "sub/dir" })]);
@@ -262,5 +343,43 @@ describe("checkPluginIcons (check mode)", () => {
     const result = check();
     expect(result.ok).toBe(false);
     expect(result.errors.join(" ")).toContain("not listed in the manifest");
+  });
+
+  test("fails on a hash-matching but non-PNG vendored asset", async () => {
+    // A malformed blob committed as icon.png, with the manifest hash tuned to
+    // match it — the hash check alone would pass; contract validation must not.
+    const bogus = Buffer.from("this is not a png but has a matching hash!!");
+    mkdirSync(join(assetsDir, "evil"), { recursive: true });
+    writeFileSync(join(assetsDir, "evil", "icon.png"), bogus);
+    writeFileSync(
+      manifestPath,
+      `${JSON.stringify(
+        { version: 1, plugins: { evil: { iconVersion: sha16(bogus) } } },
+        null,
+        2,
+      )}\n`,
+    );
+
+    const result = check();
+    expect(result.ok).toBe(false);
+    expect(result.errors.join(" ")).toContain("not a contract-valid PNG");
+  });
+
+  test("fails on a hash-matching but oversized vendored asset", async () => {
+    const huge = makePng(64, 64, { padTo: 32 * 1024 + 1 });
+    mkdirSync(join(assetsDir, "big"), { recursive: true });
+    writeFileSync(join(assetsDir, "big", "icon.png"), huge);
+    writeFileSync(
+      manifestPath,
+      `${JSON.stringify(
+        { version: 1, plugins: { big: { iconVersion: sha16(huge) } } },
+        null,
+        2,
+      )}\n`,
+    );
+
+    const result = check();
+    expect(result.ok).toBe(false);
+    expect(result.errors.join(" ")).toContain("not a contract-valid PNG");
   });
 });

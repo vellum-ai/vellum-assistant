@@ -7,12 +7,15 @@
  * `<source.path>/icon.png` at the pinned `source.ref` via the GitHub Contents
  * API, validate the bytes against the icon contract, and — on success —
  * vendor them to `plugins/assets/<name>/icon.png` and index the plugin in
- * `plugins/plugin-icons.json`. Invalid, missing, or unfetchable icons are
- * fail-closed: skipped, pruned, and omitted from the manifest.
+ * `plugins/plugin-icons.json`. Invalid or missing (404) icons are fail-closed:
+ * skipped, pruned, and omitted from the manifest. A non-404 fetch failure
+ * (transient 429/5xx/network or a hard error) aborts the whole run before any
+ * asset/manifest is written, so an outage never silently drops a pinned icon.
  *
- * CHECK mode (`--check`): purely local. Recompute the content hash of every
- * vendored `icon.png` and assert it matches the committed manifest, with no
- * orphan manifest entries and no unlisted asset dirs. No network.
+ * CHECK mode (`--check`): purely local. Re-validate every vendored `icon.png`
+ * against the icon contract and assert its content hash matches the committed
+ * manifest, with no orphan manifest entries and no unlisted asset dirs. No
+ * network.
  *
  * Usage:
  *   node scripts/plugins/generate-plugin-icons.mjs          # write
@@ -123,9 +126,40 @@ function iconContentsUrl(entry) {
 }
 
 /**
+ * A non-404 icon fetch failure. Mirrors `MarketplaceFetchError` in
+ * `plugin-marketplace.ts`: `transient` flags a retryable upstream hiccup
+ * (429/5xx/network) vs a hard error. A 404 never reaches here — it is a normal
+ * "no icon" result, not a failure.
+ */
+export class IconFetchError extends Error {
+  constructor(message, { transient = false, status } = {}) {
+    super(message);
+    this.name = "IconFetchError";
+    this.transient = transient;
+    if (status !== undefined) this.status = status;
+  }
+}
+
+/**
+ * Classify an upstream GitHub status as transient (worth retrying) vs hard.
+ * Mirrors `isTransientUpstreamStatus` in `plugin-marketplace.ts`: 429 or 5xx
+ * is always transient; a 403 is a rate-limit signal only when the remaining
+ * quota header is exhausted, otherwise it is a hard authorization failure.
+ */
+function isTransientUpstreamStatus(res) {
+  if (res.status === 429 || res.status >= 500) return true;
+  if (res.status === 403) {
+    return res.headers?.get?.("x-ratelimit-remaining") === "0";
+  }
+  return false;
+}
+
+/**
  * Fetch a plugin's raw `icon.png` bytes at its pinned ref. Returns the Buffer,
- * or `null` for a missing file (404) — both normal, non-fatal outcomes. Any
- * other HTTP failure throws so the caller can log and fail-closed.
+ * or `null` for a missing file (404) — the only "no icon" outcome. Every other
+ * failure throws {@link IconFetchError}: a network/DNS error or a 429/5xx is
+ * `transient`, so the caller aborts rather than silently dropping a still-valid
+ * vendored icon.
  */
 async function fetchIconBytes(fetchImpl, entry, token) {
   const headers = {
@@ -136,12 +170,23 @@ async function fetchIconBytes(fetchImpl, entry, token) {
     headers.Authorization = `Bearer ${token}`;
   }
 
-  const res = await fetchImpl(iconContentsUrl(entry), { headers });
+  let res;
+  try {
+    res = await fetchImpl(iconContentsUrl(entry), { headers });
+  } catch (err) {
+    // Network/DNS/connection throw — retryable upstream hiccup.
+    throw new IconFetchError(`network error: ${err.message}`, {
+      transient: true,
+    });
+  }
   if (res.status === 404) {
     return null;
   }
   if (!res.ok) {
-    throw new Error(`HTTP ${res.status}`);
+    throw new IconFetchError(`HTTP ${res.status}`, {
+      transient: isTransientUpstreamStatus(res),
+      status: res.status,
+    });
   }
   return Buffer.from(await res.arrayBuffer());
 }
@@ -176,17 +221,25 @@ export async function generatePluginIcons({
   const entries = manifest.plugins ?? [];
 
   const versionsByName = {};
+  const toVendor = [];
   const vendored = [];
   const skipped = [];
 
+  // Resolve every icon fully in memory before touching disk. A non-404 fetch
+  // failure (transient 429/5xx/network or a hard error) aborts here — we cannot
+  // confirm the icon is gone, so treating it as "no icon" would prune a
+  // still-valid vendored icon during an outage. Deferring all writes past this
+  // loop guarantees an abort leaves the working tree unchanged.
   for (const entry of entries) {
     let bytes;
     try {
       bytes = await fetchIconBytes(fetchImpl, entry, token);
     } catch (err) {
-      log.warn?.(`skip ${entry.name}: icon fetch failed (${err.message})`);
-      skipped.push(entry.name);
-      continue;
+      const kind = err.transient ? "transient " : "";
+      throw new Error(
+        `Aborting icon generation: ${kind}icon fetch failed for ${entry.name} (${err.message}). ` +
+          `No assets or manifest were modified; re-run once upstream recovers.`,
+      );
     }
 
     if (!bytes) {
@@ -201,11 +254,16 @@ export async function generatePluginIcons({
       continue;
     }
 
-    const dir = join(assetsDir, entry.name);
-    mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, ICON_FILENAME), bytes);
+    toVendor.push({ name: entry.name, bytes });
     versionsByName[entry.name] = result.iconVersion;
     vendored.push(entry.name);
+  }
+
+  // Every icon resolved cleanly — safe to mutate the working tree now.
+  for (const { name, bytes } of toVendor) {
+    const dir = join(assetsDir, name);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, ICON_FILENAME), bytes);
   }
 
   // Prune asset dirs no longer backed by a valid vendored icon.
@@ -259,7 +317,17 @@ export function checkPluginIcons({
       errors.push(`asset dir "${name}" has no ${ICON_FILENAME}`);
       continue;
     }
-    const version = iconVersionOf(readFileSync(iconPath));
+    // Re-run the icon contract (PNG magic + IHDR dims + byte cap), not just the
+    // hash: a hand-committed malformed/oversized blob whose manifest hash was
+    // updated to match must still fail this network-free guard.
+    const result = validatePluginIconBytes(readFileSync(iconPath));
+    if (!result.hasIcon) {
+      errors.push(
+        `asset "${name}" is not a contract-valid PNG (magic/dimensions/size)`,
+      );
+      continue;
+    }
+    const version = result.iconVersion;
     const entry = manifestPlugins[name];
     if (!entry) {
       errors.push(`asset "${name}" is not listed in the manifest`);
