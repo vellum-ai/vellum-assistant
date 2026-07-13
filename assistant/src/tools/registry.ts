@@ -28,13 +28,6 @@ const DEFAULT_TOOL_OWNER: OwnerInfo = Object.freeze({
   id: "default",
 });
 
-// Flips true once initializeTools() has registered the core manifest tools
-// (the read-only baseline: file_read/web_fetch/etc.). Only ever goes
-// false→true, so a true reading is stable for the process lifetime; callers
-// that must not run before the baseline exists gate on it via
-// {@link areCoreToolsInitialized}.
-let coreToolsInitialized = false;
-
 // Cached promise for the one-time tool-registry initialization. `initializeTools`
 // returns this so repeated calls (across entry points, or an eventual
 // getter-triggered ensure) run the underlying work exactly once. Cleared by the
@@ -192,17 +185,6 @@ export async function resolveTool(name: string): Promise<Tool | undefined> {
  */
 export function getTool(name: string): Tool | undefined {
   return tools.get(name);
-}
-
-/**
- * True once {@link initializeTools} has registered the core manifest tools.
- * Callers that must not run before the read-only baseline
- * (`file_read`/`web_fetch`/etc.) exists — e.g. the scheduler deferring
- * boot-time workflow triggers — gate on this. It only ever flips false→true,
- * so a true reading is stable for the process lifetime.
- */
-export function areCoreToolsInitialized(): boolean {
-  return coreToolsInitialized;
 }
 
 export function getAllTools(): Tool[] {
@@ -1074,7 +1056,6 @@ async function runToolInitialization(): Promise<void> {
   for (const tool of explicitTools) {
     registerTool(tool);
   }
-  coreToolsInitialized = true;
 
   log.info({ count: tools.size }, "Tools initialized");
 
@@ -1090,7 +1071,7 @@ async function runToolInitialization(): Promise<void> {
   //
   // Imported dynamically because the loader imports back from this module
   // (registerWorkspaceTools / removeCoreToolViaWorkspace); a static import
-  // here would create a registry ↔ loader cycle.
+  // here would create a registry ↔ loader cycle that `lint:circular` flags.
   const { loadWorkspaceTools } = await import("./workspace-tools/loader.js");
   await loadWorkspaceTools();
 
@@ -1112,8 +1093,7 @@ async function runToolInitialization(): Promise<void> {
  * Re-registers the core manifest tools synchronously (the async workspace /
  * plugin reconciles are NOT re-run, so their file-backed tools drop out of
  * the baseline). `registerTool` reuses the finalized instances memoized on
- * first init, so restored tools keep their identity. A no-op restore when
- * init never ran in this process — nothing to re-register yet.
+ * first init, so restored tools keep their identity.
  */
 export function __resetRegistryForTesting(): void {
   tools.clear();
@@ -1130,10 +1110,8 @@ export function __resetRegistryForTesting(): void {
   // the freshly reset registry rather than returning the previous settled run.
   toolsInitPromise = null;
 
-  if (coreToolsInitialized) {
-    for (const tool of explicitTools) {
-      registerTool(tool);
-    }
+  for (const tool of explicitTools) {
+    registerTool(tool);
   }
 }
 

@@ -40,18 +40,13 @@ import {
   updateSchedule,
 } from "../../schedule/schedule-store.js";
 import { getScheduleUsageSummaries } from "../../schedule/schedule-usage-store.js";
-import { areCoreToolsInitialized } from "../../tools/registry.js";
+import { initializeTools } from "../../tools/registry.js";
 import { getLogger } from "../../util/logger.js";
 import { normalizeCapabilityManifest } from "../../workflows/capabilities.js";
 import { getWorkflowRunManager } from "../../workflows/run-manager.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { parseEpochMillisRange } from "./epoch-millis-range.js";
-import {
-  BadRequestError,
-  InternalError,
-  NotFoundError,
-  ServiceUnavailableError,
-} from "./errors.js";
+import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
 import {
   paginateRuns,
   parseRunsBeforeCursor,
@@ -1007,19 +1002,12 @@ async function handleRunScheduleNow(id: string) {
     if (!schedule.workflowName) {
       throw new BadRequestError("Workflow schedule has no workflowName");
     }
-    // Boot race: resolveCapabilities grants the read-only baseline (file_read,
-    // web_search, …) from the tool registry, which initializeProvidersAndTools()
-    // populates during startup. The scheduler's automatic firing path DEFERS a
-    // workflow trigger to a later tick while `!areCoreToolsInitialized()` so a
-    // run never launches with an empty baseline. A manual "run now" has no later
-    // tick to defer to, so fail fast with a retryable 503 rather than launch a
-    // degraded run; the window is just the few seconds of assistant boot.
-    if (!areCoreToolsInitialized()) {
-      throw new ServiceUnavailableError(
-        "The assistant is still starting up and its tools are not ready yet. " +
-          "Try running this workflow again in a moment.",
-      );
-    }
+    // resolveCapabilities grants the read-only baseline (file_read, web_search,
+    // …) from the tool registry, so the baseline must be registered before the
+    // run launches or it would get an empty toolset. Ensure it — idempotent and
+    // cached, so this is a settled-promise await except in the few-seconds boot
+    // window, where it blocks until the registry is populated.
+    await initializeTools();
     const runId = await createScheduleRun(
       schedule.id,
       `workflow:${schedule.id}`,
