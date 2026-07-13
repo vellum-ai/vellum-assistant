@@ -1,16 +1,13 @@
-import { beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 
-let shareAnalytics = true;
-
-mock.module("../platform/consent-cache.js", () => ({
-  getCachedShareAnalytics: () => shareAnalytics,
-}));
-
-import * as dbConnection from "../persistence/db-connection.js";
 import { getTelemetryDb } from "../persistence/db-connection.js";
-import { initializeDb } from "../persistence/db-init.js";
 import { telemetryEvents } from "../persistence/schema/index.js";
 import { APP_VERSION } from "../version.js";
+import {
+  resetOutboxTable,
+  setShareAnalytics,
+  withTelemetryDbUnavailable,
+} from "./__tests__/outbox-test-harness.js";
 import {
   deleteTelemetryOutboxEvents,
   discardPendingTelemetryOutboxEvents,
@@ -20,8 +17,6 @@ import {
   recordTelemetryEvent,
 } from "./telemetry-events-outbox.js";
 import type { LifecycleTelemetryEvent } from "./types.js";
-
-await initializeDb();
 
 function lifecycleEvent(
   id: string,
@@ -57,8 +52,8 @@ function allIds(): string[] {
 
 describe("telemetry-events-outbox", () => {
   beforeEach(() => {
-    shareAnalytics = true;
-    getTelemetryDb()!.delete(telemetryEvents).run();
+    setShareAnalytics(true);
+    resetOutboxTable();
   });
 
   test("insert + query round-trips the wire payload", () => {
@@ -126,8 +121,7 @@ describe("telemetry-events-outbox", () => {
   });
 
   test("batch insert returns false when the telemetry DB is unavailable", () => {
-    const spy = spyOn(dbConnection, "getTelemetryDb").mockReturnValue(null);
-    try {
+    withTelemetryDbUnavailable(() => {
       expect(
         insertTelemetryOutboxEvents([
           {
@@ -138,9 +132,7 @@ describe("telemetry-events-outbox", () => {
           },
         ]),
       ).toBe(false);
-    } finally {
-      spy.mockRestore();
-    }
+    });
     expect(allIds()).toEqual([]);
   });
 
@@ -299,7 +291,7 @@ describe("telemetry-events-outbox", () => {
   });
 
   test("recordTelemetryEvent honors the share_analytics opt-out", () => {
-    shareAnalytics = false;
+    setShareAnalytics(false);
     expect(
       recordTelemetryEvent("watchdog", {
         check_name: "c",
@@ -311,8 +303,7 @@ describe("telemetry-events-outbox", () => {
   });
 
   test("recordTelemetryEvent returns null when the telemetry DB is unavailable", () => {
-    const spy = spyOn(dbConnection, "getTelemetryDb").mockReturnValue(null);
-    try {
+    withTelemetryDbUnavailable(() => {
       expect(
         recordTelemetryEvent("watchdog", {
           check_name: "c",
@@ -320,9 +311,7 @@ describe("telemetry-events-outbox", () => {
           detail: null,
         }),
       ).toBeNull();
-    } finally {
-      spy.mockRestore();
-    }
+    });
     expect(queryTelemetryOutboxBatch("watchdog", 10)).toEqual([]);
   });
 
