@@ -1,13 +1,19 @@
 /**
  * Tests for {@link getPluginDetails}.
  *
- * Network is replaced with an in-memory GitHub Contents API fixture passed via
- * the `fetch` dependency, and the installed-copy path is exercised against a
- * real temp directory passed via `workspacePluginsDir` — no globals are
- * monkey-patched. The fixture answers three URL shapes:
- *   - the marketplace manifest file (raw JSON body),
+ * The catalog entry is resolved from the gated plugin catalog (the same source
+ * search and install-by-name use): these tests run with platform features
+ * disabled (`VELLUM_DISABLE_PLATFORM`) so the catalog is the bundled manifest —
+ * real plugin names / pinned SHAs, zero network. GitHub is replaced with an
+ * in-memory Contents API fixture passed via the `fetch` dependency, and the
+ * installed-copy path is exercised against a real temp directory passed via
+ * `workspacePluginsDir` — no globals are monkey-patched. The fixture answers two
+ * URL shapes:
  *   - directory listings (`/contents/<path>` → entry array or 404),
  *   - raw file downloads (a listing entry's `download_url`).
+ *
+ * A separate suite drives the platform-enabled path with a failing catalog
+ * fetch to prove the detail view degrades (local + repo fallback) on an outage.
  */
 
 import { createHash } from "node:crypto";
@@ -17,10 +23,13 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import type { FetchLike } from "../fetch-like.js";
+import { invalidatePluginCatalogCache } from "../plugin-catalog-cache.js";
+import { readBundledPluginCatalog } from "../plugin-catalog-local.js";
 import {
   getPluginDetails,
   PluginDetailsNotFoundError,
 } from "../plugin-details.js";
+import type { PluginSearchMatch } from "../search-plugins.js";
 
 interface ContentEntry {
   name: string;
@@ -34,8 +43,6 @@ function fileEntry(name: string, downloadUrl: string): ContentEntry {
 }
 
 interface FixtureConfig {
-  /** Manifest object served at `plugins/marketplace.json`. Omit for 404. */
-  marketplace?: unknown;
   /** Directory listings keyed by `<owner>/<repo>[/<path>]`. Missing key → 404. */
   listings?: Record<string, ContentEntry[]>;
   /** Raw file bodies keyed by `download_url`. Missing key → 404. */
@@ -54,13 +61,6 @@ function makeFetch(config: FixtureConfig): FetchLike {
 
     for (const needle of config.failOn ?? []) {
       if (url.includes(needle)) throw new Error(`network down: ${needle}`);
-    }
-
-    if (url.includes("marketplace.json")) {
-      if (config.marketplace === undefined) {
-        return new Response("not found", { status: 404 });
-      }
-      return new Response(JSON.stringify(config.marketplace), { status: 200 });
     }
 
     if (config.raw && url in config.raw) {
@@ -95,6 +95,13 @@ function splitOnce(s: string, sep: string): [string, string] {
   return [s.slice(0, i), s.slice(i + sep.length)];
 }
 
+/** The bundled catalog entry for {@link name} — the source under test. */
+function bundledMatch(name: string): PluginSearchMatch {
+  const match = readBundledPluginCatalog().matches.find((m) => m.name === name);
+  if (!match) throw new Error(`bundled catalog has no entry for "${name}"`);
+  return match;
+}
+
 const PNG_SIGNATURE = Buffer.from([
   0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
 ]);
@@ -114,39 +121,43 @@ function sha16(buf: Buffer): string {
   return createHash("sha256").update(buf).digest("hex").slice(0, 16);
 }
 
+const ORIGINAL_ENV = {
+  IS_PLATFORM: process.env.IS_PLATFORM,
+  VELLUM_DISABLE_PLATFORM: process.env.VELLUM_DISABLE_PLATFORM,
+};
+
+function restoreEnv(): void {
+  for (const [key, value] of Object.entries(ORIGINAL_ENV)) {
+    if (value === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = value;
+    }
+  }
+}
+
 let workspace: string;
 
-beforeEach(() => {
-  workspace = mkdtempSync(join(tmpdir(), "plugin-details-"));
-});
+describe("getPluginDetails (bundled catalog, offline)", () => {
+  beforeEach(() => {
+    workspace = mkdtempSync(join(tmpdir(), "plugin-details-"));
+    invalidatePluginCatalogCache();
+    process.env.VELLUM_DISABLE_PLATFORM = "true";
+    delete process.env.IS_PLATFORM;
+  });
 
-afterEach(() => {
-  rmSync(workspace, { recursive: true, force: true });
-});
+  afterEach(() => {
+    rmSync(workspace, { recursive: true, force: true });
+    restoreEnv();
+  });
 
-describe("getPluginDetails", () => {
-  test("resolves an external plugin: manifest metadata + repo README/package.json", async () => {
-    // GIVEN a marketplace entry for an external, not-installed plugin
+  test("resolves an external plugin: catalog metadata + repo README/package.json", async () => {
+    // GIVEN a known bundled catalog plugin, not installed locally
+    const caveman = bundledMatch("caveman");
     const fetch = makeFetch({
-      marketplace: {
-        name: "vellum",
-        plugins: [
-          {
-            name: "caveman",
-            source: {
-              source: "github",
-              repo: "example-org/caveman",
-              ref: "1111111111111111111111111111111111111111",
-            },
-            description: "manifest description",
-            homepage: "https://example.com/caveman",
-            license: "MIT",
-          },
-        ],
-      },
-      // AND the external repo root lists a README and package.json
+      // AND its external repo root lists a README and package.json
       listings: {
-        "example-org/caveman": [
+        [caveman.source.repo]: [
           fileEntry("README.md", "raw://caveman/readme"),
           fileEntry("package.json", "raw://caveman/pkg"),
         ],
@@ -167,49 +178,29 @@ describe("getPluginDetails", () => {
       { fetch, workspacePluginsDir: workspace },
     );
 
-    // THEN the source is the external repo and the README comes from it
-    expect(details.source).toEqual({
-      kind: "github",
-      repo: "example-org/caveman",
-      ref: "1111111111111111111111111111111111111111",
-    });
+    // THEN the source is the catalog's pinned origin and the README comes from it
+    expect(details.source).toEqual(caveman.source);
     expect(details.installed).toBe(false);
     expect(details.readme).toContain("Grug brain plugin");
-    // AND manifest fields win over the repo package.json for description/homepage
-    expect(details.description).toBe("manifest description");
-    expect(details.homepage).toBe("https://example.com/caveman");
-    expect(details.license).toBe("MIT");
-    // AND version falls back to the repo package.json (manifest has none)
+    // AND catalog fields win over the repo package.json for description/homepage
+    expect(details.description).toBe(caveman.description ?? null);
+    expect(details.homepage).toBe(caveman.homepage ?? null);
+    expect(details.license).toBe(caveman.license ?? null);
+    // AND version falls back to the repo package.json (the catalog carries none)
     expect(details.version).toBe("1.8.2");
     expect(details.ref).toBe("v1");
   });
 
   test("reads an external plugin at its pinned source ref, not the catalog ref", async () => {
-    // GIVEN a marketplace entry pinned to a ref that differs from the catalog
-    // ref the detail view is resolved at
-    const marketplace = {
-      name: "vellum",
-      plugins: [
-        {
-          name: "caveman",
-          source: {
-            source: "github",
-            repo: "example-org/caveman",
-            ref: "2222222222222222222222222222222222222222",
-          },
-        },
-      ],
-    };
+    // GIVEN a bundled catalog entry pinned to a full-SHA source ref
+    const caveman = bundledMatch("caveman");
     // AND a fetch that records the ref query param of every contents request
     const contentsRefs = new Map<string, string>();
     const fetch = (async (input: RequestInfo | URL) => {
       const url = typeof input === "string" ? input : input.toString();
-      if (url.includes("marketplace.json")) {
-        return new Response(JSON.stringify(marketplace), { status: 200 });
-      }
       if (url.includes("/contents")) {
         const ref = new URL(url).searchParams.get("ref") ?? "";
-        const key = url.includes("example-org/caveman") ? "external" : "other";
+        const key = url.includes(caveman.source.repo) ? "external" : "other";
         contentsRefs.set(key, ref);
         if (key === "external") {
           return new Response(
@@ -225,41 +216,26 @@ describe("getPluginDetails", () => {
       return new Response("unexpected url: " + url, { status: 500 });
     }) as FetchLike;
 
-    // WHEN we resolve the detail view at the catalog ref `main`
+    // WHEN we resolve the detail view at a catalog ref that isn't the pin
     const details = await getPluginDetails(
       { name: "caveman", ref: "main" },
       { fetch, workspacePluginsDir: workspace },
     );
 
-    // THEN the external repo is read at the plugin's pinned ref, not `main`
-    expect(contentsRefs.get("external")).toBe(
-      "2222222222222222222222222222222222222222",
-    );
-    // AND the pinned external repo is the only contents request — no other
-    // GitHub lookups are made for the name
+    // THEN the external repo is read at the plugin's pinned SHA, not the ref
+    expect(contentsRefs.get("external")).toBe(caveman.source.ref);
+    // AND the pinned external repo is the only contents request
     expect(contentsRefs.has("other")).toBe(false);
     // AND the README from the pinned ref is surfaced
     expect(details.readme).toContain("Caveman");
   });
 
-  test("resolves the external marketplace source for an uninstalled plugin", async () => {
-    // GIVEN a marketplace entry for "simple-memory" and no installed copy
+  test("resolves the external catalog source for an uninstalled plugin", async () => {
+    // GIVEN a bundled catalog entry and no installed copy
+    const simpleMemory = bundledMatch("simple-memory");
     const fetch = makeFetch({
-      marketplace: {
-        name: "vellum",
-        plugins: [
-          {
-            name: "simple-memory",
-            source: {
-              source: "github",
-              repo: "example-org/simple-memory",
-              ref: "9999999999999999999999999999999999999999",
-            },
-          },
-        ],
-      },
       listings: {
-        "example-org/simple-memory": [
+        [simpleMemory.source.repo]: [
           fileEntry("README.md", "raw://ext/readme"),
         ],
       },
@@ -272,17 +248,14 @@ describe("getPluginDetails", () => {
       { fetch, workspacePluginsDir: workspace },
     );
 
-    // THEN the external marketplace source is used
-    expect(details.source).toEqual({
-      kind: "github",
-      repo: "example-org/simple-memory",
-      ref: "9999999999999999999999999999999999999999",
-    });
+    // THEN the external catalog source is used
+    expect(details.source).toEqual(simpleMemory.source);
     expect(details.readme).toContain("external");
   });
 
   test("prefers an installed copy's README and package.json over the repo", async () => {
     // GIVEN an installed copy on disk with its own README + package.json
+    const caveman = bundledMatch("caveman");
     const target = join(workspace, "caveman");
     mkdirSync(target, { recursive: true });
     writeFileSync(join(target, "README.md"), "# Installed Caveman");
@@ -291,24 +264,12 @@ describe("getPluginDetails", () => {
       JSON.stringify({ version: "2.0.0", license: "Apache-2.0" }),
     );
 
-    // AND a marketplace entry + external repo that would otherwise be used
+    // AND an external repo that would otherwise be used
     const fetch = makeFetch({
-      marketplace: {
-        name: "vellum",
-        plugins: [
-          {
-            name: "caveman",
-            source: {
-              source: "github",
-              repo: "example-org/caveman",
-              ref: "1111111111111111111111111111111111111111",
-            },
-            description: "manifest description",
-          },
-        ],
-      },
       listings: {
-        "example-org/caveman": [fileEntry("README.md", "raw://caveman/readme")],
+        [caveman.source.repo]: [
+          fileEntry("README.md", "raw://caveman/readme"),
+        ],
       },
       raw: { "raw://caveman/readme": "# Remote Caveman" },
     });
@@ -319,12 +280,12 @@ describe("getPluginDetails", () => {
       { fetch, workspacePluginsDir: workspace },
     );
 
-    // THEN the installed README + version/license win; manifest fills the gap
+    // THEN the installed README + version/license win; the catalog fills the gap
     expect(details.installed).toBe(true);
     expect(details.readme).toBe("# Installed Caveman");
     expect(details.version).toBe("2.0.0");
     expect(details.license).toBe("Apache-2.0");
-    expect(details.description).toBe("manifest description");
+    expect(details.description).toBe(caveman.description ?? null);
     // AND a package.json without vellum.icon surfaces icon as null
     expect(details.icon).toBeNull();
   });
@@ -338,14 +299,7 @@ describe("getPluginDetails", () => {
       JSON.stringify({ version: "2.0.0", vellum: { icon: "🦴" } }),
     );
 
-    const fetch = makeFetch({
-      marketplace: {
-        name: "vellum",
-        plugins: [{ name: "caveman", description: "d" }],
-      },
-      listings: {},
-      raw: {},
-    });
+    const fetch = makeFetch({});
 
     const details = await getPluginDetails(
       { name: "caveman" },
@@ -368,12 +322,7 @@ describe("getPluginDetails", () => {
     const png = makePng(64, 64);
     writeFileSync(join(target, "icon.png"), png);
 
-    const fetch = makeFetch({
-      marketplace: {
-        name: "vellum",
-        plugins: [{ name: "caveman", description: "d" }],
-      },
-    });
+    const fetch = makeFetch({});
 
     // WHEN we resolve the detail view
     const details = await getPluginDetails(
@@ -396,12 +345,7 @@ describe("getPluginDetails", () => {
       JSON.stringify({ version: "2.0.0" }),
     );
 
-    const fetch = makeFetch({
-      marketplace: {
-        name: "vellum",
-        plugins: [{ name: "caveman", description: "d" }],
-      },
-    });
+    const fetch = makeFetch({});
 
     const details = await getPluginDetails(
       { name: "caveman" },
@@ -414,23 +358,9 @@ describe("getPluginDetails", () => {
   });
 
   test("reports hasIcon false + null iconVersion for an uninstalled plugin", async () => {
-    // GIVEN a marketplace-only plugin with no installed copy
-    const fetch = makeFetch({
-      marketplace: {
-        name: "vellum",
-        plugins: [
-          {
-            name: "simple-memory",
-            source: {
-              source: "github",
-              repo: "example-org/simple-memory",
-              ref: "9999999999999999999999999999999999999999",
-            },
-          },
-        ],
-      },
-      listings: { "example-org/simple-memory": [] },
-    });
+    // GIVEN a catalog-only plugin with no installed copy
+    const simpleMemory = bundledMatch("simple-memory");
+    const fetch = makeFetch({ listings: { [simpleMemory.source.repo]: [] } });
 
     const details = await getPluginDetails(
       { name: "simple-memory" },
@@ -444,40 +374,22 @@ describe("getPluginDetails", () => {
   });
 
   test("throws PluginDetailsNotFoundError when nothing claims the name", async () => {
-    // GIVEN no installed copy and an empty marketplace
-    const fetch = makeFetch({
-      marketplace: { name: "vellum", plugins: [] },
-    });
+    // GIVEN no installed copy and a name absent from the bundled catalog
+    const fetch = makeFetch({});
 
     // WHEN / THEN resolving an unknown name rejects with the not-found error
     await expect(
       getPluginDetails(
-        { name: "ghost" },
+        { name: "no-such-ghost-plugin" },
         { fetch, workspacePluginsDir: workspace },
       ),
     ).rejects.toBeInstanceOf(PluginDetailsNotFoundError);
   });
 
-  test("degrades to manifest metadata when the repo listing fails", async () => {
-    // GIVEN a marketplace entry whose external repo listing errors out
-    const fetch = makeFetch({
-      marketplace: {
-        name: "vellum",
-        plugins: [
-          {
-            name: "caveman",
-            source: {
-              source: "github",
-              repo: "example-org/caveman",
-              ref: "1111111111111111111111111111111111111111",
-            },
-            description: "manifest description",
-            license: "MIT",
-          },
-        ],
-      },
-      failOn: ["example-org/caveman"],
-    });
+  test("degrades to catalog metadata when the repo listing fails", async () => {
+    // GIVEN a catalog entry whose external repo listing errors out
+    const caveman = bundledMatch("caveman");
+    const fetch = makeFetch({ failOn: [caveman.source.repo] });
 
     // WHEN we resolve the detail view
     const details = await getPluginDetails(
@@ -485,20 +397,16 @@ describe("getPluginDetails", () => {
       { fetch, workspacePluginsDir: workspace },
     );
 
-    // THEN it still renders manifest metadata with a null README rather than throwing
+    // THEN it still renders catalog metadata with a null README rather than throwing
     expect(details.readme).toBeNull();
-    expect(details.description).toBe("manifest description");
-    expect(details.license).toBe("MIT");
-    expect(details.source).toEqual({
-      kind: "github",
-      repo: "example-org/caveman",
-      ref: "1111111111111111111111111111111111111111",
-    });
+    expect(details.description).toBe(caveman.description ?? null);
+    expect(details.license).toBe(caveman.license ?? null);
+    expect(details.source).toEqual(caveman.source);
   });
 
   test("rejects an invalid (path-traversal) plugin name", async () => {
     // GIVEN a name that fails the install-name sanitizer
-    const fetch = makeFetch({ marketplace: { name: "vellum", plugins: [] } });
+    const fetch = makeFetch({});
 
     // WHEN / THEN resolution throws before any lookup
     await expect(
@@ -512,25 +420,11 @@ describe("getPluginDetails", () => {
   test("surfaces a well-formed vellum.artifact from the repo package.json", async () => {
     // GIVEN an external plugin whose repo package.json declares a complete
     // vellum.artifact (https url + 64-hex sha256)
+    const notch = bundledMatch("dynamic-notch");
     const sha = "a".repeat(64);
     const fetch = makeFetch({
-      marketplace: {
-        name: "vellum",
-        plugins: [
-          {
-            name: "dynamic-notch",
-            source: {
-              source: "github",
-              repo: "example-org/dynamic-notch",
-              ref: "1111111111111111111111111111111111111111",
-            },
-          },
-        ],
-      },
       listings: {
-        "example-org/dynamic-notch": [
-          fileEntry("package.json", "raw://notch/pkg"),
-        ],
+        [notch.source.repo]: [fileEntry("package.json", "raw://notch/pkg")],
       },
       raw: {
         "raw://notch/pkg": JSON.stringify({
@@ -562,6 +456,7 @@ describe("getPluginDetails", () => {
 
   test("an installed copy's artifact wins over the repo's", async () => {
     // GIVEN an installed copy whose package.json declares its own artifact
+    const notch = bundledMatch("dynamic-notch");
     const localSha = "b".repeat(64);
     const remoteSha = "c".repeat(64);
     const target = join(workspace, "dynamic-notch");
@@ -578,25 +473,10 @@ describe("getPluginDetails", () => {
       }),
     );
 
-    // AND a marketplace entry + repo package.json declaring a different artifact
+    // AND a repo package.json declaring a different artifact
     const fetch = makeFetch({
-      marketplace: {
-        name: "vellum",
-        plugins: [
-          {
-            name: "dynamic-notch",
-            source: {
-              source: "github",
-              repo: "example-org/dynamic-notch",
-              ref: "1111111111111111111111111111111111111111",
-            },
-          },
-        ],
-      },
       listings: {
-        "example-org/dynamic-notch": [
-          fileEntry("package.json", "raw://notch/pkg"),
-        ],
+        [notch.source.repo]: [fileEntry("package.json", "raw://notch/pkg")],
       },
       raw: {
         "raw://notch/pkg": JSON.stringify({
@@ -626,24 +506,10 @@ describe("getPluginDetails", () => {
   test("treats a placeholder sha256 as no artifact yet", async () => {
     // GIVEN a repo package.json with a url but an empty (placeholder) sha256 —
     // the bootstrap state before a release workflow fills the digest in
+    const notch = bundledMatch("dynamic-notch");
     const fetch = makeFetch({
-      marketplace: {
-        name: "vellum",
-        plugins: [
-          {
-            name: "dynamic-notch",
-            source: {
-              source: "github",
-              repo: "example-org/dynamic-notch",
-              ref: "1111111111111111111111111111111111111111",
-            },
-          },
-        ],
-      },
       listings: {
-        "example-org/dynamic-notch": [
-          fileEntry("package.json", "raw://notch/pkg"),
-        ],
+        [notch.source.repo]: [fileEntry("package.json", "raw://notch/pkg")],
       },
       raw: {
         "raw://notch/pkg": JSON.stringify({
@@ -665,5 +531,67 @@ describe("getPluginDetails", () => {
 
     // THEN no artifact is surfaced (a client must not offer an unverifiable download)
     expect(details.artifact).toBeNull();
+  });
+});
+
+describe("getPluginDetails (catalog unavailable, platform enabled)", () => {
+  // A fetch that always rejects — the platform catalog fetch fails, and no
+  // GitHub enrichment should be attempted for the degraded cases below.
+  const failingFetch = (async () => {
+    throw new Error("network down");
+  }) as FetchLike;
+
+  beforeEach(() => {
+    workspace = mkdtempSync(join(tmpdir(), "plugin-details-"));
+    invalidatePluginCatalogCache();
+    delete process.env.IS_PLATFORM;
+    delete process.env.VELLUM_DISABLE_PLATFORM;
+  });
+
+  afterEach(() => {
+    rmSync(workspace, { recursive: true, force: true });
+    invalidatePluginCatalogCache();
+    restoreEnv();
+  });
+
+  test("an installed copy still renders from disk when the catalog is down", async () => {
+    // GIVEN an installed copy on disk and a catalog that fails to resolve
+    const target = join(workspace, "caveman");
+    mkdirSync(target, { recursive: true });
+    writeFileSync(join(target, "README.md"), "# Installed Caveman");
+    writeFileSync(
+      join(target, "package.json"),
+      JSON.stringify({
+        version: "2.0.0",
+        description: "local description",
+        license: "Apache-2.0",
+      }),
+    );
+
+    // WHEN we resolve the detail view
+    const details = await getPluginDetails(
+      { name: "caveman" },
+      { fetch: failingFetch, workspacePluginsDir: workspace },
+    );
+
+    // THEN it degrades to the on-disk metadata rather than throwing; with no
+    // catalog entry there is no advertised source to enrich from
+    expect(details.installed).toBe(true);
+    expect(details.readme).toBe("# Installed Caveman");
+    expect(details.version).toBe("2.0.0");
+    expect(details.description).toBe("local description");
+    expect(details.license).toBe("Apache-2.0");
+    expect(details.source).toBeNull();
+  });
+
+  test("a not-installed, unresolved name still throws PluginDetailsNotFoundError", async () => {
+    // GIVEN no installed copy and a catalog that fails to resolve
+    // WHEN / THEN a name that nothing on disk claims still 404s
+    await expect(
+      getPluginDetails(
+        { name: "caveman" },
+        { fetch: failingFetch, workspacePluginsDir: workspace },
+      ),
+    ).rejects.toBeInstanceOf(PluginDetailsNotFoundError);
   });
 });

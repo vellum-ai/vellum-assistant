@@ -6,16 +6,18 @@
  * most authoritative for each field:
  *   1. The locally installed copy under `<workspacePluginsDir>/<name>/`, when
  *      present — its `package.json` and `README.md` are read straight off disk.
- *   2. The curated `plugins/marketplace.json` entry, for external
- *      ecosystem plugins (description / homepage / license / pinned source).
+ *   2. The gated plugin catalog (platform-first, bundled offline) — the same
+ *      source `assistant plugins search` and install-by-name resolve — for
+ *      external ecosystem plugins (description / homepage / license / pinned
+ *      source).
  *   3. The plugin's own external repository at the pinned `owner/repo[/path]`,
  *      fetched via the GitHub Contents API for the README and any
  *      `package.json` fields the manifest doesn't carry.
  *
- * The `source` field is the marketplace entry's pinned origin when one claims
- * the name, otherwise `null` — an installed copy with no catalog entry has no
+ * The `source` field is the catalog entry's pinned origin when one claims the
+ * name, otherwise `null` — an installed copy with no catalog entry has no
  * advertised origin. Name-collision precedence matches {@link ./search-plugins}
- * and {@link ./install-from-github}: a marketplace entry owns its name, so the
+ * and {@link ./install-from-github}: a catalog entry owns its name, so the
  * detail page advertises the external source the catalog and installer use. A
  * same-named `plugins/<name>/` directory is that plugin's adapter stub, not a
  * standalone plugin, so it does not override the claim.
@@ -35,13 +37,13 @@ import {
   parsePluginIcon,
   type PluginArtifact,
 } from "./plugin-artifact.js";
+import { findCatalogEntry } from "./plugin-catalog-resolve.js";
 import { DEFAULT_PLUGIN_REF } from "./plugin-constants.js";
 import { readValidatedPluginIcon } from "./plugin-icon-file.js";
-import {
-  fetchMarketplaceEntries,
-  type MarketplaceEntry,
-} from "./plugin-marketplace.js";
-import type { PluginMatchSource } from "./search-plugins.js";
+import type {
+  PluginMatchSource,
+  PluginSearchMatch,
+} from "./search-plugins.js";
 
 /** Recognised README filenames, matched case-insensitively against a listing. */
 const README_RE = /^readme(\.md|\.markdown)?$/i;
@@ -96,7 +98,7 @@ export interface PluginDetails {
   readonly version: string | null;
   /**
    * Pinned origin, mirroring the catalog's {@link PluginMatchSource}; `null`
-   * when an installed copy has no marketplace entry to advertise an origin.
+   * when an installed copy has no catalog entry to advertise an origin.
    */
   readonly source: PluginMatchSource | null;
   /** README markdown, or `null` when the plugin ships none. */
@@ -143,10 +145,10 @@ export class PluginDetailsNotFoundError extends Error {
  * Resolve the detail view for {@link opts.name}.
  *
  * Throws {@link PluginDetailsNotFoundError} when the name is neither installed
- * locally nor present in the marketplace catalog. Network failures while
- * enriching from GitHub degrade to the fields
- * already known from disk / the manifest rather than failing the whole view —
- * a detail page that renders metadata without a README beats a hard error.
+ * locally nor present in the gated plugin catalog. A catalog outage or network
+ * failures while enriching from GitHub degrade to the fields already known from
+ * disk / the catalog rather than failing the whole view — a detail page that
+ * renders metadata without a README beats a hard error.
  */
 export async function getPluginDetails(
   opts: PluginDetailsOptions,
@@ -162,22 +164,13 @@ export async function getPluginDetails(
   // invalid icon — including a not-installed plugin — resolves to no icon).
   const localIcon = readValidatedPluginIcon(join(pluginsDir, name));
 
-  const marketplaceEntry = await findMarketplaceEntry(name, ref, fetchFn);
+  const catalogMatch = await findCatalogMatch(name, fetchFn);
 
-  if (!local.installed && !marketplaceEntry) {
+  if (!local.installed && !catalogMatch) {
     throw new PluginDetailsNotFoundError(name, ref);
   }
 
-  const source: PluginMatchSource | null = marketplaceEntry
-    ? {
-        kind: "github",
-        repo: marketplaceEntry.source.repo,
-        ref: marketplaceEntry.source.ref,
-        ...(marketplaceEntry.source.path
-          ? { path: marketplaceEntry.source.path }
-          : {}),
-      }
-    : null;
+  const source: PluginMatchSource | null = catalogMatch?.source ?? null;
 
   const remote = source
     ? await readRemotePlugin(source, fetchFn)
@@ -190,17 +183,17 @@ export async function getPluginDetails(
     installed: local.installed,
     description:
       local.manifest.description ??
-      marketplaceEntry?.description ??
+      catalogMatch?.description ??
       remote.manifest.description ??
       null,
     homepage:
       local.manifest.homepage ??
-      marketplaceEntry?.homepage ??
+      catalogMatch?.homepage ??
       remote.manifest.homepage ??
       null,
     license:
       local.manifest.license ??
-      marketplaceEntry?.license ??
+      catalogMatch?.license ??
       remote.manifest.license ??
       null,
     version: local.manifest.version ?? remote.manifest.version ?? null,
@@ -362,17 +355,16 @@ async function fetchRawFile(
   }
 }
 
-async function findMarketplaceEntry(
+async function findCatalogMatch(
   name: string,
-  ref: string,
   fetchFn: FetchLike,
-): Promise<MarketplaceEntry | null> {
+): Promise<PluginSearchMatch | null> {
   try {
-    const entries = await fetchMarketplaceEntries({ fetch: fetchFn }, { ref });
-    return entries.find((e) => e.name === name) ?? null;
+    return await findCatalogEntry(name, { fetch: fetchFn });
   } catch {
-    // A missing or malformed manifest degrades to "no external entry" — the
-    // marketplace is supplementary, never required to render a detail view.
+    // A catalog outage (fail-hard `PluginCatalogUnavailableError`) or malformed
+    // entry degrades to "no catalog entry" — the catalog metadata is
+    // supplementary, never required to render a detail view.
     return null;
   }
 }
