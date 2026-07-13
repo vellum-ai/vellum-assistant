@@ -1,4 +1,5 @@
 import { normalizeActivationKey } from "../../../../daemon/handlers/config-voice.js";
+import { managedSpeechAvailable } from "../../../../platform/managed-speech.js";
 import type {
   ToolContext,
   ToolExecutionResult,
@@ -15,24 +16,30 @@ import { VALID_CONVERSATION_TIMEOUTS } from "../../../schemas/elevenlabs.js";
 /**
  * Valid voice config settings and their UserDefaults key mappings.
  *
- * All config paths are canonical (`services.tts.*`).
+ * All config paths are canonical (`services.tts.*` / `services.stt.*`).
+ * Settings without a userDefaultsKey are daemon-config-only and are not
+ * broadcast to the desktop client.
  */
+type VoiceSettingMeta = { userDefaultsKey?: string; type: "string" | "number" };
+
 const VOICE_SETTINGS = {
   activation_key: {
     userDefaultsKey: "pttActivationKey",
-    type: "string" as const,
+    type: "string",
   },
   conversation_timeout: {
     userDefaultsKey: "voiceConversationTimeoutSeconds",
-    type: "number" as const,
+    type: "number",
   },
-  tts_provider: { userDefaultsKey: "ttsProvider", type: "string" as const },
-  tts_voice_id: { userDefaultsKey: "ttsVoiceId", type: "string" as const },
+  tts_provider: { userDefaultsKey: "ttsProvider", type: "string" },
+  tts_voice_id: { userDefaultsKey: "ttsVoiceId", type: "string" },
   fish_audio_reference_id: {
     userDefaultsKey: "fishAudioReferenceId",
-    type: "string" as const,
+    type: "string",
   },
-} as const;
+  stt_mode: { type: "string" },
+  tts_mode: { type: "string" },
+} satisfies Record<string, VoiceSettingMeta>;
 
 type VoiceSettingName = keyof typeof VOICE_SETTINGS;
 
@@ -46,7 +53,11 @@ const FRIENDLY_NAMES: Record<VoiceSettingName, string> = {
   tts_provider: "TTS provider",
   tts_voice_id: "ElevenLabs voice",
   fish_audio_reference_id: "Fish Audio voice",
+  stt_mode: "Speech-to-text mode",
+  tts_mode: "Text-to-speech mode",
 };
+
+const VALID_SPEECH_MODES = ["your-own", "managed"] as const;
 
 function validateSetting(
   setting: string,
@@ -117,6 +128,21 @@ function validateSetting(
       }
       return { ok: true, coerced: value.trim() };
     }
+    case "stt_mode":
+    case "tts_mode": {
+      if (
+        typeof value !== "string" ||
+        !VALID_SPEECH_MODES.includes(
+          value.trim() as (typeof VALID_SPEECH_MODES)[number],
+        )
+      ) {
+        return {
+          ok: false,
+          error: `${setting} must be one of: ${VALID_SPEECH_MODES.join(", ")}`,
+        };
+      }
+      return { ok: true, coerced: value.trim() };
+    }
     case "fish_audio_reference_id": {
       if (typeof value !== "string" || value.trim().length === 0) {
         return {
@@ -159,13 +185,25 @@ export async function run(
     return { content: `Error: ${validation.error}`, isError: true };
   }
 
-  const meta = VOICE_SETTINGS[setting as VoiceSettingName];
+  if (
+    (setting === "stt_mode" || setting === "tts_mode") &&
+    validation.coerced === "managed" &&
+    !(await managedSpeechAvailable())
+  ) {
+    return {
+      content:
+        "Error: managed speech requires a Vellum platform connection. Run 'assistant platform connect' first.",
+      isError: true,
+    };
+  }
+
+  const meta: VoiceSettingMeta = VOICE_SETTINGS[setting as VoiceSettingName];
   const friendlyName = FRIENDLY_NAMES[setting as VoiceSettingName];
 
   // Send client_settings_update message to write to UserDefaults.
   // Always stringify the value — Swift's ClientSettingsUpdate.value is typed
   // as String, so a bare JSON number would fail to decode.
-  if (context.sendToClient) {
+  if (context.sendToClient && meta.userDefaultsKey) {
     context.sendToClient({
       type: "client_settings_update",
       key: meta.userDefaultsKey,
@@ -212,10 +250,25 @@ export async function run(
     invalidateConfigCache();
   }
 
+  if (setting === "stt_mode") {
+    setNestedValue(raw, "services.stt.mode", validation.coerced);
+    saveRawConfig(raw);
+    invalidateConfigCache();
+  }
+
+  if (setting === "tts_mode") {
+    setNestedValue(raw, "services.tts.mode", validation.coerced);
+    saveRawConfig(raw);
+    invalidateConfigCache();
+  }
+
+  const broadcastNote = meta.userDefaultsKey
+    ? " The change has been broadcast to the desktop client."
+    : "";
   return {
     content: `${friendlyName} updated to ${JSON.stringify(
       validation.coerced,
-    )}. The change has been broadcast to the desktop client.`,
+    )}.${broadcastNote}`,
     isError: false,
   };
 }
