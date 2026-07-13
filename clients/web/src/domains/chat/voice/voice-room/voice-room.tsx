@@ -248,7 +248,14 @@ function VoiceRoomOverlay() {
           top: `max(1.25rem, ${SAFE_AREA_TOP})`,
           right: `max(1.25rem, ${SAFE_AREA_RIGHT})`,
         }}
-        className="absolute z-10 flex items-center gap-1"
+        // This cluster sits in the top band where `ChatLayoutHeader` (still
+        // mounted under the room) owns the Electron window-drag region
+        // (`-webkit-app-region: drag`). A drag region stays draggable even
+        // under a painted-over overlay, so without opting these buttons back
+        // out they are unclickable on macOS — the click drags the window.
+        // Mirrors the header's own `[&_button]:no-drag` carve-out; inert off
+        // Electron (web / iOS set no app-region).
+        className="absolute z-10 flex items-center gap-1 [&_button]:[-webkit-app-region:no-drag]"
       >
         <Tooltip content={captionsOn ? "Hide captions" : "Show captions"}>
           <button
