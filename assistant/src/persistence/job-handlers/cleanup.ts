@@ -144,8 +144,8 @@ function parseDeletedCount(stdout: string | undefined): number {
  * conversation_keys, channel_inbound_events, message_runs, call_sessions,
  * external_conversation_bindings) are handled automatically. Tables without
  * cascade (messages, tool_invocations, plus llm_request_logs and
- * skill_loaded_events on their dedicated connections) are deleted explicitly
- * before removing the conversation row.
+ * conversation-scoped telemetry_events rows on their dedicated connections)
+ * are deleted explicitly before removing the conversation row.
  */
 export function pruneOldConversationsJob(
   job: MemoryJob,
@@ -185,20 +185,21 @@ export function pruneOldConversationsJob(
       );
       if (still.length === 0) return;
 
-      // Non-cascading tables. llm_request_logs and skill_loaded_events live in
-      // the dedicated logs/telemetry connections, so they are deleted there
-      // (outside this main-DB transaction). Both run before the main-DB
-      // deletes: a failure leaves the conversation row in place so the prune
-      // retries — unshipped skill events must never outlive their pruned
-      // conversation and flush later.
+      // Non-cascading tables. llm_request_logs and conversation-scoped
+      // telemetry_events rows live in the dedicated logs/telemetry
+      // connections, so they are deleted there (outside this main-DB
+      // transaction). Both run before the main-DB deletes: a failure leaves
+      // the conversation row in place so the prune retries — unshipped
+      // telemetry events must never outlive their pruned conversation and
+      // flush later.
       rawLogsRun(
         "cleanup:pruneOldConversations:logs",
         `DELETE FROM llm_request_logs WHERE conversation_id = ?`,
         id,
       );
       rawTelemetryRun(
-        "cleanup:pruneOldConversations:skills",
-        `DELETE FROM skill_loaded_events WHERE conversation_id = ?`,
+        "cleanup:pruneOldConversations:telemetry",
+        `DELETE FROM telemetry_events WHERE conversation_id = ?`,
         id,
       );
       rawRun(

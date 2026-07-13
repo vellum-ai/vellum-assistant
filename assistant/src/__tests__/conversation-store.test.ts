@@ -19,9 +19,31 @@ import {
 import { isLastUserMessageToolResult } from "../persistence/conversation-queries.js";
 import { getDb, getTelemetryDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
-import { skillLoadedEvents } from "../persistence/schema/index.js";
+import { telemetryEvents } from "../persistence/schema/index.js";
 // Initialize db once before all tests
 await initializeDb();
+
+/** Seed a pending telemetry outbox row (default name: skill_loaded). */
+function seedTelemetryEvent(
+  id: string,
+  createdAt: number,
+  conversationId: string | null,
+  name = "skill_loaded",
+): void {
+  getTelemetryDb()!
+    .insert(telemetryEvents)
+    .values({ id, name, createdAt, conversationId, payload: "{}" })
+    .run();
+}
+
+function pendingTelemetryEventIds(): string[] {
+  return getTelemetryDb()!
+    .select()
+    .from(telemetryEvents)
+    .all()
+    .map((r) => r.id)
+    .sort();
+}
 
 describe("deleteLastExchange", () => {
   beforeEach(() => {
@@ -351,109 +373,62 @@ describe("attachment orphan cleanup", () => {
     expect(linkCount.c).toBe(0);
   });
 
-  test("clearAll removes skill_loaded_events", async () => {
-    // Privacy posture: Clear All wins over unflushed telemetry — the
-    // skill_loaded_events rows (conversation id, skill name, model
-    // attribution) must not survive the wipe and ship later.
-    getTelemetryDb()!.delete(skillLoadedEvents).run();
+  test("clearAll removes pending skill_loaded telemetry_events rows", async () => {
+    // Privacy posture: Clear All wins over unflushed telemetry — the pending
+    // skill_loaded rows (conversation id, skill name, model attribution)
+    // must not survive the wipe and ship later.
+    getTelemetryDb()!.delete(telemetryEvents).run();
     const conv = createConversation("test");
-    getTelemetryDb()!
-      .insert(skillLoadedEvents)
-      .values([
-        {
-          id: "sle-clear-1",
-          createdAt: 1000,
-          conversationId: conv.id,
-          skillName: "web-research",
-        },
-        // Rows without a conversation are wiped too.
-        { id: "sle-clear-2", createdAt: 2000, skillName: "tasks" },
-      ])
-      .run();
+    seedTelemetryEvent("sle-clear-1", 1000, conv.id);
+    // Rows without a conversation are wiped too.
+    seedTelemetryEvent("sle-clear-2", 2000, null);
 
     await clearAll();
 
-    expect(
-      getTelemetryDb()!.select().from(skillLoadedEvents).all(),
-    ).toHaveLength(0);
+    const skillRows = getTelemetryDb()!
+      .select()
+      .from(telemetryEvents)
+      .all()
+      .filter((r) => r.name === "skill_loaded");
+    expect(skillRows).toHaveLength(0);
   });
 
-  test("deleteConversation removes that conversation's skill_loaded_events", async () => {
-    getTelemetryDb()!.delete(skillLoadedEvents).run();
+  test("deleteConversation removes that conversation's telemetry_events rows", async () => {
+    getTelemetryDb()!.delete(telemetryEvents).run();
     const conv = createConversation("doomed");
     await addMessage(conv.id, "user", "hello");
     const other = createConversation("kept");
-    getTelemetryDb()!
-      .insert(skillLoadedEvents)
-      .values([
-        {
-          id: "sle-del-1",
-          createdAt: 1000,
-          conversationId: conv.id,
-          skillName: "web-research",
-        },
-        {
-          id: "sle-del-2",
-          createdAt: 2000,
-          conversationId: other.id,
-          skillName: "tasks",
-        },
-      ])
-      .run();
+    seedTelemetryEvent("te-del-1", 1000, conv.id);
+    seedTelemetryEvent("te-del-2", 2000, other.id);
+    // Redaction keys on conversation_id regardless of event name.
+    seedTelemetryEvent("te-del-3", 3000, conv.id, "future_event");
 
     deleteConversation(conv.id);
 
-    const remaining = getTelemetryDb()!.select().from(skillLoadedEvents).all();
-    expect(remaining.map((r) => r.id)).toEqual(["sle-del-2"]);
+    expect(pendingTelemetryEventIds()).toEqual(["te-del-2"]);
   });
 
-  test("deleteConversation removes skill_loaded_events when the conversation has no messages", () => {
-    getTelemetryDb()!.delete(skillLoadedEvents).run();
+  test("deleteConversation removes telemetry_events rows when the conversation has no messages", () => {
+    getTelemetryDb()!.delete(telemetryEvents).run();
     const conv = createConversation("empty");
-    getTelemetryDb()!
-      .insert(skillLoadedEvents)
-      .values({
-        id: "sle-del-empty",
-        createdAt: 1000,
-        conversationId: conv.id,
-        skillName: "web-research",
-      })
-      .run();
+    seedTelemetryEvent("te-del-empty", 1000, conv.id);
 
     deleteConversation(conv.id);
 
-    expect(
-      getTelemetryDb()!.select().from(skillLoadedEvents).all(),
-    ).toHaveLength(0);
+    expect(pendingTelemetryEventIds()).toHaveLength(0);
   });
 
-  test("deleteConversationGently removes that conversation's skill_loaded_events", async () => {
-    getTelemetryDb()!.delete(skillLoadedEvents).run();
+  test("deleteConversationGently removes that conversation's telemetry_events rows", async () => {
+    getTelemetryDb()!.delete(telemetryEvents).run();
     const conv = createConversation("doomed");
     await addMessage(conv.id, "user", "hello");
     const other = createConversation("kept");
-    getTelemetryDb()!
-      .insert(skillLoadedEvents)
-      .values([
-        {
-          id: "sle-gentle-1",
-          createdAt: 1000,
-          conversationId: conv.id,
-          skillName: "web-research",
-        },
-        {
-          id: "sle-gentle-2",
-          createdAt: 2000,
-          conversationId: other.id,
-          skillName: "tasks",
-        },
-      ])
-      .run();
+    seedTelemetryEvent("te-gentle-1", 1000, conv.id);
+    seedTelemetryEvent("te-gentle-2", 2000, other.id);
 
     await deleteConversationGently(conv.id);
 
-    const remaining = getTelemetryDb()!.select().from(skillLoadedEvents).all();
-    expect(remaining.map((r) => r.id)).toEqual(["sle-gentle-2"]);
+    expect(pendingTelemetryEventIds()).toEqual(["te-gentle-2"]);
   });
 
   test("deleteLastExchange does not delete unlinked user uploads", async () => {
