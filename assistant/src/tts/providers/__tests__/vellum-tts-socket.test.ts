@@ -219,6 +219,26 @@ describe("synthesizeOverVellumTtsSocket", () => {
     expect(chunks).toHaveLength(1);
   });
 
+  test("control frames do not collapse the first-chunk budget", async () => {
+    // Deepgram sends Metadata immediately on connect; the stall budget must
+    // stay on firstChunkTimeoutMs until actual audio arrives.
+    const session = startSession({
+      firstChunkTimeoutMs: 50,
+      idleTimeoutMs: 1,
+    });
+    mockWs.simulateOpen();
+    mockWs.simulateMessage(JSON.stringify({ type: "Metadata" }));
+
+    // Idle budget (1ms) would have expired well within this window; the
+    // first-chunk budget (50ms) has not.
+    await new Promise((r) => setTimeout(r, 20));
+    mockWs.simulateMessage(audioFrame("late"));
+    mockWs.simulateMessage(JSON.stringify({ type: "Flushed" }));
+
+    const audio = await session;
+    expect(audio.toString()).toBe("late");
+  });
+
   test("pre-aborted signal rejects without dialing frames", async () => {
     const controller = new AbortController();
     controller.abort();

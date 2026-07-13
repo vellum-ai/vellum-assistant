@@ -109,7 +109,7 @@ async function performStreamingSynthesis(
   const connection = await resolveSpeechRelayConnection();
   if (!connection) {
     throw new Error(
-      "Managed speech is unavailable: the daemon cannot reach the gateway's speech relay. Run 'assistant platform connect' to connect your Vellum account.",
+      "Managed speech is unavailable: the assistant cannot reach its speech relay. Run 'assistant platform connect' to connect your Vellum account.",
     );
   }
 

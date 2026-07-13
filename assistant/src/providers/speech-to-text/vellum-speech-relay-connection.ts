@@ -109,7 +109,7 @@ export function mapVelayError(error: VelayErrorInfo): {
       return {
         category: "auth",
         message:
-          "The gateway rejected the daemon's service token for managed speech — the daemon and gateway may be out of sync; restart the assistant services.",
+          "The assistant's managed-speech session was rejected by its gateway — the services may be out of sync; restart the assistant.",
       };
     case "insufficient_balance":
       return {

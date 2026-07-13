@@ -143,7 +143,7 @@ export function synthesizeOverVellumTtsSocket(
     let settled = false;
     let opened = false;
     const chunks: Buffer[] = [];
-    let receivedAnyFrame = false;
+    let receivedAudio = false;
     let connectTimer: ReturnType<typeof setTimeout> | null = null;
     let stallTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -198,14 +198,17 @@ export function synthesizeOverVellumTtsSocket(
     };
 
     /**
-     * (Re)arm the stall timer: first-chunk budget until any server frame
-     * arrives, idle budget between frames thereafter.
+     * (Re)arm the stall timer: first-chunk budget until AUDIO arrives, idle
+     * budget between frames thereafter. Unlike the xAI session (where the
+     * first server frame is audio), Deepgram sends a Metadata control frame
+     * immediately on connect — counting it would collapse the first-chunk
+     * budget to the shorter idle budget before synthesis even starts.
      */
     const armStallTimer = () => {
       if (stallTimer !== null) {
         clearTimeout(stallTimer);
       }
-      const timeoutMs = receivedAnyFrame ? idleTimeoutMs : firstChunkTimeoutMs;
+      const timeoutMs = receivedAudio ? idleTimeoutMs : firstChunkTimeoutMs;
       stallTimer = setTimeout(() => {
         fail(makeTimeoutError(timeoutMs));
       }, timeoutMs);
@@ -257,10 +260,12 @@ export function synthesizeOverVellumTtsSocket(
         return;
       }
 
-      receivedAnyFrame = true;
+      // Binary frames are the audio itself.
+      if (ev.data instanceof ArrayBuffer || ArrayBuffer.isView(ev.data)) {
+        receivedAudio = true;
+      }
       armStallTimer();
 
-      // Binary frames are the audio itself.
       if (ev.data instanceof ArrayBuffer) {
         const chunk = Buffer.from(ev.data);
         if (chunk.byteLength === 0) {
