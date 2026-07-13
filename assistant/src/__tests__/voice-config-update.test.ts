@@ -356,6 +356,23 @@ describe("voice_config_update — stt_mode / tts_mode", () => {
     expect((config.services as any)?.stt?.provider).toBeDefined();
   });
 
+  test("switching tts_mode to your-own replaces a vellum provider", async () => {
+    writeConfig({
+      services: { tts: { mode: "managed", provider: "vellum" } },
+    });
+    invalidateConfigCache();
+
+    const result = await run(
+      { setting: "tts_mode", value: "your-own" },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    const config = readConfig();
+    expect((config.services as any)?.tts?.mode).toBe("your-own");
+    expect((config.services as any)?.tts?.provider).toBe("elevenlabs");
+  });
+
   test("switching stt_mode to your-own replaces a vellum provider", async () => {
     writeConfig({
       services: { stt: { mode: "managed", provider: "vellum" } },

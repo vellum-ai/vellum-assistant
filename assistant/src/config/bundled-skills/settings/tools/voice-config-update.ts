@@ -271,6 +271,14 @@ export async function run(
 
   if (setting === "tts_mode") {
     setNestedValue(raw, "services.tts.mode", validation.coerced);
+    // TtsServiceSchema forbids provider "vellum" outside managed mode, so
+    // switching to your-own must also replace a vellum provider.
+    if (
+      validation.coerced === "your-own" &&
+      getConfig().services.tts.provider === "vellum"
+    ) {
+      setNestedValue(raw, "services.tts.provider", "elevenlabs");
+    }
     saveRawConfig(raw);
     invalidateConfigCache();
   }
