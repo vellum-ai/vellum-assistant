@@ -43,7 +43,7 @@ mock.module("@/domains/account/profile", () => ({
 }));
 mock.module("@/generated/api/client.gen", () => ({ client: {} }));
 
-const setDeviceBoolMock = mock(() => {});
+const setDeviceBoolMock = mock((_name: string, _value: boolean) => {});
 mock.module("@/utils/device-settings", () => ({
   setDeviceBool: setDeviceBoolMock,
 }));
