@@ -13,8 +13,6 @@ import { describe, expect, test } from "bun:test";
 const { getDb, getSqlite, getTelemetrySqlite } =
   await import("../db-connection.js");
 const { initializeDb } = await import("../db-init.js");
-const { queryUnreportedAuthFallbackEvents } =
-  await import("../../security/auth-fallback-events-store.js");
 const { migrateMoveAuthFallbackEventsToTelemetryDb } =
   await import("./330-move-auth-fallback-events-to-telemetry-db.js");
 
@@ -24,6 +22,15 @@ const SOURCE_COLUMNS = `
   id TEXT PRIMARY KEY, created_at INTEGER NOT NULL, guard TEXT NOT NULL,
   path TEXT NOT NULL, failure_kind TEXT NOT NULL, count INTEGER NOT NULL,
   window_start INTEGER NOT NULL, window_end INTEGER NOT NULL`;
+
+function relocatedRows(): Array<Record<string, unknown>> {
+  return getTelemetrySqlite()!
+    .query(
+      `SELECT id, guard, path, failure_kind, count, window_start, window_end
+         FROM auth_fallback_events ORDER BY created_at, id`,
+    )
+    .all() as Array<Record<string, unknown>>;
+}
 
 function existsInMain(name: string): boolean {
   return (
@@ -102,16 +109,15 @@ describe("migration 330: move auth_fallback_events to the telemetry DB", () => {
       { id: "seed-dupe", guard: "edge-guardian" },
     ]);
 
-    // The relocated rows are readable through the store's reporter query.
-    const rows = queryUnreportedAuthFallbackEvents(0, undefined, 10);
+    const rows = relocatedRows();
     expect(rows.map((r) => r.id)).toEqual(["seed-1", "seed-2", "seed-dupe"]);
     expect(rows[0]!).toMatchObject({
       guard: "edge",
       path: "/v1/messages",
-      failureKind: "missing_authorization",
+      failure_kind: "missing_authorization",
       count: 7,
-      windowStart: 900,
-      windowEnd: 1000,
+      window_start: 900,
+      window_end: 1000,
     });
   });
 
@@ -124,7 +130,7 @@ describe("migration 330: move auth_fallback_events to the telemetry DB", () => {
 
     expect(existsInMain("auth_fallback_events")).toBe(false);
     expect(existsInMain("auth_fallback_events__relocating")).toBe(false);
-    expect(queryUnreportedAuthFallbackEvents(0, undefined, 10)).toHaveLength(3);
+    expect(relocatedRows()).toHaveLength(3);
   });
 
   test("a pre-existing duplicate id in the telemetry copy does not fail the drain", async () => {
@@ -147,7 +153,7 @@ describe("migration 330: move auth_fallback_events to the telemetry DB", () => {
       .query(`SELECT guard FROM auth_fallback_events WHERE id = 'seed-dupe'`)
       .get() as { guard: string };
     expect(dupe.guard).toBe("already-copied");
-    expect(queryUnreportedAuthFallbackEvents(0, undefined, 10)).toHaveLength(3);
+    expect(relocatedRows()).toHaveLength(3);
   });
 
   test("an empty main-side table (fresh install) is dropped without a drain", async () => {
@@ -160,7 +166,7 @@ describe("migration 330: move auth_fallback_events to the telemetry DB", () => {
 
     expect(existsInMain("auth_fallback_events")).toBe(false);
     expect(existsInMain("auth_fallback_events__relocating")).toBe(false);
-    expect(queryUnreportedAuthFallbackEvents(0, undefined, 10)).toHaveLength(0);
+    expect(relocatedRows()).toHaveLength(0);
   });
 
   test("telemetry-side schema has the reporter's compound cursor index", () => {
