@@ -73,10 +73,11 @@ export type VoiceWavePalette = "aurora" | "accent" | "tone";
 
 /**
  * Where the wave band sits: `bottom` rises from the floor edge (the void
- * look), `center` swells symmetrically around the middle of the screen (the
- * color look — the voice gathering around the centered eyes).
+ * look), `top` sweeps in from the ceiling edge (the color look — the voice
+ * arriving above the centered eyes, leaving them clear), `center` swells
+ * symmetrically around the middle of the screen.
  */
-export type VoiceWavePlacement = "bottom" | "center";
+export type VoiceWavePlacement = "bottom" | "top" | "center";
 
 export function VoiceListeningWaves({
   getAmplitude,

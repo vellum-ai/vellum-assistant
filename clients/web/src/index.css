@@ -775,6 +775,18 @@ body {
   transform: scaleY(-1);
 }
 
+/* Placement: top = the band sweeps in from the ceiling edge (the color look —
+ * the user's voice arriving above the centered eyes, leaving them clear). The
+ * wave fill hugs the bottom of its viewBox, so a vertical flip pins the crests
+ * to the top edge, rippling downward; the amplitude translate recedes the band
+ * up out of view when quiet (the mirror of the bottom placement's recede-down). */
+.voice-listening-waves--top {
+  top: 0;
+  bottom: auto;
+  transform-origin: center;
+  transform: scaleY(-1) translateY(calc((1 - var(--voice-amp)) * 34%));
+}
+
 @media (prefers-reduced-motion: reduce) {
   .voice-listening-waves path {
     animation: none;
@@ -787,6 +799,11 @@ body {
   /* Keep the centered band centered (transform: none would drop it by 50%). */
   .voice-listening-waves--center {
     transform: translateY(-50%);
+    opacity: 0.4;
+  }
+  /* Keep the top band pinned to the ceiling (flipped), just steady. */
+  .voice-listening-waves--top {
+    transform: scaleY(-1);
     opacity: 0.4;
   }
 }

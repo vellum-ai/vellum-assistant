@@ -322,7 +322,7 @@ const colorArgs = {
   oscillate: true,
   waveStyle: "fill" as VoiceWaveStyle,
   eyePlacement: "center" as VoiceEyePlacement,
-  wavePlacement: "center" as VoiceWavePlacement,
+  wavePlacement: "top" as VoiceWavePlacement,
   wavePalette: "tone" as VoiceWavePalette,
   respondingStyle: "rings" as VoiceRespondingStyle,
   colorId: SAMPLE_COLOR_ID,
@@ -339,9 +339,9 @@ const colorArgTypes = {
     description: "Eyes rest centered, or cut off at the bottom edge.",
   },
   wavePlacement: {
-    options: ["center", "bottom"] satisfies VoiceWavePlacement[],
+    options: ["top", "bottom", "center"] satisfies VoiceWavePlacement[],
     control: { type: "inline-radio" as const },
-    description: "Waveform: a centered band, or rising from the floor.",
+    description: "Waveform: sweeping in from the top edge, rising from the floor, or a centered band.",
   },
   wavePalette: {
     options: ["tone", "accent", "aurora"] satisfies VoiceWavePalette[],
@@ -390,23 +390,25 @@ type VoidStory = StoryObj<typeof RoomScene>;
 /**
  * Playground for the room's color-with-eyes look — every knob live. Change any
  * trait (or bump Replay) to replay the entrance: the body springs to fill, the
- * color fades in, and the eyes grow into place. In `listening`, the mic
- * waveform swells in the center and the eyes sink toward the lower rest with
- * the simulated-speech driver.
+ * color fades in, and the eyes grow into place. The eyes stay centered and
+ * change *size* per state; in `listening`, the mic waveform sweeps in from the
+ * top edge with the simulated-speech driver and a state caption fades in below.
  */
 export const Playground: Story = {};
 
 /**
- * Every session state, all sharing the simulated-speech driver:
- * - `idle` — eyes centered, no treatment.
- * - `listening` — centered waveform, eyes sunk toward the lower rest with the
- *   voice.
- * - `thinking` — eyes ride back up to center, the dot triad hangs just above
- *   them (the listening→thinking hand-off cross-fades the waves out / dots in).
- * - `responding` — eyes centered, the responding treatment radiates outward.
- * - `reconnecting` — eyes centered but dimmed.
+ * Every session state, all sharing the simulated-speech driver. The eyes stay
+ * centered throughout and express the state by size (a smooth scale tween);
+ * a soft caption names the beat below them:
+ * - `idle` — eyes centered at a resting size, no treatment or caption.
+ * - `listening` — eyes wide ("all ears"), the waveform sweeping in from the top
+ *   edge, "Listening" below.
+ * - `thinking` — eyes small, the dot triad just above them, "Thinking" below.
+ * - `responding` — eyes medium, the responding treatment radiating outward,
+ *   "Speaking" below.
+ * - `reconnecting` — eyes at the resting size but dimmed.
  *
- * Scrub `visual` in the Playground to watch the transitions between them.
+ * Scrub `visual` in the Playground to watch the size + caption cross-fade.
  */
 export const States: Story = {
   render: (args) => (
@@ -418,7 +420,7 @@ export const States: Story = {
             {...args}
             visual={visual}
             eyePlacement="center"
-            wavePlacement="center"
+            wavePlacement="top"
             minHeight={280}
           />
         </div>

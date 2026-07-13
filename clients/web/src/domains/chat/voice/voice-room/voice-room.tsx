@@ -217,6 +217,9 @@ function VoiceRoomOverlay() {
           visual={visual}
           getAmplitude={getLiveVoiceInputAmplitude}
           getResponseAmplitude={getLiveVoiceOutputAmplitude}
+          // Captions on → the transcript names/fills the space below the eyes,
+          // so the state caption stands down to avoid doubling up.
+          showStateCaption={!captionsOn}
           entryOrigin={entryOrigin}
         />
       ) : (

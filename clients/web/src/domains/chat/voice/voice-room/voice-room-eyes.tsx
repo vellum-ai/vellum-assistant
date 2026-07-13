@@ -16,15 +16,17 @@
  *    per `eyePlacement`) with a settle dip, then a double blink and idle-blink
  *    from there (with a slight cursor parallax).
  *
- * Per-state treatments (driven by `visual`, cross-faded so nothing pops):
- * while the user speaks (`listening`) the mic-amplitude waveform swells behind
- * the eyes — centered by default so it reads as the voice gathering around them
- * rather than rising from the floor — and the eyes drop to a low hold. When the
- * turn passes to the assistant they ride back up to center: `thinking`
- * dissolves the waves out and a quiet dot triad in just above the eyes, then
- * `responding` keeps them centered while the assistant's voice radiates outward
- * from behind them (see {@link VoiceRespondingStyle}). `reconnecting` fades the
- * eyes back — presence dimmed while away.
+ * Per-state treatments (driven by `visual`, cross-faded so nothing pops): the
+ * eyes stay centered throughout and express the state by *size* — a smooth
+ * scale tween, no vertical travel. While the user speaks (`listening`) the
+ * mic-amplitude waveform sweeps in from the top edge (clear of the centered
+ * eyes) and the eyes open wide (large — all ears). When the turn passes to the
+ * assistant, `thinking` shrinks them small and a quiet dot triad works away
+ * just above them, then `responding` settles them to a medium size while the
+ * assistant's voice radiates outward from behind them (see
+ * {@link VoiceRespondingStyle}). A soft state caption ("Listening" / "Thinking"
+ * / "Speaking") fades in below the eyes, filling the negative space and naming
+ * the beat. `reconnecting` fades the eyes back — presence dimmed while away.
  *
  * Geometry and timing mirror onboarding's `IntroductionScreen` +
  * `OnboardingPeekingEyes`. Traits default like `ChatAvatar` does (first
@@ -68,20 +70,29 @@ const EYE_MAX_WIDTH = 0.85;
 const CURSOR_MAX_X = 14;
 const CURSOR_MAX_Y = 8;
 /**
- * How far down the centered eyes hold while listening, as a fraction of the
- * sink travel to the bottom rest — they settle low (clear of the centered
- * waveform) the moment the user starts, and the remaining fraction is the
- * live bob driven by mic amplitude, so they never float back up between words.
+ * Per-state eye size, as a scale of the rest geometry (which is authored at the
+ * largest, `listening`, size). The eyes never move — they open wide when the
+ * user speaks (all ears), shrink small while the assistant thinks (withdrawn,
+ * working), and settle to a medium size while it speaks (engaged). `idle` /
+ * `reconnecting` rest a touch under full. Retargeted by a scale tween, so the
+ * state change reads as the eyes breathing rather than sliding.
  */
-const EYE_LISTEN_SINK_BASE = 0.85;
-/**
- * How long the eyes travel between center and the low listening hold — a
- * motion tween on the hold wrapper (the same animation system as the entrance
- * keyframes; see {@link VoiceRoomEyes}). The drop is quicker than the rise:
- * getting out of the waveform's way is urgent, coming back up is composed.
- */
-const EYE_SINK_MS = 450;
-const EYE_RISE_MS = 700;
+const EYE_STATE_SCALE: Record<VoiceAvatarVisual, number> = {
+  idle: 0.9,
+  listening: 1,
+  thinking: 0.62,
+  responding: 0.8,
+  reconnecting: 0.9,
+};
+/** How long the eyes take to resize between states. */
+const EYE_RESIZE_MS = 500;
+/** State caption shown below the eyes, per visual (none for idle / connecting-
+ *  side states, which the room's own connect label covers). */
+const EYE_STATE_CAPTION: Partial<Record<VoiceAvatarVisual, string>> = {
+  listening: "Listening",
+  thinking: "Thinking",
+  responding: "Speaking",
+};
 /** The entrance grows the body from this "avatar on the screen" size and the
  *  eyes from this vertical center — onboarding's picker geometry. */
 const ENTER_FROM_SIZE = 200;
@@ -190,9 +201,10 @@ export function VoiceRoomColorLook({
   getResponseAmplitude,
   respondingStyle = "rings",
   eyePlacement = "center",
-  wavePlacement = "center",
+  wavePlacement = "top",
   wavePalette = "tone",
   waveStyle = "fill",
+  showStateCaption = true,
   entryOrigin = null,
   viewport,
 }: {
@@ -210,6 +222,9 @@ export function VoiceRoomColorLook({
   wavePlacement?: VoiceWavePlacement;
   wavePalette?: VoiceWavePalette;
   waveStyle?: VoiceWaveStyle;
+  /** Show the state caption below the eyes. Off when the room's live captions
+   *  are on — the transcript already names/fills that space. */
+  showStateCaption?: boolean;
   /** Viewport point the entrance grows from (the tapped control). Null → the
    *  fixed screen-center origin. */
   entryOrigin?: { x: number; y: number } | null;
@@ -225,16 +240,20 @@ export function VoiceRoomColorLook({
   const origin = entryOrigin ?? { x: w / 2, y: (ENTER_FROM_CENTER_VH / 100) * h };
 
   // Per-state treatments. The waveform is the user's live voice (listening
-  // only); the eyes sink low only while listening, then ride back up to center
-  // the moment the turn passes to the assistant (thinking + responding), so the
-  // rise doubles as the "over to you" beat. The centered eye top is where they
-  // come to rest — the thinking dots hang just above it.
+  // only). The eyes never move — they stay centered and express the state by
+  // size (`EYE_STATE_SCALE`): wide while the user speaks, small while thinking,
+  // medium while speaking. The centered eyes are framed at the full (listening)
+  // size; `centeredEyeTop` is that frame's top edge.
   const showWaves = visual === "listening";
-  const sinkEyes = visual === "listening";
-  const centeredEyeTop = useMemo(
-    () => (h - eyeDisplayHeight(look.art, w, h)) / 2,
-    [look.art, w, h],
-  );
+  const sizeScale = EYE_STATE_SCALE[visual];
+  const eyeH = eyeDisplayHeight(look.art, w, h);
+  const centeredEyeTop = (h - eyeH) / 2;
+  // The thinking dots hang just above the *shrunken* thinking eyes (centered,
+  // so their top sits below the full-size frame's top by half the size loss).
+  const thinkingEyeTop = centeredEyeTop + (eyeH * (1 - EYE_STATE_SCALE.thinking)) / 2;
+  // The state caption sits in the negative space below the eyes' full-size
+  // bottom edge — a stable anchor the per-state resize (centered) doesn't move.
+  const captionTop = centeredEyeTop + eyeH + Math.max(24, eyeH * 0.22);
 
   // Body grows to cover the screen end to end, from the small avatar size at
   // the entry origin — onboarding's Introduction grow, re-anchored to where the
@@ -344,7 +363,7 @@ export function VoiceRoomColorLook({
           >
             <VoiceThinkingIndicator
               viewport={{ w, h }}
-              eyesTop={centeredEyeTop}
+              eyesTop={thinkingEyeTop}
             />
           </motion.div>
         ) : null}
@@ -378,15 +397,56 @@ export function VoiceRoomColorLook({
         placement={eyePlacement}
         viewport={{ w, h }}
         entranceOrigin={origin}
-        getAmplitude={getAmplitude}
-        // The centered eyes drop low only while the user speaks (`listening`),
-        // sinking with the voice, then ride back up to center for the
-        // assistant's turn (see `VoiceRoomEyes`).
-        sink={sinkEyes}
+        // The centered eyes never move — they express the state by size.
+        sizeScale={sizeScale}
         // Reconnecting: fade the eyes back — presence dimmed while away.
         dimmed={visual === "reconnecting"}
       />
+
+      {/* State caption in the negative space below the eyes (unless the live
+          captions are on — the transcript fills that space instead). */}
+      {showStateCaption ? (
+        <VoiceStateCaption visual={visual} top={captionTop} />
+      ) : null}
     </>
+  );
+}
+
+/**
+ * Soft state caption ("Listening" / "Thinking" / "Speaking") centered in the
+ * negative space below the eyes, in the room's foreground tone. Cross-fades on
+ * state change and simply isn't there for states without a caption
+ * ({@link EYE_STATE_CAPTION}) — idle and the connecting-side states, which the
+ * room's own connect label already covers. `top` is a stable px anchor from the
+ * eyes' full-size bottom edge (the per-state resize is centered, so it doesn't
+ * shift this).
+ */
+function VoiceStateCaption({
+  visual,
+  top,
+}: {
+  visual: VoiceAvatarVisual;
+  top: number;
+}) {
+  const reduce = useReducedMotion();
+  const label = EYE_STATE_CAPTION[visual];
+  return (
+    <AnimatePresence mode="wait">
+      {label ? (
+        <motion.div
+          key={label}
+          aria-hidden="true"
+          className="pointer-events-none absolute left-1/2 z-[1] -translate-x-1/2 text-center text-[clamp(15px,2.2vmin,22px)] font-medium tracking-wide text-[var(--room-fg-muted,rgba(255,255,255,0.7))]"
+          style={{ top }}
+          initial={reduce ? false : { opacity: 0, y: 6 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={reduce ? { opacity: 0 } : { opacity: 0, y: -6 }}
+          transition={{ duration: reduce ? 0 : 0.28, ease: "easeOut" }}
+        >
+          {label}
+        </motion.div>
+      ) : null}
+    </AnimatePresence>
   );
 }
 
@@ -463,7 +523,7 @@ export type VoiceRespondingStyle = "rings" | "halo" | "waveform" | "pulse";
 /**
  * Smoothed output-amplitude → `--resp-amp` on a ref, for the responding
  * treatments to read in CSS. Imperative rAF (never React state), mirroring the
- * waveform / eye-sink loops.
+ * listening waveform's amplitude loop.
  */
 function useRespondingAmp(getAmplitude?: () => number) {
   const ref = useRef<HTMLDivElement | null>(null);
@@ -605,9 +665,7 @@ function VoiceRespondingTreatment({
 /**
  * Rest position + entrance geometry for the eyes, per placement. The eyes grow
  * from the entry origin (start offset by `origin − restCenter`, scaled down)
- * and settle at rest with a small dip. `sinkTravel` is how far the centered
- * eyes can slide toward the bottom rest while the user speaks (0 for the
- * bottom placement — nowhere lower).
+ * and settle at rest with a small dip.
  */
 function eyeLayout(
   placement: VoiceEyePlacement,
@@ -621,7 +679,6 @@ function eyeLayout(
   startX: number;
   startY: number;
   dipY: number;
-  sinkTravel: number;
 } {
   const bottomRestTop = h - (1 - EYE_REST_CUTOFF) * eyesH;
   const restTop = placement === "center" ? (h - eyesH) / 2 : bottomRestTop;
@@ -634,8 +691,6 @@ function eyeLayout(
     startY: origin.y - restCenterY,
     // A small settle dip below rest as they land.
     dipY: eyesH * 0.12,
-    sinkTravel:
-      placement === "center" ? Math.max(0, bottomRestTop - restTop) : 0,
   };
 }
 
@@ -644,8 +699,7 @@ export function VoiceRoomEyes({
   viewport,
   placement = "center",
   entranceOrigin,
-  getAmplitude,
-  sink = false,
+  sizeScale = 1,
   dimmed = false,
 }: {
   art: VoiceRoomEyeArt;
@@ -654,10 +708,9 @@ export function VoiceRoomEyes({
   placement?: VoiceEyePlacement;
   /** Viewport point the eyes grow from on entrance. Defaults to screen center. */
   entranceOrigin?: { x: number; y: number };
-  /** Mic amplitude source (0–1); drives the live bob while the eyes are sunk. */
-  getAmplitude?: () => number;
-  /** Hold the eyes at the low rest (while the user speaks — `listening`). */
-  sink?: boolean;
+  /** Per-state size, as a scale of the rest geometry — tweened on change so the
+   *  eyes resize smoothly (they never move). See {@link EYE_STATE_SCALE}. */
+  sizeScale?: number;
   /** Fade the eyes back (the reconnecting state — presence dimmed while away). */
   dimmed?: boolean;
 }) {
@@ -710,7 +763,7 @@ export function VoiceRoomEyes({
   const geometry = useMemo(() => {
     const eyesH = eyeDisplayHeight(art, w, h);
     const eyesW = (eyesH * art.bbox.w) / art.bbox.h;
-    const { restTop, startX, startY, dipY, sinkTravel } = eyeLayout(
+    const { restTop, startX, startY, dipY } = eyeLayout(
       placement,
       eyesW,
       eyesH,
@@ -718,72 +771,8 @@ export function VoiceRoomEyes({
       h,
       { x: originX, y: originY },
     );
-    return {
-      eyesW,
-      eyesH,
-      left: (w - eyesW) / 2,
-      restTop,
-      startX,
-      startY,
-      dipY,
-      sinkTravel,
-    };
+    return { eyesW, eyesH, left: (w - eyesW) / 2, restTop, startX, startY, dipY };
   }, [art, w, h, placement, originX, originY]);
-
-  // Sink: while the user speaks (`listening`) the centered eyes drop to a low
-  // hold near the bottom rest (`EYE_LISTEN_SINK_BASE` of the travel) so they
-  // sit clear of the centered waveform; when the turn passes to the assistant
-  // they sweep back up to center. Two nested wrappers so the parts compose:
-  // - The big center↔low-hold travel is a motion tween on the hold wrapper
-  //   below — the same animation system as the entrance keyframes (per-frame
-  //   imperative writes of the full travel fought the entrance's transforms
-  //   and read as stutter). `sink` retargets the tween; a mid-flight reversal
-  //   continues from wherever the eyes are.
-  // - The residual mic bob (≤15% of the travel) stays an imperative smoothed
-  //   rAF writing `translateY` on the inner wrapper — a live noisy signal has
-  //   no place in React state or tween retargets. It releases to 0 the moment
-  //   the sink lifts, so the rise is the motion tween alone.
-  const sinkRef = useRef<HTMLDivElement | null>(null);
-  const getAmplitudeRef = useRef(getAmplitude);
-  const sinkActiveRef = useRef(sink);
-  const sinkTravelRef = useRef(geometry.sinkTravel);
-  useEffect(() => {
-    getAmplitudeRef.current = getAmplitude;
-  }, [getAmplitude]);
-  useEffect(() => {
-    sinkActiveRef.current = sink;
-  }, [sink]);
-  useEffect(() => {
-    sinkTravelRef.current = geometry.sinkTravel;
-  }, [geometry.sinkTravel]);
-  useEffect(() => {
-    if (reduce) return;
-    const node = sinkRef.current;
-    if (!node) return;
-    const bobSmoother = createAmplitudeSmoother({ attackMs: 160, releaseMs: 380 });
-    let raf = 0;
-    let lastTime = performance.now();
-    let lastWritten = "";
-    const tick = (now: number) => {
-      const dt = now - lastTime;
-      lastTime = now;
-      const get = getAmplitudeRef.current;
-      const amp = get ? Math.min(1, Math.max(0, get())) : 0;
-      const bob = bobSmoother.step(sinkActiveRef.current ? amp : 0, dt);
-      const shift = (bob * (1 - EYE_LISTEN_SINK_BASE) * sinkTravelRef.current).toFixed(1);
-      if (shift !== lastWritten) {
-        lastWritten = shift;
-        node.style.transform = `translateY(${shift}px)`;
-      }
-      raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [reduce]);
-
-  // The low-hold offset the hold wrapper tweens to while sunk (0 for the
-  // bottom placement — nowhere lower to go).
-  const holdY = geometry.sinkTravel * EYE_LISTEN_SINK_BASE;
 
   const cx = art.bbox.x + art.bbox.w / 2;
   const cy = art.bbox.y + art.bbox.h / 2;
@@ -806,10 +795,10 @@ export function VoiceRoomEyes({
           : false
       }
       // Play the grow-in keyframes only until the entrance lands, then hold a
-      // stable static target. Otherwise every re-render (a `visual`/`sink`
+      // stable static target. Otherwise every re-render (a `visual`/`sizeScale`
       // change) hands Motion a fresh keyframe array and it replays part of the
       // entrance — the eyes lurch toward the origin and snap back, fighting the
-      // smooth sink-rise on the listening→thinking hand-off.
+      // smooth per-state resize.
       animate={
         playEntrance && !entranceDone
           ? {
@@ -826,25 +815,18 @@ export function VoiceRoomEyes({
       }
       onAnimationComplete={() => setEntranceDone(true)}
     >
-      {/* Turn hold: the big center↔low-hold travel, on the same motion tween
-          system as the entrance. `sink` retargets `y`; a mid-flight reversal
-          continues smoothly from wherever the eyes are. */}
+      {/* Per-state size: the eyes stay put and resize, on the same motion tween
+          system as the entrance. `sizeScale` retargets `scale`; a mid-flight
+          state change continues smoothly from wherever the eyes are. */}
       <motion.div
-        animate={reduce ? { y: 0 } : { y: sink ? holdY : 0 }}
+        style={{ transformOrigin: "center" }}
+        animate={reduce ? { scale: 1 } : { scale: sizeScale }}
         transition={
-          reduce
-            ? { duration: 0 }
-            : {
-                duration: (sink ? EYE_SINK_MS : EYE_RISE_MS) / 1000,
-                ease: "easeInOut",
-              }
+          reduce ? { duration: 0 } : { duration: EYE_RESIZE_MS / 1000, ease: "easeInOut" }
         }
       >
-        {/* Speak-to-sink bob: rAF writes translateY here as the voice rises.
-            The opacity fades the eyes back while reconnecting (rAF only
-            touches `transform`, so it never clobbers this). */}
+        {/* The opacity fades the eyes back while reconnecting. */}
         <div
-          ref={sinkRef}
           style={{
             opacity: dimmed ? 0.4 : 1,
             transition: "opacity 0.5s ease",
