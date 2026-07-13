@@ -1,49 +1,30 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  pendingOutboxPayloads,
+  pendingOutboxRows,
+  resetOutboxTable,
+  setShareAnalytics,
+} from "./outbox-test-harness.js";
 
-let shareAnalytics = true;
+import { beforeEach, describe, expect, test } from "bun:test";
 
-mock.module("../../platform/consent-cache.js", () => ({
-  getCachedShareAnalytics: () => shareAnalytics,
-}));
-
-import { getTelemetryDb } from "../../persistence/db-connection.js";
-import { initializeDb } from "../../persistence/db-init.js";
-import { telemetryEvents } from "../../persistence/schema/index.js";
 import { APP_VERSION } from "../../version.js";
 import { recordConfigSettingEvent } from "../config-setting-events-store.js";
-import { queryTelemetryOutboxBatch } from "../telemetry-events-outbox.js";
-
-await initializeDb();
-
-function pendingConfigSettingPayloads(): Array<Record<string, unknown>> {
-  return queryTelemetryOutboxBatch("config_setting", 100).map(
-    (row) => JSON.parse(row.payload) as Record<string, unknown>,
-  );
-}
-
-function clearEvents(): void {
-  const db = getTelemetryDb();
-  if (!db) {
-    throw new Error("telemetry DB unavailable in test");
-  }
-  db.delete(telemetryEvents).run();
-}
 
 describe("config-setting-events-store", () => {
   beforeEach(() => {
-    shareAnalytics = true;
-    clearEvents();
+    setShareAnalytics(true);
+    resetOutboxTable();
   });
 
   test("honors the share_analytics opt-out (records nothing, returns false)", () => {
-    shareAnalytics = false;
+    setShareAnalytics(false);
     expect(
       recordConfigSettingEvent({
         configKey: "memory.enabled",
         configValue: "true",
       }),
     ).toBe(false);
-    expect(queryTelemetryOutboxBatch("config_setting", 10)).toHaveLength(0);
+    expect(pendingOutboxRows("config_setting", 10)).toHaveLength(0);
   });
 
   test("records the full wire event and returns true", () => {
@@ -54,7 +35,7 @@ describe("config-setting-events-store", () => {
       }),
     ).toBe(true);
 
-    const rows = queryTelemetryOutboxBatch("config_setting", 10);
+    const rows = pendingOutboxRows("config_setting", 10);
     expect(rows).toHaveLength(1);
     const row = rows[0]!;
     expect(row.id).toBeString();
@@ -75,7 +56,7 @@ describe("config-setting-events-store", () => {
       configValue: "v".repeat(300),
     });
 
-    const payloads = pendingConfigSettingPayloads();
+    const payloads = pendingOutboxPayloads("config_setting");
     expect(payloads).toHaveLength(1);
     expect(payloads[0]!.config_key).toBe("k".repeat(128));
     expect(payloads[0]!.config_value).toBe("v".repeat(256));
