@@ -131,12 +131,11 @@ function iconContentsUrl(entry) {
  * (429/5xx/network) vs a hard error. A 404 never reaches here — it is a normal
  * "no icon" result, not a failure.
  */
-export class IconFetchError extends Error {
-  constructor(message, { transient = false, status } = {}) {
+class IconFetchError extends Error {
+  constructor(message, { transient = false } = {}) {
     super(message);
     this.name = "IconFetchError";
     this.transient = transient;
-    if (status !== undefined) this.status = status;
   }
 }
 
@@ -185,7 +184,6 @@ async function fetchIconBytes(fetchImpl, entry, token) {
   if (!res.ok) {
     throw new IconFetchError(`HTTP ${res.status}`, {
       transient: isTransientUpstreamStatus(res),
-      status: res.status,
     });
   }
   // Reject an oversized icon on its advertised Content-Length before buffering
@@ -196,7 +194,7 @@ async function fetchIconBytes(fetchImpl, entry, token) {
   if (Number.isFinite(contentLength) && contentLength > MAX_ICON_BYTES) {
     throw new IconFetchError(
       `icon.png is ${contentLength} bytes, over the ${MAX_ICON_BYTES}-byte cap`,
-      { transient: false, status: res.status },
+      { transient: false },
     );
   }
   return Buffer.from(await res.arrayBuffer());
