@@ -265,6 +265,28 @@ describe("VellumPlatformClient", () => {
       expect(await client!.getOwnerConsent()).toBeNull();
     });
 
+    test("null share_analytics (owner never chose) maps to false, keeping diagnostics intact", async () => {
+      globalThis.fetch = mock(
+        async () =>
+          new Response(
+            JSON.stringify({
+              share_analytics: null,
+              share_diagnostics: true,
+              share_diagnostics_accepted_version: "2026-06-18",
+            }),
+            { status: 200 },
+          ),
+      ) as unknown as typeof globalThis.fetch;
+
+      const client = await VellumPlatformClient.create();
+      const consent = await client!.getOwnerConsent();
+      expect(consent).toEqual({
+        shareAnalytics: false,
+        shareDiagnostics: true,
+        shareDiagnosticsAcceptedVersion: "2026-06-18",
+      });
+    });
+
     test("returns null on malformed body (non-boolean fields)", async () => {
       globalThis.fetch = mock(
         async () =>
