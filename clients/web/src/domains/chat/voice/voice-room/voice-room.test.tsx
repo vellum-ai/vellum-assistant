@@ -293,6 +293,54 @@ describe("VoiceRoom — captions toggle", () => {
   });
 });
 
+describe("VoiceRoom — mute toggle", () => {
+  test("mute drives the registered setMuted control", () => {
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+    fireEvent.click(screen.getByRole("button", { name: "Mute microphone" }));
+    expect(controls.setMuted).toHaveBeenCalledWith(true);
+  });
+
+  test("muted: offers unmute", () => {
+    startOwnedSession("listening");
+    useLiveVoiceStore.setState({ muted: true });
+    render(<VoiceRoom />);
+    const toggle = screen.getByRole("button", { name: "Unmute microphone" });
+    expect(toggle.getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(toggle);
+    expect(controls.setMuted).toHaveBeenCalledWith(false);
+  });
+});
+
+describe("VoiceRoom — stop response", () => {
+  const stopButton = () =>
+    screen.queryByRole("button", { name: "Stop assistant response" });
+
+  test("■ renders while speaking hands-free and drives the interrupt control", () => {
+    startOwnedSession("speaking");
+    useLiveVoiceStore.setState({ handsFree: true });
+    render(<VoiceRoom />);
+    fireEvent.click(stopButton()!);
+    expect(controls.interrupt).toHaveBeenCalledTimes(1);
+    expect(controls.stop).not.toHaveBeenCalled();
+  });
+
+  test("no ■ outside speaking, or for a manual (fallback) session", () => {
+    startOwnedSession("listening");
+    useLiveVoiceStore.setState({ handsFree: true });
+    const { unmount } = render(<VoiceRoom />);
+    expect(stopButton()).toBeNull();
+    unmount();
+
+    // Manual session (version-skew fallback): interrupt would end the whole
+    // session, so the room must not offer the turn-scoped control.
+    startOwnedSession("speaking");
+    useLiveVoiceStore.setState({ handsFree: false });
+    render(<VoiceRoom />);
+    expect(stopButton()).toBeNull();
+  });
+});
+
 describe("VoiceRoom — connect feedback", () => {
   test("shows the connecting label while the session connects", () => {
     startOwnedSession("connecting");

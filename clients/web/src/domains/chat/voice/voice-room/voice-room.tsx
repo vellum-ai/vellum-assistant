@@ -23,9 +23,9 @@
  * dead room.
  *
  * Sessions are hands-free (server-VAD): the user just speaks, so there is no
- * push-to-talk control — and deliberately no manual "send now" either: the
- * controller's `release` seam is a no-op for hands-free sessions, so such a
- * control would be dead (PR #37913 review). Exit is first-class: a persistent
+ * push-to-talk control. Bottom-center carries the session controls in the
+ * call-app idiom: a mic mute toggle (always) and, while the assistant speaks
+ * hands-free, a turn-scoped ■ stop. Exit is first-class: a persistent
  * ✕ control (always rendered, even while the avatar/assistant data is loading
  * or failed) ends the session; Escape and the minimize control collapse the
  * room to the composer's voice bar WITHOUT ending the session (the bar's
@@ -35,7 +35,7 @@
 
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useEffect } from "react";
-import { Captions, CaptionsOff, Minimize2, X } from "lucide-react";
+import { Captions, CaptionsOff, Mic, MicOff, Minimize2, Square, X } from "lucide-react";
 
 import { Tooltip, cn } from "@vellumai/design-library";
 
@@ -45,6 +45,8 @@ import {
   getLiveVoiceOutputAmplitude,
   liveVoiceStateLabel,
   minimizeLiveVoiceRoom,
+  setLiveVoiceMuted,
+  stopLiveVoiceResponse,
   useLiveVoiceStore,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
@@ -107,6 +109,11 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
   const state = useLiveVoiceStore.use.state();
   const reconnecting = useLiveVoiceStore.use.reconnecting();
   const assistantId = useLiveVoiceStore.use.assistantId();
+  const muted = useLiveVoiceStore.use.muted();
+  // Turn-scoped ■ stop is hands-free-only (a manual session's interrupt ends
+  // the whole session); room sessions are hands-free except on the
+  // version-skew fallback against an older daemon.
+  const handsFree = useLiveVoiceStore.use.handsFree();
   const reduce = useReducedMotion();
 
   const visual = toVoiceAvatarVisual(state, reconnecting);
@@ -298,10 +305,59 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
         ) : null}
       </AnimatePresence>
 
+      {/* Bottom-center session controls, the call-app idiom: the mic mute
+          toggle always (an open mic demands an always-reachable mute), and —
+          while the assistant speaks in a hands-free session — a ■ that stops
+          the response without ending the session (web barge-in by just
+          talking is not reliable yet, so this is the room's only interrupt). */}
+      <div
+        className="absolute left-1/2 z-10 flex -translate-x-1/2 items-center gap-3"
+        style={{ bottom: `max(2.5rem, ${SAFE_AREA_BOTTOM})` }}
+      >
+        <Tooltip content={muted ? "Unmute microphone" : "Mute microphone"}>
+          <button
+            type="button"
+            onClick={() => setLiveVoiceMuted(!muted)}
+            aria-label={muted ? "Unmute microphone" : "Mute microphone"}
+            aria-pressed={muted}
+            className={cn(
+              "flex size-12 items-center justify-center rounded-full border transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white/60",
+              muted
+                ? "border-red-400/50 bg-red-500/20 text-red-300 hover:bg-red-500/30"
+                : "border-white/15 text-white/70 hover:bg-white/10 hover:text-white",
+            )}
+          >
+            {muted ? <MicOff className="size-5" /> : <Mic className="size-5" />}
+          </button>
+        </Tooltip>
+        <AnimatePresence>
+          {handsFree && state === "speaking" ? (
+            <motion.div
+              key="stop-response"
+              initial={reduce ? false : { opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              transition={{ duration: reduce ? 0 : 0.2 }}
+            >
+              <Tooltip content="Stop assistant response">
+                <button
+                  type="button"
+                  onClick={stopLiveVoiceResponse}
+                  aria-label="Stop assistant response"
+                  className="flex size-12 items-center justify-center rounded-full border border-white/15 text-white/70 transition hover:bg-white/10 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white/60"
+                >
+                  <Square className="size-4" fill="currentColor" />
+                </button>
+              </Tooltip>
+            </motion.div>
+          ) : null}
+        </AnimatePresence>
+      </div>
+
       {/* Screen readers get session-state changes here; the avatar is the
           visual channel, so this stays off-screen. */}
       <div aria-live="polite" className="sr-only">
-        {stateLabel}
+        {muted ? `Muted — ${stateLabel}` : stateLabel}
       </div>
     </motion.div>
   );

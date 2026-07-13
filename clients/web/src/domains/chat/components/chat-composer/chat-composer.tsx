@@ -41,6 +41,8 @@ import {
     getLiveVoiceInputAmplitude,
     isLiveVoiceSessionActive,
     releaseLiveVoiceTurn,
+    setLiveVoiceMuted,
+    stopLiveVoiceResponse,
     useIsLiveVoiceSessionOwnedBy,
     useLiveVoiceStore,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
@@ -263,6 +265,11 @@ export function ChatComposer({
   // Whether the user minimized the voice room (Escape / its minimize control)
   // — the case where this bar is the session surface and offers re-expand.
   const liveVoiceRoomMinimized = useLiveVoiceStore.use.roomMinimized();
+  // Mic mute state (controller-published) for the voice bar's toggle.
+  const liveVoiceMuted = useLiveVoiceStore.use.muted();
+  // Hands-free sessions get the turn-scoped ■ stop; a manual (version-skew
+  // fallback) session must not — its interrupt ends the whole session.
+  const liveVoiceHandsFree = useLiveVoiceStore.use.handsFree();
   // Whether the session has any speech transcript to show. A boolean
   // *presence* subscription, not the text itself: zustand only re-renders
   // when the selected value changes identity, so per-delta transcript
@@ -733,8 +740,13 @@ export function ChatComposer({
               <VoiceComposerBar
                 state={liveVoiceState}
                 getAmplitude={getLiveVoiceInputAmplitude}
+                muted={liveVoiceMuted}
+                onToggleMute={() => setLiveVoiceMuted(!liveVoiceMuted)}
                 onEnd={endLiveVoiceSession}
                 onSend={releaseLiveVoiceTurn}
+                // Turn-scoped stop is hands-free-only; a manual session's
+                // interrupt ends the whole session (✕ owns that).
+                onStop={liveVoiceHandsFree ? stopLiveVoiceResponse : undefined}
                 // Expand is offered only while the room is actually minimized
                 // — the one case where this bar is on screen and the room can
                 // be reopened. In pop-outs the room never mounts, so the flag

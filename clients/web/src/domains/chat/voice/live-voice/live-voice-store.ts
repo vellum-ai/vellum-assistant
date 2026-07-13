@@ -102,19 +102,28 @@ export interface LiveVoiceSessionControls {
   /** End the voice session (release mic, socket, and audio). */
   stop: () => void;
   /**
-   * Force-end the current user turn — a manual push-to-talk release, identical
-   * to the automatic silence release (the green ↑ "send now" button). No-op
-   * unless the session is `listening`.
+   * Force-end the current user turn — a manual "send now", identical to the
+   * automatic release. In hands-free mode it forces the server VAD's
+   * utterance boundary (`ptt_release` is honored as a manual override); in
+   * manual mode it is the classic push-to-talk release. No-op unless the
+   * session is `listening`.
    */
   release: () => void;
   /**
-   * Stop in-flight assistant playback without the user having to speak. V1
-   * behavior: same path as barge-in interrupt, which ends the session (a later
-   * engine revision makes it turn-scoped). No-op unless the session is
-   * `speaking`. Dormant until the turn-scoped interrupt lands (engine plan,
-   * JARVIS-1240) — deliberately kept registered, but no surface wires it yet.
+   * Stop in-flight assistant playback without the user having to speak.
+   * Hands-free (server-VAD) sessions: turn-scoped — the daemon cancels the
+   * turn and re-arms, and the session returns to `listening`. Manual
+   * sessions keep the V1 barge-in semantics, which end the session. No-op
+   * unless the session is `speaking`.
    */
   interrupt: () => void;
+  /**
+   * Mute (or unmute) the mic without ending the session. While muted the
+   * capture graph keeps running but silence is streamed in place of the
+   * captured PCM (keeps the server VAD / STT stream healthy) and the
+   * published amplitude pins to 0.
+   */
+  setMuted: (muted: boolean) => void;
 }
 
 /**
@@ -199,6 +208,20 @@ export interface LiveVoiceState {
    */
   roomMinimized: boolean;
   /**
+   * True while the user muted the mic (see {@link LiveVoiceSessionControls.setMuted}).
+   * Written by the controller so surfaces render the muted state; cleared on
+   * `reset` and `setSessionContext` — a new session always starts live.
+   */
+  muted: boolean;
+  /**
+   * Whether the active session runs hands-free (server-VAD). Published by the
+   * controller at start and downgraded on the version-skew fallback (an older
+   * daemon that ignores `turnDetection`). Surfaces use it to gate hands-free-
+   * only affordances — e.g. the pill's turn-scoped ■ stop, which in a manual
+   * session would end the whole session.
+   */
+  handsFree: boolean;
+  /**
    * Latency measurements for the last turn, `null` until a turn is measured.
    * Debug surface only — per the minimal-treatment note on
    * {@link LIVE_VOICE_STATE_LABELS}, no surface renders this: the controller
@@ -257,6 +280,10 @@ export interface LiveVoiceActions {
   setInputAmplitude: (amplitude: number) => void;
   /** Minimize (or re-expand) the voice room for the active session. */
   setRoomMinimized: (minimized: boolean) => void;
+  /** Record the muted state published by the controller. */
+  setMuted: (muted: boolean) => void;
+  /** Record whether the active session runs hands-free (server-VAD). */
+  setHandsFree: (handsFree: boolean) => void;
   /**
    * Replace the last turn's latency pair wholesale (never patch a member in
    * place) so subscribers of the atomic selector see one consistent object.
@@ -358,6 +385,8 @@ const INITIAL_SESSION_STATE: Omit<LiveVoiceState, "starter"> = {
   assistantTranscript: "",
   inputAmplitude: 0,
   roomMinimized: false,
+  muted: false,
+  handsFree: false,
   lastTurnLatency: null,
   outputAmplitudeProvider: null,
   error: null,
@@ -370,13 +399,14 @@ const useLiveVoiceStoreBase = create<LiveVoiceStore>()((set) => ({
   setState: (state) => set({ state }),
   setReconnecting: (reconnecting) => set({ reconnecting }),
   setSessionContext: (assistantId, conversationId) =>
-    // A fresh session always opens with the room expanded, even if the
-    // controller starts it without an intervening `reset`.
+    // A fresh session always opens with the room expanded and the mic live,
+    // even if the controller starts it without an intervening `reset`.
     set({
       assistantId,
       conversationId,
       startedConversationId: conversationId,
       roomMinimized: false,
+      muted: false,
     }),
   setConversationId: (conversationId) => set({ conversationId }),
   setControls: (controls) => set({ controls }),
@@ -389,6 +419,8 @@ const useLiveVoiceStoreBase = create<LiveVoiceStore>()((set) => ({
   clearUserTranscripts: () => set({ partialTranscript: "", finalTranscript: "" }),
   setInputAmplitude: (inputAmplitude) => set({ inputAmplitude }),
   setRoomMinimized: (roomMinimized) => set({ roomMinimized }),
+  setMuted: (muted) => set({ muted }),
+  setHandsFree: (handsFree) => set({ handsFree }),
   setLastTurnLatency: (lastTurnLatency) => set({ lastTurnLatency }),
   setOutputAmplitudeProvider: (outputAmplitudeProvider) =>
     set({ outputAmplitudeProvider }),
@@ -440,6 +472,27 @@ export function endLiveVoiceSession(): void {
  */
 export function releaseLiveVoiceTurn(): void {
   useLiveVoiceStore.getState().controls?.release();
+}
+
+/**
+ * Stop the in-flight assistant response through the store-registered
+ * controls. Turn-scoped for hands-free sessions (the session returns to
+ * `listening`); ends a manual session (V1 barge-in semantics). No-op unless
+ * the session is `speaking`. See {@link endLiveVoiceSession} for why this is
+ * module-level.
+ */
+export function stopLiveVoiceResponse(): void {
+  useLiveVoiceStore.getState().controls?.interrupt();
+}
+
+/**
+ * Mute or unmute the active session's mic through the store-registered
+ * controls (the controller mirrors the state into `muted`). No-op when no
+ * session exists. See {@link endLiveVoiceSession} for why this is
+ * module-level.
+ */
+export function setLiveVoiceMuted(muted: boolean): void {
+  useLiveVoiceStore.getState().controls?.setMuted(muted);
 }
 
 /**

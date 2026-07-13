@@ -19,6 +19,8 @@ import {
   liveVoiceStateLabel,
   minimizeLiveVoiceRoom,
   releaseLiveVoiceTurn,
+  setLiveVoiceMuted,
+  stopLiveVoiceResponse,
   useLiveVoiceStore,
   type LiveVoiceSessionState,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
@@ -134,6 +136,48 @@ describe("useLiveVoiceStore — room minimize", () => {
     minimizeLiveVoiceRoom();
     useLiveVoiceStore.getState().setSessionContext("assistant-1", "conv-1");
     expect(useLiveVoiceStore.getState().roomMinimized).toBe(false);
+  });
+});
+
+describe("useLiveVoiceStore — mute + handsFree", () => {
+  test("defaults: mic live, not hands-free", () => {
+    expect(useLiveVoiceStore.getState().muted).toBe(false);
+    expect(useLiveVoiceStore.getState().handsFree).toBe(false);
+  });
+
+  test("setLiveVoiceMuted drives the registered control", () => {
+    const controls = makeControlsSpies();
+    useLiveVoiceStore.getState().setControls(controls);
+    setLiveVoiceMuted(true);
+    expect(controls.setMuted).toHaveBeenCalledWith(true);
+    setLiveVoiceMuted(false);
+    expect(controls.setMuted).toHaveBeenCalledWith(false);
+  });
+
+  test("stopLiveVoiceResponse drives the registered interrupt control", () => {
+    const controls = makeControlsSpies();
+    useLiveVoiceStore.getState().setControls(controls);
+    stopLiveVoiceResponse();
+    expect(controls.interrupt).toHaveBeenCalledTimes(1);
+  });
+
+  test("helpers are no-ops with no registered controls", () => {
+    expect(() => {
+      setLiveVoiceMuted(true);
+      stopLiveVoiceResponse();
+    }).not.toThrow();
+  });
+
+  test("reset clears muted and handsFree; setSessionContext unmutes a fresh session", () => {
+    useLiveVoiceStore.getState().setMuted(true);
+    useLiveVoiceStore.getState().setHandsFree(true);
+    useLiveVoiceStore.getState().reset();
+    expect(useLiveVoiceStore.getState().muted).toBe(false);
+    expect(useLiveVoiceStore.getState().handsFree).toBe(false);
+
+    useLiveVoiceStore.getState().setMuted(true);
+    useLiveVoiceStore.getState().setSessionContext("assistant-1", "conv-1");
+    expect(useLiveVoiceStore.getState().muted).toBe(false);
   });
 });
 

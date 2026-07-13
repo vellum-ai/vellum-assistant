@@ -21,16 +21,22 @@ afterEach(() => {
 });
 
 function renderBar(state: LiveVoiceSessionState, overrides?: {
+  muted?: boolean;
+  onToggleMute?: () => void;
   onEnd?: () => void;
   onSend?: () => void;
+  onStop?: () => void;
   onExpand?: () => void;
 }) {
   return render(
     <VoiceComposerBar
       state={state}
       getAmplitude={() => 0.5}
+      muted={overrides?.muted ?? false}
+      onToggleMute={overrides?.onToggleMute ?? (() => {})}
       onEnd={overrides?.onEnd ?? (() => {})}
       onSend={overrides?.onSend ?? (() => {})}
+      onStop={overrides?.onStop}
       onExpand={overrides?.onExpand}
     />,
   );
@@ -113,6 +119,48 @@ describe("VoiceComposerBar — callbacks", () => {
     renderBar("thinking", { onSend });
     fireEvent.click(screen.getByRole("button", { name: "Send now" }));
     expect(onSend).not.toHaveBeenCalled();
+  });
+});
+
+describe("VoiceComposerBar — mute toggle", () => {
+  test("shows 'Mute microphone' when live and fires onToggleMute", () => {
+    const onToggleMute = mock(() => {});
+    renderBar("listening", { onToggleMute });
+    fireEvent.click(screen.getByRole("button", { name: "Mute microphone" }));
+    expect(onToggleMute).toHaveBeenCalledTimes(1);
+  });
+
+  test("muted: offers unmute and replaces the state label with 'Muted'", () => {
+    renderBar("listening", { muted: true });
+    expect(
+      screen.getByRole("button", { name: "Unmute microphone" }),
+    ).toBeTruthy();
+    expect(screen.getByText("Muted")).toBeTruthy();
+    expect(screen.queryByText("Listening…")).toBeNull();
+  });
+});
+
+describe("VoiceComposerBar — stop response", () => {
+  test("■ renders only while speaking with onStop wired, and fires it", () => {
+    const onStop = mock(() => {});
+    renderBar("speaking", { onStop });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Stop assistant response" }),
+    );
+    expect(onStop).toHaveBeenCalledTimes(1);
+  });
+
+  test("no ■ outside speaking, or without onStop (manual session)", () => {
+    const { unmount } = renderBar("listening", { onStop: () => {} });
+    expect(
+      screen.queryByRole("button", { name: "Stop assistant response" }),
+    ).toBeNull();
+    unmount();
+
+    renderBar("speaking");
+    expect(
+      screen.queryByRole("button", { name: "Stop assistant response" }),
+    ).toBeNull();
   });
 });
 

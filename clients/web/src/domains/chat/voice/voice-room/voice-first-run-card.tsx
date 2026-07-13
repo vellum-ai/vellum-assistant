@@ -2,20 +2,17 @@ import { Button } from "@vellumai/design-library/components/button";
 import { Modal } from "@vellumai/design-library/components/modal";
 
 import { ChatAvatar } from "@/components/avatar/chat-avatar";
-import { VoiceTranscriptToggles } from "@/components/voice-transcript-toggles";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
-import { VOICE_TRANSCRIPT_RECOMMENDATION } from "@/utils/voice-transcript-prefs";
 
 /**
- * One-time preferences card shown the first time a user enters voice mode,
- * before the live session starts.
+ * One-time welcome card shown the first time a user enters voice mode, before
+ * the live session starts.
  *
- * The two transcript toggles are bound to the SAME persisted `voice-prefs`
- * store as the Voice settings page (`settings/pages/voice-page.tsx`), so a
- * choice made here is the choice the settings screen shows — the card is just
- * an earlier, in-context surface for the same preferences. Both default OFF;
- * the "Recommended off" badge and the closing note nudge users to try the
- * hands-free, transcript-free experience first, matching the settings copy.
+ * Deliberately NOT a settings quiz (it once carried the two transcript
+ * toggles): captions are toggled in-session from the voice room, and the full
+ * preferences live in Settings → Voice — front-loading choices before the
+ * user has ever experienced voice mode was the wrong moment. The card now
+ * just sets expectations and starts.
  *
  * The card does NOT persist `firstRunSeen` itself: dismissing it (Escape /
  * backdrop / ✕) is a plain cancel and must leave the first run un-consumed so
@@ -74,13 +71,10 @@ export function VoiceFirstRunCard({
           </Modal.Description>
         </Modal.Header>
         <Modal.Body>
-          <div className="flex flex-col gap-1">
-            <VoiceTranscriptToggles showRecommendedBadge />
-            <p className="pt-2 text-body-small-default text-[var(--content-tertiary)]">
-              You can change these anytime in settings.{" "}
-              {VOICE_TRANSCRIPT_RECOMMENDATION}
-            </p>
-          </div>
+          <p className="text-body-small-default text-[var(--content-tertiary)]">
+            You can mute the mic or turn on captions anytime during the
+            session, and fine-tune everything in Settings.
+          </p>
         </Modal.Body>
         <Modal.Footer>
           <Button variant="primary" onClick={onStart}>
