@@ -213,6 +213,7 @@ function VoiceRoomOverlay() {
           look={look}
           visual={visual}
           getAmplitude={getLiveVoiceInputAmplitude}
+          getResponseAmplitude={getLiveVoiceOutputAmplitude}
         />
       ) : (
         <>

@@ -21,7 +21,9 @@
  * by default so it reads as the voice gathering around them rather than rising
  * from the floor — and the eyes drop to a low hold. They stay held low through
  * the `thinking` that follows (a quiet dot indicator works above them), then
- * ride back up to center for the rest. `responding` is still to design.
+ * ride back up to center to speak (`responding`, where the assistant's voice
+ * radiates outward from behind the eyes — see {@link VoiceRespondingStyle}).
+ * `reconnecting` fades the eyes back — presence dimmed while away.
  *
  * Geometry and timing mirror onboarding's `IntroductionScreen` +
  * `OnboardingPeekingEyes`. Traits default like `ChatAvatar` does (first
@@ -163,6 +165,8 @@ export function VoiceRoomColorLook({
   look,
   visual = "idle",
   getAmplitude,
+  getResponseAmplitude,
+  respondingStyle = "rings",
   eyePlacement = "center",
   wavePlacement = "center",
   wavePalette = "tone",
@@ -172,8 +176,13 @@ export function VoiceRoomColorLook({
   look: VoiceRoomLook;
   /** Session phase — drives which per-state treatment the look shows. */
   visual?: VoiceAvatarVisual;
-  /** Mic amplitude source (0–1), polled by the waveform's rAF loop. */
+  /** Mic (input) amplitude source (0–1) — the listening waveform + eye bob. */
   getAmplitude?: () => number;
+  /** TTS (output) amplitude source (0–1) — the responding treatment. Falls
+   *  back to {@link getAmplitude} when omitted. */
+  getResponseAmplitude?: () => number;
+  /** Which responding-state treatment to show (sketch knob). */
+  respondingStyle?: VoiceRespondingStyle;
   eyePlacement?: VoiceEyePlacement;
   wavePlacement?: VoiceWavePlacement;
   wavePalette?: VoiceWavePalette;
@@ -269,6 +278,19 @@ export function VoiceRoomColorLook({
           quiet indicator works away above them. */}
       {visual === "thinking" ? <VoiceThinkingIndicator /> : null}
 
+      {/* Responding: the eyes ride back up to center (engaged, addressing the
+          user) and the assistant's voice radiates outward from behind them,
+          driven by the TTS-output amplitude — energy going out, the mirror of
+          listening's incoming waves. */}
+      {visual === "responding" ? (
+        <VoiceRespondingTreatment
+          style={respondingStyle}
+          getAmplitude={getResponseAmplitude ?? getAmplitude}
+          waveStyle={waveStyle}
+          wavePlacement={wavePlacement}
+        />
+      ) : null}
+
       <VoiceRoomEyes
         art={look.art}
         placement={eyePlacement}
@@ -277,6 +299,8 @@ export function VoiceRoomColorLook({
         // The centered eyes hold low through the user-owned turn (listening +
         // thinking), sinking with the voice while listening (see `VoiceRoomEyes`).
         sink={sinkEyes}
+        // Reconnecting: fade the eyes back — presence dimmed while away.
+        dimmed={visual === "reconnecting"}
       />
     </>
   );
@@ -324,6 +348,154 @@ function VoiceThinkingIndicator() {
 }
 
 /**
+ * Candidate responding-state treatments (sketches to compare in Storybook):
+ * - `rings`    — concentric rings expanding outward from behind the eyes,
+ *                the mirror of listening's incoming waves (energy going out).
+ * - `halo`     — a soft radial bloom around the eyes that swells with speech.
+ * - `waveform` — the centered waveform again, now the assistant's own voice.
+ * - `pulse`    — the whole color field brightens gently on speech peaks.
+ * All ride the TTS-output amplitude and tint from the room foreground tone.
+ */
+export type VoiceRespondingStyle = "rings" | "halo" | "waveform" | "pulse";
+
+/**
+ * Smoothed output-amplitude → `--resp-amp` on a ref, for the responding
+ * treatments to read in CSS. Imperative rAF (never React state), mirroring the
+ * waveform / eye-sink loops.
+ */
+function useRespondingAmp(getAmplitude?: () => number) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  const getRef = useRef(getAmplitude);
+  const reduce = useReducedMotion();
+  useEffect(() => {
+    getRef.current = getAmplitude;
+  }, [getAmplitude]);
+  useEffect(() => {
+    if (reduce) return;
+    const node = ref.current;
+    if (!node) return;
+    const smoother = createAmplitudeSmoother({ attackMs: 90, releaseMs: 260 });
+    let raf = 0;
+    let lastTime = performance.now();
+    let lastWritten = "";
+    const tick = (now: number) => {
+      const dt = now - lastTime;
+      lastTime = now;
+      const get = getRef.current;
+      const target = get ? Math.min(1, Math.max(0, get())) : 0;
+      const v = smoother.step(target, dt).toFixed(3);
+      if (v !== lastWritten) {
+        lastWritten = v;
+        node.style.setProperty("--resp-amp", v);
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [reduce]);
+  return ref;
+}
+
+function VoiceRespondingTreatment({
+  style,
+  getAmplitude,
+  waveStyle,
+  wavePlacement,
+}: {
+  style: VoiceRespondingStyle;
+  getAmplitude?: () => number;
+  waveStyle: VoiceWaveStyle;
+  wavePlacement: VoiceWavePlacement;
+}) {
+  const ampRef = useRespondingAmp(getAmplitude);
+  const reduce = useReducedMotion();
+
+  if (style === "waveform") {
+    // The assistant's own voice — reuse the centered band, output-driven.
+    return getAmplitude ? (
+      <VoiceListeningWaves
+        getAmplitude={getAmplitude}
+        waveStyle={waveStyle}
+        palette="tone"
+        placement={wavePlacement}
+      />
+    ) : null;
+  }
+
+  if (style === "pulse") {
+    // The whole color field lightens gently on speech peaks.
+    return (
+      <div
+        ref={ampRef}
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 z-0"
+        style={{
+          backgroundColor: "var(--room-fg, #ffffff)",
+          opacity: "calc(var(--resp-amp, 0) * 0.14)",
+        }}
+      />
+    );
+  }
+
+  if (style === "halo") {
+    // A soft radial bloom behind the eyes, swelling + brightening with speech.
+    return (
+      <div
+        ref={ampRef}
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 z-0 flex items-center justify-center"
+      >
+        <div
+          style={{
+            width: "min(70vh, 70vw)",
+            aspectRatio: "1 / 1",
+            borderRadius: "9999px",
+            background:
+              "radial-gradient(circle, color-mix(in srgb, var(--room-fg, #ffffff) 24%, transparent) 0%, transparent 66%)",
+            transform: "scale(calc(0.8 + var(--resp-amp, 0) * 0.5))",
+            opacity: "calc(0.35 + var(--resp-amp, 0) * 0.65)",
+            transformOrigin: "center",
+          }}
+        />
+      </div>
+    );
+  }
+
+  // `rings` — concentric rings expanding outward from the eyes; overall
+  // presence scales with the TTS amplitude.
+  return (
+    <div
+      ref={ampRef}
+      aria-hidden="true"
+      className="pointer-events-none absolute inset-0 z-0 flex items-center justify-center"
+      style={{ opacity: "calc(0.25 + var(--resp-amp, 0) * 0.75)" }}
+    >
+      {[0, 1, 2].map((i) => (
+        <motion.span
+          key={i}
+          className="absolute rounded-full border-2"
+          style={{
+            width: "min(38vh, 38vw)",
+            height: "min(38vh, 38vw)",
+            borderColor:
+              "color-mix(in srgb, var(--room-fg, #ffffff) 55%, transparent)",
+          }}
+          initial={reduce ? false : { scale: 0.4, opacity: 0.55 }}
+          animate={
+            reduce ? { opacity: 0.2 } : { scale: [0.4, 1.75], opacity: [0.55, 0] }
+          }
+          transition={
+            reduce
+              ? { duration: 0 }
+              : { duration: 2.4, repeat: Infinity, ease: "easeOut", delay: i * 0.8 }
+          }
+        />
+      ))}
+    </div>
+  );
+}
+
+/**
  * Rest position + entrance travel for the eyes, per placement, plus
  * `sinkTravel`: how far the centered eyes can slide down toward the bottom
  * rest while the user speaks (0 for the bottom placement — nowhere lower).
@@ -360,6 +532,7 @@ export function VoiceRoomEyes({
   placement = "center",
   getAmplitude,
   sink = false,
+  dimmed = false,
 }: {
   art: VoiceRoomEyeArt;
   /** The room box the eyes are framed in (the caller's live viewport size). */
@@ -369,6 +542,8 @@ export function VoiceRoomEyes({
   getAmplitude?: () => number;
   /** Hold the eyes at the low rest (the user-owned turn — listening + thinking). */
   sink?: boolean;
+  /** Fade the eyes back (the reconnecting state — presence dimmed while away). */
+  dimmed?: boolean;
 }) {
   const reduce = useReducedMotion();
   const { w, h } = viewport;
@@ -514,8 +689,16 @@ export function VoiceRoomEyes({
       }
       onAnimationComplete={() => setEntranceDone(true)}
     >
-      {/* Speak-to-sink: rAF writes translateY here as the voice rises. */}
-      <div ref={sinkRef}>
+      {/* Speak-to-sink: rAF writes translateY here as the voice rises. The
+          opacity fades the eyes back while reconnecting (rAF only touches
+          `transform`, so it never clobbers this). */}
+      <div
+        ref={sinkRef}
+        style={{
+          opacity: dimmed ? 0.4 : 1,
+          transition: "opacity 0.5s ease",
+        }}
+      >
         {/* Slight parallax: the whole eyes drift smoothly toward the cursor. */}
         <div
           style={{

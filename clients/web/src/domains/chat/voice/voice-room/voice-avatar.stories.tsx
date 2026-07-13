@@ -27,6 +27,7 @@ import {
   VoiceRoomColorLook,
   resolveVoiceRoomLook,
   type VoiceEyePlacement,
+  type VoiceRespondingStyle,
 } from "./voice-room-eyes";
 
 /**
@@ -209,6 +210,7 @@ interface ColorLookSceneProps {
   wavePlacement: VoiceWavePlacement;
   waveStyle: VoiceWaveStyle;
   wavePalette: VoiceWavePalette;
+  respondingStyle: VoiceRespondingStyle;
   colorId: string;
   eyeStyle: string;
   bodyShape: string;
@@ -233,6 +235,7 @@ function ColorLookScene({
   wavePlacement,
   waveStyle,
   wavePalette,
+  respondingStyle,
   colorId,
   eyeStyle,
   bodyShape,
@@ -240,10 +243,14 @@ function ColorLookScene({
   minHeight = 520,
 }: ColorLookSceneProps) {
   const driveAmplitude = useAmplitudeDriver(amplitude, oscillate);
-  // Only `listening` has a live mic in the real app; silence the driver in the
-  // other states so e.g. `thinking` shows the eyes held steady-low, not bobbing.
+  // Only `listening` (mic) and `responding` (TTS) are audio-reactive in the
+  // real app; silence the driver in the other states so e.g. `thinking` shows
+  // the eyes held steady-low, not bobbing.
   const getAmplitude = useCallback(
-    () => (visual === "listening" ? driveAmplitude() : 0),
+    () =>
+      visual === "listening" || visual === "responding"
+        ? driveAmplitude()
+        : 0,
     [driveAmplitude, visual],
   );
   const { ref, size } = useBoxSize();
@@ -282,6 +289,7 @@ function ColorLookScene({
           wavePlacement={wavePlacement}
           waveStyle={waveStyle}
           wavePalette={wavePalette}
+          respondingStyle={respondingStyle}
           viewport={size}
         />
       ) : null}
@@ -316,6 +324,7 @@ const colorArgs = {
   eyePlacement: "center" as VoiceEyePlacement,
   wavePlacement: "center" as VoiceWavePlacement,
   wavePalette: "tone" as VoiceWavePalette,
+  respondingStyle: "rings" as VoiceRespondingStyle,
   colorId: SAMPLE_COLOR_ID,
   eyeStyle: "grumpy",
   bodyShape: "blob",
@@ -338,6 +347,11 @@ const colorArgTypes = {
     options: ["tone", "accent", "aurora"] satisfies VoiceWavePalette[],
     control: { type: "inline-radio" as const },
     description: "tone follows the room fg; accent = avatar hue; aurora = cyan→indigo.",
+  },
+  respondingStyle: {
+    options: ["rings", "halo", "waveform", "pulse"] satisfies VoiceRespondingStyle[],
+    control: { type: "inline-radio" as const },
+    description: "Responding treatment (visible in the responding state).",
   },
   colorId: { options: COLOR_IDS, control: { type: "select" as const } },
   eyeStyle: { options: EYE_IDS, control: { type: "select" as const } },
@@ -422,6 +436,35 @@ export const Colors: Story = {
   ),
 };
 
+/**
+ * Responding-state sketches, all in the responding state on the same
+ * simulated-TTS driver — the eyes back up at center (engaged), each option a
+ * different way of radiating the assistant's voice outward. Pick one; the rest
+ * come out.
+ */
+export const RespondingSketches: Story = {
+  name: "Responding — Sketches",
+  args: { ...colorArgs, visual: "responding" },
+  argTypes: colorArgTypes,
+  render: (args) => (
+    <div className="grid gap-4 sm:grid-cols-2">
+      {(["rings", "halo", "waveform", "pulse"] as const).map((respondingStyle) => (
+        <div key={respondingStyle} className="flex flex-col gap-2">
+          <span className="text-[13px] font-medium text-white/60">
+            {respondingStyle}
+          </span>
+          <ColorLookScene
+            {...args}
+            visual="responding"
+            respondingStyle={respondingStyle}
+            minHeight={340}
+          />
+        </div>
+      ))}
+    </div>
+  ),
+};
+
 // ---------------------------------------------------------------------------
 // Void look — the deep-dark ambient fallback for custom-image / no-character
 // avatars (kept for reference; the color look above is the default).
@@ -453,6 +496,7 @@ const voidArgTypes = {
   eyePlacement: { table: { disable: true } },
   wavePlacement: { table: { disable: true } },
   wavePalette: { table: { disable: true } },
+  respondingStyle: { table: { disable: true } },
   colorId: { table: { disable: true } },
   eyeStyle: { table: { disable: true } },
   bodyShape: { table: { disable: true } },
