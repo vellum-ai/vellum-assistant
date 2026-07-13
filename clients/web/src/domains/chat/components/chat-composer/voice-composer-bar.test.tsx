@@ -23,6 +23,7 @@ afterEach(() => {
 function renderBar(state: LiveVoiceSessionState, overrides?: {
   onEnd?: () => void;
   onSend?: () => void;
+  onExpand?: () => void;
 }) {
   return render(
     <VoiceComposerBar
@@ -30,6 +31,7 @@ function renderBar(state: LiveVoiceSessionState, overrides?: {
       getAmplitude={() => 0.5}
       onEnd={overrides?.onEnd ?? (() => {})}
       onSend={overrides?.onSend ?? (() => {})}
+      onExpand={overrides?.onExpand}
     />,
   );
 }
@@ -111,6 +113,20 @@ describe("VoiceComposerBar — callbacks", () => {
     renderBar("thinking", { onSend });
     fireEvent.click(screen.getByRole("button", { name: "Send now" }));
     expect(onSend).not.toHaveBeenCalled();
+  });
+});
+
+describe("VoiceComposerBar — expand (reopen the minimized voice room)", () => {
+  test("no expand control without onExpand — the room is not minimized", () => {
+    renderBar("listening");
+    expect(screen.queryByRole("button", { name: "Open voice room" })).toBeNull();
+  });
+
+  test("clicking expand fires onExpand", () => {
+    const onExpand = mock(() => {});
+    renderBar("listening", { onExpand });
+    fireEvent.click(screen.getByRole("button", { name: "Open voice room" }));
+    expect(onExpand).toHaveBeenCalledTimes(1);
   });
 });
 

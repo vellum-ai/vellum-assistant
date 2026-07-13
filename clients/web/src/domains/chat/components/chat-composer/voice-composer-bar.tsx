@@ -15,7 +15,7 @@
  * layout shift.
  */
 
-import { ArrowUp, Mic, X } from "lucide-react";
+import { ArrowUp, Maximize2, Mic, X } from "lucide-react";
 
 import { Button } from "@vellumai/design-library";
 
@@ -34,6 +34,13 @@ export interface VoiceComposerBarProps {
   onEnd: () => void;
   /** Green ↑ — manually release the current turn (send now). */
   onSend: () => void;
+  /**
+   * Re-expand the minimized voice room. The composer passes this only while
+   * the room is actually minimized — the one case where this bar is visible
+   * AND the room could be reopened — so the control never dead-renders (e.g.
+   * in pop-outs, where the room never mounts). Absent → no expand button.
+   */
+  onExpand?: () => void;
 }
 
 export function VoiceComposerBar({
@@ -41,6 +48,7 @@ export function VoiceComposerBar({
   getAmplitude,
   onEnd,
   onSend,
+  onExpand,
 }: VoiceComposerBarProps) {
   return (
     <div
@@ -68,6 +76,15 @@ export function VoiceComposerBar({
         className="min-w-0 flex-1"
       />
       <div className="flex shrink-0 items-center gap-1">
+        {onExpand ? (
+          <Button
+            variant="ghost"
+            iconOnly={<Maximize2 className="h-4 w-4" strokeWidth={2.5} />}
+            onClick={onExpand}
+            aria-label="Open voice room"
+            tooltip="Open voice room"
+          />
+        ) : null}
         <Button
           variant="danger"
           iconOnly={<X className="h-4 w-4" strokeWidth={2.5} />}
