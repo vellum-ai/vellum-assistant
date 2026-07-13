@@ -21,7 +21,6 @@ describe("subagent-only tool filtering", () => {
     const ctx: SkillProjectionContext = {
       skillProjectionState: new Map(),
       skillProjectionCache: {},
-      coreToolNames: new Set(),
       toolsDisabledDepth: 0,
       hasNoClient: false,
       isSubagent: false,
@@ -34,7 +33,6 @@ describe("subagent-only tool filtering", () => {
     const ctx: SkillProjectionContext = {
       skillProjectionState: new Map(),
       skillProjectionCache: {},
-      coreToolNames: new Set(),
       toolsDisabledDepth: 0,
       hasNoClient: false,
     };
@@ -46,7 +44,6 @@ describe("subagent-only tool filtering", () => {
     const ctx: SkillProjectionContext = {
       skillProjectionState: new Map(),
       skillProjectionCache: {},
-      coreToolNames: new Set(),
       toolsDisabledDepth: 0,
       hasNoClient: true,
       isSubagent: true,
@@ -59,7 +56,6 @@ describe("subagent-only tool filtering", () => {
     const ctx: SkillProjectionContext = {
       skillProjectionState: new Map(),
       skillProjectionCache: {},
-      coreToolNames: new Set(),
       toolsDisabledDepth: 0,
       hasNoClient: false,
       isSubagent: false,
@@ -75,7 +71,6 @@ describe("subagent-only tool filtering", () => {
     const ctx: SkillProjectionContext = {
       skillProjectionState: new Map(),
       skillProjectionCache: {},
-      coreToolNames: new Set(),
       toolsDisabledDepth: 0,
       hasNoClient: false,
       isSubagent: true,
@@ -94,7 +89,6 @@ describe("subagent-only tool filtering", () => {
     const ctx: SkillProjectionContext = {
       skillProjectionState: new Map(),
       skillProjectionCache: {},
-      coreToolNames: new Set(),
       toolsDisabledDepth: 0,
       hasNoClient: false,
       subagentAllowedTools: new Set(["remember"]),
@@ -109,7 +103,6 @@ describe("subagent-only tool filtering", () => {
     const ctx: SkillProjectionContext = {
       skillProjectionState: new Map(),
       skillProjectionCache: {},
-      coreToolNames: new Set(),
       toolsDisabledDepth: 0,
       hasNoClient: false,
       subagentAllowedTools: new Set(["remember"]),
@@ -126,7 +119,6 @@ describe("subagent-only tool filtering", () => {
     const ctx: SkillProjectionContext = {
       skillProjectionState: new Map(),
       skillProjectionCache: {},
-      coreToolNames: new Set(),
       toolsDisabledDepth: 1,
       hasNoClient: false,
       subagentAllowedTools: new Set(["remember"]),
@@ -143,7 +135,6 @@ describe("subagent-only tool filtering", () => {
     const ctx: SkillProjectionContext = {
       skillProjectionState: new Map(),
       skillProjectionCache: {},
-      coreToolNames: new Set(),
       toolsDisabledDepth: 1,
       hasNoClient: false,
     };
@@ -158,7 +149,6 @@ describe("subagent-only tool filtering", () => {
     const ctx: SkillProjectionContext = {
       skillProjectionState: new Map(),
       skillProjectionCache: {},
-      coreToolNames: new Set(),
       toolsDisabledDepth: 0,
       hasNoClient: false,
       diskPressureCleanupModeActive: true,

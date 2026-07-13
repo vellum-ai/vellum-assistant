@@ -189,7 +189,6 @@ describe("file_list subagent visibility", () => {
     const ctx: SkillProjectionContext = {
       skillProjectionState: new Map(),
       skillProjectionCache: {},
-      coreToolNames: new Set(["file_list"]),
       toolsDisabledDepth: 0,
     };
     expect(isToolActiveForContext("file_list", ctx)).toBe(false);
@@ -199,7 +198,6 @@ describe("file_list subagent visibility", () => {
     const ctx: SkillProjectionContext = {
       skillProjectionState: new Map(),
       skillProjectionCache: {},
-      coreToolNames: new Set(["file_list"]),
       toolsDisabledDepth: 0,
       isSubagent: undefined,
     };
@@ -210,7 +208,6 @@ describe("file_list subagent visibility", () => {
     const ctx: SkillProjectionContext = {
       skillProjectionState: new Map(),
       skillProjectionCache: {},
-      coreToolNames: new Set(["file_list"]),
       toolsDisabledDepth: 0,
       isSubagent: true,
     };

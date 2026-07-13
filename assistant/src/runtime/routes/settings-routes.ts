@@ -523,7 +523,6 @@ function handleAgentToolList(agent: string): ToolNamesListResponse {
   //   - hasNoClient: true (subagents have no direct client)
   //   - no channel capabilities, no disk pressure, tools enabled
   const toolDefs = getAllToolDefinitions();
-  const coreToolNames = new Set(toolDefs.map((d) => d.name));
   const mergedSkillIds = mergeSkillIds(
     roleConfig.skillIds,
     DEFAULT_PREACTIVATED_SKILL_IDS,
@@ -538,7 +537,6 @@ function handleAgentToolList(agent: string): ToolNamesListResponse {
     diskPressureCleanupModeActive: false,
     skillProjectionState: new Map<string, string>(),
     skillProjectionCache: {},
-    coreToolNames,
     hasNoClient: true,
     preactivatedSkillIds: mergedSkillIds,
   };
@@ -579,7 +577,7 @@ function handleAgentToolList(agent: string): ToolNamesListResponse {
  * Scope the tool inventory to a single conversation. Conversations gain
  * tools over their lifecycle (skill loads, MCP reloads), so the global
  * registry over-reports what a given conversation can actually call. We
- * read the conversation's turn snapshot (`getRegisteredToolNames()`) — a
+ * read the conversation's turn snapshot (`getRegisteredToolDefinitions()`) — a
  * pure read that does not re-run the side-effecting `resolveTools`
  * callback — and resolve each name's metadata/schema from the registry.
  */
@@ -593,9 +591,10 @@ function handleConversationToolList(
     );
   }
 
-  const names = Array.from(conversation.getRegisteredToolNames()).sort((a, b) =>
-    a.localeCompare(b),
-  );
+  const names = conversation
+    .getRegisteredToolDefinitions()
+    .map((d) => d.name)
+    .sort((a, b) => a.localeCompare(b));
 
   const schemaByName = new Map<string, SchemaShape>(
     injectActivityField(getAllTools(), ACTIVITY_SKIP_SET).map((d) => [

@@ -88,7 +88,7 @@ import {
   isActivationMomentParam,
 } from "../telemetry/activation-funnel.js";
 import { ToolExecutor } from "../tools/executor.js";
-import { getAllToolDefinitions, getTool } from "../tools/registry.js";
+import { getAllToolDefinitions } from "../tools/registry.js";
 import type { OnboardingContext } from "../types/onboarding-context.js";
 import type { AbortReason } from "../util/abort-reasons.js";
 import { UserError } from "../util/errors.js";
@@ -305,10 +305,12 @@ export class Conversation {
    * kept for read-only inventory queries. Unlike {@link allowedToolNames}
    * — the per-turn execution gate the agent loop clears at turn teardown —
    * this survives between turns so a query against an idle conversation
-   * still reports the skill/MCP tools it gained over its lifecycle.
+   * still reports the skill/MCP tools it gained over its lifecycle. Seeded in
+   * the constructor from the initial tool snapshot and overwritten by the
+   * `resolveTools` callback each turn.
    * @internal
    */
-  lastResolvedToolNames?: Set<string>;
+  registeredToolDefinitions: ToolDefinition[];
   /** @internal */ diskPressureCleanupModeActive?: boolean;
   /** @internal */ toolsDisabledDepth = 0;
   /** @internal */ preactivatedSkillIds?: string[];
@@ -328,7 +330,6 @@ export class Conversation {
    * @internal
    */
   toolContextPin?: WakeToolContextPin;
-  /** @internal */ coreToolNames: Set<string>;
   /** @internal */ readonly skillProjectionState = new Map<string, string>();
   /** @internal */ readonly skillProjectionCache: SkillProjectionCache = {};
   /** @internal */ usageStats: UsageStats = {
@@ -716,7 +717,7 @@ export class Conversation {
     this.executor = new ToolExecutor(this.prompter);
 
     const toolDefs = getAllToolDefinitions();
-    this.coreToolNames = new Set(toolDefs.map((d) => d.name));
+    this.registeredToolDefinitions = toolDefs;
     const toolExecutor = createToolExecutor(
       this.executor,
       this.prompter,
@@ -2360,37 +2361,20 @@ export class Conversation {
   // ── Tools ────────────────────────────────────────────────────────
 
   /**
-   * The set of tool names available to this conversation as of its most
-   * recent turn — including skill/MCP tools registered over the
-   * conversation's lifecycle. Reads the durable {@link lastResolvedToolNames}
-   * snapshot the `resolveTools` callback records each turn (which, unlike the
-   * per-turn `allowedToolNames` gate, is not cleared at turn teardown); before
-   * the first turn it falls back to the core tool set. This is a pure read: it
-   * does not re-run `resolveTools`, which has registry/projection side effects
-   * that must not fire outside a turn.
-   */
-  getRegisteredToolNames(): Set<string> {
-    return new Set(this.lastResolvedToolNames ?? this.coreToolNames);
-  }
-
-  /**
-   * The {@link getRegisteredToolNames} inventory resolved to full definitions
-   * (name, description, input schema), sorted by name. Resolution reads the
-   * live registry so skill/MCP tools — whose definitions are not in the base
-   * turn snapshot — are included. Consumers (e.g. turn-trace telemetry) read
-   * this instead of reaching into the tool registry themselves.
+   * The full tool definitions (name, description, input schema) available to
+   * this conversation as of its most recent turn — including skill/MCP tools
+   * registered over the conversation's lifecycle. Returns the durable
+   * {@link registeredToolDefinitions} snapshot the `resolveTools` callback
+   * records each turn (which, unlike the per-turn `allowedToolNames` gate, is
+   * not cleared at turn teardown); before the first turn it is the initial
+   * snapshot seeded in the constructor. This is a pure read: it does not re-run
+   * `resolveTools`, which has registry/projection side effects that must not
+   * fire outside a turn. Consumers (e.g. turn-trace telemetry, the tool
+   * inventory route) read this instead of reaching into the tool registry
+   * themselves.
    */
   getRegisteredToolDefinitions(): ToolDefinition[] {
-    return Array.from(this.getRegisteredToolNames())
-      .sort((a, b) => a.localeCompare(b))
-      .map((name) => {
-        const tool = getTool(name);
-        return {
-          name,
-          description: tool?.description ?? "",
-          input_schema: tool?.input_schema ?? {},
-        };
-      });
+    return this.registeredToolDefinitions;
   }
 
   // ── History ──────────────────────────────────────────────────────

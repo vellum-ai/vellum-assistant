@@ -488,14 +488,14 @@ export interface SkillProjectionContext {
   preactivatedSkillIds?: string[];
   readonly skillProjectionState: Map<string, string>;
   readonly skillProjectionCache: SkillProjectionCache;
-  readonly coreToolNames: Set<string>;
   allowedToolNames?: Set<string>;
   /**
-   * Durable copy of the full tool set resolved on the most recent turn, used
-   * by read-only inventory queries. Set alongside {@link allowedToolNames}
-   * but, unlike that per-turn execution gate, never cleared at turn teardown.
+   * Durable copy of the full tool definitions resolved on the most recent
+   * turn, used by read-only inventory queries. Set alongside
+   * {@link allowedToolNames} but, unlike that per-turn execution gate, never
+   * cleared at turn teardown.
    */
-  lastResolvedToolNames?: Set<string>;
+  registeredToolDefinitions?: ToolDefinition[];
   /** When > 0, the resolveTools callback returns no tools at all. */
   toolsDisabledDepth: number;
   /** Channel capabilities — read lazily per turn for conditional tool filtering. */
@@ -957,7 +957,19 @@ export function createResolveToolsCallback(
     // any degraded-mode narrowing below — `allowedToolNames` is the per-turn
     // execution gate (cleared at teardown and restricted under disk pressure),
     // whereas this snapshot answers "what tools does this conversation have".
-    ctx.lastResolvedToolNames = turnAllowed;
+    // Resolve names to definitions against the live registry so skill/MCP/
+    // plugin tools — whose defs are not in the base turn snapshot — are
+    // captured with their metadata.
+    ctx.registeredToolDefinitions = Array.from(turnAllowed)
+      .sort((a, b) => a.localeCompare(b))
+      .map((name) => {
+        const tool = getTool(name);
+        return {
+          name,
+          description: tool?.description ?? "",
+          input_schema: tool?.input_schema ?? {},
+        };
+      });
     if (ctx.diskPressureCleanupModeActive === true) {
       const cleanupDefs = allBaseDefs.filter((d) =>
         isDiskPressureCleanupToolName(d.name),
