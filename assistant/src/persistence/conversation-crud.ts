@@ -1784,6 +1784,15 @@ export async function deleteConversationGently(
     .all()
     .map((r) => r.id);
 
+  // skill_loaded_events lives in the dedicated telemetry connection; delete
+  // it there before ANY destructive work so a telemetry failure leaves the
+  // conversation fully intact for a retried delete — a throw after the bulk
+  // drains below would strand unredacted rows that could still flush.
+  telemetryDb()
+    .delete(skillLoadedEvents)
+    .where(eq(skillLoadedEvents.conversationId, id))
+    .run();
+
   // llm_request_logs lives in the dedicated logs connection, and each row is
   // bulky, so drain it off the event loop in batches against the logs DB file.
   const logsDel = await deleteConversationRowsInBatches({
@@ -1809,14 +1818,6 @@ export async function deleteConversationGently(
       `gentle conversation delete failed (messages, ${del.backend}): ${del.error ?? "unknown"}`,
     );
   }
-
-  // skill_loaded_events lives in the dedicated telemetry connection; delete
-  // it there before the main-DB transaction so a failure leaves the
-  // conversation intact for a retried delete.
-  telemetryDb()
-    .delete(skillLoadedEvents)
-    .where(eq(skillLoadedEvents.conversationId, id))
-    .run();
 
   // Remaining cleanup is cheap (bounded, non-message tables) so it stays a
   // single in-process transaction.
