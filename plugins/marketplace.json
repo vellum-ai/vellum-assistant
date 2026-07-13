@@ -358,7 +358,7 @@
       "source": {
         "source": "github",
         "repo": "vellum-ai/vellum-client-qa",
-        "ref": "6c61112f3be1a05429b67799ca361f3eed903ae1"
+        "ref": "4f559d865eaa04b68285f8e4fae4a05fc18fe88f"
       },
       "description": "Cross-platform QA rig for vellum-assistant clients: mock the platform backend, boot the real chat UI, and verify feature branches in headless Chromium (web), an iOS simulator, or Electron with screenshot and video proof.",
       "category": "developer",
