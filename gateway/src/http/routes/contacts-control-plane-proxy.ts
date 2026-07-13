@@ -655,7 +655,7 @@ const VALID_CHANNEL_STATUSES = [
   "blocked",
   "unverified",
 ] as const;
-const VALID_CHANNEL_POLICIES = ["allow", "deny", "escalate"] as const;
+const VALID_CHANNEL_POLICIES = ["allow", "deny"] as const;
 
 type ContactType = (typeof VALID_CONTACT_TYPES)[number];
 type AssistantSpecies = (typeof VALID_ASSISTANT_SPECIES)[number];
