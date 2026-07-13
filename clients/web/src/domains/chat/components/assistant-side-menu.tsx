@@ -509,8 +509,19 @@ export function AssistantSideMenu({
           /* Overlay: the footer bar is replaced by floating action pills so
              the primary actions sit in the thumb zone without spending two
              fixed rows (Figma 6764:6745). `pointer-events-none` on the row
-             keeps the list scrollable between/around the pills. */
-          <div className="pointer-events-none absolute inset-x-4 bottom-4 z-10 flex items-center justify-center gap-4">
+             keeps the list scrollable between/around the pills. The row
+             offsets itself by the bottom safe-area inset because the
+             overlay sheet runs full-bleed to the physical screen edge —
+             this keeps the pills above the home indicator while letting
+             their drop shadows fade out naturally instead of being clipped
+             at a safe-area boundary. */
+          <div
+            className="pointer-events-none absolute inset-x-4 z-10 flex items-center justify-center gap-4"
+            style={{
+              bottom:
+                "calc(1rem + var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)))",
+            }}
+          >
             {footerAction ? (
               <div className="pointer-events-auto flex-1">{footerAction}</div>
             ) : null}
