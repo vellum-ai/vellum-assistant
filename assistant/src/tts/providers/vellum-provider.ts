@@ -117,6 +117,9 @@ async function performStreamingSynthesis(
     key: connection.mintServiceToken(),
     encoding: "linear16",
     sample_rate: String(VELLUM_PCM_SAMPLE_RATE_HZ),
+    // Deepgram defaults linear16 to a WAV container; the media-stream path
+    // consumes headerless PCM, so RIFF header bytes would play as static.
+    container: "none",
   });
   const url = `${connection.wsBaseUrl}${TTS_STREAM_PATH}?${params.toString()}`;
 

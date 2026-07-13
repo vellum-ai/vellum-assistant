@@ -177,6 +177,9 @@ describe("vellum TTS streaming", () => {
     expect(url.searchParams.get("key")).toBe("tok-1");
     expect(url.searchParams.get("encoding")).toBe("linear16");
     expect(url.searchParams.get("sample_rate")).toBe("16000");
+    // Raw PCM, not Deepgram's default WAV container — RIFF headers would
+    // play as static on the headerless media-stream path.
+    expect(url.searchParams.get("container")).toBe("none");
     expect(result.contentType).toBe("audio/pcm");
     expect(chunks).toHaveLength(1);
     // Batch path untouched.
