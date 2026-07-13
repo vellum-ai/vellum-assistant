@@ -9,7 +9,6 @@
  * which sources its reporter instance is constructed with.
  */
 
-import { queryUnreportedOnboardingEvents } from "../onboarding/onboarding-events-store.js";
 import { queryUnreportedUsageEvents } from "../persistence/llm-usage-store.js";
 import {
   getCachedShareDiagnostics,
@@ -19,11 +18,6 @@ import { queryUnreportedAuthFallbackEvents } from "../security/auth-fallback-eve
 import type { UsageAttributionProfileSource } from "../usage/types.js";
 import { getLogger } from "../util/logger.js";
 import { APP_VERSION } from "../version.js";
-import {
-  type ActivationStepName,
-  buildActivationDaemonEventId,
-} from "./activation-funnel.js";
-import { queryUnreportedConfigSettingEvents } from "./config-setting-events-store.js";
 import { queryUnreportedSkillLoadedEvents } from "./skill-loaded-events-store.js";
 import {
   deleteTelemetryOutboxEvents,
@@ -35,7 +29,6 @@ import { isDiagnosticsConsentVersionEligible } from "./trace-collection-policy.j
 import { queryUnreportedTurnEvents } from "./turn-events-store.js";
 import { assembleBoundedTurnTrace, isTurnSettled } from "./turn-trace-store.js";
 import type { TelemetryEvent, TurnTelemetryClientInfo } from "./types.js";
-import { queryUnreportedWatchdogEvents } from "./watchdog-events-store.js";
 
 const log = getLogger("usage-telemetry");
 
@@ -187,39 +180,6 @@ export function outboxSource(name: string): TelemetryEventSource {
       discardPending: () => discardPendingTelemetryOutboxEvents(name),
     },
   };
-}
-
-// ---------------------------------------------------------------------------
-// Wire-mapping helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Parse a stored `watchdog_events.detail` JSON text column into the object the
- * platform expects. Returns null for a null column or an unparseable/corrupted
- * blob (mirroring the turn `client` metadata parse: a bad blob emits null
- * rather than failing the batch). A non-object (e.g. a bare number or string)
- * also resolves to null, since the platform serializer treats `detail` as a
- * JSON object bag.
- */
-function parseWatchdogDetail(
-  raw: string | null,
-): Record<string, unknown> | null {
-  if (!raw) {
-    return null;
-  }
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-      return parsed as Record<string, unknown>;
-    }
-    return null;
-  } catch {
-    log.warn(
-      { rawDetail: raw.slice(0, 200) },
-      "Telemetry watchdog: failed to parse detail; emitting null",
-    );
-    return null;
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -441,52 +401,9 @@ const turnSource: TelemetryEventSource = {
 
 const lifecycleSource = outboxSource("lifecycle");
 
-const onboardingSource = simpleSource(
-  "onboarding",
-  (afterCreatedAt, afterId, limit) =>
-    queryUnreportedOnboardingEvents(afterCreatedAt, afterId, limit),
-  (e): TelemetryEvent => ({
-    type: "onboarding",
-    // Wire-only override for activation rows: a deterministic id keyed
-    // on funnel_version/session/step lets dbt collapse a moment that
-    // fires more than once. Key on the ROW's stored `funnelVersion`
-    // (not the binary's current constant) so rows recorded under an
-    // older version — flushed offline or after an upgrade — keep a
-    // stable id and still collapse with already-ingested rows. The
-    // SQLite watermark cursor still uses `e.id`/`e.createdAt`, so this
-    // override is checkpoint-safe.
-    daemon_event_id:
-      e.sessionId && e.stepName && e.funnelVersion
-        ? buildActivationDaemonEventId(
-            e.sessionId,
-            e.stepName as ActivationStepName,
-            e.funnelVersion,
-          )
-        : e.id,
-    recorded_at: e.createdAt,
-    screen: e.screen,
-    ...(e.toolsJson ? { tools: JSON.parse(e.toolsJson) } : {}),
-    ...(e.tasksJson ? { tasks: JSON.parse(e.tasksJson) } : {}),
-    ...(e.tone ? { tone: e.tone } : {}),
-    ...(e.googleConnected != null
-      ? { google_connected: e.googleConnected }
-      : {}),
-    ...(e.googleScopesJson
-      ? { google_scopes: JSON.parse(e.googleScopesJson) }
-      : {}),
-    ...(e.abVariant ? { ab_variant: e.abVariant } : {}),
-    // Activation funnel fields — only present on activation rows.
-    ...(e.sessionId ? { session_id: e.sessionId } : {}),
-    ...(e.stepName ? { step_name: e.stepName } : {}),
-    ...(e.stepIndex != null ? { step_index: e.stepIndex } : {}),
-    ...(e.completedAt ? { completed_at: e.completedAt } : {}),
-    ...(e.funnelVersion ? { funnel_version: e.funnelVersion } : {}),
-    // Onboarding events carry no record-time version column — stamp the
-    // running binary's `APP_VERSION`. Adding one (mirroring
-    // `llm_usage_events`) is a known follow-up.
-    assistant_version: APP_VERSION,
-  }),
-);
+// Onboarding/activation events are outbox-backed: the store builds the wire
+// event (including the activation daemon_event_id override) at record time.
+const onboardingSource = outboxSource("onboarding");
 
 const authFallbackSource = simpleSource(
   "auth_fallback",
@@ -563,43 +480,9 @@ const skillLoadedSource = simpleSource(
   }),
 );
 
-const watchdogSource = simpleSource(
-  "watchdog",
-  (afterCreatedAt, afterId, limit) =>
-    queryUnreportedWatchdogEvents(afterCreatedAt, afterId, limit),
-  (e): TelemetryEvent => ({
-    type: "watchdog",
-    daemon_event_id: e.id,
-    recorded_at: e.createdAt,
-    check_name: e.checkName,
-    value: e.value,
-    // `detail` is stored as JSON text; parse defensively so a
-    // corrupted blob never fails the batch flush. A parse failure
-    // emits null rather than dropping the event.
-    detail: parseWatchdogDetail(e.detail),
-    // `watchdog_events` has no record-time version column — same
-    // upload-time APP_VERSION stamping as the other non-llm_usage
-    // event types.
-    assistant_version: APP_VERSION,
-  }),
-);
+const watchdogSource = outboxSource("watchdog");
 
-const configSettingSource = simpleSource(
-  "config_setting",
-  (afterCreatedAt, afterId, limit) =>
-    queryUnreportedConfigSettingEvents(afterCreatedAt, afterId, limit),
-  (e): TelemetryEvent => ({
-    type: "config_setting",
-    daemon_event_id: e.id,
-    recorded_at: e.createdAt,
-    config_key: e.configKey,
-    config_value: e.configValue,
-    // `config_setting_events` has no record-time version column —
-    // same upload-time APP_VERSION stamping as the other
-    // non-llm_usage event types.
-    assistant_version: APP_VERSION,
-  }),
-);
+const configSettingSource = outboxSource("config_setting");
 
 /**
  * Watermark key namespace of the tool_executed source — referenced by the
