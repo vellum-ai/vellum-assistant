@@ -1,15 +1,23 @@
-import { beforeEach, describe, expect, spyOn, test } from "bun:test";
+import { beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
+
+let shareAnalytics = true;
+
+mock.module("../platform/consent-cache.js", () => ({
+  getCachedShareAnalytics: () => shareAnalytics,
+}));
 
 import * as dbConnection from "../persistence/db-connection.js";
 import { getTelemetryDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { telemetryEvents } from "../persistence/schema/index.js";
+import { APP_VERSION } from "../version.js";
 import {
   deleteTelemetryOutboxEvents,
   discardPendingTelemetryOutboxEvents,
   insertTelemetryOutboxEvent,
   insertTelemetryOutboxEvents,
   queryTelemetryOutboxBatch,
+  recordTelemetryEvent,
 } from "./telemetry-events-outbox.js";
 import type { LifecycleTelemetryEvent } from "./types.js";
 
@@ -49,6 +57,7 @@ function allIds(): string[] {
 
 describe("telemetry-events-outbox", () => {
   beforeEach(() => {
+    shareAnalytics = true;
     getTelemetryDb()!.delete(telemetryEvents).run();
   });
 
@@ -216,6 +225,83 @@ describe("telemetry-events-outbox", () => {
     deleteTelemetryOutboxEvents(ids);
 
     expect(allIds()).toEqual(["evt-keep"]);
+  });
+
+  test("recordTelemetryEvent stamps the base fields", () => {
+    const fields = {
+      check_name: "db_size",
+      value: 42,
+      detail: { table: "messages" },
+    };
+    const recorded = recordTelemetryEvent("watchdog", fields);
+    expect(recorded).not.toBeNull();
+
+    const rows = queryTelemetryOutboxBatch("watchdog", 10);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.id).toBe(recorded!.id);
+    expect(JSON.parse(rows[0]!.payload)).toEqual({
+      type: "watchdog",
+      daemon_event_id: recorded!.id,
+      recorded_at: recorded!.createdAt,
+      assistant_version: APP_VERSION,
+      ...fields,
+    });
+  });
+
+  test("recordTelemetryEvent persists conversation_id in its column", () => {
+    const withConv = recordTelemetryEvent(
+      "watchdog",
+      { check_name: "c1", value: null, detail: null },
+      { conversationId: "conv-1" },
+    );
+    const withoutConv = recordTelemetryEvent("watchdog", {
+      check_name: "c2",
+      value: null,
+      detail: null,
+    });
+
+    const rows = getTelemetryDb()!
+      .select({
+        id: telemetryEvents.id,
+        conversationId: telemetryEvents.conversationId,
+      })
+      .from(telemetryEvents)
+      .all();
+    expect(rows).toHaveLength(2);
+    expect(rows.find((r) => r.id === withConv!.id)!.conversationId).toBe(
+      "conv-1",
+    );
+    expect(rows.find((r) => r.id === withoutConv!.id)!.conversationId).toBe(
+      null,
+    );
+  });
+
+  test("recordTelemetryEvent honors the share_analytics opt-out", () => {
+    shareAnalytics = false;
+    expect(
+      recordTelemetryEvent("watchdog", {
+        check_name: "c",
+        value: null,
+        detail: null,
+      }),
+    ).toBeNull();
+    expect(queryTelemetryOutboxBatch("watchdog", 10)).toEqual([]);
+  });
+
+  test("recordTelemetryEvent returns null when the telemetry DB is unavailable", () => {
+    const spy = spyOn(dbConnection, "getTelemetryDb").mockReturnValue(null);
+    try {
+      expect(
+        recordTelemetryEvent("watchdog", {
+          check_name: "c",
+          value: null,
+          detail: null,
+        }),
+      ).toBeNull();
+    } finally {
+      spy.mockRestore();
+    }
+    expect(queryTelemetryOutboxBatch("watchdog", 10)).toEqual([]);
   });
 
   test("discards all pending rows for one name only", () => {
