@@ -521,7 +521,9 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
           {/* min-w-0 + truncate keeps a long label from pushing the composer's
               action buttons off-screen on narrow viewports; the cap is tighter
               on mobile where the bottom bar has the least room. */}
-          <span className="max-w-[7rem] truncate sm:max-w-[10rem]">
+          {/* leading-snug: text-body-small-default is line-height:1, so truncate
+              clips descenders (e.g. the "g" in profile names). */}
+          <span className="max-w-[7rem] truncate leading-snug sm:max-w-[10rem]">
             {activeProfileLabel}
           </span>
         </>
