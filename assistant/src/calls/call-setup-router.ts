@@ -434,29 +434,6 @@ export async function routeSetup(ctx: SetupContext): Promise<{
     };
   }
 
-  // Members with policy: 'escalate' — live calls can't wait for approval
-  if (actorTrust.memberRecord?.policy === "escalate") {
-    log.info(
-      {
-        callSessionId: ctx.callSessionId,
-        from: ctx.from,
-        channelId: actorTrust.memberRecord.channel.id,
-        trustClass: actorTrust.trustClass,
-      },
-      "Inbound voice ACL: member policy escalate — cannot hold live call for guardian approval",
-    );
-    return {
-      outcome: {
-        action: "deny",
-        message:
-          "This number requires guardian approval for calls. Please have the account guardian update your permissions.",
-        logReason:
-          "Inbound voice ACL: member policy escalate — voice calls cannot await guardian approval",
-      },
-      resolved,
-    };
-  }
-
   // Guardian verification challenge
   if (pendingChallenge) {
     return {
