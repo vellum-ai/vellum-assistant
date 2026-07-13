@@ -11,6 +11,10 @@
  *   - Runner returns ok=false → run_failed surfaced; NO follow-up jobs;
  *     `emitNotificationSignal` was NOT called as a result of the failure
  *     (suppression is honored end-to-end).
+ *   - Progress check: a run that leaves the buffer un-shrunk returns
+ *     `invoked` with `noProgress: true` and enqueues no follow-ups.
+ *   - Follow-up coalescing: a pending job of a follow-up type suppresses
+ *     that enqueue (the pending row already covers it).
  *
  * Tests use temp workspaces (mkdtemp) and never touch `~/.vellum/`. Sample
  * content uses generic placeholders (Alice).
@@ -43,12 +47,24 @@ import {
 // + trustContext + origin match what the consolidation surface expects.
 let runnerCalls = 0;
 let runnerLastArgs: Record<string, unknown> | null = null;
+// Default stub: a successful run in which the agent drained the buffer — the
+// handler's progress check compares buffer line counts before and after the
+// run, so a stub that never touched buffer.md would register every success as
+// no-progress. No-progress tests override this with an impl that leaves the
+// buffer as-is (or grows it).
+const runnerTrimsBuffer = async (): Promise<{
+  conversationId: string;
+  ok: boolean;
+}> => {
+  writeFileSync(bufferPath(), "");
+  return { conversationId: "conv-1", ok: true };
+};
 let runnerImpl: () => Promise<{
   conversationId: string;
   ok: boolean;
   error?: Error;
   errorKind?: string;
-}> = async () => ({ conversationId: "conv-1", ok: true });
+}> = runnerTrimsBuffer;
 
 mock.module("../../../../../runtime/background-job-runner.js", () => ({
   runBackgroundJob: async (opts: Record<string, unknown>) => {
@@ -80,12 +96,15 @@ mock.module("../../../../../notifications/emit-signal.js", () => ({
   },
 }));
 
-// ── enqueueMemoryJob mock ───────────────────────────────────────────
+// ── jobs-store mock ─────────────────────────────────────────────────
 const enqueuedJobs: Array<{
   type: string;
   payload: Record<string, unknown>;
 }> = [];
 let nextJobIdCounter = 0;
+// Follow-up types the handler should see as already pending — drives the
+// enqueue-coalescing branch (`hasPendingJobOfType`).
+let pendingJobTypes = new Set<string>();
 
 mock.module("../../../../../persistence/jobs-store.js", () => ({
   enqueueMemoryJob: (
@@ -96,6 +115,7 @@ mock.module("../../../../../persistence/jobs-store.js", () => ({
     nextJobIdCounter += 1;
     return `job-${nextJobIdCounter}`;
   },
+  hasPendingJobOfType: (type: string): boolean => pendingJobTypes.has(type),
   isMemoryEnabled: () => true,
 }));
 
@@ -213,10 +233,11 @@ beforeEach(() => {
 
   runnerCalls = 0;
   runnerLastArgs = null;
-  runnerImpl = async () => ({ conversationId: "conv-1", ok: true });
+  runnerImpl = runnerTrimsBuffer;
   emitCalls.length = 0;
   enqueuedJobs.length = 0;
   nextJobIdCounter = 0;
+  pendingJobTypes = new Set();
 
   // v3 follow-up flag default: off.
   v3FlagOn = false;
@@ -606,6 +627,9 @@ describe("memoryV2ConsolidateJob — non-empty buffer", () => {
     await memoryV2ConsolidateJob(makeJob(), CONFIG);
     expect(runnerLastArgs?.prompt as string).not.toContain("core-pages");
 
+    // The first run's stub drained the buffer — refill it so the second
+    // invocation doesn't bail at the empty-buffer gate.
+    writeFileSync(bufferPath(), "- [Apr 27, 9:10 AM] Alice refactored.\n");
     v3FlagOn = true;
     await memoryV2ConsolidateJob(makeJob(), CONFIG);
     expect(runnerLastArgs?.prompt as string).toContain(
@@ -653,6 +677,106 @@ describe("memoryV2ConsolidateJob — non-empty buffer", () => {
     await memoryV2ConsolidateJob(makeJob(), CONFIG);
 
     expect(emitCalls).toHaveLength(0);
+  });
+});
+
+describe("memoryV2ConsolidateJob — progress check and follow-up coalescing", () => {
+  beforeEach(() => {
+    writeFileSync(
+      bufferPath(),
+      "- [Apr 27, 9:00 AM] Alice prefers VS Code over Vim.\n" +
+        "- [Apr 27, 9:05 AM] Alice ships at end of day.\n",
+    );
+  });
+
+  test("a drained buffer reports progress and enqueues follow-ups", async () => {
+    const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    expect(result.kind).toBe("invoked");
+    if (result.kind !== "invoked") throw new Error("unreachable");
+    expect(result.noProgress).toBe(false);
+    expect(result.followUpJobIds).toEqual(["job-1"]);
+    expect(enqueuedJobs.map((j) => j.type)).toEqual(["memory_v2_reembed"]);
+  });
+
+  test("a partially trimmed buffer counts as progress", async () => {
+    runnerImpl = async () => {
+      writeFileSync(
+        bufferPath(),
+        "- [Apr 27, 9:05 AM] Alice ships at end of day.\n",
+      );
+      return { conversationId: "conv-1", ok: true };
+    };
+
+    const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    expect(result.kind).toBe("invoked");
+    if (result.kind !== "invoked") throw new Error("unreachable");
+    expect(result.noProgress).toBe(false);
+    expect(enqueuedJobs.map((j) => j.type)).toEqual(["memory_v2_reembed"]);
+  });
+
+  test("an unchanged buffer reports noProgress and skips all follow-ups", async () => {
+    // The runner completes ok but never touches buffer.md — the stuck-agent
+    // shape: without the progress check the size trigger would re-fire and
+    // every re-fire would fan out another reembed.
+    runnerImpl = async () => ({ conversationId: "conv-1", ok: true });
+
+    const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    expect(result.kind).toBe("invoked");
+    if (result.kind !== "invoked") throw new Error("unreachable");
+    expect(result.noProgress).toBe(true);
+    expect(result.followUpJobIds).toEqual([]);
+    expect(enqueuedJobs).toHaveLength(0);
+  });
+
+  test("a grown buffer reports noProgress and skips all follow-ups", async () => {
+    runnerImpl = async () => {
+      writeFileSync(
+        bufferPath(),
+        "- [Apr 27, 9:00 AM] Alice prefers VS Code over Vim.\n" +
+          "- [Apr 27, 9:05 AM] Alice ships at end of day.\n" +
+          "- [Apr 27, 9:06 AM] Bob joined the standup.\n",
+      );
+      return { conversationId: "conv-1", ok: true };
+    };
+
+    const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    expect(result.kind).toBe("invoked");
+    if (result.kind !== "invoked") throw new Error("unreachable");
+    expect(result.noProgress).toBe(true);
+    expect(result.followUpJobIds).toEqual([]);
+    expect(enqueuedJobs).toHaveLength(0);
+  });
+
+  test("a pending reembed suppresses its duplicate; v3 maintain still enqueues", async () => {
+    v3FlagOn = true;
+    pendingJobTypes.add("memory_v2_reembed");
+
+    const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    expect(result.kind).toBe("invoked");
+    if (result.kind !== "invoked") throw new Error("unreachable");
+    expect(enqueuedJobs.map((j) => j.type)).toEqual(["memory_v3_maintain"]);
+    expect(result.followUpJobIds).toHaveLength(1);
+  });
+
+  test("pending rows of both follow-up types suppress all enqueues", async () => {
+    v3FlagOn = true;
+    pendingJobTypes.add("memory_v2_reembed");
+    pendingJobTypes.add("memory_v3_maintain");
+
+    const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    expect(result.kind).toBe("invoked");
+    if (result.kind !== "invoked") throw new Error("unreachable");
+    // Dedup is not no-progress: the run drained the buffer; the follow-ups
+    // are simply already covered by pending rows.
+    expect(result.noProgress).toBe(false);
+    expect(result.followUpJobIds).toEqual([]);
+    expect(enqueuedJobs).toHaveLength(0);
   });
 });
 
