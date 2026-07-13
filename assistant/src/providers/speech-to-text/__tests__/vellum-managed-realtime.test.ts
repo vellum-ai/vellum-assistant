@@ -272,6 +272,25 @@ describe("VellumManagedRealtimeTranscriber", () => {
     expect(events).toEqual([{ type: "finalized" }]);
   });
 
+  test("stop during the initial dial tears down the session it raced", async () => {
+    const adapter = new VellumManagedRealtimeTranscriber(CONNECTION);
+    const { events, onEvent } = collector();
+    const startPromise = adapter.start(onEvent);
+
+    // Caller gives up while the handshake is still in flight.
+    adapter.stop();
+    expect(events).toEqual([{ type: "closed" }]);
+
+    // The dial still resolves — the opened session must be stopped, not
+    // kept alive to meter against velay.
+    sockets[0]!.simulateOpen();
+    await startPromise;
+    expect(
+      sockets[0]!.sentData.some((d) => String(d).includes("CloseStream")),
+    ).toBe(true);
+    expect(events).toEqual([{ type: "closed" }]);
+  });
+
   test("stop during a re-dial closes exactly once", async () => {
     const { adapter, events } = await startAdapter();
 

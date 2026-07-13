@@ -90,7 +90,15 @@ export class VellumManagedRealtimeTranscriber implements StreamingTranscriber {
     }
     this.onEvent = onEvent;
     try {
-      this.inner = await this.dial();
+      const inner = await this.dial();
+      if (this.stopping) {
+        // stop() raced the initial dial: it saw no inner to tear down and
+        // already emitted closed, so the freshly opened relay session must
+        // not be kept (a leaked session keeps velay metering).
+        inner.stop();
+        return;
+      }
+      this.inner = inner;
     } catch (err) {
       // A failed WebSocket upgrade exposes no HTTP details; replay the
       // request as a plain GET to recover the relay's {code, detail}
