@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
-import type { DisplayMessage } from "@/domains/chat/types/types";
+import { type DisplayMessage, isSurfaceInteractive } from "@/domains/chat/types/types";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useIsIOSWeb, useIsMacOSWeb } from "@/runtime/platform-detection";
 import {
@@ -43,6 +43,10 @@ interface PlatformNudgeState {
  * 1. Only one platform nudge shows at a time (iOS xor macOS).
  * 2. GitHub nudge surfaces only once the platform nudge is resolved.
  * 3. Discord nudge surfaces only once GitHub is resolved, with a cooldown.
+ * 4. All nudges are suppressed while an interactive surface (choice, form,
+ *    confirmation, etc.) is awaiting user input — these surfaces render
+ *    inline in the transcript and visually collide with the floating nudge
+ *    banner above the composer (LUM-2777).
  */
 export interface AppNudgesState {
   /** True when the current browser is iOS Safari (non-native). */
@@ -153,6 +157,16 @@ export function useAppNudges(
   ]);
 
   // -------------------------------------------------------------------------
+  // Active interactive surface — suppress nudges while a surface (choice,
+  // form, confirmation, etc.) is awaiting user input. These surfaces render
+  // inline in the transcript and visually collide with the floating nudge
+  // banner above the composer (LUM-2777).
+  // -------------------------------------------------------------------------
+  const hasActiveInteractiveSurface = messages.some(
+    (m) => m.surfaces?.some(isSurfaceInteractive) ?? false,
+  );
+
+  // -------------------------------------------------------------------------
   // Platform nudge (iOS xor macOS)
   // -------------------------------------------------------------------------
   const iosNudge = useIOSNudgeState();
@@ -164,7 +178,11 @@ export function useAppNudges(
     ? assistantTurnsSeen >= IOS_APP_BANNER_MIN_TURNS
     : macNudge.ageEligible;
 
-  const showBanner = isOnNudgePlatform && bannerEligible && nudge.bannerShouldShow;
+  const showBanner =
+    isOnNudgePlatform &&
+    bannerEligible &&
+    nudge.bannerShouldShow &&
+    !hasActiveInteractiveSurface;
 
   // -------------------------------------------------------------------------
   // GitHub star nudge — only after platform nudge is resolved
@@ -219,7 +237,9 @@ export function useAppNudges(
   const platformNudgeResolved =
     !isOnNudgePlatform || !nudge.bannerShouldShow;
   const showGitHubBanner =
-    platformNudgeResolved && githubNudge.bannerShouldShow;
+    platformNudgeResolved &&
+    githubNudge.bannerShouldShow &&
+    !hasActiveInteractiveSurface;
 
   // -------------------------------------------------------------------------
   // Discord community nudge — only after GitHub nudge is resolved
@@ -233,7 +253,10 @@ export function useAppNudges(
     conversationCount,
   );
   const showDiscordBanner =
-    !showBanner && !showGitHubBanner && discordNudge.bannerShouldShow;
+    !showBanner &&
+    !showGitHubBanner &&
+    discordNudge.bannerShouldShow &&
+    !hasActiveInteractiveSurface;
 
   return {
     isOnIOS,
