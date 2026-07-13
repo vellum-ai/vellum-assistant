@@ -51,9 +51,10 @@
  *      are enqueued — the agent's writes may be partial and re-embedding
  *      partial state would be misleading. Run outcome also drives the durable
  *      consecutive-failure state (see
- *      {@link CONSOLIDATION_FAILURE_CHECKPOINT_KEY}): failure increments it,
- *      success clears it, and the scheduler backs off automatic re-enqueues
- *      while it is set.
+ *      {@link CONSOLIDATION_FAILURE_CHECKPOINT_KEY}): a failed or
+ *      no-progress run increments it, a progressing run clears it, a skipped
+ *      run leaves it untouched, and the scheduler backs off automatic
+ *      re-enqueues while it is set.
  *   8. Release the lock. A stale lock is taken over automatically on the next
  *      run (single-writer per workspace): when the holder's PID is no longer
  *      running, or — because the daemon runs as PID 1 in containers and a
@@ -166,9 +167,10 @@ const STALE_LOCK_TTL_MS = 4 * CONSOLIDATION_TIMEOUT_MS;
 /**
  * Durable checkpoint tracking consecutive consolidation run failures.
  *
- * Written by this handler: incremented when `runBackgroundJob` reports
- * failure, cleared on a successful run. Paths that bail before invoking the
- * runner (disabled, locked, empty buffer) leave it untouched. The scheduler
+ * Written by this handler: incremented when the run fails or completes
+ * without draining the buffer, cleared when a run makes progress. Paths that
+ * bail before invoking the runner (disabled, locked, empty buffer) and
+ * skipped runs (`skipReason`) leave it untouched. The scheduler
  * (`maybeEnqueueGraphMaintenanceJobs`) reads it to back off automatic
  * re-enqueues while runs keep failing — without it, a fast-failing run whose
  * buffer never trims re-fires the size trigger on every worker poll. Manual
@@ -253,7 +255,7 @@ function recordConsolidationFailure(
   }
 }
 
-/** Clear the failure state after a successful run. Best-effort. */
+/** Clear the failure state after a progressing run. Best-effort. */
 function clearConsolidationFailureState(): void {
   try {
     deleteMemoryCheckpoint(CONSOLIDATION_FAILURE_CHECKPOINT_KEY);
@@ -474,8 +476,6 @@ export async function memoryV2ConsolidateJob(
         : { kind: "run_failed" };
     }
 
-    clearConsolidationFailureState();
-
     // Step 5: verify the run drained the buffer. `runResult.ok` only means
     // the background run completed — the trim itself is delegated to the
     // agent, and nothing above checks that it happened. A run that completes
@@ -486,7 +486,22 @@ export async function memoryV2ConsolidateJob(
     // after-count into a false "no progress"; that is benign — the next
     // progressing run enqueues the same follow-ups.
     const bufferLinesAfter = countBufferLines(bufferPath);
-    if (bufferLinesAfter >= bufferLinesBefore) {
+    const noProgress = bufferLinesAfter >= bufferLinesBefore;
+
+    // Failure-state bookkeeping. A skipped run (`skipReason`) never invoked
+    // the agent, so it neither clears nor records. A completed run that made
+    // no progress behaves like a failure for scheduling — the size trigger
+    // stays armed — so it records on the transient curve rather than
+    // re-firing every worker poll; only a progressing run clears the backoff.
+    if (runResult.skipReason === undefined) {
+      if (noProgress) {
+        recordConsolidationFailure(Date.now(), "transient");
+      } else {
+        clearConsolidationFailureState();
+      }
+    }
+
+    if (noProgress) {
       log.warn(
         {
           conversationId: runResult.conversationId,

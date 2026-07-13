@@ -16,9 +16,10 @@
  *   - Follow-up coalescing: a pending job of a follow-up type suppresses
  *     that enqueue (the pending row already covers it).
  *   - Consecutive-failure state: failed runs increment the durable
- *     checkpoint, success clears it, pre-runner bail paths leave it alone,
- *     and the recorded kind (billing vs transient) tracks the most recent
- *     failure's classification.
+ *     checkpoint, progressing success clears it, no-progress completions
+ *     record a transient failure, skipped runs and pre-runner bail paths
+ *     leave it alone, and the recorded kind (billing vs transient) tracks
+ *     the most recent failure's classification.
  *
  * Tests use temp workspaces (mkdtemp) and never touch `~/.vellum/`. Sample
  * content uses generic placeholders (Alice).
@@ -69,6 +70,7 @@ let runnerImpl: () => Promise<{
   error?: Error;
   errorKind?: string;
   failureCode?: string;
+  skipReason?: string;
 }> = runnerTrimsBuffer;
 
 mock.module("../../../../../runtime/background-job-runner.js", () => ({
@@ -999,6 +1001,54 @@ describe("memoryV2ConsolidateJob — consecutive-failure state", () => {
     const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
 
     expect(result.kind).toBe("invoked");
+    expect(readFailureState()).toBeNull();
+  });
+
+  test("a completed run with no progress records a transient failure instead of clearing", async () => {
+    seedFailureState(2, Date.now() - 60_000, "billing");
+    // Completes ok but never touches buffer.md — the stuck-agent shape.
+    runnerImpl = async () => ({ conversationId: "conv-1", ok: true });
+
+    const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    expect(result.kind).toBe("invoked");
+    if (result.kind !== "invoked") {
+      throw new Error("unreachable");
+    }
+    expect(result.noProgress).toBe(true);
+    expect(readFailureState()).toMatchObject({
+      consecutiveFailures: 3,
+      kind: "transient",
+    });
+  });
+
+  test("a skipped run neither clears nor records failure state", async () => {
+    const lastFailureAt = Date.now() - 60_000;
+    seedFailureState(2, lastFailureAt, "billing");
+    runnerImpl = async () => ({
+      conversationId: "",
+      ok: true,
+      skipReason: "pre_first_user_message",
+    });
+
+    await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    expect(readFailureState()).toEqual({
+      consecutiveFailures: 2,
+      lastFailureAt,
+      kind: "billing",
+    });
+  });
+
+  test("a skipped run creates no failure state when none exists", async () => {
+    runnerImpl = async () => ({
+      conversationId: "",
+      ok: true,
+      skipReason: "pre_first_user_message",
+    });
+
+    await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
     expect(readFailureState()).toBeNull();
   });
 
