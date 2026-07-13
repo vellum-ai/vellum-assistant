@@ -506,6 +506,10 @@ export function useLiveVoice(
       // below clears the flag, so carry it over (a fresh start() always
       // begins live: attempt 0 ⇒ wasMuted is not re-applied).
       const wasMuted = store.muted;
+      // The entry origin (the tapped control's position, published by the
+      // composer just before start) also lives in the session state the reset
+      // below clears — carry it across so the room's entrance grows from it.
+      const entryOrigin = store.entryOrigin;
       store.reset();
       store.setState("connecting");
       // A retry re-enters here via the backoff timer with `reconnectAttemptRef`
@@ -515,6 +519,7 @@ export function useLiveVoice(
       // to (re)assert true on the reconnect path.
       store.setReconnecting(isReconnect);
       store.setSessionContext(assistantId, conversationId ?? null);
+      store.setEntryOrigin(entryOrigin);
       if (isReconnect && wasMuted) store.setMuted(true);
       store.setHandsFree(startOptions.handsFree === true);
       // Registered here (not on `ready`) so a globally mounted surface can

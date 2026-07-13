@@ -221,11 +221,12 @@ export interface LiveVoiceState {
   handsFree: boolean;
   /**
    * Viewport-space center of the control the user tapped to start the session
-   * (the composer's voice button), captured at start. The color room grows its
-   * entrance from here — "the avatar on the screen" the user acted on — instead
-   * of a fixed screen-center point. `null` when a session started without a
-   * captured origin (falls back to center). Cleared on `reset`; NOT cleared by
-   * `setSessionContext`, which the start flow calls after this is set.
+   * (the composer's voice button). The color room grows its entrance from here
+   * — "the avatar on the screen" the user acted on — instead of a fixed
+   * screen-center point. `null` when a session started without a captured
+   * origin (falls back to center). The composer publishes it just before
+   * invoking the `starter`; the controller's `connectSession` carries it across
+   * its start-time `reset()` (like `muted`), so it survives to the room mount.
    */
   entryOrigin: LiveVoiceEntryOrigin | null;
   /**
