@@ -83,7 +83,6 @@ function schedulerResultFixture(
     completed: 0,
     failed: 0,
     skipped: 0,
-    stillPending: 0,
     ...overrides,
   };
 }
@@ -573,7 +572,7 @@ describe("background wake runtime routes", () => {
       skipped: 0,
     }));
     const schedulerRunDue = mock(async () =>
-      schedulerResultFixture({ skipped: 2, stillPending: 2 }),
+      schedulerResultFixture({ skipped: 2 }),
     );
     setBackgroundWakeRuntime({
       heartbeat: {
@@ -725,7 +724,7 @@ describe("background wake runtime routes", () => {
 
   test("drain-due runs scheduler work even when pending work remains", async () => {
     const schedulerRunDue = mock(async () =>
-      schedulerResultFixture({ claimed: 1, completed: 1, stillPending: 1 }),
+      schedulerResultFixture({ claimed: 1, completed: 1 }),
     );
     setBackgroundWakeRuntime({
       heartbeat: {

@@ -2,13 +2,12 @@
  * Shared control surface for the schedule worker *process* — the background OS
  * process whose entry point is `worker.ts`.
  *
- * Both the `assistant schedules worker` CLI and the daemon lifecycle (when
- * `schedules.worker.enabled` is set) need to probe, spawn, and stop this
- * process. The generic PID-file mechanics live in `util/worker-process.ts`;
- * this module binds them to the schedule worker's PID path and entry point.
+ * The daemon lifecycle spawns and stops this process, and the schedule worker
+ * status route probes it. The generic PID-file mechanics live in
+ * `util/worker-process.ts`; this module binds them to the schedule worker's PID
+ * path and entry point.
  */
 
-import { getConfig } from "../config/loader.js";
 import { getLogger } from "../util/logger.js";
 import { getScheduleWorkerPidPath } from "../util/platform.js";
 import {
@@ -39,13 +38,9 @@ export class ScheduleWorkerSpawnError extends WorkerProcessSpawnError {}
  * second one. Throws {@link ScheduleWorkerSpawnError} if the child crashes
  * during startup or never writes its PID file within the wait window.
  *
- * Beyond the generic option semantics documented on
- * {@link SpawnWorkerProcessOptions}: callers whose failure path leaves
- * `schedules.worker.enabled` off (the start route) should set
- * `terminateOnTimeout` so a worker reported as failed cannot come up later
- * and run schedules alongside the daemon's scheduler; the daemon's boot
- * spawn leaves the flag on, so a late worker there is the desired sole
- * schedule runner and passes `false`.
+ * See {@link SpawnWorkerProcessOptions} for the generic option semantics. The
+ * daemon's boot spawn leaves `terminateOnTimeout` unset: a worker that comes up
+ * late is still the desired sole schedule runner.
  */
 export async function spawnScheduleWorkerProcess(
   opts: SpawnWorkerProcessOptions = {},
@@ -77,15 +72,11 @@ export function stopScheduleWorkerProcess(): WorkerProcessStatus {
 /**
  * Daemon-lifecycle entry point: spawn the schedule worker as a child of the
  * daemon (`detached: false`, so it appears in `assistant ps` and is torn down
- * on shutdown) when `schedules.worker.enabled` is set. Fire-and-forget — a
- * worker failure must never block boot. The flag stays on either way, so a
- * worker that comes up late is the desired sole schedule runner
+ * on shutdown). Fire-and-forget — a worker failure must never block boot. A
+ * worker that comes up late is still the desired sole schedule runner
  * (`terminateOnTimeout` is deliberately not set).
  */
-export function startScheduleWorkerIfEnabled(): void {
-  if (getConfig().schedules?.worker?.enabled !== true) {
-    return;
-  }
+export function startScheduleWorker(): void {
   void spawnScheduleWorkerProcess({ detached: false })
     .then((r) =>
       log.info(
@@ -102,8 +93,7 @@ export function startScheduleWorkerIfEnabled(): void {
 
 /**
  * Daemon-lifecycle entry point: SIGTERM the schedule worker process if it is
- * running. Keyed off live state rather than config: it may have been spawned
- * at startup or out of band via `assistant schedules worker start`. Never
+ * running. Keyed off live state (the PID file) rather than config. Never
  * throws.
  */
 export function stopScheduleWorker(): void {

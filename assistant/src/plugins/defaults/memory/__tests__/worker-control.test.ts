@@ -1,14 +1,12 @@
 /**
- * Tests for `spawnMemoryWorkerProcess` — the detached worker-process spawner.
+ * Tests for `spawnMemoryWorkerProcess` — the worker-process spawner.
  *
- * Focuses on the readiness wait, which gates whether `assistant memory worker
- * start` reports success and flips `memory.worker.enabled`:
+ * Focuses on the readiness wait, which gates whether the daemon's boot spawn
+ * reports the worker up:
  *   - succeeds when the worker writes its PID file (immediately or a little
  *     late — a cold `bun run` start takes seconds),
  *   - fails fast when the child exits during startup,
- *   - on timeout, terminates a still-alive child only when asked, so the CLI
- *     (which leaves the flag off on failure) cannot orphan a worker that would
- *     then drain the queue alongside the daemon's synchronous runner.
+ *   - on timeout, terminates a still-alive child only when asked.
  */
 
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -17,8 +15,8 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mock } from "bun:test";
 
-import * as realLogger from "../../util/logger.js";
-import * as realPlatform from "../../util/platform.js";
+import * as realLogger from "../../../../util/logger.js";
+import * as realPlatform from "../../../../util/platform.js";
 
 let tmpDir: string;
 let pidPath: string;
@@ -26,7 +24,7 @@ let pidPath: string;
 // Spread the real modules and override only what we need: `mock.module` is
 // global across the test process, so a partial mock missing exports that other
 // co-run files import (e.g. jobs-worker's `getWorkspaceDir`) would break them.
-mock.module("../../util/platform.js", () => ({
+mock.module("../../../../util/platform.js", () => ({
   ...realPlatform,
   getMemoryWorkerPidPath: () => pidPath,
 }));
@@ -37,7 +35,7 @@ const noopLogger = {
   error: () => {},
   debug: () => {},
 };
-mock.module("../../util/logger.js", () => ({
+mock.module("../../../../util/logger.js", () => ({
   ...realLogger,
   getLogger: () => noopLogger,
   getCliLogger: () => noopLogger,

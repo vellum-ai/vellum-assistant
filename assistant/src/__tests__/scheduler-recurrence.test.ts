@@ -53,7 +53,6 @@ mock.module("../notifications/emit-signal.js", () => ({
   },
 }));
 
-import { loadRawConfig, saveRawConfig } from "../config/loader.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import {
@@ -61,16 +60,9 @@ import {
   getSchedule,
   getScheduleRuns,
 } from "../schedule/schedule-store.js";
-import { runScheduleDueWorkOnce } from "../schedule/scheduler.js";
+import { runDueSchedulesOnce } from "../schedule/scheduler.js";
 
 await initializeDb();
-
-// The schedule worker is on by default, which stands the daemon's in-process
-// scheduler down. These tests exercise that in-process execution path directly,
-// so pin the worker flag off for this test process.
-const rawConfig = loadRawConfig();
-rawConfig.schedules = { worker: { enabled: false } };
-saveRawConfig(rawConfig);
 
 /** Access the underlying bun:sqlite Database for raw parameterized queries. */
 function getRawDb(): import("bun:sqlite").Database {
@@ -150,7 +142,7 @@ describe("scheduler RRULE execution", () => {
       processedMessages.push({ conversationId, message: prompt });
     };
 
-    await runScheduleDueWorkOnce();
+    await runDueSchedulesOnce();
 
     // The runner should have been invoked with the RRULE message
     expect(
@@ -198,7 +190,7 @@ describe("scheduler RRULE execution", () => {
     };
 
     // First tick: the expired schedule should fire its final due run
-    await runScheduleDueWorkOnce();
+    await runDueSchedulesOnce();
 
     // The message IS delivered once
     expect(processedMessages).toContain("Final expired run");
@@ -216,7 +208,7 @@ describe("scheduler RRULE execution", () => {
 
     // Second tick: the disabled schedule must NOT fire again
     processedMessages.length = 0;
-    await runScheduleDueWorkOnce();
+    await runDueSchedulesOnce();
 
     expect(processedMessages).not.toContain("Final expired run");
     // No additional runs
@@ -244,7 +236,7 @@ describe("scheduler RRULE execution", () => {
       processedMessages.push({ conversationId, message: prompt });
     };
 
-    await runScheduleDueWorkOnce();
+    await runDueSchedulesOnce();
 
     // The runner should have been invoked with the cron message
     expect(processedMessages.some((m) => m.message === "Cron message")).toBe(
@@ -275,7 +267,7 @@ describe("scheduler RRULE execution", () => {
       dispatched.push(message);
     };
 
-    await runScheduleDueWorkOnce();
+    await runDueSchedulesOnce();
 
     // The raw `run_task:<id>` string must never reach the agent.
     expect(dispatched).toHaveLength(0);
@@ -326,7 +318,7 @@ describe("scheduler RRULE execution", () => {
     // Force the schedule to be due
     forceScheduleDue(schedule.id);
 
-    await runScheduleDueWorkOnce();
+    await runDueSchedulesOnce();
 
     // The schedule should have been claimed and nextRunAt advanced
     const after = getSchedule(schedule.id);
@@ -373,7 +365,7 @@ describe("scheduler RRULE execution", () => {
       processedMessages.push(prompt);
     };
 
-    await runScheduleDueWorkOnce();
+    await runDueSchedulesOnce();
 
     expect(processedMessages).toContain("Set fire test");
 
@@ -447,7 +439,7 @@ describe("scheduler RRULE execution", () => {
         processedMessages.push(prompt);
       };
 
-      await runScheduleDueWorkOnce();
+      await runDueSchedulesOnce();
 
       // The schedule should have fired
       expect(processedMessages).toContain("EXRULE scheduler fire");
@@ -483,7 +475,7 @@ describe("scheduler RRULE execution", () => {
     forceScheduleDue(schedule.id);
     const forcedDueAt = getSchedule(schedule.id)!.nextRunAt;
 
-    await runScheduleDueWorkOnce();
+    await runDueSchedulesOnce();
 
     const after = getSchedule(schedule.id);
     expect(after).not.toBeNull();
@@ -512,7 +504,7 @@ describe("scheduler RRULE execution", () => {
       processedMessages.push({ conversationId, message: prompt });
     };
 
-    await runScheduleDueWorkOnce();
+    await runDueSchedulesOnce();
 
     expect(
       processedMessages.some((m) => m.message === "Execute this once"),
@@ -541,7 +533,7 @@ describe("scheduler RRULE execution", () => {
 
     expect(getSchedule(schedule.id)!.status).toBe("active");
 
-    await runScheduleDueWorkOnce();
+    await runDueSchedulesOnce();
 
     expect(notifySignalCalls).toHaveLength(1);
     expect(notifySignalCalls[0]).toMatchObject({
@@ -574,7 +566,7 @@ describe("scheduler RRULE execution", () => {
 
     runBackgroundJobShouldFail = true;
 
-    await runScheduleDueWorkOnce();
+    await runDueSchedulesOnce();
 
     const after = getSchedule(schedule.id);
     expect(after).not.toBeNull();
@@ -597,7 +589,7 @@ describe("scheduler RRULE execution", () => {
 
     forceScheduleDue(schedule.id);
 
-    await runScheduleDueWorkOnce();
+    await runDueSchedulesOnce();
 
     expect(notifySignalCalls).toHaveLength(1);
     expect(notifySignalCalls[0]).toMatchObject({
@@ -635,7 +627,7 @@ describe("scheduler RRULE execution", () => {
       },
     });
 
-    await runScheduleDueWorkOnce();
+    await runDueSchedulesOnce();
 
     expect(notifySignalCalls).toHaveLength(1);
     expect(notifySignalCalls[0].routingIntent).toBe("all_channels");

@@ -2,13 +2,13 @@
  * Shared control surface for the memory jobs worker *process* — the background
  * OS process whose entry point is `worker.ts`.
  *
- * Both the `assistant memory worker` CLI and the daemon lifecycle (when
- * `memory.worker.enabled` is set) need to probe, spawn, and stop this process.
- * The generic PID-file mechanics live in `util/worker-process.ts`; this module
- * binds them to the memory worker's PID path and entry point.
+ * The daemon lifecycle spawns and stops this process, and the memory worker
+ * status route probes it. The generic PID-file mechanics live in
+ * `util/worker-process.ts`; this module binds them to the memory worker's PID
+ * path and entry point.
  */
 
-import { getMemoryWorkerPidPath } from "../util/platform.js";
+import { getMemoryWorkerPidPath } from "../../../util/platform.js";
 import {
   probeWorkerPidFile,
   spawnWorkerProcess,
@@ -16,7 +16,7 @@ import {
   stopWorkerProcess,
   WorkerProcessSpawnError,
   type WorkerProcessStatus,
-} from "../util/worker-process.js";
+} from "../../../util/worker-process.js";
 
 /**
  * Inspect the PID file to determine whether the worker process is alive.
@@ -36,20 +36,11 @@ export class MemoryWorkerSpawnError extends WorkerProcessSpawnError {}
  * during startup or never writes its PID file within the wait window (i.e.
  * failed to start).
  *
- * Beyond the generic option semantics documented on
- * {@link SpawnWorkerProcessOptions}, two flags carry queue-ownership
- * consequences specific to the memory worker:
- *
- *   - `terminateOnTimeout` — callers that leave `memory.worker.enabled` off
- *     on failure (the CLI `memory worker start`) MUST set this: otherwise the
- *     detached worker keeps coming up and drains the queue behind the
- *     daemon's still-active synchronous runner — two drainers racing on the
- *     same jobs. The daemon's own startup spawn leaves the flag on, so a late
- *     worker there becomes the sole drainer; it passes `false` to let that
- *     worker live.
- *   - `detached` — `true` for the short-lived CLI (the worker outlives the
- *     command); `false` for the daemon (the worker appears in `assistant ps`
- *     and is torn down with the daemon).
+ * See {@link SpawnWorkerProcessOptions} for the generic option semantics. The
+ * daemon's boot spawn passes `detached: false` (so the worker appears in
+ * `assistant ps` and is torn down with the daemon) and leaves
+ * `terminateOnTimeout` unset (a worker that comes up late is still the desired
+ * sole drainer).
  */
 export async function spawnMemoryWorkerProcess(
   opts: SpawnWorkerProcessOptions = {},
@@ -60,7 +51,7 @@ export async function spawnMemoryWorkerProcess(
   try {
     return await spawnWorkerProcess({
       pidPath: getMemoryWorkerPidPath(),
-      entry: new URL("../plugins/defaults/memory/worker.ts", import.meta.url),
+      entry: new URL("./worker.ts", import.meta.url),
       workerLabel: "Memory worker",
       options: opts,
     });

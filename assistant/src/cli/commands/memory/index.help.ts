@@ -766,12 +766,11 @@ Examples:
       helpText: `
 The memory worker processes embedding, consolidation, and cleanup jobs in a
 separate OS process so they do not block the assistant's main event loop. The
-daemon owns the process, so it is spawned as a child of the daemon and shows up
-in \`assistant ps\`.
+daemon spawns it as a child process at startup, so it shows up in
+\`assistant ps\`.
 
-\`start\` enables memory.worker.enabled and \`stop\` disables it, so the
-assistant's synchronous in-process runner stands down (start) or takes back over
-(stop) without a restart.
+\`start\` and \`stop\` manage that process on demand (respawn or SIGTERM); the
+worker is spun up by default at startup.
 
 Examples:
   $ assistant memory worker start
@@ -780,8 +779,7 @@ Examples:
       subcommands: [
         {
           name: "start",
-          description:
-            "Start the memory worker process and enable memory.worker.enabled",
+          description: "Spawn the memory worker process if it is not running",
           options: [
             {
               flags: "--json",
@@ -791,8 +789,7 @@ Examples:
         },
         {
           name: "stop",
-          description:
-            "Stop the memory worker process and disable memory.worker.enabled",
+          description: "SIGTERM the memory worker process",
           options: [
             {
               flags: "--json",
@@ -803,7 +800,7 @@ Examples:
         {
           name: "status",
           description:
-            "Report worker process state, memory.worker.enabled, and the synchronous runner",
+            "Report the memory worker process liveness and embedding-backend status",
           options: [
             {
               flags: "--json",

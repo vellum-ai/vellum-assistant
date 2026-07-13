@@ -6,7 +6,11 @@ import { PlatformLoginNotice } from "@/components/platform-login-notice";
 import { useAssistantWithHealthz } from "@/domains/settings/components/assistant-status-panel";
 import { MemoryWorkerToggle } from "@/domains/settings/components/memory-worker-toggle";
 import { UpdateWindowPolicy } from "@/domains/settings/components/update-window-policy";
-import { configGetOptions, configGetSetQueryData, useConfigPatchMutation } from "@/generated/daemon/@tanstack/react-query.gen";
+import {
+  configGetOptions,
+  configGetSetQueryData,
+  useConfigPatchMutation,
+} from "@/generated/daemon/@tanstack/react-query.gen";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
 import { captureError } from "@/lib/sentry/capture-error";
 import { toast } from "@vellumai/design-library/components/toast";
@@ -28,7 +32,11 @@ export function AdvancedPage() {
 
   const configMutation = useConfigPatchMutation({
     onSuccess: (data) => {
-      configGetSetQueryData(queryClient, { path: { assistant_id: assistantId } }, data);
+      configGetSetQueryData(
+        queryClient,
+        { path: { assistant_id: assistantId } },
+        data,
+      );
     },
   });
   const memoryEnabled = config?.memory?.enabled !== false;

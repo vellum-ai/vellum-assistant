@@ -1,28 +1,18 @@
 /**
  * `assistant schedules worker` CLI subgroup.
  *
- * Manages the schedule worker as its own OS process — separate from the
- * assistant's main event loop. Scheduled jobs run there, so expensive
- * scheduled work does not compete with user-facing traffic and keeps running
- * during a main-thread freeze.
+ * The schedule worker runs scheduled jobs as its own OS process — a child of
+ * the assistant spawned at startup — so expensive scheduled work does not
+ * compete with user-facing traffic and keeps running during a main-thread
+ * freeze. It is spun up by default; these commands manage the process lifecycle
+ * on demand.
  *
- * Subcommands:
+ * Subcommands (thin IPC wrappers; the assistant owns the process so it is
+ * spawned as a child of the assistant and appears in `assistant ps`):
  *
- *   - `start`  — spawn the worker process and enable
- *     `schedules.worker.enabled`, so the assistant's scheduler leaves
- *     schedule execution to the worker.
- *   - `stop`   — SIGTERM the worker process and disable
- *     `schedules.worker.enabled`, handing schedule execution back to the
- *     assistant's scheduler.
- *   - `status` — report the worker process state, the
- *     `schedules.worker.enabled` config value, and whether the assistant's
- *     in-process scheduler is currently executing schedules.
- *
- * All three are thin IPC wrappers (transport: "ipc"): the assistant owns the
- * worker process so it is spawned as a *child of the assistant* — which is
- * what makes it appear in `assistant ps` and lets the assistant tear it down
- * on shutdown. (If the CLI spawned the worker itself, the short-lived CLI
- * process would be its parent and the worker would be reparented to init.)
+ *   - `start`  — spawn the worker process if it is not already running.
+ *   - `stop`   — SIGTERM the worker process.
+ *   - `status` — report the worker process state.
  */
 
 import type { Command } from "commander";
@@ -32,29 +22,20 @@ import { subcommand } from "../lib/cli-command-help.js";
 import { log } from "../logger.js";
 import { shouldOutputJson, writeOutput } from "../output.js";
 
-interface WorkerProcessState {
-  status: "running" | "not_running";
-  pid?: number;
-}
-
 interface StartResponse {
   pid: number;
   alreadyRunning: boolean;
-  workerEnabled: true;
   pidPath: string;
 }
 
 interface StopResponse {
   workerWasRunning: boolean;
   pid?: number;
-  workerEnabled: false;
 }
 
 interface StatusResponse {
   status: "running" | "not_running";
   pid?: number;
-  workerEnabled: boolean;
-  inProcessScheduler: WorkerProcessState;
 }
 
 // ---------------------------------------------------------------------------
@@ -81,9 +62,6 @@ export function registerSchedulesWorkerCommand(schedules: Command): void {
           ? `Schedule worker is already running (PID ${res.pid})`
           : `Schedule worker started (PID ${res.pid})`,
       );
-      log.info(
-        "Enabled schedules.worker.enabled; the assistant's scheduler will leave schedule execution to the worker",
-      );
     },
   );
 
@@ -104,9 +82,6 @@ export function registerSchedulesWorkerCommand(schedules: Command): void {
       } else {
         log.info("Schedule worker process was not running");
       }
-      log.info(
-        "Disabled schedules.worker.enabled; the assistant's scheduler will run schedules again",
-      );
     },
   );
 
@@ -126,14 +101,6 @@ export function registerSchedulesWorkerCommand(schedules: Command): void {
         log.info(`Schedule worker process is running (PID ${res.pid})`);
       } else {
         log.info("Schedule worker process is not running");
-      }
-      log.info(`schedules.worker.enabled: ${res.workerEnabled}`);
-      if (res.inProcessScheduler.status === "running") {
-        log.info(
-          `In-process scheduler is running (PID ${res.inProcessScheduler.pid})`,
-        );
-      } else {
-        log.info("In-process scheduler is not running");
       }
     },
   );

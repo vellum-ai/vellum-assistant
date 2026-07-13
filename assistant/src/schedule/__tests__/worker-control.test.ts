@@ -1,9 +1,9 @@
 /**
  * Tests for the schedule worker process control surface.
  *
- * Focuses on the readiness wait (which gates whether `assistant schedules
- * worker start` reports success and flips `schedules.worker.enabled`) and the
- * PID-file liveness probe, mirroring the memory worker's worker-control tests.
+ * Focuses on the readiness wait (which gates whether the daemon's boot spawn
+ * reports the worker up) and the PID-file liveness probe, mirroring the memory
+ * worker's worker-control tests.
  */
 
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";

@@ -15,7 +15,7 @@ to 'execute' mode — notify/script/wake schedules are created via the
 in-assistant schedule_create tool, but can be inspected and updated here.
 
 The 'worker' subgroup manages the schedule worker process, which runs
-scheduled jobs in a separate OS process when enabled.
+scheduled jobs in a separate OS process.
 
 Examples:
   $ assistant schedules list
@@ -23,7 +23,7 @@ Examples:
   $ assistant schedules update <schedule-id> --expression '0 9 * * *'
   $ assistant schedules runs <schedule-id> --limit 25 --json
   $ assistant schedules execute <schedule-id>
-  $ assistant schedules worker start`,
+  $ assistant schedules worker status`,
   subcommands: [
     {
       name: "list",
@@ -468,12 +468,10 @@ Examples:
       helpText: `
 The schedule worker runs scheduled jobs in a separate OS process so expensive
 scheduled work executes off the assistant's main event loop. The assistant
-owns the process, so it is spawned as a child of the assistant and shows up
-in \`assistant ps\`.
+spawns it as a child process at startup, so it shows up in \`assistant ps\`.
 
-\`start\` enables schedules.worker.enabled and \`stop\` disables it, so the
-assistant's scheduler hands schedule execution to the worker (start) or takes
-it back (stop) without a restart.
+\`start\` and \`stop\` manage that process on demand (respawn or SIGTERM); the
+worker is spun up by default at startup.
 
 Examples:
   $ assistant schedules worker start
@@ -482,8 +480,7 @@ Examples:
       subcommands: [
         {
           name: "start",
-          description:
-            "Start the schedule worker process and enable schedules.worker.enabled",
+          description: "Spawn the schedule worker process if it is not running",
           options: [
             {
               flags: "--json",
@@ -493,8 +490,7 @@ Examples:
         },
         {
           name: "stop",
-          description:
-            "Stop the schedule worker process and disable schedules.worker.enabled",
+          description: "SIGTERM the schedule worker process",
           options: [
             {
               flags: "--json",
@@ -504,8 +500,7 @@ Examples:
         },
         {
           name: "status",
-          description:
-            "Report worker process state, schedules.worker.enabled, and the in-process scheduler",
+          description: "Report the schedule worker process liveness",
           options: [
             {
               flags: "--json",

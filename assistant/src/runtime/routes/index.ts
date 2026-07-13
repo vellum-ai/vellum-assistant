@@ -13,6 +13,7 @@ import { ROUTES as MEMORY_GRAPH_ROUTES } from "../../plugins/defaults/memory/rou
 import { ROUTES as MEMORY_ITEM_ROUTES } from "../../plugins/defaults/memory/routes/memory-item-routes.js";
 import { ROUTES as MEMORY_V2_ROUTES } from "../../plugins/defaults/memory/routes/memory-v2-routes.js";
 import { ROUTES as MEMORY_V3_ROUTES } from "../../plugins/defaults/memory/routes/memory-v3-routes.js";
+import { ROUTES as MEMORY_WORKER_ROUTES } from "../../plugins/defaults/memory/routes/memory-worker-routes.js";
 import { ROUTES as ACP_ROUTES } from "./acp-routes.js";
 import { ROUTES as APP_MANAGEMENT_ROUTES } from "./app-management-routes.js";
 import { ROUTES as APP_ROUTES } from "./app-routes.js";
@@ -101,7 +102,6 @@ import { ROUTES as INTERNAL_TWILIO_ROUTES } from "./internal-twilio-routes.js";
 import { ROUTES as LLM_CALL_SITES_ROUTES } from "./llm-call-sites-routes.js";
 import { ROUTES as LOG_EXPORT_ROUTES } from "./log-export-routes.js";
 import { ROUTES as MCP_AUTH_ROUTES } from "./mcp-auth-routes.js";
-import { ROUTES as MEMORY_WORKER_ROUTES } from "./memory-worker-routes.js";
 import { ROUTES as MESSAGES_LEXICAL_ROUTES } from "./messages-lexical-routes.js";
 import { ROUTES as MIGRATION_ROLLBACK_ROUTES } from "./migration-rollback-routes.js";
 import { ROUTES as MIGRATION_ROUTES } from "./migration-routes.js";

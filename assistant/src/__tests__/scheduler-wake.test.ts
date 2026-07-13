@@ -16,20 +16,12 @@ mock.module("../daemon/process-message.js", () => ({
   processMessage: mockProcessMessage,
 }));
 
-import { loadRawConfig, saveRawConfig } from "../config/loader.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { createSchedule } from "../schedule/schedule-store.js";
-import { runScheduleDueWorkOnce } from "../schedule/scheduler.js";
+import { runDueSchedulesOnce } from "../schedule/scheduler.js";
 
 await initializeDb();
-
-// The schedule worker is on by default, which stands the daemon's in-process
-// scheduler down. These tests exercise that in-process execution path directly,
-// so pin the worker flag off for this test process.
-const rawConfig = loadRawConfig();
-rawConfig.schedules = { worker: { enabled: false } };
-saveRawConfig(rawConfig);
 
 /** Access the underlying bun:sqlite Database for raw parameterized queries. */
 function getRawDb(): import("bun:sqlite").Database {
@@ -70,7 +62,7 @@ describe("scheduler wake mode", () => {
     forceScheduleDue(schedule.id);
 
     // WHEN the scheduler fires
-    await runScheduleDueWorkOnce();
+    await runDueSchedulesOnce();
 
     // THEN wakeAgentForOpportunity is called with the correct arguments
     expect(mockWakeAgentForOpportunity).toHaveBeenCalledTimes(1);
@@ -103,7 +95,7 @@ describe("scheduler wake mode", () => {
     forceScheduleDue(schedule.id);
 
     // WHEN the scheduler fires
-    await runScheduleDueWorkOnce();
+    await runDueSchedulesOnce();
 
     // THEN wakeAgentForOpportunity is NOT called
     expect(mockWakeAgentForOpportunity).not.toHaveBeenCalled();
@@ -132,7 +124,7 @@ describe("scheduler wake mode", () => {
     forceScheduleDue(schedule.id);
 
     // WHEN the scheduler fires
-    await runScheduleDueWorkOnce();
+    await runDueSchedulesOnce();
 
     // THEN the one-shot is marked as completed (status = 'fired')
     const row = getRawDb()
@@ -155,7 +147,7 @@ describe("scheduler wake mode", () => {
     forceScheduleDue(schedule.id);
 
     // WHEN the scheduler fires
-    await runScheduleDueWorkOnce();
+    await runDueSchedulesOnce();
 
     // THEN the one-shot is reverted to 'active' for retry (failOneShot behavior)
     const row = getRawDb()
@@ -187,7 +179,7 @@ describe("scheduler wake mode", () => {
     forceScheduleDue(schedule.id);
 
     // WHEN the first tick runs
-    await runScheduleDueWorkOnce();
+    await runDueSchedulesOnce();
 
     // THEN the job is NOT completed — it's reverted to 'active' for retry
     const rowAfterFirst = getRawDb()
@@ -197,7 +189,7 @@ describe("scheduler wake mode", () => {
     expect(rowAfterFirst?.retry_count).toBe(1);
 
     // WHEN the second tick fires
-    await runScheduleDueWorkOnce();
+    await runDueSchedulesOnce();
 
     // THEN the job IS completed (status = 'fired')
     const rowAfterSecond = getRawDb()
@@ -232,7 +224,7 @@ describe("scheduler wake mode", () => {
     ]);
 
     // WHEN the scheduler fires
-    await runScheduleDueWorkOnce();
+    await runDueSchedulesOnce();
 
     // THEN the job is permanently failed (status = 'cancelled', enabled = false)
     const row = getRawDb()
