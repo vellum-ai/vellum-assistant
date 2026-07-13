@@ -40,7 +40,10 @@ import {
   parsePluginIcon,
   type PluginArtifact,
 } from "./plugin-artifact.js";
-import { findCatalogEntry } from "./plugin-catalog-resolve.js";
+import {
+  findCatalogEntry,
+  resolveSourceFromMatch,
+} from "./plugin-catalog-resolve.js";
 import { DEFAULT_PLUGIN_REF } from "./plugin-constants.js";
 import { readValidatedPluginIcon } from "./plugin-icon-file.js";
 import { fetchMarketplaceEntries } from "./plugin-marketplace.js";
@@ -393,13 +396,38 @@ async function resolveCatalogEntry(
   installed: boolean,
 ): Promise<PluginSearchMatch | null> {
   try {
-    return ref === DEFAULT_PLUGIN_REF
-      ? await findCatalogEntry(name, { fetch: fetchFn })
-      : await findMarketplaceMatch(name, ref, fetchFn);
+    const match =
+      ref === DEFAULT_PLUGIN_REF
+        ? await findCatalogEntry(name, { fetch: fetchFn })
+        : await findMarketplaceMatch(name, ref, fetchFn);
+    return validateCatalogMatchSource(match);
   } catch (err) {
     if (err instanceof PluginCatalogUnavailableError && !installed) {
       throw err;
     }
+    return null;
+  }
+}
+
+/**
+ * Guard a resolved catalog match through the installer's source validation.
+ *
+ * Returns the match only when {@link resolveSourceFromMatch} accepts its source
+ * (valid `owner/repo` slug, clean path, full commit SHA). A malformed row — the
+ * exact coordinate install-by-name refuses — resolves to `null`, so the detail
+ * view neither advertises its source nor enriches from it (metadata included):
+ * the whole row is untrusted, mirroring install rejecting it.
+ */
+function validateCatalogMatchSource(
+  match: PluginSearchMatch | null,
+): PluginSearchMatch | null {
+  if (!match) {
+    return null;
+  }
+  try {
+    resolveSourceFromMatch(match);
+    return match;
+  } catch {
     return null;
   }
 }

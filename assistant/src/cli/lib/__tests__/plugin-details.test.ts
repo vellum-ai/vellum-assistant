@@ -693,6 +693,71 @@ describe("getPluginDetails (catalog unavailable, platform enabled)", () => {
     ).rejects.toBeInstanceOf(PluginCatalogUnavailableError);
   });
 
+  /** A platform `/v1/plugins/` fetch serving a single row (unvalidated source). */
+  function platformCatalogFetch(row: Record<string, unknown>): FetchLike {
+    return (async () =>
+      new Response(JSON.stringify({ plugins: [row] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      })) as FetchLike;
+  }
+
+  test("404s a not-installed plugin whose only catalog row has a malformed source", async () => {
+    // GIVEN a platform catalog row pinned to a mutable ref (not a full SHA) —
+    // platform rows are not source-validated, so this reaches the detail view;
+    // install-by-name would refuse it
+    const fetch = platformCatalogFetch({
+      name: "time-traveler",
+      repo: "octo/time-machine",
+      ref: "main",
+      description: "malformed row description",
+    });
+
+    // WHEN / THEN with nothing installed, the row install would refuse must not
+    // be presented as a valid source: it resolves to a 404
+    await expect(
+      getPluginDetails(
+        { name: "time-traveler" },
+        { fetch, workspacePluginsDir: workspace },
+      ),
+    ).rejects.toBeInstanceOf(PluginDetailsNotFoundError);
+  });
+
+  test("renders an installed plugin from disk with no source when its catalog row is malformed", async () => {
+    // GIVEN an installed copy AND a malformed platform row (over-segmented repo)
+    const target = join(workspace, "time-traveler");
+    mkdirSync(target, { recursive: true });
+    writeFileSync(join(target, "README.md"), "# Installed Time Traveler");
+    writeFileSync(
+      join(target, "package.json"),
+      JSON.stringify({ version: "3.0.0" }),
+    );
+    const fetch = platformCatalogFetch({
+      name: "time-traveler",
+      repo: "octo/time-machine/extra",
+      ref: "b".repeat(40),
+      description: "malformed row description",
+      homepage: "https://malformed.example.com",
+      license: "MIT",
+    });
+
+    // WHEN we resolve the detail view
+    const details = await getPluginDetails(
+      { name: "time-traveler" },
+      { fetch, workspacePluginsDir: workspace },
+    );
+
+    // THEN it renders from disk with no advertised source, and the untrusted
+    // row contributes no description/homepage/license
+    expect(details.installed).toBe(true);
+    expect(details.readme).toBe("# Installed Time Traveler");
+    expect(details.version).toBe("3.0.0");
+    expect(details.source).toBeNull();
+    expect(details.description).toBeNull();
+    expect(details.homepage).toBeNull();
+    expect(details.license).toBeNull();
+  });
+
   test("a successful catalog lookup with no match still throws PluginDetailsNotFoundError", async () => {
     // GIVEN a catalog that resolves successfully but has no entry for the name,
     // and no installed copy — a real not-found, not an outage
