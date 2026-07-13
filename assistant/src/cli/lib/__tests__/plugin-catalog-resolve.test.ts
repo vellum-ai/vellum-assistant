@@ -55,11 +55,58 @@ describe("resolveSourceFromMatch", () => {
   });
 
   test.each([
+    ["absent", undefined],
+    ["empty", ""],
+  ])("resolves a repo-root %s path to \"\"", (_label, path) => {
+    // A repo-root entry (`path: ""` or absent) is valid — the clean-path gate
+    // only applies to a non-empty path, so it must not be rejected.
+    expect(resolveSourceFromMatch(match({ path }))).toEqual({
+      owner: "acme",
+      repo: "example",
+      path: "",
+      ref: FULL_SHA,
+    });
+  });
+
+  test.each([
+    ["too many segments", "owner/repo/extra"],
+    ["a slashless name", "justname"],
+  ])("throws on an invalid repo slug with %s", (_label, repo) => {
+    expect(() => resolveSourceFromMatch(match({ repo }))).toThrow(
+      /invalid source/,
+    );
+  });
+
+  test.each([
     ["a branch", "main"],
     ["a tag", "v1.2.3"],
     ["a short SHA", "63a91ec"],
   ])("throws on %s ref", (_label, ref) => {
-    expect(() => resolveSourceFromMatch(match({ ref }))).toThrow();
+    expect(() => resolveSourceFromMatch(match({ ref }))).toThrow(
+      /invalid source/,
+    );
+  });
+
+  test("resolves a clean nested path", () => {
+    expect(
+      resolveSourceFromMatch(match({ path: "packages/plugin" })),
+    ).toEqual({
+      owner: "acme",
+      repo: "example",
+      path: "packages/plugin",
+      ref: FULL_SHA,
+    });
+  });
+
+  test.each([
+    ["a leading `..` segment", "../evil"],
+    ["an interior `..` segment", "a/../b"],
+    ["a backslash `..` segment", "a\\..\\b"],
+    ["an empty segment", "a//b"],
+  ])("throws on an unsafe path with %s", (_label, path) => {
+    expect(() => resolveSourceFromMatch(match({ path }))).toThrow(
+      /invalid source/,
+    );
   });
 });
 
