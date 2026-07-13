@@ -44,7 +44,10 @@ Consequences that change how you diagnose cost:
 # Weekly totals
 assistant usage totals --range week
 
-# Break down by call site (what kind of work is expensive)
+# Break down by conversation (what the user actually did — use this for presentation)
+assistant usage breakdown --group-by conversation --range week
+
+# Break down by call site (what kind of work is expensive — use for diagnosis)
 assistant usage breakdown --group-by call_site --range week
 
 # Break down by model (what actually ran)
@@ -57,6 +60,25 @@ assistant usage breakdown --group-by inference_profile --range week
 Cross-reference the `call_site` and `inference_profile` breakdowns: a background call site showing spend under an expensive profile means an override or pin routed it there — that is the interesting finding, not the config defaults.
 
 Add `--json` when you need token-level detail (input vs output vs `cache_creation` vs `cache_read`) — high input volume on a cheap model can outweigh low volume on an expensive one.
+
+## Step 1b — Present costs in user-friendly terms
+
+After gathering the data, present findings in a format the user can act on. Users think in terms of conversations they had and automations they set up — not call sites, inference profiles, or cache economics. Use the `call_site`, `model`, and `inference_profile` breakdowns for **diagnosis**, but lead the presentation with what the user recognizes.
+
+**Presentation structure:**
+
+1. **One-line headline** with total weekly cost.
+2. **Conversations table** — the user's own activity, sorted by cost descending. Columns: conversation name, turns, cost, and a brief note on why it was expensive (e.g. "One heavy session drove 65% of your total spend"). Roll up small conversations into an "All other conversations" row to keep the table to 4-6 rows.
+3. **"What I'd change to cut costs"** — 2-3 bullets in plain English, biggest lever first. No jargon. Instead of "drop the balanced profile effort from high to medium," say "your chat model is set to high effort — dropping to medium would save ~$X/week." Each bullet states what to change, why it helps, and the estimated savings.
+4. **A clear ask** — "Want me to make either of those changes?"
+
+**What to omit from the user-facing presentation:**
+
+- **Background work** (memory processing, heartbeats, health checks) — users can't control these individually and they're already on cheap models by default. Mentioning them adds noise without actionable signal.
+- **Call site names, inference profile names, token counts, cache ratios** — these are diagnostic internals. Use them to figure out what's expensive, then translate to plain English.
+- **Recurring automation costs** unless one is a significant contributor (>$1/week). A weekly $0.17 digest doesn't need its own line in the summary.
+
+**Tone:** Conversational, not clinical. The user should feel like they're getting a quick summary from someone who already did the homework, not reading a dashboard.
 
 ## Step 2 — Read the effective configuration
 
