@@ -48,6 +48,27 @@ const DAEMON_SERVICE_SUB = "svc:daemon:self";
 
 export type SpeechRelayOperation = "stt" | "tts";
 
+/**
+ * Param allowlists, mirroring velay's own (velay/internal/velay/deepgram.go).
+ * Velay would reject unknown params anyway, but this relay is the policy
+ * boundary — a buggy or compromised daemon must not get arbitrary query
+ * strings forwarded upstream under the stored assistant API key.
+ */
+const ALLOWED_PARAMS: Record<SpeechRelayOperation, ReadonlySet<string>> = {
+  stt: new Set([
+    "encoding",
+    "sample_rate",
+    "channels",
+    "language",
+    "interim_results",
+    "smart_format",
+    "endpointing",
+    "vad_events",
+    "punctuate",
+  ]),
+  tts: new Set(["encoding", "sample_rate", "container"]),
+};
+
 type WebSocketConstructorWithHeaders = new (
   url: string,
   options?: { headers?: OutgoingHttpHeaders },
@@ -183,6 +204,15 @@ export function createSpeechRelayUpgradeHandler(
 
     // ?key= is the daemon→gateway auth carrier, not a velay param.
     params.delete("key");
+    for (const param of params.keys()) {
+      if (!ALLOWED_PARAMS[operation].has(param)) {
+        return jsonError(
+          400,
+          "invalid_request",
+          `unsupported query parameter: ${param}`,
+        );
+      }
+    }
     const { wsUrl, httpUrl } = velaySpeechUrls(config, operation, params);
 
     // Non-upgrade request: this is the daemon's dial-failure probe.

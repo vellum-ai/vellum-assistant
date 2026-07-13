@@ -150,6 +150,23 @@ describe("createSpeechRelayUpgradeHandler — gate", () => {
     expect((await bodyOf(res)).code).toBe("invalid_token");
   });
 
+  test("rejects non-allowlisted query parameters at the gateway boundary", async () => {
+    const handler = createSpeechRelayUpgradeHandler(makeConfig(), "stt", {
+      credentials: makeCredentials("vk-1"),
+    });
+    const req = new Request(
+      `http://127.0.0.1:7830/v1/speech/stt/stream?key=${TOKEN}&encoding=linear16&model=nova-3`,
+      { headers: { upgrade: "websocket" } },
+    );
+
+    const res = (await handler(req, makeFakeServer()))!;
+    expect(res.status).toBe(400);
+    expect(await bodyOf(res)).toEqual({
+      code: "invalid_request",
+      detail: "unsupported query parameter: model",
+    });
+  });
+
   test("rejects velay-forwarded requests regardless of token", async () => {
     const handler = createSpeechRelayUpgradeHandler(makeConfig(), "stt", {
       credentials: makeCredentials("vk-1"),
