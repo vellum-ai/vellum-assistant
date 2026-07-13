@@ -95,7 +95,13 @@ async function handleGetSurfaceContent({
   // so later fetches, action routing, and `findConversationBySurfaceId`
   // resolve in-memory — the same O(1) registration that helper already
   // performs; no DB state is written on this GET.
-  const persisted = findPersistedSurfaceState(conversationId, surfaceId);
+  const persisted = findPersistedSurfaceState(
+    conversationId,
+    surfaceId,
+    // Share the live window's compaction boundary so the scan can never
+    // resurrect (and memoize) a surface the compacted-away prefix owned.
+    conversation.contextCompactedMessageCount,
+  );
   if (persisted) {
     conversation.surfaceState.set(surfaceId, persisted);
     log.info(

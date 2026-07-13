@@ -110,22 +110,35 @@ export interface PersistedSurfaceState {
  * index-friendly candidate probe only — the parsed block is what confirms
  * the exact `surfaceId` (a message merely quoting the id in text parses to
  * no matching block and the scan moves on).
+ *
+ * `liveHistoryStartRow` preserves the compaction boundary: the live history
+ * is `getMessages(...).slice(contextCompactedMessageCount)` (`loadFromDb`),
+ * and `restoreSurfaceStateFromHistory` deliberately never sees the
+ * compacted-away prefix — stale surface ids are not globally unique, so
+ * resurrecting one here would let later surface-action routing operate on
+ * state the compaction dropped. The scan skips that same prefix (rows are
+ * numbered in the store's `created_at ASC` order).
  */
 export function findPersistedSurfaceState(
   conversationId: string,
   surfaceId: string,
+  liveHistoryStartRow: number,
 ): PersistedSurfaceState | undefined {
   // Escape LIKE wildcards so a `surfaceId` like "%" or "_" can't match
   // unrelated rows.
   const escaped = surfaceId.replace(/[\\%_]/g, "\\$&");
   const rows = rawAll<{ content: string }>(
     "surfaceResolver:findPersistedSurface",
-    `SELECT content FROM messages
-     WHERE conversation_id = ?
-       AND content LIKE ? ESCAPE '\\'
-     ORDER BY created_at DESC
+    `SELECT content FROM (
+       SELECT content, ROW_NUMBER() OVER (ORDER BY created_at ASC) AS rn
+       FROM messages
+       WHERE conversation_id = ?
+     )
+     WHERE rn > ? AND content LIKE ? ESCAPE '\\'
+     ORDER BY rn DESC
      LIMIT 10`,
     conversationId,
+    Math.max(0, Math.floor(liveHistoryStartRow)),
     `%"surfaceId":"${escaped}"%`,
   );
   for (const row of rows) {

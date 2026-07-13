@@ -34,6 +34,7 @@ interface StoredSurface {
 interface StubConversation {
   id: string;
   surfaceState: Map<string, StoredSurface>;
+  contextCompactedMessageCount: number;
   currentTurnSurfaces?: Array<{
     surfaceId: string;
     surfaceType: string;
@@ -99,7 +100,7 @@ function findHandler(operationId: string): RouteDefinition["handler"] {
 }
 
 function makeStub(id: string): StubConversation {
-  return { id, surfaceState: new Map() };
+  return { id, surfaceState: new Map(), contextCompactedMessageCount: 0 };
 }
 
 // ---------------------------------------------------------------------------
@@ -253,10 +254,12 @@ describe("surfaces_get_content handler", () => {
       title: "New skill learned",
       data: { skills: [{ skillId: "standup-drafter" }] },
     });
-    // The history scan is scoped to the caller's (validated) conversation.
+    // The history scan is scoped to the caller's (validated) conversation
+    // and starts past the compaction boundary (0 here — nothing compacted).
     expect(rawAllCalls).toHaveLength(1);
     expect(rawAllCalls[0]!.params).toEqual([
       "conv-live",
+      0,
       `%"surfaceId":"surf-oob"%`,
     ]);
     // Memoized into the live conversation so the next fetch (and action
@@ -268,6 +271,39 @@ describe("surfaces_get_content handler", () => {
     });
     // Never rehydrated — the conversation was already live.
     expect(getOrCreateCalls).toEqual([]);
+  });
+
+  test("persisted-history scan starts past the conversation's compaction boundary", async () => {
+    // `restoreSurfaceStateFromHistory` never sees the compacted-away prefix
+    // (live history = rows.slice(contextCompactedMessageCount)), so the
+    // fallback must not resurrect a surface only that prefix owned — stale
+    // surface ids are not globally unique, and memoizing one would let
+    // later surface-action routing operate on state compaction dropped.
+    const conv = makeStub("conv-compacted");
+    conv.contextCompactedMessageCount = 42;
+    memoryById = conv;
+    rawAllReturn = [];
+
+    const handler = findHandler("surfaces_get_content");
+
+    let caught: unknown;
+    try {
+      await handler({
+        pathParams: { surfaceId: "surf-old" },
+        queryParams: { conversationId: "conv-compacted" },
+      });
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeInstanceOf(NotFoundError);
+    // The boundary is threaded into the scan as its row offset.
+    expect(rawAllCalls).toHaveLength(1);
+    expect(rawAllCalls[0]!.params).toEqual([
+      "conv-compacted",
+      42,
+      `%"surfaceId":"surf-old"%`,
+    ]);
   });
 
   test("persisted-history fallback skips rows that merely quote the surfaceId", async () => {
