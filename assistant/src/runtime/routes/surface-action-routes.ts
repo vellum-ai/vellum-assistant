@@ -14,12 +14,10 @@ import type { TrustContext } from "../../daemon/trust-context-types.js";
 import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { processGuardianDecision } from "../guardian-action-service.js";
-import { reResolveTrustOnResetDrift } from "../guardian-vellum-migration.js";
 import {
   findLocalGuardianPrincipalId,
   resolveActorPrincipalIdForLocalGuardian,
 } from "../local-actor-identity.js";
-import { resolveLocalPrincipalTrustContext } from "../local-principal-trust.js";
 import { parseCallbackData } from "./channel-route-shared.js";
 import {
   BadRequestError,
@@ -29,6 +27,7 @@ import {
 } from "./errors.js";
 import { resolveSurfaceConversation } from "./surface-conversation-resolver.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
+import { resolveVellumActorTrustContext } from "./vellum-actor-trust.js";
 
 const log = getLogger("surface-action-routes");
 
@@ -39,7 +38,10 @@ const log = getLogger("surface-action-routes");
 /**
  * Resolve trust context for the actor principal from the gateway guardian
  * binding and set it on the conversation. A vellum principal is the guardian or
- * nobody, so the mapper yields guardian or unknown.
+ * nobody, so the mapper yields guardian or unknown. Resolution (including the
+ * dev-bypass principal translation and the mutating reset-drift repair) lives
+ * in the shared {@link resolveVellumActorTrustContext} so the surface content
+ * route's read-only requester scoping cannot drift from it.
  */
 async function applyTrustContext(
   conversation: {
@@ -50,40 +52,11 @@ async function applyTrustContext(
   if (!conversation.setTrustContext) {
     return;
   }
-
-  const sourceChannel = "vellum";
-
-  if (!actorPrincipalId) {
-    conversation.setTrustContext({ trustClass: "guardian", sourceChannel });
-    return;
-  }
-
-  // Dev-bypass injects a synthetic principal that won't match the real
-  // guardian binding, so resolve the actual guardian principalId (gateway
-  // first, local store fallback) before mapping trust.
-  let principalId = actorPrincipalId;
-  if (isHttpAuthDisabled() && actorPrincipalId === "dev-bypass") {
-    principalId = (await findLocalGuardianPrincipalId()) ?? actorPrincipalId;
-  }
-
-  let trustCtx = await resolveLocalPrincipalTrustContext({
-    actorPrincipalId: principalId,
-    sourceChannel,
-    conversationExternalId: "local",
-  });
-  if (trustCtx.trustClass === "unknown") {
-    const healed = await reResolveTrustOnResetDrift(principalId, sourceChannel);
-    if (healed) {
-      trustCtx = healed;
-      if (healed.trustClass !== "unknown") {
-        log.info(
-          { actorPrincipalId: principalId, trustClass: trustCtx.trustClass },
-          "Trust re-resolved from local mirror after gateway reset drift (surface action)",
-        );
-      }
-    }
-  }
-  conversation.setTrustContext(trustCtx);
+  conversation.setTrustContext(
+    await resolveVellumActorTrustContext(actorPrincipalId, {
+      healResetDrift: true,
+    }),
+  );
 }
 
 // ---------------------------------------------------------------------------

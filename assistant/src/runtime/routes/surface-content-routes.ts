@@ -18,6 +18,7 @@ import {
   resolveSurfaceConversation,
 } from "./surface-conversation-resolver.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
+import { resolveVellumActorTrustContext } from "./vellum-actor-trust.js";
 
 const log = getLogger("surface-content-routes");
 
@@ -28,6 +29,7 @@ const log = getLogger("surface-content-routes");
 async function handleGetSurfaceContent({
   pathParams = {},
   queryParams = {},
+  headers = {},
 }: RouteHandlerArgs) {
   const conversationId = queryParams.conversationId;
   if (!conversationId) {
@@ -96,28 +98,41 @@ async function handleGetSurfaceContent({
   // so later fetches, action routing, and `findConversationBySurfaceId`
   // resolve in-memory — the same O(1) registration that helper already
   // performs; no DB state is written on this GET.
+  // Provenance is scoped to the REQUESTER, not to whatever trust class the
+  // cached conversation happens to be loaded under — a guardian-loaded view
+  // must not leak a guardian-provenance row to a non-guardian actor who
+  // names its surface id. Resolved read-only (no reset-drift repair): safe
+  // methods stay side-effect-free, and an unhealed drift just fail-closes
+  // to the untrusted filter until a mutating route heals it.
+  const requesterTrust = await resolveVellumActorTrustContext(
+    headers["x-vellum-actor-principal-id"],
+  );
   const persisted = findPersistedSurfaceState(conversationId, surfaceId, {
     // Share the live window's compaction boundary so the scan can never
     // resurrect (and memoize) a surface the compacted-away prefix owned.
     liveHistoryStartRow: conversation.contextCompactedMessageCount,
-    // Mirror the loaded view's trust scope (`loadFromDb` resolves the same
-    // capability from the trust class it loaded under) so an actor-scoped
-    // view can't name a guardian-provenance surface the history filter
-    // deliberately dropped.
-    canAccessMemory: resolveCapabilities(conversation.loadedHistoryTrustClass)
+    requesterCanAccessMemory: resolveCapabilities(requesterTrust.trustClass)
       .canAccessMemory,
   });
   if (persisted) {
-    conversation.surfaceState.set(surfaceId, persisted);
+    // Memoize only when the row belongs in the LOADED view's scope: writing
+    // a guardian-only payload into an actor-scoped `surfaceState` would let
+    // a later untrusted fetch read it straight off the fast path.
+    const viewCanAccessMemory = resolveCapabilities(
+      conversation.loadedHistoryTrustClass,
+    ).canAccessMemory;
+    if (viewCanAccessMemory || persisted.visibleToUntrustedActor) {
+      conversation.surfaceState.set(surfaceId, persisted.state);
+    }
     log.info(
       { conversationId, surfaceId },
       "Surface content served from persisted history",
     );
     return {
       surfaceId,
-      surfaceType: persisted.surfaceType,
-      title: persisted.title ?? null,
-      data: persisted.data,
+      surfaceType: persisted.state.surfaceType,
+      title: persisted.state.title ?? null,
+      data: persisted.state.data,
     };
   }
 

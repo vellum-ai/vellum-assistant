@@ -34,9 +34,9 @@ function handleCacheSet({ body = {} }: RouteHandlerArgs): { key: string } {
   return setCacheEntry(data, { key, ttlMs: ttl_ms });
 }
 
-function handleCacheGet(
-  { body = {} }: RouteHandlerArgs,
-): { data: unknown } | null {
+function handleCacheGet({
+  body = {},
+}: RouteHandlerArgs): { data: unknown } | null {
   const { key } = CacheKeyParams.parse(body);
   return getCacheEntry(key);
 }

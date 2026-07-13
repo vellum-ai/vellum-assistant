@@ -84,6 +84,18 @@ export async function resolveSurfaceConversation(
  * A `ui_surface` block extracted from persisted history, in the shape of a
  * `Conversation.surfaceState` entry so callers can memoize it directly.
  */
+export interface PersistedSurfaceHit {
+  state: PersistedSurfaceState;
+  /**
+   * Whether the owning row's provenance passes
+   * `isRowVisibleToUntrustedActor` — i.e. whether an actor-scoped history
+   * view would contain this row at all. Callers use it to keep memoization
+   * within the loaded view's scope (never widen a cached actor-scoped
+   * `surfaceState` with guardian-only payloads).
+   */
+  visibleToUntrustedActor: boolean;
+}
+
 export interface PersistedSurfaceState {
   surfaceType: SurfaceType;
   data: SurfaceData;
@@ -125,22 +137,24 @@ export interface PersistedSurfaceState {
  * state the compaction dropped. The scan skips that same prefix (rows are
  * numbered in the store's `created_at ASC` order).
  *
- * `canAccessMemory` preserves actor provenance: when the live view was
- * loaded for an untrusted actor, `loadFromDb` builds history (and therefore
- * `surfaceState`) from `filterMessagesForUntrustedActor(...)`, so a
- * guardian-authored or provenance-less row is deliberately absent from the
- * actor-scoped view. The scan applies the identical per-row predicate
- * before parsing, serving, or memoizing — otherwise naming a hidden
- * surface id would expose the payload the trust filter dropped.
+ * `requesterCanAccessMemory` preserves actor provenance for the CALLER:
+ * untrusted-actor views are built from `filterMessagesForUntrustedActor(...)`
+ * (`loadFromDb`), so guardian-authored and provenance-less rows are
+ * deliberately hidden from non-guardian actors. The scan applies the
+ * identical per-row predicate before parsing or serving — otherwise a
+ * non-guardian requester naming a hidden surface id would be handed the
+ * payload the trust filter dropped. This is the trust of the REQUESTER
+ * (resolved from the verified actor principal), not of whatever view the
+ * cached conversation happens to be loaded under.
  */
 export function findPersistedSurfaceState(
   conversationId: string,
   surfaceId: string,
   opts: {
     liveHistoryStartRow: number;
-    canAccessMemory: boolean;
+    requesterCanAccessMemory: boolean;
   },
-): PersistedSurfaceState | undefined {
+): PersistedSurfaceHit | undefined {
   // Escape LIKE wildcards so a `surfaceId` like "%" or "_" can't match
   // unrelated rows.
   const escaped = surfaceId.replace(/[\\%_]/g, "\\$&");
@@ -160,7 +174,8 @@ export function findPersistedSurfaceState(
     `%"surfaceId":"${escaped}"%`,
   );
   for (const row of rows) {
-    if (!opts.canAccessMemory && !isRowVisibleToUntrustedActor(row.metadata)) {
+    const visibleToUntrustedActor = isRowVisibleToUntrustedActor(row.metadata);
+    if (!opts.requesterCanAccessMemory && !visibleToUntrustedActor) {
       continue;
     }
     let blocks: unknown;
@@ -186,13 +201,16 @@ export function findPersistedSurfaceState(
           ? b.activationMoment
           : undefined;
       return {
-        surfaceType: (b.surfaceType ?? "dynamic_page") as SurfaceType,
-        data: (b.data ?? {}) as SurfaceData,
-        title: b.title as string | undefined,
-        actions: Array.isArray(b.actions)
-          ? (b.actions as PersistedSurfaceState["actions"])
-          : undefined,
-        ...(activationMoment ? { activationMoment } : {}),
+        state: {
+          surfaceType: (b.surfaceType ?? "dynamic_page") as SurfaceType,
+          data: (b.data ?? {}) as SurfaceData,
+          title: b.title as string | undefined,
+          actions: Array.isArray(b.actions)
+            ? (b.actions as PersistedSurfaceState["actions"])
+            : undefined,
+          ...(activationMoment ? { activationMoment } : {}),
+        },
+        visibleToUntrustedActor,
       };
     }
   }

@@ -79,8 +79,7 @@ const DEFAULT_MAX_BYTES = 500 * 1024 * 1024;
 function handleListRuns() {
   const manifests = rescanRuns({ readOnly: true });
   manifests.sort(
-    (a, b) =>
-      new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
   );
 
   return {
@@ -124,9 +123,7 @@ function handleGetRun({ pathParams = {} }: RouteHandlerArgs) {
   };
 }
 
-function handleExportRun({
-  pathParams = {},
-}: RouteHandlerArgs): Uint8Array {
+function handleExportRun({ pathParams = {} }: RouteHandlerArgs): Uint8Array {
   const runId = validateRunId(pathParams.runId);
 
   const runDir = getProfilerRunDir(runId);

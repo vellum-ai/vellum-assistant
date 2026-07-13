@@ -78,6 +78,14 @@ mock.module("../../../daemon/conversation-store.js", () => ({
   },
 }));
 
+let requesterTrustClass = "guardian";
+mock.module("../vellum-actor-trust.js", () => ({
+  resolveVellumActorTrustContext: async () => ({
+    trustClass: requesterTrustClass,
+    sourceChannel: "vellum",
+  }),
+}));
+
 mock.module("../../../persistence/raw-query.js", () => ({
   rawGet: (_label: string, sql: string, ...params: unknown[]) => {
     rawGetCalls.push({ sql, params });
@@ -114,6 +122,7 @@ function makeStub(id: string): StubConversation {
 // ---------------------------------------------------------------------------
 
 beforeEach(() => {
+  requesterTrustClass = "guardian";
   memoryById = null;
   rehydrated = null;
   rawGetReturn = null;
@@ -313,13 +322,15 @@ describe("surfaces_get_content handler", () => {
   });
 
   test("actor-scoped view never serves a surface the provenance filter dropped", async () => {
-    // `loadFromDb` builds an untrusted actor's history (and surfaceState)
-    // through `filterMessagesForUntrustedActor`, so guardian-authored and
-    // provenance-less rows are deliberately absent from that view. The
-    // fallback must apply the same per-row predicate — naming a hidden
-    // surface id must 404, not expose (and memoize) the dropped payload.
-    const conv = makeStub("conv-actor");
-    conv.loadedHistoryTrustClass = "unknown";
+    // Untrusted-actor views are built through
+    // `filterMessagesForUntrustedActor`, so guardian-authored and
+    // provenance-less rows are deliberately hidden from non-guardian
+    // actors. The fallback keys the same per-row predicate on the
+    // REQUESTER's trust (not the cached view's — a guardian-loaded
+    // conversation must not leak to a non-guardian caller): naming a
+    // hidden surface id must 404, not expose (and memoize) the payload.
+    const conv = makeStub("conv-actor"); // loaded under guardian view
+    requesterTrustClass = "unknown";
     memoryById = conv;
     rawAllReturn = [
       {
@@ -366,7 +377,7 @@ describe("surfaces_get_content handler", () => {
 
   test("actor-scoped view still serves actor-visible provenance rows", async () => {
     const conv = makeStub("conv-actor-ok");
-    conv.loadedHistoryTrustClass = "unknown";
+    requesterTrustClass = "unknown";
     memoryById = conv;
     rawAllReturn = [
       {
@@ -395,6 +406,44 @@ describe("surfaces_get_content handler", () => {
       title: "Contact-authored",
       data: { ok: true },
     });
+  });
+
+  test("guardian fetch on an actor-scoped view serves but never widens the cached map", async () => {
+    // The requester (guardian) may see the payload, but the conversation's
+    // cached surfaceState reflects an actor-scoped load — memoizing a
+    // guardian-only row into it would let a later untrusted fetch read the
+    // payload straight off the fast path.
+    const conv = makeStub("conv-actor-view");
+    conv.loadedHistoryTrustClass = "unknown";
+    memoryById = conv;
+    rawAllReturn = [
+      {
+        content: JSON.stringify([
+          {
+            type: "ui_surface",
+            surfaceId: "surf-g",
+            surfaceType: "card",
+            title: "Guardian payload",
+            data: { secret: true },
+          },
+        ]),
+        metadata: JSON.stringify({ provenanceTrustClass: "guardian" }),
+      },
+    ];
+
+    const handler = findHandler("surfaces_get_content");
+    const result = await handler({
+      pathParams: { surfaceId: "surf-g" },
+      queryParams: { conversationId: "conv-actor-view" },
+    });
+
+    expect(result).toEqual({
+      surfaceId: "surf-g",
+      surfaceType: "card",
+      title: "Guardian payload",
+      data: { secret: true },
+    });
+    expect(conv.surfaceState.has("surf-g")).toBe(false);
   });
 
   test("persisted-history fallback skips rows that merely quote the surfaceId", async () => {

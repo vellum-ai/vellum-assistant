@@ -65,7 +65,10 @@ async function respondBootstrapUnavailable(
   eventId: string,
 ): Promise<Record<string, unknown>> {
   try {
-    await sendTelegramReply(conversationExternalId, BOOTSTRAP_UNAVAILABLE_REPLY);
+    await sendTelegramReply(
+      conversationExternalId,
+      BOOTSTRAP_UNAVAILABLE_REPLY,
+    );
   } catch (err) {
     log.error(
       { err, chatId: conversationExternalId },
@@ -224,12 +227,12 @@ export async function handleBootstrapIntercept(
     );
   }
 
-  return ({
+  return {
     accepted: true,
     duplicate: false,
     eventId,
     verificationOutcome: "bootstrap_bound",
-  });
+  };
 }
 
 // ---------------------------------------------------------------------------

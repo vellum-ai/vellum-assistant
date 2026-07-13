@@ -99,7 +99,10 @@ export async function handleGuardianActivationIntercept(
   const guardianList = await getGuardianDeliveryFresh({
     channelTypes: [sourceChannel],
   });
-  if (guardianList === null || guardianForChannel(guardianList, sourceChannel)) {
+  if (
+    guardianList === null ||
+    guardianForChannel(guardianList, sourceChannel)
+  ) {
     return null;
   }
 
