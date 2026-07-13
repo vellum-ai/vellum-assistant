@@ -39,6 +39,8 @@
 import {
   buildRedactedSentinel,
   neutralizeRedactedSentinels,
+  REDACTED_SENTINEL_OPEN,
+  REDACTED_SENTINEL_TAG,
 } from "@vellumai/service-contracts/redacted-credential";
 
 import { credentialKey } from "../security/credential-key.js";
@@ -175,6 +177,50 @@ export async function resolveRevealCandidates(
     }
   }
   return candidates;
+}
+
+// ---------------------------------------------------------------------------
+// Live-stream forgery guard
+// ---------------------------------------------------------------------------
+
+const SENTINEL_TRIGGER = `${REDACTED_SENTINEL_OPEN}${REDACTED_SENTINEL_TAG}:`;
+
+/** Longest suffix of `text` that is a proper prefix of the sentinel trigger. */
+function trailingTriggerPrefix(text: string): string {
+  const maxLen = Math.min(SENTINEL_TRIGGER.length - 1, text.length);
+  for (let len = maxLen; len > 0; len--) {
+    if (text.endsWith(SENTINEL_TRIGGER.slice(0, len))) {
+      return SENTINEL_TRIGGER.slice(0, len);
+    }
+  }
+  return "";
+}
+
+/**
+ * Streaming counterpart of `neutralizeRedactedSentinels` for live
+ * `assistant_text_delta` emission (mirrors `drainDirectiveDisplayBuffer`'s
+ * hold-back pattern).
+ *
+ * Genuine sentinels are created at PERSIST time, never in raw model output —
+ * so any sentinel-shaped string in the live stream is by definition forged,
+ * and neutralizing all of them is lossless. Complete trigger prefixes in the
+ * buffer are neutralized; a trailing PARTIAL trigger (a sentinel split
+ * across streaming chunks) is held back in `bufferedRemainder` (at most
+ * `trigger.length - 1` characters) so the next chunk decides whether it
+ * completes into a trigger. Callers must re-prepend the remainder to the
+ * next chunk and flush it raw at end-of-message — an incomplete prefix can
+ * never match the chip regex.
+ */
+export function drainSentinelGuardedText(buffer: string): {
+  emitText: string;
+  bufferedRemainder: string;
+} {
+  const neutralized = neutralizeRedactedSentinels(buffer);
+  const trailing = trailingTriggerPrefix(neutralized);
+  return {
+    emitText: neutralized.slice(0, neutralized.length - trailing.length),
+    bufferedRemainder: trailing,
+  };
 }
 
 // ---------------------------------------------------------------------------

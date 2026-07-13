@@ -319,6 +319,10 @@ export function renderHistoryContent(
     } else {
       text = unwrapExternalContentForDisplay(String(content));
     }
+    // Raw-string rows predate the block-shaped persist path entirely, so
+    // they can never carry the `_redactionVersion` rider — always run the
+    // sentinel forgery guard (see the rider check in the block walk below).
+    text = neutralizeRedactedSentinels(text);
     return {
       text,
       toolCalls: [],

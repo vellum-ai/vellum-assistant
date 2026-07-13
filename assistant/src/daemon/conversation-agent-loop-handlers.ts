@@ -92,6 +92,7 @@ import type {
 } from "./chat-credential-redaction.js";
 import {
   collectRevealRefsFromCommand,
+  drainSentinelGuardedText,
   redactSecretsForChat,
   resolveRevealCandidates,
 } from "./chat-credential-redaction.js";
@@ -374,6 +375,14 @@ export interface EventHandlerState {
    */
   readonly revealCandidateRefs: RevealCandidateRef[];
   /**
+   * Live text a sentinel forgery guard held back from `assistant_text_delta`
+   * emission — a trailing partial `〔redacted:` trigger (≤9 chars) that a
+   * later chunk may complete into a forged sentinel. Re-prepended to the
+   * next delta and flushed (neutralized) at message_complete. See
+   * `drainSentinelGuardedText`.
+   */
+  pendingSentinelGuardBuffer: string;
+  /**
    * Memoized resolution of {@link revealCandidateRefs} so a turn with many
    * persist flushes fetches each candidate's plaintext once. Invalidated by
    * ref-count when a later tool call adds more reveal invocations mid-turn.
@@ -474,6 +483,7 @@ export function createEventHandlerState(): EventHandlerState {
     deferredFinalizeEffects: [],
     revealCandidateRefs: [],
     revealCandidateCache: undefined,
+    pendingSentinelGuardBuffer: "",
   };
 }
 
@@ -1050,12 +1060,23 @@ function handleTextDelta(
         statusText: "Thinking",
       });
     }
-    deps.onEvent({
-      type: "assistant_text_delta",
-      text: drained.emitText,
-      conversationId: deps.ctx.conversationId,
-      messageId: state.lastAssistantMessageId,
-    });
+    // Live forgery guard: a genuine redaction sentinel is created at persist
+    // time and never appears in raw model output, so any sentinel-shaped
+    // string in the live stream is forged — neutralize it before it reaches
+    // a chip-enabled client. A trigger split across chunks is held back in
+    // `pendingSentinelGuardBuffer` (≤9 chars) and flushed at message end.
+    const guarded = drainSentinelGuardedText(
+      state.pendingSentinelGuardBuffer + drained.emitText,
+    );
+    state.pendingSentinelGuardBuffer = guarded.bufferedRemainder;
+    if (guarded.emitText.length > 0) {
+      deps.onEvent({
+        type: "assistant_text_delta",
+        text: guarded.emitText,
+        conversationId: deps.ctx.conversationId,
+        messageId: state.lastAssistantMessageId,
+      });
+    }
     if (deps.shouldGenerateTitle) {
       state.firstAssistantText += drained.emitText;
     }
@@ -2152,11 +2173,16 @@ export async function handleMessageComplete(
     state.pendingPartialFlushPromise = undefined;
   }
 
-  // Flush any remaining directive display buffer
-  if (state.pendingDirectiveDisplayBuffer.length > 0) {
+  // Flush any remaining directive display buffer, prepending live text the
+  // sentinel guard held back (a split trigger tail). The concatenation is
+  // neutralized as a whole: at end-of-message nothing can complete a partial
+  // trigger, and a completed one here would be a forged sentinel.
+  const trailingLiveText =
+    state.pendingSentinelGuardBuffer + state.pendingDirectiveDisplayBuffer;
+  if (trailingLiveText.length > 0) {
     deps.onEvent({
       type: "assistant_text_delta",
-      text: state.pendingDirectiveDisplayBuffer,
+      text: neutralizeRedactedSentinels(trailingLiveText),
       conversationId: deps.ctx.conversationId,
       messageId: state.lastAssistantMessageId,
     });
@@ -2164,6 +2190,7 @@ export async function handleMessageComplete(
       state.firstAssistantText += state.pendingDirectiveDisplayBuffer;
     }
     state.pendingDirectiveDisplayBuffer = "";
+    state.pendingSentinelGuardBuffer = "";
   }
 
   // Finalize the grouped tool-result row. Each result was persisted into this
