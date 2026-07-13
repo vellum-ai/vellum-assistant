@@ -15,6 +15,7 @@ import type {
   TurnChannelContext,
   TurnInterfaceContext,
 } from "../channels/types.js";
+import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getConfig } from "../config/loader.js";
 import { recordEstimate } from "../context/estimator-calibration.js";
 import { stripInjectionsForCompaction } from "../context/strip-injections.js";
@@ -81,6 +82,15 @@ import {
   cleanAssistantContent,
   drainDirectiveDisplayBuffer,
 } from "./assistant-attachments.js";
+import type {
+  ResolvedRevealCandidate,
+  RevealCandidateRef,
+} from "./chat-credential-redaction.js";
+import {
+  collectRevealRefsFromCommand,
+  redactSecretsForChat,
+  resolveRevealCandidates,
+} from "./chat-credential-redaction.js";
 import type { Conversation } from "./conversation.js";
 import type { AssistantSurface } from "./conversation-agent-loop.js";
 import {
@@ -351,6 +361,23 @@ export interface EventHandlerState {
    * every produced assistant row is indexed.
    */
   readonly deferredFinalizeEffects: Array<() => Promise<void>>;
+  /**
+   * Credential refs parsed from `credentials reveal` invocations in this
+   * turn's shell-style tool commands (see `chat-credential-redaction.ts`).
+   * Recorded in `handleToolUse`, consumed at the persist seams to scope the
+   * candidate fetch for redaction-sentinel enrichment. Only ever read when
+   * the `chat-credential-reveal` feature flag is on.
+   */
+  readonly revealCandidateRefs: RevealCandidateRef[];
+  /**
+   * Memoized resolution of {@link revealCandidateRefs} so a turn with many
+   * persist flushes fetches each candidate's plaintext once. Invalidated by
+   * ref-count when a later tool call adds more reveal invocations mid-turn.
+   */
+  revealCandidateCache?: {
+    refCount: number;
+    candidates: Promise<ResolvedRevealCandidate[]>;
+  };
 }
 
 /** Immutable context shared across event handlers within a single agent loop run. */
@@ -441,7 +468,41 @@ export function createEventHandlerState(): EventHandlerState {
     compactionStartMessages: new Map(),
     latencyCursor: 0,
     deferredFinalizeEffects: [],
+    revealCandidateRefs: [],
+    revealCandidateCache: undefined,
   };
+}
+
+/**
+ * Resolve this turn's reveal candidates for chat sentinel redaction.
+ *
+ * Returns `undefined` when the `chat-credential-reveal` flag is off — the
+ * persist seams then use the legacy `<redacted type="…" />` marker,
+ * byte-identical to today. When the flag is on, returns the resolved
+ * candidates (possibly empty: sentinel mode with nothing revealable).
+ * Resolution is memoized on the ref count so plaintexts are fetched at most
+ * once per new batch of reveal invocations.
+ */
+async function chatRevealCandidates(
+  state: EventHandlerState,
+): Promise<readonly ResolvedRevealCandidate[] | undefined> {
+  if (!isAssistantFeatureFlagEnabled("chat-credential-reveal", getConfig())) {
+    return undefined;
+  }
+  const refCount = state.revealCandidateRefs.length;
+  if (refCount === 0) {
+    return [];
+  }
+  if (
+    state.revealCandidateCache === undefined ||
+    state.revealCandidateCache.refCount !== refCount
+  ) {
+    state.revealCandidateCache = {
+      refCount,
+      candidates: resolveRevealCandidates([...state.revealCandidateRefs]),
+    };
+  }
+  return state.revealCandidateCache.candidates;
 }
 
 // ── Partial-persistence helpers ──────────────────────────────────────
@@ -451,6 +512,7 @@ export function buildPersistedAssistantContent(
   rawBlocks: readonly ContentBlock[],
   surfaces: readonly AssistantSurface[],
   activityByToolUseId?: ReadonlyMap<string, ToolActivityMetadata>,
+  revealCandidates?: readonly ResolvedRevealCandidate[],
 ): ContentBlock[] {
   const { cleanedContent } = cleanAssistantContent(rawBlocks);
   const cleaned = cleanedContent as ContentBlock[];
@@ -471,7 +533,14 @@ export function buildPersistedAssistantContent(
   return withSurfaces.map((block) => {
     if (block.type === "text") {
       const tb = block as Extract<ContentBlock, { type: "text" }>;
-      return { ...tb, text: redactSecrets(tb.text) };
+      // Sentinel mode (chat-credential-reveal flag on) persists redactions
+      // the client can render as chips; legacy mode keeps the marker
+      // byte-identical to today. Detection is the same scanner either way.
+      const text =
+        revealCandidates !== undefined
+          ? redactSecretsForChat(tb.text, revealCandidates)
+          : redactSecrets(tb.text);
+      return { ...tb, text };
     }
     // Native server tools (Anthropic web_search) resolve mid-stream — their
     // `server_tool_complete` fires before `message_complete` — so the captured
@@ -676,6 +745,7 @@ async function flushAccumulatedContent(
     state.currentMessageContent,
     [],
     state.toolActivityMetadata,
+    await chatRevealCandidates(state),
   );
   // Pair the seq with the exact content snapshot taken above: deltas that
   // arrive while the write is in flight bump `lastPersistedContentSeq`
@@ -1042,6 +1112,15 @@ export function handleToolUse(
   if (event.name === "app_create" || event.name === "app_refresh") {
     state.appBuildToolUsedThisRun = true;
   }
+  // Record `credentials reveal` invocations so the persist seams can enrich
+  // redaction sentinels with a proven vault identity (chat-credential-reveal).
+  // Tool-name agnostic on purpose: any shell-style tool (bash, host_bash)
+  // carries the command in `input.command`. Pure string parse — no store
+  // access happens here.
+  const command = (event.input as { command?: unknown } | undefined)?.command;
+  if (typeof command === "string" && command.length > 0) {
+    state.revealCandidateRefs.push(...collectRevealRefsFromCommand(command));
+  }
   const startedAt = Date.now();
   state.toolCallTimestamps.set(event.id, { startedAt });
   state.currentToolUseId = event.id;
@@ -1222,17 +1301,25 @@ export function handleInputJsonDelta(
  */
 function buildToolResultBlocks(
   pending: ReadonlyMap<string, PendingToolResult>,
+  revealCandidates?: readonly ResolvedRevealCandidate[],
 ) {
+  // Sentinel mode (chat-credential-reveal flag on) persists redactions the
+  // client can render as chips; legacy mode keeps the marker byte-identical
+  // to today. Detection is the same scanner either way.
+  const redact = (text: string): string =>
+    revealCandidates !== undefined
+      ? redactSecretsForChat(text, revealCandidates)
+      : redactSecrets(text);
   return Array.from(pending.entries()).map(([toolUseId, result]) => ({
     type: "tool_result",
     tool_use_id: toolUseId,
-    content: redactSecrets(result.content),
+    content: redact(result.content),
     is_error: result.isError,
     ...(result.contentBlocks
       ? {
           contentBlocks: result.contentBlocks.map((block) =>
             block.type === "text"
-              ? { ...block, text: redactSecrets(block.text) }
+              ? { ...block, text: redact(block.text) }
               : block,
           ),
         }
@@ -1316,6 +1403,7 @@ async function persistPendingToolResultRow(
   // the in-flight delta file; the finalize seam folds the row inline.
   const batchBlocks = buildToolResultBlocks(
     state.pendingToolResults,
+    await chatRevealCandidates(state),
   ) as ContentBlock[];
   const writer = state.inflightWriters.get(rowId);
   const persisted = writer
@@ -1365,7 +1453,10 @@ export async function finalizePendingToolResultRow(
   // for workspace references so the blob stays in the attachment store, out of
   // this row and the lexical index. Runs once, here at finalize (on-arrival
   // writes keep base64 for durability); the send boundary re-inflates the refs.
-  const blocks = buildToolResultBlocks(state.pendingToolResults);
+  const blocks = buildToolResultBlocks(
+    state.pendingToolResults,
+    await chatRevealCandidates(state),
+  );
   const contentJson = JSON.stringify(
     conv != null
       ? referenceMediaBlocksForPersist(
@@ -2116,6 +2207,7 @@ export async function handleMessageComplete(
       event.message.content as ContentBlock[],
       deps.ctx.currentTurnSurfaces,
       state.toolActivityMetadata,
+      await chatRevealCandidates(state),
     ),
     state.currentThinkingTimestamps,
   );
