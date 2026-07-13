@@ -24,6 +24,7 @@ import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { registerConversationSender } from "../tools/browser/browser-screencast.js";
 import type { ToolExecutor } from "../tools/executor.js";
 import {
+  getAllPluginToolDefinitions,
   getMcpToolDefinitions,
   getPluginToolDefinitions,
   getTool,
@@ -841,20 +842,24 @@ export function createResolveToolsCallback(
     // is picked up without recreating the conversation.
     void loadPluginTools();
 
-    // Re-read plugin tool definitions from the registry each turn. Plugin
-    // tools share core's context filter + allowlist path, so combine them
-    // with the core snapshot before filtering.
-    const currentPluginDefs = getPluginToolDefinitions();
-
-    // Scope plugin tools to the conversation's per-chat plugin set. `null`
-    // leaves the list unchanged (no per-chat restriction); otherwise keep only
-    // tools whose owning plugin id is in the set, mirroring the
-    // `subagentAllowedTools` intersection below. Ownership lives in the registry
-    // (queried via getToolOwner), not on the Tool object.
+    // Re-read plugin tool definitions from the registry each turn and scope them
+    // to the conversation's per-chat plugin set. Plugin tools share core's
+    // context filter + allowlist path, so combine them with the core snapshot
+    // before filtering. Ownership lives in the registry (queried via
+    // getToolOwner), not on the Tool object.
+    //
+    // `null` = no per-chat restriction: use the workspace-gated read so a
+    // `.disabled` plugin's tools stay hidden. Otherwise the conversation's
+    // explicit scope is the single authority (rule 1 > rule 2, see
+    // getEffectiveEnabledPluginSet), so read ALL plugin tools — including those
+    // from a workspace-disabled plugin — and keep only the ones the effective
+    // set enables. This lets a chat re-enable a workspace-disabled plugin for
+    // itself; a workspace-disabled plugin absent from the set stays filtered out
+    // because it is not in the effective set.
     const scopedPluginDefs =
       effectiveEnabledPluginSet === null
-        ? currentPluginDefs
-        : currentPluginDefs.filter((d) => {
+        ? getPluginToolDefinitions()
+        : getAllPluginToolDefinitions().filter((d) => {
             const ownerId = getToolOwner(d.name)?.id;
             return (
               ownerId !== undefined && effectiveEnabledPluginSet.has(ownerId)
