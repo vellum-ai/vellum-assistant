@@ -406,3 +406,28 @@ export const configSettingEvents = sqliteTable(
     ),
   ],
 );
+
+// Generic telemetry outbox. Lives on the dedicated telemetry database
+// (assistant-telemetry.db). Each row's `payload` is the wire `TelemetryEvent`
+// JSON built at record time; `name` is the telemetry source id (e.g.
+// 'lifecycle'). Rows are deleted on successful flush by the usage telemetry
+// reporter. `conversation_id` is populated only for conversation-scoped
+// events so redaction stays an indexed column delete.
+export const telemetryEvents = sqliteTable(
+  "telemetry_events",
+  {
+    id: text("id").primaryKey(),
+    name: text("name").notNull(),
+    createdAt: integer("created_at").notNull(),
+    conversationId: text("conversation_id"),
+    payload: text("payload").notNull(),
+  },
+  (table) => [
+    index("idx_telemetry_events_name_created_at_id").on(
+      table.name,
+      table.createdAt,
+      table.id,
+    ),
+    index("idx_telemetry_events_conversation_id").on(table.conversationId),
+  ],
+);
