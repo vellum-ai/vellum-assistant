@@ -5822,6 +5822,7 @@ paths:
                   ok:
                     type: boolean
                   contact:
+                    description: Merged (surviving) contact
                     type: object
                     properties:
                       id:
@@ -5926,10 +5927,8 @@ paths:
                       - updatedAt
                       - channels
                     additionalProperties: false
-                    description: Merged contact
                 required:
                   - ok
-                  - contact
                 additionalProperties: false
   /v1/contacts/prompt:
     post:
