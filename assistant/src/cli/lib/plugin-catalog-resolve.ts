@@ -8,10 +8,12 @@
  * `plugins/marketplace.json` fetch — so search, install, and details read one source.
  */
 
-import { isFullCommitSha } from "./install-from-github.js";
 import { getPluginCatalog } from "./plugin-catalog-cache.js";
 import { DEFAULT_PLUGIN_REF } from "./plugin-constants.js";
-import type { ResolvedPluginSource } from "./plugin-marketplace.js";
+import {
+  githubSourceSchema,
+  type ResolvedPluginSource,
+} from "./plugin-marketplace.js";
 import type {
   PluginSearchMatch,
   SearchPluginsDeps,
@@ -27,47 +29,37 @@ export async function findCatalogEntry(
 }
 
 /**
- * A NON-EMPTY repo-relative path is clean when no `/`-or-`\`-split segment
- * escapes (`..`) or is interior-empty (`a//b`). Mirrors the marketplace
- * schema's `path` refine so the gated resolver rejects the same paths the
- * GitHub manifest does — platform catalog rows accept `path` as any string, so
- * this is the install-side gate. An empty/absent path is repo root, not passed
- * here.
- */
-function isCleanRepoRelativePath(path: string): boolean {
-  return !path.split(/[/\\]/).some((seg) => seg === ".." || seg === "");
-}
-
-/**
  * Project a catalog match onto concrete GitHub install coordinates.
  *
- * Re-asserts the install-pinning invariant the GitHub path enforces via schema:
- * a curated install MUST pin to an immutable full commit SHA, so a non-SHA ref
- * from an upstream catalog is a config defect and throws rather than installing
- * mutable code. Likewise re-asserts the schema's clean-path rule: a platform
- * catalog row does not validate `path`, so an escaping/empty segment reaching
- * `trustedSource.rootPath` is rejected here rather than copying the wrong tree.
+ * Validates the reconstructed source against the canonical marketplace
+ * GitHub-source schema (`owner/repo` slug, clean repo-relative path, full commit
+ * SHA) — the exact rules the GitHub manifest enforces. Platform catalog rows
+ * validate none of these (`repo`/`path` are any string), so a malformed
+ * coordinate — an over-segmented or slashless repo, an escaping/empty path, a
+ * mutable non-SHA ref — is rejected here before it reaches `trustedSource`
+ * rather than installing the wrong tree or a repointable revision.
  * Pure — unit-testable without a catalog.
  */
 export function resolveSourceFromMatch(
   match: PluginSearchMatch,
 ): ResolvedPluginSource {
-  const { repo, path, ref } = match.source;
-  if (!isFullCommitSha(ref)) {
+  // Repo-root `""` maps to `undefined` (omitted = root) so the schema's
+  // non-empty path refine does not reject a valid repo-root entry.
+  const path = match.source.path || undefined;
+  const parsed = githubSourceSchema.safeParse({
+    source: "github" as const,
+    repo: match.source.repo,
+    ...(path ? { path } : {}),
+    ref: match.source.ref,
+  });
+  if (!parsed.success) {
     throw new Error(
-      `Catalog entry "${match.name}" pins ref "${ref}", which is not a full commit SHA; ` +
-        `a curated install must pin to an immutable full commit SHA (tags and branches are mutable).`,
+      `Catalog entry "${match.name}" (${match.source.repo}) has an invalid source: ` +
+        parsed.error.issues.map((i) => i.message).join("; "),
     );
   }
-  // An empty/absent path is repo root (valid); only gate a non-empty path.
-  if (path && !isCleanRepoRelativePath(path)) {
-    throw new Error(
-      `Catalog entry "${match.name}" has an unsafe plugin path "${path}"; ` +
-        `a curated install path must be a clean repo-relative directory (no ".." or empty segments).`,
-    );
-  }
-  const [owner, repoName] = repo.split("/", 2) as [string, string];
-  return { owner, repo: repoName, path: path ?? "", ref };
+  const [owner, repoName] = parsed.data.repo.split("/", 2) as [string, string];
+  return { owner, repo: repoName, path: match.source.path ?? "", ref: match.source.ref };
 }
 
 /** Resolve {@link name} to install coordinates from the catalog, or `null`. */

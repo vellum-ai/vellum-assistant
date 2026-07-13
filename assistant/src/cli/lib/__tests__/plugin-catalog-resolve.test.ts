@@ -69,11 +69,22 @@ describe("resolveSourceFromMatch", () => {
   });
 
   test.each([
+    ["too many segments", "owner/repo/extra"],
+    ["a slashless name", "justname"],
+  ])("throws on an invalid repo slug with %s", (_label, repo) => {
+    expect(() => resolveSourceFromMatch(match({ repo }))).toThrow(
+      /invalid source/,
+    );
+  });
+
+  test.each([
     ["a branch", "main"],
     ["a tag", "v1.2.3"],
     ["a short SHA", "63a91ec"],
   ])("throws on %s ref", (_label, ref) => {
-    expect(() => resolveSourceFromMatch(match({ ref }))).toThrow();
+    expect(() => resolveSourceFromMatch(match({ ref }))).toThrow(
+      /invalid source/,
+    );
   });
 
   test("resolves a clean nested path", () => {
@@ -94,7 +105,7 @@ describe("resolveSourceFromMatch", () => {
     ["an empty segment", "a//b"],
   ])("throws on an unsafe path with %s", (_label, path) => {
     expect(() => resolveSourceFromMatch(match({ path }))).toThrow(
-      /unsafe plugin path/,
+      /invalid source/,
     );
   });
 });
