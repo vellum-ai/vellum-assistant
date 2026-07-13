@@ -228,6 +228,9 @@ interface ReplayState {
  * to fresh values for instances that predate them. VELLUM_DEVICE_ID is
  * backfilled on the gateway from the host, and the assistant inherits the
  * gateway's value (captured values win) so the pair always matches.
+ * VELAY_BASE_URL is likewise inherited from the gateway for instances
+ * created before it was forwarded to the assistant container — managed
+ * speech must dial the same relay the gateway uses.
  */
 export function buildReplayState(
   capturedEnv: Record<string, string>,
@@ -238,6 +241,11 @@ export function buildReplayState(
 
   const extraAssistantEnv = buildReplayEnv(capturedEnv, "assistant");
   extraAssistantEnv.VELLUM_DEVICE_ID ??= extraGatewayEnv.VELLUM_DEVICE_ID;
+  // Inheriting from the post-filter gateway env defers to host forwarding
+  // when the host still sets VELAY_BASE_URL.
+  if (extraGatewayEnv.VELAY_BASE_URL) {
+    extraAssistantEnv.VELAY_BASE_URL ??= extraGatewayEnv.VELAY_BASE_URL;
+  }
 
   return {
     bootstrapSecret: gatewayEnv["GUARDIAN_BOOTSTRAP_SECRET"],

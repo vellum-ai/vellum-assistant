@@ -306,6 +306,23 @@ describe("VellumManagedRealtimeTranscriber", () => {
     await expect(startPromise).rejects.toThrow(/credits/);
   });
 
+  test("connect failures never leak the API key", async () => {
+    globalThis.fetch = (async () => {
+      throw new Error("refused");
+    }) as unknown as typeof fetch;
+
+    const adapter = new VellumManagedRealtimeTranscriber(CONNECTION);
+    const startPromise = adapter.start(() => {});
+    // Bun embeds the dialed URL (which carries ?key= under query auth) in
+    // connection-failure details; the adapter must redact it everywhere.
+    sockets[0]!.simulateClose(1006, `connect failed: ${sockets[0]!.url}`);
+
+    await expect(startPromise).rejects.toThrow();
+    const err = await startPromise.catch((e: Error) => e);
+    expect(err.message).not.toContain("vk-secret");
+    expect(err.message).toContain("key=***");
+  });
+
   test("a failed dial with no HTTP rejection keeps the transport error", async () => {
     globalThis.fetch = (async () => {
       throw new Error("connection refused");

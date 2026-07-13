@@ -427,10 +427,7 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
 
     const url = this.buildWebSocketUrl();
     // Query auth carries the API key in the URL — never log it.
-    log.info(
-      { url: this.queryAuth ? url.replace(/key=[^&]*/, "key=***") : url },
-      "Opening Deepgram realtime session",
-    );
+    log.info({ url: this.redact(url) }, "Opening Deepgram realtime session");
 
     const ws = this.createWebSocket(url);
     this.ws = ws;
@@ -469,7 +466,9 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
             : typeof ev === "object" && ev !== null && "message" in ev
               ? String((ev as { message: unknown }).message)
               : "WebSocket error during connect";
-        reject(new Error(`Deepgram realtime connect error: ${msg}`));
+        reject(
+          new Error(`Deepgram realtime connect error: ${this.redact(msg)}`),
+        );
       };
 
       const onClose = (ev: { code: number; reason: string }) => {
@@ -480,7 +479,7 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
         clearTimeout(connectTimer);
         reject(
           new Error(
-            `Deepgram WebSocket closed before open (code=${ev.code}, reason=${ev.reason})`,
+            `Deepgram WebSocket closed before open (code=${ev.code}, reason=${this.redact(ev.reason)})`,
           ),
         );
       };
@@ -835,7 +834,7 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
     this.emitEvent({
       type: "error",
       category,
-      message: `Deepgram WebSocket closed (code=${code}, reason=${reason})`,
+      message: `Deepgram WebSocket closed (code=${code}, reason=${this.redact(reason)})`,
     });
     this.emitClosedAndCleanup();
   }
@@ -848,14 +847,17 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
       return;
     }
 
-    const message =
+    const message = this.redact(
       ev instanceof Error
         ? ev.message
         : typeof ev === "object" && ev !== null && "message" in ev
           ? String((ev as { message: unknown }).message)
-          : "WebSocket error";
+          : "WebSocket error",
+    );
 
-    log.error({ error: ev }, "Deepgram realtime WebSocket error");
+    // The raw event can embed the dialed URL (query auth carries the key
+    // there), so log the redacted message rather than the event object.
+    log.error({ error: message }, "Deepgram realtime WebSocket error");
 
     this.emitEvent({
       type: "error",
@@ -1070,6 +1072,24 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
       });
       this.emitClosedAndCleanup();
     }, this.inactivityTimeoutMs);
+  }
+
+  /**
+   * Strip the API key from text destined for logs, error messages, or
+   * emitted events. Under query auth the key rides in the dialed URL, and
+   * runtimes embed that URL in connection-failure messages and close
+   * reasons; both the raw and URL-encoded forms are removed.
+   */
+  private redact(text: string): string {
+    if (!this.queryAuth || !text) {
+      return text;
+    }
+    return text
+      .split(this.apiKey)
+      .join("***")
+      .split(encodeURIComponent(this.apiKey))
+      .join("***")
+      .replace(/([?&]key=)[^&\s"']*/g, "$1***");
   }
 
   // ── URL construction ────────────────────────────────────────────────
