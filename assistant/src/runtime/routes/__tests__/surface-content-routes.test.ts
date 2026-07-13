@@ -35,7 +35,6 @@ interface StubConversation {
   id: string;
   surfaceState: Map<string, StoredSurface>;
   contextCompactedMessageCount: number;
-  loadedHistoryTrustClass: string;
   currentTurnSurfaces?: Array<{
     surfaceId: string;
     surfaceType: string;
@@ -108,13 +107,18 @@ function findHandler(operationId: string): RouteDefinition["handler"] {
   return route.handler;
 }
 
+/**
+ * Headers for a request from the guardian actor. The fallback fails closed
+ * without a verified actor id or local principal, so every test that means
+ * to exercise it as the guardian must send these.
+ */
+const GUARDIAN_HEADERS = {
+  "x-vellum-principal-type": "actor",
+  "x-vellum-actor-principal-id": "vellum-principal-guardian",
+};
+
 function makeStub(id: string): StubConversation {
-  return {
-    id,
-    surfaceState: new Map(),
-    contextCompactedMessageCount: 0,
-    loadedHistoryTrustClass: "guardian",
-  };
+  return { id, surfaceState: new Map(), contextCompactedMessageCount: 0 };
 }
 
 // ---------------------------------------------------------------------------
@@ -234,7 +238,7 @@ describe("surfaces_get_content handler", () => {
   // predates a surface appended straight to the messages table (`addMessage`
   // on a loaded conversation — the memory retrospective's skill card).
   // -------------------------------------------------------------------------
-  test("serves an out-of-band surface from persisted history and memoizes it", async () => {
+  test("serves an out-of-band surface from persisted history without memoizing", async () => {
     const conv = makeStub("conv-live"); // loaded, but surfaceState predates the insert
     memoryById = conv;
     rawAllReturn = [
@@ -261,6 +265,7 @@ describe("surfaces_get_content handler", () => {
     const result = await handler({
       pathParams: { surfaceId: "surf-oob" },
       queryParams: { conversationId: "conv-live" },
+      headers: GUARDIAN_HEADERS,
     });
 
     expect(result).toEqual({
@@ -277,13 +282,9 @@ describe("surfaces_get_content handler", () => {
       0,
       `%"surfaceId":"surf-oob"%`,
     ]);
-    // Memoized into the live conversation so the next fetch (and action
-    // routing / findConversationBySurfaceId) hits surfaceState directly.
-    expect(conv.surfaceState.get("surf-oob")).toMatchObject({
-      surfaceType: "skill_card",
-      title: "New skill learned",
-      data: { skills: [{ skillId: "standup-drafter" }] },
-    });
+    // Never memoized: a cached hit would let a later request skip the
+    // requester filter via the unscoped surfaceState fast path.
+    expect(conv.surfaceState.has("surf-oob")).toBe(false);
     // Never rehydrated — the conversation was already live.
     expect(getOrCreateCalls).toEqual([]);
   });
@@ -306,6 +307,7 @@ describe("surfaces_get_content handler", () => {
       await handler({
         pathParams: { surfaceId: "surf-old" },
         queryParams: { conversationId: "conv-compacted" },
+        headers: GUARDIAN_HEADERS,
       });
     } catch (err) {
       caught = err;
@@ -366,6 +368,10 @@ describe("surfaces_get_content handler", () => {
       await handler({
         pathParams: { surfaceId: "surf-hidden" },
         queryParams: { conversationId: "conv-actor" },
+        headers: {
+          "x-vellum-principal-type": "actor",
+          "x-vellum-actor-principal-id": "vellum-principal-contact",
+        },
       });
     } catch (err) {
       caught = err;
@@ -398,6 +404,10 @@ describe("surfaces_get_content handler", () => {
     const result = await handler({
       pathParams: { surfaceId: "surf-visible" },
       queryParams: { conversationId: "conv-actor-ok" },
+      headers: {
+        "x-vellum-principal-type": "actor",
+        "x-vellum-actor-principal-id": "vellum-principal-contact",
+      },
     });
 
     expect(result).toEqual({
@@ -408,13 +418,13 @@ describe("surfaces_get_content handler", () => {
     });
   });
 
-  test("guardian fetch on an actor-scoped view serves but never widens the cached map", async () => {
-    // The requester (guardian) may see the payload, but the conversation's
-    // cached surfaceState reflects an actor-scoped load — memoizing a
-    // guardian-only row into it would let a later untrusted fetch read the
-    // payload straight off the fast path.
-    const conv = makeStub("conv-actor-view");
-    conv.loadedHistoryTrustClass = "unknown";
+  test("service principals without a forwarded actor id fail closed", async () => {
+    // The route policy admits svc_gateway / svc_daemon with chat.read, and
+    // those AuthContexts carry no actor principal. Only local/IPC callers
+    // are the guardian by construction — a service token naming a
+    // guardian-provenance surface must be scoped to the untrusted filter,
+    // not defaulted to guardian.
+    const conv = makeStub("conv-svc");
     memoryById = conv;
     rawAllReturn = [
       {
@@ -432,18 +442,56 @@ describe("surfaces_get_content handler", () => {
     ];
 
     const handler = findHandler("surfaces_get_content");
+
+    let caught: unknown;
+    try {
+      await handler({
+        pathParams: { surfaceId: "surf-g" },
+        queryParams: { conversationId: "conv-svc" },
+        headers: { "x-vellum-principal-type": "svc_gateway" },
+      });
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeInstanceOf(NotFoundError);
+    expect(conv.surfaceState.has("surf-g")).toBe(false);
+  });
+
+  test("local principals without an actor id resolve as the guardian", async () => {
+    // IPC/CLI callers get the injected local principal header and no actor
+    // id — they ARE the guardian and must not be fail-closed like service
+    // tokens.
+    const conv = makeStub("conv-local");
+    memoryById = conv;
+    rawAllReturn = [
+      {
+        content: JSON.stringify([
+          {
+            type: "ui_surface",
+            surfaceId: "surf-l",
+            surfaceType: "card",
+            title: "Guardian payload",
+            data: { ok: true },
+          },
+        ]),
+        metadata: JSON.stringify({ provenanceTrustClass: "guardian" }),
+      },
+    ];
+
+    const handler = findHandler("surfaces_get_content");
     const result = await handler({
-      pathParams: { surfaceId: "surf-g" },
-      queryParams: { conversationId: "conv-actor-view" },
+      pathParams: { surfaceId: "surf-l" },
+      queryParams: { conversationId: "conv-local" },
+      headers: { "x-vellum-principal-type": "local" },
     });
 
     expect(result).toEqual({
-      surfaceId: "surf-g",
+      surfaceId: "surf-l",
       surfaceType: "card",
       title: "Guardian payload",
-      data: { secret: true },
+      data: { ok: true },
     });
-    expect(conv.surfaceState.has("surf-g")).toBe(false);
   });
 
   test("persisted-history fallback skips rows that merely quote the surfaceId", async () => {
@@ -475,6 +523,7 @@ describe("surfaces_get_content handler", () => {
     const result = await handler({
       pathParams: { surfaceId: "surf-quoted" },
       queryParams: { conversationId: "conv-live" },
+      headers: GUARDIAN_HEADERS,
     });
 
     expect(result).toEqual({
@@ -498,6 +547,7 @@ describe("surfaces_get_content handler", () => {
       await handler({
         pathParams: { surfaceId: "surf-nope" },
         queryParams: { conversationId: "conv-live" },
+        headers: GUARDIAN_HEADERS,
       });
     } catch (err) {
       caught = err;

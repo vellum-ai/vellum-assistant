@@ -82,20 +82,8 @@ export async function resolveSurfaceConversation(
 
 /**
  * A `ui_surface` block extracted from persisted history, in the shape of a
- * `Conversation.surfaceState` entry so callers can memoize it directly.
+ * `Conversation.surfaceState` entry.
  */
-export interface PersistedSurfaceHit {
-  state: PersistedSurfaceState;
-  /**
-   * Whether the owning row's provenance passes
-   * `isRowVisibleToUntrustedActor` — i.e. whether an actor-scoped history
-   * view would contain this row at all. Callers use it to keep memoization
-   * within the loaded view's scope (never widen a cached actor-scoped
-   * `surfaceState` with guardian-only payloads).
-   */
-  visibleToUntrustedActor: boolean;
-}
-
 export interface PersistedSurfaceState {
   surfaceType: SurfaceType;
   data: SurfaceData;
@@ -154,10 +142,15 @@ export function findPersistedSurfaceState(
     liveHistoryStartRow: number;
     requesterCanAccessMemory: boolean;
   },
-): PersistedSurfaceHit | undefined {
+): PersistedSurfaceState | undefined {
   // Escape LIKE wildcards so a `surfaceId` like "%" or "_" can't match
   // unrelated rows.
   const escaped = surfaceId.replace(/[\\%_]/g, "\\$&");
+  // No fixed row cap: rows that merely QUOTE the surfaceId (tool results,
+  // log echoes) are skipped by the parse-confirm loop below, and a cap
+  // would let enough of them starve out the real block entirely. The
+  // second LIKE clause keeps the candidate set to rows that can plausibly
+  // hold a ui_surface block at all, so the unbounded scan stays tiny.
   const rows = rawAll<{ content: string; metadata: string | null }>(
     "surfaceResolver:findPersistedSurface",
     `SELECT content, metadata FROM (
@@ -166,16 +159,19 @@ export function findPersistedSurfaceState(
        FROM messages
        WHERE conversation_id = ?
      )
-     WHERE rn > ? AND content LIKE ? ESCAPE '\\'
-     ORDER BY rn DESC
-     LIMIT 10`,
+     WHERE rn > ?
+       AND content LIKE ? ESCAPE '\\'
+       AND content LIKE '%"type":"ui_surface"%'
+     ORDER BY rn DESC`,
     conversationId,
     Math.max(0, Math.floor(opts.liveHistoryStartRow)),
     `%"surfaceId":"${escaped}"%`,
   );
   for (const row of rows) {
-    const visibleToUntrustedActor = isRowVisibleToUntrustedActor(row.metadata);
-    if (!opts.requesterCanAccessMemory && !visibleToUntrustedActor) {
+    if (
+      !opts.requesterCanAccessMemory &&
+      !isRowVisibleToUntrustedActor(row.metadata)
+    ) {
       continue;
     }
     let blocks: unknown;
@@ -201,16 +197,13 @@ export function findPersistedSurfaceState(
           ? b.activationMoment
           : undefined;
       return {
-        state: {
-          surfaceType: (b.surfaceType ?? "dynamic_page") as SurfaceType,
-          data: (b.data ?? {}) as SurfaceData,
-          title: b.title as string | undefined,
-          actions: Array.isArray(b.actions)
-            ? (b.actions as PersistedSurfaceState["actions"])
-            : undefined,
-          ...(activationMoment ? { activationMoment } : {}),
-        },
-        visibleToUntrustedActor,
+        surfaceType: (b.surfaceType ?? "dynamic_page") as SurfaceType,
+        data: (b.data ?? {}) as SurfaceData,
+        title: b.title as string | undefined,
+        actions: Array.isArray(b.actions)
+          ? (b.actions as PersistedSurfaceState["actions"])
+          : undefined,
+        ...(activationMoment ? { activationMoment } : {}),
       };
     }
   }

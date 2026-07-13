@@ -101,38 +101,43 @@ async function handleGetSurfaceContent({
   // Provenance is scoped to the REQUESTER, not to whatever trust class the
   // cached conversation happens to be loaded under — a guardian-loaded view
   // must not leak a guardian-provenance row to a non-guardian actor who
-  // names its surface id. Resolved read-only (no reset-drift repair): safe
-  // methods stay side-effect-free, and an unhealed drift just fail-closes
-  // to the untrusted filter until a mutating route heals it.
-  const requesterTrust = await resolveVellumActorTrustContext(
-    headers["x-vellum-actor-principal-id"],
-  );
+  // names its surface id. The verified principal type gates the guardian
+  // default: only local/IPC callers are the guardian by construction;
+  // service principals without a forwarded actor id fail closed to the
+  // untrusted filter. Trust is resolved read-only (no reset-drift repair):
+  // safe methods stay side-effect-free, and an unhealed drift just
+  // fail-closes the same way until a mutating route heals it.
+  const actorPrincipalId = headers["x-vellum-actor-principal-id"];
+  const principalType = headers["x-vellum-principal-type"];
+  let requesterCanAccessMemory = false;
+  if (actorPrincipalId || principalType === "local") {
+    const requesterTrust =
+      await resolveVellumActorTrustContext(actorPrincipalId);
+    requesterCanAccessMemory = resolveCapabilities(
+      requesterTrust.trustClass,
+    ).canAccessMemory;
+  }
+  // Serve WITHOUT memoizing. Writing the hit into the shared
+  // `conversation.surfaceState` would let a later request skip this rung's
+  // requester filter via the unscoped fast path above — the exposure the
+  // filter exists to prevent. Re-scanning per fetch keeps the GET fully
+  // side-effect-free; the scan is LIKE-bounded and per-conversation.
   const persisted = findPersistedSurfaceState(conversationId, surfaceId, {
     // Share the live window's compaction boundary so the scan can never
-    // resurrect (and memoize) a surface the compacted-away prefix owned.
+    // resurrect a surface the compacted-away prefix owned.
     liveHistoryStartRow: conversation.contextCompactedMessageCount,
-    requesterCanAccessMemory: resolveCapabilities(requesterTrust.trustClass)
-      .canAccessMemory,
+    requesterCanAccessMemory,
   });
   if (persisted) {
-    // Memoize only when the row belongs in the LOADED view's scope: writing
-    // a guardian-only payload into an actor-scoped `surfaceState` would let
-    // a later untrusted fetch read it straight off the fast path.
-    const viewCanAccessMemory = resolveCapabilities(
-      conversation.loadedHistoryTrustClass,
-    ).canAccessMemory;
-    if (viewCanAccessMemory || persisted.visibleToUntrustedActor) {
-      conversation.surfaceState.set(surfaceId, persisted.state);
-    }
     log.info(
       { conversationId, surfaceId },
       "Surface content served from persisted history",
     );
     return {
       surfaceId,
-      surfaceType: persisted.state.surfaceType,
-      title: persisted.state.title ?? null,
-      data: persisted.state.data,
+      surfaceType: persisted.surfaceType,
+      title: persisted.title ?? null,
+      data: persisted.data,
     };
   }
 
