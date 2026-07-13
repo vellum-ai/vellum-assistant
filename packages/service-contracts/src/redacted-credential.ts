@@ -34,6 +34,17 @@ export const REDACTED_SENTINEL_CLOSE = "\u3015"; // 〕
 export const REDACTED_SENTINEL_TAG = "redacted";
 
 /**
+ * Version stamped as a `_redactionVersion` rider on daemon-persisted text
+ * blocks whose raw text passed through {@link neutralizeRedactedSentinels}
+ * before persistence. The daemon's history read boundary
+ * (`renderHistoryContent`) neutralizes text blocks WITHOUT this rider —
+ * rows persisted before the forgery guard existed — so a forged sentinel in
+ * old history can never reach a chip-enabled client surface. Internal to the
+ * daemon: the wire projection rebuilds blocks and never ships the rider.
+ */
+export const SENTINEL_REDACTION_VERSION = 2;
+
+/**
  * Charset for service/field segments. Matches the daemon's credential
  * service/field naming (kebab/snake identifiers). Anything outside this set
  * is refused at build time — the producer falls back to the plain shape

@@ -1,3 +1,7 @@
+import {
+  neutralizeRedactedSentinels,
+  SENTINEL_REDACTION_VERSION,
+} from "@vellumai/service-contracts/redacted-credential";
 import { v4 as uuid } from "uuid";
 
 import type {
@@ -445,7 +449,22 @@ export function renderHistoryContent(
     }
 
     if (block.type === "text" && typeof block.text === "string") {
-      const displayText = unwrapExternalContentForDisplay(block.text);
+      // Forgery guard for pre-feature history: blocks persisted before the
+      // chat-credential sentinel work never had sentinel-shaped strings
+      // neutralized at write, so a forged `〔redacted:…〕` in an old row could
+      // manufacture a reveal chip on a chip-enabled client surface. Blocks
+      // written by the neutralization-aware persist path carry the
+      // `_redactionVersion` rider (internal, never shipped on the wire) and
+      // pass through verbatim — their surviving sentinels are
+      // redactor-authored. Everything else is neutralized here at the read
+      // boundary, the same belt-and-suspenders posture as the
+      // `<no_response/>` and placeholder-sentinel strips below.
+      const rawText =
+        typeof block._redactionVersion === "number" &&
+        block._redactionVersion >= SENTINEL_REDACTION_VERSION
+          ? block.text
+          : neutralizeRedactedSentinels(block.text);
+      const displayText = unwrapExternalContentForDisplay(rawText);
       // Skip empty/whitespace-only text blocks. During streaming the client
       // discards empty text deltas (guard !text.isEmpty), so including them
       // here produces a contentOrder that differs from the live streaming

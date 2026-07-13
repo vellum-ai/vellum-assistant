@@ -6,7 +6,10 @@
  * testable while keeping shared mutable state bundled in EventHandlerState.
  */
 
-import { neutralizeRedactedSentinels } from "@vellumai/service-contracts/redacted-credential";
+import {
+  neutralizeRedactedSentinels,
+  SENTINEL_REDACTION_VERSION,
+} from "@vellumai/service-contracts/redacted-credential";
 import type pino from "pino";
 import { v4 as uuid } from "uuid";
 
@@ -539,12 +542,16 @@ export function buildPersistedAssistantContent(
       // byte-identical to today. Detection is the same scanner either way.
       // Both modes neutralize forged sentinel-shaped strings first so
       // arbitrary content can never manufacture a reveal chip — only
-      // redactor-inserted sentinels survive persistence.
+      // redactor-inserted sentinels survive persistence. The
+      // `_redactionVersion` rider (internal, same convention as `_startedAt`)
+      // marks the block as neutralization-aware; `renderHistoryContent`
+      // neutralizes unmarked (pre-feature) blocks at read so forged sentinels
+      // in old history rows can never chip-ify either.
       const text =
         revealCandidates !== undefined
           ? redactSecretsForChat(tb.text, revealCandidates)
           : redactSecrets(neutralizeRedactedSentinels(tb.text));
-      return { ...tb, text };
+      return { ...tb, text, _redactionVersion: SENTINEL_REDACTION_VERSION };
     }
     // Native server tools (Anthropic web_search) resolve mid-stream — their
     // `server_tool_complete` fires before `message_complete` — so the captured
@@ -1305,18 +1312,16 @@ export function handleInputJsonDelta(
  */
 function buildToolResultBlocks(
   pending: ReadonlyMap<string, PendingToolResult>,
-  revealCandidates?: readonly ResolvedRevealCandidate[],
 ) {
-  // Sentinel mode (chat-credential-reveal flag on) persists redactions the
-  // client can render as chips; legacy mode keeps the marker byte-identical
-  // to today. Detection is the same scanner either way. Both modes
-  // neutralize forged sentinel-shaped strings first so arbitrary tool output
-  // can never manufacture a reveal chip — only redactor-inserted sentinels
-  // survive persistence.
+  // Tool results keep the legacy `<redacted type/>` marker (NOT sentinels):
+  // history maps tool_result content to `toolCall.result`, which the tool
+  // detail panel renders via CodeBlock — a path with no markdown/chip
+  // support, where a sentinel would show as an inert glyph string. Convert
+  // here only once that surface can render chips. Forged sentinel-shaped
+  // strings in tool output are still neutralized so they can never reach a
+  // chip-enabled surface via quoting.
   const redact = (text: string): string =>
-    revealCandidates !== undefined
-      ? redactSecretsForChat(text, revealCandidates)
-      : redactSecrets(neutralizeRedactedSentinels(text));
+    redactSecrets(neutralizeRedactedSentinels(text));
   return Array.from(pending.entries()).map(([toolUseId, result]) => ({
     type: "tool_result",
     tool_use_id: toolUseId,
@@ -1410,7 +1415,6 @@ async function persistPendingToolResultRow(
   // the in-flight delta file; the finalize seam folds the row inline.
   const batchBlocks = buildToolResultBlocks(
     state.pendingToolResults,
-    await chatRevealCandidates(state),
   ) as ContentBlock[];
   const writer = state.inflightWriters.get(rowId);
   const persisted = writer
@@ -1460,10 +1464,7 @@ export async function finalizePendingToolResultRow(
   // for workspace references so the blob stays in the attachment store, out of
   // this row and the lexical index. Runs once, here at finalize (on-arrival
   // writes keep base64 for durability); the send boundary re-inflates the refs.
-  const blocks = buildToolResultBlocks(
-    state.pendingToolResults,
-    await chatRevealCandidates(state),
-  );
+  const blocks = buildToolResultBlocks(state.pendingToolResults);
   const contentJson = JSON.stringify(
     conv != null
       ? referenceMediaBlocksForPersist(

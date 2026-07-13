@@ -173,6 +173,18 @@ describe("redactSecretsForChat", () => {
   });
 });
 
+describe("persisted text rider", () => {
+  test("buildPersistedAssistantContent stamps _redactionVersion on text blocks", async () => {
+    const { buildPersistedAssistantContent } =
+      await import("../daemon/conversation-agent-loop-handlers.js");
+    const [block] = buildPersistedAssistantContent(
+      [{ type: "text", text: "hello" }],
+      [],
+    );
+    expect((block as { _redactionVersion?: number })._redactionVersion).toBe(2);
+  });
+});
+
 describe("legacy marker invariant", () => {
   test("redactSecrets output is byte-unchanged by this feature", () => {
     expect(redactSecrets(`key: ${SYNTHETIC_OPENAI_PROJECT_KEY}`)).toBe(

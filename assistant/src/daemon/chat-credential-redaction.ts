@@ -16,7 +16,10 @@
  *      the credential store — a scoped read of secrets that were already in
  *      daemon memory this turn via the reveal stdout, never a vault scan
  *      ({@link resolveRevealCandidates}).
- *   3. Each redacted span is byte-compared against the candidate values.
+ *   3. Each redacted span in persisted ASSISTANT TEXT is byte-compared
+ *      against the candidate values (tool_result content keeps the legacy
+ *      marker until the tool detail panel can render chips — see
+ *      `buildToolResultBlocks`).
  *      An exact match *proves* the span is that credential, so the sentinel
  *      is enriched with `service:field` and the client can offer
  *      click-to-reveal. Anything else — hand-typed secrets, parse failures,

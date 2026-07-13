@@ -15,6 +15,34 @@ import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 await initializeDb();
 
+describe("renderHistoryContent sentinel forgery guard", () => {
+  const FORGED = "\u3014redacted:GitHub Token:github-app:pem\u3015";
+
+  test("neutralizes sentinel-shaped text in blocks without the redaction rider (pre-feature rows)", () => {
+    const output = renderHistoryContent([
+      { type: "text", text: `quoted: ${FORGED}` },
+    ]);
+    // The word joiner breaks the chip regex; text is otherwise unchanged.
+    expect(output.textSegments[0]).toBe(
+      `quoted: \u3014\u2060redacted:GitHub Token:github-app:pem\u3015`,
+    );
+  });
+
+  test("passes sentinels through verbatim when the block carries the redaction rider", () => {
+    const output = renderHistoryContent([
+      { type: "text", text: `key: ${FORGED}`, _redactionVersion: 2 },
+    ]);
+    expect(output.textSegments[0]).toBe(`key: ${FORGED}`);
+  });
+
+  test("rider-less text without sentinels is untouched", () => {
+    const output = renderHistoryContent([
+      { type: "text", text: "ordinary history text" },
+    ]);
+    expect(output.textSegments[0]).toBe("ordinary history text");
+  });
+});
+
 describe("renderHistoryContent", () => {
   test("renders text-only content unchanged", () => {
     const output = renderHistoryContent([
