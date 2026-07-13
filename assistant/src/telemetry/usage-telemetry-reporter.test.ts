@@ -171,19 +171,6 @@ mock.module("./turn-trace-store.js", () => ({
   isTurnSettled: mockIsTurnSettled,
 }));
 
-const mockQueryUnreportedLifecycleEvents = mock(
-  () =>
-    [] as {
-      id: string;
-      eventName: string;
-      createdAt: number;
-    }[],
-);
-
-mock.module("../persistence/lifecycle-events-store.js", () => ({
-  queryUnreportedLifecycleEvents: mockQueryUnreportedLifecycleEvents,
-}));
-
 const mockQueryUnreportedOnboardingEvents = mock(
   () =>
     [] as {
@@ -209,11 +196,11 @@ mock.module("../onboarding/onboarding-events-store.js", () => ({
   queryUnreportedOnboardingEvents: mockQueryUnreportedOnboardingEvents,
 }));
 
-// The auth-fallback, tool-executed, and skill-loaded stores are intentionally
-// NOT mocked — they have their own DB-backed tests, and Bun's `mock.module`
-// is process-global, so mocking them here would leak into those tests when
-// files share an invocation. We seed the real DB instead so every test stays
-// order-independent.
+// The auth-fallback, tool-executed, skill-loaded, and lifecycle stores are
+// intentionally NOT mocked — they have their own DB-backed tests, and Bun's
+// `mock.module` is process-global, so mocking them here would leak into those
+// tests when files share an invocation. We seed the real DB instead so every
+// test stays order-independent.
 
 // ---------------------------------------------------------------------------
 // Production import (after mocks)
@@ -226,6 +213,7 @@ import {
 } from "../__tests__/test-support/tool-invocation-seed.js";
 import { getDb, getTelemetryDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
+import { recordLifecycleEvent } from "../persistence/lifecycle-events-store.js";
 import {
   authFallbackEvents,
   configSettingEvents,
@@ -408,8 +396,6 @@ beforeEach(() => {
   mockQueryUnreportedUsageEvents.mockReset();
   mockQueryUnreportedTurnEvents.mockReset();
   mockQueryUnreportedTurnEvents.mockReturnValue([]);
-  mockQueryUnreportedLifecycleEvents.mockReset();
-  mockQueryUnreportedLifecycleEvents.mockReturnValue([]);
   mockQueryUnreportedOnboardingEvents.mockReset();
   mockQueryUnreportedOnboardingEvents.mockReturnValue([]);
   getDb().delete(toolInvocations).run();
@@ -1651,18 +1637,18 @@ describe("UsageTelemetryReporter", () => {
     // No HTTP call should have been made
     expect(mockFetch).not.toHaveBeenCalled();
 
-    // All 9 timestamp watermarks should have been advanced, and all 9 ID
-    // watermarks pinned to the high-sorting sentinel (a truthy value keeps
-    // the compound-cursor branch active while closing its same-millisecond
-    // arm against opt-out rows).
-    expect(mockSetFlushCheckpoint).toHaveBeenCalledTimes(18);
+    // All 8 watermark sources' timestamp watermarks should have been
+    // advanced, and their ID watermarks pinned to the high-sorting sentinel
+    // (a truthy value keeps the compound-cursor branch active while closing
+    // its same-millisecond arm against opt-out rows). Ack-mode sources
+    // (lifecycle) discard pending rows instead of touching watermarks.
+    expect(mockSetFlushCheckpoint).toHaveBeenCalledTimes(16);
 
     const calls = mockSetFlushCheckpoint.mock.calls;
     const keys = calls.map((c) => c[0]);
     const eventTypes = [
       "usage",
       "turns",
-      "lifecycle",
       "onboarding",
       "auth_fallback",
       "tool_executed",
@@ -1677,6 +1663,7 @@ describe("UsageTelemetryReporter", () => {
       );
       expect(idCall?.[1]).toBe("ffffffff-ffff-ffff-ffff-ffffffffffff");
     }
+    expect(keys.some((k) => k.includes(":lifecycle:"))).toBe(false);
   });
 
   test("platform disabled takes precedence over consent off — watermarks NOT advanced", async () => {
@@ -1751,8 +1738,9 @@ describe("UsageTelemetryReporter", () => {
   //
   // The envelope's `assistant_version` is upload-time (always the current
   // binary). The per-event field is record-time (the binary that was running
-  // when the event was persisted to SQLite). In this PR only `llm_usage`
-  // events carry a true record-time value; turn events (and lifecycle /
+  // when the event was persisted to SQLite). Outbox-backed sources
+  // (lifecycle) stamp record-time versions into their stored payloads;
+  // `llm_usage` carries a true record-time column; turn events (and
   // onboarding events, not asserted here) stamp the running binary's
   // `APP_VERSION` directly until their respective follow-ups land.
   // Nullable llm_usage cases (legacy rows from before migration 267 ran)
@@ -3102,5 +3090,48 @@ describe("UsageTelemetryReporter", () => {
     );
     expect(secondBody.events).toHaveLength(1);
     expect(pendingOutboxIds()).toEqual([]);
+  });
+
+  // -------------------------------------------------------------------------
+  // Lifecycle events (outbox-backed)
+  // -------------------------------------------------------------------------
+
+  test("a recorded lifecycle event flushes once and its outbox row is deleted", async () => {
+    mockQueryUnreportedUsageEvents.mockReturnValue([]);
+    const recorded = recordLifecycleEvent("app_open");
+    expect(recorded).not.toBeNull();
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
+    );
+
+    const reporter = makeReporter();
+    await reporter.flush();
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    expect(body.events).toHaveLength(1);
+    // The stored payload IS the wire event — record-time version included.
+    expect(body.events[0]).toEqual({
+      type: "lifecycle",
+      daemon_event_id: recorded!.id,
+      event_name: "app_open",
+      recorded_at: recorded!.createdAt,
+      assistant_version: "1.2.3-test",
+    });
+    // Delete-on-flush: the outbox row is gone, and lifecycle (ack-mode)
+    // never touches flush_checkpoints.
+    expect(queryTelemetryOutboxBatch("lifecycle", 10)).toEqual([]);
+    expect(
+      mockSetFlushCheckpoint.mock.calls.some((c) =>
+        c[0].includes(":lifecycle:"),
+      ),
+    ).toBe(false);
+
+    // A second flush finds nothing pending — the event never re-ships.
+    mockFetch.mockClear();
+    await reporter.flush();
+    expect(mockFetch).not.toHaveBeenCalled();
   });
 });

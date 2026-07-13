@@ -13,12 +13,23 @@ import { describe, expect, test } from "bun:test";
 const { getDb, getSqlite, getTelemetrySqlite } =
   await import("../db-connection.js");
 const { initializeDb } = await import("../db-init.js");
-const { queryUnreportedLifecycleEvents } =
-  await import("../lifecycle-events-store.js");
 const { migrateMoveLifecycleEventsToTelemetryDb } =
   await import("./331-move-lifecycle-events-to-telemetry-db.js");
 
 await initializeDb();
+
+function telemetryLifecycleRows(): Array<{
+  id: string;
+  event_name: string;
+  created_at: number;
+}> {
+  return getTelemetrySqlite()!
+    .query(
+      `SELECT id, event_name, created_at FROM lifecycle_events
+       ORDER BY created_at, id`,
+    )
+    .all() as Array<{ id: string; event_name: string; created_at: number }>;
+}
 
 const SOURCE_COLUMNS = `
   id TEXT PRIMARY KEY, event_name TEXT NOT NULL, created_at INTEGER NOT NULL`;
@@ -61,24 +72,13 @@ describe("migration 331: move lifecycle_events to the telemetry DB", () => {
     expect(existsInMain("lifecycle_events")).toBe(false);
     expect(existsInMain("lifecycle_events__relocating")).toBe(false);
 
-    const moved = getTelemetrySqlite()!
-      .query(`SELECT id, event_name FROM lifecycle_events ORDER BY id`)
-      .all();
-    expect(moved).toEqual([
-      { id: "seed-1", event_name: "app_open" },
-      { id: "seed-2", event_name: "hatch" },
-      { id: "seed-dupe", event_name: "conversations_clear_all" },
-    ]);
-
-    // The relocated rows are readable through the store's reporter query.
-    const rows = queryUnreportedLifecycleEvents(0, undefined, 10);
-    expect(rows).toEqual([
-      { id: "seed-1", eventName: "app_open", createdAt: 1000 },
-      { id: "seed-2", eventName: "hatch", createdAt: 2000 },
+    expect(telemetryLifecycleRows()).toEqual([
+      { id: "seed-1", event_name: "app_open", created_at: 1000 },
+      { id: "seed-2", event_name: "hatch", created_at: 2000 },
       {
         id: "seed-dupe",
-        eventName: "conversations_clear_all",
-        createdAt: 3000,
+        event_name: "conversations_clear_all",
+        created_at: 3000,
       },
     ]);
   });
@@ -92,7 +92,7 @@ describe("migration 331: move lifecycle_events to the telemetry DB", () => {
 
     expect(existsInMain("lifecycle_events")).toBe(false);
     expect(existsInMain("lifecycle_events__relocating")).toBe(false);
-    expect(queryUnreportedLifecycleEvents(0, undefined, 10)).toHaveLength(3);
+    expect(telemetryLifecycleRows()).toHaveLength(3);
   });
 
   test("a pre-existing duplicate id in the telemetry copy does not fail the drain", async () => {
@@ -114,7 +114,7 @@ describe("migration 331: move lifecycle_events to the telemetry DB", () => {
       .query(`SELECT event_name FROM lifecycle_events WHERE id = 'seed-dupe'`)
       .get() as { event_name: string };
     expect(dupe.event_name).toBe("already-copied");
-    expect(queryUnreportedLifecycleEvents(0, undefined, 10)).toHaveLength(3);
+    expect(telemetryLifecycleRows()).toHaveLength(3);
   });
 
   test("an empty main-side table (fresh install) is dropped without a drain", async () => {
@@ -125,7 +125,7 @@ describe("migration 331: move lifecycle_events to the telemetry DB", () => {
 
     expect(existsInMain("lifecycle_events")).toBe(false);
     expect(existsInMain("lifecycle_events__relocating")).toBe(false);
-    expect(queryUnreportedLifecycleEvents(0, undefined, 10)).toHaveLength(0);
+    expect(telemetryLifecycleRows()).toHaveLength(0);
   });
 
   test("telemetry-side schema has the reporter's compound cursor index", () => {

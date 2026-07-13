@@ -10,7 +10,6 @@
  */
 
 import { queryUnreportedOnboardingEvents } from "../onboarding/onboarding-events-store.js";
-import { queryUnreportedLifecycleEvents } from "../persistence/lifecycle-events-store.js";
 import { queryUnreportedUsageEvents } from "../persistence/llm-usage-store.js";
 import {
   getCachedShareDiagnostics,
@@ -440,22 +439,7 @@ const turnSource: TelemetryEventSource = {
   },
 };
 
-const lifecycleSource = simpleSource(
-  "lifecycle",
-  (afterCreatedAt, afterId, limit) =>
-    queryUnreportedLifecycleEvents(afterCreatedAt, afterId, limit),
-  (e): TelemetryEvent => ({
-    type: "lifecycle",
-    daemon_event_id: e.id,
-    event_name: e.eventName,
-    recorded_at: e.createdAt,
-    // Lifecycle events carry no record-time version column — stamp the
-    // running binary's `APP_VERSION`. Adding the record-time column to
-    // `lifecycle_events` (#18112) is a separate follow-up that mirrors
-    // `llm_usage_events`.
-    assistant_version: APP_VERSION,
-  }),
-);
+const lifecycleSource = outboxSource("lifecycle");
 
 const onboardingSource = simpleSource(
   "onboarding",
