@@ -147,7 +147,7 @@ whichever Swift channel you have around.
 bun run dev                # probe vel-up at :3000, dispatch to dev:electron-only or dev:standalone
 bun run dev:standalone     # explicit: spawn our Vite (:5173) + electron-vite dev (no backends)
 bun run dev:electron-only  # explicit: electron-vite dev only, honors $VELLUM_DEV_URL (default :5173)
-bun run install:all        # bun install in clients/macos and clients/web (called automatically by dev)
+bun run install:all        # workspace bun install + Electron setup (called automatically by dev)
 bun run dev:web            # clients/web Vite (port 5173, strict) — invoked by dev:standalone
 bun run dev:electron       # wait-on :5173 then electron-vite dev — invoked by dev:standalone
 bun run build              # electron-vite build — bundles main + preload to out/

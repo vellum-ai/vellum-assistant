@@ -28,7 +28,7 @@ Defend technical positions with evidence. Don't flip-flop to placate the user �
 - **Package manager**: This is a bun workspace — one root `bun.lock` covers every member (services, `packages/*`, `clients/web`, `clients/macos`). Run `bun install` anywhere in the tree (it resolves to the workspace root), or scope it with name filters like `--filter=@vellumai/assistant` (path filters resolve against the cwd — avoid them). Cross-package deps use `workspace:*`; `overrides`, `patchedDependencies`, and `trustedDependencies` are honored only in the root manifest. Non-members (`clients/chrome-extension`, skills) keep their own lockfiles.
 
 ```bash
-cd assistant && bun install          # Install dependencies
+bun install                          # Install workspace dependencies (any directory works)
 cd assistant && bunx tsc --noEmit    # Type-check
 cd assistant && bun run typecheck:fast  # Fast type-check using tsgo
 cd assistant && bun test src/path/to/changed.test.ts  # Run tests

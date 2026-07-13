@@ -2,9 +2,9 @@
 #
 # setup.sh — One-time local development setup for vellum-assistant.
 #
-# Installs dependencies for each package, registers local packages as
-# linkable, links them into the meta package, and then links the global
-# `vellum` command to the local meta entry point.
+# Installs workspace dependencies, registers local packages as linkable,
+# links them into the meta package, and then links the global `vellum`
+# command to the local meta entry point.
 #
 # Usage:
 #   ./setup.sh
@@ -45,11 +45,15 @@ info "Configuring git hooks"
 git config core.hooksPath .githooks
 
 # ---------------------------------------------------------------------------
-# Install dependencies and register local packages as linkable
+# Install workspace dependencies (one install covers every member)
+# ---------------------------------------------------------------------------
+info "Installing workspace dependencies"
+(cd "${REPO_ROOT}" && bun install)
+
+# ---------------------------------------------------------------------------
+# Register local packages as linkable
 # ---------------------------------------------------------------------------
 for dir in cli gateway assistant credential-executor; do
-  info "Installing dependencies in ${dir}/"
-  (cd "${REPO_ROOT}/${dir}" && bun install)
   info "Registering ${dir}/ as a linkable package"
   (cd "${REPO_ROOT}/${dir}" && bun link)
 done
@@ -60,31 +64,7 @@ done
 info "Installing dependencies in scripts/"
 (cd "${REPO_ROOT}/scripts" && bun install)
 
-# ---------------------------------------------------------------------------
-# Install dependencies for packages in packages/
-# ---------------------------------------------------------------------------
-for dir in "${REPO_ROOT}"/packages/*/; do
-  [ -f "${dir}/package.json" ] || continue
-  pkg="$(basename "${dir}")"
-  info "Installing dependencies in packages/${pkg}/"
-  (cd "${dir}" && bun install)
-done
 
-# ---------------------------------------------------------------------------
-# Install dependencies for skills that have their own package.json
-#
-# assistant/src/daemon/external-skills-bootstrap.ts statically imports
-# skills/meet-join/register.ts, so `tsc --noEmit` in assistant/ follows the
-# import into the skill and needs the skill's own node_modules to resolve
-# transitive imports. Missing deps surface as false-positive "Cannot find
-# module" errors.
-# ---------------------------------------------------------------------------
-for dir in "${REPO_ROOT}"/skills/*/; do
-  [ -f "${dir}/package.json" ] || continue
-  pkg="$(basename "${dir}")"
-  info "Installing dependencies in skills/${pkg}/"
-  (cd "${dir}" && bun install)
-done
 
 # ---------------------------------------------------------------------------
 # Link local packages into meta so it resolves to local source
