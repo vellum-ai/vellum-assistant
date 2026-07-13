@@ -239,6 +239,22 @@ describe("synthesizeOverVellumTtsSocket", () => {
     expect(audio.toString()).toBe("late");
   });
 
+  test("control frames alone cannot keep a stuck stream open", async () => {
+    // A stream that heartbeats Metadata/Warning without ever producing
+    // audio must still fail on the first-audio budget.
+    const session = startSession({ firstChunkTimeoutMs: 30 });
+    mockWs.simulateOpen();
+    const heartbeat = setInterval(() => {
+      mockWs.simulateMessage(JSON.stringify({ type: "Metadata" }));
+    }, 5);
+
+    try {
+      await expect(session).rejects.toThrow("timeout:30");
+    } finally {
+      clearInterval(heartbeat);
+    }
+  });
+
   test("pre-aborted signal rejects without dialing frames", async () => {
     const controller = new AbortController();
     controller.abort();
