@@ -46,7 +46,7 @@ jobs:
         run: bun install --frozen-lockfile --filter=@vellumai/assistant --filter=@vellumai/vellum-gateway
 
       - name: Sync feature flag registry
-        run: cd .. && bun run meta/feature-flags/sync-bundled-copies.ts
+        run: cd .. && bun run meta/sync-bundled-copies.ts
 
       - name: Lint
         run: bun run lint
@@ -79,7 +79,7 @@ jobs:
         run: bun install --frozen-lockfile --filter=@vellumai/assistant --filter=@vellumai/vellum-gateway
 
       - name: Sync feature flag registry
-        run: cd .. && bun run meta/feature-flags/sync-bundled-copies.ts
+        run: cd .. && bun run meta/sync-bundled-copies.ts
 
       - name: Type check
         run: bunx tsc --noEmit
@@ -112,7 +112,7 @@ jobs:
         run: bun install --frozen-lockfile --filter=@vellumai/assistant --filter=@vellumai/vellum-gateway
 
       - name: Sync feature flag registry
-        run: cd .. && bun run meta/feature-flags/sync-bundled-copies.ts
+        run: cd .. && bun run meta/sync-bundled-copies.ts
 
       - name: Restore test durations cache
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5

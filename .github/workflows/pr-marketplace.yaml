@@ -7,7 +7,7 @@ on:
       - 'plugins/marketplace.json'
       - 'scripts/check-marketplace-prefix.mjs'
       - 'meta/feature-flags/feature-flag-registry.json'
-      - 'meta/feature-flags/sync-bundled-copies.ts'
+      - 'meta/sync-bundled-copies.ts'
       - 'assistant/src/cli/lib/bundled-marketplace.json'
       - 'clients/web/src/lib/feature-flags/feature-flag-registry.json'
       - '.github/workflows/pr-marketplace.yaml'
@@ -47,4 +47,4 @@ jobs:
           bun-version: '1.3.11'
 
       - name: Verify bundled copies match canonical sources
-        run: bun run meta/feature-flags/sync-bundled-copies.ts --check
+        run: bun run meta/sync-bundled-copies.ts --check

@@ -2,7 +2,7 @@
  * Smoke test: verifies that the bundled feature-flag-registry.json exists
  * in the assistant source tree and is a valid, non-empty registry.
  *
- * The bundled copy is created by `meta/feature-flags/sync-bundled-copies.ts`
+ * The bundled copy is created by `meta/sync-bundled-copies.ts`
  * (run via postinstall or CI sync step). This test catches cases where the
  * sync was skipped — e.g. Docker builds that forget to copy the registry.
  */
@@ -21,7 +21,7 @@ describe("bundled feature-flag-registry.json", () => {
   test("file exists", () => {
     expect(
       existsSync(BUNDLED_PATH),
-      `Expected bundled registry at ${BUNDLED_PATH}. Run: bun run meta/feature-flags/sync-bundled-copies.ts`,
+      `Expected bundled registry at ${BUNDLED_PATH}. Run: bun run meta/sync-bundled-copies.ts`,
     ).toBe(true);
   });
 
