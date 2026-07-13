@@ -18,11 +18,14 @@ let _missingPrereqsWarned = false;
 
 export interface OwnerConsent {
   /**
-   * The platform returns null when the owner never made an explicit
-   * analytics choice (onboarding doesn't ask); that maps to `false` here —
-   * no consent, fail closed.
+   * Telemetry is opt-out: a null wire value (the owner was never shown the
+   * choice) maps to `true` here — only an explicit opt-out disables sharing.
+   * A `false` accompanied by `share_analytics_chosen: false` is the platform
+   * coercing a never-chose null to a strict boolean, not a real opt-out, so
+   * it also maps to `true`.
    */
   shareAnalytics: boolean;
+  /** Same opt-out semantics as {@link shareAnalytics}. */
   shareDiagnostics: boolean;
   /**
    * Version of the diagnostics-sharing consent the owner accepted
@@ -153,21 +156,32 @@ export class VellumPlatformClient {
 
       const body = (await res.json()) as {
         share_analytics?: unknown;
+        share_analytics_chosen?: unknown;
         share_diagnostics?: unknown;
+        share_diagnostics_chosen?: unknown;
         share_diagnostics_accepted_version?: unknown;
       };
       if (
         (typeof body.share_analytics !== "boolean" &&
           body.share_analytics !== null) ||
-        typeof body.share_diagnostics !== "boolean"
+        (typeof body.share_diagnostics !== "boolean" &&
+          body.share_diagnostics !== null)
       ) {
         log.debug("owner-consent body malformed — treating as unknown");
         return null;
       }
 
       return {
-        shareAnalytics: body.share_analytics === true,
-        shareDiagnostics: body.share_diagnostics,
+        // Opt-out: anything but an explicit false enables sharing. A false
+        // with `*_chosen: false` is a platform-coerced never-chose default
+        // (not a real opt-out), so it enables too. An absent `*_chosen`
+        // (older platform) leaves false authoritative.
+        shareAnalytics:
+          body.share_analytics !== false ||
+          body.share_analytics_chosen === false,
+        shareDiagnostics:
+          body.share_diagnostics !== false ||
+          body.share_diagnostics_chosen === false,
         // Back-compat: an older platform that doesn't return this field yields
         // "" → fails the trace-collection version gate → fail-closed (no trace).
         shareDiagnosticsAcceptedVersion:

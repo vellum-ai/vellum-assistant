@@ -76,6 +76,7 @@ import {
   applyResolvedDiagnosticsConsent,
   setDiagnosticsReportingGate,
 } from "@/lib/consent/diagnostics-consent";
+import { getDeviceSetting } from "@/utils/device-settings";
 import {
   clearOrganization,
   useOrganizationStore,
@@ -336,13 +337,12 @@ async function syncUserScopedState(nextUserId: string | null): Promise<void> {
         store.setShareAnalytics(resolved.shareAnalytics);
       }
 
-      // Diagnostics routes through the single version-aware, direction-
-      // asymmetric chokepoint: a stale-version acceptance never keeps
-      // diagnostics on, and an unknown grant leaves the mirror untouched.
+      // Diagnostics routes through the single direction-asymmetric
+      // chokepoint: only an explicit revoke closes the reporting gate
+      // (opt-out), and an unknown grant leaves the saved preference untouched.
       applyResolvedDiagnosticsConsent(
         {
           shareDiagnostics: resolved.shareDiagnostics,
-          diagnosticsVersionCurrent: resolved.diagnosticsCurrent,
           hasServerRecord: resolved.hasServerRecord,
         },
         store.setShareDiagnostics,
@@ -358,32 +358,27 @@ async function syncUserScopedState(nextUserId: string | null): Promise<void> {
       let privacy = resolved.privacy;
       let analyticsCurrent = resolved.analyticsCurrent;
       let diagnosticsCurrent = resolved.diagnosticsCurrent;
-      // Genuine "confirmed under the current version" attestation, distinct
-      // from `analyticsCurrent`, which also reads never-asked (null server
-      // value — onboarding doesn't show the analytics toggle) as "nothing to
-      // re-review". Only the genuine ack may be device-persisted or backfill
-      // a server version stamp.
+      // Genuine "confirmed under the current version" attestations, distinct
+      // from the `*Current` flags, which also read never-asked (a null server
+      // value, or an implicit pre-nullable-platform default) as "nothing to
+      // re-review". Only a genuine ack may be device-persisted or backfill a
+      // server version stamp, so acks key off the raw version currency.
       let analyticsAck =
-        resolved.shareAnalytics !== null && resolved.analyticsCurrent;
+        resolved.shareAnalytics !== null && resolved.analyticsVersionCurrent;
+      let diagnosticsAck =
+        resolved.shareDiagnostics !== null && resolved.diagnosticsVersionCurrent;
 
       // Fall back to device keys for a TRULY empty record: the device ack
       // keys are the only consent evidence, so they drive all four axes and
       // seed the server via the backfill.
       if (!resolved.hasServerRecord) {
         const deviceConsent = restoreConsentForUser(nextUserId);
-        // No server record means no explicit analytics consent exists —
-        // never-asked, so nothing to re-review regardless of the device ack.
+        // No server record means no explicit share-toggle consent exists —
+        // never-asked, so nothing to re-review regardless of the device acks.
         analyticsCurrent = true;
         analyticsAck = deviceConsent.analyticsCurrent;
-        diagnosticsCurrent = deviceConsent.diagnosticsCurrent;
-        // The chokepoint above closed the reporting gate because the server has
-        // no record yet. Reopen it from the device-confirmed consent so an
-        // opted-in user whose acceptance lives only in the per-device cache
-        // isn't left with Sentry disabled. The live-session requirement still
-        // applies via sentry-control's composed gate.
-        setDiagnosticsReportingGate(
-          store.shareDiagnostics && diagnosticsCurrent,
-        );
+        diagnosticsCurrent = true;
+        diagnosticsAck = deviceConsent.diagnosticsCurrent;
         if (deviceConsent.tos && deviceConsent.privacy) {
           tos = true;
           privacy = true;
@@ -395,7 +390,7 @@ async function syncUserScopedState(nextUserId: string | null): Promise<void> {
               tos: true,
               privacy: true,
               analytics: analyticsAck,
-              diagnostics: diagnosticsCurrent,
+              diagnostics: diagnosticsAck,
               shareValues: {
                 analytics: store.shareAnalytics,
                 diagnostics: store.shareDiagnostics,
@@ -432,15 +427,7 @@ async function syncUserScopedState(nextUserId: string | null): Promise<void> {
         }
         if (diagnosticsFromDevice) {
           diagnosticsCurrent = true;
-          // Diagnostics currency comes from the device ack, so reopen the
-          // reporting gate the chokepoint closed for the stale server version
-          // — same `preference && currency` rule as the no-record branch.
-          // Re-read the preference: the server's authoritative share value
-          // was written to the store above.
-          setDiagnosticsReportingGate(
-            useOnboardingStore.getState().shareDiagnostics &&
-              diagnosticsCurrent,
-          );
+          diagnosticsAck = true;
         }
         if (
           tosFromDevice ||
@@ -464,12 +451,12 @@ async function syncUserScopedState(nextUserId: string | null): Promise<void> {
       store.setAnalyticsConsentCurrent(analyticsCurrent);
       store.setDiagnosticsConsentCurrent(diagnosticsCurrent);
       persistConsentForUser(nextUserId, tos, privacy);
-      // A false analytics ack is never written: absent ≡ false for every
+      // A false toggle ack is never written: absent ≡ false for every
       // reader, and writing false would erase a genuine device attestation
       // whose backfill patch simply hasn't landed on the server yet.
       persistToggleConsent(nextUserId, {
         ...(analyticsAck ? { analyticsCurrent: true } : {}),
-        diagnosticsCurrent,
+        ...(diagnosticsAck ? { diagnosticsCurrent: true } : {}),
       });
       syncOrganizationState(nextUserId);
       store.setConsentHydrated(true);
@@ -481,15 +468,22 @@ async function syncUserScopedState(nextUserId: string | null): Promise<void> {
 
   const consent = restoreConsentForUser(nextUserId);
   const store = useOnboardingStore.getState();
+  // Consent fetch failed for a platform user and this device has never
+  // resolved a diagnostics gate: fail closed until a successful sync can
+  // reveal a server-side explicit opt-out — hydration alone must not let the
+  // opt-out default open the gate. Every successful sync path writes the
+  // gate, so this conservative value never outlives the outage.
+  if (nextUserId && getDeviceSetting("diagnosticsReporting", "") === "") {
+    setDiagnosticsReportingGate(false);
+  }
   store.setTosAccepted(consent.tos);
   store.setPrivacyConsent(consent.privacy);
-  // An absent device ack here can't be told apart from never-asked (the
-  // onboarding flow doesn't show the analytics toggle), and only the server
-  // can attest an explicit stale consent — never bounce to review-terms on
-  // device evidence alone. A genuinely stale consent re-bounces on the next
-  // successful sync.
+  // An absent device ack here can't be told apart from never-asked, and only
+  // the server can attest an explicit stale consent — never bounce to
+  // review-terms on device evidence alone. A genuinely stale consent
+  // re-bounces on the next successful sync.
   store.setAnalyticsConsentCurrent(true);
-  store.setDiagnosticsConsentCurrent(consent.diagnosticsCurrent);
+  store.setDiagnosticsConsentCurrent(true);
   syncOrganizationState(nextUserId);
   store.setConsentHydrated(true);
 }
