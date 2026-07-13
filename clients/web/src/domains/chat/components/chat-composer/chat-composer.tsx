@@ -166,6 +166,31 @@ export interface ChatComposerProps {
   onCancelEdit?: () => void;
 }
 
+/**
+ * Viewport-space center of the on-screen assistant avatar the live-voice room
+ * grows its entrance from — the last on-screen `[data-voice-origin]` element
+ * (the greeting avatar on a fresh chat, the latest-turn avatar in a
+ * conversation). `null` when none is visible (falls back to the tapped button,
+ * then screen-center).
+ */
+function measureVoiceOriginAvatar(): { x: number; y: number } | null {
+  if (typeof document === "undefined") return null;
+  let best: DOMRect | null = null;
+  for (const node of document.querySelectorAll("[data-voice-origin]")) {
+    const rect = node.getBoundingClientRect();
+    if (rect.width === 0 && rect.height === 0) continue;
+    const onScreen =
+      rect.bottom > 0 &&
+      rect.top < window.innerHeight &&
+      rect.right > 0 &&
+      rect.left < window.innerWidth;
+    // Keep the last on-screen one in DOM order (the most recent avatar).
+    if (onScreen) best = rect;
+  }
+  if (!best) return null;
+  return { x: best.left + best.width / 2, y: best.top + best.height / 2 };
+}
+
 export function ChatComposer({
   placeholder = "What would you like to do?",
   onSubmit,
@@ -313,9 +338,15 @@ export function ChatComposer({
     if (!assistantId) {
       return;
     }
-    // Publish the entry origin BEFORE starting: the starter drives
-    // `setSessionContext`, which deliberately leaves `entryOrigin` intact.
-    setLiveVoiceEntryOrigin(liveVoiceEntryOriginRef.current);
+    // Grow the room's entrance from the assistant avatar the user sees — the
+    // empty-state greeting avatar, or the latest-turn avatar below the most
+    // recent response (both tagged `data-voice-origin`). Fall back to the
+    // tapped voice button, then to screen-center (null).
+    const origin =
+      measureVoiceOriginAvatar() ?? liveVoiceEntryOriginRef.current;
+    // Publish the origin BEFORE starting; the controller carries it across its
+    // start-time `reset()` (see the live-voice store's `entryOrigin`).
+    setLiveVoiceEntryOrigin(origin);
     useLiveVoiceStore.getState().starter?.(assistantId, conversationId ?? null);
   }, [assistantId, conversationId]);
   const handleLiveVoiceStart = useCallback(

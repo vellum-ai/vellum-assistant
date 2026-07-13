@@ -13,6 +13,13 @@ export interface ChatAvatarProps {
   className?: string;
   interactive?: boolean;
   isAssistantBusy?: boolean;
+  /**
+   * Stamp `data-voice-origin` on the avatar's root so the live-voice room can
+   * find this on-screen avatar and grow its entrance from here. Set on the
+   * assistant avatar the user sees before starting voice (the empty-state
+   * greeting, the latest-turn transcript avatar).
+   */
+  originAnchor?: boolean;
 }
 
 /** Ring geometry. Thickness is a fixed 1px hairline; gap scales with size. */
@@ -73,9 +80,12 @@ function ChatAvatarComponent({
   className,
   interactive = false,
   isAssistantBusy = false,
+  originAnchor = false,
 }: ChatAvatarProps) {
   const reduce = useReducedMotion();
   const [isPoking, setIsPoking] = useState(false);
+  // Spread onto whichever root renders, so the room can locate this avatar.
+  const anchorProps = originAnchor ? { "data-voice-origin": "" } : {};
 
   const triggerBounce = useCallback(() => {
     // Sound is independent of motion preference, so it plays before the
@@ -122,6 +132,7 @@ function ChatAvatarComponent({
   if (preferCharacter) {
     return (
       <motion.div
+        {...anchorProps}
         className={className}
         style={wrapperStyle}
         onClick={handleClick}
@@ -142,6 +153,7 @@ function ChatAvatarComponent({
   if (customImageUrl) {
     return (
       <motion.div
+        {...anchorProps}
         onClick={handleClick}
         initial={initial}
         animate={animate}
@@ -170,6 +182,7 @@ function ChatAvatarComponent({
 
   return (
     <motion.div
+      {...anchorProps}
       className={`flex items-center justify-center rounded-full bg-[var(--primary-base)] text-[var(--content-inset)] ${className ?? ""}`}
       style={{ ...wrapperStyle, fontSize: size * 0.45 }}
       onClick={handleClick}
