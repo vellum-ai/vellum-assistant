@@ -1559,6 +1559,16 @@ describe("POST /v1/plugins/install", () => {
     expect(getCatalogSpy).not.toHaveBeenCalled();
   });
 
+  test("an invalid name (no pin) → BadRequestError before the catalog lookup", async () => {
+    // A malformed install name is validated up front via `sanitizePluginName`,
+    // so it's a deterministic 400 — never a 404/503 from resolving the catalog.
+    await expect(
+      invokeInstall({ body: { name: "../escape" } }),
+    ).rejects.toBeInstanceOf(BadRequestError);
+    expect(getCatalogSpy).not.toHaveBeenCalled();
+    expect(installSpy).not.toHaveBeenCalled();
+  });
+
   test("InvalidPluginNameError → BadRequestError (400)", async () => {
     installSpy.mockImplementation(async () => {
       throw new InvalidPluginNameError("bad plugin name");

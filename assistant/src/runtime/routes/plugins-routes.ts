@@ -1103,8 +1103,8 @@ async function resolveInstallMarketplaceRef(
 }
 
 async function handleInstallPlugin({ body = {}, headers }: RouteHandlerArgs) {
-  const name = typeof body.name === "string" ? body.name : "";
-  if (!name) {
+  const rawName = typeof body.name === "string" ? body.name : "";
+  if (!rawName) {
     throw new BadRequestError("`name` is required");
   }
   const force = typeof body.force === "boolean" ? body.force : undefined;
@@ -1123,6 +1123,11 @@ async function handleInstallPlugin({ body = {}, headers }: RouteHandlerArgs) {
   // SHA is refused. Operators who need an unreviewed revision use the local
   // CLI's `assistant plugins install --pin <sha> --allow-unreviewed`.
   try {
+    // Validate the name up front — before any catalog/pin/network work — so a
+    // malformed name (`../escape`) is a deterministic 400 rather than a 404/503
+    // from the catalog lookup. `installPlugin` sanitizes too; this restores the
+    // advertised 400 across both the no-pin and pin paths.
+    const name = sanitizePluginName(rawName);
     let result;
     if (pin) {
       const marketplaceRef = await resolveInstallMarketplaceRef(name, pin);

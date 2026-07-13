@@ -27,10 +27,12 @@ export async function findCatalogEntry(
 }
 
 /**
- * A repo-relative path is clean when no `/`-or-`\`-split segment escapes (`..`)
- * or is empty (`""`). Mirrors the marketplace schema's `path` refine so the
- * gated resolver rejects the same paths the GitHub manifest does — platform
- * catalog rows accept `path` as any string, so this is the install-side gate.
+ * A NON-EMPTY repo-relative path is clean when no `/`-or-`\`-split segment
+ * escapes (`..`) or is interior-empty (`a//b`). Mirrors the marketplace
+ * schema's `path` refine so the gated resolver rejects the same paths the
+ * GitHub manifest does — platform catalog rows accept `path` as any string, so
+ * this is the install-side gate. An empty/absent path is repo root, not passed
+ * here.
  */
 function isCleanRepoRelativePath(path: string): boolean {
   return !path.split(/[/\\]/).some((seg) => seg === ".." || seg === "");
@@ -57,7 +59,8 @@ export function resolveSourceFromMatch(
         `a curated install must pin to an immutable full commit SHA (tags and branches are mutable).`,
     );
   }
-  if (path !== undefined && !isCleanRepoRelativePath(path)) {
+  // An empty/absent path is repo root (valid); only gate a non-empty path.
+  if (path && !isCleanRepoRelativePath(path)) {
     throw new Error(
       `Catalog entry "${match.name}" has an unsafe plugin path "${path}"; ` +
         `a curated install path must be a clean repo-relative directory (no ".." or empty segments).`,

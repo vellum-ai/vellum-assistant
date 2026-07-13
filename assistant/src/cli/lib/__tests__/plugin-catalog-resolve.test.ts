@@ -55,6 +55,20 @@ describe("resolveSourceFromMatch", () => {
   });
 
   test.each([
+    ["absent", undefined],
+    ["empty", ""],
+  ])("resolves a repo-root %s path to \"\"", (_label, path) => {
+    // A repo-root entry (`path: ""` or absent) is valid — the clean-path gate
+    // only applies to a non-empty path, so it must not be rejected.
+    expect(resolveSourceFromMatch(match({ path }))).toEqual({
+      owner: "acme",
+      repo: "example",
+      path: "",
+      ref: FULL_SHA,
+    });
+  });
+
+  test.each([
     ["a branch", "main"],
     ["a tag", "v1.2.3"],
     ["a short SHA", "63a91ec"],
