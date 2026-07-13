@@ -78,7 +78,6 @@ After gathering the data, present findings in a format the user can act on. User
 - **Call site names, inference profile names, token counts, cache ratios** — these are diagnostic internals. Use them to figure out what's expensive, then translate to plain English.
 - **Recurring automation costs** unless one is a significant contributor (>$4/month). A monthly $0.17 digest doesn't need its own line in the summary.
 
-**Tone:** Conversational, not clinical. The user should feel like they're getting a quick summary from someone who already did the homework, not reading a dashboard.
 
 ## Step 2 — Read the effective configuration
 
