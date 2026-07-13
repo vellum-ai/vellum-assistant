@@ -41,20 +41,20 @@ Consequences that change how you diagnose cost:
 ## Step 1 — Measure current spend
 
 ```bash
-# Weekly totals
-assistant usage totals --range week
+# Monthly totals
+assistant usage totals --range month
 
 # Break down by conversation (what the user actually did — use this for presentation)
-assistant usage breakdown --group-by conversation --range week
+assistant usage breakdown --group-by conversation --range month
 
 # Break down by call site (what kind of work is expensive — use for diagnosis)
-assistant usage breakdown --group-by call_site --range week
+assistant usage breakdown --group-by call_site --range month
 
 # Break down by model (what actually ran)
-assistant usage breakdown --group-by model --range week
+assistant usage breakdown --group-by model --range month
 
 # Break down by profile (which selection produced it)
-assistant usage breakdown --group-by inference_profile --range week
+assistant usage breakdown --group-by inference_profile --range month
 ```
 
 Cross-reference the `call_site` and `inference_profile` breakdowns: a background call site showing spend under an expensive profile means an override or pin routed it there — that is the interesting finding, not the config defaults.
@@ -67,7 +67,7 @@ After gathering the data, present findings in a format the user can act on. User
 
 **Presentation structure:**
 
-1. **One-line headline** with total weekly cost.
+1. **One-line headline** with total monthly cost.
 2. **Conversations table** — the user's own activity, sorted by cost descending. Columns: conversation name, turns, cost, and a brief note on why it was expensive (e.g. "One heavy session drove 65% of your total spend"). Roll up small conversations into an "All other conversations" row to keep the table to 4-6 rows.
 3. **"What I'd change to cut costs"** — 2-3 bullets in plain English, biggest lever first. No jargon. Instead of "drop the balanced profile effort from high to medium," say "your chat model is set to high effort — dropping to medium would save ~$X/week." Each bullet states what to change, why it helps, and the estimated savings.
 4. **A clear ask** — "Want me to make either of those changes?"
@@ -76,7 +76,7 @@ After gathering the data, present findings in a format the user can act on. User
 
 - **Background work** (memory processing, heartbeats, health checks) — users can't control these individually and they're already on cheap models by default. Mentioning them adds noise without actionable signal.
 - **Call site names, inference profile names, token counts, cache ratios** — these are diagnostic internals. Use them to figure out what's expensive, then translate to plain English.
-- **Recurring automation costs** unless one is a significant contributor (>$1/week). A weekly $0.17 digest doesn't need its own line in the summary.
+- **Recurring automation costs** unless one is a significant contributor (>$4/month). A monthly $0.17 digest doesn't need its own line in the summary.
 
 **Tone:** Conversational, not clinical. The user should feel like they're getting a quick summary from someone who already did the homework, not reading a dashboard.
 
