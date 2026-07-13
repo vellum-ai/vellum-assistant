@@ -23142,7 +23142,9 @@ paths:
                           description: Short description, when known (external entries only today).
                           type: string
                         icon:
-                          description: Curated author/curator emoji from the marketplace entry, when present.
+                          description:
+                            "Plugin icon: a curated emoji from the marketplace entry, or an icon URL served by the platform catalog
+                            when the plugin ships a bundled image."
                           type: string
                         category:
                           anyOf:
