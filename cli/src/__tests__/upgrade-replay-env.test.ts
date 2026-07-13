@@ -146,6 +146,45 @@ describe("buildReplayState", () => {
     expect(state.extraAssistantEnv.VELLUM_DEVICE_ID).toBe("existing");
   });
 
+  test("assistant inherits the gateway's captured VELAY_BASE_URL", () => {
+    // Instances created before VELAY_BASE_URL was forwarded to the assistant
+    // stored the relay override only on the gateway; managed speech dials
+    // from the assistant process and must reach the same relay.
+    const state = buildReplayState(
+      {},
+      { VELAY_BASE_URL: "http://velay.internal:8484" },
+    );
+    expect(state.extraAssistantEnv.VELAY_BASE_URL).toBe(
+      "http://velay.internal:8484",
+    );
+  });
+
+  test("captured assistant VELAY_BASE_URL wins over the gateway's", () => {
+    const state = buildReplayState(
+      { VELAY_BASE_URL: "http://assistant-override" },
+      { VELAY_BASE_URL: "http://gateway-value" },
+    );
+    expect(state.extraAssistantEnv.VELAY_BASE_URL).toBe(
+      "http://assistant-override",
+    );
+  });
+
+  test("host-set VELAY_BASE_URL defers to host forwarding (no replay copy)", () => {
+    process.env.VELAY_BASE_URL = "http://host-managed";
+    try {
+      const state = buildReplayState(
+        {},
+        { VELAY_BASE_URL: "http://gateway-value" },
+      );
+      // Filtered from the gateway replay env, so nothing to inherit — the
+      // builder re-forwards the host value to both containers instead.
+      expect(state.extraGatewayEnv.VELAY_BASE_URL).toBeUndefined();
+      expect(state.extraAssistantEnv.VELAY_BASE_URL).toBeUndefined();
+    } finally {
+      delete process.env.VELAY_BASE_URL;
+    }
+  });
+
   test("plucks secrets from the captured envs", () => {
     const state = buildReplayState(
       { CES_SERVICE_TOKEN: "ces-token", ACTOR_TOKEN_SIGNING_KEY: "sign-key" },
