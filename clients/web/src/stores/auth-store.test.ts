@@ -771,6 +771,29 @@ describe("auth store onboarding flag reconciliation", () => {
     );
   });
 
+  test("failed consent fetch on a fresh device writes a conservative closed gate", async () => {
+    // A confirmed session with a throwing consent fetch must not let the
+    // never-written gate fall open on hydration — the server may hold an
+    // explicit opt-out this device hasn't seen yet.
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    fetchConsentMock.mockRejectedValueOnce(new Error("offline"));
+    localStorage.removeItem("device:diagnostics_reporting");
+
+    await useAuthStore.getState().initSession();
+
+    expect(localStorage.getItem("device:diagnostics_reporting")).toBe("false");
+  });
+
+  test("failed consent fetch leaves an already-resolved gate untouched", async () => {
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    fetchConsentMock.mockRejectedValueOnce(new Error("offline"));
+    localStorage.setItem("device:diagnostics_reporting", "true");
+
+    await useAuthStore.getState().initSession();
+
+    expect(localStorage.getItem("device:diagnostics_reporting")).toBe("true");
+  });
+
   test("device-consent fallback reopens the diagnostics reporting gate for a device-confirmed opt-in", async () => {
     // Empty server record, but the user has a current device-side diagnostics
     // ack and an opted-in preference. The chokepoint resolves the unknown

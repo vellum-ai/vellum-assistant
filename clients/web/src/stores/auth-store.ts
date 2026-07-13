@@ -72,7 +72,11 @@ import {
   DIAGNOSTICS_CONSENT_VERSION,
 } from "@/utils/onboarding-cleanup";
 import { useOnboardingStore } from "@/domains/onboarding/onboarding-store";
-import { applyResolvedDiagnosticsConsent } from "@/lib/consent/diagnostics-consent";
+import {
+  applyResolvedDiagnosticsConsent,
+  setDiagnosticsReportingGate,
+} from "@/lib/consent/diagnostics-consent";
+import { getDeviceSetting } from "@/utils/device-settings";
 import {
   clearOrganization,
   useOrganizationStore,
@@ -465,6 +469,14 @@ async function syncUserScopedState(nextUserId: string | null): Promise<void> {
 
   const consent = restoreConsentForUser(nextUserId);
   const store = useOnboardingStore.getState();
+  // Consent fetch failed for a platform user and this device has never
+  // resolved a diagnostics gate: fail closed until a successful sync can
+  // reveal a server-side explicit opt-out — hydration alone must not let the
+  // opt-out default open the gate. Every successful sync path writes the
+  // gate, so this conservative value never outlives the outage.
+  if (nextUserId && getDeviceSetting("diagnosticsReporting", "") === "") {
+    setDiagnosticsReportingGate(false);
+  }
   store.setTosAccepted(consent.tos);
   store.setPrivacyConsent(consent.privacy);
   // An absent device ack here can't be told apart from never-asked (the
