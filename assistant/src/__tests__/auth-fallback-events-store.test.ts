@@ -1,29 +1,17 @@
-import { beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 
-let shareAnalytics = true;
-
-mock.module("../platform/consent-cache.js", () => ({
-  getCachedShareAnalytics: () => shareAnalytics,
-}));
-
-import * as dbConnection from "../persistence/db-connection.js";
-import { initializeDb } from "../persistence/db-init.js";
 import {
   type AuthFallbackCount,
   recordAuthFallbackCounts,
 } from "../security/auth-fallback-events-store.js";
 import {
-  discardPendingTelemetryOutboxEvents,
-  queryTelemetryOutboxBatch,
-} from "../telemetry/telemetry-events-outbox.js";
+  pendingOutboxRows,
+  resetOutboxTable,
+  setShareAnalytics,
+  withTelemetryDbUnavailable,
+} from "../telemetry/__tests__/outbox-test-harness.js";
 import type { AuthFallbackTelemetryEvent } from "../telemetry/types.js";
 import { APP_VERSION } from "../version.js";
-
-await initializeDb();
-
-function pendingRows() {
-  return queryTelemetryOutboxBatch("auth_fallback", 100);
-}
 
 const SAMPLE: AuthFallbackCount[] = [
   {
@@ -42,15 +30,15 @@ const SAMPLE: AuthFallbackCount[] = [
 
 describe("auth-fallback-events-store", () => {
   beforeEach(() => {
-    shareAnalytics = true;
-    discardPendingTelemetryOutboxEvents("auth_fallback");
+    setShareAnalytics(true);
+    resetOutboxTable();
   });
 
   test("records one outbox row per count entry with the full wire payload", () => {
     const recorded = recordAuthFallbackCounts(1000, 2000, SAMPLE);
     expect(recorded).toBe(2);
 
-    const rows = pendingRows();
+    const rows = pendingOutboxRows("auth_fallback");
     expect(rows.length).toBe(2);
     const payloads = rows.map(
       (r) => JSON.parse(r.payload) as AuthFallbackTelemetryEvent,
@@ -82,26 +70,23 @@ describe("auth-fallback-events-store", () => {
   });
 
   test("honors the share_analytics opt-out (records nothing)", () => {
-    shareAnalytics = false;
+    setShareAnalytics(false);
     const recorded = recordAuthFallbackCounts(1000, 2000, SAMPLE);
     expect(recorded).toBe(0);
-    expect(pendingRows().length).toBe(0);
+    expect(pendingOutboxRows("auth_fallback").length).toBe(0);
   });
 
   test("empty counts batch is a no-op", () => {
     expect(recordAuthFallbackCounts(1000, 2000, [])).toBe(0);
-    expect(pendingRows().length).toBe(0);
+    expect(pendingOutboxRows("auth_fallback").length).toBe(0);
   });
 
   test("records all-or-nothing: db unavailable returns 0 with no rows", () => {
-    const spy = spyOn(dbConnection, "getTelemetryDb").mockReturnValue(null);
-    try {
+    withTelemetryDbUnavailable(() => {
       expect(recordAuthFallbackCounts(1000, 2000, SAMPLE)).toBe(0);
-    } finally {
-      spy.mockRestore();
-    }
+    });
     // No partial batch: the gateway's `recorded === 0` retry contract means
     // any committed remnant would later double-count.
-    expect(pendingRows().length).toBe(0);
+    expect(pendingOutboxRows("auth_fallback").length).toBe(0);
   });
 });
