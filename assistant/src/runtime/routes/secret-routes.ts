@@ -323,12 +323,15 @@ async function handleAddSecret({ body }: RouteHandlerArgs) {
       }
       if (
         service === "vellum" &&
-        (field === "assistant_api_key" || field === "platform_assistant_id")
+        (field === "assistant_api_key" ||
+          field === "platform_assistant_id" ||
+          field === "platform_base_url")
       ) {
-        // Managed-speech availability needs both the API key and the assistant
-        // ID, and the store order varies — fire on either field; the hook
-        // no-ops until the connection is complete. Detached — must not block
-        // the response.
+        // Managed-speech availability needs the API key, the assistant ID,
+        // and the base URL, and the CLI connect path stores all three
+        // concurrently — fire on each so the last write to land triggers the
+        // defaulting; the hook no-ops until the connection is complete.
+        // Detached — must not block the response.
         void maybeDefaultSpeechToManaged();
       }
       log.info({ service, field }, "Credential added via HTTP");
