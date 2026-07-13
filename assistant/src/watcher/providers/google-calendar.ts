@@ -205,10 +205,13 @@ async function incrementalSync(
 
   do {
     // Match fetchInitialSyncToken's query shape. Google's sync guide asks that
-    // allowed params stay consistent between initial and incremental requests;
-    // singleEvents is not forbidden alongside syncToken and prevents recurring
-    // events from being returned as collapsed series.
-    const query: Record<string, string> = { syncToken, maxResults: "250", singleEvents: "true" };
+    // allowed params stay consistent between initial and incremental requests.
+    // The sync stream is intentionally kept COLLAPSED (no singleEvents): a
+    // single change to a recurring series then yields one changed parent event
+    // rather than one event per expanded instance, which would otherwise flood
+    // the watcher/LLM. Instance expansion happens only in the bounded display
+    // query (fallbackFetch), which pairs singleEvents with a timeMin window.
+    const query: Record<string, string> = { syncToken, maxResults: "250" };
     if (pageToken) query.pageToken = pageToken;
 
     const resp = await connection.request({
@@ -245,16 +248,23 @@ async function incrementalSync(
 /**
  * Establish the initial syncToken (stored as the watermark).
  *
- * Sends a bare listing request (maxResults + singleEvents) that does NOT
- * carry timeMin or other filter params — Google withholds nextSyncToken when
- * the request is filtered. The resulting syncToken encodes the current calendar
- * state so subsequent incrementalSync() calls detect changes without needing
- * a time window.
+ * Sends a bare listing request (maxResults only) that does NOT carry timeMin
+ * or other filter params — Google withholds nextSyncToken when the request is
+ * filtered. The resulting syncToken encodes the current calendar state so
+ * subsequent incrementalSync() calls detect changes without needing a time
+ * window.
+ *
+ * singleEvents is deliberately omitted so the sync stream stays collapsed: a
+ * change to a recurring series yields one changed parent event rather than one
+ * event per expanded instance (which would flood the watcher, especially for
+ * open-ended recurrences that have no expansion bound). Instances are expanded
+ * only in the bounded display query (fallbackFetch), which pairs singleEvents
+ * with a timeMin window.
  *
  * Google's sync guide says params must be "consistent" between initial and
  * incremental requests to avoid undefined behavior: incrementalSync() omits
- * timeMin (it's forbidden with syncToken) and sends the consistent subset
- * (syncToken + maxResults + singleEvents).
+ * timeMin (it's forbidden with syncToken) and sends the same consistent subset
+ * (syncToken + maxResults).
  *
  * Returns no items; the watermark marks the current point so the first
  * incremental sync picks up only events that change afterward.
@@ -266,10 +276,11 @@ async function fetchInitialSyncToken(
   let syncToken: string | undefined;
 
   do {
-    // Google withholds nextSyncToken on filtered requests — no timeMin.
+    // Google withholds nextSyncToken on filtered requests — no timeMin. Also no
+    // singleEvents: the token stream stays collapsed so a recurring-series edit
+    // surfaces as one changed parent, not one event per expanded instance.
     const query: Record<string, string> = {
       maxResults: "250",
-      singleEvents: "true",
     };
     if (pageToken) query.pageToken = pageToken;
 
@@ -396,5 +407,3 @@ async function fallbackFetch(
 
   return { items, watermark: syncToken ?? "" };
 }
-
-

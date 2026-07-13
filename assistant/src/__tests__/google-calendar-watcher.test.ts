@@ -45,15 +45,19 @@ mock.module("../util/logger.js", () => ({
 const { googleCalendarProvider } =
   await import("../watcher/providers/google-calendar.js");
 
-// Params that Google forbids alongside syncToken (per events.list docs).
-// singleEvents is NOT forbidden; it's passed in both init and incremental reqs
-// so recurring events are returned as expanded instances.
+// Params that must NOT appear on the sync-token stream. timeMin/timeMax/
+// orderBy/q/updatedMin are forbidden alongside syncToken (per events.list docs)
+// and also cause Google to withhold nextSyncToken. singleEvents is not
+// forbidden, but is deliberately omitted so the stream stays collapsed — a
+// recurring-series change surfaces as one parent event instead of one event per
+// expanded instance. Instances are expanded only in the bounded display query.
 const FILTER_PARAMS = [
   "timeMin",
   "timeMax",
   "orderBy",
   "q",
   "updatedMin",
+  "singleEvents",
 ] as const;
 
 beforeEach(() => {
@@ -65,9 +69,9 @@ beforeEach(() => {
 describe("googleCalendarProvider — initial syncToken", () => {
   test("getInitialWatermark sends a no-filter request and returns the token", async () => {
     // Google withholds nextSyncToken when the request carries a filter param
-    // (timeMin/timeMax/orderBy/q/...). singleEvents is not a filter and is sent
-    // alongside maxResults to expand recurring events. This is the exact
-    // regression that auto-disabled the watcher (5x "did not return a syncToken").
+    // (timeMin/timeMax/orderBy/q/...). The stream also omits singleEvents to
+    // stay collapsed. This is the exact regression that auto-disabled the
+    // watcher (5x "did not return a syncToken").
     responses = [{ status: 200, body: { items: [], nextSyncToken: "tok_1" } }];
 
     const watermark =
@@ -75,7 +79,6 @@ describe("googleCalendarProvider — initial syncToken", () => {
 
     expect(watermark).toBe("tok_1");
     expect(recorded).toHaveLength(1);
-    expect(recorded[0]!.query.singleEvents).toBe("true");
     for (const param of FILTER_PARAMS) {
       expect(recorded[0]!.query).not.toHaveProperty(param);
     }
@@ -92,9 +95,8 @@ describe("googleCalendarProvider — initial syncToken", () => {
 
     expect(watermark).toBe("tok_final");
     expect(recorded).toHaveLength(2);
-    // Page 2 must carry the pageToken and singleEvents but no filters.
+    // Page 2 must carry the pageToken but no filters (and no singleEvents).
     expect(recorded[1]!.query.pageToken).toBe("p2");
-    expect(recorded[1]!.query.singleEvents).toBe("true");
     for (const param of FILTER_PARAMS) {
       expect(recorded[1]!.query).not.toHaveProperty(param);
     }
@@ -121,7 +123,6 @@ describe("googleCalendarProvider — initial syncToken", () => {
     expect(recorded).toHaveLength(1);
     expect(recorded[0]!.query.syncToken).toBe("existing-token");
     expect(recorded[0]!.query.maxResults).toBe("250");
-    expect(recorded[0]!.query.singleEvents).toBe("true");
     for (const param of FILTER_PARAMS) {
       expect(recorded[0]!.query).not.toHaveProperty(param);
     }
@@ -139,10 +140,36 @@ describe("googleCalendarProvider — initial syncToken", () => {
 
     expect(result.items).toHaveLength(0);
     expect(result.watermark).toBe("tok_2");
-    expect(recorded[0]!.query.singleEvents).toBe("true");
     for (const param of FILTER_PARAMS) {
       expect(recorded[0]!.query).not.toHaveProperty(param);
     }
   });
-});
 
+  test("expired syncToken falls back to a bounded, expanded display query", async () => {
+    // The collapsed sync stream is the counterpart to an expanded DISPLAY query:
+    // when the syncToken expires (410), we fall back to listing upcoming events
+    // with singleEvents=true AND a timeMin window, so instances are expanded but
+    // bounded. This guards the "collapsed stream / expanded bounded display"
+    // contract from regressing back to expanding the unbounded sync stream.
+    responses = [
+      { status: 410, body: { error: "sync token expired" } },
+      { status: 200, body: { items: [] } },
+    ];
+
+    await googleCalendarProvider.fetchNew("google", "stale-token", {}, "k");
+
+    // First call is the failed incremental sync (collapsed: no timeMin, no
+    // singleEvents). The subsequent fallback display query is the one that
+    // carries timeMin — identify it by that rather than a positional index,
+    // since listEvents may paginate.
+    const syncCall = recorded[0]!.query;
+    expect(syncCall.syncToken).toBe("stale-token");
+    expect(syncCall).not.toHaveProperty("timeMin");
+    expect(syncCall).not.toHaveProperty("singleEvents");
+
+    const fallback = recorded.find((r) => "timeMin" in r.query)?.query;
+    expect(fallback).toBeDefined();
+    expect(fallback!.singleEvents).toBe("true");
+    expect(fallback!.orderBy).toBe("startTime");
+  });
+});
