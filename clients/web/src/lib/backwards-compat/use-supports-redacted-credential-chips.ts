@@ -15,17 +15,21 @@
  * so there is nothing legitimate to render — keep chips off entirely until
  * the assistant that owns the transcript is known to neutralize.
  *
- * The gate is bound to the **transcript owner**, not the globally active
- * assistant: the identity store's version describes only the active
- * assistant (the `/identity` endpoint exists for the live connection alone),
- * so a transcript owned by any other assistant has no trustworthy version
- * and must stay chip-free. Conservative on unknown.
+ * The gate is bound to the **transcript owner**: the identity store records
+ * which assistant its version was fetched for (written atomically with the
+ * version in the same store update), and chips enable only when that owner
+ * is the transcript's owner. Comparing against the identity store's own
+ * `assistantId` — rather than `activeAssistantId` from the
+ * resolved-assistants store — keeps the check race-free on assistant
+ * switch: the two stores update at different times, so a cross-store
+ * pairing could briefly validate an old-daemon transcript against the
+ * previous assistant's version. Conservative on unknown.
  *
  * MIN_VERSION targets 0.11.0 — the release that ships daemon-side sentinel
  * minting and neutralization. On the `false` branch callers leave sentinel
  * text as plain literal text.
  */
-import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
+import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 
 import { useAssistantSupports } from "./utils";
 
@@ -33,25 +37,26 @@ export const MIN_VERSION = "0.11.0";
 
 /**
  * Returns `true` when the transcript owned by `transcriptAssistantId` may
- * upgrade sentinel text into reveal chips: the owner must be the active
- * assistant (the only one whose live version the identity store reports)
- * and that version must meet `MIN_VERSION`. Subscribes to both stores, so
- * chips light up when the active assistant or its version changes.
+ * upgrade sentinel text into reveal chips: the identity store's hydrated
+ * version must belong to that same assistant and meet `MIN_VERSION`. Both
+ * facts are read from the identity store — a single atomic snapshot — so
+ * the version can never be checked against a different assistant's
+ * transcript, even transiently during an assistant switch.
  *
- * Returns `false` when the owner is null/undefined, when it is not the
- * active assistant, while the identity store has no version yet, when the
- * version is unparseable, or when it falls below `MIN_VERSION` — callers
- * render sentinel-shaped text as plain text on the `false` branch.
+ * Returns `false` when the owner is null/undefined, when the identity
+ * store's version was fetched for a different assistant, while no version
+ * has hydrated yet, when the version is unparseable, or when it falls
+ * below `MIN_VERSION` — callers render sentinel-shaped text as plain text
+ * on the `false` branch.
  */
 export function useSupportsRedactedCredentialChips(
   transcriptAssistantId: string | null | undefined,
 ): boolean {
-  const activeAssistantId =
-    useResolvedAssistantsStore.use.activeAssistantId();
+  const identityAssistantId = useAssistantIdentityStore.use.assistantId();
   const versionSupported = useAssistantSupports(MIN_VERSION);
   return (
     versionSupported &&
     transcriptAssistantId != null &&
-    transcriptAssistantId === activeAssistantId
+    transcriptAssistantId === identityAssistantId
   );
 }
