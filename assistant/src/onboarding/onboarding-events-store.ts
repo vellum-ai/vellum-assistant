@@ -13,7 +13,6 @@ import { APP_VERSION } from "../version.js";
 export interface OnboardingEvent {
   id: string;
   createdAt: number;
-  completedAt: string | null;
 }
 
 export interface RecordOnboardingEventParams {
@@ -23,8 +22,6 @@ export interface RecordOnboardingEventParams {
   tone?: string;
   googleConnected?: boolean;
   googleScopes?: string[];
-  /** Accepted for caller compatibility; never shipped and no longer stored. */
-  priorAssistants?: string[];
   abVariant?: string;
   sessionId?: string | null;
   stepName?: string | null;
@@ -87,12 +84,9 @@ function buildOnboardingTelemetryEvent(
 export function recordOnboardingEvent(
   params: RecordOnboardingEventParams,
 ): OnboardingEvent | null {
-  const recorded = recordTelemetryOutboxEvent("onboarding", (id, createdAt) =>
+  return recordTelemetryOutboxEvent("onboarding", (id, createdAt) =>
     buildOnboardingTelemetryEvent(id, createdAt, params),
   );
-  return recorded
-    ? { ...recorded, completedAt: params.completedAt ?? null }
-    : null;
 }
 
 /**
@@ -103,10 +97,9 @@ export function recordOnboardingEvent(
 export function recordActivationEvent(params: {
   stepName: ActivationStepName;
   sessionId: string;
-  userId?: string | null;
   abVariant?: string;
 }): OnboardingEvent | null {
-  const recorded = recordTelemetryOutboxEvent("onboarding", (id, createdAt) =>
+  return recordTelemetryOutboxEvent("onboarding", (id, createdAt) =>
     buildOnboardingTelemetryEvent(id, createdAt, {
       screen: params.stepName,
       abVariant: params.abVariant ?? ACTIVATION_AB_VARIANT,
@@ -117,7 +110,4 @@ export function recordActivationEvent(params: {
       funnelVersion: ACTIVATION_FUNNEL_VERSION,
     }),
   );
-  return recorded
-    ? { ...recorded, completedAt: new Date(recorded.createdAt).toISOString() }
-    : null;
 }
