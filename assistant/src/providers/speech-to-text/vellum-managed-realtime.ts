@@ -63,6 +63,13 @@ export class VellumManagedRealtimeTranscriber implements StreamingTranscriber {
    * that close into an error event.
    */
   private pendingRelayError: VelayErrorInfo | null = null;
+  /**
+   * Set when the current session hit velay's duration cap: the swap to a
+   * fresh session is deferred to the capped session's `closed` event so
+   * its close cleanup (withheld finals, outstanding finalizes) drains
+   * through first.
+   */
+  private redialOnClose = false;
   private stopping = false;
   private closedEmitted = false;
 
@@ -174,15 +181,12 @@ export class VellumManagedRealtimeTranscriber implements StreamingTranscriber {
     if (event.type === "error") {
       const relayError = this.pendingRelayError;
       if (relayError?.code === "session_duration_exceeded") {
-        if (this.stopping) {
-          // Cap raced a graceful stop — not worth surfacing; the closed
-          // event follows on its own.
-          return;
-        }
-        // Velay's 30-minute cap, not a failure: trailing finals already
-        // arrived (velay settles the utterance before closing). Swallow
-        // the error, drop the session, and continue on a fresh one.
-        this.beginRedial();
+        // Velay's 30-minute cap, not a failure. Swallow the error but keep
+        // the capped session current: its close cleanup still flushes
+        // withheld boundary finals and settles outstanding finalizes, and
+        // those events must drain before the swap. The re-dial happens on
+        // its `closed` event.
+        this.redialOnClose = !this.stopping;
         return;
       }
       if (relayError) {
@@ -199,6 +203,11 @@ export class VellumManagedRealtimeTranscriber implements StreamingTranscriber {
     }
 
     if (event.type === "closed") {
+      if (this.redialOnClose && !this.stopping) {
+        this.redialOnClose = false;
+        this.beginRedial();
+        return;
+      }
       this.emitClosedOnce();
       return;
     }

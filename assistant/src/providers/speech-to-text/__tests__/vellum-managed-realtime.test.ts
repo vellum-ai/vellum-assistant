@@ -209,6 +209,31 @@ describe("VellumManagedRealtimeTranscriber", () => {
     );
   });
 
+  test("drains the capped session's close cleanup before re-dialing", async () => {
+    // In utterance-boundary mode, committed segments are withheld until a
+    // boundary; the inner adapter flushes them during its close cleanup
+    // (after the swallowed cap error, before `closed`). The swap must not
+    // drop that flush — or an outstanding finalize's settlement.
+    const { adapter, events } = await startAdapter({
+      utteranceBoundaryFinals: true,
+    });
+
+    sockets[0]!.simulateMessage(resultsFrame("tail text", { is_final: true }));
+    adapter.finalizeUtterance();
+    sockets[0]!.simulateMessage(
+      velayErrorFrame("session_duration_exceeded", "30m cap"),
+    );
+    sockets[0]!.simulateClose(1000, "session_duration_exceeded");
+
+    await tick();
+    expect(sockets).toHaveLength(2);
+
+    expect(events).toEqual([
+      expect.objectContaining({ type: "final", text: "tail text" }),
+      { type: "finalized" },
+    ]);
+  });
+
   test("re-dials transparently when velay's session cap closes the stream", async () => {
     const { adapter, events } = await startAdapter({ sampleRate: 16000 });
 
