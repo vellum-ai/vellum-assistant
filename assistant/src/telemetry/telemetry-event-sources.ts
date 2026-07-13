@@ -168,7 +168,7 @@ export function outboxSource(name: string): TelemetryEventSource {
         } else {
           corruptIds.push(row.id);
           log.warn(
-            { name, rowId: row.id, payload: row.payload.slice(0, 200) },
+            { name, rowId: row.id, payloadLength: row.payload.length },
             "Telemetry outbox: unparseable payload — purging row",
           );
         }
