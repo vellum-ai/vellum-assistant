@@ -231,6 +231,7 @@ import {
   configSettingEvents,
   conversations,
   skillLoadedEvents,
+  telemetryEvents,
   toolInvocations,
 } from "../persistence/schema/index.js";
 import { recordAuthFallbackCounts } from "../security/auth-fallback-events-store.js";
@@ -245,8 +246,13 @@ import {
   ALL_TELEMETRY_EVENT_SOURCES,
   DAEMON_TELEMETRY_EVENT_SOURCES,
   MONITOR_TELEMETRY_EVENT_SOURCES,
+  outboxSource,
   type TelemetryEventSource,
 } from "./telemetry-event-sources.js";
+import {
+  insertTelemetryOutboxEvent,
+  queryTelemetryOutboxBatch,
+} from "./telemetry-events-outbox.js";
 import type { TelemetryEvent } from "./types.js";
 import {
   initToolExecutedWatermarkIfAbsent,
@@ -410,6 +416,7 @@ beforeEach(() => {
   getTelemetryDb()!.delete(skillLoadedEvents).run();
   getTelemetryDb()!.delete(authFallbackEvents).run();
   getTelemetryDb()!.delete(configSettingEvents).run();
+  getTelemetryDb()!.delete(telemetryEvents).run();
   delete process.env.VELLUM_DISABLE_PLATFORM;
   delete process.env.IS_PLATFORM;
   mockGetPlatformBaseUrl.mockReset();
@@ -2965,5 +2972,135 @@ describe("UsageTelemetryReporter", () => {
       body.events.map((e: { daemon_event_id: string }) => e.daemon_event_id),
     ).toEqual(["wire-wm-1"]);
     expect(acknowledge).not.toHaveBeenCalled();
+  });
+
+  // -------------------------------------------------------------------------
+  // outboxSource (real telemetry_events outbox behind an ack-mode source)
+  // -------------------------------------------------------------------------
+
+  const OUTBOX_NAME = "test_outbox";
+
+  function seedOutboxRow(id: string, createdAt: number): void {
+    insertTelemetryOutboxEvent({
+      id,
+      name: OUTBOX_NAME,
+      createdAt,
+      event: fakeWireEvent(id, createdAt),
+    });
+  }
+
+  function pendingOutboxIds(): string[] {
+    return queryTelemetryOutboxBatch(OUTBOX_NAME, 1000).map((r) => r.id);
+  }
+
+  test("outboxSource ships pending rows and deletes them after a 2xx", async () => {
+    seedOutboxRow("ob-1", 1700000001000);
+    seedOutboxRow("ob-2", 1700000002000);
+    const reporter = new UsageTelemetryReporter(
+      [outboxSource(OUTBOX_NAME)],
+      fakeFlushCheckpointStore,
+    );
+    await reporter.flush();
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    expect(
+      body.events.map((e: { daemon_event_id: string }) => e.daemon_event_id),
+    ).toEqual(["wire-ob-1", "wire-ob-2"]);
+    expect(pendingOutboxIds()).toEqual([]);
+    // Ack-mode: flush_checkpoints untouched.
+    expect(mockSetFlushCheckpoint).not.toHaveBeenCalled();
+  });
+
+  test("outboxSource leaves rows intact when the POST fails", async () => {
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response("error", { status: 500 })),
+    );
+    seedOutboxRow("ob-1", 1700000001000);
+    const reporter = new UsageTelemetryReporter(
+      [outboxSource(OUTBOX_NAME)],
+      fakeFlushCheckpointStore,
+    );
+    await reporter.flush();
+
+    expect(pendingOutboxIds()).toEqual(["ob-1"]);
+    expect(mockSetFlushCheckpoint).not.toHaveBeenCalled();
+  });
+
+  test("outboxSource opt-out discards all pending rows for the name", async () => {
+    mockGetCachedShareAnalytics.mockReturnValue(false);
+    seedOutboxRow("ob-1", 1700000001000);
+    seedOutboxRow("ob-2", 1700000002000);
+    const reporter = new UsageTelemetryReporter(
+      [outboxSource(OUTBOX_NAME)],
+      fakeFlushCheckpointStore,
+    );
+    await reporter.flush();
+
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(pendingOutboxIds()).toEqual([]);
+    expect(mockSetFlushCheckpoint).not.toHaveBeenCalled();
+  });
+
+  test("outboxSource purges corrupt-payload rows at collect while valid siblings ship", async () => {
+    // Raw inserts: the store API only writes JSON.stringify-ed events, so
+    // corrupt payloads (invalid JSON, non-object JSON) go in directly.
+    getTelemetryDb()!
+      .insert(telemetryEvents)
+      .values([
+        {
+          id: "ob-corrupt-json",
+          name: OUTBOX_NAME,
+          createdAt: 1700000001000,
+          conversationId: null,
+          payload: "{not json",
+        },
+        {
+          id: "ob-non-object",
+          name: OUTBOX_NAME,
+          createdAt: 1700000002000,
+          conversationId: null,
+          payload: "42",
+        },
+      ])
+      .run();
+    seedOutboxRow("ob-valid", 1700000003000);
+    const reporter = new UsageTelemetryReporter(
+      [outboxSource(OUTBOX_NAME)],
+      fakeFlushCheckpointStore,
+    );
+    await reporter.flush();
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    expect(
+      body.events.map((e: { daemon_event_id: string }) => e.daemon_event_id),
+    ).toEqual(["wire-ob-valid"]);
+    // Corrupt rows are gone (purged at collect), the valid row via ack.
+    expect(pendingOutboxIds()).toEqual([]);
+  });
+
+  test("a full outbox batch drives recursion until the backlog drains", async () => {
+    // 501 rows: the first collect fills BATCH_SIZE (500) and the fullBatch
+    // recursion ships the remaining row.
+    for (let i = 0; i < 501; i++) {
+      seedOutboxRow(`ob-${String(i).padStart(3, "0")}`, 1700000000000 + i);
+    }
+    const reporter = new UsageTelemetryReporter(
+      [outboxSource(OUTBOX_NAME)],
+      fakeFlushCheckpointStore,
+    );
+    await reporter.flush();
+
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    const secondBody = JSON.parse(
+      (mockFetch.mock.calls[1] as [string, RequestInit])[1].body as string,
+    );
+    expect(secondBody.events).toHaveLength(1);
+    expect(pendingOutboxIds()).toEqual([]);
   });
 });
