@@ -190,6 +190,18 @@ function CredentialValue({
 
   const isRevealed = revealed !== null;
 
+  // Metadata-only rows (e.g. transient credential prompts or OAuth entries)
+  // have no storable secret — `hasSecret` is false and the reveal handler can
+  // only return "Credential not found". Render the inert scrubbed preview
+  // (typically "(not set)") without any reveal/copy affordances.
+  if (!credential.hasSecret) {
+    return (
+      <span className="min-w-0 truncate text-[var(--content-tertiary)]">
+        {credential.scrubbedValue}
+      </span>
+    );
+  }
+
   return (
     <span className="inline-flex min-w-0 items-center gap-1.5 align-middle">
       <button
