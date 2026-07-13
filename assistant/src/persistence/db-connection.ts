@@ -278,8 +278,9 @@ export function getMemorySqlite(): Database | null {
 
 /**
  * The telemetry database (`assistant-telemetry.db`), opened lazily as its own
- * connection. Houses the telemetry-only event tables (see
- * `util/telemetry-db-path.ts` for the list).
+ * connection. Houses the `telemetry_events` outbox (wire payloads recorded at
+ * emit time, deleted on successful flush) and `flush_checkpoints` (watermark
+ * cursors for the main-DB-backed telemetry sources).
  * Returns `null` if the file cannot be opened (logged; the daemon stays up).
  */
 export function getTelemetryDb(): DrizzleDb | null {
