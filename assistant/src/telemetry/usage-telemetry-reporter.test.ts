@@ -194,7 +194,6 @@ import { getDb, getTelemetryDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { recordLifecycleEvent } from "../persistence/lifecycle-events-store.js";
 import {
-  authFallbackEvents,
   conversations,
   telemetryEvents,
   toolInvocations,
@@ -347,7 +346,6 @@ beforeEach(() => {
   mockQueryUnreportedTurnEvents.mockReset();
   mockQueryUnreportedTurnEvents.mockReturnValue([]);
   getDb().delete(toolInvocations).run();
-  getTelemetryDb()!.delete(authFallbackEvents).run();
   getTelemetryDb()!.delete(telemetryEvents).run();
   delete process.env.VELLUM_DISABLE_PLATFORM;
   delete process.env.IS_PLATFORM;
@@ -1583,18 +1581,19 @@ describe("UsageTelemetryReporter", () => {
     // No HTTP call should have been made
     expect(mockFetch).not.toHaveBeenCalled();
 
-    // All 4 watermark-mode timestamp watermarks should have been advanced,
-    // and their 4 ID watermarks pinned to the high-sorting sentinel (a truthy
+    // All 3 watermark-mode timestamp watermarks should have been advanced,
+    // and their 3 ID watermarks pinned to the high-sorting sentinel (a truthy
     // value keeps the compound-cursor branch active while closing its
     // same-millisecond arm against opt-out rows). Ack-mode sources
-    // (lifecycle, onboarding, skill_loaded, watchdog, config_setting) discard
-    // their pending outbox rows instead and never touch `flush_checkpoints`.
-    expect(mockSetFlushCheckpoint).toHaveBeenCalledTimes(8);
+    // (lifecycle, onboarding, auth_fallback, skill_loaded, watchdog,
+    // config_setting) discard their pending outbox rows instead and never
+    // touch `flush_checkpoints`.
+    expect(mockSetFlushCheckpoint).toHaveBeenCalledTimes(6);
 
     const calls = mockSetFlushCheckpoint.mock.calls;
     const keys = calls.map((c) => c[0]);
     expect(keys.some((k) => k.includes("skill_loaded"))).toBe(false);
-    const eventTypes = ["usage", "turns", "auth_fallback", "tool_executed"];
+    const eventTypes = ["usage", "turns", "tool_executed"];
     for (const eventType of eventTypes) {
       expect(keys).toContain(`telemetry:${eventType}:last_reported_at`);
       const idCall = calls.find(
@@ -1602,6 +1601,8 @@ describe("UsageTelemetryReporter", () => {
       );
       expect(idCall?.[1]).toBe("ffffffff-ffff-ffff-ffff-ffffffffffff");
     }
+    expect(keys).not.toContain("telemetry:auth_fallback:last_reported_at");
+    expect(keys).not.toContain("telemetry:auth_fallback:last_reported_id");
     expect(keys.some((k) => k.includes(":lifecycle:"))).toBe(false);
     expect(keys).not.toContain("telemetry:onboarding:last_reported_at");
     expect(keys).not.toContain("telemetry:onboarding:last_reported_id");
@@ -1845,7 +1846,7 @@ describe("UsageTelemetryReporter", () => {
     expect(typeof body.events[0].daemon_event_id).toBe("string");
   });
 
-  test("auth_fallback watermark advances to the last reported row on success", async () => {
+  test("auth_fallback rows are deleted on success and never watermarked (ack mode)", async () => {
     mockQueryUnreportedUsageEvents.mockReturnValue([]);
     recordAuthFallbackCounts(1700000000000, 1700000001000, [
       {
@@ -1864,32 +1865,49 @@ describe("UsageTelemetryReporter", () => {
     mockFetch.mockImplementation(() =>
       Promise.resolve(new Response('{"accepted":2}', { status: 200 })),
     );
-
-    // The last row by the reporter's (createdAt, id) cursor order is the one
-    // whose watermark should be persisted after a successful upload.
-    const rows = getTelemetryDb()!
-      .select()
-      .from(authFallbackEvents)
-      .orderBy(authFallbackEvents.createdAt, authFallbackEvents.id)
-      .all();
-    const lastRow = rows[rows.length - 1];
+    expect(queryTelemetryOutboxBatch("auth_fallback", 10)).toHaveLength(2);
 
     const reporter = makeReporter();
     await reporter.flush();
 
-    const watermarkCalls = mockSetFlushCheckpoint.mock.calls.filter(
-      (c) => c[0] === "telemetry:auth_fallback:last_reported_at",
+    // Both rows shipped, were acknowledged (deleted), and no auth_fallback
+    // watermark was ever written — ack-mode sources bypass flush_checkpoints.
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
     );
-    expect(watermarkCalls.length).toBeGreaterThanOrEqual(1);
-    expect(watermarkCalls[watermarkCalls.length - 1][1]).toBe(
-      String(lastRow.createdAt),
+    expect(
+      body.events.filter((e: { type: string }) => e.type === "auth_fallback"),
+    ).toHaveLength(2);
+    expect(queryTelemetryOutboxBatch("auth_fallback", 10)).toHaveLength(0);
+    const authFallbackKeys = mockSetFlushCheckpoint.mock.calls.filter((c) =>
+      String(c[0]).startsWith("telemetry:auth_fallback:"),
+    );
+    expect(authFallbackKeys).toHaveLength(0);
+  });
+
+  test("auth_fallback rows survive a failed POST and re-ship on the next flush", async () => {
+    mockQueryUnreportedUsageEvents.mockReturnValue([]);
+    recordAuthFallbackCounts(1700000000000, 1700000001000, [
+      {
+        guard: "edge",
+        path: "/v1/messages",
+        failureKind: "missing_authorization",
+        count: 9,
+      },
+    ]);
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response("server error", { status: 500 })),
     );
 
-    const idCalls = mockSetFlushCheckpoint.mock.calls.filter(
-      (c) => c[0] === "telemetry:auth_fallback:last_reported_id",
+    const reporter = makeReporter();
+    await reporter.flush();
+    expect(queryTelemetryOutboxBatch("auth_fallback", 10)).toHaveLength(1);
+
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
     );
-    expect(idCalls.length).toBeGreaterThanOrEqual(1);
-    expect(idCalls[idCalls.length - 1][1]).toBe(lastRow.id);
+    await reporter.flush();
+    expect(queryTelemetryOutboxBatch("auth_fallback", 10)).toHaveLength(0);
   });
 
   // -------------------------------------------------------------------------

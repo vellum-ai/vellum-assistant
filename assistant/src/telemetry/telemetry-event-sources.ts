@@ -14,7 +14,6 @@ import {
   getCachedShareDiagnostics,
   getCachedShareDiagnosticsVersion,
 } from "../platform/consent-cache.js";
-import { queryUnreportedAuthFallbackEvents } from "../security/auth-fallback-events-store.js";
 import type { UsageAttributionProfileSource } from "../usage/types.js";
 import { getLogger } from "../util/logger.js";
 import { APP_VERSION } from "../version.js";
@@ -404,28 +403,7 @@ const lifecycleSource = outboxSource("lifecycle");
 // event (including the activation daemon_event_id override) at record time.
 const onboardingSource = outboxSource("onboarding");
 
-const authFallbackSource = simpleSource(
-  "auth_fallback",
-  (afterCreatedAt, afterId, limit) =>
-    queryUnreportedAuthFallbackEvents(afterCreatedAt, afterId, limit),
-  (e): TelemetryEvent => ({
-    type: "auth_fallback",
-    daemon_event_id: e.id,
-    recorded_at: e.createdAt,
-    guard: e.guard,
-    path: e.path,
-    failure_kind: e.failureKind,
-    count: e.count,
-    window_start: e.windowStart,
-    window_end: e.windowEnd,
-    // Aggregated counts forwarded by the gateway carry no record-time
-    // binary version; stamp the running binary's `APP_VERSION` so the
-    // wire value is concrete rather than an explicit null that would
-    // override the envelope under the platform's per-event-wins
-    // contract.
-    assistant_version: APP_VERSION,
-  }),
-);
+const authFallbackSource = outboxSource("auth_fallback");
 
 const toolExecutedSource = simpleSource(
   "tool_executed",
