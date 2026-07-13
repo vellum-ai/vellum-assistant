@@ -316,11 +316,12 @@ function VoiceRoomOverlay() {
           the response without ending the session (web barge-in by just
           talking is not reliable yet, so this is the room's only interrupt).
           Anchored bottom-right (the mic sits in the corner, the transient stop
-          to its left), clamped to the same insets as the top-right cluster. */}
+          to its left) with an equal corner gap on both edges, matching the
+          top-right cluster's 1.25rem inset. */}
       <div
         className="absolute z-10 flex items-center gap-3"
         style={{
-          bottom: `max(2.5rem, ${SAFE_AREA_BOTTOM})`,
+          bottom: `max(1.25rem, ${SAFE_AREA_BOTTOM})`,
           right: `max(1.25rem, ${SAFE_AREA_RIGHT})`,
         }}
       >
