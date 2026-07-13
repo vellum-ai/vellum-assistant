@@ -52,11 +52,10 @@ jobs:
       - name: Verify bundled copies match canonical sources
         run: bun run meta/sync-bundled-copies.ts --check
 
-  # The check is purely local: it verifies plugins/plugin-icons.json matches the
-  # vendored PNGs under plugins/assets/, so the derived manifest can't drift from
-  # the assets a PR commits. It cannot detect that a repinned plugin's upstream
-  # icon.png changed without a regen — write mode is network-bound and author-run.
-  # A future non-blocking network drift job could harden that gap; do not build it here.
+  # Purely local: verifies plugins/plugin-icons.json matches the vendored PNGs
+  # under plugins/assets/, so the derived manifest can't drift from the assets a
+  # PR commits. Does not re-fetch upstream, so a repinned plugin whose upstream
+  # icon.png changed without a regen is not detected here.
   check-plugin-icons:
     name: Check Plugin Icons In Sync
     runs-on: ubuntu-latest
