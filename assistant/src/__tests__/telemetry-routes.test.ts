@@ -23,7 +23,7 @@ const route = ROUTES.find(
 );
 
 function call(body: unknown) {
-  if (!route) throw new Error("route not found");
+  if (!route) {throw new Error("route not found");}
   return route.handler({ body } as RouteHandlerArgs);
 }
 

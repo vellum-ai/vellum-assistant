@@ -2,8 +2,8 @@ import {
   getCachedShareDiagnostics,
   getCachedShareDiagnosticsVersion,
 } from "../platform/consent-cache.js";
-import { isDiagnosticsConsentVersionEligible } from "../telemetry/trace-collection-policy.js";
 import { recordTelemetryOutboxEvent } from "../telemetry/telemetry-events-outbox.js";
+import { isDiagnosticsConsentVersionEligible } from "../telemetry/trace-collection-policy.js";
 import type {
   OnboardingResearchClaim,
   OnboardingResearchSuggestion,
