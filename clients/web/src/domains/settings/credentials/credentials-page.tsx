@@ -10,7 +10,7 @@ import {
   Plus,
   Trash2,
 } from "lucide-react";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { NotFound } from "@/components/not-found";
@@ -123,6 +123,14 @@ function CredentialValue({
       copiedTimer.current = null;
     }
   }, []);
+
+  // Clear any revealed plaintext when the underlying secret changes (e.g. the
+  // user replaces the credential via the form). The row key stays stable for
+  // an upsert, so without this the stale plaintext from the previous value
+  // would remain visible and copyable until the row remounts.
+  useEffect(() => {
+    hide();
+  }, [credential.scrubbedValue, hide]);
 
   const reveal = useCallback(async () => {
     setIsRevealing(true);
