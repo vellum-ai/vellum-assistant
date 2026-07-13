@@ -81,7 +81,17 @@ export function ReviewTermsScreen() {
       : "We've updated our terms. Please review and accept to continue.";
 
   const onContinue = useCallback(() => {
-    saveConsent({ userId, tos: tosAccepted, privacy: privacyConsent, shareAnalytics, shareDiagnostics, hasPlatformSession });
+    // Only persist analytics when its toggle was actually on screen — a user
+    // routed here for other stale sections must not silently grant (or
+    // re-stamp) analytics consent; the server keeps null until they choose.
+    saveConsent({
+      userId,
+      tos: tosAccepted,
+      privacy: privacyConsent,
+      shareAnalytics: showAnalytics ? shareAnalytics : null,
+      shareDiagnostics,
+      hasPlatformSession,
+    });
 
     const destination = sanitizeReturnTo(searchParams.get("returnTo"), routes.assistant);
     void navigate(destination, { replace: true });
@@ -92,6 +102,7 @@ export function ReviewTermsScreen() {
     searchParams,
     shareAnalytics,
     shareDiagnostics,
+    showAnalytics,
     tosAccepted,
     userId,
   ]);

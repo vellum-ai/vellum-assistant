@@ -18,7 +18,6 @@ import { onboardingDestinationAfterConsent } from "@/domains/onboarding/onboardi
 import { isLocalMode } from "@/lib/local-mode";
 import {
     usePrivacyConsent,
-    useShareAnalytics,
     useShareDiagnostics,
     useTosAccepted,
 } from "@/domains/onboarding/prefs";
@@ -40,7 +39,6 @@ export function PrivacyScreen() {
     useClientFeatureFlagStore.use.stringFlags().preChatOnboardingExperiment20260606 ?? "control";
   const preferredFunnelVariant =
     onboardingFunnelVariantFromExperiment(preChatExperimentArm);
-  const [shareAnalytics] = useShareAnalytics();
   const [shareDiagnostics, setShareDiagnosticsReal] = useShareDiagnostics();
   const [tosAccepted, setTosAcceptedReal] = useTosAccepted();
   const [privacyConsent, setPrivacyConsentReal] = usePrivacyConsent();
@@ -68,7 +66,9 @@ export function PrivacyScreen() {
       return;
     }
 
-    saveConsent({ userId, tos: tosAccepted, privacy: privacyConsent, shareAnalytics, shareDiagnostics, hasPlatformSession });
+    // Analytics isn't asked here — the server keeps share_analytics null
+    // until the user opts in via settings or review-terms.
+    saveConsent({ userId, tos: tosAccepted, privacy: privacyConsent, shareAnalytics: null, shareDiagnostics, hasPlatformSession });
     if (!isNative) {
       const variant = resolveOnboardingFunnelVariant(preferredFunnelVariant);
       emitOnboardingFunnelStepCompleted(ONBOARDING_FUNNEL_STEPS.privacyTos, {
@@ -100,7 +100,6 @@ export function PrivacyScreen() {
     navigate,
     preferredFunnelVariant,
     searchParams,
-    shareAnalytics,
     shareDiagnostics,
     tosAccepted,
     userId,
@@ -136,7 +135,7 @@ export function PrivacyScreen() {
         <PrivacyPreferencesCard
           electron={electron}
           showAnalytics={false}
-          shareAnalytics={shareAnalytics}
+          shareAnalytics={false}
           shareDiagnostics={shareDiagnostics}
           onShareAnalyticsChange={noop}
           onShareDiagnosticsChange={setShareDiagnostics}

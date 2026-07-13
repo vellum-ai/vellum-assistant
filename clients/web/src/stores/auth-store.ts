@@ -358,13 +358,23 @@ async function syncUserScopedState(nextUserId: string | null): Promise<void> {
       let privacy = resolved.privacy;
       let analyticsCurrent = resolved.analyticsCurrent;
       let diagnosticsCurrent = resolved.diagnosticsCurrent;
+      // Genuine "confirmed under the current version" attestation, distinct
+      // from `analyticsCurrent`, which also reads never-asked (null server
+      // value — onboarding doesn't show the analytics toggle) as "nothing to
+      // re-review". Only the genuine ack may be device-persisted or backfill
+      // a server version stamp.
+      let analyticsAck =
+        resolved.shareAnalytics !== null && resolved.analyticsCurrent;
 
       // Fall back to device keys for a TRULY empty record: the device ack
       // keys are the only consent evidence, so they drive all four axes and
       // seed the server via the backfill.
       if (!resolved.hasServerRecord) {
         const deviceConsent = restoreConsentForUser(nextUserId);
-        analyticsCurrent = deviceConsent.analyticsCurrent;
+        // No server record means no explicit analytics consent exists —
+        // never-asked, so nothing to re-review regardless of the device ack.
+        analyticsCurrent = true;
+        analyticsAck = deviceConsent.analyticsCurrent;
         diagnosticsCurrent = deviceConsent.diagnosticsCurrent;
         // The chokepoint above closed the reporting gate because the server has
         // no record yet. Reopen it from the device-confirmed consent so an
@@ -384,7 +394,7 @@ async function syncUserScopedState(nextUserId: string | null): Promise<void> {
             buildDeviceConsentBackfill({
               tos: true,
               privacy: true,
-              analytics: analyticsCurrent,
+              analytics: analyticsAck,
               diagnostics: diagnosticsCurrent,
               shareValues: {
                 analytics: store.shareAnalytics,
@@ -418,6 +428,7 @@ async function syncUserScopedState(nextUserId: string | null): Promise<void> {
         }
         if (analyticsFromDevice) {
           analyticsCurrent = true;
+          analyticsAck = true;
         }
         if (diagnosticsFromDevice) {
           diagnosticsCurrent = true;
@@ -453,8 +464,11 @@ async function syncUserScopedState(nextUserId: string | null): Promise<void> {
       store.setAnalyticsConsentCurrent(analyticsCurrent);
       store.setDiagnosticsConsentCurrent(diagnosticsCurrent);
       persistConsentForUser(nextUserId, tos, privacy);
+      // A false analytics ack is never written: absent ≡ false for every
+      // reader, and writing false would erase a genuine device attestation
+      // whose backfill patch simply hasn't landed on the server yet.
       persistToggleConsent(nextUserId, {
-        analyticsCurrent,
+        ...(analyticsAck ? { analyticsCurrent: true } : {}),
         diagnosticsCurrent,
       });
       syncOrganizationState(nextUserId);
@@ -469,7 +483,12 @@ async function syncUserScopedState(nextUserId: string | null): Promise<void> {
   const store = useOnboardingStore.getState();
   store.setTosAccepted(consent.tos);
   store.setPrivacyConsent(consent.privacy);
-  store.setAnalyticsConsentCurrent(consent.analyticsCurrent);
+  // An absent device ack here can't be told apart from never-asked (the
+  // onboarding flow doesn't show the analytics toggle), and only the server
+  // can attest an explicit stale consent — never bounce to review-terms on
+  // device evidence alone. A genuinely stale consent re-bounces on the next
+  // successful sync.
+  store.setAnalyticsConsentCurrent(true);
   store.setDiagnosticsConsentCurrent(consent.diagnosticsCurrent);
   syncOrganizationState(nextUserId);
   store.setConsentHydrated(true);

@@ -157,6 +157,20 @@ describe("resolveServerConsent", () => {
     expect(r.diagnosticsCurrent).toBe(false);
   });
 
+  test("null share_analytics (never asked) resolves analytics current — nothing to re-review", () => {
+    const resolved = resolveServerConsent(
+      makeConsent({ share_analytics: null, share_analytics_accepted_version: "" }),
+    );
+    expect(resolved.analyticsCurrent).toBe(true);
+  });
+
+  test("an explicit analytics choice under a stale version still requires re-review", () => {
+    const resolved = resolveServerConsent(
+      makeConsent({ share_analytics: false, share_analytics_accepted_version: "2026-01-01" }),
+    );
+    expect(resolved.analyticsCurrent).toBe(false);
+  });
+
   test("reports stale toggles for empty versions", () => {
     const r = resolveServerConsent(
       makeConsent({
@@ -476,6 +490,27 @@ describe("saveConsent", () => {
     expect(storeState.setDiagnosticsConsentCurrent).toHaveBeenCalledWith(true);
     expect(localStorage.getItem(analyticsKey("user-1"))).toBe("true");
     expect(localStorage.getItem(diagnosticsKey("user-1"))).toBe("true");
+  });
+
+  test("null shareAnalytics (toggle not shown) omits analytics from the patch and skips its ack", () => {
+    saveConsent({
+      userId: "user-1",
+      tos: true,
+      privacy: true,
+      shareAnalytics: null,
+      shareDiagnostics: true,
+      hasPlatformSession: true,
+    });
+    const body = patchConsentMock.mock.calls[0][0];
+    expect("share_analytics" in body).toBe(false);
+    expect("share_analytics_accepted_version" in body).toBe(false);
+    expect(body.share_diagnostics).toBe(true);
+    expect(body.share_diagnostics_accepted_version).toBe(DIAGNOSTICS_CONSENT_VERSION);
+    expect(storeState.setShareAnalytics).not.toHaveBeenCalled();
+    expect(localStorage.getItem(analyticsKey("user-1"))).toBe(null);
+    expect(localStorage.getItem(diagnosticsKey("user-1"))).toBe("true");
+    // Never-asked has nothing to re-review — must not bounce to review-terms.
+    expect(storeState.setAnalyticsConsentCurrent).toHaveBeenCalledWith(true);
   });
 
   test("marks consent hydrated — an explicit acceptance is authoritative", () => {
