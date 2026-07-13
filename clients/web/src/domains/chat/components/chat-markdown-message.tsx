@@ -28,20 +28,15 @@ import {
   openMarkdownOAuthLinkInPopup,
   shouldOpenMarkdownLinkInOAuthPopup,
 } from "@/domains/chat/utils/oauth-popup-links";
-import { RedactedCredentialChip } from "@/domains/chat/components/redacted-credential-chip";
+import {
+  RedactedCredentialChip,
+  type RedactedCredentialChipProps,
+} from "@/domains/chat/components/redacted-credential-chip";
 import {
   REDACTED_CREDENTIAL_TAG,
   rehypeRedactedCredential,
 } from "@/domains/chat/utils/rehype-redacted-credential";
 import { rehypeStreamWordFade } from "@/domains/chat/utils/rehype-stream-word-fade";
-
-/**
- * Component map for custom elements emitted by our rehype plugins.
- * Module-level so the reference stays stable across renders.
- */
-const EXTRA_COMPONENTS = {
-  [REDACTED_CREDENTIAL_TAG]: RedactedCredentialChip,
-};
 
 /** Returns true when `href` is a known `vellum://` attachment link. */
 export function isVellumLink(href: string | undefined): boolean {
@@ -352,6 +347,20 @@ export const ChatMarkdownMessage = memo(function ChatMarkdownMessage({
     [attachments, assistantId, openPreview],
   );
 
+  // Built per-render (not module-level) so the chip's reveal request is scoped
+  // to THIS transcript's assistant. A static map would leave the chip reading
+  // the globally active assistant, which can differ from the transcript owner
+  // (inspector, document view, multi-assistant surfaces) and reveal the wrong
+  // assistant's credential for a colliding service:field name.
+  const extraComponents = useMemo(
+    () => ({
+      [REDACTED_CREDENTIAL_TAG]: (props: RedactedCredentialChipProps) => (
+        <RedactedCredentialChip {...props} assistantId={assistantId} />
+      ),
+    }),
+    [assistantId],
+  );
+
   return (
     <>
       <MarkdownMessage
@@ -362,7 +371,7 @@ export const ChatMarkdownMessage = memo(function ChatMarkdownMessage({
         imageComponent={imageComponent}
         urlTransform={vellumUrlTransform}
         extraRehypePlugins={extraRehypePlugins}
-        extraComponents={redactedCredentialChips ? EXTRA_COMPONENTS : undefined}
+        extraComponents={redactedCredentialChips ? extraComponents : undefined}
       />
       {previewModal}
     </>

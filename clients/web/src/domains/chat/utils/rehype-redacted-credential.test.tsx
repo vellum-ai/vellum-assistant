@@ -110,6 +110,26 @@ describe("rehypeRedactedCredential", () => {
     expect(container.textContent).toContain("redacted:GitHub Token");
   });
 
+  test("leaves sentinels inside link text as literal text (no nested buttons)", () => {
+    // A chip's reveal/copy controls are buttons; emitting them inside an <a>
+    // is invalid HTML and would double-fire the link navigation. The sentinel
+    // must stay literal text within the anchor instead.
+    const { container } = render(
+      <MarkdownMessage
+        content={`see [my ${ENRICHED} key](https://example.com)`}
+        extraRehypePlugins={PLUGINS}
+        extraComponents={EXTRA}
+      />,
+    );
+    const anchor = container.querySelector("a");
+    expect(anchor).not.toBeNull();
+    // No chip is emitted and no button is nested inside the anchor — the
+    // sentinel survives as literal text (brackets and all) instead.
+    expect(container.querySelector("[data-testid=chip]")).toBeNull();
+    expect(anchor!.querySelector("button")).toBeNull();
+    expect(anchor!.textContent).toContain(ENRICHED);
+  });
+
   test("plain text without sentinels is untouched", () => {
     const { container } = render(
       <MarkdownMessage

@@ -44,18 +44,32 @@ export interface RedactedCredentialChipProps {
   service?: string;
   /** Vault field name — present only on enriched sentinels. */
   field?: string;
+  /**
+   * Assistant that owns the transcript this chip lives in. When present, the
+   * reveal request is scoped to this assistant rather than whichever one is
+   * globally active — a transcript rendered for assistant B (inspector,
+   * document view, etc.) must never reveal against assistant A just because A
+   * happens to be active. Falls back to the active assistant only when the
+   * caller has no explicit id to thread (pre-active render paths).
+   */
+  assistantId?: string | null;
 }
 
 export function RedactedCredentialChip({
   type,
   service,
   field,
+  assistantId: assistantIdProp,
 }: RedactedCredentialChipProps) {
   // Raw nullable read on purpose: transcripts render on pre-active paths
   // (ChatPage loading/connecting) outside `ActiveAssistantGate`, where the
   // throwing `useActiveAssistantId()` would crash the view. A null id simply
   // renders the non-revealable badge until the assistant is active.
-  const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
+  const activeAssistantId = useResolvedAssistantsStore.use.activeAssistantId();
+  // Prefer the transcript's own assistant; the global active assistant is only
+  // a fallback for callers that render before an explicit id is available.
+  const assistantId =
+    assistantIdProp !== undefined ? assistantIdProp : activeAssistantId;
   const [revealed, setRevealed] = useState<string | null>(null);
   const [isRevealing, setIsRevealing] = useState(false);
   const [justCopied, setJustCopied] = useState(false);

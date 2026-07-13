@@ -20,7 +20,9 @@
  *
  * `<pre>`/`<code>` content is skipped, mirroring `rehype-stream-word-fade` —
  * a sentinel quoted inside a code block renders as literal text rather than
- * sprouting an interactive chip inside preformatted content.
+ * sprouting an interactive chip inside preformatted content. `<a>` is skipped
+ * too: the chip's controls are buttons, which are invalid nested inside an
+ * anchor and would double-fire the link's navigation.
  */
 
 import {
@@ -41,7 +43,13 @@ type HastNode = (HastText | HastElement | { type: string }) & {
   children?: HastNode[];
 };
 
-const SKIPPED_TAGS = new Set(["pre", "code", "style", "script"]);
+// `pre`/`code`/`style`/`script`: a sentinel quoted inside preformatted or raw
+// content renders as literal text, not an interactive chip (mirrors
+// rehype-stream-word-fade). `a`: the chip's reveal/copy controls are buttons,
+// and a button nested inside an anchor is invalid HTML whose clicks would also
+// trigger the surrounding link navigation — so a sentinel inside link text
+// stays literal rather than sprouting controls inside the `<a>`.
+const SKIPPED_TAGS = new Set(["pre", "code", "style", "script", "a"]);
 
 function isElement(node: HastNode): node is HastElement {
   return node.type === "element";
