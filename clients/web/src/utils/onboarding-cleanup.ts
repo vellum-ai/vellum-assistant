@@ -187,6 +187,15 @@ export function resolveServerConsent(
   shareDiagnostics: boolean | null;
   analyticsCurrent: boolean;
   diagnosticsCurrent: boolean;
+  /**
+   * Raw version currency for each toggle — true only when the recorded
+   * accepted version is at/past the build's constant. Unlike the `*Current`
+   * flags (which also read never-asked as "nothing to re-review"), these back
+   * the genuine "confirmed under the current version" attestation that may be
+   * device-persisted or backfilled to the server.
+   */
+  analyticsVersionCurrent: boolean;
+  diagnosticsVersionCurrent: boolean;
   hasServerRecord: boolean;
 } {
   if (!consent) {
@@ -197,9 +206,19 @@ export function resolveServerConsent(
       shareDiagnostics: null,
       analyticsCurrent: false,
       diagnosticsCurrent: false,
+      analyticsVersionCurrent: false,
+      diagnosticsVersionCurrent: false,
       hasServerRecord: false,
     };
   }
+  const analyticsVersionCurrent = versionIsCurrent(
+    consent.share_analytics_accepted_version,
+    ANALYTICS_CONSENT_VERSION,
+  );
+  const diagnosticsVersionCurrent = versionIsCurrent(
+    consent.share_diagnostics_accepted_version,
+    DIAGNOSTICS_CONSENT_VERSION,
+  );
   // The endpoint always returns an object; for a user with no stored row it
   // returns the API defaults (empty versions, share booleans true). Any
   // non-empty version or any `false` share boolean can only have come from a
@@ -226,22 +245,26 @@ export function resolveServerConsent(
       versionIsCurrent(consent.ai_data_sharing_accepted_version, PRIVACY_CONSENT_VERSION),
     shareAnalytics: consent.share_analytics,
     shareDiagnostics: consent.share_diagnostics,
-    // Share-toggle re-review is owed only for an explicit choice on record.
-    // Onboarding shows neither toggle, so both stay null until the user
-    // makes a choice via settings or review-terms — null reads as "nothing
-    // to re-review", not as stale consent.
+    // Share-toggle re-review is owed only for an explicit, genuinely stale
+    // choice on record. Onboarding shows neither toggle, so null (never
+    // chose) reads as "nothing to re-review". An implicit grant — true with
+    // an EMPTY version — is never-asked in disguise, not stale consent: a
+    // pre-nullable platform materializes its DB default `true` on rows this
+    // flow creates without the toggle shown, while every explicit write
+    // stamps a version. An explicit opt-out (false) is never excused this
+    // way — a false with a stale/empty version still re-reviews.
     analyticsCurrent:
       consent.share_analytics === null ||
-      versionIsCurrent(
-        consent.share_analytics_accepted_version,
-        ANALYTICS_CONSENT_VERSION,
-      ),
+      (consent.share_analytics === true &&
+        consent.share_analytics_accepted_version === "") ||
+      analyticsVersionCurrent,
     diagnosticsCurrent:
       consent.share_diagnostics === null ||
-      versionIsCurrent(
-        consent.share_diagnostics_accepted_version,
-        DIAGNOSTICS_CONSENT_VERSION,
-      ),
+      (consent.share_diagnostics === true &&
+        consent.share_diagnostics_accepted_version === "") ||
+      diagnosticsVersionCurrent,
+    analyticsVersionCurrent,
+    diagnosticsVersionCurrent,
     hasServerRecord,
   };
 }

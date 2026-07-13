@@ -185,10 +185,32 @@ describe("resolveServerConsent", () => {
     expect(resolved.diagnosticsCurrent).toBe(false);
   });
 
-  test("reports stale toggles for empty versions", () => {
+  test("implicit defaults (true + empty version) read as never-asked, not stale", () => {
+    // A pre-nullable platform materializes its DB default `true` with no
+    // version on rows created without the toggles shown — never-asked in
+    // disguise. Must not bounce to review-terms, but earns no version ack.
     const r = resolveServerConsent(
       makeConsent({
+        share_analytics: true,
         share_analytics_accepted_version: "",
+        share_diagnostics: true,
+        share_diagnostics_accepted_version: "",
+      }),
+    );
+    expect(r.analyticsCurrent).toBe(true);
+    expect(r.diagnosticsCurrent).toBe(true);
+    expect(r.analyticsVersionCurrent).toBe(false);
+    expect(r.diagnosticsVersionCurrent).toBe(false);
+  });
+
+  test("reports stale toggles for explicit opt-outs with empty versions", () => {
+    // An explicit false is never excused by an empty version — it still
+    // owes a re-review.
+    const r = resolveServerConsent(
+      makeConsent({
+        share_analytics: false,
+        share_analytics_accepted_version: "",
+        share_diagnostics: false,
         share_diagnostics_accepted_version: "",
       }),
     );

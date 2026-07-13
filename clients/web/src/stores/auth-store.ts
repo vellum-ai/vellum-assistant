@@ -355,14 +355,15 @@ async function syncUserScopedState(nextUserId: string | null): Promise<void> {
       let analyticsCurrent = resolved.analyticsCurrent;
       let diagnosticsCurrent = resolved.diagnosticsCurrent;
       // Genuine "confirmed under the current version" attestations, distinct
-      // from the `*Current` flags, which also read never-asked (null server
-      // value — onboarding shows neither toggle) as "nothing to re-review".
-      // Only a genuine ack may be device-persisted or backfill a server
-      // version stamp.
+      // from the `*Current` flags, which also read never-asked (a null server
+      // value, or an implicit pre-nullable-platform default — onboarding
+      // shows neither toggle) as "nothing to re-review". Only a genuine ack
+      // may be device-persisted or backfill a server version stamp, so acks
+      // key off the raw version currency.
       let analyticsAck =
-        resolved.shareAnalytics !== null && resolved.analyticsCurrent;
+        resolved.shareAnalytics !== null && resolved.analyticsVersionCurrent;
       let diagnosticsAck =
-        resolved.shareDiagnostics !== null && resolved.diagnosticsCurrent;
+        resolved.shareDiagnostics !== null && resolved.diagnosticsVersionCurrent;
 
       // Fall back to device keys for a TRULY empty record: the device ack
       // keys are the only consent evidence, so they drive all four axes and

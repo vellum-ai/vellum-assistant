@@ -79,6 +79,8 @@ const resolveServerConsentMock = mock(
     shareDiagnostics: boolean | null;
     analyticsCurrent: boolean;
     diagnosticsCurrent: boolean;
+    analyticsVersionCurrent: boolean;
+    diagnosticsVersionCurrent: boolean;
     hasServerRecord: boolean;
   } => ({
     tos: false,
@@ -87,6 +89,8 @@ const resolveServerConsentMock = mock(
     shareDiagnostics: null,
     analyticsCurrent: false,
     diagnosticsCurrent: false,
+    analyticsVersionCurrent: false,
+    diagnosticsVersionCurrent: false,
     hasServerRecord: false,
   }),
 );
@@ -563,6 +567,8 @@ describe("auth store onboarding flag reconciliation", () => {
       shareDiagnostics: true,
       analyticsCurrent: true,
       diagnosticsCurrent: true,
+      analyticsVersionCurrent: true,
+      diagnosticsVersionCurrent: true,
       hasServerRecord: true,
     });
 
@@ -591,6 +597,8 @@ describe("auth store onboarding flag reconciliation", () => {
       // The resolver reads a null share_analytics as "nothing to re-review".
       analyticsCurrent: true,
       diagnosticsCurrent: true,
+      analyticsVersionCurrent: false,
+      diagnosticsVersionCurrent: true,
       hasServerRecord: true,
     });
 
@@ -642,6 +650,8 @@ describe("auth store onboarding flag reconciliation", () => {
       analyticsCurrent: true,
       // The resolver reads a null share_diagnostics as "nothing to re-review".
       diagnosticsCurrent: true,
+      analyticsVersionCurrent: true,
+      diagnosticsVersionCurrent: false,
       hasServerRecord: true,
     });
 
@@ -817,6 +827,8 @@ describe("auth store onboarding flag reconciliation", () => {
       shareDiagnostics: true,
       analyticsCurrent: false,
       diagnosticsCurrent: false,
+      analyticsVersionCurrent: false,
+      diagnosticsVersionCurrent: false,
       hasServerRecord: true,
     });
 
@@ -838,6 +850,8 @@ describe("auth store onboarding flag reconciliation", () => {
       shareDiagnostics: true,
       analyticsCurrent: true,
       diagnosticsCurrent: true,
+      analyticsVersionCurrent: true,
+      diagnosticsVersionCurrent: true,
       hasServerRecord: true,
     });
 
@@ -860,6 +874,8 @@ describe("auth store onboarding flag reconciliation", () => {
       shareDiagnostics: true,
       analyticsCurrent: false,
       diagnosticsCurrent: false,
+      analyticsVersionCurrent: false,
+      diagnosticsVersionCurrent: false,
       hasServerRecord: true,
     });
     restoreConsentForUserMock.mockReturnValueOnce({
@@ -907,6 +923,8 @@ describe("auth store onboarding flag reconciliation", () => {
       shareDiagnostics: true,
       analyticsCurrent: true,
       diagnosticsCurrent: true,
+      analyticsVersionCurrent: true,
+      diagnosticsVersionCurrent: true,
       hasServerRecord: true,
     });
     restoreConsentForUserMock.mockReturnValueOnce({
@@ -937,6 +955,8 @@ describe("auth store onboarding flag reconciliation", () => {
       shareDiagnostics: true,
       analyticsCurrent: false,
       diagnosticsCurrent: false,
+      analyticsVersionCurrent: false,
+      diagnosticsVersionCurrent: false,
       hasServerRecord: true,
     });
     restoreConsentForUserMock.mockReturnValueOnce({
