@@ -6,10 +6,13 @@
  * most authoritative for each field:
  *   1. The locally installed copy under `<workspacePluginsDir>/<name>/`, when
  *      present — its `package.json` and `README.md` are read straight off disk.
- *   2. The gated plugin catalog (platform-first, bundled offline) — the same
- *      source `assistant plugins search` and install-by-name resolve — for
- *      external ecosystem plugins (description / homepage / license / pinned
- *      source).
+ *   2. The catalog metadata for external ecosystem plugins (description /
+ *      homepage / license / pinned source). At the default ref, the gated
+ *      plugin catalog (platform-first, bundled offline) — the same source
+ *      `assistant plugins search` and install-by-name resolve. At an explicit
+ *      historical `ref`, the GitHub `plugins/marketplace.json` at that revision,
+ *      so a reviewed/rolled-back marketplace entry is inspected at the ref
+ *      requested (inherently a git operation, matching pin history / inspect).
  *   3. The plugin's own external repository at the pinned `owner/repo[/path]`,
  *      fetched via the GitHub Contents API for the README and any
  *      `package.json` fields the manifest doesn't carry.
@@ -40,10 +43,11 @@ import {
 import { findCatalogEntry } from "./plugin-catalog-resolve.js";
 import { DEFAULT_PLUGIN_REF } from "./plugin-constants.js";
 import { readValidatedPluginIcon } from "./plugin-icon-file.js";
-import type {
-  PluginMatchSource,
-  PluginSearchMatch,
-} from "./search-plugins.js";
+import {
+  fetchMarketplaceEntries,
+  type MarketplaceEntry,
+} from "./plugin-marketplace.js";
+import type { PluginMatchSource } from "./search-plugins.js";
 
 /** Recognised README filenames, matched case-insensitively against a listing. */
 const README_RE = /^readme(\.md|\.markdown)?$/i;
@@ -145,7 +149,8 @@ export class PluginDetailsNotFoundError extends Error {
  * Resolve the detail view for {@link opts.name}.
  *
  * Throws {@link PluginDetailsNotFoundError} when the name is neither installed
- * locally nor present in the gated plugin catalog. A catalog outage or network
+ * locally nor present in the catalog (gated at the default ref, the GitHub
+ * marketplace at an explicit historical ref). A catalog outage or network
  * failures while enriching from GitHub degrade to the fields already known from
  * disk / the catalog rather than failing the whole view — a detail page that
  * renders metadata without a README beats a hard error.
@@ -164,7 +169,7 @@ export async function getPluginDetails(
   // invalid icon — including a not-installed plugin — resolves to no icon).
   const localIcon = readValidatedPluginIcon(join(pluginsDir, name));
 
-  const catalogMatch = await findCatalogMatch(name, fetchFn);
+  const catalogMatch = await resolveCatalogEntry(name, ref, fetchFn);
 
   if (!local.installed && !catalogMatch) {
     throw new PluginDetailsNotFoundError(name, ref);
@@ -355,18 +360,63 @@ async function fetchRawFile(
   }
 }
 
-async function findCatalogMatch(
+/** Normalized catalog metadata both resolution branches project onto. */
+interface CatalogMatch {
+  readonly source: PluginMatchSource;
+  readonly description?: string;
+  readonly homepage?: string;
+  readonly license?: string;
+}
+
+/**
+ * Resolve the external catalog entry claiming {@link name}.
+ *
+ * The default ref reads the gated catalog (the same source search / install
+ * use). An explicit historical {@link ref} reads the GitHub marketplace
+ * manifest at that revision — the gated catalog is ref-agnostic, so honoring a
+ * reviewed/rolled-back revision is inherently a git lookup, matching the pin
+ * history / inspect carve-out. Any failure degrades to `null`: catalog metadata
+ * is supplementary, never required to render a detail view.
+ */
+async function resolveCatalogEntry(
   name: string,
+  ref: string,
   fetchFn: FetchLike,
-): Promise<PluginSearchMatch | null> {
+): Promise<CatalogMatch | null> {
   try {
-    return await findCatalogEntry(name, { fetch: fetchFn });
+    return ref === DEFAULT_PLUGIN_REF
+      ? await findCatalogEntry(name, { fetch: fetchFn })
+      : await findMarketplaceMatch(name, ref, fetchFn);
   } catch {
-    // A catalog outage (fail-hard `PluginCatalogUnavailableError`) or malformed
-    // entry degrades to "no catalog entry" — the catalog metadata is
-    // supplementary, never required to render a detail view.
+    // A catalog outage (fail-hard `PluginCatalogUnavailableError`), a
+    // marketplace fetch/parse failure, or a malformed entry all degrade to "no
+    // catalog entry" rather than failing the whole view.
     return null;
   }
+}
+
+/** Read the GitHub marketplace at {@link ref} and normalize the named entry. */
+async function findMarketplaceMatch(
+  name: string,
+  ref: string,
+  fetchFn: FetchLike,
+): Promise<CatalogMatch | null> {
+  const entries = await fetchMarketplaceEntries({ fetch: fetchFn }, { ref });
+  const entry = entries.find((e) => e.name === name);
+  return entry ? marketplaceEntryToMatch(entry) : null;
+}
+
+/** Project a raw marketplace entry onto the normalized {@link CatalogMatch}. */
+function marketplaceEntryToMatch(entry: MarketplaceEntry): CatalogMatch {
+  const { repo, path, ref } = entry.source;
+  return {
+    source: { kind: "github", repo, ref, ...(path ? { path } : {}) },
+    ...(entry.description !== undefined
+      ? { description: entry.description }
+      : {}),
+    ...(entry.homepage !== undefined ? { homepage: entry.homepage } : {}),
+    ...(entry.license !== undefined ? { license: entry.license } : {}),
+  };
 }
 
 function githubFetch(

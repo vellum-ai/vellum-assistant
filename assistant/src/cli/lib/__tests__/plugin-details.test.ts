@@ -1,10 +1,13 @@
 /**
  * Tests for {@link getPluginDetails}.
  *
- * The catalog entry is resolved from the gated plugin catalog (the same source
- * search and install-by-name use): these tests run with platform features
- * disabled (`VELLUM_DISABLE_PLATFORM`) so the catalog is the bundled manifest —
- * real plugin names / pinned SHAs, zero network. GitHub is replaced with an
+ * At the default ref, the catalog entry is resolved from the gated plugin
+ * catalog (the same source search and install-by-name use): these tests run
+ * with platform features disabled (`VELLUM_DISABLE_PLATFORM`) so the catalog is
+ * the bundled manifest — real plugin names / pinned SHAs, zero network. An
+ * explicit historical `ref` instead reads the GitHub `plugins/marketplace.json`
+ * at that revision (a git lookup, matching pin history / inspect). GitHub is
+ * replaced with an
  * in-memory Contents API fixture passed via the `fetch` dependency, and the
  * installed-copy path is exercised against a real temp directory passed via
  * `workspacePluginsDir` — no globals are monkey-patched. The fixture answers two
@@ -172,9 +175,9 @@ describe("getPluginDetails (bundled catalog, offline)", () => {
       },
     });
 
-    // WHEN we resolve the detail view at a ref
+    // WHEN we resolve the detail view at the default ref (gated catalog path)
     const details = await getPluginDetails(
-      { name: "caveman", ref: "v1" },
+      { name: "caveman" },
       { fetch, workspacePluginsDir: workspace },
     );
 
@@ -188,7 +191,7 @@ describe("getPluginDetails (bundled catalog, offline)", () => {
     expect(details.license).toBe(caveman.license ?? null);
     // AND version falls back to the repo package.json (the catalog carries none)
     expect(details.version).toBe("1.8.2");
-    expect(details.ref).toBe("v1");
+    expect(details.ref).toBe("main");
   });
 
   test("reads an external plugin at its pinned source ref, not the catalog ref", async () => {
@@ -391,9 +394,9 @@ describe("getPluginDetails (bundled catalog, offline)", () => {
     const caveman = bundledMatch("caveman");
     const fetch = makeFetch({ failOn: [caveman.source.repo] });
 
-    // WHEN we resolve the detail view
+    // WHEN we resolve the detail view at the default ref
     const details = await getPluginDetails(
-      { name: "caveman", ref: "v1" },
+      { name: "caveman" },
       { fetch, workspacePluginsDir: workspace },
     );
 
@@ -402,6 +405,96 @@ describe("getPluginDetails (bundled catalog, offline)", () => {
     expect(details.description).toBe(caveman.description ?? null);
     expect(details.license).toBe(caveman.license ?? null);
     expect(details.source).toEqual(caveman.source);
+  });
+
+  test("resolves an explicit historical ref via the GitHub marketplace, not the gated catalog", async () => {
+    // GIVEN an explicit historical ref and a name absent from the gated catalog
+    const historicalRef = "a".repeat(40);
+    const historicalRepo = "octo/time-machine";
+    const marketplaceRefs: string[] = [];
+    const fetch = (async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      // The marketplace manifest, read at the requested historical ref
+      if (url.includes("/contents/plugins/marketplace.json")) {
+        marketplaceRefs.push(new URL(url).searchParams.get("ref") ?? "");
+        return new Response(
+          JSON.stringify({
+            name: "vellum",
+            plugins: [
+              {
+                name: "time-traveler",
+                source: {
+                  source: "github",
+                  repo: historicalRepo,
+                  ref: "b".repeat(40),
+                },
+                description: "historical description",
+                homepage: "https://historical.example.com",
+                license: "MIT",
+              },
+            ],
+          }),
+          { status: 200 },
+        );
+      }
+      // The entry's own external repo, read at its pinned source ref
+      if (url.includes("/contents") && url.includes(historicalRepo)) {
+        return new Response(
+          JSON.stringify([fileEntry("README.md", "raw://hist/readme")]),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (url === "raw://hist/readme") {
+        return new Response("# Time Traveler (historical)", { status: 200 });
+      }
+      return new Response("unexpected url: " + url, { status: 500 });
+    }) as FetchLike;
+
+    // WHEN we resolve the detail view at the historical ref
+    const details = await getPluginDetails(
+      { name: "time-traveler", ref: historicalRef },
+      { fetch, workspacePluginsDir: workspace },
+    );
+
+    // THEN the marketplace manifest was read at the requested historical ref
+    expect(marketplaceRefs).toContain(historicalRef);
+    // AND source + metadata come from that historical entry, not the gated catalog
+    expect(details.source).toEqual({
+      kind: "github",
+      repo: historicalRepo,
+      ref: "b".repeat(40),
+    });
+    expect(details.description).toBe("historical description");
+    expect(details.homepage).toBe("https://historical.example.com");
+    expect(details.license).toBe("MIT");
+    expect(details.readme).toContain("historical");
+    expect(details.ref).toBe(historicalRef);
+  });
+
+  test("degrades gracefully when the historical marketplace fetch fails", async () => {
+    // GIVEN an installed copy and a historical ref whose marketplace fetch errors
+    const historicalRef = "a".repeat(40);
+    const target = join(workspace, "caveman");
+    mkdirSync(target, { recursive: true });
+    writeFileSync(join(target, "README.md"), "# Installed Caveman");
+    writeFileSync(
+      join(target, "package.json"),
+      JSON.stringify({ version: "2.0.0" }),
+    );
+    const fetch = makeFetch({ failOn: ["plugins/marketplace.json"] });
+
+    // WHEN we resolve the detail view at the historical ref
+    const details = await getPluginDetails(
+      { name: "caveman", ref: historicalRef },
+      { fetch, workspacePluginsDir: workspace },
+    );
+
+    // THEN it renders from disk with no advertised source rather than throwing
+    expect(details.installed).toBe(true);
+    expect(details.readme).toBe("# Installed Caveman");
+    expect(details.version).toBe("2.0.0");
+    expect(details.source).toBeNull();
+    expect(details.ref).toBe(historicalRef);
   });
 
   test("rejects an invalid (path-traversal) plugin name", async () => {
