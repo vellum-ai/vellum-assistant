@@ -184,36 +184,11 @@ mock.module("../persistence/lifecycle-events-store.js", () => ({
   queryUnreportedLifecycleEvents: mockQueryUnreportedLifecycleEvents,
 }));
 
-const mockQueryUnreportedOnboardingEvents = mock(
-  () =>
-    [] as {
-      id: string;
-      createdAt: number;
-      screen: string;
-      toolsJson: string | null;
-      tasksJson: string | null;
-      tone: string | null;
-      googleConnected: boolean | null;
-      googleScopesJson: string | null;
-      priorAssistantsJson: string | null;
-      abVariant: string | null;
-      sessionId: string | null;
-      stepName: string | null;
-      stepIndex: number | null;
-      completedAt: string | null;
-      funnelVersion: string | null;
-    }[],
-);
-
-mock.module("../onboarding/onboarding-events-store.js", () => ({
-  queryUnreportedOnboardingEvents: mockQueryUnreportedOnboardingEvents,
-}));
-
-// The auth-fallback, tool-executed, and skill-loaded stores are intentionally
-// NOT mocked — they have their own DB-backed tests, and Bun's `mock.module`
-// is process-global, so mocking them here would leak into those tests when
-// files share an invocation. We seed the real DB instead so every test stays
-// order-independent.
+// The onboarding, auth-fallback, tool-executed, and skill-loaded stores are
+// intentionally NOT mocked — they have their own DB-backed tests, and Bun's
+// `mock.module` is process-global, so mocking them here would leak into those
+// tests when files share an invocation. We seed the real DB instead so every
+// test stays order-independent.
 
 // ---------------------------------------------------------------------------
 // Production import (after mocks)
@@ -224,6 +199,10 @@ import {
   TOOL_INVOCATION_PII_SENTINEL as TOOL_PII_SENTINEL,
   type ToolInvocationSeedSpec,
 } from "../__tests__/test-support/tool-invocation-seed.js";
+import {
+  recordActivationEvent,
+  recordOnboardingEvent,
+} from "../onboarding/onboarding-events-store.js";
 import { getDb, getTelemetryDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import {
@@ -319,34 +298,6 @@ function makeUsageEvent(
   };
 }
 
-type OnboardingEventFixture = ReturnType<
-  typeof mockQueryUnreportedOnboardingEvents
->[number];
-
-function makeOnboardingEvent(
-  overrides: Partial<OnboardingEventFixture> = {},
-): OnboardingEventFixture {
-  eventIdCounter += 1;
-  return {
-    id: `onb-${eventIdCounter}`,
-    createdAt: 1700000000000 + eventIdCounter * 1000,
-    screen: "tools",
-    toolsJson: null,
-    tasksJson: null,
-    tone: null,
-    googleConnected: null,
-    googleScopesJson: null,
-    priorAssistantsJson: null,
-    abVariant: null,
-    sessionId: null,
-    stepName: null,
-    stepIndex: null,
-    completedAt: null,
-    funnelVersion: null,
-    ...overrides,
-  };
-}
-
 const TOOL_CONVERSATION_ID = "conv-reporter-tool-executed";
 
 function seedToolInvocation(
@@ -410,8 +361,6 @@ beforeEach(() => {
   mockQueryUnreportedTurnEvents.mockReturnValue([]);
   mockQueryUnreportedLifecycleEvents.mockReset();
   mockQueryUnreportedLifecycleEvents.mockReturnValue([]);
-  mockQueryUnreportedOnboardingEvents.mockReset();
-  mockQueryUnreportedOnboardingEvents.mockReturnValue([]);
   getDb().delete(toolInvocations).run();
   getTelemetryDb()!.delete(skillLoadedEvents).run();
   getTelemetryDb()!.delete(authFallbackEvents).run();
@@ -1651,11 +1600,13 @@ describe("UsageTelemetryReporter", () => {
     // No HTTP call should have been made
     expect(mockFetch).not.toHaveBeenCalled();
 
-    // All 9 timestamp watermarks should have been advanced, and all 9 ID
-    // watermarks pinned to the high-sorting sentinel (a truthy value keeps
-    // the compound-cursor branch active while closing its same-millisecond
-    // arm against opt-out rows).
-    expect(mockSetFlushCheckpoint).toHaveBeenCalledTimes(18);
+    // All 8 watermark-mode timestamp watermarks should have been advanced,
+    // and their 8 ID watermarks pinned to the high-sorting sentinel (a truthy
+    // value keeps the compound-cursor branch active while closing its
+    // same-millisecond arm against opt-out rows). Ack-mode sources
+    // (onboarding) discard their pending outbox rows instead and never touch
+    // `flush_checkpoints`.
+    expect(mockSetFlushCheckpoint).toHaveBeenCalledTimes(16);
 
     const calls = mockSetFlushCheckpoint.mock.calls;
     const keys = calls.map((c) => c[0]);
@@ -1663,7 +1614,6 @@ describe("UsageTelemetryReporter", () => {
       "usage",
       "turns",
       "lifecycle",
-      "onboarding",
       "auth_fallback",
       "tool_executed",
       "skill_loaded",
@@ -1677,6 +1627,8 @@ describe("UsageTelemetryReporter", () => {
       );
       expect(idCall?.[1]).toBe("ffffffff-ffff-ffff-ffff-ffffffffffff");
     }
+    expect(keys).not.toContain("telemetry:onboarding:last_reported_at");
+    expect(keys).not.toContain("telemetry:onboarding:last_reported_id");
   });
 
   test("platform disabled takes precedence over consent off — watermarks NOT advanced", async () => {
@@ -1751,9 +1703,9 @@ describe("UsageTelemetryReporter", () => {
   //
   // The envelope's `assistant_version` is upload-time (always the current
   // binary). The per-event field is record-time (the binary that was running
-  // when the event was persisted to SQLite). In this PR only `llm_usage`
-  // events carry a true record-time value; turn events (and lifecycle /
-  // onboarding events, not asserted here) stamp the running binary's
+  // when the event was persisted to SQLite). `llm_usage` events and the
+  // outbox-backed types carry a true record-time value; turn events (and
+  // lifecycle events, not asserted here) stamp the running binary's
   // `APP_VERSION` directly until their respective follow-ups land.
   // Nullable llm_usage cases (legacy rows from before migration 267 ran)
   // fall back to the running binary's `APP_VERSION` rather than emitting
@@ -1968,22 +1920,12 @@ describe("UsageTelemetryReporter", () => {
   // Onboarding / activation funnel events
   // -------------------------------------------------------------------------
 
-  test("activation onboarding row serializes funnel fields + deterministic daemon_event_id", async () => {
+  test("activation onboarding row flushes with funnel fields + deterministic daemon_event_id, then acks", async () => {
     mockQueryUnreportedUsageEvents.mockReturnValue([]);
     const sessionId = "sess-activation-1";
     const stepName = "activation_moment_1_complete";
-    mockQueryUnreportedOnboardingEvents.mockReturnValue([
-      makeOnboardingEvent({
-        id: "onb-activation-1",
-        screen: stepName,
-        abVariant: "variant-a",
-        sessionId,
-        stepName,
-        stepIndex: 1,
-        completedAt: "2026-06-06T00:00:00.000Z",
-        funnelVersion: ACTIVATION_FUNNEL_VERSION,
-      }),
-    ]);
+    const recorded = recordActivationEvent({ stepName, sessionId });
+    expect(recorded).not.toBeNull();
     mockFetch.mockImplementation(() =>
       Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
     );
@@ -2001,31 +1943,41 @@ describe("UsageTelemetryReporter", () => {
       session_id: sessionId,
       step_name: stepName,
       step_index: 1,
-      completed_at: "2026-06-06T00:00:00.000Z",
-      funnel_version: "activation_v1_2026_06",
+      funnel_version: ACTIVATION_FUNNEL_VERSION,
       daemon_event_id: buildActivationDaemonEventId(sessionId, stepName),
     });
+    // The wire id is the deterministic activation id, distinct from the
+    // outbox row id (a UUID) the ack deletes by.
+    expect(body.events[0].daemon_event_id).not.toBe(recorded!.id);
+    expect(queryTelemetryOutboxBatch("onboarding", 10)).toHaveLength(0);
   });
 
-  test("activation daemon_event_id is keyed on the row's stored funnel_version, not the binary constant", async () => {
+  test("queued activation row recorded under an older funnel version ships its frozen payload verbatim", async () => {
     mockQueryUnreportedUsageEvents.mockReturnValue([]);
-    const sessionId = "sess-activation-old";
-    const stepName = "activation_moment_1_complete";
-    // A row recorded under an OLDER funnel version, queued across an upgrade.
+    // The payload (including the deterministic daemon_event_id keyed on the
+    // OLD funnel version) was frozen at record time; a flush after a version
+    // bump must not restamp it with the new binary's constant.
     const oldVersion = "activation_v0_2026_05";
     expect(oldVersion).not.toBe(ACTIVATION_FUNNEL_VERSION);
-    mockQueryUnreportedOnboardingEvents.mockReturnValue([
-      makeOnboardingEvent({
-        id: "onb-activation-old",
-        screen: stepName,
-        abVariant: "variant-a",
-        sessionId,
-        stepName,
-        stepIndex: 1,
-        completedAt: "2026-05-01T00:00:00.000Z",
-        funnelVersion: oldVersion,
-      }),
-    ]);
+    const frozen: TelemetryEvent = {
+      type: "onboarding",
+      daemon_event_id: `${oldVersion}:sess-activation-old:activation_moment_1_complete`,
+      recorded_at: 1700000100000,
+      screen: "activation_moment_1_complete",
+      ab_variant: "variant-a",
+      session_id: "sess-activation-old",
+      step_name: "activation_moment_1_complete",
+      step_index: 1,
+      completed_at: "2026-05-01T00:00:00.000Z",
+      funnel_version: oldVersion,
+      assistant_version: "0.9.0-old",
+    };
+    insertTelemetryOutboxEvent({
+      id: "row-activation-old",
+      name: "onboarding",
+      createdAt: 1700000100000,
+      event: frozen,
+    });
     mockFetch.mockImplementation(() =>
       Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
     );
@@ -2036,29 +1988,16 @@ describe("UsageTelemetryReporter", () => {
     const body = JSON.parse(
       (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
     );
-    expect(body.events[0]).toMatchObject({
-      funnel_version: oldVersion,
-      daemon_event_id: buildActivationDaemonEventId(
-        sessionId,
-        stepName,
-        oldVersion,
-      ),
-    });
-    // Guard: the id must carry the row's version, not the binary constant.
-    expect(body.events[0].daemon_event_id).toBe(
-      `${oldVersion}:${sessionId}:${stepName}`,
-    );
+    expect(body.events).toEqual([frozen]);
   });
 
-  test("legacy onboarding row keeps daemon_event_id: e.id and omits funnel fields", async () => {
+  test("legacy onboarding row keeps daemon_event_id = row id and omits funnel fields", async () => {
     mockQueryUnreportedUsageEvents.mockReturnValue([]);
-    mockQueryUnreportedOnboardingEvents.mockReturnValue([
-      makeOnboardingEvent({
-        id: "onb-legacy-1",
-        screen: "tools",
-        toolsJson: JSON.stringify(["calendar"]),
-      }),
-    ]);
+    const recorded = recordOnboardingEvent({
+      screen: "tools",
+      tools: ["calendar"],
+    });
+    expect(recorded).not.toBeNull();
     mockFetch.mockImplementation(() =>
       Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
     );
@@ -2073,7 +2012,8 @@ describe("UsageTelemetryReporter", () => {
     expect(body.events.length).toBe(1);
     const e = body.events[0];
     expect(e.type).toBe("onboarding");
-    expect(e.daemon_event_id).toBe("onb-legacy-1");
+    expect(e.daemon_event_id).toBe(recorded!.id);
+    expect(e.tools).toEqual(["calendar"]);
     expect(e.session_id).toBeUndefined();
     expect(e.step_name).toBeUndefined();
     expect(e.step_index).toBeUndefined();
