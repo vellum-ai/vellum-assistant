@@ -45,11 +45,13 @@ interface StubConversation {
 let memoryById: StubConversation | null = null;
 let rehydrated: StubConversation | null = null;
 let rawGetReturn: { conversation_id: string } | null = null;
+let rawAllReturn: Array<{ content: string }> = [];
 
 const findConvCalls: string[] = [];
 const findBySurfaceCalls: string[] = [];
 const getOrCreateCalls: string[] = [];
 const rawGetCalls: Array<{ sql: string; params: unknown[] }> = [];
+const rawAllCalls: Array<{ sql: string; params: unknown[] }> = [];
 
 mock.module("../../../daemon/conversation-registry.js", () => ({
   findConversation: (id: string) => {
@@ -79,6 +81,10 @@ mock.module("../../../persistence/raw-query.js", () => ({
     rawGetCalls.push({ sql, params });
     return rawGetReturn;
   },
+  rawAll: (_label: string, sql: string, ...params: unknown[]) => {
+    rawAllCalls.push({ sql, params });
+    return rawAllReturn;
+  },
 }));
 
 // Defer route import until after mocks are installed.
@@ -104,10 +110,12 @@ beforeEach(() => {
   memoryById = null;
   rehydrated = null;
   rawGetReturn = null;
+  rawAllReturn = [];
   findConvCalls.length = 0;
   findBySurfaceCalls.length = 0;
   getOrCreateCalls.length = 0;
   rawGetCalls.length = 0;
+  rawAllCalls.length = 0;
 });
 
 // ---------------------------------------------------------------------------
@@ -203,6 +211,125 @@ describe("surfaces_get_content handler", () => {
     expect(rawGetCalls).toHaveLength(1);
     expect(rawGetCalls[0]!.params[0]).toBe(`%"surfaceId":"surf-restored"%`);
     expect(getOrCreateCalls).toEqual(["conv-evicted"]);
+  });
+
+  // -------------------------------------------------------------------------
+  // Out-of-band inserts: the conversation IS in memory but its surfaceState
+  // predates a surface appended straight to the messages table (`addMessage`
+  // on a loaded conversation — the memory retrospective's skill card).
+  // -------------------------------------------------------------------------
+  test("serves an out-of-band surface from persisted history and memoizes it", async () => {
+    const conv = makeStub("conv-live"); // loaded, but surfaceState predates the insert
+    memoryById = conv;
+    rawAllReturn = [
+      {
+        content: JSON.stringify([
+          {
+            type: "ui_surface",
+            surfaceId: "surf-oob",
+            surfaceType: "skill_card",
+            title: "New skill learned",
+            display: "inline",
+            data: { skills: [{ skillId: "standup-drafter" }] },
+          },
+          {
+            type: "text",
+            text: "New skill learned: Standup",
+            _surfaceFallback: true,
+          },
+        ]),
+      },
+    ];
+
+    const handler = findHandler("surfaces_get_content");
+    const result = await handler({
+      pathParams: { surfaceId: "surf-oob" },
+      queryParams: { conversationId: "conv-live" },
+    });
+
+    expect(result).toEqual({
+      surfaceId: "surf-oob",
+      surfaceType: "skill_card",
+      title: "New skill learned",
+      data: { skills: [{ skillId: "standup-drafter" }] },
+    });
+    // The history scan is scoped to the caller's (validated) conversation.
+    expect(rawAllCalls).toHaveLength(1);
+    expect(rawAllCalls[0]!.params).toEqual([
+      "conv-live",
+      `%"surfaceId":"surf-oob"%`,
+    ]);
+    // Memoized into the live conversation so the next fetch (and action
+    // routing / findConversationBySurfaceId) hits surfaceState directly.
+    expect(conv.surfaceState.get("surf-oob")).toMatchObject({
+      surfaceType: "skill_card",
+      title: "New skill learned",
+      data: { skills: [{ skillId: "standup-drafter" }] },
+    });
+    // Never rehydrated — the conversation was already live.
+    expect(getOrCreateCalls).toEqual([]);
+  });
+
+  test("persisted-history fallback skips rows that merely quote the surfaceId", async () => {
+    // The LIKE probe is a candidate filter, not the match: a message whose
+    // TEXT quotes the surfaceId (e.g. a tool_result echoing JSON) parses to
+    // no ui_surface block and the scan moves to the next candidate row.
+    const conv = makeStub("conv-live");
+    memoryById = conv;
+    rawAllReturn = [
+      {
+        content: JSON.stringify([
+          { type: "text", text: 'log line: {"surfaceId":"surf-quoted"} seen' },
+        ]),
+      },
+      {
+        content: JSON.stringify([
+          {
+            type: "ui_surface",
+            surfaceId: "surf-quoted",
+            surfaceType: "card",
+            title: "Real",
+            data: { ok: true },
+          },
+        ]),
+      },
+    ];
+
+    const handler = findHandler("surfaces_get_content");
+    const result = await handler({
+      pathParams: { surfaceId: "surf-quoted" },
+      queryParams: { conversationId: "conv-live" },
+    });
+
+    expect(result).toEqual({
+      surfaceId: "surf-quoted",
+      surfaceType: "card",
+      title: "Real",
+      data: { ok: true },
+    });
+  });
+
+  test("404s when the conversation is live and no persisted block matches", async () => {
+    // Live conversation, empty surfaceState, no ui_surface row in history:
+    // the fallback must not invent a surface (nor rehydrate).
+    memoryById = makeStub("conv-live");
+    rawAllReturn = [];
+
+    const handler = findHandler("surfaces_get_content");
+
+    let caught: unknown;
+    try {
+      await handler({
+        pathParams: { surfaceId: "surf-nope" },
+        queryParams: { conversationId: "conv-live" },
+      });
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeInstanceOf(NotFoundError);
+    expect(rawAllCalls).toHaveLength(1);
+    expect(getOrCreateCalls).toEqual([]);
   });
 
   test("400s when conversationId is missing", async () => {

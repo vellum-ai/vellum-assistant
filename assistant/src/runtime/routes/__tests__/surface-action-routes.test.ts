@@ -114,6 +114,11 @@ mock.module("../../../persistence/raw-query.js", () => ({
     rawGetCalls.push({ sql, params });
     return rawGetReturn;
   },
+  // Consumed by the resolver module's persisted-history fallback
+  // (`findPersistedSurfaceState`); the action routes never reach it, but
+  // the mocked module must still provide every export the resolver
+  // imports or the import itself fails.
+  rawAll: () => [],
 }));
 
 // Mock guardian-action-service to cut off its deep transitive dependency chain.

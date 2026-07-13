@@ -20,7 +20,15 @@ import {
   findConversationBySurfaceId,
 } from "../../daemon/conversation-registry.js";
 import { getOrCreateConversation } from "../../daemon/conversation-store.js";
-import { rawGet } from "../../persistence/raw-query.js";
+import type {
+  SurfaceData,
+  SurfaceType,
+} from "../../daemon/message-types/surfaces.js";
+import { rawAll, rawGet } from "../../persistence/raw-query.js";
+import {
+  type ActivationMomentParam,
+  isActivationMomentParam,
+} from "../../telemetry/activation-funnel.js";
 
 /**
  * Resolve the {@link Conversation} that owns the given surface.
@@ -64,4 +72,91 @@ export async function resolveSurfaceConversation(
   if (conversationId && conversationId !== row.conversation_id)
     return undefined;
   return await getOrCreateConversation(row.conversation_id);
+}
+
+/**
+ * A `ui_surface` block extracted from persisted history, in the shape of a
+ * `Conversation.surfaceState` entry so callers can memoize it directly.
+ */
+export interface PersistedSurfaceState {
+  surfaceType: SurfaceType;
+  data: SurfaceData;
+  title?: string;
+  actions?: Array<{
+    id: string;
+    label: string;
+    style?: string;
+    data?: Record<string, unknown>;
+  }>;
+  activationMoment?: ActivationMomentParam;
+}
+
+/**
+ * Find the `ui_surface` block for `surfaceId` in the conversation's
+ * PERSISTED message history and map it to the `surfaceState` entry shape.
+ *
+ * Why this exists: `surfaceState` is only rebuilt from history when a
+ * Conversation is constructed (`restoreSurfaceStateFromHistory`). A surface
+ * appended out-of-band — `addMessage` against an already-loaded
+ * conversation, as the memory retrospective's skill card does — lands in
+ * the messages table without ever touching the live object's map, so an
+ * in-memory registry hit resolves a conversation whose `surfaceState`
+ * predates the insert and the content lookup 404s. (An evicted
+ * conversation works: rehydration rescans history.)
+ *
+ * The newest matching message wins, mirroring
+ * `restoreSurfaceStateFromHistory`'s forward scan where a later write to
+ * the same `surfaceId` overwrites an earlier one. The LIKE pre-filter is an
+ * index-friendly candidate probe only — the parsed block is what confirms
+ * the exact `surfaceId` (a message merely quoting the id in text parses to
+ * no matching block and the scan moves on).
+ */
+export function findPersistedSurfaceState(
+  conversationId: string,
+  surfaceId: string,
+): PersistedSurfaceState | undefined {
+  // Escape LIKE wildcards so a `surfaceId` like "%" or "_" can't match
+  // unrelated rows.
+  const escaped = surfaceId.replace(/[\\%_]/g, "\\$&");
+  const rows = rawAll<{ content: string }>(
+    "surfaceResolver:findPersistedSurface",
+    `SELECT content FROM messages
+     WHERE conversation_id = ?
+       AND content LIKE ? ESCAPE '\\'
+     ORDER BY created_at DESC
+     LIMIT 10`,
+    conversationId,
+    `%"surfaceId":"${escaped}"%`,
+  );
+  for (const row of rows) {
+    let blocks: unknown;
+    try {
+      blocks = JSON.parse(row.content);
+    } catch {
+      continue;
+    }
+    if (!Array.isArray(blocks)) continue;
+    for (const block of blocks) {
+      const b = block as Record<string, unknown>;
+      if (b.type !== "ui_surface" || b.surfaceId !== surfaceId) continue;
+      // Same field mapping and validation as
+      // `restoreSurfaceStateFromHistory` — a malformed daemon-only
+      // `activationMoment` is dropped, never served or memoized.
+      const activationMoment =
+        typeof b.activationMoment === "string" &&
+        isActivationMomentParam(b.activationMoment)
+          ? b.activationMoment
+          : undefined;
+      return {
+        surfaceType: (b.surfaceType ?? "dynamic_page") as SurfaceType,
+        data: (b.data ?? {}) as SurfaceData,
+        title: b.title as string | undefined,
+        actions: Array.isArray(b.actions)
+          ? (b.actions as PersistedSurfaceState["actions"])
+          : undefined,
+        ...(activationMoment ? { activationMoment } : {}),
+      };
+    }
+  }
+  return undefined;
 }

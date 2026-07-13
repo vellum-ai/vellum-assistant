@@ -12,7 +12,10 @@ import { z } from "zod";
 import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError, NotFoundError } from "./errors.js";
-import { resolveSurfaceConversation } from "./surface-conversation-resolver.js";
+import {
+  findPersistedSurfaceState,
+  resolveSurfaceConversation,
+} from "./surface-conversation-resolver.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("surface-content-routes");
@@ -80,6 +83,30 @@ async function handleGetSurfaceContent({
       surfaceType: turnSurface.surfaceType,
       title: turnSurface.title ?? null,
       data: turnSurface.data,
+    };
+  }
+
+  // Fall back to persisted history. A surface appended out-of-band
+  // (`addMessage` against an already-loaded conversation — the memory
+  // retrospective's skill card) lands in the messages table without
+  // touching the live object's `surfaceState`, which is only rebuilt on
+  // construction. Without this rung the lookup 404s exactly while the
+  // conversation is loaded and works again after eviction. Memoize the hit
+  // so later fetches, action routing, and `findConversationBySurfaceId`
+  // resolve in-memory — the same O(1) registration that helper already
+  // performs; no DB state is written on this GET.
+  const persisted = findPersistedSurfaceState(conversationId, surfaceId);
+  if (persisted) {
+    conversation.surfaceState.set(surfaceId, persisted);
+    log.info(
+      { conversationId, surfaceId },
+      "Surface content served from persisted history",
+    );
+    return {
+      surfaceId,
+      surfaceType: persisted.surfaceType,
+      title: persisted.title ?? null,
+      data: persisted.data,
     };
   }
 
