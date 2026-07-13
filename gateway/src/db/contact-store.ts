@@ -1817,9 +1817,13 @@ export class CannotDowngradeGuardianError extends Error {
 
 /**
  * Thrown by `mergeContacts` for validation errors (self-merge, contact not
- * found). The caller maps this to HTTP 400.
+ * found, guardian donor). The HTTP handler maps this to a 400; the gateway
+ * IPC server mirrors `statusCode`/`code` into the wire envelope.
  */
 export class MergeContactsError extends Error {
+  readonly statusCode = 400;
+  readonly code = "MERGE_CONTACTS_INVALID";
+
   constructor(message: string) {
     super(message);
     this.name = "MergeContactsError";

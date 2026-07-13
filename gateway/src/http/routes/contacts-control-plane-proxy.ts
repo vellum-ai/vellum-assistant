@@ -764,6 +764,40 @@ export async function updateContactChannelCore(params: {
 }
 
 /**
+ * Transport-agnostic contact merge.
+ *
+ * Shared by the HTTP `handleMergeContacts` and the gateway IPC
+ * `merge_contacts` route. Runs `ContactStore.mergeContacts` (gateway DB
+ * transaction + best-effort assistant mirror), emits `contacts_changed`, and
+ * returns the survivor contact payload.
+ *
+ * Throws `MergeContactsError` (statusCode 400, code MERGE_CONTACTS_INVALID)
+ * for validation failures (self-merge, contact not found, guardian donor).
+ * The HTTP handler maps it to a 400; the IPC server mirrors `statusCode`/
+ * `code` into the wire envelope. Unexpected errors propagate so each
+ * transport surfaces a 500-equivalent — never a silent fallback.
+ */
+export async function mergeContactsCore(params: {
+  keepId: string;
+  mergeId: string;
+}): Promise<{ ok: true; contact?: Record<string, unknown> }> {
+  const { keepId, mergeId } = params;
+  const store = new ContactStore();
+  const contact = await store.mergeContacts(keepId, mergeId);
+
+  // Emit contacts_changed so connected clients refresh.
+  void ipcCallAssistant("emit_event", {
+    body: { kind: "contacts_changed" },
+  } as unknown as Record<string, unknown>).catch(() => {});
+
+  log.info({ keepId, mergeId }, "merge_contacts: handled natively");
+  return {
+    ok: true,
+    contact: contact ? toContactPayload(contact) : undefined,
+  };
+}
+
+/**
  * Validate that metadata matches the expected shape for the given species.
  * Mirrors `validateSpeciesMetadata` in `assistant/src/contacts/contact-store.ts`.
  */
@@ -1544,19 +1578,8 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
       }
 
       try {
-        const store = new ContactStore();
-        const contact = await store.mergeContacts(keepId, mergeId);
-
-        // Emit contacts_changed so connected clients refresh.
-        void ipcCallAssistant("emit_event", {
-          body: { kind: "contacts_changed" },
-        } as unknown as Record<string, unknown>).catch(() => {});
-
-        log.info({ keepId, mergeId }, "merge_contacts: handled natively");
-        return Response.json({
-          ok: true,
-          contact: contact ? toContactPayload(contact) : undefined,
-        });
+        const result = await mergeContactsCore({ keepId, mergeId });
+        return Response.json(result);
       } catch (err) {
         if (err instanceof MergeContactsError) {
           return Response.json(

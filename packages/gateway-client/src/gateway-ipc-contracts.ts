@@ -108,6 +108,26 @@ export type UpdateContactChannelIpcResponse = z.infer<
   typeof UpdateContactChannelIpcResponseSchema
 >;
 
+export const MergeContactsIpcParamsSchema = z.object({
+  keepId: z.string().min(1),
+  mergeId: z.string().min(1),
+});
+
+export type MergeContactsIpcParams = z.infer<
+  typeof MergeContactsIpcParamsSchema
+>;
+
+export const MergeContactsIpcResponseSchema = z.object({
+  ok: z.literal(true),
+  // The gateway-native handler owns the full contact payload shape; pass it
+  // through verbatim rather than re-declaring channel fields here.
+  contact: z.object({}).passthrough().optional(),
+});
+
+export type MergeContactsIpcResponse = z.infer<
+  typeof MergeContactsIpcResponseSchema
+>;
+
 export const MarkChannelVerifiedIpcParamsSchema = z.object({
   contactChannelId: z.string().min(1),
   // Audit source for the verification. CLI/session-driven verifications
