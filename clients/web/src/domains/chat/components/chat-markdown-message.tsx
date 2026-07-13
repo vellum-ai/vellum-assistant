@@ -28,7 +28,20 @@ import {
   openMarkdownOAuthLinkInPopup,
   shouldOpenMarkdownLinkInOAuthPopup,
 } from "@/domains/chat/utils/oauth-popup-links";
+import { RedactedCredentialChip } from "@/domains/chat/components/redacted-credential-chip";
+import {
+  REDACTED_CREDENTIAL_TAG,
+  rehypeRedactedCredential,
+} from "@/domains/chat/utils/rehype-redacted-credential";
 import { rehypeStreamWordFade } from "@/domains/chat/utils/rehype-stream-word-fade";
+
+/**
+ * Component map for custom elements emitted by our rehype plugins.
+ * Module-level so the reference stays stable across renders.
+ */
+const EXTRA_COMPONENTS = {
+  [REDACTED_CREDENTIAL_TAG]: RedactedCredentialChip,
+};
 
 /** Returns true when `href` is a known `vellum://` attachment link. */
 export function isVellumLink(href: string | undefined): boolean {
@@ -77,7 +90,8 @@ function OAuthAwareLink({
   );
 }
 
-const IMAGE_CLASSES = "my-2 max-w-full max-h-[400px] rounded-lg border border-[var(--border-default)] object-contain";
+const IMAGE_CLASSES =
+  "my-2 max-w-full max-h-[400px] rounded-lg border border-[var(--border-default)] object-contain";
 
 function ImageErrorFallback({ alt }: { alt: string }) {
   return (
@@ -137,7 +151,11 @@ function WorkspaceInlineImage({
   const attachment = attachments?.find((a) => a.filename === pathBasename);
 
   useEffect(() => {
-    if (!attachment || !assistantId || attachment.id.startsWith("rehydrated:")) {
+    if (
+      !attachment ||
+      !assistantId ||
+      attachment.id.startsWith("rehydrated:")
+    ) {
       return;
     }
 
@@ -161,7 +179,10 @@ function WorkspaceInlineImage({
       } catch (err) {
         if (!revoked) {
           setFailed(true);
-          captureError(err, { context: "WorkspaceInlineImage", bestEffort: true });
+          captureError(err, {
+            context: "WorkspaceInlineImage",
+            bestEffort: true,
+          });
         }
       }
     })();
@@ -207,7 +228,10 @@ function WorkspaceInlineImage({
   );
 }
 
-export interface ChatMarkdownMessageProps extends Omit<MarkdownMessageProps, "linkComponent" | "imageComponent"> {
+export interface ChatMarkdownMessageProps extends Omit<
+  MarkdownMessageProps,
+  "linkComponent" | "imageComponent"
+> {
   /**
    * Callback invoked when a `vellum://` link is clicked. Receives the full
    * href (e.g. `vellum://workspace/scratch/report.pdf`) and the visible
@@ -277,16 +301,21 @@ export const ChatMarkdownMessage = memo(function ChatMarkdownMessage({
     [onVellumLinkClick],
   );
 
-  const streamFadePlugins = useMemo(
-    () =>
-      streamWordFade
+  const extraRehypePlugins = useMemo(
+    () => [
+      // Upgrade redacted-credential sentinels into chip elements. Applied
+      // unconditionally: sentinels only exist where the daemon persisted
+      // them, and history must stay renderable regardless of flag state.
+      rehypeRedactedCredential as import("unified").Pluggable,
+      ...(streamWordFade
         ? [
             [
               rehypeStreamWordFade,
               { caughtUp: streamWordFade === "caughtUp" },
             ] as import("unified").Pluggable,
           ]
-        : undefined,
+        : []),
+    ],
     [streamWordFade],
   );
 
@@ -318,7 +347,8 @@ export const ChatMarkdownMessage = memo(function ChatMarkdownMessage({
         linkComponent={linkComponent}
         imageComponent={imageComponent}
         urlTransform={vellumUrlTransform}
-        extraRehypePlugins={streamFadePlugins}
+        extraRehypePlugins={extraRehypePlugins}
+        extraComponents={EXTRA_COMPONENTS}
       />
       {previewModal}
     </>

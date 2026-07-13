@@ -1,0 +1,115 @@
+import { describe, expect, test } from "bun:test";
+
+import {
+  buildRedactedSentinel,
+  createRedactedSentinelRegex,
+  isRevealableSentinel,
+  parseRedactedSentinel,
+  REDACTED_SENTINEL_CLOSE,
+  REDACTED_SENTINEL_OPEN,
+} from "../redacted-credential";
+
+describe("buildRedactedSentinel", () => {
+  test("plain shape carries only the type", () => {
+    expect(buildRedactedSentinel({ type: "OpenAI Project Key" })).toBe(
+      `${REDACTED_SENTINEL_OPEN}redacted:OpenAI Project Key${REDACTED_SENTINEL_CLOSE}`,
+    );
+  });
+
+  test("enriched shape carries service and field", () => {
+    expect(
+      buildRedactedSentinel({
+        type: "Anthropic API Key",
+        service: "anthropic",
+        field: "api_key",
+      }),
+    ).toBe(
+      `${REDACTED_SENTINEL_OPEN}redacted:Anthropic API Key:anthropic:api_key${REDACTED_SENTINEL_CLOSE}`,
+    );
+  });
+
+  test("invalid service/field charset degrades to the plain shape", () => {
+    // A colon inside a segment would corrupt the format — the builder must
+    // fall back to non-revealable rather than emit a misparseable sentinel.
+    expect(
+      buildRedactedSentinel({
+        type: "Generic Secret",
+        service: "bad:service",
+        field: "api_key",
+      }),
+    ).toBe(
+      `${REDACTED_SENTINEL_OPEN}redacted:Generic Secret${REDACTED_SENTINEL_CLOSE}`,
+    );
+  });
+
+  test("missing field alone degrades to the plain shape", () => {
+    expect(
+      buildRedactedSentinel({ type: "Generic Secret", service: "anthropic" }),
+    ).toBe(
+      `${REDACTED_SENTINEL_OPEN}redacted:Generic Secret${REDACTED_SENTINEL_CLOSE}`,
+    );
+  });
+
+  test("throws on a type label that would corrupt the format", () => {
+    expect(() => buildRedactedSentinel({ type: "bad:type" })).toThrow();
+    expect(() =>
+      buildRedactedSentinel({ type: `bad${REDACTED_SENTINEL_CLOSE}type` }),
+    ).toThrow();
+  });
+});
+
+describe("parseRedactedSentinel", () => {
+  test("round-trips the plain shape", () => {
+    const s = buildRedactedSentinel({ type: "GitHub Token" });
+    expect(parseRedactedSentinel(s)).toEqual({ type: "GitHub Token" });
+  });
+
+  test("round-trips the enriched shape", () => {
+    const s = buildRedactedSentinel({
+      type: "GitHub Token",
+      service: "github-app",
+      field: "pem",
+    });
+    const parsed = parseRedactedSentinel(s);
+    expect(parsed).toEqual({
+      type: "GitHub Token",
+      service: "github-app",
+      field: "pem",
+    });
+    expect(parsed && isRevealableSentinel(parsed)).toBe(true);
+  });
+
+  test("rejects non-sentinel and partial inputs", () => {
+    expect(parseRedactedSentinel("nope")).toBeUndefined();
+    expect(
+      parseRedactedSentinel(`${REDACTED_SENTINEL_OPEN}redacted:Type`),
+    ).toBeUndefined();
+    expect(
+      parseRedactedSentinel(
+        `prefix ${buildRedactedSentinel({ type: "T" })} suffix`,
+      ),
+    ).toBeUndefined();
+  });
+
+  test("plain shape is not revealable", () => {
+    const parsed = parseRedactedSentinel(
+      buildRedactedSentinel({ type: "AWS Access Key" }),
+    );
+    expect(parsed && isRevealableSentinel(parsed)).toBe(false);
+  });
+});
+
+describe("createRedactedSentinelRegex", () => {
+  test("finds multiple sentinels of both shapes in one text", () => {
+    const text = `a ${buildRedactedSentinel({ type: "A Key" })} b ${buildRedactedSentinel(
+      { type: "B Key", service: "svc", field: "f" },
+    )} c`;
+    const matches = [...text.matchAll(createRedactedSentinelRegex())];
+    expect(matches).toHaveLength(2);
+    expect(matches[0][1]).toBe("A Key");
+    expect(matches[0][2]).toBeUndefined();
+    expect(matches[1][1]).toBe("B Key");
+    expect(matches[1][2]).toBe("svc");
+    expect(matches[1][3]).toBe("f");
+  });
+});

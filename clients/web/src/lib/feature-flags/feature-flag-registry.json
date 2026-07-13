@@ -412,10 +412,10 @@
     },
     {
       "id": "chat-credential-reveal",
-      "scope": "both",
+      "scope": "assistant",
       "key": "chat-credential-reveal",
       "label": "Chat Credential Reveal",
-      "description": "Persist chat secret redactions as sentinel markers instead of the legacy HTML marker, enriched with the vault identity when the value byte-matches a credential revealed this turn. The web client renders sentinels as badges, with click-to-reveal for enriched ones.",
+      "description": "Persist chat secret redactions as sentinel markers instead of the legacy HTML marker, enriched with the vault identity when the value byte-matches a credential revealed this turn. Render support in clients is unconditional; this flag gates only the daemon persist format.",
       "defaultEnabled": false
     }
   ]
