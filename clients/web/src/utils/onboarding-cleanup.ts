@@ -226,10 +226,16 @@ export function resolveServerConsent(
       versionIsCurrent(consent.ai_data_sharing_accepted_version, PRIVACY_CONSENT_VERSION),
     shareAnalytics: consent.share_analytics,
     shareDiagnostics: consent.share_diagnostics,
-    analyticsCurrent: versionIsCurrent(
-      consent.share_analytics_accepted_version,
-      ANALYTICS_CONSENT_VERSION,
-    ),
+    // Analytics re-review is owed only for an explicit choice on record.
+    // Onboarding doesn't show the analytics toggle, so `share_analytics`
+    // stays null until the user opts in via settings or review-terms — null
+    // reads as "nothing to re-review", not as stale consent.
+    analyticsCurrent:
+      consent.share_analytics === null ||
+      versionIsCurrent(
+        consent.share_analytics_accepted_version,
+        ANALYTICS_CONSENT_VERSION,
+      ),
     diagnosticsCurrent: versionIsCurrent(
       consent.share_diagnostics_accepted_version,
       DIAGNOSTICS_CONSENT_VERSION,
@@ -246,14 +252,23 @@ export function saveConsent(opts: {
   userId: string | null;
   tos: boolean;
   privacy: boolean;
-  shareAnalytics: boolean;
+  /**
+   * Null when the analytics toggle wasn't shown on the saving surface. No
+   * explicit choice is recorded anywhere — the server keeps
+   * `share_analytics` null and no versioned device ack is stamped — but the
+   * in-memory currency flag is still set: never-asked consent has nothing to
+   * re-review, so it must not bounce the user to review-terms.
+   */
+  shareAnalytics: boolean | null;
   shareDiagnostics: boolean;
   hasPlatformSession: boolean;
 }): void {
   const store = useOnboardingStore.getState();
   store.setTosAccepted(opts.tos);
   store.setPrivacyConsent(opts.privacy);
-  store.setShareAnalytics(opts.shareAnalytics);
+  if (opts.shareAnalytics !== null) {
+    store.setShareAnalytics(opts.shareAnalytics);
+  }
   store.setShareDiagnostics(opts.shareDiagnostics);
   store.setAnalyticsConsentCurrent(true);
   store.setDiagnosticsConsentCurrent(true);
@@ -264,16 +279,23 @@ export function saveConsent(opts: {
   setDiagnosticsReportingGate(opts.shareDiagnostics);
 
   persistConsentForUser(opts.userId, opts.tos, opts.privacy);
-  persistToggleConsent(opts.userId, { analyticsCurrent: true, diagnosticsCurrent: true });
+  persistToggleConsent(opts.userId, {
+    ...(opts.shareAnalytics !== null ? { analyticsCurrent: true } : {}),
+    diagnosticsCurrent: true,
+  });
 
   if (opts.hasPlatformSession) {
     void patchConsent({
       tos_accepted_version: opts.tos ? TOS_CONSENT_VERSION : "",
       privacy_policy_accepted_version: opts.privacy ? PRIVACY_CONSENT_VERSION : "",
       ai_data_sharing_accepted_version: opts.privacy ? PRIVACY_CONSENT_VERSION : "",
-      share_analytics: opts.shareAnalytics,
+      ...(opts.shareAnalytics !== null
+        ? {
+            share_analytics: opts.shareAnalytics,
+            share_analytics_accepted_version: ANALYTICS_CONSENT_VERSION,
+          }
+        : {}),
       share_diagnostics: opts.shareDiagnostics,
-      share_analytics_accepted_version: ANALYTICS_CONSENT_VERSION,
       share_diagnostics_accepted_version: DIAGNOSTICS_CONSENT_VERSION,
     }).catch(() => {});
   }
