@@ -17,6 +17,11 @@ const log = getLogger("platform-client");
 let _missingPrereqsWarned = false;
 
 export interface OwnerConsent {
+  /**
+   * The platform returns null when the owner never made an explicit
+   * analytics choice (onboarding doesn't ask); that maps to `false` here —
+   * no consent, fail closed.
+   */
   shareAnalytics: boolean;
   shareDiagnostics: boolean;
   /**
@@ -152,7 +157,8 @@ export class VellumPlatformClient {
         share_diagnostics_accepted_version?: unknown;
       };
       if (
-        typeof body.share_analytics !== "boolean" ||
+        (typeof body.share_analytics !== "boolean" &&
+          body.share_analytics !== null) ||
         typeof body.share_diagnostics !== "boolean"
       ) {
         log.debug("owner-consent body malformed — treating as unknown");
@@ -160,7 +166,7 @@ export class VellumPlatformClient {
       }
 
       return {
-        shareAnalytics: body.share_analytics,
+        shareAnalytics: body.share_analytics === true,
         shareDiagnostics: body.share_diagnostics,
         // Back-compat: an older platform that doesn't return this field yields
         // "" → fails the trace-collection version gate → fail-closed (no trace).
