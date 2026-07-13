@@ -3,7 +3,10 @@
  * assistant DB into the gateway-owned tables.
  *
  * Plain INSERT OR IGNORE: request ids are unique and immutable; gateway rows
- * win. Requests insert before deliveries so the request_id FK is satisfied.
+ * win. Requests insert before deliveries so the request_id FK is satisfied;
+ * orphaned delivery rows (the assistant never enforced that FK) are counted,
+ * warned about, and skipped — OR IGNORE does not swallow FK violations, and
+ * one bad row must not dead-loop the whole copy every boot.
  * Column mapping: assistant `conversation_id` → gateway
  * `source_conversation_id`; assistant `source_type` has no gateway column
  * (derived from source_channel at read time), so legacy desktop/voice rows
@@ -159,8 +162,17 @@ export async function up(): Promise<MigrationResult> {
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
 
+    // Every request id a delivery may reference after the request pass:
+    // assistant rows about to be copied plus rows already gateway-side.
+    const knownRequestIds = new Set(requestRows.map((row) => row.id));
+    const gatewayIdRows = gwDb
+      .prepare(`SELECT id FROM guardian_requests`)
+      .all() as { id: string }[];
+    for (const row of gatewayIdRows) knownRequestIds.add(row.id);
+
     let requestsInserted = 0;
     let deliveriesInserted = 0;
+    let orphanedDeliveries = 0;
 
     const txn = gwDb.transaction(() => {
       for (const row of requestRows) {
@@ -197,6 +209,10 @@ export async function up(): Promise<MigrationResult> {
       }
 
       for (const row of deliveryRows) {
+        if (!knownRequestIds.has(row.request_id)) {
+          orphanedDeliveries += 1;
+          continue;
+        }
         deliveriesInserted += insertDelivery.run(
           row.id,
           row.request_id,
@@ -211,6 +227,13 @@ export async function up(): Promise<MigrationResult> {
       }
     });
     txn();
+
+    if (orphanedDeliveries > 0) {
+      log.warn(
+        { orphanedDeliveries },
+        "m0015: skipped delivery rows whose request exists on neither side",
+      );
+    }
 
     log.info(
       {

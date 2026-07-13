@@ -6,9 +6,12 @@
  * `conversation_id` maps to gateway `source_conversation_id` and assistant
  * `source_type` has no gateway column — that `canonical_guardian_deliveries`
  * rows land in `guardian_request_deliveries` with FK integrity, that the
- * gateway wins id conflicts, that re-running is idempotent, that an
- * already-dropped source table yields "done", that IPC failure yields "skip"
- * and retries, and that the migration never writes to the assistant DB.
+ * gateway wins id conflicts, that an orphaned delivery row (request_id with
+ * no matching request on either side) is warned about and skipped instead of
+ * tripping the gateway FK and dead-looping the copy, that re-running is
+ * idempotent, that an already-dropped source table yields "done", that IPC
+ * failure yields "skip" and retries, and that the migration never writes to
+ * the assistant DB.
  * Uses the same fake-assistant-DB + real in-memory gateway-DB pattern as the
  * m0013 test.
  */
@@ -122,17 +125,36 @@ mock.module("../db/assistant-db-proxy.js", () => ({
   assistantDbExec,
 }));
 
+// Record warn output. Real logger exports are preserved; the migration
+// modules load dynamically below, after this mock, so their module-level
+// `log` binds to the recorder.
+const realLogger = await import("../logger.js");
+const warnLogs: unknown[][] = [];
+const recordingLog = {
+  fatal: () => {},
+  error: () => {},
+  info: () => {},
+  debug: () => {},
+  trace: () => {},
+  warn: (...args: unknown[]) => {
+    warnLogs.push(args);
+  },
+};
+mock.module("../logger.js", () => ({
+  ...realLogger,
+  getLogger: () => recordingLog,
+}));
+
 import {
   initGatewayDb,
   getGatewayDb,
   resetGatewayDb,
 } from "../db/connection.js";
 import { guardianRequests, guardianRequestDeliveries } from "../db/schema.js";
-import { MIGRATIONS } from "../db/data-migrations/index.js";
-import {
-  up as m0015Up,
-  down as m0015Down,
-} from "../db/data-migrations/m0015-guardian-requests-backfill.js";
+
+const { MIGRATIONS } = await import("../db/data-migrations/index.js");
+const { up: m0015Up, down: m0015Down } =
+  await import("../db/data-migrations/m0015-guardian-requests-backfill.js");
 
 beforeAll(async () => {
   await initGatewayDb();
@@ -145,6 +167,7 @@ beforeEach(() => {
   fakeAssistantDb.reset();
   assistantDbRun.mockClear();
   assistantDbExec.mockClear();
+  warnLogs.length = 0;
 });
 
 afterAll(() => {
@@ -408,6 +431,41 @@ describe("m0015-guardian-requests-backfill", () => {
 
     expect(gatewayRequest("req-1")!.status).toBe("approved");
     expect(gatewayDeliveries().map((r) => r.id)).toEqual(["del-1"]);
+  });
+
+  test("skips an orphaned delivery row (no matching request anywhere) with a warn instead of failing", async () => {
+    // Orphan seeded first so the copy must continue past it.
+    seedAssistantDelivery({ id: "del-orphan", request_id: "req-ghost" });
+    seedAssistantRequest({ id: "req-1" });
+    seedAssistantDelivery({ id: "del-1", request_id: "req-1" });
+
+    expect(await m0015Up()).toBe("done");
+
+    expect(gatewayRequestIds()).toEqual(["req-1"]);
+    expect(gatewayDeliveries().map((r) => r.id)).toEqual(["del-1"]);
+    expect(
+      warnLogs.some(
+        (args) =>
+          (args[0] as { orphanedDeliveries?: number } | undefined)
+            ?.orphanedDeliveries === 1,
+      ),
+    ).toBe(true);
+  });
+
+  test("rerunning with an orphaned delivery row stays idempotent (m0016 catch-up path)", async () => {
+    seedAssistantRequest({ id: "req-1" });
+    seedAssistantDelivery({ id: "del-1", request_id: "req-1" });
+    seedAssistantDelivery({ id: "del-orphan", request_id: "req-ghost" });
+
+    expect(await m0015Up()).toBe("done");
+    const firstRun = {
+      ids: gatewayRequestIds(),
+      deliveries: gatewayDeliveries(),
+    };
+    expect(await m0015Up()).toBe("done");
+
+    expect(gatewayRequestIds()).toEqual(firstRun.ids);
+    expect(gatewayDeliveries()).toEqual(firstRun.deliveries);
   });
 
   test("never overwrites an existing gateway request row", async () => {
