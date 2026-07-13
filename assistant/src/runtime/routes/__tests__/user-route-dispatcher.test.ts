@@ -5,7 +5,10 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 // ---------------------------------------------------------------------------
 // Mocks
 // ---------------------------------------------------------------------------
-import { getWorkspaceRoutesDir } from "../../../util/platform.js";
+import {
+  getWorkspacePluginsDir,
+  getWorkspaceRoutesDir,
+} from "../../../util/platform.js";
 import { AssistantEventHub } from "../../assistant-event-hub.js";
 import type { UserRouteContext } from "../user-route-dispatcher.js";
 import { UserRouteDispatcher } from "../user-route-dispatcher.js";
@@ -55,6 +58,24 @@ function writeHandler(relativePath: string, content: string): string {
   return fullPath;
 }
 
+/** Write a route handler into a plugin's `routes/` directory. */
+function writePluginHandler(
+  pluginName: string,
+  relativePath: string,
+  content: string,
+): string {
+  const fullPath = join(
+    getWorkspacePluginsDir(),
+    pluginName,
+    "routes",
+    relativePath,
+  );
+  const dir = fullPath.substring(0, fullPath.lastIndexOf("/"));
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(fullPath, content);
+  return fullPath;
+}
+
 async function readErrorBody(
   response: Response,
 ): Promise<{ error: { code: string; message: string } }> {
@@ -71,6 +92,7 @@ beforeEach(() => {
 
 afterEach(() => {
   rmSync(getWorkspaceRoutesDir(), { recursive: true, force: true });
+  rmSync(getWorkspacePluginsDir(), { recursive: true, force: true });
 });
 
 // ---------------------------------------------------------------------------
@@ -500,5 +522,113 @@ describe("context injection", () => {
     // Object.freeze makes property assignment throw in strict mode (ESM)
     // and silently fail in sloppy mode — either way the value is unchanged.
     expect(body.assistantId).toBe("original");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Plugin routes — /x/plugins/<name>/*
+// ---------------------------------------------------------------------------
+
+describe("plugin routes", () => {
+  test("dispatches to a plugin's routes/ directory", async () => {
+    writePluginHandler(
+      "my-plugin",
+      "status.ts",
+      `export function GET(request, context) {
+        return Response.json({ plugin: true, assistantId: context.assistantId });
+      }`,
+    );
+
+    const dispatcher = makeDispatcher();
+    const res = await dispatcher.dispatch(
+      "plugins/my-plugin/status",
+      makeRequest("GET"),
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.plugin).toBe(true);
+    // Plugin handlers receive the same runtime context as workspace routes.
+    expect(body.assistantId).toBe("test-assistant");
+  });
+
+  test("resolves nested paths and the index (namespace root)", async () => {
+    writePluginHandler(
+      "my-plugin",
+      "webhooks/incoming.ts",
+      `export function POST(request) { return Response.json({ nested: true }); }`,
+    );
+    writePluginHandler(
+      "my-plugin",
+      "index.ts",
+      `export function GET(request) { return Response.json({ root: true }); }`,
+    );
+
+    const dispatcher = makeDispatcher();
+
+    const nested = await dispatcher.dispatch(
+      "plugins/my-plugin/webhooks/incoming",
+      makeRequest("POST"),
+    );
+    expect(nested.status).toBe(200);
+    expect((await nested.json()).nested).toBe(true);
+
+    // `/x/plugins/my-plugin` (no sub-path) maps to the plugin's routes/index.
+    const root = await dispatcher.dispatch(
+      "plugins/my-plugin",
+      makeRequest("GET"),
+    );
+    expect(root.status).toBe(200);
+    expect((await root.json()).root).toBe(true);
+  });
+
+  test("404s when the plugin route file does not exist", async () => {
+    const dispatcher = makeDispatcher();
+    const res = await dispatcher.dispatch(
+      "plugins/ghost-plugin/status",
+      makeRequest("GET"),
+    );
+    expect(res.status).toBe(404);
+  });
+
+  test("a plugin route is confined to its own plugin directory", async () => {
+    // A workspace route literally named routes/plugins/foo must NOT answer a
+    // request in the plugin namespace — the plugins/ prefix is reserved.
+    writeHandler(
+      "plugins/foo.ts",
+      `export function GET(request) { return Response.json({ workspace: true }); }`,
+    );
+
+    const dispatcher = makeDispatcher();
+    const res = await dispatcher.dispatch("plugins/foo", makeRequest("GET"));
+    // Resolves against <workspace>/plugins/foo/routes/index (absent) → 404,
+    // never the workspace routes/plugins/foo.ts handler.
+    expect(res.status).toBe(404);
+  });
+
+  test("404s a bare /x/plugins with no plugin name", async () => {
+    const dispatcher = makeDispatcher();
+    const res = await dispatcher.dispatch("plugins", makeRequest("GET"));
+    expect(res.status).toBe(404);
+  });
+
+  test("one plugin cannot serve another plugin's namespace", async () => {
+    writePluginHandler(
+      "plugin-a",
+      "status.ts",
+      `export function GET(request) { return Response.json({ owner: "a" }); }`,
+    );
+
+    const dispatcher = makeDispatcher();
+    const mine = await dispatcher.dispatch(
+      "plugins/plugin-a/status",
+      makeRequest("GET"),
+    );
+    expect(mine.status).toBe(200);
+    // plugin-b declared nothing, so its namespace 404s even for the same path.
+    const other = await dispatcher.dispatch(
+      "plugins/plugin-b/status",
+      makeRequest("GET"),
+    );
+    expect(other.status).toBe(404);
   });
 });

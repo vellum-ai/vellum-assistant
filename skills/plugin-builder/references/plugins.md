@@ -17,6 +17,8 @@ my-plugin/
 │   └── pre-model-call.ts
 ├── tools/                     # Model-visible tools, one per file
 │   └── example.ts
+├── routes/                    # HTTP routes, served under /x/plugins/<name>/
+│   └── status.ts
 ├── skills/                    # On-demand instruction bundles
 │   └── my-skill/
 │       └── SKILL.md
@@ -55,6 +57,25 @@ A plugin must be fully self-contained: every byte of durable state it keeps live
 The assistant's own database is internal — `@vellumai/plugin-api` exposes no handle to it, and a plugin must not persist state elsewhere in the workspace. Keeping everything in `data/` is also what makes uninstall clean: removing the plugin directory removes all of its state.
 
 Each surface can also be dropped straight into the workspace at `/workspace/<surface>/<name>/` without wrapping it in a plugin. A plugin is what lets you ship several surfaces together as one installable unit.
+
+### Routes
+
+A plugin's HTTP routes live under `routes/` and are served in the plugin's own namespace at `/x/plugins/<plugin-name>/<path>`. The dispatcher resolves each request against the plugin's `routes/` directory on disk at request time — there is no registration step, and the `plugins/<name>/` prefix is reserved, so a plugin can't collide with workspace routes or another plugin.
+
+- **One file per route path.** `routes/status.ts` → `/x/plugins/<name>/status`. Nested directories and `index` files map to sub-paths: `routes/webhooks/incoming.ts` → `/x/plugins/<name>/webhooks/incoming`, and `routes/index.ts` → the namespace root `/x/plugins/<name>`. A path with no file 404s.
+- **Export named HTTP-method handlers**, using the Web API `Request`/`Response` signature — the same convention as workspace `/x/*` routes:
+
+  ```ts
+  export async function GET(request: Request): Promise<Response> {
+    return Response.json({ ok: true });
+  }
+  export async function POST(request: Request): Promise<Response> {
+    const body = await request.json();
+    return Response.json({ received: body });
+  }
+  ```
+
+- **Edit-and-serve.** Files are loaded lazily and re-read when their mtime changes, so editing a route file is picked up on the next request without a restart.
 
 ## The manifest
 
@@ -117,7 +138,6 @@ The assistant supports these surfaces today, but they are not yet contributed th
 | -------------- | ------------------------------------------------------------------------------------------------------------- |
 | Schedules      | Cron-style triggers that fire on a recurring schedule.                                                        |
 | Apps           | Persistent interactive apps (dashboards, games, tools) served in the workspace panel.                         |
-| Routes         | HTTP routes the assistant exposes, used for webhooks and integrations.                                        |
 | Artifacts      | Versioned outputs the assistant produces and tracks (documents, diagrams, generated files).                   |
 | Webhooks       | Inbound HTTP endpoints that deliver external events into the assistant.                                       |
 | Prompts        | Reusable system prompt fragments and templates.                                                               |
