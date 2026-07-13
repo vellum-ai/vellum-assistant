@@ -50,6 +50,10 @@ mock.module("@/utils/device-settings", () => ({
     readNames.push(name);
     return deviceDiagnostics ?? fallback;
   },
+  getDeviceSetting: (name: string, fallback: string) => {
+    readNames.push(name);
+    return deviceDiagnostics === null ? fallback : String(deviceDiagnostics);
+  },
   watchDeviceSetting: (name: string, cb: () => void) => {
     watchedNames.push(name);
     deviceWatchCallback = cb;
@@ -61,6 +65,13 @@ mock.module("@/utils/device-settings", () => ({
 
 mock.module("@/runtime/diagnostics", () => ({
   syncDiagnosticsToMain: syncDiagnosticsToMainMock,
+}));
+
+// Whether a consent sync (or explicit acceptance) has hydrated the flags —
+// gates the opt-out default for a never-written device key.
+let consentHydrated = true;
+mock.module("@/domains/onboarding/prefs", () => ({
+  readConsentHydrated: () => consentHydrated,
 }));
 
 mock.module("@/stores/auth-store", () => ({
@@ -98,6 +109,7 @@ beforeEach(() => {
   platformSession = "absent";
   restoredOffline = false;
   clientEnabled = false;
+  consentHydrated = true;
 });
 
 describe("diagnosticsConsentGranted (composed gate)", () => {
@@ -138,6 +150,24 @@ describe("diagnosticsConsentGranted (composed gate)", () => {
     restoredOffline = false;
     deviceDiagnostics = null;
     expect(diagnosticsConsentGranted()).toBe(true);
+  });
+
+  test("an absent gate stays closed before consent hydrates — a probe-confirmed session must not upload ahead of the first consent sync", () => {
+    platformSession = "present";
+    restoredOffline = false;
+    deviceDiagnostics = null;
+    consentHydrated = false;
+    expect(diagnosticsConsentGranted()).toBe(false);
+  });
+
+  test("an explicitly written gate applies even before hydration", () => {
+    platformSession = "present";
+    restoredOffline = false;
+    consentHydrated = false;
+    deviceDiagnostics = true;
+    expect(diagnosticsConsentGranted()).toBe(true);
+    deviceDiagnostics = false;
+    expect(diagnosticsConsentGranted()).toBe(false);
   });
 });
 
