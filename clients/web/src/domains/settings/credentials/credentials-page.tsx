@@ -308,7 +308,7 @@ function CredentialsPageInner() {
         subtitle={
           showManaged
             ? "Provided through your Vellum-managed integrations. These are read-only here."
-            : "Stored encrypted in your assistant's credential vault. Values are write-only — they can be replaced or deleted, but not viewed here."
+            : "Stored encrypted in your assistant's credential vault. Reveal a value on demand, or replace or delete it at any time."
         }
         accessory={
           <div className="flex items-center gap-2">
