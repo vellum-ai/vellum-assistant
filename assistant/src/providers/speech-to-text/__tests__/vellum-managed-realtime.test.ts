@@ -317,10 +317,15 @@ describe("VellumManagedRealtimeTranscriber", () => {
     // connection-failure details; the adapter must redact it everywhere.
     sockets[0]!.simulateClose(1006, `connect failed: ${sockets[0]!.url}`);
 
-    await expect(startPromise).rejects.toThrow();
-    const err = await startPromise.catch((e: Error) => e);
-    expect(err.message).not.toContain("vk-secret");
-    expect(err.message).toContain("key=***");
+    let message = "";
+    try {
+      await startPromise;
+    } catch (err) {
+      message = (err as Error).message;
+    }
+    expect(message).not.toBe("");
+    expect(message).not.toContain("vk-secret");
+    expect(message).toContain("key=***");
   });
 
   test("a failed dial with no HTTP rejection keeps the transport error", async () => {
