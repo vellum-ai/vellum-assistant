@@ -13,8 +13,6 @@ import { describe, expect, test } from "bun:test";
 const { getDb, getSqlite, getTelemetrySqlite } =
   await import("../db-connection.js");
 const { initializeDb } = await import("../db-init.js");
-const { queryUnreportedOnboardingEvents } =
-  await import("../../onboarding/onboarding-events-store.js");
 const { migrateMoveOnboardingEventsToTelemetryDb } =
   await import("./329-move-onboarding-events-to-telemetry-db.js");
 
@@ -26,6 +24,24 @@ const SOURCE_COLUMNS = `
   google_scopes_json TEXT, prior_assistants_json TEXT, ab_variant TEXT,
   session_id TEXT, step_name TEXT, step_index INTEGER, completed_at TEXT,
   funnel_version TEXT`;
+
+/** Relocated rows in the telemetry-side table, in `(created_at, id)` order. */
+function telemetryOnboardingRows(): Array<{
+  id: string;
+  step_name: string | null;
+  step_index: number | null;
+}> {
+  return getTelemetrySqlite()!
+    .query(
+      `SELECT id, step_name, step_index FROM onboarding_events
+       ORDER BY created_at, id`,
+    )
+    .all() as Array<{
+    id: string;
+    step_name: string | null;
+    step_index: number | null;
+  }>;
+}
 
 function existsInMain(name: string): boolean {
   return (
@@ -82,11 +98,10 @@ describe("migration 329: move onboarding_events to the telemetry DB", () => {
       { id: "seed-dupe", screen: "tasks" },
     ]);
 
-    // The relocated rows are readable through the store's reporter query.
-    const rows = queryUnreportedOnboardingEvents(0, undefined, 10);
+    const rows = telemetryOnboardingRows();
     expect(rows.map((r) => r.id)).toEqual(["seed-1", "seed-2", "seed-dupe"]);
-    expect(rows[1]!.stepName).toBe("activation_moment_1_complete");
-    expect(rows[1]!.stepIndex).toBe(1);
+    expect(rows[1]!.step_name).toBe("activation_moment_1_complete");
+    expect(rows[1]!.step_index).toBe(1);
   });
 
   test("re-running after a completed move is a no-op", async () => {
@@ -98,7 +113,7 @@ describe("migration 329: move onboarding_events to the telemetry DB", () => {
 
     expect(existsInMain("onboarding_events")).toBe(false);
     expect(existsInMain("onboarding_events__relocating")).toBe(false);
-    expect(queryUnreportedOnboardingEvents(0, undefined, 10)).toHaveLength(3);
+    expect(telemetryOnboardingRows()).toHaveLength(3);
   });
 
   test("a pre-existing duplicate id in the telemetry copy does not fail the drain", async () => {
@@ -120,7 +135,7 @@ describe("migration 329: move onboarding_events to the telemetry DB", () => {
       .query(`SELECT screen FROM onboarding_events WHERE id = 'seed-dupe'`)
       .get() as { screen: string };
     expect(dupe.screen).toBe("already-copied");
-    expect(queryUnreportedOnboardingEvents(0, undefined, 10)).toHaveLength(3);
+    expect(telemetryOnboardingRows()).toHaveLength(3);
   });
 
   test("an empty main-side table (fresh install) is dropped without a drain", async () => {
@@ -131,7 +146,7 @@ describe("migration 329: move onboarding_events to the telemetry DB", () => {
 
     expect(existsInMain("onboarding_events")).toBe(false);
     expect(existsInMain("onboarding_events__relocating")).toBe(false);
-    expect(queryUnreportedOnboardingEvents(0, undefined, 10)).toHaveLength(0);
+    expect(telemetryOnboardingRows()).toHaveLength(0);
   });
 
   test("telemetry-side schema has the reporter's compound cursor index", () => {
