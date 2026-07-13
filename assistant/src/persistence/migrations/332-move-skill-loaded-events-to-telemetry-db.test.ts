@@ -13,13 +13,21 @@ import { describe, expect, test } from "bun:test";
 const { getDb, getSqlite, getTelemetrySqlite } =
   await import("../db-connection.js");
 const { initializeDb } = await import("../db-init.js");
-const { queryUnreportedSkillLoadedEvents } =
-  await import("../../telemetry/skill-loaded-events-store.js");
 const { migrateMoveSkillLoadedEventsToTelemetryDb } =
   await import("./332-move-skill-loaded-events-to-telemetry-db.js");
-const { rawTelemetryRun } = await import("../raw-query.js");
 
 await initializeDb();
+
+/** Telemetry-side rows in the reporter's `(created_at, id)` order. */
+function telemetrySkillRowIds(): string[] {
+  return (
+    getTelemetrySqlite()!
+      .query(
+        `SELECT id FROM skill_loaded_events ORDER BY created_at ASC, id ASC`,
+      )
+      .all() as Array<{ id: string }>
+  ).map((r) => r.id);
+}
 
 const SOURCE_COLUMNS = `
   id TEXT PRIMARY KEY, created_at INTEGER NOT NULL, conversation_id TEXT,
@@ -91,19 +99,21 @@ describe("migration 332: move skill_loaded_events to the telemetry DB", () => {
       { id: "seed-dupe", skill_name: "calendar", conversation_id: "conv-b" },
     ]);
 
-    // The relocated rows are readable through the store's reporter query.
-    const rows = queryUnreportedSkillLoadedEvents(0, undefined, 10);
-    expect(rows.map((r) => r.id)).toEqual(["seed-1", "seed-2", "seed-dupe"]);
-    expect(rows[0]).toEqual({
+    // Every column relocates intact.
+    expect(telemetrySkillRowIds()).toEqual(["seed-1", "seed-2", "seed-dupe"]);
+    const first = getTelemetrySqlite()!
+      .query(`SELECT * FROM skill_loaded_events WHERE id = 'seed-1'`)
+      .get();
+    expect(first).toEqual({
       id: "seed-1",
-      createdAt: 1000,
-      conversationId: "conv-a",
-      skillName: "web-research",
-      skillUpdatedAt: null,
+      created_at: 1000,
+      conversation_id: "conv-a",
+      skill_name: "web-research",
+      skill_updated_at: null,
       provider: null,
       model: null,
-      inferenceProfile: null,
-      inferenceProfileSource: null,
+      inference_profile: null,
+      inference_profile_source: null,
     });
   });
 
@@ -116,7 +126,7 @@ describe("migration 332: move skill_loaded_events to the telemetry DB", () => {
 
     expect(existsInMain("skill_loaded_events")).toBe(false);
     expect(existsInMain("skill_loaded_events__relocating")).toBe(false);
-    expect(queryUnreportedSkillLoadedEvents(0, undefined, 10)).toHaveLength(3);
+    expect(telemetrySkillRowIds()).toHaveLength(3);
   });
 
   test("a pre-existing duplicate id in the telemetry copy does not fail the drain", async () => {
@@ -140,7 +150,7 @@ describe("migration 332: move skill_loaded_events to the telemetry DB", () => {
       )
       .get() as { skill_name: string };
     expect(dupe.skill_name).toBe("already-copied");
-    expect(queryUnreportedSkillLoadedEvents(0, undefined, 10)).toHaveLength(3);
+    expect(telemetrySkillRowIds()).toHaveLength(3);
   });
 
   test("an empty main-side table (fresh install) is dropped without a drain", async () => {
@@ -153,7 +163,7 @@ describe("migration 332: move skill_loaded_events to the telemetry DB", () => {
 
     expect(existsInMain("skill_loaded_events")).toBe(false);
     expect(existsInMain("skill_loaded_events__relocating")).toBe(false);
-    expect(queryUnreportedSkillLoadedEvents(0, undefined, 10)).toHaveLength(0);
+    expect(telemetrySkillRowIds()).toHaveLength(0);
   });
 
   test("the drain purges rows whose conversation no longer exists (redaction across boots)", async () => {
@@ -177,34 +187,14 @@ describe("migration 332: move skill_loaded_events to the telemetry DB", () => {
     expect(existsInMain("skill_loaded_events")).toBe(false);
     expect(existsInMain("skill_loaded_events__relocating")).toBe(false);
 
-    const moved = queryUnreportedSkillLoadedEvents(0, undefined, 10);
-    expect(moved.map((r) => r.id)).toEqual(["live-1", "null-1"]);
+    expect(telemetrySkillRowIds()).toEqual(["live-1", "null-1"]);
     const dead = getTelemetrySqlite()!
       .query(`SELECT 1 FROM skill_loaded_events WHERE id = 'dead-1'`)
       .get();
     expect(dead).toBeNull();
   });
 
-  test("per-conversation redaction deletes rows on the telemetry connection", () => {
-    resetState();
-    getTelemetrySqlite()!.exec(
-      `INSERT INTO skill_loaded_events (id, created_at, conversation_id, skill_name)
-       VALUES ('red-1', 1000, 'conv-pruned', 'web-research'),
-              ('red-2', 2000, 'conv-kept', 'tasks')`,
-    );
-
-    // The exact delete the conversation prune runs (job-handlers/cleanup.ts).
-    rawTelemetryRun(
-      "test:prune-redaction",
-      `DELETE FROM skill_loaded_events WHERE conversation_id = ?`,
-      "conv-pruned",
-    );
-
-    const remaining = queryUnreportedSkillLoadedEvents(0, undefined, 10);
-    expect(remaining.map((r) => r.id)).toEqual(["red-2"]);
-  });
-
-  test("telemetry-side schema has the reporter's compound cursor index", () => {
+  test("telemetry-side schema has the compound cursor index", () => {
     const indexes = (
       getTelemetrySqlite()!
         .query(`PRAGMA index_list(skill_loaded_events)`)

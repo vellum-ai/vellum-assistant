@@ -8,38 +8,42 @@ mock.module("../platform/consent-cache.js", () => ({
 
 import { getTelemetryDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
-import { skillLoadedEvents } from "../persistence/schema/index.js";
-import {
-  queryUnreportedSkillLoadedEvents,
-  recordSkillLoadedEvent,
-} from "./skill-loaded-events-store.js";
+import { telemetryEvents } from "../persistence/schema/index.js";
+import { APP_VERSION } from "../version.js";
+import { recordSkillLoadedEvent } from "./skill-loaded-events-store.js";
 
 await initializeDb();
 
-function insertEvent(
-  id: string,
-  createdAt: number,
-  skillName = "web-research",
-): void {
-  getTelemetryDb()!
-    .insert(skillLoadedEvents)
-    .values({ id, createdAt, skillName })
-    .run();
+function pendingRows(): Array<{
+  id: string;
+  name: string;
+  createdAt: number;
+  conversationId: string | null;
+  payload: Record<string, unknown>;
+}> {
+  return getTelemetryDb()!
+    .select()
+    .from(telemetryEvents)
+    .all()
+    .map((row) => ({
+      ...row,
+      payload: JSON.parse(row.payload) as Record<string, unknown>,
+    }));
 }
 
 describe("skill-loaded-events-store", () => {
   beforeEach(() => {
     shareAnalytics = true;
-    getTelemetryDb()!.delete(skillLoadedEvents).run();
+    getTelemetryDb()!.delete(telemetryEvents).run();
   });
 
   test("honors the share_analytics opt-out (records nothing)", () => {
     shareAnalytics = false;
     recordSkillLoadedEvent({ skillName: "web-research" });
-    expect(queryUnreportedSkillLoadedEvents(0, undefined, 10)).toHaveLength(0);
+    expect(pendingRows()).toHaveLength(0);
   });
 
-  test("record + query round-trips all fields", () => {
+  test("record writes the full wire payload into the outbox", () => {
     recordSkillLoadedEvent({
       conversationId: "conv-xyz",
       skillName: "web-research",
@@ -50,98 +54,45 @@ describe("skill-loaded-events-store", () => {
       inferenceProfileSource: "active-profile",
     });
 
-    const rows = queryUnreportedSkillLoadedEvents(0, undefined, 10);
+    const rows = pendingRows();
     expect(rows).toHaveLength(1);
     const row = rows[0]!;
+    expect(row.name).toBe("skill_loaded");
     expect(row.id).toBeString();
     expect(row.createdAt).toBeGreaterThan(0);
-    expect(row).toMatchObject({
-      conversationId: "conv-xyz",
-      skillName: "web-research",
-      skillUpdatedAt: "2026-06-01T00:00:00.000Z",
+    // Dedicated column, so conversation deletion redacts pending rows via an
+    // indexed delete.
+    expect(row.conversationId).toBe("conv-xyz");
+    expect(row.payload).toEqual({
+      type: "skill_loaded",
+      daemon_event_id: row.id,
+      recorded_at: row.createdAt,
+      skill_name: "web-research",
+      skill_updated_at: "2026-06-01T00:00:00.000Z",
+      conversation_id: "conv-xyz",
       provider: "anthropic",
       model: "model-a",
-      inferenceProfile: "balanced",
-      inferenceProfileSource: "active-profile",
+      inference_profile: "balanced",
+      inference_profile_source: "active-profile",
+      assistant_version: APP_VERSION,
     });
   });
 
-  test("optional fields persist as null", () => {
+  test("optional fields ship as null and leave the conversation column null", () => {
     recordSkillLoadedEvent({ skillName: "tasks" });
 
-    const rows = queryUnreportedSkillLoadedEvents(0, undefined, 10);
+    const rows = pendingRows();
     expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({
-      skillName: "tasks",
-      conversationId: null,
-      skillUpdatedAt: null,
+    expect(rows[0]!.conversationId).toBeNull();
+    expect(rows[0]!.payload).toMatchObject({
+      type: "skill_loaded",
+      skill_name: "tasks",
+      skill_updated_at: null,
+      conversation_id: null,
       provider: null,
       model: null,
-      inferenceProfile: null,
-      inferenceProfileSource: null,
+      inference_profile: null,
+      inference_profile_source: null,
     });
-  });
-
-  test("returns rows in (createdAt, id) order", () => {
-    insertEvent("sle-b", 2000);
-    insertEvent("sle-a", 1000);
-
-    const rows = queryUnreportedSkillLoadedEvents(0, undefined, 100);
-    expect(rows.map((r) => r.id)).toEqual(["sle-a", "sle-b"]);
-  });
-
-  test("query advances past the compound (createdAt, id) cursor", () => {
-    // Two rows in the same millisecond: pagination must use the id
-    // tiebreaker to make forward progress, not loop.
-    insertEvent("sle-1", 5000);
-    insertEvent("sle-2", 5000);
-    insertEvent("sle-3", 6000);
-
-    const first = queryUnreportedSkillLoadedEvents(0, undefined, 1);
-    expect(first.map((r) => r.id)).toEqual(["sle-1"]);
-
-    const second = queryUnreportedSkillLoadedEvents(
-      first[0]!.createdAt,
-      first[0]!.id,
-      100,
-    );
-    expect(second.map((r) => r.id)).toEqual(["sle-2", "sle-3"]);
-
-    // Without an id cursor the timestamp-only branch is used.
-    expect(
-      queryUnreportedSkillLoadedEvents(5000, undefined, 100).map((r) => r.id),
-    ).toEqual(["sle-3"]);
-
-    // Cursor past the last row returns nothing.
-    const last = second[second.length - 1]!;
-    expect(
-      queryUnreportedSkillLoadedEvents(last.createdAt, last.id, 100).length,
-    ).toBe(0);
-  });
-
-  test("resumes from a persisted watermark without re-reporting", () => {
-    insertEvent("sle-w1", 1000);
-    insertEvent("sle-w2", 2000);
-
-    const batch = queryUnreportedSkillLoadedEvents(0, undefined, 100);
-    const watermark = batch[batch.length - 1]!;
-
-    insertEvent("sle-w3", 3000);
-
-    const resumed = queryUnreportedSkillLoadedEvents(
-      watermark.createdAt,
-      watermark.id,
-      100,
-    );
-    expect(resumed.map((r) => r.id)).toEqual(["sle-w3"]);
-  });
-
-  test("honors the limit", () => {
-    insertEvent("sle-l1", 1000);
-    insertEvent("sle-l2", 2000);
-    insertEvent("sle-l3", 3000);
-
-    const rows = queryUnreportedSkillLoadedEvents(0, undefined, 2);
-    expect(rows.map((r) => r.id)).toEqual(["sle-l1", "sle-l2"]);
   });
 });

@@ -230,7 +230,6 @@ import {
   authFallbackEvents,
   configSettingEvents,
   conversations,
-  skillLoadedEvents,
   telemetryEvents,
   toolInvocations,
 } from "../persistence/schema/index.js";
@@ -413,7 +412,6 @@ beforeEach(() => {
   mockQueryUnreportedOnboardingEvents.mockReset();
   mockQueryUnreportedOnboardingEvents.mockReturnValue([]);
   getDb().delete(toolInvocations).run();
-  getTelemetryDb()!.delete(skillLoadedEvents).run();
   getTelemetryDb()!.delete(authFallbackEvents).run();
   getTelemetryDb()!.delete(configSettingEvents).run();
   getTelemetryDb()!.delete(telemetryEvents).run();
@@ -1651,14 +1649,16 @@ describe("UsageTelemetryReporter", () => {
     // No HTTP call should have been made
     expect(mockFetch).not.toHaveBeenCalled();
 
-    // All 9 timestamp watermarks should have been advanced, and all 9 ID
-    // watermarks pinned to the high-sorting sentinel (a truthy value keeps
-    // the compound-cursor branch active while closing its same-millisecond
-    // arm against opt-out rows).
-    expect(mockSetFlushCheckpoint).toHaveBeenCalledTimes(18);
+    // All 8 watermark-mode timestamp watermarks should have been advanced,
+    // and all 8 ID watermarks pinned to the high-sorting sentinel (a truthy
+    // value keeps the compound-cursor branch active while closing its
+    // same-millisecond arm against opt-out rows). The ack-mode skill_loaded
+    // source discards its pending outbox rows instead.
+    expect(mockSetFlushCheckpoint).toHaveBeenCalledTimes(16);
 
     const calls = mockSetFlushCheckpoint.mock.calls;
     const keys = calls.map((c) => c[0]);
+    expect(keys.some((k) => k.includes("skill_loaded"))).toBe(false);
     const eventTypes = [
       "usage",
       "turns",
@@ -1666,7 +1666,6 @@ describe("UsageTelemetryReporter", () => {
       "onboarding",
       "auth_fallback",
       "tool_executed",
-      "skill_loaded",
       "watchdog",
       "config_setting",
     ];
@@ -2536,51 +2535,35 @@ describe("UsageTelemetryReporter", () => {
     });
   });
 
-  test("skill_loaded watermark advances to the last reported row on success", async () => {
+  test("skill_loaded rows are deleted from the outbox after a 2xx, never via watermarks", async () => {
     mockQueryUnreportedUsageEvents.mockReturnValue([]);
     recordSkillLoadedEvent({ skillName: "web-research" });
     recordSkillLoadedEvent({ skillName: "tasks" });
+    expect(queryTelemetryOutboxBatch("skill_loaded", 10)).toHaveLength(2);
     mockFetch.mockImplementation(() =>
       Promise.resolve(new Response('{"accepted":2}', { status: 200 })),
     );
 
-    // The last row by the reporter's (createdAt, id) cursor order is the one
-    // whose watermark should be persisted after a successful upload.
-    const rows = getTelemetryDb()!
-      .select()
-      .from(skillLoadedEvents)
-      .orderBy(skillLoadedEvents.createdAt, skillLoadedEvents.id)
-      .all();
-    const lastRow = rows[rows.length - 1];
-
     const reporter = makeReporter();
     await reporter.flush();
 
-    const watermarkCalls = mockSetFlushCheckpoint.mock.calls.filter(
-      (c) => c[0] === "telemetry:skill_loaded:last_reported_at",
-    );
-    expect(watermarkCalls.length).toBeGreaterThanOrEqual(1);
-    expect(watermarkCalls[watermarkCalls.length - 1][1]).toBe(
-      String(lastRow.createdAt),
-    );
-
-    const idCalls = mockSetFlushCheckpoint.mock.calls.filter(
-      (c) => c[0] === "telemetry:skill_loaded:last_reported_id",
-    );
-    expect(idCalls.length).toBeGreaterThanOrEqual(1);
-    expect(idCalls[idCalls.length - 1][1]).toBe(lastRow.id);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(queryTelemetryOutboxBatch("skill_loaded", 10)).toHaveLength(0);
+    // Ack-mode: the skill_loaded source never touches flush_checkpoints.
+    expect(
+      mockSetFlushCheckpoint.mock.calls.some((c) =>
+        c[0].includes("skill_loaded"),
+      ),
+    ).toBe(false);
   });
 
-  test("batch recursion when skill_loaded returns a full batch, capped at 10", async () => {
+  test("a full skill_loaded batch drives recursion until the outbox drains", async () => {
     mockQueryUnreportedUsageEvents.mockReturnValue([]);
-    // Exactly BATCH_SIZE rows; the mocked checkpoints never persist, so each
-    // recursion re-reads the same full batch until the cap.
-    const fullBatch = Array.from({ length: 500 }, (_, i) => ({
-      id: `sle-batch-${String(i).padStart(3, "0")}`,
-      createdAt: 1700000000000 + i,
-      skillName: "web-research",
-    }));
-    getTelemetryDb()!.insert(skillLoadedEvents).values(fullBatch).run();
+    // BATCH_SIZE (500) + 1 rows: the first flush ships and deletes a full
+    // batch, and the fullBatch recursion ships the remaining row.
+    for (let i = 0; i < 501; i++) {
+      recordSkillLoadedEvent({ skillName: `skill-${i}` });
+    }
     mockFetch.mockImplementation(() =>
       Promise.resolve(new Response('{"accepted":500}', { status: 200 })),
     );
@@ -2588,8 +2571,8 @@ describe("UsageTelemetryReporter", () => {
     const reporter = makeReporter();
     await reporter.flush();
 
-    // MAX_CONSECUTIVE_BATCHES = 10
-    expect(mockFetch).toHaveBeenCalledTimes(10);
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    expect(queryTelemetryOutboxBatch("skill_loaded", 1000)).toHaveLength(0);
   });
 
   // -------------------------------------------------------------------------

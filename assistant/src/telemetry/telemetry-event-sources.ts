@@ -25,7 +25,6 @@ import {
   buildActivationDaemonEventId,
 } from "./activation-funnel.js";
 import { queryUnreportedConfigSettingEvents } from "./config-setting-events-store.js";
-import { queryUnreportedSkillLoadedEvents } from "./skill-loaded-events-store.js";
 import {
   deleteTelemetryOutboxEvents,
   discardPendingTelemetryOutboxEvents,
@@ -556,28 +555,7 @@ const toolExecutedSource = simpleSource(
   }),
 );
 
-const skillLoadedSource = simpleSource(
-  "skill_loaded",
-  (afterCreatedAt, afterId, limit) =>
-    queryUnreportedSkillLoadedEvents(afterCreatedAt, afterId, limit),
-  (e): TelemetryEvent => ({
-    type: "skill_loaded",
-    daemon_event_id: e.id,
-    recorded_at: e.createdAt,
-    skill_name: e.skillName,
-    skill_updated_at: e.skillUpdatedAt,
-    conversation_id: e.conversationId,
-    provider: e.provider,
-    model: e.model,
-    inference_profile: e.inferenceProfile,
-    inference_profile_source:
-      e.inferenceProfileSource as UsageAttributionProfileSource | null,
-    // `skill_loaded_events` has no record-time version column — same
-    // upload-time APP_VERSION stamping as the other non-llm_usage
-    // event types.
-    assistant_version: APP_VERSION,
-  }),
-);
+const skillLoadedSource = outboxSource("skill_loaded");
 
 const watchdogSource = simpleSource(
   "watchdog",
