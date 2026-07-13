@@ -802,7 +802,14 @@ export function ChatLayout() {
                   the only part of it that shows around the full-bleed menu,
                   and a mismatched background renders as tinted strips along
                   the notch / home-indicator edges on iOS. No border — the
-                  sheet covers the full screen, so there is no edge to draw. */}
+                  sheet covers the full screen, so there is no edge to draw.
+                  No bottom padding either: the SideMenu root clips its
+                  children (`overflow-hidden`), so a bottom inset places the
+                  clip boundary at the home-indicator line and guillotines
+                  the floating action pills' drop shadows into a visible
+                  hard edge in light mode. The menu runs full-bleed to the
+                  physical bottom edge and the pills offset themselves by
+                  the safe-area inset instead. */}
               <aside
                 id="chat-side-menu"
                 className="relative flex h-full w-full flex-col shadow-xl"
@@ -811,8 +818,6 @@ export function ChatLayout() {
                   zIndex: 50,
                   paddingTop:
                     "var(--safe-area-inset-top, env(safe-area-inset-top, 0px))",
-                  paddingBottom:
-                    "var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px))",
                   paddingLeft:
                     "var(--safe-area-inset-left, env(safe-area-inset-left, 0px))",
                 }}
