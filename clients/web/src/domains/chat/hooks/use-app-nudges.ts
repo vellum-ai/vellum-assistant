@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
-import { type DisplayMessage, isSurfaceInteractive } from "@/domains/chat/types/types";
+import { type DisplayMessage } from "@/domains/chat/types/types";
+import { hasAnyInteractiveSurface } from "@/domains/chat/utils/chat";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useIsIOSWeb, useIsMacOSWeb } from "@/runtime/platform-detection";
 import {
@@ -162,9 +163,7 @@ export function useAppNudges(
   // inline in the transcript and visually collide with the floating nudge
   // banner above the composer (LUM-2777).
   // -------------------------------------------------------------------------
-  const hasActiveInteractiveSurface = messages.some(
-    (m) => m.surfaces?.some(isSurfaceInteractive) ?? false,
-  );
+  const hasActiveInteractiveSurface = hasAnyInteractiveSurface(messages);
 
   // -------------------------------------------------------------------------
   // Platform nudge (iOS xor macOS)
