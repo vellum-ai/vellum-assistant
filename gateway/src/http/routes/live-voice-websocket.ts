@@ -5,6 +5,7 @@ import {
   mintServiceToken,
 } from "../../auth/token-exchange.js";
 import { isActorTokenRevoked } from "../../auth/actor-token-revocation.js";
+import { findVellumGuardian } from "../../auth/guardian-bootstrap.js";
 import { parseSub } from "../../auth/subject.js";
 import type { GatewayConfig } from "../../config.js";
 import { getLogger } from "../../logger.js";
@@ -77,16 +78,16 @@ export type LiveVoiceSocketData = {
  * gateway clients and the runtime's /v1/live-voice endpoint.
  */
 export function createLiveVoiceWebsocketHandler(config: GatewayConfig) {
-  return function handleUpgrade(
+  return async function handleUpgrade(
     req: Request,
     server: import("bun").Server<unknown>,
-  ): Response | undefined {
+  ): Promise<Response | undefined> {
     if (req.headers.get("upgrade")?.toLowerCase() !== "websocket") {
       return new Response("Upgrade Required", { status: 426 });
     }
 
     const url = new URL(req.url);
-    const authResponse = checkLiveVoiceAuth(req, url, config);
+    const authResponse = await checkLiveVoiceAuth(req, url, config);
     if (authResponse) return authResponse;
 
     const upgraded = server.upgrade(req, {
@@ -104,11 +105,11 @@ export function createLiveVoiceWebsocketHandler(config: GatewayConfig) {
   };
 }
 
-function checkLiveVoiceAuth(
+async function checkLiveVoiceAuth(
   req: Request,
   url: URL,
   config: GatewayConfig,
-): Response | null {
+): Promise<Response | null> {
   if (!config.runtimeProxyRequireAuth) {
     return null;
   }
@@ -172,6 +173,24 @@ function checkLiveVoiceAuth(
       "Live voice WS: denied token without actor principal",
     );
     return new Response("Unauthorized", { status: 401 });
+  }
+
+  // Live voice is a guardian-only surface: the room runs in the owner's own
+  // client, and the daemon stamps each voice turn with the guardian's trust
+  // context on that basis — so pin the upgrade to the bound guardian, the same
+  // check the guardian edge-auth middleware applies to guardian-only HTTP
+  // routes. Any valid-but-non-guardian actor token is rejected here rather
+  // than reaching the daemon with an identity the voice path can't represent.
+  let guardian: { principalId: string } | null;
+  try {
+    guardian = await findVellumGuardian();
+  } catch (err) {
+    log.error({ err }, "Live voice WS: findVellumGuardian failed");
+    return new Response("Service Unavailable", { status: 503 });
+  }
+  if (!guardian || guardian.principalId !== parsed.actorPrincipalId) {
+    log.warn("Live voice WS: rejected — caller is not the bound guardian");
+    return new Response("Forbidden", { status: 403 });
   }
 
   return null;

@@ -1981,7 +1981,7 @@ async function main() {
     }
 
     if (url.pathname === "/v1/live-voice") {
-      const upgradeResult = handleLiveVoiceWs(req, server);
+      const upgradeResult = await handleLiveVoiceWs(req, server);
       if (upgradeResult !== undefined) return upgradeResult;
       return undefined as unknown as Response;
     }
