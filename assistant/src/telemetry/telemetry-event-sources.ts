@@ -45,6 +45,13 @@ export interface TelemetryCursor {
 export interface TelemetryEventSourceBatch {
   /** Wire events for the rows reportable this cycle, in cursor order. */
   events: TelemetryEvent[];
+  /**
+   * Row ids backing `events`, set by ack-mode sources so the reporter can
+   * acknowledge (delete) exactly the shipped rows. These are ROW ids, not
+   * wire `daemon_event_id`s — the onboarding source overrides
+   * `daemon_event_id` for activation rows, so the two can differ.
+   */
+  rowIds?: string[];
   /** Cursor of the last reportable row; null when nothing is reportable. */
   lastCursor: TelemetryCursor | null;
   /**
@@ -72,6 +79,17 @@ export interface TelemetryEventSource {
     afterId: string | undefined,
     limit: number,
   ): TelemetryEventSourceBatch;
+  /**
+   * Delete-on-flush mode. Both operations are required together: `acknowledge`
+   * deletes the rows behind {@link TelemetryEventSourceBatch.rowIds} after a
+   * 2xx from the ingest endpoint, and `discardPending` drops all pending rows
+   * on an opted-out flush (watermark writes are meaningless for ack-mode
+   * sources, so they never touch `flush_checkpoints`).
+   */
+  ack?: {
+    acknowledge(rowIds: string[]): void;
+    discardPending(): void;
+  };
 }
 
 /** The `flush_checkpoints` keys holding a source's compound cursor. */
