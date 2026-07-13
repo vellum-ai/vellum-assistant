@@ -478,6 +478,15 @@ async function createStreamingTranscriber(
       // ignored, matching Gemini/Whisper — as is utteranceEndMs (the relay
       // allowlist has no utterance_end_ms; boundary finals ride on
       // endpointing alone).
+      // The gateway is the credential authority, but the platform
+      // connection (API key + assistant ID) is checkable locally — gate
+      // here so preflight reports "connect your account" instead of
+      // resolving a transcriber whose dial is doomed.
+      const { vellumManagedSpeechAvailable } =
+        await import("./vellum-managed.js");
+      if (!(await vellumManagedSpeechAvailable())) {
+        return null;
+      }
       const { resolveSpeechRelayConnection } =
         await import("./vellum-speech-relay-connection.js");
       const connection = await resolveSpeechRelayConnection();
