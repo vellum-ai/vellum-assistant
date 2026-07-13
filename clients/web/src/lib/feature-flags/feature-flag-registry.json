@@ -51,14 +51,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "trace-collection",
-      "scope": "assistant",
-      "key": "trace-collection",
-      "label": "Trace Collection",
-      "description": "Gate per-turn conversation trace (user/assistant/tool-call/tool-response) collection. The daemon attaches a trace to its turn telemetry only when this flag AND the owner's share_diagnostics consent are both on. Defaults off (fail-closed) \u2014 the live value is delivered from LaunchDarkly.",
-      "defaultEnabled": false
-    },
-    {
       "id": "settings-developer-nav",
       "scope": "assistant",
       "key": "settings-developer-nav",
@@ -120,6 +112,14 @@
       "key": "voice-mode",
       "label": "Voice Mode",
       "description": "Show the live voice conversation button in the composer",
+      "defaultEnabled": false
+    },
+    {
+      "id": "voice-triage-escalate",
+      "scope": "assistant",
+      "key": "voice-triage-escalate",
+      "label": "Voice Triage & Escalate",
+      "description": "Front phone-call turns with a fast model that answers simple turns and escalates tricky ones to the quality model, cutting perceived latency",
       "defaultEnabled": false
     },
     {
@@ -343,8 +343,8 @@
       "scope": "assistant",
       "key": "channel-trust-floors",
       "label": "Channel Trust Floors",
-      "description": "Expose the Channel Trust Floors settings card (per-channel inbound admission policy) on the Privacy settings page. When off, the card is hidden and channels fall back to their default admission floors. Off by default while the feature is in development.",
-      "defaultEnabled": false
+      "description": "Expose the Channel Trust Floors settings card (per-channel inbound admission policy) on the Privacy settings page. When off, the card is hidden and channels fall back to their default admission floors. On by default; disable to hide the card.",
+      "defaultEnabled": true
     },
     {
       "id": "mcp-add-server",

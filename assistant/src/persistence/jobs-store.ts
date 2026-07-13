@@ -278,17 +278,18 @@ export function upsertMemoryRetrospectiveJob(
 }
 
 /**
- * Upsert a pending `skill_card_insert` job — the deferred delivery of a
- * retrospective run's skill card into a source conversation that was mid-turn
- * at insert time (see `memory-retrospective-skill-card.ts`). Keyed by
- * `runConversationId`: one pending delivery exists per authoring run, so the
- * handler's own still-mid-turn re-upsert (and any duplicate enqueue) coalesces
- * into a single row instead of stacking deliveries — the message-level
- * `clientMessageId` dedup remains the final backstop against a double card.
- * The earliest `runAfter` wins, mirroring `upsertMemoryRetrospectiveJob`; the
- * stored payload is kept as-is since every enqueue for a given run carries the
- * same snapshot (the skill list is derived from that run's persisted
- * messages).
+ * Upsert a pending `skill_card_insert` job — the durable delivery of a
+ * retrospective run's skill card into its source conversation (see
+ * `memory-retrospective-skill-card.ts`; the scaffold executor enqueues one at
+ * the creation site per authored skill). Keyed by `runConversationId`: one
+ * pending delivery exists per authoring run. A follow-up enqueue for the same
+ * run MERGES into the pending row instead of stacking deliveries — its
+ * `skills` entries are appended, deduplicated by `skillId` (the pending entry
+ * wins), so a run that authors several skills coalesces into a single card
+ * and the handler's own still-mid-turn re-upsert of an identical snapshot is
+ * a no-op append. The earliest `runAfter` wins, mirroring
+ * `upsertMemoryRetrospectiveJob`; the message-level `clientMessageId` dedup
+ * remains the final backstop against a double card.
  */
 export function upsertSkillCardInsertJob(
   payload: {
@@ -310,16 +311,62 @@ export function upsertSkillCardInsertJob(
     )
     .get();
   if (existing) {
-    const nextRunAfter = Math.min(existing.runAfter, runAfter);
-    if (nextRunAfter !== existing.runAfter) {
-      db.update(memoryJobs)
-        .set({ runAfter: nextRunAfter, updatedAt: Date.now() })
-        .where(eq(memoryJobs.id, existing.id))
-        .run();
+    let existingPayload: Record<string, unknown> = {};
+    try {
+      existingPayload = JSON.parse(existing.payload) as Record<string, unknown>;
+    } catch {
+      existingPayload = {};
     }
+    const mergedPayload = {
+      ...existingPayload,
+      ...payload,
+      skills: mergeSkillCardEntries(existingPayload.skills, payload.skills),
+    };
+    db.update(memoryJobs)
+      .set({
+        payload: JSON.stringify(mergedPayload),
+        runAfter: Math.min(existing.runAfter, runAfter),
+        updatedAt: Date.now(),
+      })
+      .where(eq(memoryJobs.id, existing.id))
+      .run();
     return;
   }
   enqueueMemoryJob("skill_card_insert", payload, runAfter);
+}
+
+/**
+ * Append incoming skill-card entries to the already-pending list,
+ * deduplicated by `skillId` — the pending entry wins over a re-enqueue of the
+ * same skill. Entries are opaque to the queue beyond the `skillId` key;
+ * malformed values (non-arrays, entries without a non-empty string `skillId`)
+ * contribute nothing rather than corrupting the pending payload.
+ */
+function mergeSkillCardEntries(
+  existing: unknown,
+  incoming: unknown,
+): unknown[] {
+  const merged: unknown[] = [];
+  const seen = new Set<string>();
+  const candidates = [
+    ...(Array.isArray(existing) ? existing : []),
+    ...(Array.isArray(incoming) ? incoming : []),
+  ];
+  for (const entry of candidates) {
+    if (!entry || typeof entry !== "object") {
+      continue;
+    }
+    const skillId = (entry as Record<string, unknown>).skillId;
+    if (typeof skillId !== "string" || skillId.length === 0) {
+      continue;
+    }
+    if (seen.has(skillId)) {
+      continue;
+    }
+    seen.add(skillId);
+    merged.push(entry);
+  }
+  return merged;
 }
 
 /**

@@ -57,11 +57,6 @@ mock.module("../persistence/checkpoints.js", () => ({
   },
 }));
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({ memory: { enabled: false } }),
-  loadConfig: () => ({ memory: { enabled: false } }),
-}));
-
 import { resetCleanupScheduleThrottle } from "../persistence/cleanup-schedule-state.js";
 import {
   maybeEnqueueScheduledCleanupJobs,

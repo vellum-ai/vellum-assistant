@@ -24,6 +24,7 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
+import { setConfig } from "../../../../../__tests__/helpers/set-config.js";
 import { migrateAddMemoryV3Selections } from "../../../../../persistence/migrations/268-add-memory-v3-selections.js";
 import { migrateMemoryV3SelectionsMessageIdAndSections } from "../../../../../persistence/migrations/283-memory-v3-selections-message-id-and-sections.js";
 import * as schema from "../../../../../persistence/schema/index.js";
@@ -31,7 +32,6 @@ import * as schema from "../../../../../persistence/schema/index.js";
 const realFlags = {
   ...(await import("../../../../../config/assistant-feature-flags.js")),
 };
-const realLoader = { ...(await import("../../../../../config/loader.js")) };
 const realDb = {
   ...(await import("../../../../../persistence/db-connection.js")),
 };
@@ -111,14 +111,6 @@ mock.module("../../../../../config/assistant-feature-flags.js", () => ({
         ),
 }));
 
-mock.module("../../../../../config/loader.js", () => ({
-  ...realLoader,
-  getConfig: () =>
-    storeMockActive
-      ? { memory: { v3: { live: liveEnabled } } }
-      : realLoader.getConfig(),
-}));
-
 mock.module("../../../../../persistence/db-connection.js", () => ({
   ...realDb,
   getDb: () => (storeMockActive ? testDb : realDb.getDb()),
@@ -151,6 +143,9 @@ const {
 beforeEach(() => {
   storeMockActive = true;
   liveEnabled = false;
+  // The inspector's `live` flag comes from `isMemoryV3Live(getConfig())`,
+  // which reads `memory.v3.live` — seed it for real.
+  setConfig("memory", { v3: { live: false } });
   testDb = makeDb();
 });
 
@@ -227,6 +222,7 @@ describe("getMemoryV3SelectionForInspector", () => {
     expect(off?.live).toBe(false);
 
     liveEnabled = true;
+    setConfig("memory", { v3: { live: true } });
     const on = await getMemoryV3SelectionForInspector("conv-5", 1);
     expect(on?.live).toBe(true);
   });

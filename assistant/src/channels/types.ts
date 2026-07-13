@@ -150,6 +150,10 @@ export const INTERFACE_IDS = [
   "email",
   "chrome-extension",
   "a2a",
+  // Turns injected by workspace custom routes (webhook receivers, cron jobs,
+  // device/service callbacks). Non-interactive — permission prompts route
+  // through the guardian system, not an interactive client — and non-host-proxy.
+  "route",
 ] as const;
 
 export type InterfaceId = (typeof INTERFACE_IDS)[number];
@@ -227,7 +231,7 @@ export function isInteractiveInterface(id: InterfaceId): boolean {
 
 /**
  * Host proxy capabilities that an interface can support. The macOS client
- * supports all five; the chrome-extension interface only supports
+ * supports all of them; the chrome-extension interface only supports
  * host_browser (via the Chrome DevTools Protocol proxy).
  */
 export type HostProxyCapability =
@@ -235,11 +239,12 @@ export type HostProxyCapability =
   | "host_file"
   | "host_cu"
   | "host_browser"
-  | "host_app_control";
+  | "host_app_control"
+  | "host_ui_snapshot";
 
 /**
- * Interfaces that support the full desktop host-proxy set (all five
- * `HostProxyCapability` values). This is the capability-level identity used
+ * Interfaces that support the full desktop host-proxy set (every
+ * `HostProxyCapability` value). This is the capability-level identity used
  * by the discriminated transport metadata union and by the
  * `supportsHostProxy(id)` type predicate.
  *
@@ -272,7 +277,7 @@ export function supportsHostProxy(
   id: InterfaceId,
   capability?: HostProxyCapability,
 ): boolean {
-  // macOS supports all five host proxy capabilities including host_browser
+  // macOS supports every host proxy capability including host_browser
   // and host_app_control. The host_browser proxy is provisioned via the
   // assistant event hub. When no extension is connected, browser tools fall
   // through to cdp-inspect/local via the CDP factory's candidate chain.

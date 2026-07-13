@@ -20,11 +20,13 @@
  * `memory_v3_selections` migration.
  */
 
+import { join } from "node:path";
 import { Database } from "bun:sqlite";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
+import { setConfig } from "../../../../../__tests__/helpers/set-config.js";
 import { MemoryV3GateSchema } from "../../../../../config/schemas/memory-v3.js";
 import { migrateAddMemoryV3Selections } from "../../../../../persistence/migrations/268-add-memory-v3-selections.js";
 import { migrateAddMemoryV3EverInjected } from "../../../../../persistence/migrations/277-add-memory-v3-ever-injected.js";
@@ -205,38 +207,41 @@ mock.module("../../../../../config/assistant-feature-flags.js", () => ({
         : false,
 }));
 
-mock.module("../../../../../config/loader.js", () => ({
-  getConfig: () => ({
-    memory: {
-      enabled: memoryEnabled,
-      v3: {
-        live: liveEnabled,
-        hotSet: { k: 8, halfLifeDays: 14 },
-        freshSet: { k: 8 },
-        spotlight: { n: 6, windowTurns: 2 },
-        needleK: 12,
-        denseK: 0,
-        replyQueryK: 0,
-        selectorEnabled: selectorEnabledCfg,
-        learnedEdges: {
-          halfLifeDays: 30,
-          minCount: 3,
-          npmiFloor: 0.2,
-          maxPerPage: 6,
-          perSeed: 3,
-          cap: learnedEdgesCap,
-        },
-        edge: { hubDegree: 30, seedCount: 6, perSeed: 1, cap: 6 },
-        entity: { enabled: true, idfFloor: 4, cap: 8 },
-        // Gate tuning (schema defaults) with the mutable `enabled` kill-switch;
-        // `observeTurn` spreads this and overwrites `enabled` with the effective
-        // flag AND config value before passing to orchestrate.
-        gate: { ...GATE_DEFAULTS, enabled: gateEnabledCfg },
+// `observeTurn` and the injector resolve their tuning through the real
+// `getConfig()`; `seedMemoryConfig()` (called by the observe/produce wrappers
+// below) writes the mutable knobs into the workspace config for real. The
+// seeded values override schema defaults where they differ (e.g. hotSet.k 8 vs
+// default 40) so the per-turn tuning assertions hold.
+function seedMemoryConfig(): void {
+  setConfig("memory", {
+    enabled: memoryEnabled,
+    v3: {
+      live: liveEnabled,
+      hotSet: { k: 8, halfLifeDays: 14 },
+      freshSet: { k: 8 },
+      spotlight: { n: 6, windowTurns: 2 },
+      needleK: 12,
+      denseK: 0,
+      replyQueryK: 0,
+      selectorEnabled: selectorEnabledCfg,
+      learnedEdges: {
+        halfLifeDays: 30,
+        minCount: 3,
+        npmiFloor: 0.2,
+        maxPerPage: 6,
+        perSeed: 3,
+        cap: learnedEdgesCap,
       },
-      qdrant: { vectorSize: 8, onDisk: false },
+      edge: { hubDegree: 30, seedCount: 6, perSeed: 1, cap: 6 },
+      entity: { enabled: true, idfFloor: 4, cap: 8 },
+      // Gate tuning (schema defaults) with the mutable `enabled` kill-switch;
+      // `observeTurn` spreads this and overwrites `enabled` with the effective
+      // flag AND config value before passing to orchestrate.
+      gate: { ...GATE_DEFAULTS, enabled: gateEnabledCfg },
     },
-  }),
-}));
+    qdrant: { vectorSize: 8, onDisk: false },
+  });
+}
 
 // Stable-prefix lanes: the curated core loader and the frecency hot set are
 // stubbed to controllable values; `initLanes` owns the existence filtering and
@@ -336,6 +341,12 @@ mock.module("../../../../../util/platform.js", () => ({
     shadowMockActive
       ? "/tmp/shadow-test-workspace"
       : realPlatform.getWorkspaceDir(),
+  // The real loader resolves `config.json` via `getWorkspaceConfigPath` →
+  // `getWorkspaceDir`; the stubbed workspace dir above would divert it away
+  // from the per-test workspace `setConfig` seeds into. Pin the config path to
+  // the real workspace so seeded config actually flows to `getConfig()`.
+  getWorkspaceConfigPath: () =>
+    join(realPlatform.getWorkspaceDir(), "config.json"),
 }));
 
 // Capability stores: `renderCapabilityContent` (reached from `initLanes`' pageBody
@@ -431,7 +442,7 @@ mock.module("../orchestrate.js", () => ({
 
 // Import AFTER mocks so the plugin binds to them.
 const {
-  observeTurn,
+  observeTurn: observeTurnImpl,
   resetShadowLanesForTests,
   invalidateLanes,
   attributeSelections,
@@ -439,6 +450,14 @@ const {
 const { memoryV3Injector, resetMemoryV3InjectorStateForTests } =
   await import("../injector.js");
 const { MemoryV3RetrievalUnavailableError } = await import("../pool-select.js");
+
+/** Seed the real config from the current mutable knobs, then run the real
+ *  `observeTurn` — mirrors how each test sets its knobs immediately before
+ *  observing. */
+async function observeTurn(conversationId: string, turnIndex: number) {
+  seedMemoryConfig();
+  return observeTurnImpl(conversationId, turnIndex);
+}
 
 afterAll(() => {
   shadowMockActive = false;
@@ -490,6 +509,7 @@ beforeEach(() => {
  *  assembly's user-tail commit point, where the everInjected-store write now
  *  happens. */
 async function produce(conversationId: string, turnIndex: number) {
+  seedMemoryConfig();
   const block = await memoryV3Injector.produce({
     requestId: "r1",
     conversationId,

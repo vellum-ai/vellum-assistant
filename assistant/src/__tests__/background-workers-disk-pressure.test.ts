@@ -11,49 +11,6 @@ mock.module("../runtime/pre-first-message-gate.js", () => ({
 
 mock.module("../util/logger.js", () => createMockLoggerModule());
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    filing: {
-      enabled: true,
-      intervalMs: 60_000,
-      compactionEnabled: true,
-      compactionIntervalMs: 60_000,
-      activeHoursStart: null,
-      activeHoursEnd: null,
-    },
-    memory: {
-      enabled: true,
-      jobs: {
-        stalledJobTimeoutMs: 60_000,
-        slowLlmConcurrency: 1,
-        fastConcurrency: 1,
-        embedConcurrency: 1,
-      },
-      cleanup: {
-        enabled: true,
-        conversationRetentionDays: 30,
-        llmRequestLogRetentionMs: 60_000,
-      },
-      v2: {
-        enabled: false,
-        consolidation_interval_hours: 4,
-      },
-    },
-  }),
-  loadConfig: () => ({}),
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-  getConfigReadOnly: () => ({}),
-  applyNestedDefaults: (config: unknown) => config,
-  deepMergeOverwrite: (base: unknown) => base,
-  mergeDefaultWorkspaceConfig: () => {},
-  getNestedValue: () => undefined,
-  setNestedValue: () => {},
-  API_KEY_PROVIDERS: [],
-  _writeQuarantineNotice: () => {},
-  invalidateConfigCache: () => {},
-}));
-
 mock.module("../daemon/disk-pressure-background-gate.js", () => ({
   checkDiskPressureBackgroundGate: () => ({
     action: "skip",

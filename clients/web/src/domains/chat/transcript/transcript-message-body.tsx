@@ -18,6 +18,7 @@ import { ToolResultImages } from "@/domains/chat/components/chat-attachments/too
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
 import { toast } from "@vellumai/design-library";
 import { MessageHoverActions } from "@/domains/chat/components/message-hover-actions/message-hover-actions";
+import { MessageLongPressActions } from "@/domains/chat/components/message-hover-actions/message-long-press-actions";
 import { SubagentSpawnGroup } from "@/domains/chat/components/subagent-inline-progress-card/subagent-spawn-group";
 import { InlineProcessCardRow } from "@/domains/chat/process-registry/inline-process-card-row";
 import { WORKFLOW_DESCRIPTOR } from "@/domains/chat/process-registry/descriptors/workflow";
@@ -41,6 +42,7 @@ import { captureError } from "@/lib/sentry/capture-error";
 import { getExternalLinkUrl } from "@/domains/chat/types/types";
 import { wireSurfaceToDisplay } from "@/domains/chat/utils/map-runtime-message";
 import { isPointerCoarse } from "@/utils/pointer";
+import { useLongPress } from "@/hooks/use-long-press";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 import { useWorkflowStore } from "@/domains/chat/workflow-store";
 import { useAcpRunStore } from "@/domains/chat/acp-run-store";
@@ -63,6 +65,8 @@ import {
   type TranscriptMessageBodyProps,
   workflowRunIdForCall,
 } from "@/domains/chat/transcript/transcript-message-body-shared";
+import { workspaceFileContentGet } from "@/generated/daemon/sdk.gen";
+import { saveFile } from "@/runtime/native-file";
 
 /**
  * Word-fade cutoff for the streaming trailing text group. The fade wraps
@@ -159,6 +163,44 @@ export function TranscriptMessageBody({
   const [revealed, setRevealed] = useState(false);
   const slackMessageUrl = getExternalLinkUrl(message.slackMessage?.messageLink);
 
+  const isTouch = isPointerCoarse();
+  const [longPressOpen, setLongPressOpen] = useState(false);
+  const longPressFiredRef = useRef(false);
+
+  // Assistant messages own the long-press for quote-reply text selection
+  // (see resolve-assistant-selection.ts / useNativeQuoteReply). Suppressing the
+  // action sheet there — rather than racing it at the long-press threshold —
+  // keeps the two from competing: a long-press on assistant text selects it for
+  // Reply, and the sheet never opens. The sheet still arms on user/tool
+  // messages, which have no selection affordance.
+  const isAssistant = message.role === "assistant";
+  const longPressHandlers = useLongPress(
+    () => {
+      // Set the suppression flag so the compatibility click the browser emits
+      // on the following touchend (see handleBubbleClick) is swallowed rather
+      // than toggling the inline trailer / opening a Slack URL behind the sheet.
+      // The flag is cleared by that click, or — if the click is swallowed by
+      // native long-press handling or routed to the portaled sheet — when the
+      // sheet closes (handleLongPressOpenChange). It is deliberately NOT expired
+      // on a timer: a timer set from activation could fire before the compat
+      // click on a long hold, letting that click through as a real tap.
+      longPressFiredRef.current = true;
+      setLongPressOpen(true);
+    },
+    undefined,
+    { shouldSkip: () => isAssistant },
+  );
+
+  const handleLongPressOpenChange = useCallback((open: boolean) => {
+    setLongPressOpen(open);
+    // Once the sheet closes, the long-press interaction is over; clear the
+    // suppression flag so the next genuine tap on the message is honored even
+    // if the post-long-press compatibility click never reached this wrapper.
+    if (!open) {
+      longPressFiredRef.current = false;
+    }
+  }, []);
+
   useEffect(() => {
     if (!revealed) return;
     const onDocPointerDown = (e: PointerEvent) => {
@@ -177,6 +219,12 @@ export function TranscriptMessageBody({
 
   const handleBubbleClick = useCallback(
     (e: ReactMouseEvent<HTMLDivElement>) => {
+      // Suppress the click that follows a long-press activation so the
+      // inline trailer doesn't toggle open behind the BottomSheet.
+      if (longPressFiredRef.current) {
+        longPressFiredRef.current = false;
+        return;
+      }
       const target = e.target as Element | null;
       if (isInteractiveClickTarget(target)) {
         return;
@@ -324,6 +372,43 @@ export function TranscriptMessageBody({
         message.attachments?.find((a) => a.filename === rawBasename);
       if (att) {
         void downloadAttachment(att, assistantId);
+      } else if (href.startsWith("vellum://workspace/")) {
+        // Fallback for files not registered as message attachments — e.g.
+        // files linked only inside component/surface HTML. The daemon's
+        // cleanAssistantContent only extracts vellum:// links from assistant
+        // TEXT blocks, not from dynamic_page surface HTML, so a file cited
+        // only in a component never becomes an attachment. Fetch it by path
+        // from the workspace file content endpoint instead — the same route
+        // the workspace browser uses. Inlined here to avoid a cross-domain
+        // import (chat -> workspace).
+        const WORKSPACE_PREFIX = "vellum://workspace/";
+        let filePath = href.slice(WORKSPACE_PREFIX.length);
+        try {
+          filePath = decodeURIComponent(filePath);
+        } catch {
+          // Malformed percent-encoding — use the raw path.
+        }
+        const filename = resolveAttachmentFilename(
+          linkText || undefined,
+          pathBasename,
+          "label",
+        );
+        void (async () => {
+          try {
+            const { data, error } = await workspaceFileContentGet({
+              path: { assistant_id: assistantId ?? "" },
+              query: { path: filePath },
+              parseAs: "blob",
+              throwOnError: false,
+            });
+            if (error || !(data instanceof Blob)) {
+              throw new Error("workspace file content fetch failed");
+            }
+            await saveFile(data, filename);
+          } catch {
+            toast.error("Failed to download file", { description: filename });
+          }
+        })();
       } else {
         const isHost = href.startsWith("vellum://host/");
         toast.error(
@@ -356,6 +441,7 @@ export function TranscriptMessageBody({
                     assistantId={assistantId}
                     assistantDisplayName={assistantDisplayName}
                     toolCalls={message.toolCalls}
+                    onVellumLinkClick={handleVellumLinkClick}
                   />
                 </div>
               );
@@ -516,6 +602,7 @@ export function TranscriptMessageBody({
         onOpenDocument={onOpenDocument}
         assistantId={assistantId}
         toolCalls={message.toolCalls}
+        onVellumLinkClick={handleVellumLinkClick}
       />
     </div>
   );
@@ -785,6 +872,10 @@ export function TranscriptMessageBody({
         data-message-id={message.id || undefined}
         data-message-role={message.role}
         onClick={handleBubbleClick}
+        onTouchStart={longPressHandlers.onTouchStart}
+        onTouchMove={longPressHandlers.onTouchMove}
+        onTouchEnd={longPressHandlers.onTouchEnd}
+        onTouchCancel={longPressHandlers.onTouchCancel}
         data-revealed={revealed}
         className={wrapperClass}
       >
@@ -792,6 +883,20 @@ export function TranscriptMessageBody({
           {renderUserContent(userItems)}
           {trailer}
         </div>
+        {isTouch && (
+          <div onClick={(e) => e.stopPropagation()}>
+            <MessageLongPressActions
+              message={message}
+              conversationId={conversationId}
+              openInSlackUrl={slackMessageUrl}
+              onFork={forkHandler}
+              onSummarizeUpToHere={summarizeHandler}
+              onInspect={inspectHandler}
+              open={longPressOpen}
+              onOpenChange={handleLongPressOpenChange}
+            />
+          </div>
+        )}
       </div>
     );
   }
@@ -803,6 +908,10 @@ export function TranscriptMessageBody({
       data-message-id={message.id || undefined}
       data-message-role={message.role}
       onClick={handleBubbleClick}
+      onTouchStart={longPressHandlers.onTouchStart}
+      onTouchMove={longPressHandlers.onTouchMove}
+      onTouchEnd={longPressHandlers.onTouchEnd}
+      onTouchCancel={longPressHandlers.onTouchCancel}
       data-revealed={revealed}
       className={wrapperClass}
     >
@@ -816,6 +925,20 @@ export function TranscriptMessageBody({
         )}
         {trailer}
       </div>
+      {isTouch && !isAssistant && (
+        <div onClick={(e) => e.stopPropagation()}>
+          <MessageLongPressActions
+            message={message}
+            conversationId={conversationId}
+            openInSlackUrl={slackMessageUrl}
+            onFork={forkHandler}
+            onSummarizeUpToHere={summarizeHandler}
+            onInspect={inspectHandler}
+            open={longPressOpen}
+            onOpenChange={handleLongPressOpenChange}
+          />
+        </div>
+      )}
     </div>
   );
 }

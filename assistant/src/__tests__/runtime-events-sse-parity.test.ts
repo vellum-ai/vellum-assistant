@@ -15,19 +15,7 @@
  *   - generation_handoff (terminal)
  *   - generation_cancelled (terminal)
  */
-import { beforeEach, describe, expect, mock, test } from "bun:test";
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-
-    model: "test",
-    provider: "test",
-    memory: { enabled: false },
-    rateLimit: { maxRequestsPerMinute: 0 },
-    secretDetection: { enabled: false },
-  }),
-}));
+import { beforeEach, describe, expect, test } from "bun:test";
 
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import { getOrCreateConversation } from "../persistence/conversation-key-store.js";

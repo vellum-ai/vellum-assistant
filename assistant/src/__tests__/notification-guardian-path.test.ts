@@ -14,16 +14,6 @@ import type { NotificationDeliveryResult } from "../notifications/types.js";
 // deleted and none of the functions it mocked (getActiveBinding, createBinding,
 // listActiveBindingsByAssistant) existed in the barrel.
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-
-    calls: {
-      userConsultTimeoutSeconds: 120,
-    },
-  }),
-}));
-
 const emitCalls: unknown[] = [];
 let mockConversationCreated: ConversationCreatedInfo | null = null;
 let mockEmitResult: {

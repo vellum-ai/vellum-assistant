@@ -1,16 +1,6 @@
 import { existsSync } from "node:fs";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-    model: "test",
-    provider: "test",
-    memory: { enabled: false },
-    rateLimit: { maxRequestsPerMinute: 0 },
-  }),
-}));
-
 // Stub out video thumbnail generation (requires ffmpeg)
 mock.module("../daemon/video-thumbnail.js", () => ({
   generateVideoThumbnail: () => Promise.resolve(null),

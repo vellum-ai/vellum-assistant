@@ -3,24 +3,19 @@
  * POSTs (lazy CREATE TABLE + JSONEachRow INSERT, null → '' sentinels,
  * assistant_id injected from credentials) and the config-gated factory.
  */
-import { afterEach, describe, expect, mock, test } from "bun:test";
-
-// Mutable config the factory reads via `getConfigReadOnly`.
-let currentConfig: unknown = { llmRequestLogs: { readSource: "local" } };
-mock.module("../config/loader.js", () => ({
-  getConfigReadOnly: () => currentConfig,
-}));
-
-afterEach(() => {
-  currentConfig = { llmRequestLogs: { readSource: "local" } };
-  resetClickHouseLlmRequestLogSinkForTests();
-});
+import { afterEach, describe, expect, test } from "bun:test";
 
 import {
   ClickHouseLlmRequestLogSink,
   getClickHouseLlmRequestLogSink,
   resetClickHouseLlmRequestLogSinkForTests,
 } from "../persistence/llm-request-log-sink-clickhouse.js";
+import { setConfig } from "./helpers/set-config.js";
+
+afterEach(() => {
+  setConfig("llmRequestLogs", { readSource: "local" });
+  resetClickHouseLlmRequestLogSinkForTests();
+});
 
 const DEFAULT_CONFIG = {
   database: "default",
@@ -176,35 +171,34 @@ describe("ClickHouseLlmRequestLogSink.insert", () => {
 
 describe("getClickHouseLlmRequestLogSink factory", () => {
   test("returns null when readSource is 'local'", () => {
-    currentConfig = { llmRequestLogs: { readSource: "local" } };
+    setConfig("llmRequestLogs", { readSource: "local" });
     expect(getClickHouseLlmRequestLogSink()).toBeNull();
   });
 
-  test("returns null when llmRequestLogs is absent", () => {
-    currentConfig = {};
+  test("returns null under the default config (readSource defaults to local)", () => {
     expect(getClickHouseLlmRequestLogSink()).toBeNull();
   });
 
   test("returns a sink when readSource is 'clickhouse'", () => {
-    currentConfig = {
-      llmRequestLogs: { readSource: "clickhouse", clickhouse: DEFAULT_CONFIG },
-    };
+    setConfig("llmRequestLogs", {
+      readSource: "clickhouse",
+      clickhouse: DEFAULT_CONFIG,
+    });
     expect(getClickHouseLlmRequestLogSink()).toBeInstanceOf(
       ClickHouseLlmRequestLogSink,
     );
   });
 
   test("re-instantiates when the clickhouse config changes", () => {
-    currentConfig = {
-      llmRequestLogs: { readSource: "clickhouse", clickhouse: DEFAULT_CONFIG },
-    };
+    setConfig("llmRequestLogs", {
+      readSource: "clickhouse",
+      clickhouse: DEFAULT_CONFIG,
+    });
     const first = getClickHouseLlmRequestLogSink();
-    currentConfig = {
-      llmRequestLogs: {
-        readSource: "clickhouse",
-        clickhouse: { ...DEFAULT_CONFIG, table: "other_logs" },
-      },
-    };
+    setConfig("llmRequestLogs", {
+      readSource: "clickhouse",
+      clickhouse: { ...DEFAULT_CONFIG, table: "other_logs" },
+    });
     const second = getClickHouseLlmRequestLogSink();
     expect(second).not.toBe(first);
   });

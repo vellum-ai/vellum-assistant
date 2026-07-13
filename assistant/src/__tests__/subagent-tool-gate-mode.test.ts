@@ -29,29 +29,6 @@ import type { ToolContext, ToolExecutionResult } from "../tools/types.js";
 // Module mocks (must precede the import of the module under test)
 // ---------------------------------------------------------------------------
 
-const baseConfig = {
-  tools: { exclude: [] as string[] },
-  timeouts: {
-    shellDefaultTimeoutSec: 120,
-    shellMaxTimeoutSec: 600,
-    permissionTimeoutSec: 300,
-    toolExecutionTimeoutSec: 600,
-  },
-  services: {},
-  llm: { profiles: { speedy: { label: "Speedy" } } },
-};
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => baseConfig,
-  getConfigReadOnly: () => baseConfig,
-  loadConfig: () => baseConfig,
-  invalidateConfigCache: () => {},
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-  getNestedValue: () => undefined,
-  setNestedValue: () => {},
-}));
-
 mock.module("../runtime/assistant-event-hub.js", () => ({
   broadcastMessage: mock(() => {}),
   assistantEventHub: { listClientsByCapability: () => [] },

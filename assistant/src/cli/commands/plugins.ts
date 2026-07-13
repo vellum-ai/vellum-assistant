@@ -11,6 +11,7 @@ import { createRequire } from "node:module";
 import type { Command } from "commander";
 
 import { yellow } from "../lib/cli-colors.js";
+import { applyCommandHelp, subcommand } from "../lib/cli-command-help.js";
 import { confirmPrompt } from "../lib/confirm-prompt.js";
 import type { PluginDiffResult } from "../lib/diff-plugin.js";
 import type {
@@ -29,9 +30,7 @@ import {
   parseGitHubPluginSpec,
 } from "../lib/parse-github-plugin-spec.js";
 import {
-  DEFAULT_PIN_HISTORY_LIMIT,
   DEFAULT_PLUGIN_REF,
-  DEFAULT_PLUGIN_UPGRADE_STRATEGY,
   PLUGIN_UPGRADE_STRATEGIES,
   type PluginUpgradeStrategy,
 } from "../lib/plugin-constants.js";
@@ -48,6 +47,7 @@ import {
 } from "../lib/toggle-plugin.js";
 import type { PluginUpgradeResult } from "../lib/upgrade-plugin.js";
 import { getCliLogger } from "../logger.js";
+import { pluginsHelp } from "./plugins.help.js";
 
 const loadModule = createRequire(import.meta.url);
 
@@ -104,10 +104,9 @@ const log = getCliLogger("plugins");
 
 export function registerPluginsCommand(program: Command): void {
   registerCommand(program, {
-    name: "plugins",
+    name: pluginsHelp.name,
     transport: "local",
-    description:
-      "List, search, install, and manage external plugins (`list` shows what is installed, `search` queries the marketplace)",
+    description: pluginsHelp.description,
     build: (plugins) => {
       // Materialize the `@vellumai/plugin-api` shim once for the whole command
       // group, before any subcommand action runs. A subcommand that resolves a
@@ -123,235 +122,147 @@ export function registerPluginsCommand(program: Command): void {
         await ensurePluginApiShim().catch(() => {});
       });
 
-      plugins.addHelpText(
-        "after",
-        `
-Examples:
-  $ assistant plugins install example
-  $ assistant plugins install example --force
-  $ assistant plugins install https://github.com/owner/repo
-  $ assistant plugins install https://github.com/owner/repo/tree/main/sub/path --name my-plugin
-  $ assistant plugins install example --ref my-feature-branch
-  $ assistant plugins versions example
-  $ assistant plugins versions example --json
-  $ assistant plugins install example --pin <sha> --force
-  $ assistant plugins list
-  $ assistant plugins list --json
-  $ assistant plugins list --all
-  $ assistant plugins list --all --json
-  $ assistant plugins inspect example
-  $ assistant plugins inspect example --json
-  $ assistant plugins diff example
-  $ assistant plugins diff example --json
-  $ assistant plugins upgrade example
-  $ assistant plugins upgrade example --dry-run
-  $ assistant plugins upgrade example --strategy ours
-  $ assistant plugins upgrade example --strategy theirs
-  $ assistant plugins upgrade example --strategy assistant
-  $ assistant plugins search example
-  $ assistant plugins search "^example"
-  $ assistant plugins search example --json
-  $ assistant plugins uninstall example
-  $ assistant plugins enable example
-  $ assistant plugins disable example`,
+      applyCommandHelp(plugins, pluginsHelp);
+
+      subcommand(plugins, "install").action(
+        async (
+          nameOrUrl: string,
+          opts: {
+            force?: boolean;
+            ref?: string;
+            pin?: string;
+            allowUnreviewed?: boolean;
+            name?: string;
+          },
+        ) => {
+          try {
+            const direct = looksLikeGitHubSpec(nameOrUrl);
+            // A plain marketplace install by name is platform-managed: the
+            // content flows through the platform install endpoint (which
+            // serves a verified `.tgz`), not a GitHub clone. The advanced
+            // pin/ref/allow-unreviewed selectors still resolve a specific
+            // reviewed revision through the marketplace-git path, and a
+            // GitHub URL installs directly (untrusted).
+            const usesMarketplaceGit =
+              !direct && Boolean(opts.pin || opts.ref || opts.allowUnreviewed);
+
+            let result;
+            let untrusted = false;
+            if (!direct && !usesMarketplaceGit) {
+              result = await libs.installPlatform.installPluginViaPlatform(
+                { name: nameOrUrl, force: opts.force },
+                { fetch: globalThis.fetch.bind(globalThis) },
+              );
+            } else {
+              const installOpts = direct
+                ? resolveDirectInstallOptions(nameOrUrl, opts)
+                : await resolveInstallOptions(nameOrUrl, opts);
+              if (installOpts === null) {
+                process.exitCode = 1;
+                return;
+              }
+              if (installOpts.directSource) {
+                printUntrustedPluginWarning(
+                  installOpts.name,
+                  installOpts.directSource,
+                );
+                untrusted = true;
+              }
+              result = await libs.installGitHub.installPlugin(installOpts, {
+                fetch: globalThis.fetch.bind(globalThis),
+              });
+            }
+            log.info(
+              {
+                name: result.name,
+                target: result.target,
+                fileCount: result.fileCount,
+                ref: result.ref,
+                commit: result.commit,
+                untrusted,
+              },
+              "external plugin installed",
+            );
+            const pinned = result.commit
+              ? ` at ${result.commit.slice(0, 7)}`
+              : "";
+            const label = untrusted ? "untrusted plugin" : "plugin";
+            console.log(
+              `Installed ${label} "${result.name}" (${result.fileCount} file${result.fileCount === 1 ? "" : "s"})${pinned} → ${result.target}`,
+            );
+          } catch (err) {
+            if (err instanceof libs.installGitHub.PluginAlreadyInstalledError) {
+              console.error(`${err.message}\nPass --force to overwrite.`);
+              process.exitCode = 1;
+              return;
+            }
+            if (err instanceof libs.installGitHub.PluginNotFoundError) {
+              console.error(err.message);
+              process.exitCode = 1;
+              return;
+            }
+            if (
+              err instanceof libs.installGitHub.InvalidPluginNameError ||
+              err instanceof libs.pinHistory.PluginPinHistoryError
+            ) {
+              console.error(err.message);
+              process.exitCode = 1;
+              return;
+            }
+            const message = err instanceof Error ? err.message : String(err);
+            console.error(`Plugin install failed: ${message}`);
+            process.exitCode = 1;
+          }
+        },
       );
 
-      plugins
-        .command("install <name-or-url>")
-        .description(
-          "Install a plugin by name from the Vellum platform (content is served as a verified tarball from the plugin's pinned commit), or directly from a GitHub URL (untrusted)",
-        )
-        .option("--force", "Overwrite an existing install")
-        .option(
-          "--ref <ref>",
-          `Marketplace manifest revision to read the pin from (default: ${DEFAULT_PLUGIN_REF}). Marketplace installs only — for a GitHub URL, put the ref in the URL (.../tree/<ref>/...)`,
-        )
-        .option(
-          "--pin <sha>",
-          "Install a specific reviewed marketplace pin (full commit SHA); run `plugins versions <name>` to list them. Marketplace installs only",
-        )
-        .option(
-          "--allow-unreviewed",
-          "With --pin, install a SHA that is not in the reviewed marketplace history (advanced; the curated adapter may not match). Marketplace installs only",
-        )
-        .option(
-          "--name <name>",
-          "Install directory name for a GitHub-URL install (default: derived from the repo or sub-path leaf). Ignored for marketplace installs",
-        )
-        .addHelpText(
-          "after",
-          `
-A GitHub URL (anything containing a slash) installs directly from that repo,
-bypassing the marketplace whitelist. Such a plugin is UNTRUSTED — it has not
-been reviewed and its hooks/tools run with full assistant access — so the
-install prints a warning. Use it for a plugin still under development that is
-not in the catalog yet. The ref comes from the URL's /tree/<ref>/ segment, or
-defaults to the repository's default branch.
-
-Examples:
-  $ assistant plugins install https://github.com/owner/repo
-  $ assistant plugins install https://github.com/owner/repo/tree/my-branch/path/to/plugin
-  $ assistant plugins install owner/repo --name my-plugin --force`,
-        )
-        .action(
-          async (
-            nameOrUrl: string,
-            opts: {
-              force?: boolean;
-              ref?: string;
-              pin?: string;
-              allowUnreviewed?: boolean;
-              name?: string;
-            },
-          ) => {
-            try {
-              const direct = looksLikeGitHubSpec(nameOrUrl);
-              // A plain marketplace install by name is platform-managed: the
-              // content flows through the platform install endpoint (which
-              // serves a verified `.tgz`), not a GitHub clone. The advanced
-              // pin/ref/allow-unreviewed selectors still resolve a specific
-              // reviewed revision through the marketplace-git path, and a
-              // GitHub URL installs directly (untrusted).
-              const usesMarketplaceGit =
-                !direct &&
-                Boolean(opts.pin || opts.ref || opts.allowUnreviewed);
-
-              let result;
-              let untrusted = false;
-              if (!direct && !usesMarketplaceGit) {
-                result = await libs.installPlatform.installPluginViaPlatform(
-                  { name: nameOrUrl, force: opts.force },
-                  { fetch: globalThis.fetch.bind(globalThis) },
-                );
-              } else {
-                const installOpts = direct
-                  ? resolveDirectInstallOptions(nameOrUrl, opts)
-                  : await resolveInstallOptions(nameOrUrl, opts);
-                if (installOpts === null) {
-                  process.exitCode = 1;
-                  return;
-                }
-                if (installOpts.directSource) {
-                  printUntrustedPluginWarning(
-                    installOpts.name,
-                    installOpts.directSource,
-                  );
-                  untrusted = true;
-                }
-                result = await libs.installGitHub.installPlugin(installOpts, {
-                  fetch: globalThis.fetch.bind(globalThis),
-                });
-              }
-              log.info(
-                {
-                  name: result.name,
-                  target: result.target,
-                  fileCount: result.fileCount,
-                  ref: result.ref,
-                  commit: result.commit,
-                  untrusted,
-                },
-                "external plugin installed",
-              );
-              const pinned = result.commit
-                ? ` at ${result.commit.slice(0, 7)}`
-                : "";
-              const label = untrusted ? "untrusted plugin" : "plugin";
-              console.log(
-                `Installed ${label} "${result.name}" (${result.fileCount} file${result.fileCount === 1 ? "" : "s"})${pinned} → ${result.target}`,
-              );
-            } catch (err) {
-              if (
-                err instanceof libs.installGitHub.PluginAlreadyInstalledError
-              ) {
-                console.error(`${err.message}\nPass --force to overwrite.`);
-                process.exitCode = 1;
-                return;
-              }
-              if (err instanceof libs.installGitHub.PluginNotFoundError) {
-                console.error(err.message);
-                process.exitCode = 1;
-                return;
-              }
-              if (
-                err instanceof libs.installGitHub.InvalidPluginNameError ||
-                err instanceof libs.pinHistory.PluginPinHistoryError
-              ) {
-                console.error(err.message);
-                process.exitCode = 1;
-                return;
-              }
-              const message = err instanceof Error ? err.message : String(err);
-              console.error(`Plugin install failed: ${message}`);
+      subcommand(plugins, "versions").action(
+        async (name: string, opts: { json?: boolean; limit?: string }) => {
+          let limit: number | undefined;
+          if (opts.limit !== undefined) {
+            limit = Number.parseInt(opts.limit, 10);
+            if (!Number.isInteger(limit) || limit < 1) {
+              console.error("--limit must be a positive integer.");
               process.exitCode = 1;
+              return;
             }
-          },
-        );
+          }
+          try {
+            const history = await libs.pinHistory.listPinHistory(
+              name,
+              { fetch: globalThis.fetch.bind(globalThis) },
+              limit !== undefined ? { limit } : {},
+            );
 
-      plugins
-        .command("versions <name>")
-        .description(
-          "List the recent reviewed marketplace pins for a plugin, newest first. Install an older one with `plugins install <name> --pin <sha>`",
-        )
-        .option("--json", "Emit machine-readable JSON instead of a table")
-        .option(
-          "--limit <n>",
-          `Maximum number of pins to show (default: ${DEFAULT_PIN_HISTORY_LIMIT})`,
-        )
-        .action(
-          async (name: string, opts: { json?: boolean; limit?: string }) => {
-            let limit: number | undefined;
-            if (opts.limit !== undefined) {
-              limit = Number.parseInt(opts.limit, 10);
-              if (!Number.isInteger(limit) || limit < 1) {
-                console.error("--limit must be a positive integer.");
-                process.exitCode = 1;
-                return;
-              }
+            if (opts.json) {
+              process.stdout.write(JSON.stringify(history, null, 2) + "\n");
+              return;
             }
-            try {
-              const history = await libs.pinHistory.listPinHistory(
-                name,
-                { fetch: globalThis.fetch.bind(globalThis) },
-                limit !== undefined ? { limit } : {},
-              );
 
-              if (opts.json) {
-                process.stdout.write(JSON.stringify(history, null, 2) + "\n");
-                return;
-              }
-
-              // Logged after the JSON early-return so the logger's stdout
-              // writes never corrupt --json output.
-              log.info({ name, count: history.length }, "plugin versions");
-              for (const line of formatVersions(name, history)) {
-                console.log(line);
-              }
-            } catch (err) {
-              if (
-                err instanceof libs.installGitHub.InvalidPluginNameError ||
-                err instanceof libs.pinHistory.PluginPinHistoryError
-              ) {
-                console.error(err.message);
-                process.exitCode = 1;
-                return;
-              }
-              const message = err instanceof Error ? err.message : String(err);
-              console.error(`Plugin versions failed: ${message}`);
+            // Logged after the JSON early-return so the logger's stdout
+            // writes never corrupt --json output.
+            log.info({ name, count: history.length }, "plugin versions");
+            for (const line of formatVersions(name, history)) {
+              console.log(line);
+            }
+          } catch (err) {
+            if (
+              err instanceof libs.installGitHub.InvalidPluginNameError ||
+              err instanceof libs.pinHistory.PluginPinHistoryError
+            ) {
+              console.error(err.message);
               process.exitCode = 1;
+              return;
             }
-          },
-        );
+            const message = err instanceof Error ? err.message : String(err);
+            console.error(`Plugin versions failed: ${message}`);
+            process.exitCode = 1;
+          }
+        },
+      );
 
-      plugins
-        .command("list")
-        .description("List plugins installed in your workspace.")
-        .option("--json", "Emit machine-readable JSON instead of a table")
-        .option(
-          "--all",
-          "Include first-party default plugins and disabled plugins in the listing",
-        )
-        .action((opts: { json?: boolean; all?: boolean }) => {
+      subcommand(plugins, "list").action(
+        (opts: { json?: boolean; all?: boolean }) => {
           if (opts.all) {
             const all = libs.installed.listAllPlugins();
 
@@ -429,15 +340,11 @@ Examples:
           console.log(
             `${installed.length} plugin${installed.length === 1 ? "" : "s"} installed.`,
           );
-        });
+        },
+      );
 
-      plugins
-        .command("inspect <name>")
-        .description(
-          "Show a plugin's local install metadata, the marketplace pin, whether an update is available, and the surfaces (skills, hooks, tools) it contributes",
-        )
-        .option("--json", "Emit machine-readable JSON instead of a summary")
-        .action(async (name: string, opts: { json?: boolean }) => {
+      subcommand(plugins, "inspect").action(
+        async (name: string, opts: { json?: boolean }) => {
           try {
             const inspection = await libs.inspect.inspectPlugin(
               { name },
@@ -478,34 +385,11 @@ Examples:
             console.error(`Plugin inspect failed: ${message}`);
             process.exitCode = 1;
           }
-        });
+        },
+      );
 
-      plugins
-        .command("diff <name>")
-        .description(
-          "Show a unified diff of local edits to an installed plugin against the commit it was installed at",
-        )
-        .option(
-          "--json",
-          "Emit the machine-readable diff result as JSON (files: { path, status, diff, binary, reconstructed }[]) instead of a unified diff",
-        )
-        .addHelpText(
-          "after",
-          `
-Arguments:
-  name   Install name (kebab-case directory under the workspace plugins dir);
-         run 'assistant plugins list' to see installed names.
-
-The baseline is the exact commit the plugin was installed at (recorded in its
-install-meta.json), re-materialized through the install pipeline — so an
-install-time adapter transform never reads as a local change. To compare
-against the marketplace's current pin instead, use 'plugins upgrade --dry-run'.
-
-Examples:
-  $ assistant plugins diff example
-  $ assistant plugins diff example --json`,
-        )
-        .action(async (name: string, opts: { json?: boolean }) => {
+      subcommand(plugins, "diff").action(
+        async (name: string, opts: { json?: boolean }) => {
           try {
             const result = await libs.diff.diffPlugin(
               { name },
@@ -545,15 +429,11 @@ Examples:
             console.error(`Plugin diff failed: ${message}`);
             process.exitCode = 1;
           }
-        });
+        },
+      );
 
-      plugins
-        .command("search <query>")
-        .description(
-          "Search the plugins/marketplace.json catalog for plugin names matching <query> (case-insensitive regex)",
-        )
-        .option("--json", "Emit machine-readable JSON instead of a table")
-        .action(async (query: string, opts: { json?: boolean }) => {
+      subcommand(plugins, "search").action(
+        async (query: string, opts: { json?: boolean }) => {
           try {
             const result = await libs.search.searchPlugins(
               { query },
@@ -604,65 +484,26 @@ Examples:
             console.error(`Plugin search failed: ${message}`);
             process.exitCode = 1;
           }
-        });
+        },
+      );
 
-      plugins
-        .command("publish")
-        .description(
-          "Validate and submit the plugin in the current directory to the Vellum marketplace catalog",
-        )
-        .option(
-          "--print",
-          "Print the entry JSON without submitting to the platform",
-        )
-        .option(
-          "--path <dir>",
-          "Validate a plugin at the given path instead of CWD",
-        )
-        .option("--force", "Skip the confirmation prompt")
-        .option("--json", "Emit machine-readable JSON instead of human output")
-        .option(
-          "--category <cat>",
-          "Set the category, skipping the interactive prompt",
-        )
-        .addHelpText(
-          "after",
-          `
+      subcommand(plugins, "publish").action(
+        async (opts: {
+          print?: boolean;
+          path?: string;
+          force?: boolean;
+          json?: boolean;
+          category?: string;
+        }) => {
+          const ok = await runPublish(opts, { confirmPrompt });
+          if (!ok) {
+            process.exitCode = 1;
+          }
+        },
+      );
 
-Validates the plugin in the current directory (or --path), resolves the
-git commit SHA and GitHub remote, and submits the entry to the Vellum
-platform API. The platform creates a pull request against
-vellum-ai/vellum-assistant adding the plugin to the marketplace catalog.
-
-Requires a connected Vellum platform account (run \`assistant platform connect\`).
-Use --print to validate and print the entry without submitting.
-
-Examples:
-$ assistant plugins publish
-$ assistant plugins publish --print
-$ assistant plugins publish --path ./my-plugin --category productivity
-$ assistant plugins publish --json`,
-        )
-        .action(
-          async (opts: {
-            print?: boolean;
-            path?: string;
-            force?: boolean;
-            json?: boolean;
-            category?: string;
-          }) => {
-            const ok = await runPublish(opts, { confirmPrompt });
-            if (!ok) {
-              process.exitCode = 1;
-            }
-          },
-        );
-
-      plugins
-        .command("uninstall <name>")
-        .description("Remove a plugin from <workspaceDir>/plugins/<name>/")
-        .option("--force", "Skip the confirmation prompt")
-        .action(async (name: string, opts: { force?: boolean }) => {
+      subcommand(plugins, "uninstall").action(
+        async (name: string, opts: { force?: boolean }) => {
           try {
             if (!opts.force) {
               const result = await confirmPrompt({
@@ -702,138 +543,113 @@ $ assistant plugins publish --json`,
             console.error(`Plugin uninstall failed: ${message}`);
             process.exitCode = 1;
           }
-        });
+        },
+      );
 
-      plugins
-        .command("disable <name>")
-        .description(
-          "Disable a plugin by creating a .disabled sentinel file. Works for both user-installed and default plugins. Takes effect immediately in a running assistant.",
-        )
-        .action((name: string) => {
+      subcommand(plugins, "disable").action((name: string) => {
+        try {
+          const result = disablePlugin(name);
+          log.info({ name: result.name }, "plugin disabled");
+          console.log(`Disabled plugin "${result.name}".`);
+        } catch (err) {
+          if (
+            err instanceof PluginAlreadyInStateException ||
+            err instanceof ToggleInvalidPluginNameError ||
+            err instanceof PluginDirectoryNotFoundError
+          ) {
+            console.error(err.message);
+            process.exitCode = 1;
+            return;
+          }
+          const message = err instanceof Error ? err.message : String(err);
+          console.error(`Plugin disable failed: ${message}`);
+          process.exitCode = 1;
+        }
+      });
+
+      subcommand(plugins, "enable").action((name: string) => {
+        try {
+          const result = enablePlugin(name);
+          log.info({ name: result.name }, "plugin enabled");
+          console.log(`Enabled plugin "${result.name}".`);
+        } catch (err) {
+          if (
+            err instanceof PluginAlreadyInStateException ||
+            err instanceof ToggleInvalidPluginNameError
+          ) {
+            console.error(err.message);
+            process.exitCode = 1;
+            return;
+          }
+          const message = err instanceof Error ? err.message : String(err);
+          console.error(`Plugin enable failed: ${message}`);
+          process.exitCode = 1;
+        }
+      });
+
+      subcommand(plugins, "upgrade").action(
+        async (
+          name: string,
+          opts: { dryRun?: boolean; strategy?: string; json?: boolean },
+        ) => {
+          const strategy = opts.strategy;
+          if (
+            strategy !== undefined &&
+            !(PLUGIN_UPGRADE_STRATEGIES as readonly string[]).includes(strategy)
+          ) {
+            console.error(
+              `Invalid --strategy "${strategy}". Expected one of: ${PLUGIN_UPGRADE_STRATEGIES.join(", ")}.`,
+            );
+            process.exitCode = 1;
+            return;
+          }
           try {
-            const result = disablePlugin(name);
-            log.info({ name: result.name }, "plugin disabled");
-            console.log(`Disabled plugin "${result.name}".`);
+            const result = await libs.upgrade.upgradePlugin(
+              {
+                name,
+                dryRun: opts.dryRun,
+                strategy: strategy as PluginUpgradeStrategy | undefined,
+              },
+              { fetch: globalThis.fetch.bind(globalThis) },
+            );
+
+            if (opts.json) {
+              process.stdout.write(JSON.stringify(result, null, 2) + "\n");
+              return;
+            }
+
+            // Logged after the JSON early-return: the CLI logger writes
+            // info to stdout, which would otherwise corrupt --json output.
+            log.info(
+              {
+                name: result.name,
+                outcome: result.outcome,
+                from: result.fromCommit,
+                to: result.toCommit,
+              },
+              "plugin upgrade",
+            );
+
+            for (const line of formatUpgrade(result)) {
+              console.log(line);
+            }
           } catch (err) {
             if (
-              err instanceof PluginAlreadyInStateException ||
-              err instanceof ToggleInvalidPluginNameError ||
-              err instanceof PluginDirectoryNotFoundError
+              err instanceof libs.uninstall.PluginNotInstalledError ||
+              err instanceof libs.upgrade.PluginNotUpgradableError ||
+              err instanceof libs.upgrade.PluginMergeBaselineError ||
+              err instanceof libs.installGitHub.InvalidPluginNameError
             ) {
               console.error(err.message);
               process.exitCode = 1;
               return;
             }
             const message = err instanceof Error ? err.message : String(err);
-            console.error(`Plugin disable failed: ${message}`);
+            console.error(`Plugin upgrade failed: ${message}`);
             process.exitCode = 1;
           }
-        });
-
-      plugins
-        .command("enable <name>")
-        .description(
-          "Re-enable a disabled plugin by removing the .disabled sentinel file. Takes effect immediately.",
-        )
-        .action((name: string) => {
-          try {
-            const result = enablePlugin(name);
-            log.info({ name: result.name }, "plugin enabled");
-            console.log(`Enabled plugin "${result.name}".`);
-          } catch (err) {
-            if (
-              err instanceof PluginAlreadyInStateException ||
-              err instanceof ToggleInvalidPluginNameError
-            ) {
-              console.error(err.message);
-              process.exitCode = 1;
-              return;
-            }
-            const message = err instanceof Error ? err.message : String(err);
-            console.error(`Plugin enable failed: ${message}`);
-            process.exitCode = 1;
-          }
-        });
-
-      plugins
-        .command("upgrade <name>")
-        .description(
-          "Upgrade an installed plugin to the marketplace's current pin",
-        )
-        .option(
-          "--dry-run",
-          "Show what would change without modifying the install",
-        )
-        .option(
-          "--strategy <strategy>",
-          `How to reconcile local edits with the pin: ${PLUGIN_UPGRADE_STRATEGIES.join(", ")} (default: ${DEFAULT_PLUGIN_UPGRADE_STRATEGY})`,
-        )
-        .option("--json", "Emit machine-readable JSON instead of a summary")
-        .action(
-          async (
-            name: string,
-            opts: { dryRun?: boolean; strategy?: string; json?: boolean },
-          ) => {
-            const strategy = opts.strategy;
-            if (
-              strategy !== undefined &&
-              !(PLUGIN_UPGRADE_STRATEGIES as readonly string[]).includes(
-                strategy,
-              )
-            ) {
-              console.error(
-                `Invalid --strategy "${strategy}". Expected one of: ${PLUGIN_UPGRADE_STRATEGIES.join(", ")}.`,
-              );
-              process.exitCode = 1;
-              return;
-            }
-            try {
-              const result = await libs.upgrade.upgradePlugin(
-                {
-                  name,
-                  dryRun: opts.dryRun,
-                  strategy: strategy as PluginUpgradeStrategy | undefined,
-                },
-                { fetch: globalThis.fetch.bind(globalThis) },
-              );
-
-              if (opts.json) {
-                process.stdout.write(JSON.stringify(result, null, 2) + "\n");
-                return;
-              }
-
-              // Logged after the JSON early-return: the CLI logger writes
-              // info to stdout, which would otherwise corrupt --json output.
-              log.info(
-                {
-                  name: result.name,
-                  outcome: result.outcome,
-                  from: result.fromCommit,
-                  to: result.toCommit,
-                },
-                "plugin upgrade",
-              );
-
-              for (const line of formatUpgrade(result)) {
-                console.log(line);
-              }
-            } catch (err) {
-              if (
-                err instanceof libs.uninstall.PluginNotInstalledError ||
-                err instanceof libs.upgrade.PluginNotUpgradableError ||
-                err instanceof libs.upgrade.PluginMergeBaselineError ||
-                err instanceof libs.installGitHub.InvalidPluginNameError
-              ) {
-                console.error(err.message);
-                process.exitCode = 1;
-                return;
-              }
-              const message = err instanceof Error ? err.message : String(err);
-              console.error(`Plugin upgrade failed: ${message}`);
-              process.exitCode = 1;
-            }
-          },
-        );
+        },
+      );
     },
   });
 }

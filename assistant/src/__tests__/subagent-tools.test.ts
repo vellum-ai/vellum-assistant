@@ -2,40 +2,25 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, mock, test } from "bun:test";
 
+import { setConfig } from "./helpers/set-config.js";
+
+// Seed the two non-catalog inference profiles these tests exercise: `disabled`
+// drives the "profile is disabled" spawn error, and `frontier` is the advisor
+// consult's default `advisorProfile`. The catalog profiles (balanced,
+// cost-optimized, quality-optimized) always resolve through the code catalog,
+// so they need no seeding.
+setConfig("llm", {
+  profiles: {
+    disabled: { status: "disabled" },
+    frontier: {},
+  },
+  advisorProfile: "frontier",
+});
+
 // Mock conversation-crud before importing tool executors that depend on it.
 let mockGetMessages: (
   conversationId: string,
 ) => Array<{ role: string; content: unknown }> | null = () => null;
-const mockProfiles = {
-  balanced: {},
-  "cost-optimized": {},
-  disabled: { status: "disabled" },
-  "quality-optimized": {},
-  frontier: {},
-};
-// The advisor consult defaults to `llm.advisorProfile`. Set here so the
-// advisor tests can assert the default and an explicit `inference_profile`
-// override against the same shared config.
-const mockAdvisorProfile = "frontier";
-mock.module("../config/loader.js", () => ({
-  getConfigReadOnly: () => ({
-    llm: { profiles: mockProfiles },
-  }),
-  getConfig: () => ({
-    llm: {
-      default: {
-        provider: "anthropic",
-        provider_connection: "anthropic-managed",
-        model: "claude-opus-4-7",
-      },
-      profiles: mockProfiles,
-      advisorProfile: mockAdvisorProfile,
-    },
-    rateLimit: { maxRequestsPerMinute: 0 },
-    tools: { exclude: [] },
-    memory: { enabled: true },
-  }),
-}));
 
 // Mock the conversation registry so the advisor consult can resolve a fake
 // parent conversation (snapshot messages + system prompt) without a live

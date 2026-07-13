@@ -5,37 +5,29 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import type { PostCompactContext } from "@vellumai/plugin-api";
 import { eq } from "drizzle-orm";
 
+import { setConfig } from "./helpers/set-config.js";
+
 // This test exercises v1 PKB injection. `config.memory.v2.enabled` (default
-// `true`) makes the PKB injector go silent — force it off here so the v1
-// injection chain assertions stay meaningful.
-const realLoaderForAssemblyTest = await import("../config/loader.js");
-const realGetConfigForAssemblyTest = realLoaderForAssemblyTest.getConfig;
+// `true`) makes the PKB injector go silent — seed it off in the real workspace
+// config so the v1 injection chain assertions stay meaningful. The Slack
+// suites below need a bot user id, and the timezone-resolution suite re-seeds
+// `ui` per test via `seedUiTimezones`.
+setConfig("memory", { v2: { enabled: false } });
+setConfig("slack", { botUserId: "U_BOT" });
+
+// Per-test overrides for `ui.userTimezone` / `ui.detectedTimezone` so the
+// config self-resolution inside `applyRuntimeInjections` can be exercised.
+function seedUiTimezones(ui: {
+  userTimezone?: string;
+  detectedTimezone?: string;
+}): void {
+  setConfig("ui", ui);
+}
+
 const realMemoryConfigForAssemblyTest =
   await import("../plugins/defaults/memory/config.js");
 const realGetMemoryConfigForAssemblyTest =
   realMemoryConfigForAssemblyTest.getMemoryConfig;
-// Per-test overrides for `ui.userTimezone` / `ui.detectedTimezone` so the
-// config self-resolution inside `applyRuntimeInjections` can be exercised.
-let assemblyConfiguredUserTimezone: string | null | undefined;
-let assemblyDetectedTimezone: string | null | undefined;
-mock.module("../config/loader.js", () => ({
-  ...realLoaderForAssemblyTest,
-  getConfig: () => {
-    const real = realGetConfigForAssemblyTest();
-    return {
-      ...real,
-      ui: {
-        ...real.ui,
-        userTimezone:
-          assemblyConfiguredUserTimezone ?? real.ui?.userTimezone ?? null,
-        detectedTimezone:
-          assemblyDetectedTimezone ?? real.ui?.detectedTimezone ?? null,
-      },
-      memory: { ...real.memory, v2: { ...real.memory.v2, enabled: false } },
-      slack: { ...real.slack, botUserId: "U_BOT" },
-    };
-  },
-}));
 
 // Memory code resolves its config through the plugin's own accessor, not
 // getConfig(); mirror the v2-disabled override there.
@@ -2290,8 +2282,7 @@ describe("applyRuntimeInjections with unifiedTurnContext", () => {
 
 describe("applyRuntimeInjections timezone resolution", () => {
   afterEach(() => {
-    assemblyConfiguredUserTimezone = undefined;
-    assemblyDetectedTimezone = undefined;
+    seedUiTimezones({});
     clearConversations();
   });
 
@@ -2335,10 +2326,11 @@ describe("applyRuntimeInjections timezone resolution", () => {
      * the device-timezone fallback used when the client reports none.
      */
     // GIVEN the guardian has configured a user timezone in config
-    assemblyConfiguredUserTimezone = "America/New_York";
-
     // AND a different server-detected timezone is configured
-    assemblyDetectedTimezone = "America/Los_Angeles";
+    seedUiTimezones({
+      userTimezone: "America/New_York",
+      detectedTimezone: "America/Los_Angeles",
+    });
 
     // AND the turn's frozen snapshot carries no client timezone (so the
     // detected timezone is the device-timezone fallback)
@@ -2362,8 +2354,10 @@ describe("applyRuntimeInjections timezone resolution", () => {
      * config-sourced detected-timezone fallback.
      */
     // GIVEN the configured user timezone and a detected fallback in config
-    assemblyConfiguredUserTimezone = "America/New_York";
-    assemblyDetectedTimezone = "America/Denver";
+    seedUiTimezones({
+      userTimezone: "America/New_York",
+      detectedTimezone: "America/Denver",
+    });
 
     // AND the turn's frozen snapshot carries a client timezone
     seedTemporalSnapshot("America/Los_Angeles");
@@ -2385,7 +2379,7 @@ describe("applyRuntimeInjections timezone resolution", () => {
      * configured user timezone matches the snapshot's client timezone.
      */
     // GIVEN the configured user timezone matches the client timezone
-    assemblyConfiguredUserTimezone = "America/New_York";
+    seedUiTimezones({ userTimezone: "America/New_York" });
 
     // AND the turn's frozen snapshot carries the matching client timezone
     seedTemporalSnapshot("America/New_York");

@@ -38,9 +38,13 @@ export interface SkillLoadedEvent {
  * opt-out, matching the rest of telemetry).
  */
 export function recordSkillLoadedEvent(record: SkillLoadedEventRecord): void {
-  if (!getCachedShareAnalytics()) return;
+  if (!getCachedShareAnalytics()) {
+    return;
+  }
   const db = getTelemetryDb();
-  if (!db) return;
+  if (!db) {
+    return;
+  }
   db.insert(skillLoadedEvents)
     .values({
       id: uuid(),
@@ -66,7 +70,9 @@ export function queryUnreportedSkillLoadedEvents(
   limit: number,
 ): SkillLoadedEvent[] {
   const db = getTelemetryDb();
-  if (!db) return [];
+  if (!db) {
+    return [];
+  }
   return db
     .select({
       id: skillLoadedEvents.id,

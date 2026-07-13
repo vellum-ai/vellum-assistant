@@ -5,18 +5,7 @@
  *   - subscribing with machineName set results in listClients() returning the name
  *   - subscribing without machineName results in listClients() returning undefined
  */
-import { describe, expect, mock, test } from "bun:test";
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-    model: "test",
-    provider: "test",
-    memory: { enabled: false },
-    rateLimit: { maxRequestsPerMinute: 0 },
-    secretDetection: { enabled: false },
-  }),
-}));
+import { describe, expect, test } from "bun:test";
 
 import { initializeDb } from "../persistence/db-init.js";
 import { AssistantEventHub } from "../runtime/assistant-event-hub.js";

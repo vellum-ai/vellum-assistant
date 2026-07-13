@@ -83,7 +83,7 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "Flush pending telemetry events",
     description:
-      "Force-flush all pending usage, turn, and lifecycle telemetry events to the platform.",
+      "Force-flush the telemetry events owned by the assistant process (turn events) to the platform. Other event types are flushed on their own cycle by the resource monitor process.",
     tags: ["telemetry"],
     responseBody: z.union([
       z.object({ flushed: z.literal(true) }),

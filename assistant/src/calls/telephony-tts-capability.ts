@@ -37,7 +37,8 @@ import { resolveTtsConfig } from "../tts/tts-config-resolver.js";
 export type TelephonyTtsNotPlayableReason =
   | "unsupported-format"
   | "missing-credentials"
-  | "missing-fish-audio-reference-id";
+  | "missing-fish-audio-reference-id"
+  | "missing-platform-connection";
 
 /**
  * Result of resolving whether a TTS provider is playable over the
@@ -108,6 +109,22 @@ export async function evaluateTelephonyTtsPlayability(
         status: "not-playable",
         providerId: entry.id,
         reason: "missing-credentials",
+      };
+    }
+  }
+
+  // The vellum secret alone doesn't prove usability: managed speech also
+  // needs the platform assistant identity, or synthesis fails before any
+  // request is made — with allowNativeFallback false, that would mean
+  // silent call failures instead of a BYOK fallback.
+  if (entry.id === "vellum") {
+    const { managedSpeechAvailable } =
+      await import("../platform/managed-speech.js");
+    if (!(await managedSpeechAvailable())) {
+      return {
+        status: "not-playable",
+        providerId: entry.id,
+        reason: "missing-platform-connection",
       };
     }
   }

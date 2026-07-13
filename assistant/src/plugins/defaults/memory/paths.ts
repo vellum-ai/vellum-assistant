@@ -11,8 +11,9 @@
  * plugin bootstrap exists. Centralizing the import keeps a future cutover —
  * a paths facet on the contract, or `InitContext`-provided roots — a
  * one-file change. `getMemoryWorkerPidPath` is the PID-file coordination
- * point shared with the host spawn/status paths (`persistence/worker-control`,
- * `runtime/routes/memory-worker-routes`), so it must stay host-defined.
+ * point shared between the memory worker process entry (`worker.ts`) and its
+ * control module (`worker-control.ts`), so it lives in host `util/platform`
+ * where both — and any out-of-process consumer — resolve the same path.
  */
 // A namespace import (not named imports) so tests that mock `util/platform`
 // with a subset of its exports don't fail this module's import link — each

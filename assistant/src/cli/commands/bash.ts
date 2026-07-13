@@ -1,10 +1,6 @@
 /**
  * `assistant bash` — run a shell command in the assistant's process
  * environment (debug tool, requires VELLUM_DEBUG=1 on the daemon).
- *
- * The command's help structure lives in `bash.help.ts` (import-safe for
- * the memory capability indexer); this module applies it and attaches the
- * action handler.
  */
 
 import type { Command } from "commander";

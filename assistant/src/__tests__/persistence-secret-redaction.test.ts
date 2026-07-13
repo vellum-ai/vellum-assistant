@@ -11,27 +11,6 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ── Shared mock plumbing (must precede module-under-test imports) ──────────
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    skills: {
-      entries: {},
-      load: { extraDirs: [], watch: true, watchDebounceMs: 250 },
-      install: { nodeManager: "npm" },
-      allowBundled: null,
-      remoteProviders: {
-        skillssh: { enabled: true },
-        clawhub: { enabled: true },
-      },
-      remotePolicy: {
-        blockSuspicious: true,
-        blockMalware: true,
-        maxSkillsShRisk: "medium",
-      },
-    },
-  }),
-  loadConfig: () => ({}),
-}));
-
 interface AddMessageCall {
   id: string;
   conversationId: string;
@@ -60,6 +39,13 @@ mock.module("../persistence/conversation-crud.js", () => ({
     // Mirror updateContent into the same capture array so existing
     // `lastPersisted("assistant")` assertions continue to find the row that
     // was reserved at `llm_call_started` time.
+    const call = addMessageCalls.find((c) => c.id === messageId);
+    if (call) call.content = content;
+  },
+  markMessageContentInflight: () => {},
+  finalizeMessageContent: (messageId: string, content: string) => {
+    // The finalize seam writes through `finalizeMessageContent`; mirror it
+    // into the same capture array as `updateMessageContent`.
     const call = addMessageCalls.find((c) => c.id === messageId);
     if (call) call.content = content;
   },

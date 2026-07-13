@@ -4,8 +4,6 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 // Mock state. Reset between tests.
 // ---------------------------------------------------------------------------
 
-let newMessages: Array<{ id: string; createdAt: number }> = [];
-
 let addMessageCalls: Array<{
   conversationId: string;
   role: string;
@@ -37,17 +35,9 @@ type ConversationStub = {
 } | null;
 let conversationOverrides: Record<string, ConversationStub> = {};
 
-type StubMessage = {
-  role: string;
-  content: string;
-  createdAt: number;
-  metadata: string | null;
-};
-let messagesByConversationId: Record<string, StubMessage[]> = {};
-
 mock.module("../../../../persistence/conversation-crud.js", () => ({
-  getMessagesAfter: (_id: string, _afterId: string | null) => newMessages,
-  getMessages: (id: string) => messagesByConversationId[id] ?? [],
+  getMessagesAfter: (_id: string, _afterId: string | null) => [],
+  getMessages: (_id: string) => [],
   getConversation: (id: string) => {
     if (id in conversationOverrides) {
       return conversationOverrides[id] ?? undefined;
@@ -119,45 +109,6 @@ mock.module("../../../../runtime/sync/resource-sync-events.js", () => ({
   },
 }));
 
-let mockProcToSkillsActive = false;
-mock.module("../../../../config/memory-v3-gate.js", () => ({
-  isProcToSkillsActive: () => mockProcToSkillsActive,
-  isMemoryV3Live: () => mockProcToSkillsActive,
-}));
-
-mock.module("../memory-retrospective-state.js", () => ({
-  getRetrospectiveState: (_id: string) => null,
-  upsertRetrospectiveState: async (_args: unknown) => {},
-  bumpRetrospectiveLastRunAt: async (_id: string, _at: number) => {},
-  appendToRememberedLog: (existing: string[], newEntries: string[]) => [
-    ...existing,
-    ...newEntries,
-  ],
-}));
-
-mock.module("../find-most-recent-retrospective-for.js", () => ({
-  findMostRecentRetrospectiveFor: (_id: string) => null,
-}));
-
-mock.module("../../../../daemon/trust-context.js", () => ({
-  INTERNAL_GUARDIAN_TRUST_CONTEXT: { trustClass: "guardian" },
-}));
-
-mock.module("../../../../prompts/persona-resolver.js", () => ({
-  resolveUserSlug: (_trustContext: unknown) => "alice",
-}));
-
-// Optional hook run inside the wake mock, before it reports success. Lets a
-// test flip the source conversation to mid-turn DURING the retrospective run
-// (the real race: a user turn starts while the fork wake is in flight).
-let onWake: (() => void) | null = null;
-mock.module("../../../../runtime/agent-wake.js", () => ({
-  wakeAgentForOpportunity: async (_opts: unknown) => {
-    onWake?.();
-    return { invoked: true };
-  },
-}));
-
 // Deferred-insert job recorder (`upsertSkillCardInsertJob` is the coalescing
 // upsert the mid-turn branch and the handler's re-upsert both call).
 let skillCardJobUpserts: Array<{
@@ -176,9 +127,7 @@ mock.module("../../../../persistence/jobs-store.js", () => ({
 }));
 
 import type { MemoryJob } from "../../../../persistence/jobs-store.js";
-import { memoryRetrospectiveJob } from "../memory-retrospective-job.js";
 import {
-  extractRetrospectiveRunSkillScaffolds,
   insertSkillCardMessage,
   SKILL_CARD_INSERT_RETRY_DELAY_MS,
   skillCardInsertJob,
@@ -187,92 +136,6 @@ import {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-function scaffoldMsg(
-  toolUseId: string,
-  input: Record<string, unknown>,
-  opts: { createdAt?: number; metadata?: string | null } = {},
-): StubMessage {
-  return {
-    role: "assistant",
-    content: JSON.stringify([
-      {
-        type: "tool_use",
-        id: toolUseId,
-        name: "scaffold_managed_skill",
-        input,
-      },
-    ]),
-    createdAt: opts.createdAt ?? 2000,
-    metadata: opts.metadata ?? null,
-  };
-}
-
-function toolResultMsg(
-  toolUseId: string,
-  opts: {
-    isError?: boolean;
-    createdAt?: number;
-    metadata?: string | null;
-  } = {},
-): StubMessage {
-  return {
-    role: "user",
-    content: JSON.stringify([
-      {
-        type: "tool_result",
-        tool_use_id: toolUseId,
-        content: opts.isError ? "Error: scaffold failed" : "ok",
-        ...(opts.isError ? { is_error: true } : {}),
-      },
-    ]),
-    createdAt: opts.createdAt ?? 2001,
-    metadata: opts.metadata ?? null,
-  };
-}
-
-function skillInput(
-  id: string,
-  overrides: Record<string, unknown> = {},
-): Record<string, unknown> {
-  return {
-    skill_id: id,
-    name: `Skill ${id}`,
-    description: `Does ${id}`,
-    ...overrides,
-  };
-}
-
-function makeConfig(): Parameters<typeof memoryRetrospectiveJob>[1] {
-  return {
-    memory: {
-      v2: { enabled: true },
-      retrospective: {
-        keepSupersededRuns: false,
-        matchConversationProfile: false,
-      },
-    },
-    ui: {},
-  } as unknown as Parameters<typeof memoryRetrospectiveJob>[1];
-}
-
-function makeJob(conversationId = "src-conv-1"): MemoryJob<{
-  conversationId?: string;
-}> {
-  return {
-    id: "job-1",
-    type: "memory_retrospective",
-    payload: { conversationId },
-    status: "pending",
-    attempts: 0,
-    deferrals: 0,
-    runAfter: 0,
-    lastError: null,
-    startedAt: null,
-    createdAt: 0,
-    updatedAt: 0,
-  };
-}
 
 /** A claimed `skill_card_insert` job carrying the given payload. */
 function makeInsertJob(payload: Record<string, unknown>): MemoryJob {
@@ -291,41 +154,8 @@ function makeInsertJob(payload: Record<string, unknown>): MemoryJob {
   };
 }
 
-/** Card messages persisted to the given conversation (assistant role). */
-function cardMessagesFor(conversationId: string) {
-  return addMessageCalls.filter(
-    (c) => c.conversationId === conversationId && c.role === "assistant",
-  );
-}
-
-/**
- * Stage the job's own fork conversation ("fork-conv-1") as a fork-kind row
- * whose post-fork tail contains the given messages. A stamped copied-prefix
- * row establishes the fork boundary at createdAt 1000.
- */
-function stageForkTail(tailMessages: StubMessage[]): void {
-  conversationOverrides["fork-conv-1"] = {
-    source: "memory-retrospective-fork",
-    forkParentMessageId: null,
-  };
-  messagesByConversationId["fork-conv-1"] = [
-    {
-      role: "user",
-      content: JSON.stringify([{ type: "text", text: "hi" }]),
-      createdAt: 1000,
-      metadata: JSON.stringify({ forkSourceMessageId: "m-src-1" }),
-    },
-    ...tailMessages,
-  ];
-}
-
 describe("memory-retrospective skill card", () => {
   beforeEach(() => {
-    newMessages = [
-      { id: "m1", createdAt: Date.parse("2026-05-11T10:00:00Z") },
-      { id: "m2", createdAt: Date.parse("2026-05-11T10:05:00Z") },
-      { id: "m3", createdAt: Date.parse("2026-05-11T10:10:00Z") },
-    ];
     addMessageCalls = [];
     addMessageThrowsFor = null;
     addMessageDeduplicatesFor = null;
@@ -334,200 +164,7 @@ describe("memory-retrospective skill card", () => {
     syncedToDisk = [];
     publishedConversationIds = [];
     conversationOverrides = {};
-    messagesByConversationId = {};
-    mockProcToSkillsActive = false;
-    onWake = null;
     skillCardJobUpserts = [];
-  });
-
-  // -------------------------------------------------------------------------
-  // extractRetrospectiveRunSkillScaffolds
-  // -------------------------------------------------------------------------
-
-  test("extractor returns only successful, non-overwrite scaffolds", async () => {
-    conversationOverrides["retro-1"] = {
-      source: "memory-retrospective",
-      forkParentMessageId: null,
-    };
-    messagesByConversationId["retro-1"] = [
-      // Successful create — included.
-      scaffoldMsg("tu-1", skillInput("skill-a", { emoji: "🧭" }), {
-        createdAt: 2000,
-      }),
-      toolResultMsg("tu-1", { createdAt: 2001 }),
-      // Errored result — excluded.
-      scaffoldMsg("tu-2", skillInput("skill-b"), { createdAt: 2002 }),
-      toolResultMsg("tu-2", { isError: true, createdAt: 2003 }),
-      // Refinement (overwrite: true) — excluded even though it succeeded.
-      scaffoldMsg("tu-3", skillInput("skill-c", { overwrite: true }), {
-        createdAt: 2004,
-      }),
-      toolResultMsg("tu-3", { createdAt: 2005 }),
-      // No result at all (interrupted run) — excluded.
-      scaffoldMsg("tu-4", skillInput("skill-d"), { createdAt: 2006 }),
-      // A different tool — ignored.
-      {
-        role: "assistant",
-        content: JSON.stringify([
-          {
-            type: "tool_use",
-            id: "tu-5",
-            name: "remember",
-            input: { content: "a fact" },
-          },
-        ]),
-        createdAt: 2007,
-        metadata: null,
-      },
-      toolResultMsg("tu-5", { createdAt: 2008 }),
-    ];
-
-    const skills = await extractRetrospectiveRunSkillScaffolds("retro-1");
-
-    expect(skills).toEqual([
-      {
-        skillId: "skill-a",
-        name: "Skill skill-a",
-        description: "Does skill-a",
-        emoji: "🧭",
-      },
-    ]);
-  });
-
-  test("extractor resolves the run's source itself and scopes fork-kind runs to the post-fork tail", async () => {
-    // The fork-kind source comes from the conversation row (getConversation),
-    // not a caller-supplied parameter — tail scoping proves it was read.
-    conversationOverrides["retro-fork-1"] = {
-      source: "memory-retrospective-fork",
-      forkParentMessageId: null,
-    };
-    messagesByConversationId["retro-fork-1"] = [
-      // Copied prefix (stamped): a source-inline scaffold that must not leak
-      // into this run's card.
-      scaffoldMsg("tu-prefix", skillInput("prefix-skill"), {
-        createdAt: 1000,
-        metadata: JSON.stringify({ forkSourceMessageId: "m-src-1" }),
-      }),
-      toolResultMsg("tu-prefix", {
-        createdAt: 1100,
-        metadata: JSON.stringify({ forkSourceMessageId: "m-src-2" }),
-      }),
-      // Post-fork tail: this run's own scaffold.
-      scaffoldMsg("tu-tail", skillInput("tail-skill"), { createdAt: 2000 }),
-      toolResultMsg("tu-tail", { createdAt: 2100 }),
-    ];
-
-    const skills = await extractRetrospectiveRunSkillScaffolds("retro-fork-1");
-
-    expect(skills.map((s) => s.skillId)).toEqual(["tail-skill"]);
-  });
-
-  test("extractor attributes every row to a fork-kind run with an empty copied prefix", async () => {
-    // No stamps, and the conversation opens with the run's own instruction
-    // row: the copied prefix is empty, so the scaffold is the run's work.
-    conversationOverrides["retro-fork-2"] = {
-      source: "memory-retrospective-fork",
-      forkParentMessageId: null,
-    };
-    messagesByConversationId["retro-fork-2"] = [
-      {
-        role: "user",
-        content: JSON.stringify([{ type: "text", text: "review the above" }]),
-        createdAt: 900,
-        metadata: JSON.stringify({
-          kind: "memory_retrospective_instruction",
-          hidden: true,
-        }),
-      },
-      scaffoldMsg("tu-1", skillInput("skill-a"), { createdAt: 1000 }),
-      toolResultMsg("tu-1", { createdAt: 1100 }),
-    ];
-
-    const skills = await extractRetrospectiveRunSkillScaffolds("retro-fork-2");
-
-    expect(skills.map((s) => s.skillId)).toEqual(["skill-a"]);
-  });
-
-  test("extractor degrades to empty for a stampless fork-kind run without a leading instruction row", async () => {
-    // Indeterminate shape (copied rows whose metadata lost its stamps):
-    // attributing it would surface source-authored scaffolds as run work.
-    conversationOverrides["retro-fork-3"] = {
-      source: "memory-retrospective-fork",
-      forkParentMessageId: null,
-    };
-    messagesByConversationId["retro-fork-3"] = [
-      scaffoldMsg("tu-1", skillInput("skill-a"), { createdAt: 1000 }),
-      toolResultMsg("tu-1", { createdAt: 1100 }),
-    ];
-
-    const skills = await extractRetrospectiveRunSkillScaffolds("retro-fork-3");
-
-    expect(skills).toEqual([]);
-  });
-
-  test("extractor normalizes padded/newline-carrying inputs to the persisted values", async () => {
-    // `executeScaffoldManagedSkill` trims skill_id (and newline-collapses +
-    // trims name/description/emoji) before persisting: a padded " my-skill "
-    // input creates skill `my-skill`, so a card built from the raw input
-    // would link an id that does not exist.
-    conversationOverrides["retro-2"] = {
-      source: "memory-retrospective",
-      forkParentMessageId: null,
-    };
-    messagesByConversationId["retro-2"] = [
-      scaffoldMsg(
-        "tu-1",
-        {
-          skill_id: " my-skill ",
-          name: "  My\nSkill  ",
-          description: " Does\r\nthings ",
-          emoji: " 🧭 ",
-        },
-        { createdAt: 2000 },
-      ),
-      toolResultMsg("tu-1", { createdAt: 2001 }),
-    ];
-
-    const skills = await extractRetrospectiveRunSkillScaffolds("retro-2");
-
-    expect(skills).toEqual([
-      {
-        skillId: "my-skill",
-        name: "My Skill",
-        description: "Does things",
-        emoji: "🧭",
-      },
-    ]);
-  });
-
-  test("extractor drops an emoji that is whitespace-only after normalization", async () => {
-    conversationOverrides["retro-3"] = {
-      source: "memory-retrospective",
-      forkParentMessageId: null,
-    };
-    messagesByConversationId["retro-3"] = [
-      scaffoldMsg(
-        "tu-1",
-        {
-          skill_id: "skill-a",
-          name: "Skill A",
-          description: "Does A",
-          emoji: " \n ",
-        },
-        { createdAt: 2000 },
-      ),
-      toolResultMsg("tu-1", { createdAt: 2001 }),
-    ];
-
-    const skills = await extractRetrospectiveRunSkillScaffolds("retro-3");
-
-    expect(skills).toHaveLength(1);
-    expect(skills[0]).toEqual({
-      skillId: "skill-a",
-      name: "Skill A",
-      description: "Does A",
-    });
-    expect("emoji" in skills[0]!).toBe(false);
   });
 
   // -------------------------------------------------------------------------
@@ -644,7 +281,7 @@ describe("memory-retrospective skill card", () => {
 
     await insertSkillCardMessage("src-conv-9", "run-conv-1", skills);
     await insertSkillCardMessage("src-conv-9", "run-conv-2", skills);
-    // Retried finalize of run 1: same clientMessageId → persistence dedups.
+    // Retried delivery of run 1: same clientMessageId → persistence dedups.
     await insertSkillCardMessage("src-conv-9", "run-conv-1", skills);
 
     // Multiple cards over a conversation's life are expected — one per
@@ -666,7 +303,7 @@ describe("memory-retrospective skill card", () => {
     expect(publishedConversationIds).toEqual(["src-conv-9", "src-conv-9"]);
   });
 
-  test("deduplicated insert (retried finalize) skips disk sync and publish", async () => {
+  test("deduplicated insert (retried delivery) skips disk sync and publish", async () => {
     addMessageDeduplicatesFor = "src-conv-9";
 
     await insertSkillCardMessage("src-conv-9", "run-conv-1", [
@@ -692,7 +329,7 @@ describe("memory-retrospective skill card", () => {
   });
 
   // -------------------------------------------------------------------------
-  // skillCardInsertJob (deferred delivery handler)
+  // skillCardInsertJob (delivery handler)
   // -------------------------------------------------------------------------
 
   function insertJobPayload(): Record<string, unknown> {
@@ -751,6 +388,106 @@ describe("memory-retrospective skill card", () => {
     expect(skillCardJobUpserts).toHaveLength(0);
   });
 
+  test("multi-skill run: A's job defers mid-run, B merges, the post-run attempt delivers ONE card with both skills", async () => {
+    // The creation-site sequence end to end. Skill A's enqueue fires DURING
+    // the fork run (the source is idle between turns), so the worker can
+    // claim it before skill B's enqueue lands — delivering there would let
+    // B's job dedup against the inserted message and vanish. The handler
+    // must defer while the run is processing; B then merges into the
+    // re-upserted pending row (the jobs-store coalesce is covered by
+    // jobs-store-skill-card-upsert.test.ts), and the post-run attempt
+    // renders every skill in a single ui_surface block.
+    processingConversationIds = ["run-conv-1"];
+    const skillA = {
+      skillId: "skill-a",
+      name: "Skill A",
+      description: "Does A",
+    };
+    const skillB = {
+      skillId: "skill-b",
+      name: "Skill B",
+      description: "Does B",
+    };
+
+    // Skill A's job is claimed mid-run: no insert, deferral re-upserted.
+    await skillCardInsertJob(
+      makeInsertJob({
+        sourceConversationId: "src-conv-9",
+        runConversationId: "run-conv-1",
+        skills: [skillA],
+      }),
+    );
+    expect(addMessageCalls).toHaveLength(0);
+    expect(skillCardJobUpserts).toHaveLength(1);
+    const deferred = skillCardJobUpserts[0]!.payload;
+    expect(deferred.skills).toEqual([skillA]);
+
+    // Skill B's creation-site enqueue merges into that pending row.
+    const merged = {
+      ...deferred,
+      skills: [...(deferred.skills as unknown[]), skillB],
+    };
+
+    // The run finishes; the deferred job fires with the merged payload.
+    processingConversationIds = [];
+    await skillCardInsertJob(makeInsertJob(merged));
+
+    expect(skillCardJobUpserts).toHaveLength(1); // no further deferral
+    expect(addMessageCalls).toHaveLength(1);
+    const blocks = JSON.parse(addMessageCalls[0]!.content) as Array<{
+      type: string;
+      data?: { skills: Array<{ skillId: string }> };
+      text?: string;
+      _surfaceFallback?: boolean;
+    }>;
+    expect(blocks).toHaveLength(2);
+    expect(blocks[0]!.type).toBe("ui_surface");
+    expect(blocks[0]!.data!.skills.map((s) => s.skillId)).toEqual([
+      "skill-a",
+      "skill-b",
+    ]);
+    expect(blocks[1]).toEqual({
+      type: "text",
+      text: "New skill learned: Skill A, Skill B",
+      _surfaceFallback: true,
+    });
+    expect(publishedConversationIds).toEqual(["src-conv-9"]);
+  });
+
+  test("handler defers while the run conversation is still processing: no insert, re-upsert at the same delay", async () => {
+    // Enqueues fire at the creation site DURING the fork run; the source is
+    // usually idle then, so without the run gate the card would deliver
+    // before later creations from the same run merge in (see module header).
+    processingConversationIds = ["run-conv-1"];
+    const before = Date.now();
+
+    await skillCardInsertJob(makeInsertJob(insertJobPayload()));
+
+    expect(addMessageCalls).toHaveLength(0);
+    expect(publishedConversationIds).toHaveLength(0);
+    expect(skillCardJobUpserts).toHaveLength(1);
+    expect(skillCardJobUpserts[0]!.payload).toEqual(insertJobPayload());
+    expect(skillCardJobUpserts[0]!.runAfter).toBeGreaterThanOrEqual(
+      before + SKILL_CARD_INSERT_RETRY_DELAY_MS,
+    );
+  });
+
+  test("handler delivers when the run conversation is missing: a GC'd fork counts as finished", async () => {
+    // Superseded-fork GC can delete the run conversation before delivery. A
+    // fork can't be processing once its row is gone, so a missing run must
+    // never strand the card — even against a stale processing read (the
+    // explicit getConversation check wins over isConversationProcessing).
+    conversationOverrides["run-conv-1"] = null;
+    processingConversationIds = ["run-conv-1"];
+
+    await skillCardInsertJob(makeInsertJob(insertJobPayload()));
+
+    expect(addMessageCalls).toHaveLength(1);
+    expect(syncedToDisk).toHaveLength(1);
+    expect(publishedConversationIds).toEqual(["src-conv-9"]);
+    expect(skillCardJobUpserts).toHaveLength(0);
+  });
+
   test("handler with a still-mid-turn source re-upserts itself at the same delay and inserts nothing", async () => {
     processingConversationIds = ["src-conv-9"];
     const before = Date.now();
@@ -803,124 +540,14 @@ describe("memory-retrospective skill card", () => {
   });
 
   test("handler propagates persistence failures so the jobs worker retries", async () => {
-    // Unlike the best-effort finalize entry point, the deferred handler must
-    // surface transient insert errors to the worker's retry machinery — the
-    // card is only droppable when the source conversation is gone.
+    // Unlike the best-effort `insertSkillCardMessage` entry point, the job
+    // handler must surface transient insert errors to the worker's retry
+    // machinery — the card is only droppable when the source conversation is
+    // gone.
     addMessageThrowsFor = "src-conv-9";
 
     await expect(
       skillCardInsertJob(makeInsertJob(insertJobPayload())),
     ).rejects.toThrow("insert failed for src-conv-9");
-  });
-
-  // -------------------------------------------------------------------------
-  // Finalize wiring (proc-to-skills gate), via the job handler
-  // -------------------------------------------------------------------------
-
-  test("two skills authored in one run batch into ONE card message on the source conversation", async () => {
-    mockProcToSkillsActive = true;
-    stageForkTail([
-      scaffoldMsg("tu-1", skillInput("skill-a"), { createdAt: 2000 }),
-      toolResultMsg("tu-1", { createdAt: 2001 }),
-      scaffoldMsg("tu-2", skillInput("skill-b"), { createdAt: 2002 }),
-      toolResultMsg("tu-2", { createdAt: 2003 }),
-    ]);
-
-    const outcome = await memoryRetrospectiveJob(makeJob(), makeConfig());
-
-    expect(outcome.kind).toBe("invoked");
-    const cards = cardMessagesFor("src-conv-1");
-    expect(cards).toHaveLength(1);
-    const blocks = JSON.parse(cards[0]!.content) as Array<{
-      type: string;
-      surfaceId?: string;
-      data?: { skills: Array<{ skillId: string }> };
-      text?: string;
-      _surfaceFallback?: boolean;
-    }>;
-    expect(blocks).toHaveLength(2);
-    expect(blocks[0]!.type).toBe("ui_surface");
-    expect(blocks[0]!.surfaceId).toBe("skill-card-fork-conv-1");
-    expect(blocks[0]!.data!.skills.map((s) => s.skillId)).toEqual([
-      "skill-a",
-      "skill-b",
-    ]);
-    expect(blocks[1]).toEqual({
-      type: "text",
-      text: "New skill learned: Skill skill-a, Skill skill-b",
-      _surfaceFallback: true,
-    });
-    expect(publishedConversationIds).toEqual(["src-conv-1"]);
-  });
-
-  test("a source turn starting during the run defers the finalize card into a skill_card_insert job", async () => {
-    // The real race: the source is idle when the retrospective job starts
-    // (so the run proceeds), but a user turn begins while the fork wake is
-    // in flight. Finalize must queue the card, not splice it into the
-    // in-progress turn's history.
-    mockProcToSkillsActive = true;
-    stageForkTail([
-      scaffoldMsg("tu-1", skillInput("skill-a"), { createdAt: 2000 }),
-      toolResultMsg("tu-1", { createdAt: 2001 }),
-    ]);
-    onWake = () => {
-      processingConversationIds = ["src-conv-1"];
-    };
-
-    const outcome = await memoryRetrospectiveJob(makeJob(), makeConfig());
-
-    expect(outcome.kind).toBe("invoked");
-    expect(cardMessagesFor("src-conv-1")).toHaveLength(0);
-    expect(skillCardJobUpserts).toHaveLength(1);
-    expect(skillCardJobUpserts[0]!.payload).toEqual({
-      sourceConversationId: "src-conv-1",
-      runConversationId: "fork-conv-1",
-      skills: [
-        {
-          skillId: "skill-a",
-          name: "Skill skill-a",
-          description: "Does skill-a",
-        },
-      ],
-    });
-  });
-
-  test("proc-to-skills inactive: finalize inserts nothing even when scaffolds occurred", async () => {
-    stageForkTail([
-      scaffoldMsg("tu-1", skillInput("skill-a"), { createdAt: 2000 }),
-      toolResultMsg("tu-1", { createdAt: 2001 }),
-    ]);
-
-    const outcome = await memoryRetrospectiveJob(makeJob(), makeConfig());
-
-    expect(outcome.kind).toBe("invoked");
-    expect(cardMessagesFor("src-conv-1")).toHaveLength(0);
-    expect(publishedConversationIds).toHaveLength(0);
-  });
-
-  test("no scaffolds in the run: finalize inserts nothing", async () => {
-    mockProcToSkillsActive = true;
-    stageForkTail([
-      {
-        role: "assistant",
-        content: JSON.stringify([
-          {
-            type: "tool_use",
-            id: "tu-1",
-            name: "remember",
-            input: { content: "a fact" },
-          },
-        ]),
-        createdAt: 2000,
-        metadata: null,
-      },
-      toolResultMsg("tu-1", { createdAt: 2001 }),
-    ]);
-
-    const outcome = await memoryRetrospectiveJob(makeJob(), makeConfig());
-
-    expect(outcome.kind).toBe("invoked");
-    expect(cardMessagesFor("src-conv-1")).toHaveLength(0);
-    expect(publishedConversationIds).toHaveLength(0);
   });
 });

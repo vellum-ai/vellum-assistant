@@ -1,4 +1,5 @@
 import { getConfig } from "../../config/loader.js";
+import { effectiveSttProvider } from "../../config/schemas/stt.js";
 import { getProviderKeyAsync } from "../../security/secure-keys.js";
 import { createDaemonBatchTranscriber } from "../../stt/daemon-batch-transcriber.js";
 import type {
@@ -35,7 +36,7 @@ const log = getLogger("stt-resolver");
  */
 export async function resolveBatchTranscriber(): Promise<BatchTranscriber | null> {
   const config = getConfig();
-  const provider = config.services.stt.provider;
+  const provider = effectiveSttProvider(config.services.stt);
 
   // Look up credential provider via the catalog.
   const credentialProviderName = getCredentialProvider(
@@ -48,6 +49,12 @@ export async function resolveBatchTranscriber(): Promise<BatchTranscriber | null
   // Verify the provider supports the daemon-batch boundary.
   if (!supportsBoundary(provider as SttProviderId, "daemon-batch")) {
     return null;
+  }
+
+  if (provider === "vellum") {
+    return (await sttProviderKeyResolves("vellum"))
+      ? createDaemonBatchTranscriber(null, "vellum")
+      : null;
   }
 
   const apiKey = await getProviderKeyAsync(credentialProviderName);
@@ -105,7 +112,7 @@ export type TelephonySttCapability =
  */
 export async function resolveTelephonySttCapability(): Promise<TelephonySttCapability> {
   const config = getConfig();
-  const provider = config.services.stt.provider;
+  const provider = effectiveSttProvider(config.services.stt);
 
   const entry = getProviderEntry(provider as SttProviderId);
   if (!entry) {
@@ -124,13 +131,12 @@ export async function resolveTelephonySttCapability(): Promise<TelephonySttCapab
   }
 
   // Provider is telephony-eligible — verify credentials exist.
-  const apiKey = await getProviderKeyAsync(entry.credentialProvider);
-  if (!apiKey) {
+  if (!(await sttProviderKeyResolves(entry.credentialProvider))) {
     return {
       status: "missing-credentials",
       providerId: entry.id,
       credentialProvider: entry.credentialProvider,
-      reason: `No API key configured for credential provider "${entry.credentialProvider}"`,
+      reason: sttCredentialGapReason(entry.credentialProvider),
     };
   }
 
@@ -195,7 +201,7 @@ export type ConversationStreamingSttCapability =
  */
 export async function resolveConversationStreamingSttCapability(): Promise<ConversationStreamingSttCapability> {
   const config = getConfig();
-  const provider = config.services.stt.provider;
+  const provider = effectiveSttProvider(config.services.stt);
 
   const entry = getProviderEntry(provider as SttProviderId);
   if (!entry) {
@@ -214,13 +220,12 @@ export async function resolveConversationStreamingSttCapability(): Promise<Conve
   }
 
   // Provider is streaming-eligible — verify credentials exist.
-  const apiKey = await getProviderKeyAsync(entry.credentialProvider);
-  if (!apiKey) {
+  if (!(await sttProviderKeyResolves(entry.credentialProvider))) {
     return {
       status: "missing-credentials",
       providerId: entry.id,
       credentialProvider: entry.credentialProvider,
-      reason: `No API key configured for credential provider "${entry.credentialProvider}"`,
+      reason: sttCredentialGapReason(entry.credentialProvider),
     };
   }
 
@@ -301,7 +306,7 @@ export async function resolveStreamingTranscriber(
   options: ResolveStreamingTranscriberOptions = {},
 ): Promise<StreamingTranscriber | null> {
   const config = getConfig();
-  const provider = config.services.stt.provider;
+  const provider = effectiveSttProvider(config.services.stt);
   const diarizePreference: DiarizePreference = options.diarize ?? "off";
 
   // Look up credential provider via the catalog.
@@ -354,12 +359,19 @@ export async function resolveStreamingTranscriber(
     (diarizePreference === "preferred" || diarizePreference === "required") &&
     providerSupportsDiarization;
 
-  const apiKey = await getProviderKeyAsync(credentialProviderName);
-  if (!apiKey) {
+  const apiKey =
+    provider === "vellum"
+      ? null
+      : await getProviderKeyAsync(credentialProviderName);
+  if (provider === "vellum") {
+    if (!(await sttProviderKeyResolves("vellum"))) {
+      return null;
+    }
+  } else if (!apiKey) {
     return null;
   }
 
-  return createStreamingTranscriber(apiKey, provider as SttProviderId, {
+  return createStreamingTranscriber(apiKey ?? "", provider as SttProviderId, {
     sampleRate: options.sampleRate,
     diarize: enableDiarization,
     utteranceBoundaryFinals: options.utteranceBoundaryFinals ?? false,
@@ -459,6 +471,16 @@ async function createStreamingTranscriber(
         ...(options.diarize ? { diarize: true } : {}),
       });
     }
+    case "vellum": {
+      // Managed speech authenticates via the platform connection; the
+      // apiKey argument is unused. Diarization is unsupported and the
+      // option is silently ignored, matching Gemini/Whisper.
+      const { VellumManagedStreamingTranscriber } =
+        await import("./vellum-managed-stream.js");
+      return new VellumManagedStreamingTranscriber({
+        pcmSampleRate: options.sampleRate,
+      });
+    }
     default: {
       const _exhaustive: never = providerId;
       return null;
@@ -472,8 +494,26 @@ async function createStreamingTranscriber(
  * Centralized here (an authorized secure-keys importer) so callers that only
  * need a key-existence check don't import secure-keys directly.
  */
+/**
+ * Human-readable reason for a credential gap, aware that connection-based
+ * providers (vellum) are fixed by connecting the platform account, not by
+ * entering an API key.
+ */
+export function sttCredentialGapReason(credentialProviderName: string): string {
+  if (credentialProviderName === "vellum") {
+    return "No Vellum platform connection for managed speech — run 'assistant platform connect'";
+  }
+  return `No API key configured for credential provider "${credentialProviderName}"`;
+}
+
 export async function sttProviderKeyResolves(
   credentialProviderName: string,
 ): Promise<boolean> {
+  // vellum has no stored API key — the platform connection is the credential.
+  if (credentialProviderName === "vellum") {
+    const { vellumManagedSpeechAvailable } =
+      await import("./vellum-managed.js");
+    return vellumManagedSpeechAvailable();
+  }
   return (await getProviderKeyAsync(credentialProviderName)) !== undefined;
 }

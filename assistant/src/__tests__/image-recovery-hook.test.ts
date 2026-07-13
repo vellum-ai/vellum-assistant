@@ -205,6 +205,42 @@ describe("image-recovery post-model-call hook — direct", () => {
     });
   });
 
+  test("'Could not process image' rejection → recovers undersized image and continues", async () => {
+    // GIVEN a provider rejection for an image below the minimum-size floor
+    // (Anthropic returns 400 "Could not process image" for e.g. 16×14 px)
+    // over a history carrying that tiny image.
+    const tinyImageData = makePngBase64(16, 14);
+    const messages: Message[] = [
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "what is this?" },
+          imageBlock(tinyImageData),
+        ],
+      },
+    ];
+    const ctx = makePostModelCallCtx({
+      messages,
+      error: new Error(
+        'Anthropic API error (400): 400 {"type":"error","error":{"type":"invalid_request_error","message":"Could not process image"},"request_id":"req_011CcsLvPnYo5Xnvhs5edSS2"}',
+      ),
+    });
+
+    // WHEN the hook runs.
+    await postModelCall(ctx);
+
+    // THEN it asks the loop to retry with the undersized image recovered —
+    // upscaled or collapsed to the unsendable note, depending on whether this
+    // host can resize — so the rejected payload is gone either way.
+    expect(ctx.decision).toBe("continue");
+    expect(isImageRecoveryAttempted(ctx.conversationId)).toBe(true);
+    expect(JSON.stringify(ctx.messages)).not.toContain(tinyImageData);
+    expect(ctx.messages[0].content).toContainEqual({
+      type: "text",
+      text: "what is this?",
+    });
+  });
+
   test("durably persists the downgrade so the image cannot resurface", async () => {
     // GIVEN a conversation whose stored history holds an oversized image.
     const conv = createConversation();

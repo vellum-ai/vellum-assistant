@@ -1,13 +1,4 @@
-import { describe, expect, mock, test } from "bun:test";
-
-// ---------------------------------------------------------------------------
-// Mocks — declared before importing voice-session-bridge so its module-level
-// imports (logger, config loader) stay side-effect free for this pure helper.
-// ---------------------------------------------------------------------------
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({}),
-}));
+import { describe, expect, test } from "bun:test";
 
 import { resolveProcessingWaitMs } from "../calls/voice-session-bridge.js";
 

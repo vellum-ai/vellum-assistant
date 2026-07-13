@@ -110,8 +110,7 @@ let mockPlatformBaseUrl = "";
 let mockPlatformAssistantId = "";
 let mockAssistantApiKey: string | null = null;
 let mockProviderKeys: Record<string, string> = {};
-let mockLlmConfig: Record<string, unknown> = {};
-let mockWebSearchService: Services["web-search"] = {
+const defaultWebSearchService: Services["web-search"] = {
   mode: "your-own",
   provider: "inference-provider-native",
 };
@@ -140,21 +139,6 @@ mock.module("../security/secure-keys.js", () => ({
     undefined,
 }));
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    llm: mockLlmConfig,
-    services: {
-      inference: {},
-      "image-generation": {
-        mode: "your-own",
-        provider: "gemini",
-        model: "gemini-3.1-flash-image-preview",
-      },
-      "web-search": mockWebSearchService,
-    },
-  }),
-}));
-
 mock.module("../platform/feature-gate.js", () => ({
   arePlatformFeaturesEnabled: () => true,
 }));
@@ -168,11 +152,12 @@ import {
   listProviders,
 } from "../providers/registry.js";
 import type { Message, ToolDefinition } from "../providers/types.js";
+import { setConfig } from "./helpers/set-config.js";
 
 function makeProvidersConfig(
   provider: string,
   model: string,
-  webSearch: Services["web-search"] = mockWebSearchService,
+  webSearch: Services["web-search"] = defaultWebSearchService,
 ): ProvidersConfig {
   const baseLlm = LLMSchema.parse({});
   return {
@@ -285,14 +270,14 @@ const sampleTools: ToolDefinition[] = [
 beforeEach(() => {
   disableManagedProxy();
   mockProviderKeys = {};
-  mockWebSearchService = {
-    mode: "your-own",
-    provider: "inference-provider-native",
-  };
   lastGeminiConstructorOpts = null;
   lastGeminiGenerateContentStreamParams = null;
   lastOpenAIChatParams = null;
-  mockLlmConfig = LLMSchema.parse({}) as Record<string, unknown>;
+  // Reset the workspace config to pure schema defaults (the default
+  // web-search service — your-own / inference-provider-native — IS the
+  // schema default, so only divergent tests seed `services`).
+  setConfig("llm", {});
+  setConfig("services", {});
 });
 
 describe("managed proxy integration — credential precedence", () => {
@@ -413,7 +398,7 @@ describe("managed proxy integration — credential precedence", () => {
     test("managed gemini receives attribution headers outside request JSON", async () => {
       enableManagedProxy();
       mockProviderKeys = {};
-      mockLlmConfig = LLMSchema.parse({
+      setConfig("llm", {
         default: { provider: "gemini", model: "gemini-3.1-pro" },
         profiles: {
           "conversation-profile": {
@@ -424,7 +409,7 @@ describe("managed proxy integration — credential precedence", () => {
         callSites: {
           mainAgent: {},
         },
-      }) as Record<string, unknown>;
+      });
       await initializeProviders(
         makeProvidersConfig("gemini", "gemini-3.1-pro"),
       );
@@ -469,9 +454,9 @@ describe("managed proxy integration — credential precedence", () => {
     test("managed gemini omits attribution headers without callSite", async () => {
       enableManagedProxy();
       mockProviderKeys = {};
-      mockLlmConfig = LLMSchema.parse({
+      setConfig("llm", {
         default: { provider: "gemini", model: "gemini-3.1-pro" },
-      }) as Record<string, unknown>;
+      });
       await initializeProviders(
         makeProvidersConfig("gemini", "gemini-3.1-pro"),
       );
@@ -554,7 +539,7 @@ describe("managed proxy integration — managed web search routing", () => {
   test("managed Fireworks/Kimi tool call completes through the platform Brave proxy", async () => {
     enableManagedProxy();
     mockProviderKeys = {};
-    mockWebSearchService = MANAGED_NATIVE_WEB_SEARCH;
+    setConfig("services", { "web-search": MANAGED_NATIVE_WEB_SEARCH });
 
     const originalFetch = globalThis.fetch;
     const fetchUrls: string[] = [];

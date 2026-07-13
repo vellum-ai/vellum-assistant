@@ -17,13 +17,6 @@ import { describe, expect, mock, setSystemTime, test } from "bun:test";
 // Mocks — declared before importing voice-session-bridge
 // ---------------------------------------------------------------------------
 
-mock.module("../../config/loader.js", () => ({
-  getConfig: () => ({
-    workspaceGit: { turnCommitMaxWaitMs: 100 },
-    calls: {},
-  }),
-}));
-
 // Swapped per-test to hand startVoiceTurn a scripted fake conversation.
 let fakeConversation: FakeConversation;
 
@@ -31,9 +24,19 @@ mock.module("../../daemon/conversation-store.js", () => ({
   getOrCreateConversation: async () => fakeConversation,
 }));
 
+import { setConfig } from "../../__tests__/helpers/set-config.js";
 import { ABORT_WATCHDOG_MS } from "../../daemon/abort-watchdog.js";
 import { CALL_OPENING_MARKER } from "../voice-control-protocol.js";
 import { startVoiceTurn } from "../voice-session-bridge.js";
+import {
+  escalatedContinuationRule,
+  ESCALATION_CONTINUATION_CONTENT,
+  frontDoorTriageRule,
+} from "../voice-triage-escalate.js";
+
+// `resolveProcessingWaitMs` reads `workspaceGit.turnCommitMaxWaitMs`; seed it
+// so the wait-budget assertions below get a fixed, known value.
+setConfig("workspaceGit", { turnCommitMaxWaitMs: 100 });
 
 // ---------------------------------------------------------------------------
 // Fake conversation
@@ -62,6 +65,7 @@ interface FakeConversation {
   persistUserMessage: (opts: {
     content: string;
     requestId: string;
+    metadata?: Record<string, unknown>;
   }) => Promise<{ id: string }>;
   updateClient: (cb: unknown, reset?: boolean) => void;
   runAgentLoop: (...args: unknown[]) => Promise<void>;
@@ -80,6 +84,9 @@ function makeFakeConversation(opts: {
 }) {
   const waitForIdleCalls: WaitForIdleCall[] = [];
   let persistCount = 0;
+  let lastPersistOpts:
+    | { content: string; requestId: string; metadata?: Record<string, unknown> }
+    | undefined;
   const conversation: FakeConversation = {
     conversationId: "conv-voice-bridge-test",
     callSessionId: undefined,
@@ -101,8 +108,9 @@ function makeFakeConversation(opts: {
     setTurnInterfaceContext: () => {},
     setChannelCapabilities: () => {},
     setVoiceCallControlPrompt: () => {},
-    persistUserMessage: async () => {
+    persistUserMessage: async (persistOpts) => {
       persistCount += 1;
+      lastPersistOpts = persistOpts;
       // Recorded before `onPersist` so scripted persist FAILURES also
       // appear in the event stream — ordering tests need the losing
       // attempt visible.
@@ -122,6 +130,7 @@ function makeFakeConversation(opts: {
     conversation,
     waitForIdleCalls,
     persistCount: () => persistCount,
+    lastPersistOpts: () => lastPersistOpts,
     setProcessingFlag: (value: boolean) => {
       opts.processing = value;
     },
@@ -255,6 +264,86 @@ const flushMicrotasks = async () => {
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
+
+describe("startVoiceTurn escalation-continuation persistence", () => {
+  test("persists the escalation-continuation prompt as a hidden row", async () => {
+    // The continuation is a pure internal instruction — it must be persisted
+    // `hidden` so `/messages` filters it out of the transcript after a reload,
+    // not merely echo-suppressed live.
+    const fake = makeFakeConversation({ processing: false });
+    fakeConversation = fake.conversation;
+
+    await startVoiceTurn({
+      ...makeTurnOptions(),
+      content: ESCALATION_CONTINUATION_CONTENT,
+    });
+
+    expect(fake.lastPersistOpts()?.content).toBe(
+      ESCALATION_CONTINUATION_CONTENT,
+    );
+    expect(fake.lastPersistOpts()?.metadata).toEqual({ hidden: true });
+  });
+
+  test("the opener prompt is persisted un-hidden (unchanged)", async () => {
+    const fake = makeFakeConversation({ processing: false });
+    fakeConversation = fake.conversation;
+
+    await startVoiceTurn(makeTurnOptions()); // content: CALL_OPENING_MARKER
+
+    expect(fake.lastPersistOpts()?.metadata).toBeUndefined();
+  });
+});
+
+describe("startVoiceTurn triage-and-escalate control prompt", () => {
+  // Live-voice supplies its own voiceControlPrompt, bypassing
+  // buildVoiceCallControlPrompt where the routing-leg rule is normally injected.
+  // The rule must still be appended, or the front-door model is never told to
+  // emit [ESCALATE] and can't hand off.
+  const LIVE_VOICE_PROMPT = "You are speaking in a local live voice session.";
+
+  // The turn installs its resolved control prompt, then cleanup resets it to
+  // null — so capture every applied value and read the installed (non-null) one.
+  function captureInstalledPrompt(): () => string | undefined {
+    const fake = makeFakeConversation({ processing: false });
+    fakeConversation = fake.conversation;
+    const applied: Array<string | null> = [];
+    fake.conversation.setVoiceCallControlPrompt = (prompt) => {
+      applied.push(prompt);
+    };
+    return () => applied.find((p): p is string => typeof p === "string");
+  }
+
+  test("appends the front-door triage rule to a caller-supplied prompt", async () => {
+    const installed = captureInstalledPrompt();
+    await startVoiceTurn({
+      ...makeTurnOptions(),
+      voiceControlPrompt: LIVE_VOICE_PROMPT,
+      routingLeg: "front-door",
+    });
+    expect(installed()).toContain(LIVE_VOICE_PROMPT);
+    expect(installed()).toContain(frontDoorTriageRule());
+  });
+
+  test("appends the escalated continuation rule to a caller-supplied prompt", async () => {
+    const installed = captureInstalledPrompt();
+    await startVoiceTurn({
+      ...makeTurnOptions(),
+      voiceControlPrompt: LIVE_VOICE_PROMPT,
+      routingLeg: "escalated",
+    });
+    expect(installed()).toContain(LIVE_VOICE_PROMPT);
+    expect(installed()).toContain(escalatedContinuationRule());
+  });
+
+  test("leaves a caller-supplied prompt verbatim when no routing leg is set", async () => {
+    const installed = captureInstalledPrompt();
+    await startVoiceTurn({
+      ...makeTurnOptions(),
+      voiceControlPrompt: LIVE_VOICE_PROMPT,
+    });
+    expect(installed()).toBe(LIVE_VOICE_PROMPT);
+  });
+});
 
 describe("startVoiceTurn conversation-lock wait", () => {
   test("an idle conversation starts the turn without consulting waitForIdle", async () => {

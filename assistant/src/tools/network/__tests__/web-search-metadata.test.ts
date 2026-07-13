@@ -1,20 +1,17 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { setConfig } from "../../../__tests__/helpers/set-config.js";
 import { WEB_SEARCH_BACKEND_FAILURE_MESSAGE } from "../web-search-error.js";
 
 // Mutable mock state - set per test
-let mockWebSearchProvider: string | undefined = "perplexity";
 let mockBraveSecureKey: string | undefined;
 let mockPerplexitySecureKey: string | undefined;
 let mockTavilySecureKey: string | undefined;
 
-mock.module("../../../config/loader.js", () => ({
-  getConfig: () => ({
-    services: {
-      "web-search": { provider: mockWebSearchProvider },
-    },
-  }),
-}));
+/** Seed the active web-search provider into the workspace config for real. */
+function seedWebSearch(provider: string): void {
+  setConfig("services", { "web-search": { provider } });
+}
 
 mock.module("../../../security/secure-keys.js", () => ({
   getProviderKeyAsync: async (provider: string) => {
@@ -46,7 +43,7 @@ describe("web_search activity metadata", () => {
 
   beforeEach(() => {
     originalFetch = globalThis.fetch;
-    mockWebSearchProvider = "perplexity";
+    seedWebSearch("perplexity");
     mockBraveSecureKey = undefined;
     mockPerplexitySecureKey = undefined;
     mockTavilySecureKey = undefined;
@@ -65,7 +62,7 @@ describe("web_search activity metadata", () => {
   // ---- Brave --------------------------------------------------------------
 
   test("Brave populates webSearch metadata on success", async () => {
-    mockWebSearchProvider = "brave";
+    seedWebSearch("brave");
     mockBraveSecureKey = "brave-key";
     globalThis.fetch = (async () =>
       new Response(
@@ -108,7 +105,7 @@ describe("web_search activity metadata", () => {
   });
 
   test("Brave populates errorMessage and empty results on auth failure", async () => {
-    mockWebSearchProvider = "brave";
+    seedWebSearch("brave");
     mockBraveSecureKey = "bad-key";
     globalThis.fetch = (async () =>
       new Response("Forbidden", { status: 403 })) as any;
@@ -174,7 +171,7 @@ describe("web_search activity metadata", () => {
   // ---- Tavily -------------------------------------------------------------
 
   test("Tavily populates webSearch metadata with favicon and score", async () => {
-    mockWebSearchProvider = "tavily";
+    seedWebSearch("tavily");
     mockTavilySecureKey = "tvly-key";
     globalThis.fetch = (async () =>
       new Response(
@@ -219,7 +216,7 @@ describe("web_search activity metadata", () => {
   });
 
   test("Tavily falls back to url for missing title", async () => {
-    mockWebSearchProvider = "tavily";
+    seedWebSearch("tavily");
     mockTavilySecureKey = "tvly-key";
     globalThis.fetch = (async () =>
       new Response(
@@ -242,7 +239,7 @@ describe("web_search activity metadata", () => {
   });
 
   test("Tavily falls back to url for empty string title", async () => {
-    mockWebSearchProvider = "tavily";
+    seedWebSearch("tavily");
     mockTavilySecureKey = "tvly-key";
     globalThis.fetch = (async () =>
       new Response(
@@ -265,7 +262,7 @@ describe("web_search activity metadata", () => {
   });
 
   test("Tavily falls back to url for whitespace-only title", async () => {
-    mockWebSearchProvider = "tavily";
+    seedWebSearch("tavily");
     mockTavilySecureKey = "tvly-key";
     globalThis.fetch = (async () =>
       new Response(
@@ -288,7 +285,7 @@ describe("web_search activity metadata", () => {
   });
 
   test("Tavily populates errorMessage on auth failure", async () => {
-    mockWebSearchProvider = "tavily";
+    seedWebSearch("tavily");
     mockTavilySecureKey = "bad-key";
     globalThis.fetch = (async () =>
       new Response("Unauthorized", { status: 401 })) as any;
@@ -305,7 +302,7 @@ describe("web_search activity metadata", () => {
   // ---- Top-level error paths ---------------------------------------------
 
   test("top-level catch populates activityMetadata with errorMessage", async () => {
-    mockWebSearchProvider = "perplexity";
+    seedWebSearch("perplexity");
     mockPerplexitySecureKey = "pplx-key";
     globalThis.fetch = (async () => {
       throw new Error("network down");
@@ -324,7 +321,7 @@ describe("web_search activity metadata", () => {
   });
 
   test("no-API-key branch populates activityMetadata with errorMessage", async () => {
-    mockWebSearchProvider = "perplexity";
+    seedWebSearch("perplexity");
     // All provider keys remain undefined from beforeEach.
 
     const result = await execute({ query: "no key query" });

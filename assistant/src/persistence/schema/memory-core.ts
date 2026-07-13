@@ -1,6 +1,5 @@
 import {
   blob,
-  index,
   integer,
   sqliteTable,
   text,
@@ -104,28 +103,4 @@ export const memoryRetrospectiveState = sqliteTable(
     // NULL for rows that predate migration 281 or have no saves yet.
     rememberedLog: text("remembered_log"),
   },
-);
-
-export const conversationStarters = sqliteTable(
-  "conversation_starters",
-  {
-    id: text("id").primaryKey(),
-    label: text("label").notNull(),
-    prompt: text("prompt").notNull(),
-    generationBatch: integer("generation_batch").notNull(),
-    sourceMemoryKinds: text("source_memory_kinds"),
-    category: text("category"),
-    icon: text("icon"),
-    description: text("description"),
-    tags: text("tags"),
-    cardType: text("card_type").notNull().default("chip"),
-    createdAt: integer("created_at").notNull(),
-  },
-  (table) => [
-    index("idx_conversation_starters_batch").on(
-      table.generationBatch,
-      table.createdAt,
-    ),
-    index("idx_conversation_starters_card_type").on(table.cardType),
-  ],
 );

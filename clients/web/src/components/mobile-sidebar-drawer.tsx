@@ -3,6 +3,8 @@ import { type ReactNode, useEffect, useRef } from "react";
 
 import { Button } from "@vellumai/design-library";
 
+import { useSwipeHorizontal } from "@/hooks/use-swipe-horizontal";
+
 /** Tailwind `sm` breakpoint — matches the `sm:hidden` class on the drawer. */
 const SM_MEDIA_QUERY = "(min-width: 640px)";
 
@@ -38,6 +40,20 @@ export function MobileSidebarDrawer({
   const onCloseRef = useRef(onClose);
   useEffect(() => {
     onCloseRef.current = onClose;
+  });
+
+  // Swipe right-to-left on the panel to close. Complements the backdrop tap
+  // and the close button — all three call the same onClose.
+  const {
+    dragOffset,
+    isDragging,
+    onTouchStart,
+    onTouchMove,
+    onTouchEnd,
+    onTouchCancel,
+  } = useSwipeHorizontal({
+    enabled: open,
+    onSwipeLeft: onClose,
   });
 
   useEffect(() => {
@@ -121,7 +137,18 @@ export function MobileSidebarDrawer({
             "var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px))",
           paddingLeft:
             "var(--safe-area-inset-left, env(safe-area-inset-left, 0px))",
+          // Follow the finger during a swipe-to-close; spring back on
+          // release (transition re-enabled when not dragging).
+          transform: `translateX(${dragOffset}px)`,
+          transition: isDragging ? "none" : "transform 200ms ease-out",
+          // Claim horizontal gestures for the swipe; let the browser handle
+          // vertical scrolling of the drawer content natively.
+          touchAction: "pan-y",
         }}
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onTouchEnd={onTouchEnd}
+        onTouchCancel={onTouchCancel}
       >
         <div
           className="flex shrink-0 items-center justify-between border-b px-4 py-3"

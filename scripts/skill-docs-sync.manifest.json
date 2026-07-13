@@ -7,7 +7,7 @@
     },
     "app-builder": {
       "docsSlug": "app-builder",
-      "sha256": "788fdcd4aa29830604d25d9b9f3577bcc5a023a60e9ffad1d2e109a9f326ff8f"
+      "sha256": "71e9052908ef1647b11f32b5bfa70b93c3d2d51cb060ab92df7c25109ca92cf6"
     },
     "computer-use": {
       "docsSlug": "computer-use",
@@ -47,7 +47,7 @@
     },
     "schedule": {
       "docsSlug": "schedule",
-      "sha256": "06200e0f86b0779765b6bd3570c0c58e6703c07a8d4ce7f1f9daff546def913c"
+      "sha256": "b06c01162b98675eaa4409c788cd43788d46fe4f05a85255aece3ee20d6dab4e"
     },
     "skill-management": {
       "docsSlug": "skill-management",

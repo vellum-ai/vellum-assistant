@@ -4,7 +4,6 @@ import {
   beforeEach,
   describe,
   expect,
-  mock,
   test,
 } from "bun:test";
 
@@ -16,25 +15,18 @@ beforeAll(() => {
   setOverridesForTesting({ "override-or-default-resolution": false });
 });
 
-let mockLlmConfig: Record<string, unknown> = {};
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({ llm: mockLlmConfig }),
-}));
-
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
-import {
-  type LLMCallSite,
-  type LLMConfig,
-  LLMSchema,
-} from "../config/schemas/llm.js";
+import { getConfig } from "../config/loader.js";
+import { type LLMCallSite } from "../config/schemas/llm.js";
 import {
   resolveUsageAttribution,
   sanitizeUsageMetadataValue,
 } from "../usage/attribution.js";
+import { setConfig } from "./helpers/set-config.js";
 
+/** Seed the workspace `llm` config for real; the loader schema-merges it. */
 function setLlmConfig(raw: unknown): void {
-  mockLlmConfig = LLMSchema.parse(raw) as Record<string, unknown>;
+  setConfig("llm", raw);
 }
 
 function expectResolvedProviderModelMatchesResolver(
@@ -45,7 +37,7 @@ function expectResolvedProviderModelMatchesResolver(
     callSite,
     ...(overrideProfile != null ? { overrideProfile } : {}),
   });
-  const resolved = resolveCallSiteConfig(callSite, mockLlmConfig as LLMConfig, {
+  const resolved = resolveCallSiteConfig(callSite, getConfig().llm, {
     ...(overrideProfile != null ? { overrideProfile } : {}),
   });
 
@@ -54,7 +46,7 @@ function expectResolvedProviderModelMatchesResolver(
 }
 
 beforeEach(() => {
-  mockLlmConfig = LLMSchema.parse({}) as Record<string, unknown>;
+  setConfig("llm", {});
 });
 
 describe("resolveUsageAttribution", () => {

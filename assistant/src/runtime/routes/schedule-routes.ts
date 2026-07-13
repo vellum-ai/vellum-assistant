@@ -37,7 +37,6 @@ import {
   getScheduleRuns,
   listSchedules,
   type ScheduleJob,
-  setScheduleRunConversationId,
   updateSchedule,
 } from "../../schedule/schedule-store.js";
 import { getScheduleUsageSummaries } from "../../schedule/schedule-usage-store.js";
@@ -1069,64 +1068,19 @@ async function handleRunScheduleNow(id: string) {
     return handleListSchedules({});
   }
 
-  // Check if message is a task invocation (run_task:<task_id>)
-  const taskMatch = schedule.message.match(/^run_task:(\S+)$/);
-  if (taskMatch) {
-    const taskId = taskMatch[1];
+  // Legacy task-template schedules (message `run_task:<id>`) reference a
+  // capability that has been removed. Record a failed run instead of forwarding
+  // the raw `run_task:<id>` string to the agent.
+  if (/^run_task:\S+$/.test(schedule.message)) {
     const runId = await createScheduleRun(schedule.id, null);
-    try {
-      log.info(
-        { jobId: schedule.id, name: schedule.name, taskId },
-        "Executing scheduled task manually (run now)",
-      );
-      const { runTask } = await import("../../tasks/task-runner.js");
-      const result = await runTask(
-        { taskId, workingDir: process.cwd(), source: "schedule" },
-        async (conversationId, message, taskRunId) => {
-          const conversation = await getOrCreateConversation(conversationId, {
-            trustContext: INTERNAL_GUARDIAN_TRUST_CONTEXT,
-          });
-          conversation.taskRunId = taskRunId;
-          try {
-            await conversation.processMessage({
-              content: message,
-              attachments: [],
-              onEvent: () => {},
-              isInteractive: false,
-              ...(schedule.inferenceProfile
-                ? { overrideProfile: schedule.inferenceProfile }
-                : {}),
-            });
-          } finally {
-            conversation.taskRunId = undefined;
-          }
-        },
-      );
-
-      await setScheduleRunConversationId(runId, result.conversationId);
-      if (result.status === "failed") {
-        await completeScheduleRun(runId, {
-          status: "error",
-          error: result.error ?? "Task run failed",
-        });
-      } else {
-        await completeScheduleRun(runId, { status: "ok" });
-      }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      log.warn(
-        { err, jobId: schedule.id, name: schedule.name, taskId },
-        "Manual scheduled task execution failed",
-      );
-      const fallbackConversation = await bootstrapConversation({
-        source: "schedule",
-        groupId: "system:scheduled",
-        origin: "schedule",
-        systemHint: `Schedule (manual): ${schedule.name}`,
-      });
-      await setScheduleRunConversationId(runId, fallbackConversation.id);
-      await completeScheduleRun(runId, { status: "error", error: message });
-    }
+    await completeScheduleRun(runId, {
+      status: "error",
+      error: "Scheduled task templates are no longer supported.",
+    });
+    log.warn(
+      { jobId: schedule.id, name: schedule.name },
+      "Skipped unsupported task-template schedule (run_task, manual run-now)",
+    );
     return handleListSchedules({});
   }
 

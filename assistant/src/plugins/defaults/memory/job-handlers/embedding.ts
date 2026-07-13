@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 
 import { embedAndUpsert } from "@vellumai/plugin-api";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 
 import { getDb } from "../../../../persistence/db-connection.js";
 import type { EmbeddingInput } from "../../../../persistence/embeddings/embedding-types.js";
@@ -106,7 +106,7 @@ export async function embedAttachmentJob(job: MemoryJob): Promise<void> {
   const message = db
     .select()
     .from(messages)
-    .where(eq(messages.id, messageId))
+    .where(and(eq(messages.id, messageId), eq(messages.finalized, 1)))
     .get();
   if (!message) {
     return;

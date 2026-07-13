@@ -343,7 +343,16 @@ export function ChatLayout() {
   const toggleSidebar = useCallback(() => {
     haptic.light();
     if (window.matchMedia(MOBILE_MEDIA_QUERY).matches) {
-      setDrawerOpen((value) => !value);
+      setDrawerOpen((value) => {
+        // Opening the drawer over a focused composer: drop focus so iOS
+        // dismisses the soft keyboard. Left up, the keyboard stays raised and
+        // the drawer appears wedged behind it. Only blur on open — closing
+        // should not steal focus from whatever the user tapped into next.
+        if (!value) {
+          (document.activeElement as HTMLElement | null)?.blur();
+        }
+        return !value;
+      });
     } else {
       setCollapsed((value) => !value);
     }
@@ -380,6 +389,10 @@ export function ChatLayout() {
     enabled: isMobile && !drawerOpen && backSwipeOwnerCount === 0,
     onDragStart: () => setDrawerDragging(true),
     onOpen: () => {
+      // Same as the button path: swiping the drawer in over a focused
+      // composer must blur it so iOS dismisses the soft keyboard, otherwise
+      // the drawer slides in behind a raised keyboard and looks stuck.
+      (document.activeElement as HTMLElement | null)?.blur();
       setDrawerOpen(true);
       setDrawerDragging(false);
     },

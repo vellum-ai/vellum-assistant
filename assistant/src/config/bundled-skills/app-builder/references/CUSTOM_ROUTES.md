@@ -84,6 +84,7 @@ Every handler receives a frozen `context` object as its second argument. This pr
 export async function POST(request: Request, context): Promise<Response> {
   // context.assistantEventHub — publish events to connected SSE clients
   // context.assistantId       — the daemon's logical assistant ID ("self")
+  // context.conversations     — post messages into conversations as real turns
 }
 ```
 
@@ -107,6 +108,35 @@ export async function POST(request: Request, context): Promise<Response> {
   return Response.json({ ok: true });
 }
 ```
+
+### Posting into a conversation
+
+Use `context.conversations.postMessage` to surface an inbound event as a real assistant turn — the way a webhook receiver, a scheduled job, or a device callback turns "your deploy finished" or "payment received" into a message the assistant actually responds to (not just a client-side event).
+
+```typescript
+// routes/deploy-webhook.ts — an external CI system POSTs here when a build finishes
+export async function POST(request: Request, context): Promise<Response> {
+  const { conversationId, status } = await request.json();
+  try {
+    await context.conversations.postMessage(
+      conversationId,
+      `Your deploy finished: ${status}.`,
+    );
+    return Response.json({ ok: true });
+  } catch (err) {
+    // err.code is "not_found" | "rate_limited" | "invalid"
+    const code = (err as { code?: string }).code;
+    const httpStatus =
+      code === "not_found" ? 404 : code === "rate_limited" ? 429 : 400;
+    return Response.json(
+      { ok: false, error: String(err) },
+      { status: httpStatus },
+    );
+  }
+}
+```
+
+The posted turn is attributed to a dedicated `route` interface — it can never impersonate a human surface — and runs under the target conversation's existing trust context, so a route cannot elevate privilege by posting. Unknown conversation ids are rejected (a route never silently creates a conversation), and posts are rate-limited per conversation to backstop runaway route→assistant→route loops.
 
 The context object is **immutable** — attempting to reassign its properties will throw in strict mode (ESM). This prevents user route handlers from accidentally corrupting shared state.
 

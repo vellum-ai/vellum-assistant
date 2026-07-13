@@ -135,6 +135,13 @@ export const routeTree = [
     // request body, is the only authorization the gateway needs.
     { path: "/assistant/credentials/enter", ErrorBoundary: RouteErrorBoundary, HydrateFallback: RootHydrateFallback, lazy: { Component: () => import("@/domains/credential-requests/credential-entry-page").then((m) => m.CredentialEntryPage) } },
 
+    // Theme stage — deterministic compositions of the app's themeable
+    // surfaces, rendered inside a hidden Electron BrowserWindow and
+    // screenshotted for the `assistant ui snapshot` flow. Unauthenticated
+    // and API-free (theme tokens arrive URL-encoded). Same sibling pattern
+    // as About.
+    { path: "/assistant/theme-stage/:view", ErrorBoundary: RouteErrorBoundary, HydrateFallback: RootHydrateFallback, lazy: { Component: () => import("@/components/theme-stage-page").then((m) => m.ThemeStagePage) } },
+
     // Quick Input — lightweight input panel rendered inside the Electron
     // quick input BrowserWindow (a frameless, always-on-top panel invoked
     // via Cmd+Shift+/). Same pattern as About: sibling of `/assistant`,

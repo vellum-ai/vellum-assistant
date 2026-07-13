@@ -11,7 +11,6 @@ import {
 } from "../persistence/db-async-query.js";
 import { getSqlite, isDbOpen, resetDb } from "../persistence/db-connection.js";
 import { stopQdrantManager } from "../persistence/embeddings/qdrant-manager.js";
-import { stopMemoryWorkerProcess } from "../persistence/worker-control.js";
 import { stopConsentRefresh } from "../platform/consent-cache.js";
 import { HOOKS } from "../plugin-api/constants.js";
 import { runHook } from "../plugins/pipeline.js";
@@ -61,7 +60,9 @@ let shuttingDown = false;
 let exitCode = 0;
 
 async function shutdown(): Promise<void> {
-  if (shuttingDown) return;
+  if (shuttingDown) {
+    return;
+  }
   shuttingDown = true;
 
   // Force exit if graceful shutdown takes too long.
@@ -162,21 +163,9 @@ async function shutdown(): Promise<void> {
   cleanupShellOutputTempFiles();
   stopScheduler();
 
-  // Stop the out-of-process memory worker if it's actually running. This is
-  // keyed off live state rather than config: the worker may have been
-  // spawned at startup (memory.worker.enabled = true) or out of band via
-  // `assistant memory worker start`, so we stop whatever is actually there.
-  try {
-    const workerStatus = stopMemoryWorkerProcess();
-    if (workerStatus.status === "running") {
-      log.info(
-        { pid: workerStatus.pid },
-        "Sent SIGTERM to memory worker process",
-      );
-    }
-  } catch (err) {
-    log.warn({ err }, "Failed to stop memory worker process (non-fatal)");
-  }
+  // The memory jobs worker process is SIGTERM'd by the memory plugin's own
+  // `shutdown` hook (fired via runHook(HOOKS.SHUTDOWN) above), which owns that
+  // plugin's process lifecycle.
 
   // Stop the resource monitor process if it's actually running.
   stopMonitoring();
@@ -306,6 +295,11 @@ export function installShutdownHandlers(): void {
 
   process.on("SIGHUP", () => {
     handleShutdownSignal("SIGHUP", "Received SIGHUP — terminal hangup");
+  });
+
+  process.on("SIGUSR1", () => {
+    log.info("Received SIGUSR1 — refreshing database connections");
+    resetDb();
   });
 
   process.on("unhandledRejection", (reason) => {

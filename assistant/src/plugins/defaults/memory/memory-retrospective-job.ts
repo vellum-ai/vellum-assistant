@@ -89,10 +89,6 @@ import {
 } from "./memory-retrospective-constants.js";
 import { loadRetrospectiveRunMessages } from "./memory-retrospective-fork-boundary.js";
 import {
-  extractRetrospectiveRunSkillScaffolds,
-  insertSkillCardMessage,
-} from "./memory-retrospective-skill-card.js";
-import {
   appendToRememberedLog,
   bumpRetrospectiveLastRunAt,
   getRetrospectiveState,
@@ -692,42 +688,11 @@ async function finalizeSuccessfulRetrospective(args: {
     rememberedLog: appendToRememberedLog(priorRemembers, runRemembers),
   });
 
-  // Surface newly created skills as a `skill_card` ui_surface message on the
-  // source conversation. Gated on proc-to-skills being active (the run can
-  // only author skills when it is). `insertSkillCardMessage` is best-effort —
-  // a card failure never fails the job — and defers delivery through a
-  // durable `skill_card_insert` job when the source is mid-turn, so the card
-  // still always lands once the turn ends. Every gate outcome logs at info
-  // level so a missing card is one-grep diagnosable in the field
-  // ("skill-card:" / "skill card:").
-  if (isProcToSkillsActive(config)) {
-    const authoredSkills = await extractRetrospectiveRunSkillScaffolds(
-      retrospectiveConversationId,
-    );
-    log.info(
-      {
-        sourceConversationId,
-        retrospectiveConversationId,
-        scaffoldCount: authoredSkills.length,
-      },
-      "skill-card: gate passed; extracted skill scaffolds from the run",
-    );
-    if (authoredSkills.length > 0) {
-      await insertSkillCardMessage(
-        sourceConversationId,
-        retrospectiveConversationId,
-        authoredSkills,
-      );
-    }
-  } else {
-    log.info(
-      {
-        sourceConversationId,
-        retrospectiveConversationId,
-      },
-      "skill-card: skipped — proc-to-skills inactive",
-    );
-  }
+  // Skill cards are not a finalize concern: when the run authors a skill, the
+  // scaffold executor enqueues the durable `skill_card_insert` delivery job at
+  // the creation site (see `executeScaffoldManagedSkill` and
+  // `memory-retrospective-skill-card.ts`), so the GC below can never destroy
+  // the card's inputs.
 
   await deleteSupersededPriorRetrospective(config, prior, sourceConversationId);
 

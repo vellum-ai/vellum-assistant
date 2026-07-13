@@ -1,26 +1,9 @@
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, test } from "bun:test";
 
 import {
   conversationMetadataSyncTag,
   SYNC_TAGS,
 } from "../daemon/message-types/sync.js";
-import { waitFor } from "./helpers/wait-for.js";
-
-const config = {
-  llm: {
-    profiles: {
-      "quality-optimized": {},
-      balanced: {},
-      "cost-optimized": {},
-    },
-  },
-};
-
-mock.module("../config/loader.js", () => ({
-  loadConfig: () => config,
-  getConfig: () => config,
-}));
-
 import {
   createConversation,
   getConversation,
@@ -31,6 +14,7 @@ import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { ROUTES } from "../runtime/routes/conversation-management-routes.js";
 import { BadRequestError, NotFoundError } from "../runtime/routes/errors.js";
 import { resetDbForTesting } from "./db-test-helpers.js";
+import { waitFor } from "./helpers/wait-for.js";
 
 await initializeDb();
 
@@ -54,7 +38,6 @@ describe("PUT /v1/conversations/:id/inference-profile", () => {
 
   afterAll(() => {
     resetDbForTesting();
-    mock.restore();
   });
 
   test("sets the override and emits a hub event for a known profile", async () => {

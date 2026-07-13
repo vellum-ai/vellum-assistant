@@ -88,15 +88,8 @@ mock.module("node:fs", () => {
   };
 });
 
-// Mock config/loader and other dependencies that ConfigWatcher imports
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-  }),
-  loadConfig: () => ({ ui: {} }),
-  invalidateConfigCache: () => {},
-}));
-
+// Mock dependencies that ConfigWatcher imports. The real config loader is
+// used — nothing here depends on non-default config values.
 mock.module("../persistence/embeddings/embedding-backend.js", () => ({
   clearEmbeddingBackendCache: () => {},
 }));

@@ -13,12 +13,6 @@ mock.module("../pkb/pkb-index.js", () => ({
   },
 }));
 
-mock.module("../../../../config/loader.js", () => ({
-  loadConfig: () => ({}),
-  getConfig: () => ({}),
-  invalidateConfigCache: () => {},
-}));
-
 // Controls the enqueue gate: PKB index jobs are v1-only, so the enqueue
 // helper consults memory.v2.enabled.
 let v2Enabled = false;

@@ -8,7 +8,6 @@ import {
 import { processMessage } from "../daemon/process-message.js";
 import { INTERNAL_GUARDIAN_TRUST_CONTEXT } from "../daemon/trust-context.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
-import { bootstrapConversation } from "../persistence/conversation-bootstrap.js";
 import { getConversation } from "../persistence/conversation-crud.js";
 import { invalidateAssistantInferredItemsForConversation } from "../plugins/defaults/memory/task-memory-cleanup.js";
 import { wakeAgentForOpportunity } from "../runtime/agent-wake.js";
@@ -33,7 +32,6 @@ import {
   deferClaimedSchedule,
   failOneShotPermanently,
   getLastScheduleConversationId,
-  listSchedules,
   resetRetryCount,
   retryOneShot,
   type RoutingIntent,
@@ -41,10 +39,7 @@ import {
   scheduleRetry,
   setScheduleRunConversationId,
 } from "./schedule-store.js";
-import {
-  startScheduleWorkerIfEnabled,
-  stopScheduleWorker,
-} from "./worker-control.js";
+import { startScheduleWorker, stopScheduleWorker } from "./worker-control.js";
 
 const log = getLogger("scheduler");
 
@@ -180,10 +175,8 @@ export interface SchedulerHandle {
 }
 
 export interface SchedulerRunDueWorkOptions {
-  now?: number;
   deadlineAt?: number;
   minStartBudgetMs?: number;
-  includeStillPending?: boolean;
 }
 
 export interface SchedulerDueWorkResult {
@@ -191,7 +184,6 @@ export interface SchedulerDueWorkResult {
   completed: number;
   failed: number;
   skipped: number;
-  stillPending: number;
 }
 
 const TICK_INTERVAL_MS = 15_000;
@@ -238,11 +230,11 @@ async function handleExecutionFailure(params: {
 let instance: SchedulerHandle | null = null;
 
 export function startScheduler(): SchedulerHandle {
-  // When the schedule worker owns schedule execution, spawn it now as a child
-  // of the daemon so it is running immediately. Fire-and-forget — a worker
-  // failure must never block boot, and every tick below re-reads the flag so
-  // ownership stays consistent either way.
-  startScheduleWorkerIfEnabled();
+  // Schedule execution is owned by the schedule worker process; spawn it now as
+  // a child of the daemon so it is running immediately. Fire-and-forget — a
+  // worker failure must never block boot. The daemon's own tick below runs only
+  // watchers and sequences.
+  startScheduleWorker();
 
   let stopped = false;
   let tickRunning = false;
@@ -291,9 +283,7 @@ export function startScheduler(): SchedulerHandle {
 
 /**
  * Stop the running scheduler if one was started, and SIGTERM the schedule
- * worker process if one is running. The worker stop is keyed off live state
- * rather than config: it may have been spawned at startup or out of band via
- * `assistant schedules worker start`.
+ * worker process if one is running.
  */
 export function stopScheduler(): void {
   stopScheduleWorker();
@@ -315,44 +305,26 @@ export async function runScheduleOnce(): Promise<number> {
 }
 
 /**
- * True while the schedule worker process owns schedule execution. Read from
- * config on every call so a runtime `assistant schedules worker start`/`stop`
- * switches ownership without a restart.
+ * Run the daemon's due background work: watchers and sequences. Schedule
+ * execution is owned by the schedule worker process (see `runDueSchedulesOnce`,
+ * driven by `worker.ts`), so this daemon-side path never claims schedules and
+ * reports none of them as its own pending work.
  */
-function scheduleWorkerOwnsSchedules(): boolean {
-  return getConfig().schedules?.worker?.enabled === true;
-}
-
 export async function runScheduleDueWorkOnce(
   options: SchedulerRunDueWorkOptions = {},
 ): Promise<SchedulerDueWorkResult> {
-  const now = options.now ?? Date.now();
   const minStartBudgetMs = options.minStartBudgetMs ?? 0;
-  // While `schedules.worker.enabled` is set, the schedule worker process owns
-  // schedule execution: this process leaves every due schedule unclaimed so
-  // exactly one process runs them, and reports none of them as its own
-  // pending work. The flag is re-read from config every tick, so `assistant
-  // schedules worker start`/`stop` switch ownership without a restart.
-  // Watchers and sequences below always run in the daemon.
-  const workerOwnsSchedules = scheduleWorkerOwnsSchedules();
-  const countStillPending = (at: number): number =>
-    options.includeStillPending && !workerOwnsSchedules
-      ? countDueScheduleJobs(at)
-      : 0;
   const result: SchedulerDueWorkResult = {
     claimed: 0,
     completed: 0,
     failed: 0,
     skipped: 0,
-    stillPending: 0,
   };
 
   if (
     options.deadlineAt != null &&
     options.deadlineAt - Date.now() < minStartBudgetMs
   ) {
-    result.stillPending = countStillPending(now);
-    result.skipped = result.stillPending;
     return result;
   }
 
@@ -367,17 +339,7 @@ export async function runScheduleDueWorkOnce(
         "Schedule tick skipped during disk pressure cleanup mode",
       );
     }
-    result.stillPending = countStillPending(now);
     return result;
-  }
-
-  // ── Schedules (recurring cron/RRULE + one-shot) ─────────────────────
-  if (!workerOwnsSchedules) {
-    const schedules = await runDueSchedulesOnce(now);
-    result.claimed = schedules.claimed;
-    result.completed += schedules.completed;
-    result.failed += schedules.failed;
-    result.skipped += schedules.skipped;
   }
 
   // ── Watchers (event-driven polling) ────────────────────────────────
@@ -396,7 +358,6 @@ export async function runScheduleDueWorkOnce(
     log.error({ err }, "Sequence engine tick failed");
   }
 
-  result.stillPending = countStillPending(Date.now());
   const processed = result.completed + result.failed + result.skipped;
   if (processed > 0) {
     log.info({ processed }, "Schedule tick complete");
@@ -406,16 +367,19 @@ export async function runScheduleDueWorkOnce(
 
 /**
  * Claim and execute every due schedule (all modes: notify, script, wake,
- * workflow, execute). Called from the daemon's tick while
- * `schedules.worker.enabled` is off, and from the schedule worker process's
- * tick while it is on. Claims are atomic in the schedule store, so a process
- * whose view of the flag lags a tick behind cannot double-run a job another
- * process already claimed.
+ * workflow, execute). Driven by the schedule worker process's tick
+ * (`worker.ts`). Claims are atomic in the schedule store, so overlapping ticks
+ * cannot double-run a job another claim already took.
  */
 export async function runDueSchedulesOnce(
   now: number = Date.now(),
-): Promise<Omit<SchedulerDueWorkResult, "stillPending">> {
-  const result = { claimed: 0, completed: 0, failed: 0, skipped: 0 };
+): Promise<SchedulerDueWorkResult> {
+  const result: SchedulerDueWorkResult = {
+    claimed: 0,
+    completed: 0,
+    failed: 0,
+    skipped: 0,
+  };
   const mark = (status: "completed" | "failed" | "skipped") => {
     result[status] += 1;
   };
@@ -735,134 +699,21 @@ export async function runDueSchedulesOnce(
 
     // ── Execute mode ────────────────────────────────────────────────
 
-    // Check if message is a task invocation (run_task:<task_id>)
-    const taskMatch = job.message.match(/^run_task:(\S+)$/);
-    if (taskMatch) {
-      const taskId = taskMatch[1];
-      const isRruleSet =
-        job.syntax === "rrule" &&
-        job.expression != null &&
-        hasSetConstructs(job.expression);
+    // Legacy task-template schedules stored a `run_task:<id>` message that an
+    // older scheduler special-cased to run a saved task template. That
+    // capability has been removed. Record a failed run so the dead schedule is
+    // visible, and never forward the raw `run_task:<id>` string to the agent.
+    if (/^run_task:\S+$/.test(job.message)) {
       const runId = await createScheduleRun(job.id, null);
-      let failed = false;
-      try {
-        log.info(
-          {
-            jobId: job.id,
-            name: job.name,
-            taskId,
-            syntax: job.syntax,
-            expression: job.expression,
-            isRruleSet,
-            isOneShot,
-          },
-          "Executing scheduled task",
-        );
-        const { runTask } = await import("../tasks/task-runner.js");
-        const result = await runTask(
-          {
-            taskId,
-            workingDir: process.cwd(),
-            source: "schedule",
-            scheduleJobId: job.id,
-          },
-          async (conversationId, message, taskRunId) => {
-            const { turnFailure } = await dispatchScheduleMessage(
-              conversationId,
-              message,
-              {
-                trustClass: "guardian",
-                taskRunId,
-                cronRunId: runId,
-                ...(job.inferenceProfile
-                  ? { overrideProfile: job.inferenceProfile }
-                  : {}),
-              },
-            );
-            // A failed LLM call (e.g. an invalid provider) ends the turn
-            // without throwing. Throw here so `runTask` records the task run as
-            // failed instead of completing it — otherwise the task/cron run
-            // would be marked ok despite the failure.
-            if (turnFailure) {
-              throw new Error(describeTurnFailure(turnFailure));
-            }
-          },
-        );
-
-        await setScheduleRunConversationId(runId, result.conversationId);
-        broadcastScheduleConversationCreated({
-          conversationId: result.conversationId,
-          scheduleJobId: job.id,
-          title: result.status === "failed" ? `${job.name}: Error` : job.name,
-        });
-
-        if (result.status === "failed") {
-          const errorMessage = result.error ?? "Task run failed";
-          await completeScheduleRun(runId, {
-            status: "error",
-            error: errorMessage,
-          });
-          emitTaskActivityFailed({
-            taskId,
-            conversationId: result.conversationId,
-            errorMessage,
-          });
-          await handleExecutionFailure({
-            job,
-            errorMsg: errorMessage,
-            isOneShot,
-          });
-          failed = true;
-        } else {
-          await completeScheduleRun(runId, { status: "ok" });
-          if (isOneShot) {
-            await completeOneShot(job.id);
-          }
-        }
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        log.warn(
-          {
-            err,
-            jobId: job.id,
-            name: job.name,
-            taskId,
-            syntax: job.syntax,
-            expression: job.expression,
-            isRruleSet,
-            isOneShot,
-          },
-          "Scheduled task execution failed",
-        );
-        // Create a fallback conversation for the schedule run record
-        const fallbackConversation = await bootstrapConversation({
-          conversationType: "scheduled",
-          source: "schedule",
-          scheduleJobId: job.id,
-          groupId: "system:scheduled",
-          origin: "schedule",
-          systemHint: `Schedule: ${job.name}`,
-        });
-        broadcastScheduleConversationCreated({
-          conversationId: fallbackConversation.id,
-          scheduleJobId: job.id,
-          title: `${job.name}: Error`,
-        });
-        await setScheduleRunConversationId(runId, fallbackConversation.id);
-        await completeScheduleRun(runId, { status: "error", error: message });
-        emitTaskActivityFailed({
-          taskId,
-          conversationId: fallbackConversation.id,
-          errorMessage: message,
-        });
-        await handleExecutionFailure({
-          job,
-          errorMsg: message,
-          isOneShot,
-        });
-        failed = true;
-      }
-      mark(failed ? "failed" : "completed");
+      await completeScheduleRun(runId, {
+        status: "error",
+        error: "Scheduled task templates are no longer supported.",
+      });
+      log.warn(
+        { jobId: job.id, name: job.name },
+        "Skipped unsupported task-template schedule (run_task)",
+      );
+      mark("failed");
       continue;
     }
 
@@ -1045,63 +896,11 @@ export async function runDueSchedulesOnce(
   return result;
 }
 
-function countDueScheduleJobs(now: number): number {
-  return listSchedules({ enabledOnly: true }).filter(
-    (job) =>
-      job.status === "active" &&
-      Number.isFinite(job.nextRunAt) &&
-      job.nextRunAt > 0 &&
-      job.nextRunAt <= now,
-  ).length;
-}
-
-/**
- * Emit an `activity.failed` notification for a failed scheduled task run.
- * Mirrors the shape `runBackgroundJob` produces for its own failures so the
- * home feed and native notifications stay consistent regardless of which
- * code path executed the work. Fire-and-forget — a notification failure
- * must never break scheduler operation.
- */
-function emitTaskActivityFailed(args: {
-  taskId: string;
-  conversationId: string;
-  errorMessage: string;
-}): void {
-  const day = new Date().toISOString().slice(0, 10);
-  emitNotificationSignal({
-    sourceChannel: "scheduler",
-    sourceContextId: args.conversationId,
-    sourceEventName: "activity.failed",
-    dedupeKey: `activity-failed:task:${args.taskId}:${day}`,
-    contextPayload: {
-      jobName: `task:${args.taskId}`,
-      errorMessage: args.errorMessage,
-      errorKind: "exception",
-    },
-    attentionHints: {
-      requiresAction: false,
-      urgency: "medium",
-      isAsyncBackground: true,
-      visibleInSourceNow: false,
-    },
-  }).catch((emitErr) => {
-    log.warn(
-      {
-        err: emitErr instanceof Error ? emitErr.message : String(emitErr),
-        taskId: args.taskId,
-        conversationId: args.conversationId,
-      },
-      "Failed to emit activity.failed notification for scheduled task",
-    );
-  });
-}
-
 /**
  * Emit an `activity.failed` notification for a schedule whose retries have
- * been exhausted. Distinct from `emitTaskActivityFailed` (which fires per
- * failed task run) — this one fires once when the retry policy has given
- * up, so the dedupeKey caller is the per-attempt key passed in by
- * `applyRetryDecision` (already includes the job id and a timestamp).
+ * been exhausted. Fires once when the retry policy has given up, so the
+ * dedupeKey caller is the per-attempt key passed in by `applyRetryDecision`
+ * (already includes the job id and a timestamp).
  */
 function emitScheduleActivityFailed(args: {
   jobId: string;

@@ -228,26 +228,6 @@ mock.module("../../daemon/conversation-store.js", () => ({
   },
 }));
 
-const mockConfig = {
-  llm: { profiles: { balanced: {} }, activeProfile: "balanced" },
-};
-
-mock.module("../../config/loader.js", () => ({
-  getConfig: () => mockConfig,
-  loadConfig: () => mockConfig,
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-  getConfigReadOnly: () => mockConfig,
-  applyNestedDefaults: (config: unknown) => config,
-  deepMergeOverwrite: (base: unknown) => base,
-  mergeDefaultWorkspaceConfig: () => {},
-  getNestedValue: () => undefined,
-  setNestedValue: () => {},
-  API_KEY_PROVIDERS: [],
-  _writeQuarantineNotice: () => {},
-  invalidateConfigCache: () => {},
-}));
-
 mock.module("../../config/llm-context-resolution.js", () => ({
   resolveEffectiveContextWindow: () => ({
     maxInputTokens: 200_000,

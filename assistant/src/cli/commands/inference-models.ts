@@ -11,6 +11,7 @@
 import type { Command } from "commander";
 
 import { cliIpcCall } from "../../ipc/cli-client.js";
+import { subcommand } from "../lib/cli-command-help.js";
 import { renderTable, writeCliError, writeLine } from "../lib/cli-output.js";
 
 interface CatalogModel {
@@ -26,27 +27,10 @@ interface CatalogModel {
 }
 
 export function attachModelsSubcommand(inference: Command): void {
-  const models = inference
-    .command("models")
-    .description("Inspect the inference model catalog");
+  const models = subcommand(inference, "models");
 
-  models
-    .command("list")
-    .description("List catalog models (optionally filtered by provider)")
-    .option("--provider <p>", "Filter by provider id")
-    .option("--json", "Output as machine-readable JSON")
-    .addHelpText(
-      "after",
-      `
-Lists every model in the code-owned provider catalog. Use the ids here
-when creating an inference profile:
-
-Examples:
-  $ assistant inference models list
-  $ assistant inference models list --provider anthropic
-  $ assistant inference models list --json`,
-    )
-    .action(async (opts: { provider?: string; json?: boolean }) => {
+  subcommand(models, "list").action(
+    async (opts: { provider?: string; json?: boolean }) => {
       const ipcResult = await cliIpcCall<{ models: CatalogModel[] }>(
         "inference_models_list",
         { queryParams: opts.provider ? { provider: opts.provider } : {} },
@@ -80,5 +64,6 @@ Examples:
             : "-",
         ]),
       );
-    });
+    },
+  );
 }

@@ -65,7 +65,9 @@ function insertOnboardingEvent(event: OnboardingEvent): OnboardingEvent | null {
 export function recordOnboardingEvent(
   params: RecordOnboardingEventParams,
 ): OnboardingEvent | null {
-  if (!getCachedShareAnalytics()) return null;
+  if (!getCachedShareAnalytics()) {
+    return null;
+  }
   return insertOnboardingEvent({
     id: uuid(),
     createdAt: Date.now(),
@@ -101,7 +103,9 @@ export function recordActivationEvent(params: {
   userId?: string | null;
   abVariant?: string;
 }): OnboardingEvent | null {
-  if (!getCachedShareAnalytics()) return null;
+  if (!getCachedShareAnalytics()) {
+    return null;
+  }
   const createdAt = Date.now();
   return insertOnboardingEvent({
     id: uuid(),
@@ -132,7 +136,9 @@ export function queryUnreportedOnboardingEvents(
   limit: number,
 ): OnboardingEvent[] {
   const db = getTelemetryDb();
-  if (!db) return [];
+  if (!db) {
+    return [];
+  }
   const rows = db
     .select({
       id: onboardingEvents.id,

@@ -65,6 +65,7 @@ mock.module("../../v2/injection-events.js", () => ({
 // sentinel object is sufficient.
 mock.module("../../../../../persistence/db-connection.js", () => ({
   getDb: () => ({ __stub: true }),
+  getMainDbReadOnly: () => ({ __stub: true }),
   getSqlite: () => ({ __stub: true }),
   getSqliteFrom: () => ({ __stub: true }),
   getMemoryDb: () => ({ __stub: true }),
@@ -76,31 +77,9 @@ mock.module("../../../../../persistence/db-connection.js", () => ({
   resetDb: () => {},
 }));
 
-// Config loader. The simulate route reads `memory.v2.enabled` (must be
-// true) and the full `memory.v2.router` block (overrides merged on top).
-const liveRouterConfig = {
-  enabled: true,
-  max_page_ids: 25,
-  router_prompt_path: null,
-  batch_size: null,
-  tier1_size: null,
-  tier2_size: null,
-};
-const mockConfigValue = {
-  memory: {
-    v2: {
-      enabled: true,
-      router: liveRouterConfig,
-    },
-  },
-};
-mock.module("../../../../../config/loader.js", () => ({
-  loadConfig: () => mockConfigValue,
-  getConfig: () => mockConfigValue,
-  getConfigReadOnly: () => mockConfigValue,
-  invalidateConfigCache: () => {},
-  API_KEY_PROVIDERS: [],
-}));
+// The simulate route reads `memory.v2.enabled` (default true) and the full
+// `memory.v2.router` block (overrides merged on top). Schema defaults already
+// provide both, so the real loader needs no seeding here.
 
 // Provider stub. Default returns [1, 2] (selects first two pages).
 let providerStub: Provider | null = null;
@@ -124,54 +103,15 @@ mock.module("@vellumai/plugin-api", () => ({
 }));
 
 // Platform helpers. `getWorkspaceDir` must return the per-test tmp dir so
-// the route's page index points at the test workspace.
+// the route's page index points at the test workspace. Spread the real module
+// so the config loader's own platform reads (config path, quarantine notice,
+// data dir) keep resolving against the seeded workspace.
 let workspaceDir = "";
-mock.module("../../../../../util/platform.js", () => {
-  const stub = () => workspaceDir;
-  return {
-    getWorkspaceDir: () => workspaceDir,
-    vellumRoot: stub,
-    isMacOS: () => false,
-    isLinux: () => true,
-    isWindows: () => false,
-    getPlatformName: () => "linux",
-    normalizeAssistantId: (id: string) => id,
-    getDataDir: stub,
-    getEmbeddingModelsDir: stub,
-    getSandboxRootDir: stub,
-    getSandboxWorkingDir: stub,
-    getSoundsDir: stub,
-    getAvatarDir: stub,
-    AVATAR_IMAGE_FILENAME: "avatar-image.png",
-    getAvatarImagePath: stub,
-    getXdgVellumConfigDirName: () => ".vellum",
-    getPidPath: stub,
-    getDbPath: stub,
-    getLogsDir: stub,
-    getHistoryPath: stub,
-    getProtectedDir: stub,
-    getSignalsDir: stub,
-    getDaemonStderrLogPath: stub,
-    getDaemonStartupLockPath: stub,
-    getExternalDir: stub,
-    getBinDir: stub,
-    getDotEnvPath: stub,
-    getEmbedWorkerPidPath: stub,
-    getWorkspaceDirDisplay: stub,
-    getWorkspaceConfigPath: stub,
-    getWorkspaceSkillsDir: stub,
-    getWorkspaceHooksDir: stub,
-    getWorkspacePluginsDir: stub,
-    getWorkspaceRoutesDir: stub,
-    getDeprecatedDir: stub,
-    getConversationsDir: stub,
-    getWorkspacePromptPath: stub,
-    getProfilerRootDir: stub,
-    getProfilerRunsDir: stub,
-    getProfilerRunDir: stub,
-    ensureDataDir: () => {},
-  };
-});
+const realPlatform = await import("../../../../../util/platform.js");
+mock.module("../../../../../util/platform.js", () => ({
+  ...realPlatform,
+  getWorkspaceDir: () => workspaceDir,
+}));
 
 // ---------------------------------------------------------------------------
 // Import under test (after all mocks above)
@@ -234,11 +174,6 @@ beforeEach(() => {
   recordCalls.length = 0;
   providerCalls.length = 0;
   providerStub = null;
-  // Reset live router config to defaults between tests.
-  liveRouterConfig.batch_size = null;
-  liveRouterConfig.tier1_size = null;
-  liveRouterConfig.tier2_size = null;
-  liveRouterConfig.max_page_ids = 25;
   invalidatePageIndex();
 });
 

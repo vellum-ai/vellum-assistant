@@ -31,10 +31,6 @@ import type { AdmissionPolicy, TrustVerdict } from "@vellumai/gateway-client";
 import type { TrustClass } from "../../runtime/actor-trust-resolver.js";
 import type { CallSession } from "../types.js";
 
-mock.module("../../config/loader.js", () => ({
-  getConfig: () => ({ calls: { verification: { enabled: false } } }),
-}));
-
 // `resolveActorTrust` must never be consulted by the router — the gateway
 // verdict is the sole trust source. The mock throws so a regression back to
 // local resolution fails loudly, and call counts are asserted per test.

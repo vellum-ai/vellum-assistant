@@ -15,36 +15,6 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ── Shared mock plumbing (must precede module-under-test imports) ──────────
 
-type TestConfig = {
-  ui: { userTimezone?: string; detectedTimezone?: string };
-  skills: Record<string, unknown>;
-};
-
-const baseConfig: TestConfig = {
-  ui: {},
-  skills: {
-    entries: {},
-    load: { extraDirs: [], watch: true, watchDebounceMs: 250 },
-    install: { nodeManager: "npm" },
-    allowBundled: null,
-    remoteProviders: {
-      skillssh: { enabled: true },
-      clawhub: { enabled: true },
-    },
-    remotePolicy: {
-      blockSuspicious: true,
-      blockMalware: true,
-      maxSkillsShRisk: "medium",
-    },
-  },
-};
-let currentConfig: TestConfig = structuredClone(baseConfig);
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => currentConfig,
-  loadConfig: () => ({}),
-}));
-
 // `addMessage` is the only DB-touching call we need to inspect. We capture
 // its arguments per test invocation so each case can assert on the metadata
 // that was actually persisted.
@@ -107,6 +77,15 @@ mock.module("../persistence/conversation-crud.js", () => ({
     // Mirror updateContent into the same capture array so existing
     // `lastAssistantPersisted()` assertions continue to find the row that
     // was reserved at `llm_call_started` time.
+    const row = persistedRows.find((candidate) => candidate.id === messageId);
+    if (row) row.content = content;
+    const call = addMessageCalls.find((c) => c.id === messageId);
+    if (call) call.content = content;
+  },
+  markMessageContentInflight: () => {},
+  finalizeMessageContent: (messageId: string, content: string) => {
+    // The finalize seam writes through `finalizeMessageContent`; mirror it
+    // into the same captures as `updateMessageContent`.
     const row = persistedRows.find((candidate) => candidate.id === messageId);
     if (row) row.content = content;
     const call = addMessageCalls.find((c) => c.id === messageId);
@@ -187,6 +166,7 @@ import {
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import { readSlackMetadata } from "../messaging/providers/slack/message-metadata.js";
 import { deliverReplyViaCallback } from "../runtime/channel-reply-delivery.js";
+import { setConfig } from "./helpers/set-config.js";
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -265,7 +245,7 @@ describe("outbound assistant Slack metadata persistence", () => {
   beforeEach(() => {
     addMessageCalls.length = 0;
     persistedRows.length = 0;
-    currentConfig = structuredClone(baseConfig);
+    setConfig("ui", {});
     nextDeliveryTs = null;
     state = createEventHandlerState();
     state.turnStartedAt = 1_700_000_000_000;
@@ -316,10 +296,7 @@ describe("outbound assistant Slack metadata persistence", () => {
   });
 
   test("stamps assistant Slack rows with effective timestamp timezone and no speaker suffix", async () => {
-    currentConfig = {
-      ...structuredClone(baseConfig),
-      ui: { userTimezone: "America/Denver" },
-    };
+    setConfig("ui", { userTimezone: "America/Denver" });
     state.turnStartedAt = Date.parse("2026-03-05T03:38:00Z");
     const conversationId = "conv-slack-timezone";
     const channelId = "C999TIMEZONE";
@@ -375,10 +352,7 @@ describe("outbound assistant Slack metadata persistence", () => {
   });
 
   test("post-send reconciliation preserves assistant Slack timezone metadata", async () => {
-    currentConfig = {
-      ...structuredClone(baseConfig),
-      ui: { userTimezone: "America/Denver" },
-    };
+    setConfig("ui", { userTimezone: "America/Denver" });
     const conversationId = "conv-slack-reconcile-timezone";
     const channelId = "C999RECONCILE";
 

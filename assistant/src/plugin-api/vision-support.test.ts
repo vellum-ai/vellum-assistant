@@ -1,8 +1,10 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 
+import { setConfig } from "../__tests__/helpers/set-config.js";
+import { getConfig } from "../config/loader.js";
 import type { ModelProfileInfo } from "./types.js";
 
-// ─── Mock config ────────────────────────────────────────────────────────────
+// ─── Fixture config ─────────────────────────────────────────────────────────
 
 interface MockProfileEntry {
   provider?: string;
@@ -16,24 +18,6 @@ let mockDefault: { provider?: string; model?: string } = {
   provider: "anthropic",
   model: "claude-opus-4-6",
 };
-
-const realConfigLoader = await import("../config/loader.js");
-
-mock.module("../config/loader.js", () => ({
-  ...realConfigLoader,
-  getConfig: () => ({
-    llm: {
-      profiles: mockProfiles,
-      default: mockDefault,
-    },
-  }),
-  getConfigReadOnly: () => ({
-    llm: {
-      profiles: mockProfiles,
-      default: mockDefault,
-    },
-  }),
-}));
 
 // Real model catalog — don't mock it, the test exercises real catalog lookups.
 const { doesSupportVision } = await import("./vision-support.js");
@@ -51,17 +35,31 @@ function profile(key: string): ModelProfileInfo {
   };
 }
 
+/**
+ * Install the current fixture `llm` config for real. A schema-valid baseline
+ * is seeded first so the loader caches a config object; `llm` is then
+ * overwritten on that live cached object so fixtures the schema would strip
+ * (non-enum provider ids) reach the resolver exactly as authored.
+ */
+function applyConfig(): void {
+  setConfig("llm", { profiles: {} });
+  const config = getConfig() as { llm: unknown };
+  config.llm = { profiles: mockProfiles, default: mockDefault };
+}
+
 function setMockConfig(
   profiles: Record<string, MockProfileEntry>,
   def: { provider?: string; model?: string } = {},
 ) {
   mockProfiles = profiles;
   mockDefault = { provider: "anthropic", model: "claude-opus-4-6", ...def };
+  applyConfig();
 }
 
 beforeEach(() => {
   mockProfiles = {};
   mockDefault = { provider: "anthropic", model: "claude-opus-4-6" };
+  applyConfig();
 });
 
 // ─── Tests ──────────────────────────────────────────────────────────────────

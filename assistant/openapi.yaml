@@ -3,7 +3,7 @@
 openapi: 3.1.0
 info:
   title: Vellum Assistant API
-  version: 0.10.7
+  version: 0.10.8
   description: Auto-generated OpenAPI specification for the Vellum Assistant runtime HTTP server.
 servers:
   - url: http://127.0.0.1:7821
@@ -617,6 +617,27 @@ paths:
                 required:
                   - apps
                 additionalProperties: false
+  /v1/apps/{appId}/asset/{path}:
+    get:
+      operationId: apps_by_appId_asset_by_path_get
+      summary: Serve app asset
+      description: Serve a bundled binary asset (image, audio, video, font) from anywhere in an app's directory.
+      tags:
+        - apps
+      parameters:
+        - name: appId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: path
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
   /v1/apps/{appId}/dist/{filename}:
     get:
       operationId: apps_by_appId_dist_by_filename_get
@@ -13688,6 +13709,57 @@ paths:
           description:
             Submitting client does not match the targeted client, or the submitting actor's principal does not match
             the target client's actor.
+  /v1/host-ui-snapshot-result:
+    post:
+      operationId: hostuisnapshotresult_post
+      summary: Submit host UI-snapshot result
+      description:
+        Resolve a pending UI-snapshot request by requestId. Returns 200 even when no pending interaction matches
+        (late delivery is tolerated).
+      tags:
+        - host
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                requestId:
+                  type: string
+                  description: Pending UI-snapshot request ID
+                pngBase64:
+                  type: string
+                  description: Base64 PNG capture of the staged view
+                widthPx:
+                  type: number
+                heightPx:
+                  type: number
+                isError:
+                  type: boolean
+                errorMessage:
+                  type: string
+              required:
+                - requestId
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  accepted:
+                    type: boolean
+                required:
+                  - accepted
+                additionalProperties: false
+        "400":
+          description: x-vellum-client-id header is missing for a targeted UI-snapshot request.
+        "403":
+          description:
+            Submitting client does not match the targeted client, or the submitting actor's principal does not match
+            the target client's actor.
   /v1/identity:
     get:
       operationId: identity_get
@@ -17535,7 +17607,7 @@ paths:
     post:
       operationId: memory_worker_start_post
       summary: Start the memory worker
-      description: Spawns (or reuses) the memory worker process as a child of the daemon and enables memory.worker.enabled.
+      description: Spawns (or reuses) the memory worker process as a child of the daemon.
       tags:
         - system
       responses:
@@ -17550,15 +17622,11 @@ paths:
                     type: number
                   alreadyRunning:
                     type: boolean
-                  workerEnabled:
-                    type: boolean
-                    const: true
                   pidPath:
                     type: string
                 required:
                   - pid
                   - alreadyRunning
-                  - workerEnabled
                   - pidPath
                 additionalProperties: false
   /v1/memory/worker/status:
@@ -17566,8 +17634,8 @@ paths:
       operationId: memory_worker_status_get
       summary: Memory worker status
       description:
-        Reports the memory worker process state, memory.worker.enabled, the synchronous in-process runner, and the
-        embedding-backend status (including a degraded flag and reason when no backend resolves).
+        Reports the memory worker process liveness and the embedding-backend status (including a degraded flag and
+        reason when no backend resolves).
       tags:
         - system
       responses:
@@ -17585,21 +17653,6 @@ paths:
                       - not_running
                   pid:
                     type: number
-                  workerEnabled:
-                    type: boolean
-                  syncRunner:
-                    type: object
-                    properties:
-                      status:
-                        type: string
-                        enum:
-                          - running
-                          - not_running
-                      pid:
-                        type: number
-                    required:
-                      - status
-                    additionalProperties: false
                   embedding:
                     type: object
                     properties:
@@ -17633,15 +17686,13 @@ paths:
                     additionalProperties: false
                 required:
                   - status
-                  - workerEnabled
-                  - syncRunner
                   - embedding
                 additionalProperties: false
   /v1/memory/worker/stop:
     post:
       operationId: memory_worker_stop_post
       summary: Stop the memory worker
-      description: Disables memory.worker.enabled and SIGTERMs the memory worker process if it is running.
+      description: SIGTERMs the memory worker process if it is running.
       tags:
         - system
       responses:
@@ -17656,12 +17707,8 @@ paths:
                     type: boolean
                   pid:
                     type: number
-                  workerEnabled:
-                    type: boolean
-                    const: false
                 required:
                   - workerWasRunning
-                  - workerEnabled
                 additionalProperties: false
   /v1/messages:
     get:
@@ -25450,9 +25497,7 @@ paths:
     post:
       operationId: schedules_worker_start_post
       summary: Start the schedule worker
-      description:
-        Spawns (or reuses) the schedule worker process as a child of the daemon and enables
-        schedules.worker.enabled, so scheduled jobs run out of process.
+      description: Spawns (or reuses) the schedule worker process as a child of the daemon.
       tags:
         - system
       responses:
@@ -25467,24 +25512,18 @@ paths:
                     type: number
                   alreadyRunning:
                     type: boolean
-                  workerEnabled:
-                    type: boolean
-                    const: true
                   pidPath:
                     type: string
                 required:
                   - pid
                   - alreadyRunning
-                  - workerEnabled
                   - pidPath
                 additionalProperties: false
   /v1/schedules/worker/status:
     get:
       operationId: schedules_worker_status_get
       summary: Schedule worker status
-      description:
-        Reports the schedule worker process state, schedules.worker.enabled, and whether the daemon's in-process
-        scheduler is currently executing schedules.
+      description: Reports the schedule worker process liveness.
       tags:
         - system
       responses:
@@ -25502,33 +25541,14 @@ paths:
                       - not_running
                   pid:
                     type: number
-                  workerEnabled:
-                    type: boolean
-                  inProcessScheduler:
-                    type: object
-                    properties:
-                      status:
-                        type: string
-                        enum:
-                          - running
-                          - not_running
-                      pid:
-                        type: number
-                    required:
-                      - status
-                    additionalProperties: false
                 required:
                   - status
-                  - workerEnabled
-                  - inProcessScheduler
                 additionalProperties: false
   /v1/schedules/worker/stop:
     post:
       operationId: schedules_worker_stop_post
       summary: Stop the schedule worker
-      description:
-        Disables schedules.worker.enabled (handing schedule execution back to the in-process scheduler) and
-        SIGTERMs the schedule worker process if it is running.
+      description: SIGTERMs the schedule worker process if it is running.
       tags:
         - system
       responses:
@@ -25543,12 +25563,8 @@ paths:
                     type: boolean
                   pid:
                     type: number
-                  workerEnabled:
-                    type: boolean
-                    const: false
                 required:
                   - workerWasRunning
-                  - workerEnabled
                 additionalProperties: false
   /v1/search:
     get:
@@ -28952,375 +28968,13 @@ paths:
                   - title
                   - data
                 additionalProperties: false
-  /v1/tasks/delete:
-    post:
-      operationId: tasks_delete_post
-      summary: Delete task templates
-      description: Delete one or more task templates by ID.
-      tags:
-        - tasks
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                task_ids:
-                  minItems: 1
-                  type: array
-                  items:
-                    type: string
-                    minLength: 1
-              required:
-                - task_ids
-      responses:
-        "200":
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  ok:
-                    type: boolean
-                  content:
-                    type: string
-                required:
-                  - ok
-                  - content
-                additionalProperties: false
-  /v1/tasks/list:
-    post:
-      operationId: tasks_list_post
-      summary: List task templates
-      description: List all saved task templates.
-      tags:
-        - tasks
-      responses:
-        "200":
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  ok:
-                    type: boolean
-                  content:
-                    type: string
-                required:
-                  - ok
-                  - content
-                additionalProperties: false
-  /v1/tasks/queue/add:
-    post:
-      operationId: tasks_queue_add_post
-      summary: Add to task queue
-      description: Add a new work item to the task queue.
-      tags:
-        - tasks
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                task_id:
-                  type: string
-                task_name:
-                  type: string
-                title:
-                  type: string
-                execution_prompt:
-                  type: string
-                notes:
-                  type: string
-                priority_tier:
-                  type: number
-                sort_index:
-                  type: number
-                if_exists:
-                  type: string
-                  enum:
-                    - create_duplicate
-                    - reuse_existing
-                    - update_existing
-                required_tools:
-                  type: array
-                  items:
-                    type: string
-      responses:
-        "200":
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  content:
-                    type: string
-                  isError:
-                    type: boolean
-                required:
-                  - content
-                additionalProperties: false
-  /v1/tasks/queue/remove:
-    post:
-      operationId: tasks_queue_remove_post
-      summary: Remove from task queue
-      description: Remove a work item from the task queue.
-      tags:
-        - tasks
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                work_item_id:
-                  type: string
-                task_id:
-                  type: string
-                task_name:
-                  type: string
-                title:
-                  type: string
-                priority_tier:
-                  type: number
-                status:
-                  type: string
-                created_order:
-                  type: number
-      responses:
-        "200":
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  content:
-                    type: string
-                  isError:
-                    type: boolean
-                required:
-                  - content
-                additionalProperties: false
-  /v1/tasks/queue/run:
-    post:
-      operationId: tasks_queue_run_post
-      summary: Run next task queue item
-      description: Pick up and execute the next work item from the queue.
-      tags:
-        - tasks
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                work_item_id:
-                  type: string
-                task_name:
-                  type: string
-                title:
-                  type: string
-      responses:
-        "200":
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  content:
-                    type: string
-                  isError:
-                    type: boolean
-                required:
-                  - content
-                additionalProperties: false
-  /v1/tasks/queue/show:
-    post:
-      operationId: tasks_queue_show_post
-      summary: Show task queue
-      description: List work items in the task queue, optionally filtered by status.
-      tags:
-        - tasks
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                status:
-                  anyOf:
-                    - type: string
-                    - type: array
-                      items:
-                        type: string
-      responses:
-        "200":
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  content:
-                    type: string
-                  isError:
-                    type: boolean
-                required:
-                  - content
-                additionalProperties: false
-  /v1/tasks/queue/update:
-    post:
-      operationId: tasks_queue_update_post
-      summary: Update a task queue item
-      description: Update an existing work item in the task queue.
-      tags:
-        - tasks
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                work_item_id:
-                  type: string
-                task_id:
-                  type: string
-                task_name:
-                  type: string
-                title:
-                  type: string
-                priority_tier:
-                  type: number
-                notes:
-                  type: string
-                status:
-                  type: string
-                  enum:
-                    - queued
-                    - running
-                    - awaiting_review
-                    - done
-                    - failed
-                    - cancelled
-                    - archived
-                sort_index:
-                  type: number
-                filter_priority_tier:
-                  type: number
-                filter_status:
-                  type: string
-                created_order:
-                  type: number
-      responses:
-        "200":
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  content:
-                    type: string
-                  isError:
-                    type: boolean
-                required:
-                  - content
-                additionalProperties: false
-  /v1/tasks/run:
-    post:
-      operationId: tasks_run_post
-      summary: Run a task template
-      description: Execute a saved task template by name or ID.
-      tags:
-        - tasks
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                task_name:
-                  type: string
-                  minLength: 1
-                task_id:
-                  type: string
-                  minLength: 1
-                inputs:
-                  type: object
-                  propertyNames:
-                    type: string
-                  additionalProperties:
-                    type: string
-      responses:
-        "200":
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  ok:
-                    type: boolean
-                  content:
-                    type: string
-                required:
-                  - ok
-                  - content
-                additionalProperties: false
-  /v1/tasks/save:
-    post:
-      operationId: tasks_save_post
-      summary: Save a task template
-      description: Save the current conversation as a reusable task template.
-      tags:
-        - tasks
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                conversation_id:
-                  type: string
-                  minLength: 1
-                title:
-                  type: string
-                  minLength: 1
-      responses:
-        "200":
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  ok:
-                    type: boolean
-                  content:
-                    type: string
-                required:
-                  - ok
-                  - content
-                additionalProperties: false
   /v1/telemetry/flush:
     post:
       operationId: telemetry_flush_post
       summary: Flush pending telemetry events
-      description: Force-flush all pending usage, turn, and lifecycle telemetry events to the platform.
+      description:
+        Force-flush the telemetry events owned by the assistant process (turn events) to the platform. Other event
+        types are flushed on their own cycle by the resource monitor process.
       tags:
         - telemetry
       responses:
@@ -29952,6 +29606,71 @@ paths:
       responses:
         "200":
           description: Successful response
+  /v1/ui/snapshot:
+    post:
+      operationId: ui_snapshot_post
+      summary: Capture a staged UI snapshot
+      description:
+        Ask the connected desktop client to render a staged view of the app (sampler or chat) with the current
+        workspace-theme tokens applied and return a PNG capture. The staged views contain only fixed generic content.
+        Blocks until the client responds or the timeout elapses.
+      tags:
+        - host
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                view:
+                  default: sampler
+                  description: Which staged composition to capture
+                  type: string
+                  enum:
+                    - sampler
+                    - chat
+                timeoutMs:
+                  description: How long to wait for the client capture
+                  type: integer
+                  exclusiveMinimum: 0
+                  maximum: 120000
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  pngBase64:
+                    type: string
+                    description: Base64 PNG capture of the staged view
+                  widthPx:
+                    type: number
+                  heightPx:
+                    type: number
+                  themeSource:
+                    type: string
+                    enum:
+                      - workspace
+                      - invalid
+                      - none
+                  themeIssues:
+                    type: array
+                    items:
+                      type: string
+                  timedOut:
+                    type: boolean
+                  error:
+                    type: string
+                required:
+                  - ok
+                  - themeSource
+                  - themeIssues
+                additionalProperties: false
   /v1/usage/breakdown:
     get:
       operationId: usage_breakdown_get

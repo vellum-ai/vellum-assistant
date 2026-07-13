@@ -300,6 +300,7 @@ function loadRecentMessagesText(nowMs: number): string {
     .innerJoin(conversations, eq(messages.conversationId, conversations.id))
     .where(
       and(
+        eq(messages.finalized, 1),
         gt(messages.createdAt, cutoff),
         notInArray(conversations.conversationType, ["background", "scheduled"]),
       ),

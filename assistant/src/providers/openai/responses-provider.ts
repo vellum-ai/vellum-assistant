@@ -7,6 +7,7 @@ import { getLogger } from "../../util/logger.js";
 import { extractRetryAfterMs } from "../../util/retry.js";
 import { escapeXmlAttr } from "../../util/xml.js";
 import { base64Source, resolveMediaReferences } from "../media-resolve.js";
+import { PROMPT_CACHE_BREAKPOINT_MODEL_IDS } from "../model-catalog.js";
 import { createStreamTimeout } from "../stream-timeout.js";
 import { createToolProgressEmitter } from "../tool-progress-events.js";
 import type {
@@ -36,6 +37,9 @@ export interface OpenAIResponsesProviderOptions {
   /** When true, target the Codex subscription endpoint and strip fields it
    *  rejects (`max_output_tokens`). */
   codexSubscription?: boolean;
+  /** Static HTTP headers sent with every request (e.g. OpenRouter app
+   *  attribution). Merged under any per-request attribution headers. */
+  requestHeaders?: Record<string, string>;
 }
 
 /** Map our internal effort values to the Responses API reasoning.effort parameter.
@@ -128,7 +132,11 @@ interface ResponsesStreamEvent {
       input_tokens?: number;
       output_tokens?: number;
       output_tokens_details?: { reasoning_tokens?: number };
-      input_tokens_details?: { cached_tokens?: number };
+      input_tokens_details?: {
+        cached_tokens?: number;
+        /** GPT-5.6+: prompt tokens written to the cache, billed at 1.25x input. */
+        cache_write_tokens?: number;
+      };
     };
   };
 }
@@ -139,6 +147,24 @@ const OPENAI_SUPPORTED_IMAGE_TYPES = new Set([
   "image/gif",
   "image/webp",
 ]);
+
+/** Content-part types that accept a `prompt_cache_breakpoint` marker. */
+const STAMPABLE_PART_TYPES = new Set([
+  "input_text",
+  "input_image",
+  "input_file",
+]);
+
+/** OpenAI considers up to the latest 50 breakpoints for cache reads; markers
+ *  beyond that budget are dead weight, so the marker ladder stops there. */
+const PROMPT_CACHE_MAX_BREAKPOINTS = 50;
+
+/** Minimal structural view of a Responses `input` message item. */
+interface ResponsesMessageItem {
+  type?: string;
+  role?: string;
+  content?: Array<Record<string, unknown>>;
+}
 
 /**
  * OpenAI Responses API transport.
@@ -155,6 +181,7 @@ export class OpenAIResponsesProvider implements Provider {
   private streamTimeoutMs: number;
   private useNativeWebSearch: boolean;
   private codexSubscription: boolean;
+  private readonly requestHeaders: Record<string, string>;
 
   constructor(
     apiKey: string,
@@ -164,6 +191,7 @@ export class OpenAIResponsesProvider implements Provider {
     this.name = options.providerName ?? "openai";
     this.providerLabel = options.providerLabel ?? "OpenAI";
     this.codexSubscription = options.codexSubscription ?? false;
+    this.requestHeaders = options.requestHeaders ?? {};
     this.streamTimeoutMs = options.streamTimeoutMs ?? 1_800_000;
     // Keep the SDK deadline behind our provider stream timeout so
     // createStreamTimeout owns the user-facing timeout error.
@@ -199,12 +227,22 @@ export class OpenAIResponsesProvider implements Provider {
     const usageAttributionHeaders = configObj?.usageAttributionHeaders as
       | Record<string, string>
       | undefined;
+    const mutableLatestUserMessage =
+      configObj?.mutableLatestUserMessage === true;
+    const disableCache = configObj?.disableCache === true;
+    const disableTurnStartCache = configObj?.disableTurnStartCache === true;
+    const promptCacheKey =
+      typeof configObj?.promptCacheKey === "string" &&
+      configObj.promptCacheKey.length > 0
+        ? (configObj.promptCacheKey as string)
+        : undefined;
 
     try {
+      const effectiveModel = modelOverride ?? this.model;
       const input = this.toResponsesInput(messages);
 
       const params: Record<string, unknown> = {
-        model: modelOverride ?? this.model,
+        model: effectiveModel,
         input,
         ...(this.codexSubscription ? { store: false } : {}),
       };
@@ -216,6 +254,33 @@ export class OpenAIResponsesProvider implements Provider {
         );
       }
 
+      // Explicit prompt-cache mode (GPT-5.6+ semantics, direct API only).
+      // Explicit mode disables the implicit latest-message breakpoint — under
+      // implicit mode a volatile latest user message (mutableLatestUserMessage)
+      // makes every cached entry end at content that never recurs: zero reads
+      // plus a full-prompt 1.25x write per turn. With explicit markers we
+      // choose the stable boundaries ourselves. Under `disableCache` we still
+      // send explicit mode but stamp no markers: a request with no explicit
+      // breakpoints neither uses the cache nor incurs cache-write charges,
+      // which is exactly the opt-out `disableCache` wants (omitting the param
+      // would re-enable implicit mode). The Codex subscription endpoint
+      // rejects extra params, so cache params are skipped entirely there.
+      if (
+        !this.codexSubscription &&
+        PROMPT_CACHE_BREAKPOINT_MODEL_IDS.has(effectiveModel)
+      ) {
+        params.prompt_cache_options = { mode: "explicit" };
+        if (promptCacheKey) {
+          params.prompt_cache_key = promptCacheKey;
+        }
+        if (!disableCache) {
+          this.applyPromptCacheBreakpoints(input, {
+            mutableLatestUserMessage,
+            disableTurnStartCache,
+          });
+        }
+      }
+
       if (maxTokens && !this.codexSubscription) {
         params.max_output_tokens = maxTokens;
       }
@@ -224,7 +289,19 @@ export class OpenAIResponsesProvider implements Provider {
         ? EFFORT_TO_REASONING_EFFORT[effort]
         : undefined;
       if (reasoningEffort) {
-        params.reasoning = { effort: reasoningEffort };
+        // Request a human-readable reasoning summary whenever the model will
+        // reason — without it the Responses API emits no visible thinking at
+        // all. "auto" resolves to the richest level the model supports
+        // (older o-series models reject "concise"/"detailed"). The retry
+        // layer encodes the user's thinking toggle as `effort` for this
+        // provider, so `"none"` is the disabled state and gets no summary.
+        // The Codex subscription endpoint is param-sensitive (it already
+        // forces `store: false` and rejects `max_output_tokens`), so its
+        // wire shape is left untouched.
+        params.reasoning =
+          reasoningEffort === "none" || this.codexSubscription
+            ? { effort: reasoningEffort }
+            : { effort: reasoningEffort, summary: "auto" };
       }
 
       if (
@@ -283,11 +360,14 @@ export class OpenAIResponsesProvider implements Provider {
         }
       }
 
+      Object.assign(params, this.buildExtraCreateParams(options));
+
       const { signal: timeoutSignal, cleanup: cleanupTimeout } =
         createStreamTimeout(this.streamTimeoutMs, signal);
 
       // Accumulate the response from stream events
       let contentText = "";
+      let reasoningSummaryText = "";
       // Keyed by item_id (from the stream event) to support parallel tool calls.
       const toolCallMap = new Map<
         string,
@@ -304,6 +384,7 @@ export class OpenAIResponsesProvider implements Provider {
       let outputTokens = 0;
       let reasoningTokens = 0;
       let cachedInputTokens = 0;
+      let cacheWriteInputTokens = 0;
       let rawFinalResponse: unknown = undefined;
 
       try {
@@ -318,12 +399,16 @@ export class OpenAIResponsesProvider implements Provider {
             o?: { signal?: AbortSignal; headers?: Record<string, string> },
           ): Promise<AsyncIterable<ResponsesStreamEvent>>;
         };
+        const requestHeaders = {
+          ...this.requestHeaders,
+          ...(usageAttributionHeaders ?? {}),
+        };
         const stream = await responsesApi.create(
           { ...params, stream: true },
           {
             signal: timeoutSignal,
-            ...(usageAttributionHeaders
-              ? { headers: usageAttributionHeaders }
+            ...(Object.keys(requestHeaders).length > 0
+              ? { headers: requestHeaders }
               : {}),
           },
         );
@@ -336,6 +421,23 @@ export class OpenAIResponsesProvider implements Provider {
                 contentText += delta;
                 onEvent?.({ type: "text_delta", text: delta });
               }
+              break;
+            }
+
+            case "response.reasoning_summary_text.delta": {
+              const delta = event.delta;
+              if (delta) {
+                reasoningSummaryText += delta;
+                onEvent?.({ type: "thinking_delta", thinking: delta });
+              }
+              break;
+            }
+
+            case "response.reasoning_summary_part.done": {
+              // One summary part per reasoning section; separate them the way
+              // the dashboard renders summaries. The trailing separator after
+              // the final part is trimmed when the block is built.
+              reasoningSummaryText += "\n\n";
               break;
             }
 
@@ -426,6 +528,9 @@ export class OpenAIResponsesProvider implements Provider {
                     response.usage.output_tokens_details?.reasoning_tokens ?? 0;
                   cachedInputTokens =
                     response.usage.input_tokens_details?.cached_tokens ?? 0;
+                  cacheWriteInputTokens =
+                    response.usage.input_tokens_details?.cache_write_tokens ??
+                    0;
                 }
                 finishReason =
                   response.incomplete_details?.reason ??
@@ -461,6 +566,18 @@ export class OpenAIResponsesProvider implements Provider {
       // weaves search results into the text output, so the result content is
       // an empty array — the actual results are in the text block that follows.
       const content: ContentBlock[] = [];
+      const summaryText = reasoningSummaryText.trim();
+      if (summaryText) {
+        // Empty signature: OpenAI reasoning summaries carry no verification
+        // signature (same shape the chat-completions transport produces for
+        // reasoning text). History replay drops thinking blocks on this
+        // transport, so nothing is echoed back to the API.
+        content.push({
+          type: "thinking",
+          thinking: summaryText,
+          signature: "",
+        });
+      }
       for (const toolUseId of webSearchCallIds) {
         content.push({
           type: "server_tool_use",
@@ -507,6 +624,9 @@ export class OpenAIResponsesProvider implements Provider {
           ...(reasoningTokens > 0 ? { reasoningTokens } : {}),
           ...(cachedInputTokens > 0
             ? { cacheReadInputTokens: cachedInputTokens }
+            : {}),
+          ...(cacheWriteInputTokens > 0
+            ? { cacheCreationInputTokens: cacheWriteInputTokens }
             : {}),
         },
         stopReason,
@@ -589,6 +709,17 @@ export class OpenAIResponsesProvider implements Provider {
   }
 
   /**
+   * Extra request-body params merged into the create call after the standard
+   * params are assembled (subclass values win). Mirrors the chat-completions
+   * transport's hook of the same name; base implementation adds nothing.
+   */
+  protected buildExtraCreateParams(
+    _options?: SendMessageOptions,
+  ): Record<string, unknown> {
+    return {};
+  }
+
+  /**
    * Convert neutral messages to Responses API input items.
    *
    * System prompt is NOT included here — it goes into the `instructions` param.
@@ -608,6 +739,102 @@ export class OpenAIResponsesProvider implements Provider {
     }
 
     return result;
+  }
+
+  /**
+   * Stamp explicit prompt-cache breakpoints onto the built Responses input
+   * items: the last stampable part of every user item carrying real text,
+   * newest first, up to {@link PROMPT_CACHE_MAX_BREAKPOINTS}.
+   *
+   * Cache reads only consider markers present in the *current* request —
+   * boundaries written by earlier requests match only if re-marked here
+   * (verified empirically against gpt-5.6: a previously-written boundary
+   * left unmarked produces zero reads). Marking the full ladder of
+   * historical user-message boundaries makes the newest still-matching one
+   * the read point; in the volatile-latest-message flow that is typically
+   * the previous turn's user message once it re-renders without its
+   * injected block. Marking the volatile latest item itself prepays its
+   * write so in-turn tool-loop iterations read it back. The ladder is
+   * cost-safe: OpenAI writes at most the latest four unmatched marked
+   * boundaries per request and considers up to the latest 50 markers for
+   * reads. All breakpoints share the fixed 30m TTL (no `ttl` field is
+   * sent). Operates on the provider-local wire items only; the caller's
+   * Message[] objects are never touched.
+   *
+   * Placement constraints on this API: breakpoints attach only to
+   * input_text / input_image / input_file parts of user message items —
+   * function_call / function_call_output items cannot carry one, so during
+   * a pure tool loop the newest markable boundary stays at the most recent
+   * user item with parts (the loop delta is re-billed as plain input until
+   * a text-bearing user item appears).
+   *
+   * The system prompt rides the `instructions` request param and cannot
+   * carry a block marker, but it precedes `input` in the cached prefix, so
+   * every marked boundary covers instructions and tools implicitly. Any
+   * instructions/tools change invalidates all previously written prefixes
+   * (exact-prefix matching) — the same blast radius implicit mode has.
+   */
+  private applyPromptCacheBreakpoints(
+    input: unknown[],
+    opts: { mutableLatestUserMessage: boolean; disableTurnStartCache: boolean },
+  ): void {
+    const items = input as ResponsesMessageItem[];
+    // Marker candidates need a real text part (mirror of the Anthropic
+    // client's findUserTextMsgIdx).
+    const isUserTextItem = (it: ResponsesMessageItem | undefined): boolean =>
+      it?.type === "message" &&
+      it.role === "user" &&
+      Array.isArray(it.content) &&
+      it.content.some(
+        (p) =>
+          p.type === "input_text" &&
+          typeof p.text === "string" &&
+          p.text.length > 0,
+      );
+
+    const candidates: number[] = [];
+    for (
+      let i = items.length - 1;
+      i >= 0 && candidates.length < PROMPT_CACHE_MAX_BREAKPOINTS;
+      i--
+    ) {
+      if (isUserTextItem(items[i])) {
+        candidates.push(i);
+      }
+    }
+    if (candidates.length === 0) {
+      return;
+    }
+
+    // A volatile latest user message with no prior user message to anchor
+    // on: every marker would be a write whose prefix never recurs across
+    // turns — skip caching entirely for this request.
+    if (
+      opts.mutableLatestUserMessage &&
+      candidates.length === 1 &&
+      candidates[0] === items.length - 1
+    ) {
+      return;
+    }
+
+    for (const idx of candidates) {
+      // `disableTurnStartCache` suppresses the marker on the turn-start
+      // (newest user-text) item — one-shot call sites whose prompts never
+      // recur would otherwise pay a write with no future read. Older
+      // boundaries stay marked, matching the Anthropic client's semantics
+      // (its previous-turn anchor is not gated by this flag).
+      if (opts.disableTurnStartCache && idx === candidates[0]) {
+        continue;
+      }
+      const content = items[idx]?.content;
+      if (!Array.isArray(content) || content.length === 0) {
+        continue;
+      }
+      const last = content[content.length - 1];
+      if (last && STAMPABLE_PART_TYPES.has(last.type as string)) {
+        last.prompt_cache_breakpoint = { mode: "explicit" };
+      }
+    }
   }
 
   /** Convert an assistant message's content blocks to Responses input items. */

@@ -275,6 +275,7 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "ui",
   "ui request",
   "ui confirm",
+  "ui snapshot",
   "usage",
   "usage totals",
   "usage daily",
@@ -741,8 +742,7 @@ const riskOverrides: AssistantRiskOverride[] = [
   {
     path: "schedules worker stop",
     risk: "medium",
-    reason:
-      "Disables schedules.worker.enabled and sends SIGTERM to the schedule worker process",
+    reason: "Sends SIGTERM to the schedule worker process",
   },
   {
     path: "schedules worker status",

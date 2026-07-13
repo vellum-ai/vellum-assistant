@@ -17,6 +17,7 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { setConfig } from "../../__tests__/helpers/set-config.js";
 import { isConnectionCompatibleWithModel } from "../connection-model-compat.js";
 import type { Auth } from "../inference/auth.js";
 
@@ -68,15 +69,6 @@ describe("isConnectionCompatibleWithModel", () => {
 // Integration tests through `getConfiguredProvider` — module mocks below must
 // be declared before the import-under-test.
 // ---------------------------------------------------------------------------
-
-let mockLlmConfig: Record<string, unknown> = {};
-
-mock.module("../../config/loader.js", () => ({
-  getConfig: () => ({
-    llm: mockLlmConfig,
-    services: { inference: { mode: "your-own" } },
-  }),
-}));
 
 const mockDbSentinel = { __mock: "db" };
 mock.module("../../persistence/db-connection.js", () => ({
@@ -130,7 +122,7 @@ function reset(): void {
   resolveProviderCalls.length = 0;
   fakeConnectionList = [];
   fakeConnectionsByName.clear();
-  mockLlmConfig = {};
+  setConfig("llm", {});
 }
 
 const OPENAI_KEY: Connection = {
@@ -195,7 +187,7 @@ describe("auto-resolution skips oauth_subscription connections for non-Codex mod
 
   test("explicitly pinned oauth_subscription connection is used regardless of model", async () => {
     registerConnections([OPENAI_CODEX, OPENAI_KEY]);
-    mockLlmConfig = {
+    setConfig("llm", {
       default: { provider: "anthropic", model: "claude-opus-4-7" },
       profiles: {
         "openai-pinned": {
@@ -204,7 +196,7 @@ describe("auto-resolution skips oauth_subscription connections for non-Codex mod
           provider_connection: "openai-codex",
         },
       },
-    };
+    });
 
     const result = await getConfiguredProvider("mainAgent", {
       overrideProfile: "openai-pinned",
@@ -218,11 +210,11 @@ describe("auto-resolution skips oauth_subscription connections for non-Codex mod
 });
 
 function setOpenAiProfile(model: string): void {
-  mockLlmConfig = {
+  setConfig("llm", {
     default: { provider: "anthropic", model: "claude-opus-4-7" },
     profiles: {
       // "Any active OpenAI connection" — provider set, no provider_connection.
       "openai-any": { provider: "openai", model },
     },
-  };
+  });
 }

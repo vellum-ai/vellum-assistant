@@ -5,13 +5,17 @@ import type { SkillSource } from "../../config/skills.js";
 import { loadSkillCatalog } from "../../config/skills.js";
 import { refreshSkillCapabilityMemories } from "../../daemon/skill-memory-refresh.js";
 import { getConversation } from "../../persistence/conversation-crud.js";
+import { upsertSkillCardInsertJob } from "../../persistence/jobs-store.js";
 import { MEMORY_RETROSPECTIVE_ORIGIN } from "../../plugins/defaults/memory/memory-retrospective-constants.js";
 import { readInstallMeta } from "../../skills/install-meta.js";
 import {
   createManagedSkill,
   getManagedSkillDir,
 } from "../../skills/managed-store.js";
+import { getLogger } from "../../util/logger.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
+
+const log = getLogger("scaffold-managed-skill");
 
 /** Strip embedded newlines/carriage returns to prevent YAML frontmatter injection. */
 function sanitizeFrontmatterValue(value: string): string {
@@ -195,6 +199,13 @@ export async function executeScaffoldManagedSkill(
     context.requestOrigin === MEMORY_RETROSPECTIVE_ORIGIN;
   const author = fromRetrospective ? "assistant" : "user";
 
+  // Whether a managed SKILL.md already existed before this call. Resolved for
+  // retrospective calls only — it drives both the ownership backstop below and
+  // the created-vs-refined discriminant for the skill-card enqueue: only a
+  // genuine CREATE (no pre-existing skill, regardless of the `overwrite` flag)
+  // gets a card.
+  let managedSkillExistedBefore = false;
+
   // Ownership backstop (retrospective origin only): the retrospective may author
   // a skill ONLY if it owns it. Fail closed on either of two collisions.
   if (fromRetrospective) {
@@ -224,9 +235,9 @@ export async function executeScaffoldManagedSkill(
     // unverifiable (missing/corrupt meta) managed skills alike, matching the
     // prune side where such skills are never pruned.
     const managedDir = getManagedSkillDir(id);
-    const managedSkillExists = existsSync(join(managedDir, "SKILL.md"));
+    managedSkillExistedBefore = existsSync(join(managedDir, "SKILL.md"));
     if (
-      managedSkillExists &&
+      managedSkillExistedBefore &&
       readInstallMeta(managedDir)?.author !== "assistant"
     ) {
       return {
@@ -255,15 +266,21 @@ export async function executeScaffoldManagedSkill(
     }
   }
 
+  // Normalized frontmatter values, shared by the persisted SKILL.md and the
+  // skill-card payload below so the card always shows the values as persisted.
+  const normalizedName = sanitizeFrontmatterValue(name);
+  const normalizedDescription = sanitizeFrontmatterValue(description);
+  const normalizedEmoji =
+    typeof input.emoji === "string"
+      ? sanitizeFrontmatterValue(input.emoji)
+      : undefined;
+
   const result = createManagedSkill({
     id,
-    name: sanitizeFrontmatterValue(name),
-    description: sanitizeFrontmatterValue(description),
+    name: normalizedName,
+    description: normalizedDescription,
     bodyMarkdown: bodyMarkdown,
-    emoji:
-      typeof input.emoji === "string"
-        ? sanitizeFrontmatterValue(input.emoji)
-        : undefined,
+    emoji: normalizedEmoji,
     overwrite: input.overwrite === true,
     includes,
     activationHints,
@@ -280,6 +297,50 @@ export async function executeScaffoldManagedSkill(
   }
 
   refreshSkillCapabilityMemories();
+
+  // Surface a genuine retrospective CREATE to the user as a skill card on the
+  // source conversation, via the durable `skill_card_insert` delivery job
+  // (memory-retrospective-skill-card.ts). The creation site is the one place
+  // that knows created-vs-refined (`managedSkillExistedBefore` — an
+  // `overwrite: true` call on a skill that did not previously exist is still a
+  // create), the request origin, and the fork-parent lineage as facts.
+  // Refinements of a pre-existing skill never get a card, and delivery needs a
+  // resolved source conversation to land in. Best-effort: an enqueue failure
+  // must never fail the scaffold — the skill is already created.
+  if (
+    fromRetrospective &&
+    !managedSkillExistedBefore &&
+    sourceConversationId &&
+    retrospectiveConversationId
+  ) {
+    try {
+      upsertSkillCardInsertJob({
+        sourceConversationId,
+        runConversationId: retrospectiveConversationId,
+        skills: [
+          {
+            skillId: id,
+            name: normalizedName,
+            description: normalizedDescription,
+            ...(normalizedEmoji ? { emoji: normalizedEmoji } : {}),
+          },
+        ],
+      });
+      log.info(
+        {
+          skillId: id,
+          sourceConversationId,
+          runConversationId: retrospectiveConversationId,
+        },
+        "skill card: enqueued skill_card_insert for retrospective-authored skill",
+      );
+    } catch (err) {
+      log.warn(
+        { err, skillId: id, sourceConversationId },
+        "skill card: failed to enqueue skill_card_insert; skill creation unaffected",
+      );
+    }
+  }
 
   return {
     content: JSON.stringify({

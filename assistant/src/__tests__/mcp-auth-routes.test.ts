@@ -24,25 +24,19 @@ mock.module("../mcp/mcp-auth-state.js", () => ({
   getMcpAuthState: mockGetMcpAuthState,
 }));
 
-const mockConfig = {
-  mcp: {
-    servers: {
-      "my-server": {
-        transport: { type: "sse", url: "https://mcp.example.com" },
-        enabled: true,
-        defaultRiskLevel: "high",
-      },
+import { setConfig } from "./helpers/set-config.js";
+
+// Seed the MCP server the routes look up via `loadRawConfig()` into the
+// workspace config for real.
+setConfig("mcp", {
+  servers: {
+    "my-server": {
+      transport: { type: "sse", url: "https://mcp.example.com" },
+      enabled: true,
+      defaultRiskLevel: "high",
     },
   },
-};
-mock.module("../config/loader.js", () => ({
-  loadRawConfig: () => mockConfig,
-  saveRawConfig: () => {},
-  // route-policy → config/env transitively imports `getConfig`; stub it
-  // here so the mock surface matches what consumers expect.
-  getConfig: () => mockConfig,
-  getConfigReadOnly: () => mockConfig,
-}));
+});
 
 // ── Import SUT after mocks ─────────────────────────────────────────────────────
 
@@ -52,7 +46,9 @@ const { ROUTES } = await import("../runtime/routes/mcp-auth-routes.js");
 
 function findRoute(operationId: string) {
   const route = ROUTES.find((r) => r.operationId === operationId);
-  if (!route) throw new Error(`Route ${operationId} not found`);
+  if (!route) {
+    throw new Error(`Route ${operationId} not found`);
+  }
   return route;
 }
 

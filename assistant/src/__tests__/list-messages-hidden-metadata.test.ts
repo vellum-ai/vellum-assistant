@@ -6,17 +6,12 @@
  * UI history list while remaining visible to the LLM-side history loader.
  */
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-    model: "test",
-    provider: "test",
-    memory: { enabled: false },
-    rateLimit: { maxRequestsPerMinute: 0 },
-  }),
-}));
+import { setConfig } from "./helpers/set-config.js";
+
+// Keep the memory system off so addMessage skips indexing side effects.
+setConfig("memory", { enabled: false });
 
 import {
   _setPaginationScanCapForTesting,

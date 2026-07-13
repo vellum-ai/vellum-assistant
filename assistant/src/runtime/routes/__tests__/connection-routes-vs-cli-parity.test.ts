@@ -9,22 +9,9 @@
  * Rule: cc-cutover-proof (see PR_B_TASK.md).
  */
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
-
-// ── Module mocks (must come before imports) ──────────────────────────────────
-
-mock.module("../../../config/loader.js", () => ({
-  getConfigReadOnly: () => ({}),
-  getConfig: () => ({}),
-  invalidateConfigCache: () => {},
-  // Unused by these tests, but the route module's import chain
-  // (config/default-provider.js) needs the named exports to resolve.
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-}));
+import { beforeEach, describe, expect, test } from "bun:test";
 
 // ── Real imports ──────────────────────────────────────────────────────────────
-
 import { getDb } from "../../../persistence/db-connection.js";
 import { initializeDb } from "../../../persistence/db-init.js";
 import { providerConnections } from "../../../persistence/schema/inference.js";

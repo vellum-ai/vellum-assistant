@@ -11,15 +11,8 @@ import {
   test,
 } from "bun:test";
 
+import { setConfig } from "../../../__tests__/helpers/set-config.js";
 import type { ToolContext } from "../../../tools/types.js";
-
-// This test exercises v1 PKB re-index enqueue. `config.memory.v2.enabled`
-// (default `true`) makes the enqueue path skipped — force it off so the
-// v1 PKB index path stays under test.
-mock.module("../../../config/loader.js", () => ({
-  getConfig: () => ({ memory: { v2: { enabled: false } } }),
-  loadConfig: () => ({ memory: { v2: { enabled: false } } }),
-}));
 
 let tmpWorkspace: string;
 let previousWorkspaceEnv: string | undefined;
@@ -68,6 +61,11 @@ beforeAll(() => {
   tmpWorkspace = mkdtempSync(join(tmpdir(), "remember-tool-test-"));
   previousWorkspaceEnv = process.env.VELLUM_WORKSPACE_DIR;
   process.env.VELLUM_WORKSPACE_DIR = tmpWorkspace;
+  // This test exercises the v1 PKB re-index enqueue. `memory.v2.enabled`
+  // (default true) skips the enqueue path — force it off so the v1 PKB index
+  // path stays under test. Seed into the just-overridden workspace so the real
+  // loader reads it.
+  setConfig("memory", { v2: { enabled: false } });
 });
 
 afterAll(() => {

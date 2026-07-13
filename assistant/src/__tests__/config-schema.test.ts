@@ -713,6 +713,7 @@ describe("AssistantConfigSchema", () => {
       turnCommitMaxWaitMs: 4000,
       failureBackoffBaseMs: 2000,
       failureBackoffMaxMs: 60000,
+      maxFileSizeBytes: 256000,
       interactiveGitTimeoutMs: 10000,
       enrichmentQueueSize: 50,
       enrichmentConcurrency: 1,
@@ -1360,16 +1361,21 @@ describe("AssistantConfigSchema", () => {
     expect(result.services.tts.providers.deepgram.format).toBe("opus");
   });
 
-  test("rejects services.tts.mode = managed", () => {
+  test("accepts services.tts.mode = managed", () => {
     const result = AssistantConfigSchema.safeParse({
       services: { tts: { mode: "managed" } },
+    });
+    expect(result.success).toBe(true);
+  });
+
+  test("rejects tts provider vellum outside managed mode", () => {
+    const result = AssistantConfigSchema.safeParse({
+      services: { tts: { mode: "your-own", provider: "vellum" } },
     });
     expect(result.success).toBe(false);
     if (!result.success) {
       const msgs = result.error.issues.map((i) => i.message);
-      expect(
-        msgs.some((m) => m.includes("your-own") || m.includes("managed")),
-      ).toBe(true);
+      expect(msgs.some((m) => m.includes("managed"))).toBe(true);
     }
   });
 
@@ -1431,14 +1437,14 @@ describe("AssistantConfigSchema", () => {
     }
   });
 
-  test("services.tts.mode only accepts your-own as literal", () => {
+  test("services.tts.mode accepts your-own and managed", () => {
     // Explicit your-own should work
     const valid = TtsServiceSchema.safeParse({ mode: "your-own" });
     expect(valid.success).toBe(true);
 
-    // managed should be rejected
-    const invalid = TtsServiceSchema.safeParse({ mode: "managed" });
-    expect(invalid.success).toBe(false);
+    // managed is supported; the BYOK provider choice is preserved
+    const managed = TtsServiceSchema.safeParse({ mode: "managed" });
+    expect(managed.success).toBe(true);
 
     // Any other string should be rejected
     const invalid2 = TtsServiceSchema.safeParse({ mode: "self-hosted" });
@@ -1518,16 +1524,21 @@ describe("AssistantConfigSchema", () => {
     });
   });
 
-  test("rejects services.stt.mode = managed", () => {
+  test("accepts services.stt.mode = managed with a provider", () => {
     const result = AssistantConfigSchema.safeParse({
-      services: { stt: { mode: "managed" } },
+      services: { stt: { mode: "managed", provider: "deepgram" } },
+    });
+    expect(result.success).toBe(true);
+  });
+
+  test("rejects provider vellum outside managed mode", () => {
+    const result = AssistantConfigSchema.safeParse({
+      services: { stt: { mode: "your-own", provider: "vellum" } },
     });
     expect(result.success).toBe(false);
     if (!result.success) {
       const msgs = result.error.issues.map((i) => i.message);
-      expect(
-        msgs.some((m) => m.includes("your-own") || m.includes("managed")),
-      ).toBe(true);
+      expect(msgs.some((m) => m.includes("managed"))).toBe(true);
     }
   });
 
@@ -1606,7 +1617,7 @@ describe("AssistantConfigSchema", () => {
     expect(result.success).toBe(false);
   });
 
-  test("services.stt.mode only accepts your-own as literal", () => {
+  test("services.stt.mode accepts your-own and managed", () => {
     // Explicit your-own should work
     const valid = SttServiceSchema.safeParse({
       mode: "your-own",
@@ -1614,12 +1625,12 @@ describe("AssistantConfigSchema", () => {
     });
     expect(valid.success).toBe(true);
 
-    // managed should be rejected
-    const invalid = SttServiceSchema.safeParse({
+    // managed is supported; the BYOK provider choice is preserved
+    const managed = SttServiceSchema.safeParse({
       mode: "managed",
       provider: "openai-whisper",
     });
-    expect(invalid.success).toBe(false);
+    expect(managed.success).toBe(true);
 
     // Any other string should be rejected
     const invalid2 = SttServiceSchema.safeParse({
@@ -1791,15 +1802,25 @@ describe("resolveTtsConfig", () => {
 // ---------------------------------------------------------------------------
 
 describe("TTS provider catalog integration", () => {
-  test("TTS_PROVIDER_IDS matches catalog provider IDs", () => {
+  test("TTS_PROVIDER_IDS matches catalog provider IDs plus hidden providers", () => {
     const catalogIds = listCatalogProviderIds();
-    expect([...TTS_PROVIDER_IDS]).toEqual(catalogIds);
+    // Every displayed provider is a canonical ID…
+    for (const id of catalogIds) {
+      expect(TTS_PROVIDER_IDS).toContain(id);
+    }
+    // …and the only canonical ID hidden from the display catalog is
+    // vellum: managed mode is selected via services.tts.mode, not the
+    // provider picker.
+    const hidden = TTS_PROVIDER_IDS.filter((id) => !catalogIds.includes(id));
+    expect(hidden).toEqual(["vellum"]);
   });
 
   test("schema accepts all catalog provider IDs as services.tts.provider", () => {
     for (const providerId of listCatalogProviderIds()) {
+      // vellum is connection-based and only valid under managed mode.
+      const mode = providerId === "vellum" ? "managed" : "your-own";
       const result = AssistantConfigSchema.safeParse({
-        services: { tts: { provider: providerId } },
+        services: { tts: { mode, provider: providerId } },
       });
       expect(result.success).toBe(true);
       if (result.success) {
@@ -1818,13 +1839,21 @@ describe("TTS provider catalog integration", () => {
 
   test("resolveTtsConfig returns correct defaults for each catalog provider", () => {
     for (const providerId of listCatalogProviderIds()) {
+      // vellum is connection-based and only valid under managed mode.
+      const mode = providerId === "vellum" ? "managed" : "your-own";
       const config = AssistantConfigSchema.parse({
-        services: { tts: { provider: providerId } },
+        services: { tts: { mode, provider: providerId } },
       });
       const resolved = resolveTtsConfig(config);
       expect(resolved.provider).toBe(providerId);
-      // Every catalog provider should resolve to a non-empty config object
-      expect(Object.keys(resolved.providerConfig).length).toBeGreaterThan(0);
+      if (providerId === "vellum") {
+        // The vellum config block is intentionally empty — the platform
+        // pins the voice and model.
+        expect(resolved.providerConfig).toEqual({});
+      } else {
+        // Every BYOK provider resolves to a non-empty config object.
+        expect(Object.keys(resolved.providerConfig).length).toBeGreaterThan(0);
+      }
     }
   });
 
