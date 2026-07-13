@@ -16,8 +16,8 @@ import {
   ttsSecretResolves,
 } from "../calls/telephony-tts-capability.js";
 import { getConfig } from "../config/loader.js";
-import { managedSpeechAvailable } from "../platform/managed-speech.js";
 import { effectiveSttProvider } from "../config/schemas/stt.js";
+import { managedSpeechAvailable } from "../platform/managed-speech.js";
 import { getProviderEntry } from "../providers/speech-to-text/provider-catalog.js";
 import {
   resolveStreamingTranscriber,
