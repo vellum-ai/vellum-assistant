@@ -24,15 +24,13 @@ export function registerAppsCommand(program: Command): void {
       subcommand(apps, "list").action(async (opts: { json?: boolean }) => {
         // Lazy-import the app store so the daemon module graph loads only when
         // this command runs (cli/no-daemon-internals).
-        const { getAppsDir, listApps } =
+        const { getAppDirPath, listApps } =
           await import("../../apps/app-store.js");
-        const { join } = await import("node:path");
 
-        const appsDir = getAppsDir();
         const entries: AppListEntry[] = listApps()
           .map((app) => ({
             name: app.name,
-            source: join(appsDir, app.dirName ?? app.id),
+            source: getAppDirPath(app.id),
             id: app.id,
             formatVersion: app.formatVersion ?? 1,
             updatedAt: app.updatedAt,
