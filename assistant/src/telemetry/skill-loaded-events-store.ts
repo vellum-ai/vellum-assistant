@@ -1,8 +1,6 @@
 import type { UsageAttributionColumns } from "../usage/attribution.js";
 import type { UsageAttributionProfileSource } from "../usage/types.js";
-import { APP_VERSION } from "../version.js";
-import { recordTelemetryOutboxEvent } from "./telemetry-events-outbox.js";
-import type { SkillLoadedTelemetryEvent } from "./types.js";
+import { recordTelemetryEvent } from "./telemetry-events-outbox.js";
 
 /**
  * Input for one `skill_loaded` telemetry event. Metadata only — never skill
@@ -18,21 +16,15 @@ export interface SkillLoadedEventRecord extends Partial<UsageAttributionColumns>
 }
 
 /**
- * Record a `skill_loaded` telemetry event for a skill activation. The full
- * wire event (record-time `assistant_version` included) goes into the
- * `telemetry_events` outbox, with the conversation id in its dedicated
- * column so conversation deletion redacts pending rows via an indexed
- * delete. No-ops when usage data collection is disabled (the event is
- * dropped to honor the opt-out, matching the rest of telemetry) or when the
- * telemetry DB is unavailable.
+ * Record a `skill_loaded` telemetry event for a skill activation, enqueued on
+ * the `telemetry_events` outbox with the conversation id in its dedicated
+ * column so conversation deletion redacts pending rows via an indexed delete.
+ * Consent gating and degraded-mode behavior are `recordTelemetryEvent`'s.
  */
 export function recordSkillLoadedEvent(record: SkillLoadedEventRecord): void {
-  recordTelemetryOutboxEvent(
+  recordTelemetryEvent(
     "skill_loaded",
-    (id, createdAt): SkillLoadedTelemetryEvent => ({
-      type: "skill_loaded",
-      daemon_event_id: id,
-      recorded_at: createdAt,
+    {
       skill_name: record.skillName,
       skill_updated_at: record.skillUpdatedAt ?? null,
       conversation_id: record.conversationId ?? null,
@@ -41,8 +33,7 @@ export function recordSkillLoadedEvent(record: SkillLoadedEventRecord): void {
       inference_profile: record.inferenceProfile ?? null,
       inference_profile_source: (record.inferenceProfileSource ??
         null) as UsageAttributionProfileSource | null,
-      assistant_version: APP_VERSION,
-    }),
+    },
     { conversationId: record.conversationId ?? null },
   );
 }
