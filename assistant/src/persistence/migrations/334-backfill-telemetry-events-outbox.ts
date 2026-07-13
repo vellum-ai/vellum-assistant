@@ -3,7 +3,11 @@ import { Database } from "bun:sqlite";
 import { getLogger } from "../../util/logger.js";
 import { getTelemetryDbPath } from "../../util/telemetry-db-path.js";
 import { APP_VERSION } from "../../version.js";
-import { type DrizzleDb, getTelemetrySqlite } from "../db-connection.js";
+import {
+  type DrizzleDb,
+  getSqliteFrom,
+  getTelemetrySqlite,
+} from "../db-connection.js";
 
 const log = getLogger("migration-334");
 
@@ -218,6 +222,47 @@ function selectUnshippedRows(
     .all(at) as LegacyRow[];
 }
 
+/**
+ * Drop rows whose conversation no longer exists in the main DB. The redaction
+ * paths delete from `telemetry_events` only, so a backfill selecting purely by
+ * watermark would resurrect rows for already-deleted conversations — the same
+ * liveness filter migration 332 applies via `copyWhere`. NULL-conversation
+ * rows always backfill. No-op for specs without conversation scoping.
+ */
+function dropRedactedConversationRows(
+  mainRaw: Database,
+  spec: LegacyBackfillSpec,
+  rows: LegacyRow[],
+): LegacyRow[] {
+  const column = spec.conversationIdColumn;
+  if (!column) {
+    return rows;
+  }
+  const ids = [
+    ...new Set(
+      rows
+        .map((row) => row[column])
+        .filter((value): value is string => typeof value === "string"),
+    ),
+  ];
+  const live = new Set<string>();
+  for (let i = 0; i < ids.length; i += INSERT_CHUNK_SIZE) {
+    const chunk = ids.slice(i, i + INSERT_CHUNK_SIZE);
+    const found = mainRaw
+      .query(
+        /*sql*/ `SELECT id FROM conversations WHERE id IN (${chunk.map(() => "?").join(", ")})`,
+      )
+      .all(...chunk) as Array<{ id: string }>;
+    for (const row of found) {
+      live.add(row.id);
+    }
+  }
+  return rows.filter((row) => {
+    const conversationId = row[column];
+    return conversationId == null || live.has(String(conversationId));
+  });
+}
+
 function insertOutboxRows(
   raw: Database,
   spec: LegacyBackfillSpec,
@@ -257,16 +302,16 @@ function insertOutboxRows(
  * mapping would have produced), `INSERT OR IGNORE` them into
  * `telemetry_events` (idempotent under a re-run after a partial crash), and
  * drop the legacy table. `conversation_id` is populated only from
- * `skill_loaded_events`, keeping conversation redaction an indexed delete.
+ * `skill_loaded_events`, keeping conversation redaction an indexed delete —
+ * and its rows are first checked against the main DB's `conversations` table
+ * (see {@link dropRedactedConversationRows}) so already-redacted
+ * conversations are never resurrected, mirroring migration 332's `copyWhere`.
  * Finally the six sources' now-meaningless watermark keys are purged from
  * `flush_checkpoints` (ack-mode sources delete rows instead of advancing
  * cursors); the table itself survives for the main-DB-backed watermark
  * sources (`usage`, `turns`, `tool_executed`).
- *
- * The `mainDb` parameter is accepted to satisfy the migration-step signature
- * but is not used — this migration operates exclusively on the telemetry DB.
  */
-export function migrateBackfillTelemetryEventsOutbox(_mainDb: DrizzleDb): void {
+export function migrateBackfillTelemetryEventsOutbox(mainDb: DrizzleDb): void {
   let raw: Database | null = getTelemetrySqlite();
   if (!raw) {
     // The dedicated connection failed to open (logged by openDedicatedDb).
@@ -276,12 +321,17 @@ export function migrateBackfillTelemetryEventsOutbox(_mainDb: DrizzleDb): void {
     raw = new Database(getTelemetryDbPath());
   }
 
+  const mainRaw = getSqliteFrom(mainDb);
   const backfilled: Record<string, number> = {};
   for (const spec of LEGACY_BACKFILL_SPECS) {
     if (!tableExists(raw, spec.table)) {
       continue;
     }
-    const rows = selectUnshippedRows(raw, spec);
+    const rows = dropRedactedConversationRows(
+      mainRaw,
+      spec,
+      selectUnshippedRows(raw, spec),
+    );
     insertOutboxRows(raw, spec, rows);
     raw.exec(/*sql*/ `DROP TABLE ${spec.table}`);
     backfilled[spec.table] = rows.length;

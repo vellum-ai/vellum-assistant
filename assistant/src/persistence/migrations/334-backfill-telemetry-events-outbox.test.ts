@@ -11,7 +11,8 @@
  */
 import { describe, expect, test } from "bun:test";
 
-const { getDb, getTelemetrySqlite } = await import("../db-connection.js");
+const { getDb, getSqlite, getTelemetrySqlite } =
+  await import("../db-connection.js");
 const { initializeDb } = await import("../db-init.js");
 const { migrateBackfillTelemetryEventsOutbox } =
   await import("./334-backfill-telemetry-events-outbox.js");
@@ -394,9 +395,19 @@ describe("migration 334: backfill telemetry_events from the legacy tables", () =
     });
   });
 
-  test("skill_loaded rows carry conversation_id in the dedicated column", () => {
+  test("skill_loaded: live/NULL-conversation rows backfill with conversation_id; redacted-conversation rows do not", () => {
     resetState();
     createLegacyTable("skill_loaded_events");
+    // Live conversation in the main DB; "conv-redacted" deliberately absent —
+    // its rows must not be resurrected by the backfill.
+    getSqlite().exec(
+      `DELETE FROM conversations WHERE id IN ('conv-a', 'conv-redacted')`,
+    );
+    getSqlite()
+      .prepare(
+        `INSERT INTO conversations (id, created_at, updated_at) VALUES (?, 0, 0)`,
+      )
+      .run("conv-a");
     const insert = telemetry().prepare(
       `INSERT INTO skill_loaded_events
          (id, created_at, conversation_id, skill_name, skill_updated_at,
@@ -415,11 +426,24 @@ describe("migration 334: backfill telemetry_events from the legacy tables", () =
       "mix",
     );
     insert.run("sk-2", 2000, null, "tasks", null, null, null, null, null);
+    insert.run(
+      "sk-dead",
+      3000,
+      "conv-redacted",
+      "calendar",
+      null,
+      null,
+      null,
+      null,
+      null,
+    );
 
     migrateBackfillTelemetryEventsOutbox(getDb());
 
     const rows = outboxRows("skill_loaded");
+    expect(rows.map((r) => r.id)).toEqual(["sk-1", "sk-2"]);
     expect(rows.map((r) => r.conversation_id)).toEqual(["conv-a", null]);
+    expect(tableExists("skill_loaded_events")).toBe(false);
     expect(rows[0]!.payload).toEqual({
       type: "skill_loaded",
       daemon_event_id: "sk-1",
