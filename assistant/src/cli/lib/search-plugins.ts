@@ -43,7 +43,10 @@ export interface PluginSearchMatch {
   readonly path: string;
   /** Short description, when known (external entries only today). */
   readonly description?: string;
-  /** Curated author/curator emoji from the marketplace entry, when present. */
+  /**
+   * Plugin icon: a curated emoji from the marketplace entry, or an icon URL
+   * served by the platform catalog when the plugin ships a bundled image.
+   */
   readonly icon?: string;
   /**
    * Free-form grouping hint from the curated marketplace entry (e.g.

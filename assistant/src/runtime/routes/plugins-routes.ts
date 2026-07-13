@@ -215,7 +215,9 @@ const pluginSearchMatchSchema = z.object({
   icon: z
     .string()
     .optional()
-    .describe("Curated author/curator emoji from the marketplace entry, when present."),
+    .describe(
+      "Plugin icon: a curated emoji from the marketplace entry, or an icon URL served by the platform catalog when the plugin ships a bundled image.",
+    ),
   category: z
     .string()
     .nullable()
