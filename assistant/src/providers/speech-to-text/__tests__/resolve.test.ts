@@ -1018,6 +1018,19 @@ describe("vellum managed resolution", () => {
     ]);
   });
 
+  test("streaming resolver returns null when the platform connection is unavailable", async () => {
+    mockVellumAvailable = false;
+    mockVelayConnection = {
+      wsBaseUrl: "ws://gateway.test",
+      httpBaseUrl: "http://gateway.test",
+      mintServiceToken: () => "vk-test",
+    };
+    applyConfig({ provider: "deepgram", mode: "managed" });
+
+    expect(await resolveStreamingTranscriber({ sampleRate: 16000 })).toBeNull();
+    expect(vellumStreamCtorCalls).toHaveLength(0);
+  });
+
   test("streaming resolver returns null when the velay connection is missing", async () => {
     mockVellumAvailable = true;
     mockVelayConnection = null;
