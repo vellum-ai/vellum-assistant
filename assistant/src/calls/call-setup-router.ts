@@ -279,7 +279,7 @@ export async function routeSetup(ctx: SetupContext): Promise<{
 
   // Floor-deny outcome shared by the unknown-caller and member-caller branches.
   // Live calls cannot await async re-verification, so the floor's
-  // `shouldChallenge` upgrade UX is not surfaced — same rationale as `escalate`.
+  // `shouldChallenge` upgrade UX is not surfaced.
   const floorDeny = (
     denyVerdict: Extract<AdmissionPolicyResult, { admitted: false }>,
   ) => {
