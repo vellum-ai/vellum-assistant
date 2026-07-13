@@ -32,7 +32,10 @@ import {
   getPluginDetails,
   PluginDetailsNotFoundError,
 } from "../plugin-details.js";
-import type { PluginSearchMatch } from "../search-plugins.js";
+import {
+  PluginCatalogUnavailableError,
+  type PluginSearchMatch,
+} from "../search-plugins.js";
 
 interface ContentEntry {
   name: string;
@@ -677,13 +680,33 @@ describe("getPluginDetails (catalog unavailable, platform enabled)", () => {
     expect(details.source).toBeNull();
   });
 
-  test("a not-installed, unresolved name still throws PluginDetailsNotFoundError", async () => {
-    // GIVEN no installed copy and a catalog that fails to resolve
-    // WHEN / THEN a name that nothing on disk claims still 404s
+  test("a not-installed plugin propagates PluginCatalogUnavailableError on an outage", async () => {
+    // GIVEN no installed copy and a gated catalog that fails to resolve
+    // WHEN / THEN there is nothing on disk to render, so the transient outage
+    // propagates (mapped to a retryable 503 upstream) rather than degrading to
+    // a misleading not-found.
     await expect(
       getPluginDetails(
         { name: "caveman" },
         { fetch: failingFetch, workspacePluginsDir: workspace },
+      ),
+    ).rejects.toBeInstanceOf(PluginCatalogUnavailableError);
+  });
+
+  test("a successful catalog lookup with no match still throws PluginDetailsNotFoundError", async () => {
+    // GIVEN a catalog that resolves successfully but has no entry for the name,
+    // and no installed copy — a real not-found, not an outage
+    const emptyCatalogFetch = (async () =>
+      new Response(JSON.stringify({ plugins: [] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      })) as FetchLike;
+
+    // WHEN / THEN the missing name is a permanent 404, unchanged by the outage rule
+    await expect(
+      getPluginDetails(
+        { name: "no-such-ghost-plugin" },
+        { fetch: emptyCatalogFetch, workspacePluginsDir: workspace },
       ),
     ).rejects.toBeInstanceOf(PluginDetailsNotFoundError);
   });

@@ -47,7 +47,10 @@ import {
   fetchMarketplaceEntries,
   type MarketplaceEntry,
 } from "./plugin-marketplace.js";
-import type { PluginMatchSource } from "./search-plugins.js";
+import {
+  PluginCatalogUnavailableError,
+  type PluginMatchSource,
+} from "./search-plugins.js";
 
 /** Recognised README filenames, matched case-insensitively against a listing. */
 const README_RE = /^readme(\.md|\.markdown)?$/i;
@@ -150,10 +153,12 @@ export class PluginDetailsNotFoundError extends Error {
  *
  * Throws {@link PluginDetailsNotFoundError} when the name is neither installed
  * locally nor present in the catalog (gated at the default ref, the GitHub
- * marketplace at an explicit historical ref). A catalog outage or network
- * failures while enriching from GitHub degrade to the fields already known from
- * disk / the catalog rather than failing the whole view — a detail page that
- * renders metadata without a README beats a hard error.
+ * marketplace at an explicit historical ref). A gated-catalog outage
+ * ({@link PluginCatalogUnavailableError}) degrades to the on-disk fields only
+ * when a local copy exists; with nothing installed to render it propagates so
+ * the caller can map the transient failure to a retryable 503 rather than a
+ * misleading 404. Network failures while enriching from GitHub always degrade —
+ * a detail page that renders metadata without a README beats a hard error.
  */
 export async function getPluginDetails(
   opts: PluginDetailsOptions,
@@ -169,7 +174,12 @@ export async function getPluginDetails(
   // invalid icon — including a not-installed plugin — resolves to no icon).
   const localIcon = readValidatedPluginIcon(join(pluginsDir, name));
 
-  const catalogMatch = await resolveCatalogEntry(name, ref, fetchFn);
+  const catalogMatch = await resolveCatalogEntry(
+    name,
+    ref,
+    fetchFn,
+    local.installed,
+  );
 
   if (!local.installed && !catalogMatch) {
     throw new PluginDetailsNotFoundError(name, ref);
@@ -375,22 +385,30 @@ interface CatalogMatch {
  * use). An explicit historical {@link ref} reads the GitHub marketplace
  * manifest at that revision — the gated catalog is ref-agnostic, so honoring a
  * reviewed/rolled-back revision is inherently a git lookup, matching the pin
- * history / inspect carve-out. Any failure degrades to `null`: catalog metadata
- * is supplementary, never required to render a detail view.
+ * history / inspect carve-out.
+ *
+ * A gated-catalog outage (fail-hard {@link PluginCatalogUnavailableError})
+ * propagates when nothing is installed — there is nothing to render and the
+ * failure is transient, so the caller maps it to a retryable 503 instead of a
+ * misleading not-found. When a local copy exists ({@link installed}) that same
+ * outage degrades to `null` so the view still renders from disk. A marketplace
+ * fetch/parse failure or a malformed entry always degrades to `null`: that
+ * metadata is supplementary, never required to render a detail view.
  */
 async function resolveCatalogEntry(
   name: string,
   ref: string,
   fetchFn: FetchLike,
+  installed: boolean,
 ): Promise<CatalogMatch | null> {
   try {
     return ref === DEFAULT_PLUGIN_REF
       ? await findCatalogEntry(name, { fetch: fetchFn })
       : await findMarketplaceMatch(name, ref, fetchFn);
-  } catch {
-    // A catalog outage (fail-hard `PluginCatalogUnavailableError`), a
-    // marketplace fetch/parse failure, or a malformed entry all degrade to "no
-    // catalog entry" rather than failing the whole view.
+  } catch (err) {
+    if (err instanceof PluginCatalogUnavailableError && !installed) {
+      throw err;
+    }
     return null;
   }
 }

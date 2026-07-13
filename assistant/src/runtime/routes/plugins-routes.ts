@@ -1066,6 +1066,12 @@ async function handleGetPluginDetails({
     if (err instanceof PluginDetailsNotFoundError) {
       throw new NotFoundError(err.message);
     }
+    // A catalog outage blocking a remote-only (not-installed) detail view is
+    // transient — surface it as retryable rather than a misleading 404/500 so
+    // clients retry instead of treating the plugin as permanently gone.
+    if (err instanceof PluginCatalogUnavailableError) {
+      throw new ServiceUnavailableError(err.message);
+    }
     throw new InternalError(
       err instanceof Error ? err.message : "plugin detail lookup failed",
     );
