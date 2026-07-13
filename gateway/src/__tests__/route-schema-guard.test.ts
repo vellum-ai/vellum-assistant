@@ -207,6 +207,10 @@ const EXCLUDED_FROM_SCHEMA = new Set([
   "/v1/contacts/guardian/channel",
   // BFF token auth — loopback-only, not part of the public gateway API
   "/auth/token",
+  // Managed-speech relay — daemon-only WS egress to velay, rejected on any
+  // ingress path; not part of the public gateway API
+  "/v1/speech/stt/stream",
+  "/v1/speech/tts/stream",
 ]);
 
 // ── Schema paths that don't map to a discrete route definition ──
