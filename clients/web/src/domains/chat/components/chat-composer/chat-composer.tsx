@@ -37,7 +37,6 @@ import { type TurnPhase, useTurnStore } from "@/domains/chat/turn-store";
 import {
     dismissLiveVoiceFailure,
     endLiveVoiceSession,
-    expandLiveVoiceRoom,
     getLiveVoiceInputAmplitude,
     isLiveVoiceSessionActive,
     releaseLiveVoiceTurn,
@@ -262,9 +261,6 @@ export function ChatComposer({
   // global live-voice store but must never swap its row.
   const ownsLiveVoiceSession = useIsLiveVoiceSessionOwnedBy(conversationId);
   const isLiveVoiceActive = showVoiceInput && ownsLiveVoiceSession;
-  // Whether the user minimized the voice room (Escape / its minimize control)
-  // — the case where this bar is the session surface and offers re-expand.
-  const liveVoiceRoomMinimized = useLiveVoiceStore.use.roomMinimized();
   // Mic mute state (controller-published) for the voice bar's toggle.
   const liveVoiceMuted = useLiveVoiceStore.use.muted();
   // Hands-free sessions get the turn-scoped ■ stop; a manual (version-skew
@@ -747,11 +743,6 @@ export function ChatComposer({
                 // Turn-scoped stop is hands-free-only; a manual session's
                 // interrupt ends the whole session (✕ owns that).
                 onStop={liveVoiceHandsFree ? stopLiveVoiceResponse : undefined}
-                // Expand is offered only while the room is actually minimized
-                // — the one case where this bar is on screen and the room can
-                // be reopened. In pop-outs the room never mounts, so the flag
-                // never flips there and no dead control renders.
-                onExpand={liveVoiceRoomMinimized ? expandLiveVoiceRoom : undefined}
               />
             ) : (
               <div className="flex items-center justify-between gap-1 px-2 pb-2">

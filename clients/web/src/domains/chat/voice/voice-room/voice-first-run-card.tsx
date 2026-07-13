@@ -10,11 +10,10 @@ import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
  * One-time welcome card shown the first time a user enters voice mode, before
  * the live session starts.
  *
- * Deliberately NOT a settings quiz (it once carried the two transcript
- * toggles): captions are toggled in-session from the voice room, and the full
- * preferences live in Settings → Voice — front-loading choices before the
- * user has ever experienced voice mode was the wrong moment. The card now
- * just sets expectations and starts.
+ * Deliberately NOT a settings quiz: captions are toggled in-session from the
+ * voice room, and the full preferences live in Settings → Voice —
+ * front-loading choices before the user has ever experienced voice mode is
+ * the wrong moment. The card just sets expectations and starts.
  *
  * The card does NOT persist `firstRunSeen` itself: dismissing it (Escape /
  * backdrop / ✕) is a plain cancel and must leave the first run un-consumed so

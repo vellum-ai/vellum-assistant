@@ -3,14 +3,14 @@
  * visible.
  *
  * The room is the owning-composer's voice surface: it shows exactly when a
- * session is active AND the composer currently on screen owns it AND the user
- * has not minimized it AND this is the main window (never a pop-out — see
- * below). Its popout-free core, {@link useOwningComposerSurfaceVisible}, is the
- * precise complement of the title-bar session pill, whose host consumes that
- * primitive's negation (`sessionActive && !owningSurfaceVisible`) so the two
- * surfaces can never both render — or both hide — for an active owned session.
- * (While minimized, the owning composer's voice bar — always rendered under
- * the room — is the visible session surface, so the pill stays hidden.)
+ * session is active AND the composer currently on screen owns it AND this is
+ * the main window (never a pop-out — see below). It is a full-app takeover —
+ * there is no minimize: the room stays up for the whole session and ending the
+ * session (the room's ✕) is the only way out. Its popout-free core,
+ * {@link useOwningComposerSurfaceVisible}, is the precise complement of the
+ * title-bar session pill, whose host consumes that primitive's negation
+ * (`sessionActive && !owningSurfaceVisible`) so the two surfaces can never
+ * both render — or both hide — for an active owned session.
  *
  * The inputs mirror {@link VoiceSessionPillHost} one-for-one:
  * - `composerOnScreen` — shared via {@link useComposerOnScreen}: a conversation
@@ -70,17 +70,9 @@ export function useOwningComposerSurfaceVisible(): boolean {
  * Whether the voice room should render. See the module docstring for the
  * complement contract with the title-bar session pill and the pop-out
  * exclusion.
- *
- * Also ANDs in `!roomMinimized`: minimizing (Escape / the room's minimize
- * control) hides the room while the session stays live. The owning composer's
- * voice bar — which always renders under the room for an owned session — then
- * becomes the visible session surface, so `useOwningComposerSurfaceVisible`
- * (and therefore the pill) deliberately ignores the flag: an owned, on-screen,
- * minimized session is controlled from the voice bar, not the pill.
  */
 export function useIsVoiceRoomVisible(): boolean {
   const owningSurfaceVisible = useOwningComposerSurfaceVisible();
-  const roomMinimized = useLiveVoiceStore.use.roomMinimized();
   const location = useLocation();
   // Capture pop-out mode once at mount: pop-out URLs carry `?popout=1` only on
   // the window's initial load (in-window navigation drops the query), and this
@@ -88,5 +80,5 @@ export function useIsVoiceRoomVisible(): boolean {
   // window's lifetime value — mirroring `ChatLayout`'s own capture.
   const [isPopout] = useState(() => isPopoutWindow(location.search));
 
-  return owningSurfaceVisible && !roomMinimized && !isPopout;
+  return owningSurfaceVisible && !isPopout;
 }

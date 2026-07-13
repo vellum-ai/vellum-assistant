@@ -3,8 +3,7 @@
  * active the composer's action row is replaced by this bar — a mic mute
  * toggle and muted state label on the left, the dotted timeline waveform
  * filling the middle, and the session controls on the right: optional
- * expand (reopen the minimized room), optional ■ stop-response (while the
- * assistant speaks), end (✕), and send-now (↑).
+ * ■ stop-response (while the assistant speaks), end (✕), and send-now (↑).
  *
  * Purely presentational: the composer observes the live-voice store and
  * wires `state`, an amplitude poll function, and the callbacks. The green ↑
@@ -16,7 +15,7 @@
  * layout shift.
  */
 
-import { ArrowUp, Maximize2, Mic, MicOff, Square, X } from "lucide-react";
+import { ArrowUp, Mic, MicOff, Square, X } from "lucide-react";
 
 import { Button } from "@vellumai/design-library";
 
@@ -45,13 +44,6 @@ export interface VoiceComposerBarProps {
    * hands-free sessions, where the interrupt is turn-scoped.
    */
   onStop?: () => void;
-  /**
-   * Re-expand the minimized voice room. The composer passes this only while
-   * the room is actually minimized — the one case where this bar is visible
-   * AND the room could be reopened — so the control never dead-renders (e.g.
-   * in pop-outs, where the room never mounts). Absent → no expand button.
-   */
-  onExpand?: () => void;
 }
 
 export function VoiceComposerBar({
@@ -62,7 +54,6 @@ export function VoiceComposerBar({
   onEnd,
   onSend,
   onStop,
-  onExpand,
 }: VoiceComposerBarProps) {
   return (
     <div
@@ -103,15 +94,6 @@ export function VoiceComposerBar({
         className="min-w-0 flex-1"
       />
       <div className="flex shrink-0 items-center gap-1">
-        {onExpand ? (
-          <Button
-            variant="ghost"
-            iconOnly={<Maximize2 className="h-4 w-4" strokeWidth={2.5} />}
-            onClick={onExpand}
-            aria-label="Open voice room"
-            tooltip="Open voice room"
-          />
-        ) : null}
         {onStop && state === "speaking" ? (
           <Button
             variant="primary"

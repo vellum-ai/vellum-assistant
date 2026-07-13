@@ -1,41 +1,43 @@
 /**
- * "Voice room" — the owning-composer surface for a live-voice session. A
- * deep-dark ambient void with the assistant's state-driven avatar at its
- * center, mounted by `chat-layout.tsx` as a purely additive overlay: the
- * composer's voice bar and display transcript still render underneath, hidden
- * by this layer, so removing the room leaves the old UI intact.
+ * "Voice room" — the owning-composer surface for a live-voice session,
+ * mounted by `chat-layout.tsx` as a purely additive overlay: the composer's
+ * voice bar and display transcript still render underneath, hidden by this
+ * layer, so removing the room leaves the old UI intact.
  *
- * Two placement variants (see `chat-layout.tsx` for the mounts):
+ * Two looks, resolved per session assistant ({@link resolveVoiceRoomLook}):
  *
- * - `"fullscreen"` (mobile) — `fixed inset-0` over the whole viewport,
- *   modal, with safe-area padding for notched iOS shells.
- * - `"content"` (desktop) — `absolute inset-0` inside the layout's `<main>`,
- *   leaving the header and sidebar visible AND interactive so the user can
- *   keep navigating; any navigation away hands the session off to the
- *   title-bar pill. Deliberately not `aria-modal`: the surrounding chrome
- *   stays usable.
+ * - Character avatars get the onboarding "full-screen color with eyes"
+ *   treatment — the avatar color fills the room and the avatar's giant eyes
+ *   peek from the bottom edge, with the control chrome toned for contrast
+ *   against that color ({@link toneForBg}, via the `--room-*` CSS vars).
+ * - Custom-image / no-character avatars fall back to the deep-dark ambient
+ *   void with the state-driven avatar at its center and the listening waves —
+ *   what this look should become is an open design question.
+ *
+ * The room is a full-app takeover on every platform — `fixed inset-0`, modal,
+ * covering the header and sidebar, with safe-area padding for notched iOS
+ * shells. A voice session IS the room: there is no minimize and no way to
+ * leave it while the session runs — ending the session (the ✕ control) is the
+ * only way out.
  *
  * Visibility is a pure function of {@link useIsVoiceRoomVisible} — active
- * session, owned by the on-screen composer, not minimized, main window. Any
- * session end (user exit, `failed`, conversation timeout, stop from elsewhere)
- * flips that predicate false and unmounts the room; a `failed` session
- * surfaces through the existing composer Notice / pill failure chip, never a
- * dead room.
+ * session, owned by the on-screen composer, main window. Any session end
+ * (user exit, `failed`, conversation timeout, stop from elsewhere) flips that
+ * predicate false and unmounts the room; a `failed` session surfaces through
+ * the existing composer Notice / pill failure chip, never a dead room.
  *
  * Sessions are hands-free (server-VAD): the user just speaks, so there is no
  * push-to-talk control. Bottom-center carries the session controls in the
  * call-app idiom: a mic mute toggle (always) and, while the assistant speaks
  * hands-free, a turn-scoped ■ stop. Exit is first-class: a persistent
  * ✕ control (always rendered, even while the avatar/assistant data is loading
- * or failed) ends the session; Escape and the minimize control collapse the
- * room to the composer's voice bar WITHOUT ending the session (the bar's
- * expand control reopens it). The key handler attaches only while the room is
- * mounted.
+ * or failed) ends the session. Escape deliberately does nothing — an
+ * accidental keypress must not end a live call.
  */
 
+import type { CSSProperties } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { useEffect } from "react";
-import { Captions, CaptionsOff, Mic, MicOff, Minimize2, Square, X } from "lucide-react";
+import { Captions, CaptionsOff, Mic, MicOff, Square, X } from "lucide-react";
 
 import { Tooltip, cn } from "@vellumai/design-library";
 
@@ -44,7 +46,6 @@ import {
   getLiveVoiceInputAmplitude,
   getLiveVoiceOutputAmplitude,
   liveVoiceStateLabel,
-  minimizeLiveVoiceRoom,
   setLiveVoiceMuted,
   stopLiveVoiceResponse,
   useLiveVoiceStore,
@@ -52,6 +53,7 @@ import {
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { AVATAR_ACCENT_CSS_VAR } from "@/hooks/use-avatar-accent-var";
 import { useVoicePrefsStore } from "@/stores/voice-prefs-store";
+import { toneForBg } from "@/utils/surface-tone";
 
 import { resolveWaveAccentHex } from "./wave-accent";
 
@@ -61,6 +63,7 @@ import { VoiceAvatar } from "./voice-avatar";
 import { VoiceListeningWaves } from "./voice-listening-waves";
 import { AVATAR_ENTER_SPRING } from "./voice-motion";
 import { VoiceRoomAmbientBackground } from "./voice-room-ambient-background";
+import { VoiceRoomEyes, resolveVoiceRoomLook } from "./voice-room-eyes";
 import { useIsVoiceRoomVisible } from "./use-is-voice-room-visible";
 
 const AVATAR_SIZE = 220;
@@ -79,33 +82,36 @@ const SAFE_AREA_LEFT =
 const SAFE_AREA_RIGHT =
   "var(--safe-area-inset-right, env(safe-area-inset-right, 0px))";
 
-/** Shared white-on-dark treatment for the room's icon controls. */
+/**
+ * Shared treatment for the room's top icon controls, toned to the active look
+ * via the `--room-*` vars set on the root (white-on-dark for the void look,
+ * tone-derived over an avatar color).
+ */
 const ROOM_CONTROL_CLASS =
-  "flex size-10 items-center justify-center rounded-full text-white/70 transition hover:bg-white/10 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white/60";
+  "flex size-10 items-center justify-center rounded-full text-[var(--room-fg-muted)] transition hover:bg-[var(--room-wash)] hover:text-[var(--room-fg)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--room-fg-muted)]";
 
-export type VoiceRoomVariant = "fullscreen" | "content";
+/** Bottom-row circular session controls (mute / ■ stop), same toning. */
+const SESSION_CONTROL_CLASS =
+  "flex size-12 items-center justify-center rounded-full border transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--room-fg-muted)]";
+const SESSION_CONTROL_NEUTRAL_CLASS =
+  "border-[var(--room-border)] text-[var(--room-fg-muted)] hover:bg-[var(--room-wash)] hover:text-[var(--room-fg)]";
 
-export interface VoiceRoomProps {
-  /** Placement variant — see the module docstring. Defaults to fullscreen. */
-  variant?: VoiceRoomVariant;
-}
-
-export function VoiceRoom({ variant = "fullscreen" }: VoiceRoomProps) {
+export function VoiceRoom() {
   const visible = useIsVoiceRoomVisible();
 
   return (
     <AnimatePresence>
-      {visible ? <VoiceRoomOverlay key="voice-room" variant={variant} /> : null}
+      {visible ? <VoiceRoomOverlay key="voice-room" /> : null}
     </AnimatePresence>
   );
 }
 
 /**
- * The mounted room. Split from {@link VoiceRoom} so its store subscriptions and
- * key handlers only exist while the room is actually visible and are torn
- * down cleanly on exit.
+ * The mounted room. Split from {@link VoiceRoom} so its store subscriptions
+ * only exist while the room is actually visible and are torn down cleanly on
+ * exit.
  */
-function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
+function VoiceRoomOverlay() {
   const state = useLiveVoiceStore.use.state();
   const reconnecting = useLiveVoiceStore.use.reconnecting();
   const assistantId = useLiveVoiceStore.use.assistantId();
@@ -132,60 +138,44 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
     prefs.setShowAssistantTranscript(!captionsOn);
   };
 
-  // Publish the session assistant's avatar accent on the room itself (not just
-  // the html-level var, which tracks the *active* assistant) so the listening
-  // waves tint to the avatar shown here even if a session outlives navigating
-  // away. Shares the cached avatar query with VoiceAvatar; null for
-  // custom-image / "none" / still-loading avatars, where the waves fall back to
-  // the aurora indigo via the CSS var fallback.
-  const { components, traits } = useAssistantAvatar(assistantId);
+  // Resolve the assistant's look: color-with-eyes for character avatars, the
+  // ambient void otherwise. The accent var is still published for the
+  // fallback look's listening waves (null for custom-image / "none" /
+  // still-loading avatars, where the waves keep their aurora fallback).
+  const { components, traits, customImageUrl } = useAssistantAvatar(assistantId);
+  const look = resolveVoiceRoomLook(components, traits, customImageUrl);
+  const tone = look ? toneForBg(look.bgHex) : null;
   const accentHex = resolveWaveAccentHex(components, traits);
 
-  // Global Escape, live only while the room is mounted: minimizes the room
-  // (the session keeps running; the composer's voice bar takes over as the
-  // control surface) — ending is reserved for the explicit ✕. It fires even
-  // when the composer textarea (or any other focused element) still holds
-  // focus as the room opens, so it is intentionally not guarded by the event
-  // target.
-  useEffect(() => {
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        minimizeLiveVoiceRoom();
-      }
-    }
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
+  // Control-chrome colors for the active look, consumed by the shared control
+  // classes. The fallbacks are the void look's white-on-dark values.
+  const toneVars = {
+    "--room-fg": tone?.fg ?? "#FFFFFF",
+    "--room-fg-muted": tone?.fgMuted ?? "rgba(255,255,255,0.7)",
+    "--room-wash": tone?.wash ?? "rgba(255,255,255,0.1)",
+    "--room-border": tone?.wash ?? "rgba(255,255,255,0.15)",
+  } as CSSProperties;
 
   return (
     <motion.div
-      className={cn(
-        "flex items-center justify-center overflow-hidden",
-        // Both variants sit at z-50: the highest tier used inside the chat
-        // content (e.g. the quote-reply bubble), with DOM order — the room
-        // mounts after the Outlet — breaking the tie in the room's favor.
-        variant === "fullscreen"
-          ? "fixed inset-0 z-50"
-          : "absolute inset-0 z-50 rounded-xl",
-      )}
-      data-theme="dark"
+      className="fixed inset-0 z-50 flex items-center justify-center overflow-hidden"
+      // Theme tokens (the connect label, the ambient transcript) follow the
+      // look: dark over the void and the dark avatar colors, light over the
+      // light one (yellow).
+      data-theme={tone?.isLight ? "light" : "dark"}
       role="dialog"
-      // Only the fullscreen room is modal: the content variant deliberately
-      // leaves the header and sidebar interactive so the user can navigate
-      // mid-session (the pill takes over as the control surface).
-      aria-modal={variant === "fullscreen" || undefined}
+      aria-modal
       aria-label="Voice session"
-      // The fullscreen overlay covers `ChatLayoutHeader`, so it loses the
-      // header's safe-area protection — pad the centered avatar inside the
-      // notch/home-indicator per docs/CAPACITOR.md. Inert for the desktop
-      // content variant. The ambient void is `absolute inset-0` and stays
-      // full-bleed behind the padding.
+      // The overlay covers `ChatLayoutHeader`, so it loses the header's
+      // safe-area protection — pad the centered avatar inside the
+      // notch/home-indicator per docs/CAPACITOR.md. The background layers are
+      // `absolute inset-0` and stay full-bleed behind the padding.
       style={{
         paddingTop: SAFE_AREA_TOP,
         paddingBottom: SAFE_AREA_BOTTOM,
         paddingLeft: SAFE_AREA_LEFT,
         paddingRight: SAFE_AREA_RIGHT,
+        ...toneVars,
         ...(accentHex ? { [AVATAR_ACCENT_CSS_VAR]: accentHex } : {}),
       }}
       initial={reduce ? false : { opacity: 0 }}
@@ -193,13 +183,25 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
       exit={{ opacity: 0 }}
       transition={{ duration: reduce ? 0 : 0.4 }}
     >
-      <VoiceRoomAmbientBackground />
+      {look ? (
+        <div
+          className="absolute inset-0"
+          style={{ backgroundColor: look.bgHex }}
+        />
+      ) : (
+        <VoiceRoomAmbientBackground />
+      )}
+
+      {/* The assistant's giant eyes peeking from the bottom — the color look's
+          entire cast. The void look expresses the session through the centered
+          avatar and the listening waves instead. */}
+      {look ? <VoiceRoomEyes art={look.art} /> : null}
 
       {/* Listening waves: the user's voice arriving as energy coming in, rising
-          from the bottom edge with live mic amplitude. Only while listening;
-          responding expresses itself through the avatar's own emanation. Sits
-          above the void, behind the centered avatar (later in DOM, z-0). */}
-      {visual === "listening" ? (
+          from the bottom edge with live mic amplitude. Void look only, while
+          listening; responding expresses itself through the avatar's own
+          emanation. Sits above the void, behind the centered avatar. */}
+      {!look && visual === "listening" ? (
         <VoiceListeningWaves
           getAmplitude={getLiveVoiceInputAmplitude}
           palette="accent"
@@ -212,9 +214,9 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
           avatar and stays absent by default. */}
       <VoiceAmbientTranscript />
 
-      {/* Room controls — captions toggle, minimize, and the persistent exit.
-          Rendered above all room chrome; ✕ is never gated behind avatar
-          readiness, so ending works even mid-load / on failure. */}
+      {/* Room controls — captions toggle and the persistent exit. Rendered
+          above all room chrome; ✕ is never gated behind avatar readiness, so
+          ending works even mid-load / on failure. */}
       <div
         // Absolute position is relative to the padding box, so the overlay's
         // safe-area padding does not shift this — inset it from the notch /
@@ -240,16 +242,6 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
             )}
           </button>
         </Tooltip>
-        <Tooltip content="Minimize (Esc)">
-          <button
-            type="button"
-            onClick={minimizeLiveVoiceRoom}
-            aria-label="Minimize voice room"
-            className={ROOM_CONTROL_CLASS}
-          >
-            <Minimize2 className="size-5" />
-          </button>
-        </Tooltip>
         <Tooltip content="End voice session">
           <button
             type="button"
@@ -262,26 +254,29 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
         </Tooltip>
       </div>
 
-      {/* The avatar springs to center once on entry (the wrapper owns the
-          one-time entry spring); per-state expression is the avatar's own CSS
-          loop, which cross-fades in place without re-popping. */}
-      <motion.div
-        className="relative z-0"
-        initial={reduce ? false : { scale: 0.8, y: 24, opacity: 0 }}
-        animate={{ scale: 1, y: 0, opacity: 1 }}
-        transition={reduce ? { duration: 0 } : AVATAR_ENTER_SPRING}
-      >
-        <VoiceAvatar
-          assistantId={assistantId}
-          visual={visual}
-          // Only the `responding` avatar is audio-reactive, and it always rides
-          // TTS output — so the output amplitude is the sole source here. The
-          // user's voice is expressed by the bottom waves in `listening`, not
-          // by the avatar.
-          getAmplitude={getLiveVoiceOutputAmplitude}
-          size={AVATAR_SIZE}
-        />
-      </motion.div>
+      {/* Void look: the avatar springs to center once on entry (the wrapper
+          owns the one-time entry spring); per-state expression is the avatar's
+          own CSS loop, which cross-fades in place without re-popping. The
+          color look has no centered figure — the bottom eyes are the cast. */}
+      {!look ? (
+        <motion.div
+          className="relative z-0"
+          initial={reduce ? false : { scale: 0.8, y: 24, opacity: 0 }}
+          animate={{ scale: 1, y: 0, opacity: 1 }}
+          transition={reduce ? { duration: 0 } : AVATAR_ENTER_SPRING}
+        >
+          <VoiceAvatar
+            assistantId={assistantId}
+            visual={visual}
+            // Only the `responding` avatar is audio-reactive, and it always
+            // rides TTS output — so the output amplitude is the sole source
+            // here. The user's voice is expressed by the bottom waves in
+            // `listening`, not by the avatar.
+            getAmplitude={getLiveVoiceOutputAmplitude}
+            size={AVATAR_SIZE}
+          />
+        </motion.div>
+      ) : null}
 
       {/* Connect feedback: until the session reaches `listening` the avatar
           shows the idle visual, which otherwise reads as dead air — surface
@@ -321,10 +316,12 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
             aria-label={muted ? "Unmute microphone" : "Mute microphone"}
             aria-pressed={muted}
             className={cn(
-              "flex size-12 items-center justify-center rounded-full border transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white/60",
+              SESSION_CONTROL_CLASS,
               muted
-                ? "border-red-400/50 bg-red-500/20 text-red-300 hover:bg-red-500/30"
-                : "border-white/15 text-white/70 hover:bg-white/10 hover:text-white",
+                ? tone?.isLight
+                  ? "border-red-700/50 bg-red-600/15 text-red-800 hover:bg-red-600/25"
+                  : "border-red-400/50 bg-red-500/20 text-red-300 hover:bg-red-500/30"
+                : SESSION_CONTROL_NEUTRAL_CLASS,
             )}
           >
             {muted ? <MicOff className="size-5" /> : <Mic className="size-5" />}
@@ -344,7 +341,10 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
                   type="button"
                   onClick={stopLiveVoiceResponse}
                   aria-label="Stop assistant response"
-                  className="flex size-12 items-center justify-center rounded-full border border-white/15 text-white/70 transition hover:bg-white/10 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white/60"
+                  className={cn(
+                    SESSION_CONTROL_CLASS,
+                    SESSION_CONTROL_NEUTRAL_CLASS,
+                  )}
                 >
                   <Square className="size-4" fill="currentColor" />
                 </button>

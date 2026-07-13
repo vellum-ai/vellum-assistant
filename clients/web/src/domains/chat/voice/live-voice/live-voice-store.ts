@@ -200,14 +200,6 @@ export interface LiveVoiceState {
   /** Smoothed RMS mic amplitude in [0, 1] for UI / barge-in. */
   inputAmplitude: number;
   /**
-   * True while the user has minimized the voice room for the active session
-   * (Escape / the room's minimize control). The room hides but the session —
-   * and the owning composer's voice bar — stay live; expanding from the voice
-   * bar flips this back. Session-scoped: cleared on `reset` and on
-   * `setSessionContext`, so every new session opens with the room expanded.
-   */
-  roomMinimized: boolean;
-  /**
    * True while the user muted the mic (see {@link LiveVoiceSessionControls.setMuted}).
    * Written by the controller so surfaces render the muted state; cleared on
    * `reset` and `setSessionContext` — a new session always starts live.
@@ -278,8 +270,6 @@ export interface LiveVoiceActions {
    */
   clearUserTranscripts: () => void;
   setInputAmplitude: (amplitude: number) => void;
-  /** Minimize (or re-expand) the voice room for the active session. */
-  setRoomMinimized: (minimized: boolean) => void;
   /** Record the muted state published by the controller. */
   setMuted: (muted: boolean) => void;
   /** Record whether the active session runs hands-free (server-VAD). */
@@ -384,7 +374,6 @@ const INITIAL_SESSION_STATE: Omit<LiveVoiceState, "starter"> = {
   finalTranscript: "",
   assistantTranscript: "",
   inputAmplitude: 0,
-  roomMinimized: false,
   muted: false,
   handsFree: false,
   lastTurnLatency: null,
@@ -399,13 +388,12 @@ const useLiveVoiceStoreBase = create<LiveVoiceStore>()((set) => ({
   setState: (state) => set({ state }),
   setReconnecting: (reconnecting) => set({ reconnecting }),
   setSessionContext: (assistantId, conversationId) =>
-    // A fresh session always opens with the room expanded and the mic live,
-    // even if the controller starts it without an intervening `reset`.
+    // A fresh session always opens with the mic live, even if the controller
+    // starts it without an intervening `reset`.
     set({
       assistantId,
       conversationId,
       startedConversationId: conversationId,
-      roomMinimized: false,
       muted: false,
     }),
   setConversationId: (conversationId) => set({ conversationId }),
@@ -418,7 +406,6 @@ const useLiveVoiceStoreBase = create<LiveVoiceStore>()((set) => ({
   clearAssistantTranscript: () => set({ assistantTranscript: "" }),
   clearUserTranscripts: () => set({ partialTranscript: "", finalTranscript: "" }),
   setInputAmplitude: (inputAmplitude) => set({ inputAmplitude }),
-  setRoomMinimized: (roomMinimized) => set({ roomMinimized }),
   setMuted: (muted) => set({ muted }),
   setHandsFree: (handsFree) => set({ handsFree }),
   setLastTurnLatency: (lastTurnLatency) => set({ lastTurnLatency }),
@@ -493,20 +480,6 @@ export function stopLiveVoiceResponse(): void {
  */
 export function setLiveVoiceMuted(muted: boolean): void {
   useLiveVoiceStore.getState().controls?.setMuted(muted);
-}
-
-/**
- * Minimize the voice room without ending the session — the room hides and the
- * owning composer's voice bar becomes the session surface. Module-level for
- * the same stable-identity reasons as {@link endLiveVoiceSession}.
- */
-export function minimizeLiveVoiceRoom(): void {
-  useLiveVoiceStore.getState().setRoomMinimized(true);
-}
-
-/** Re-expand a minimized voice room. Counterpart to {@link minimizeLiveVoiceRoom}. */
-export function expandLiveVoiceRoom(): void {
-  useLiveVoiceStore.getState().setRoomMinimized(false);
 }
 
 /**

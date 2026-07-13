@@ -694,6 +694,11 @@ export function useLiveVoice(
         }),
         client.on("assistantTextDelta", (frame) => {
           if (!live() || frame.text.length === 0) return;
+          // Deltas already in transit when a client-initiated interrupt
+          // cancelled the turn must not append the cancelled response's text
+          // or drag the flushed `listening` back to `thinking`; like
+          // `ttsAudio` below, the guard lifts on the next turn.
+          if (session.interruptSent) return;
           const s = useLiveVoiceStore.getState();
           s.appendAssistantTranscript(frame.text);
           const phase = s.state;

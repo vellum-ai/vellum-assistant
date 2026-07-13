@@ -806,6 +806,39 @@ describe("hands-free session controls (send now / stop response / mute)", () => 
     expect(h.view.result.current.state).toBe("speaking");
   });
 
+  test("straggler assistant_text_delta after a client interrupt is dropped until the next turn", async () => {
+    const h = renderController();
+    await startListening(h, { handsFree: true });
+    driveToSpeaking(h);
+
+    act(() => controls().interrupt());
+    expect(h.view.result.current.state).toBe("listening");
+    // A delta already in transit for the cancelled turn must not append its
+    // text or drag the flushed `listening` back to `thinking`.
+    act(() => {
+      h.client.emit("assistantTextDelta", {
+        type: "assistant_text_delta",
+        seq: 4,
+        text: "cancelled tail",
+      });
+    });
+    expect(h.view.result.current.state).toBe("listening");
+    expect(useLiveVoiceStore.getState().assistantTranscript).not.toContain(
+      "cancelled tail",
+    );
+
+    // The next turn lifts the guard: its deltas apply again.
+    act(() => {
+      h.client.emit("thinking", { type: "thinking", seq: 5, turnId: "t2" });
+      h.client.emit("assistantTextDelta", {
+        type: "assistant_text_delta",
+        seq: 6,
+        text: "next turn",
+      });
+    });
+    expect(useLiveVoiceStore.getState().assistantTranscript).toBe("next turn");
+  });
+
   test("stop response is a no-op while not speaking", async () => {
     const h = renderController();
     await startListening(h, { handsFree: true });
