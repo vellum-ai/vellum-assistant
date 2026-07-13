@@ -9,12 +9,12 @@ mock.module("../../platform/consent-cache.js", () => ({
 import type { AssistantConfig } from "../../config/schema.js";
 import { getTelemetryDb } from "../../persistence/db-connection.js";
 import { initializeDb } from "../../persistence/db-init.js";
-import { configSettingEvents } from "../../persistence/schema/index.js";
-import { queryUnreportedConfigSettingEvents } from "../config-setting-events-store.js";
+import { telemetryEvents } from "../../persistence/schema/index.js";
 import {
   recordConfigSettingSnapshot,
   resetConfigSettingSnapshotForTesting,
 } from "../config-setting-snapshot.js";
+import { queryTelemetryOutboxBatch } from "../telemetry-events-outbox.js";
 
 await initializeDb();
 
@@ -28,10 +28,13 @@ function makeConfig(
 }
 
 function recordedPairs(): Array<[string, string]> {
-  return queryUnreportedConfigSettingEvents(0, undefined, 100).map((r) => [
-    r.configKey,
-    r.configValue,
-  ]);
+  return queryTelemetryOutboxBatch("config_setting", 100).map((row) => {
+    const event = JSON.parse(row.payload) as {
+      config_key: string;
+      config_value: string;
+    };
+    return [event.config_key, event.config_value];
+  });
 }
 
 function clearEvents(): void {
@@ -39,7 +42,7 @@ function clearEvents(): void {
   if (!db) {
     throw new Error("telemetry DB unavailable in test");
   }
-  db.delete(configSettingEvents).run();
+  db.delete(telemetryEvents).run();
 }
 
 describe("config-setting-snapshot", () => {
