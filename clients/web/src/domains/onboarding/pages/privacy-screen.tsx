@@ -40,7 +40,7 @@ export function PrivacyScreen() {
     useClientFeatureFlagStore.use.stringFlags().preChatOnboardingExperiment20260606 ?? "control";
   const preferredFunnelVariant =
     onboardingFunnelVariantFromExperiment(preChatExperimentArm);
-  const [shareAnalytics, setShareAnalyticsReal] = useShareAnalytics();
+  const [shareAnalytics] = useShareAnalytics();
   const [shareDiagnostics, setShareDiagnosticsReal] = useShareDiagnostics();
   const [tosAccepted, setTosAcceptedReal] = useTosAccepted();
   const [privacyConsent, setPrivacyConsentReal] = usePrivacyConsent();
@@ -54,7 +54,6 @@ export function PrivacyScreen() {
 
   const isPreview = searchParams.get("preview") === "true";
   const noop = useCallback((_next: boolean) => {}, []);
-  const setShareAnalytics = isPreview ? noop : setShareAnalyticsReal;
   const setShareDiagnostics = isPreview ? noop : setShareDiagnosticsReal;
   const setTosAccepted = isPreview ? noop : setTosAcceptedReal;
   const setPrivacyConsent = isPreview ? noop : setPrivacyConsentReal;
@@ -136,9 +135,10 @@ export function PrivacyScreen() {
 
         <PrivacyPreferencesCard
           electron={electron}
+          showAnalytics={false}
           shareAnalytics={shareAnalytics}
           shareDiagnostics={shareDiagnostics}
-          onShareAnalyticsChange={setShareAnalytics}
+          onShareAnalyticsChange={noop}
           onShareDiagnosticsChange={setShareDiagnostics}
           className="mt-8 w-full"
           style={{ animation: "fadeInUp 0.5s ease-out 0.4s both" }}
