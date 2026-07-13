@@ -386,18 +386,18 @@ describe("resolveGuardianRequest", () => {
     expect(getGuardianRequest(req.id)?.status).toBe("pending");
   });
 
-  test("supports the terminal → pending reopen path", () => {
+  test("the CAS is direction-agnostic (terminal → pending swaps apply)", () => {
     const req = createRequest();
     resolveGuardianRequest(req.id, "pending", { status: "approved" });
 
-    const reopened = resolveGuardianRequest(req.id, "approved", {
+    const swapped = resolveGuardianRequest(req.id, "approved", {
       status: "pending",
     });
 
-    if (!reopened.applied) {
-      throw new Error("expected reopen to apply");
+    if (!swapped.applied) {
+      throw new Error("expected swap to apply");
     }
-    expect(reopened.request.status).toBe("pending");
+    expect(swapped.request.status).toBe("pending");
     expect(getGuardianRequest(req.id)?.status).toBe("pending");
   });
 

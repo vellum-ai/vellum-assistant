@@ -422,7 +422,7 @@ export type ResolveGuardianRequestResult =
 /**
  * Compare-and-swap resolve: only transitions the request from
  * `expectedStatus` to the decision's status atomically — first writer wins.
- * Supports pending → terminal decisions and terminal → pending reopens.
+ * Direction-agnostic on purpose; production only drives pending → terminal.
  *
  * Uses the raw bun:sqlite client because drizzle's run() does not surface
  * the changes count needed for the first-writer-wins guarantee.
