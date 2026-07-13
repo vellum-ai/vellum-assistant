@@ -108,18 +108,18 @@ Scoped approval grants allow a guardian's approval decision on one channel (e.g.
 
 ### Guardian Decision Primitive
 
-All guardian approval decisions — regardless of how they arrive — route through a single canonical primitive in `src/approvals/guardian-decision-primitive.ts`, which centralizes decision logic for callback button handlers, the conversational approval engine, and channel reactions/text.
+All guardian approval decisions — regardless of how they arrive — route through a single primitive in `src/approvals/guardian-decision-primitive.ts`, which centralizes decision logic for callback button handlers, the conversational approval engine, and channel reactions/text.
 
 **Core API:**
 
-| Function                                 | Purpose                                                                                                                                                                                                                                                                                             |
-| ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `applyCanonicalGuardianDecision(params)` | Apply a guardian decision against the canonical store: validate status/identity/expiry, CAS-resolve the request (first-writer-wins), dispatch to the kind-specific resolver, mint a scoped grant on approve, and withdraw the request's approval cards. Returns a structured applied/failed result. |
+| Function                        | Purpose                                                                                                                                                                                                                                                                                                                                                                                              |
+| ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `applyGuardianDecision(params)` | Apply a guardian decision against the gateway-owned request store: validate status/identity/expiry, commit via `guardian_requests_decide` (status CAS + ACL outcome, first-writer-wins, one gateway transaction), dispatch daemon side effects to the kind-specific resolver, mint a scoped grant on approve, and withdraw the request's approval cards. Returns a structured applied/failed result. |
 
 **Security invariants enforced by the primitive:**
 
 - Decision application is identity-bound to the expected guardian identity.
-- Decisions are first-response-wins (CAS stale protection via `resolveCanonicalGuardianRequest`).
+- Decisions are first-response-wins (CAS stale protection via the gateway's `guardian_requests_decide`).
 - `approve_always` is downgraded to `approve_once` for guardian-on-behalf requests (guardians cannot permanently allowlist tools for requesters).
 - Scoped grant minting only fires on explicit approve for requests with tool metadata.
 
@@ -128,7 +128,7 @@ All guardian approval decisions — regardless of how they arrive — route thro
 **Button-first path (deterministic):**
 
 - Desktop clients (macOS) render `GuardianDecisionPrompt` objects as tappable card UIs with kind-aware headers and action buttons. The `GuardianDecisionBubble` renders distinct headers for each kind: "Tool Approval Required", "Question Pending", or "Access Request".
-- Desktop clients submit decisions via HTTP (`POST /v1/guardian-actions/decision`), routed through `applyCanonicalGuardianDecision`.
+- Desktop clients submit decisions via HTTP (`POST /v1/guardian-actions/decision`), routed through `applyGuardianDecision`.
 - Channel adapters (Telegram inline keyboards, WhatsApp) encode actions as callback data (`apr:<requestId>:<action>`).
 
 **Text fallback path (always available):**
@@ -136,7 +136,7 @@ All guardian approval decisions — regardless of how they arrive — route thro
 - Every prompt includes a `requestCode` (6-char alphanumeric). Guardians can reply with `<requestCode> approve` or `<requestCode> reject` on any channel.
 - `access_request` prompts additionally embed explicit text directives in `questionText`: the request-code approve/reject directive and the `"open invite flow"` phrase for starting the Trusted Contacts invite flow.
 - `pending_question` prompts (voice-originated) support `<requestCode> <your answer>` for free-text answers.
-- The `routeGuardianReply` router processes text replies through a priority-ordered pipeline: callback parsing -> request code parsing -> NL classification. All paths converge on `applyCanonicalGuardianDecision`.
+- The `routeGuardianReply` router processes text replies through a priority-ordered pipeline: callback parsing -> request code parsing -> NL classification. All paths converge on `applyGuardianDecision`.
 
 **Shared type system:** `GuardianDecisionPrompt` and `GuardianDecisionAction` (in `src/runtime/guardian-decision-types.ts`) define the structured prompt model. `buildDecisionActions()` computes the action set respecting `persistentDecisionsAllowed` and `forGuardianOnBehalf` flags. `buildPlainTextFallback()` generates parser-compatible text instructions. Channel adapters map these to channel-specific formats via `toApprovalActionOptions()` in `channel-approval-types.ts`.
 
@@ -173,40 +173,37 @@ In addition to persistent trust rules (`always_allow` / `always_deny`), the appr
 | `src/runtime/guardian-decision-types.ts`         | `buildDecisionActions()` — controls which temporary options appear in approval prompts                                   |
 | `src/tools/permission-checker.ts`                | Permission pipeline integration — checks temporary overrides before prompting                                            |
 
-### Canonical Guardian Request System
+### Guardian Request System
 
-The canonical guardian request system provides a channel-agnostic, unified domain for all guardian approval and question flows. It replaces the fragmented per-channel storage with a single source of truth that works identically for voice calls, Telegram/WhatsApp, and desktop UI.
+The guardian request system provides a channel-agnostic, unified domain for all guardian approval and question flows — a single source of truth that works identically for voice calls, Telegram/WhatsApp, and desktop UI.
 
 **Architecture layers:**
 
-1. **Canonical domain (single source of truth):** All guardian requests — tool approvals, pending questions, access requests — are persisted in the `canonical_guardian_requests` table (`src/contacts/canonical-guardian-store.js`). Each request has a unique ID, a short human-readable request code, and a status that follows a CAS (compare-and-swap) lifecycle: `pending` -> `approved` | `denied` | `expired` | `cancelled`. Deliveries (notifications sent to guardians) are tracked in `canonical_guardian_deliveries`.
+1. **Gateway-owned domain (single source of truth):** All guardian requests — tool approvals, pending questions, access requests — are persisted in the gateway's `guardian_requests` table, with per-surface delivery records in `guardian_request_deliveries` (`gateway/src/db/guardian-request-store.ts`). Each request has a unique caller-supplied ID, a short human-readable request code, and a status that follows a CAS (compare-and-swap) lifecycle: `pending` -> `approved` | `denied` | `expired` | `cancelled`. The daemon reads and writes requests exclusively through the `guardian_requests_*` IPC client (`src/channels/gateway-guardian-requests.ts`).
 
-2. **Unified apply primitive (single write path):** `applyCanonicalGuardianDecision()` in `src/approvals/guardian-decision-primitive.ts` is the single write path for all guardian decisions. It enforces identity validation, expiry checks, CAS resolution, `approve_always` downgrade (guardian-on-behalf invariant), kind-specific resolver dispatch via the resolver registry, and scoped grant minting. All callers — HTTP API, inbound channel router, desktop session — route decisions through this function.
+2. **Unified apply primitive (single write path):** `applyGuardianDecision()` in `src/approvals/guardian-decision-primitive.ts` is the single write path for all guardian decisions. It enforces identity validation, expiry checks, and `approve_always` downgrade (guardian-on-behalf invariant), then commits through the gateway's `guardian_requests_decide` — the status CAS and any ACL outcome (member activation/seed/block, outbound-session mint) execute in one gateway transaction, so an approved request can never exist without its ACL write. Daemon-domain side effects (resolver dispatch, scoped grant minting, notifications) run after a successful decide. All callers — HTTP API, inbound channel router, desktop session — route decisions through this function.
 
-3. **Shared reply router (priority-ordered routing):** `routeGuardianReply()` in `src/runtime/guardian-reply-router.ts` provides a single entry point for all inbound guardian reply processing across channels. It routes through a priority-ordered pipeline: (a) deterministic callback parsing (button presses with `apr:<requestId>:<action>`), (b) request code parsing (6-char alphanumeric prefix), (c) NL classification via the conversational approval engine. All decisions flow through `applyCanonicalGuardianDecision`.
+3. **Shared reply router (priority-ordered routing):** `routeGuardianReply()` in `src/runtime/guardian-reply-router.ts` provides a single entry point for all inbound guardian reply processing across channels. It routes through a priority-ordered pipeline: (a) deterministic callback parsing (button presses with `apr:<requestId>:<action>`), (b) request code parsing (6-char alphanumeric prefix), (c) NL classification via the conversational approval engine. All decisions flow through `applyGuardianDecision`.
 
-4. **Deterministic API (prompt listing and decision endpoints):** Desktop clients and API consumers use `GET /v1/guardian-actions/pending` and `POST /v1/guardian-actions/decision` (HTTP). These endpoints surface canonical requests alongside legacy pending interactions and channel approval records, with deduplication to avoid double-rendering.
+4. **Deterministic API (prompt listing and decision endpoints):** Desktop clients and API consumers use `GET /v1/guardian-actions/pending` and `POST /v1/guardian-actions/decision` (HTTP). These endpoints surface guardian requests alongside legacy pending interactions and channel approval records, with deduplication to avoid double-rendering.
 
 5. **Buttons first, text fallback:** All request kinds (`tool_approval`, `pending_question`, `access_request`) are rendered as structured button cards when displayed in macOS guardian conversations. Each prompt also embeds deterministic text fallback instructions (request-code-based approve/reject directives, and for `access_request` the "open invite flow" phrase) so text-based channels and manual fallback always work. Code-only messages (just a request code without decision text) return clarification instead of auto-approving. Disambiguation with multiple pending requests stays fail-closed — no auto-resolve when the target is ambiguous.
 
 **Resolver registry:** Kind-specific resolvers (`src/approvals/guardian-request-resolvers.ts`) handle side effects after CAS resolution. Built-in resolvers: `tool_approval` (channel/desktop approval path), `pending_question` (voice call question path), and `access_request` (trusted-contact verification session creation). New request kinds register resolvers without touching the core primitive.
 
-**Expiry sweeps:** Three complementary sweeps run on 60-second intervals to clean up stale requests:
-
-- `src/calls/guardian-action-sweep.ts` — voice call guardian action requests
-- `src/runtime/routes/guardian-expiry-sweep.ts` — channel guardian approval requests
-- `src/runtime/routes/canonical-guardian-expiry-sweep.ts` — canonical guardian requests (CAS-safe)
+**Expiry:** the daemon's 60-second sweep (`src/runtime/routes/guardian-expiry-sweep.ts`) asks the gateway to CAS-expire pending requests past `expiresAt` (`guardian_requests_sweep_expired`) and fans out card withdrawal + requester notices from the returned rows; interaction-bound kinds (`tool_approval`, `pending_question`) are expired at daemon boot via `guardian_requests_expire_interaction_bound` since they die with the in-memory pending-interactions map. `src/calls/guardian-action-sweep.ts` sends the guardian-facing expiry notices for voice questions.
 
 **Key source files:**
 
-| File                                                    | Purpose                                                                               |
-| ------------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| `src/contacts/canonical-guardian-store.ts`              | Canonical request and delivery persistence (CRUD, CAS resolve, list with filters)     |
-| `src/approvals/guardian-decision-primitive.ts`          | Canonical decision primitive: `applyCanonicalGuardianDecision` + scoped grant minting |
-| `src/approvals/guardian-request-resolvers.ts`           | Resolver registry: kind-specific side-effect dispatch after CAS resolution            |
-| `src/runtime/guardian-reply-router.ts`                  | Shared inbound router: callback -> code -> NL classification pipeline                 |
-| `src/runtime/routes/guardian-action-routes.ts`          | HTTP endpoints for prompt listing and decision submission                             |
-| `src/runtime/routes/canonical-guardian-expiry-sweep.ts` | Canonical request expiry sweep                                                        |
+| File                                                | Purpose                                                                       |
+| --------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `src/channels/gateway-guardian-requests.ts`         | Typed IPC client for the gateway-owned request/delivery lifecycle             |
+| `gateway/src/approvals/guardian-request-service.ts` | Gateway service: create/reads/decide (CAS + ACL outcome in one transaction)   |
+| `src/approvals/guardian-decision-primitive.ts`      | Decision primitive: `applyGuardianDecision` + scoped grant minting            |
+| `src/approvals/guardian-request-resolvers.ts`       | Resolver registry: kind-specific daemon side-effect dispatch after the decide |
+| `src/runtime/guardian-reply-router.ts`              | Shared inbound router: callback -> code -> NL classification pipeline         |
+| `src/runtime/routes/guardian-action-routes.ts`      | HTTP endpoints for prompt listing and decision submission                     |
+| `src/runtime/routes/guardian-expiry-sweep.ts`       | Request expiry sweep (gateway CAS + daemon fan-out)                           |
 
 ### Outbound Channel Verification (HTTP Endpoints)
 
@@ -252,55 +249,25 @@ The policy is implemented in `src/tools/verification-control-plane-policy.ts`, w
 
 The `guardian-verify-setup` skill is the exclusive handler for channel verification intents in the system prompt. Other skills (e.g., `phone-calls`) hand off to `guardian-verify-setup` rather than orchestrating verification directly.
 
-### Guardian Action Timeout-to-Follow-Up Lifecycle
+### Guardian Question Timeout & Expiry Lifecycle
 
-When a voice call's ASK_GUARDIAN consultation times out before the guardian responds, the system enters a follow-up lifecycle that allows the guardian to act on their late answer after the call has moved on. The entire flow uses LLM-generated copy (never hardcoded user-facing strings) to maintain a natural, conversational tone across voice and text channels.
+Guardian requests (tool approvals, access requests, voice ASK_GUARDIAN questions) live in the gateway's `guardian_requests` / `guardian_request_deliveries` tables and carry an `expiresAt` timestamp. Two paths retire a request the guardian never answered, and all user-facing copy on those paths is LLM-generated (never hardcoded strings) to maintain a natural, conversational tone across voice and text channels.
 
-**Lifecycle stages:**
+**Voice consultation timeout:** When a voice call's ASK_GUARDIAN consultation times out before the guardian responds, the call controller expires the request via the gateway (`guardian_requests_expire` — deliveries expire with it), sends expiry notices to every surface the approval card reached (vellum conversations get an assistant message; external channels get a direct channel reply), and injects a `[GUARDIAN_TIMEOUT]` instruction so the model apologizes to the caller and offers a message or callback on the next voice turn.
 
-```
- ASK_GUARDIAN fires on call
-         |
-         v
- [pending] -- guardian answers in time --> [answered] (normal flow)
-         |
-         | (timeout expires)
-         v
- [expired, followup_state=none]
-         |
-         | (guardian replies late)
-         v
- [expired, followup_state=awaiting_guardian_choice]
-         |
-         | (conversation engine classifies intent)
-         v
- call_back / decline
-         |                        |
-         v                        v
- [dispatching]              [declined] (terminal)
-         |
-         | (executor runs action)
-         v
- [completed] or [failed] (terminal)
-```
+**Background expiry sweep:** Independent of any active call, a 60-second sweep asks the gateway to CAS-expire pending guardian requests past their `expiresAt` (`guardian_requests_sweep_expired` — a concurrent decision that wins the race is never overwritten), then fans out the side effects per expired row: withdrawing the approval cards on every surface, notifying the requester, and releasing any in-memory pending interaction.
 
-**Generated messaging requirement:** All user-facing copy in the guardian timeout/follow-up path is generated through the `guardian-action-message-composer.ts` composition system, which uses a 2-tier priority chain: (1) daemon-injected LLM generator for natural, varied text; (2) deterministic fallback templates for reliability. No hardcoded user-facing strings exist in the flow files (call-controller, inbound-message-handler, conversation-process) outside of internal log messages and LLM-instruction prompts. A guard test (`guardian-action-no-hardcoded-copy.test.ts`) enforces this invariant.
-
-**Callback branch:** When the conversation engine classifies the guardian's intent as `call_back`, the executor starts an outbound call to the counterparty with context about the guardian's answer. The counterparty phone number is resolved from the original call session by call direction (inbound: `fromNumber`; outbound: `toNumber`).
+**Generated messaging requirement:** All user-facing copy in the guardian timeout/expiry path is generated through the `guardian-action-message-composer.ts` composition system, which uses a 2-tier priority chain: (1) daemon-injected LLM generator for natural, varied text; (2) deterministic fallback templates for reliability. No hardcoded user-facing strings exist in the flow files outside of internal log messages and LLM-instruction prompts. A guard test (`guardian-action-no-hardcoded-copy.test.ts`) enforces this invariant.
 
 **Key source files:**
 
-| File                                                         | Purpose                                                                                                                                                                                     |
-| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/memory/guardian-action-store.ts`                        | Follow-up state machine with atomic transitions (`startFollowupFromExpiredRequest`, `progressFollowupState`, `finalizeFollowup`) and query helpers for pending/expired/follow-up deliveries |
-| `src/runtime/guardian-action-message-composer.ts`            | 2-tier text generation: daemon-injected LLM generator with deterministic fallback templates. Covers all scenarios from timeout acknowledgment through follow-up completion                  |
-| `src/runtime/guardian-action-followup-executor.ts`           | Action dispatch: resolves counterparty from call session, executes `call_back` (outbound call via `startCall`), finalizes follow-up state                                                   |
-| `src/daemon/guardian-action-generators.ts`                   | Daemon-injected generator factory: `createGuardianActionCopyGenerator` (latency-optimized text rewriting for guardian-facing copy)                                                          |
-| `src/calls/call-controller.ts`                               | Voice timeout handling: marks requests as timed out, sends expiry notices, injects `[GUARDIAN_TIMEOUT]` instruction for generated voice response                                            |
-| `src/runtime/routes/inbound-message-handler.ts`              | Late reply interception for Telegram channels: matches late answers to expired requests, routes follow-up conversation turns, dispatches actions                                            |
-| `src/daemon/conversation-process.ts`                         | Late reply interception for mac channel: same logic as inbound-message-handler but using conversation-ID-based delivery lookup                                                              |
-| `src/calls/guardian-action-sweep.ts`                         | Periodic sweep for stale pending requests; sends expiry notices to guardian destinations                                                                                                    |
-| `src/persistence/migrations/030-guardian-action-followup.ts` | Schema migration adding follow-up columns (`followup_state`, `late_answer_text`, `late_answered_at`, `followup_action`, `followup_completed_at`)                                            |
+| File                                              | Purpose                                                                                                                                            |
+| ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/channels/gateway-guardian-requests.ts`       | Gateway-backed guardian-request client: typed wrappers over the `guardian_requests_*` IPC routes that own request/delivery state and expiry        |
+| `src/runtime/routes/guardian-expiry-sweep.ts`     | Periodic 60s sweep: gateway CAS-expiry (`guardian_requests_sweep_expired`) plus card-withdrawal, requester-notice, and pending-interaction fan-out |
+| `src/calls/call-controller.ts`                    | Voice timeout handling: expires the request, sends expiry notices, injects `[GUARDIAN_TIMEOUT]` instruction for the generated voice response       |
+| `src/calls/guardian-action-sweep.ts`              | Expiry notice delivery to guardian destinations (vellum conversation message or direct channel reply)                                              |
+| `src/runtime/guardian-action-message-composer.ts` | 2-tier text generation: daemon-injected LLM generator with deterministic fallback templates                                                        |
 
 ### WhatsApp Channel (Meta Cloud API)
 
@@ -529,7 +496,7 @@ Voice invites use a short numeric code (6 digits) instead of a URL token. The gu
 
 ### Voice Inbound Security Model (Canonical)
 
-The voice inbound security model determines how unknown callers are handled when they dial in. Three paths exist, evaluated in priority order by `routeSetup` (`call-setup-router.ts`) when the media-stream session starts. All guardian decisions route through `applyCanonicalGuardianDecision` in the canonical guardian request system.
+The voice inbound security model determines how unknown callers are handled when they dial in. Three paths exist, evaluated in priority order by `routeSetup` (`call-setup-router.ts`) when the media-stream session starts. All guardian decisions route through `applyGuardianDecision` in the guardian request system.
 
 **Decision tree for inbound unknown callers:**
 
@@ -564,24 +531,24 @@ The guardian proactively creates a voice invite bound to the caller's E.164 phon
 When no invite exists and no pending guardian challenge is active, the setup flow enters the name capture + guardian approval wait flow:
 
 1. The setup flow transitions to `capturing_name` state and prompts the caller for their name with a timeout.
-2. On name capture, `notifyGuardianOfAccessRequest` creates a canonical guardian request (`kind: 'access_request'`) and notifies the guardian via the notification pipeline.
-3. The setup flow hands off to a `GuardianWaitController` (`awaiting_guardian_decision`), which speaks hold messaging and heartbeat updates while polling the canonical request status.
-4. The guardian approves or denies via any channel (Telegram, desktop). All decisions route through `applyCanonicalGuardianDecision`, which dispatches to the `access_request` resolver in `guardian-request-resolvers.ts`.
-5. On approval: the resolver directly activates the caller as a trusted contact (sets channel `status: 'active'`, `policy: 'allow'`), the poll detects the approved status, and the setup flow completes into the normal call flow with the caller's guardian context updated.
+2. On name capture, `notifyGuardianOfAccessRequest` creates a guardian request (`kind: 'access_request'`) in the gateway and notifies the guardian via the notification pipeline.
+3. The setup flow hands off to a `GuardianWaitController` (`awaiting_guardian_decision`), which speaks hold messaging and heartbeat updates while polling the request status via the gateway client.
+4. The guardian approves or denies via any channel (Telegram, desktop). All decisions route through `applyGuardianDecision`, which commits via `guardian_requests_decide` and dispatches daemon side effects to the `access_request` resolver in `guardian-request-resolvers.ts`.
+5. On approval: the decide transaction activates the caller as a trusted contact (sets channel `status: 'active'`, `policy: 'allow'` in the gateway ACL), the poll detects the approved status, and the setup flow completes into the normal call flow with the caller's guardian context updated.
 6. On denial or timeout: the caller hears a denial message and the call ends.
 
 **Path 3: Inbound guardian verification (pending challenge)**
 
 When a pending voice guardian challenge exists (`getPendingSession`), the caller enters the DTMF/speech verification flow to complete an outbound-initiated guardian binding. This path is for guardian identity verification, not trusted-contact access.
 
-**Canonical decision routing:**
+**Decision routing:**
 
 All guardian decisions for voice access requests flow through:
 
-- `applyCanonicalGuardianDecision` (canonical guardian request system)
-- `accessRequestResolver` in `guardian-request-resolvers.ts` (kind-specific resolver)
-- For voice approvals: direct trusted-contact activation (no verification session needed since the caller is already on the line)
-- For text-channel access requests: verification session creation with 6-digit code (existing `access-request-decision.ts` path for legacy `channel_guardian_approval_requests`)
+- `applyGuardianDecision` (guardian request system; commits via the gateway's `guardian_requests_decide`)
+- `accessRequestResolver` in `guardian-request-resolvers.ts` (kind-specific daemon side effects)
+- For voice approvals: an `activate_member` ACL outcome inside the decide transaction (no verification session needed since the caller is already on the line)
+- For text-channel access requests: a `mint_outbound_session` outcome mints the 6-digit verification session inside the decide transaction
 
 **Key source files:**
 
@@ -590,11 +557,11 @@ All guardian decisions for voice access requests flow through:
 | `src/calls/call-setup-router.ts`               | Inbound call decision tree (`routeSetup`)                                              |
 | `src/calls/call-setup-flow.ts`                 | Name capture, verification, and invite sub-flows over the media-stream transport       |
 | `src/calls/guardian-wait-controller.ts`        | Guardian approval wait — hold messaging, heartbeats, poll/timeout                      |
-| `src/runtime/access-request-helper.ts`         | Creates canonical access request and notifies guardian                                 |
-| `src/approvals/guardian-decision-primitive.ts` | `applyCanonicalGuardianDecision` — unified decision primitive                          |
+| `src/runtime/access-request-helper.ts`         | Creates the access request in the gateway and notifies the guardian                    |
+| `src/approvals/guardian-decision-primitive.ts` | `applyGuardianDecision` — unified decision primitive                                   |
 | `src/approvals/guardian-request-resolvers.ts`  | `access_request` resolver — voice direct activation, text-channel verification session |
 | `src/runtime/trust-verdict-consumer.ts`        | Gateway verdict → caller trust classification (`actorTrustContextFromVerdict`)         |
-| `src/contacts/canonical-guardian-store.ts`     | Canonical request persistence and CAS resolution                                       |
+| `src/channels/gateway-guardian-requests.ts`    | Gateway client for request persistence and the atomic decide                           |
 
 ### Speech-to-Text (STT) Boundaries
 
@@ -1897,7 +1864,7 @@ The pairing function (`pairDeliveryWithConversation`) is resilient — errors ar
 The notification pipeline uses a single conversation materialization path across producers:
 
 1. **Canonical pipeline** (`emitNotificationSignal` → decision engine → broadcaster → conversation pairing → adapters): The broadcaster pairs each delivery with a conversation, then dispatches a `notification_intent` SSE event via the Vellum adapter. The payload includes `deepLinkMetadata` (e.g. `{ conversationId, messageId }`) so the macOS client can deep-link to the relevant context when the user taps the notification. When `messageId` is present, the client scrolls to that specific message within the conversation (message-level anchoring).
-2. **Guardian bookkeeping** (`dispatchGuardianQuestion`): Guardian dispatch creates `guardian_action_request` / `guardian_action_delivery` audit rows derived from pipeline delivery results and the per-dispatch `onConversationCreated` callback — there is no separate conversation-creation path.
+2. **Guardian bookkeeping** (`dispatchGuardianQuestion`): Guardian dispatch creates the gateway `guardian_requests` row and records `guardian_request_deliveries` derived from pipeline delivery results and the per-dispatch `onConversationCreated` callback — there is no separate conversation-creation path.
 
 ### Conversation Surfacing via `notification_conversation_created` (Creation-Only)
 

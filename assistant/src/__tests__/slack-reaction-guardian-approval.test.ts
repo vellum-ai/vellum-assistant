@@ -1,5 +1,5 @@
 /**
- * Tests for guardian approval-by-reaction on the canonical pipeline.
+ * Tests for guardian approval-by-reaction on the guardian decision pipeline.
  *
  * A Slack emoji reaction (✅ / ❌) on a delivered approval card is routed
  * through `routeGuardianReply` exactly like a button press or text reply. The
@@ -16,15 +16,12 @@ mock.module("../daemon/conversation-registry.js", () => ({
   findConversation: (id: string) => _conversationMocks.get(id),
 }));
 
-import {
-  createCanonicalGuardianDelivery,
-  createCanonicalGuardianRequest,
-  getCanonicalGuardianRequest,
-  getPendingCanonicalRequestByDestinationMessage,
-  resolveCanonicalGuardianRequest,
-} from "../contacts/canonical-guardian-store.js";
+import { createGuardianGatewaySim } from "./guardian-gateway-sim.js";
+
+const sim = createGuardianGatewaySim();
+mock.module("../channels/gateway-guardian-requests.js", () => sim.module);
+
 import type { Conversation } from "../daemon/conversation.js";
-import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import {
   inferDecisionActionFromFreeText,
@@ -44,16 +41,13 @@ const CHAT_ID = "D_GUARDIAN_DM";
 const TOOL_NAME = "execute_shell";
 
 function resetTables(): void {
-  const db = getDb();
-  db.run("DELETE FROM canonical_guardian_deliveries");
-  db.run("DELETE FROM canonical_guardian_requests");
-  db.run("DELETE FROM scoped_approval_grants");
+  sim.reset();
   pendingInteractions.clear();
   _conversationMocks.clear();
 }
 
 /**
- * Seed a pending tool-approval (canonical request + delivery + pending
+ * Seed a pending tool-approval (gateway request + delivery + pending
  * interaction with a mock conversation) and return the mocked
  * `handleConfirmationResponse` so callers can assert it was driven.
  */
@@ -67,12 +61,11 @@ function seedApproval(opts: {
   const principal = opts.principal ?? PRINCIPAL;
   const conversationId = `conv-${opts.requestId}`;
 
-  createCanonicalGuardianRequest({
+  sim.seedRequest({
     id: opts.requestId,
     kind: "tool_approval",
-    sourceType: "channel",
     sourceChannel: "slack",
-    conversationId,
+    sourceConversationId: conversationId,
     requesterExternalUserId: "requester-1",
     requesterChatId: chatId,
     guardianExternalUserId: GUARDIAN_USER,
@@ -82,7 +75,7 @@ function seedApproval(opts: {
     expiresAt: Date.now() + 300_000,
   });
 
-  createCanonicalGuardianDelivery({
+  sim.seedDelivery({
     requestId: opts.requestId,
     destinationChannel: "slack",
     destinationChatId: chatId,
@@ -135,47 +128,6 @@ function reaction(opts: {
 }
 
 // ---------------------------------------------------------------------------
-// Store lookup
-// ---------------------------------------------------------------------------
-
-describe("getPendingCanonicalRequestByDestinationMessage", () => {
-  beforeEach(resetTables);
-
-  test("resolves the request whose delivery matches channel + chat + message id", () => {
-    seedApproval({ requestId: "req-1", ts: "1700000000.000001" });
-    const found = getPendingCanonicalRequestByDestinationMessage(
-      "slack",
-      CHAT_ID,
-      "1700000000.000001",
-    );
-    expect(found?.id).toBe("req-1");
-  });
-
-  test("returns null when no delivery matches the message id", () => {
-    seedApproval({ requestId: "req-1", ts: "1700000000.000001" });
-    expect(
-      getPendingCanonicalRequestByDestinationMessage(
-        "slack",
-        CHAT_ID,
-        "9999.0",
-      ),
-    ).toBeNull();
-  });
-
-  test("returns null once the matched request is no longer pending", () => {
-    seedApproval({ requestId: "req-1", ts: "1700000000.000001" });
-    resolveCanonicalGuardianRequest("req-1", "pending", { status: "approved" });
-    expect(
-      getPendingCanonicalRequestByDestinationMessage(
-        "slack",
-        CHAT_ID,
-        "1700000000.000001",
-      ),
-    ).toBeNull();
-  });
-});
-
-// ---------------------------------------------------------------------------
 // Reaction routing
 // ---------------------------------------------------------------------------
 
@@ -192,7 +144,7 @@ describe("routeGuardianReply / reactions", () => {
     expect(result.consumed).toBe(true);
     expect(result.decisionApplied).toBe(true);
     expect(result.type).toBe("canonical_decision_applied");
-    expect(getCanonicalGuardianRequest("req-1")?.status).toBe("approved");
+    expect(sim.getRequest("req-1")?.status).toBe("approved");
     expect(hcr).toHaveBeenCalledTimes(1);
     expect(hcr.mock.calls[0]?.[0]).toBe("req-1");
     expect(hcr.mock.calls[0]?.[1]).toBe("allow");
@@ -206,7 +158,7 @@ describe("routeGuardianReply / reactions", () => {
     );
 
     expect(result.decisionApplied).toBe(true);
-    expect(getCanonicalGuardianRequest("req-1")?.status).toBe("denied");
+    expect(sim.getRequest("req-1")?.status).toBe("denied");
     expect(hcr.mock.calls[0]?.[1]).toBe("deny");
   });
 
@@ -220,8 +172,8 @@ describe("routeGuardianReply / reactions", () => {
     );
 
     expect(result.requestId).toBe("req-B");
-    expect(getCanonicalGuardianRequest("req-B")?.status).toBe("approved");
-    expect(getCanonicalGuardianRequest("req-A")?.status).toBe("pending");
+    expect(sim.getRequest("req-B")?.status).toBe("approved");
+    expect(sim.getRequest("req-A")?.status).toBe("pending");
     expect(hcrB).toHaveBeenCalledTimes(1);
     expect(hcrA).not.toHaveBeenCalled();
   });
@@ -235,7 +187,7 @@ describe("routeGuardianReply / reactions", () => {
 
     expect(result.consumed).toBe(false);
     expect(result.type).toBe("not_consumed");
-    expect(getCanonicalGuardianRequest("req-1")?.status).toBe("pending");
+    expect(sim.getRequest("req-1")?.status).toBe("pending");
   });
 
   test("an unknown emoji is not consumed", async () => {
@@ -246,7 +198,7 @@ describe("routeGuardianReply / reactions", () => {
     );
 
     expect(result.consumed).toBe(false);
-    expect(getCanonicalGuardianRequest("req-1")?.status).toBe("pending");
+    expect(sim.getRequest("req-1")?.status).toBe("pending");
   });
 
   test("a reaction without a reacted message id is not consumed", async () => {
@@ -274,7 +226,7 @@ describe("routeGuardianReply / reactions", () => {
     expect(result.consumed).toBe(true);
     expect(result.decisionApplied).toBe(false);
     expect(result.replyText).toMatch(/permission/i);
-    expect(getCanonicalGuardianRequest("req-1")?.status).toBe("pending");
+    expect(sim.getRequest("req-1")?.status).toBe("pending");
     expect(hcr).not.toHaveBeenCalled();
   });
 });

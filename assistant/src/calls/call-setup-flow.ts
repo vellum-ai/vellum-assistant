@@ -139,7 +139,7 @@ export interface CallSetupFlowDeps {
 
   // ── Name-capture sub-flow deps ──────────────────────────────────────
   /**
-   * Create the canonical access request and notify the guardian. Defaults
+   * Create the access request and notify the guardian. Defaults
    * to access-request-helper's {@link notifyGuardianOfAccessRequestImpl}.
    */
   notifyGuardianOfAccessRequest?: typeof notifyGuardianOfAccessRequestImpl;
@@ -1359,7 +1359,7 @@ export class CallSetupFlow {
   }
 
   /**
-   * Handle the caller's name: create the canonical access request, notify
+   * Handle the caller's name: create the guardian access request, notify
    * the guardian, and hand the wait off to a {@link GuardianWaitController}.
    * Fails closed to the timeout copy when no request id comes back.
    */

@@ -45,31 +45,46 @@ mock.module("../approvals/guardian-card-withdrawal.js", () => ({
   },
 }));
 
+// Gateway guardian-request client — in-memory rows driven by tests. The sweep
+// asks the gateway to CAS-expire past-deadline pending rows and fans out
+// notifications from the returned rows.
+const gatewayRequests = new Map<string, GuardianRequestWire>();
+mock.module("../channels/gateway-guardian-requests.js", () => ({
+  sweepExpiredGuardianRequests: async () => {
+    const now = Date.now();
+    const expired: GuardianRequestWire[] = [];
+    for (const row of gatewayRequests.values()) {
+      if (
+        row.status === "pending" &&
+        row.expiresAt !== null &&
+        row.expiresAt <= now
+      ) {
+        const flipped = { ...row, status: "expired" as const };
+        gatewayRequests.set(row.id, flipped);
+        expired.push(flipped);
+      }
+    }
+    return expired;
+  },
+}));
+
 import { notifyExpiredGuardianRequest } from "../approvals/guardian-expiry-notifier.js";
-import type { CanonicalGuardianRequest } from "../contacts/canonical-guardian-store.js";
-import {
-  createCanonicalGuardianRequest,
-  getCanonicalGuardianRequest,
-} from "../contacts/canonical-guardian-store.js";
-import { getDb } from "../persistence/db-connection.js";
-import { initializeDb } from "../persistence/db-init.js";
+import type { GuardianRequestWire } from "../channels/gateway-guardian-requests.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
-import { sweepExpiredCanonicalGuardianRequests } from "../runtime/routes/canonical-guardian-expiry-sweep.js";
+import { runGuardianExpirySweep } from "../runtime/routes/guardian-expiry-sweep.js";
 
-await initializeDb();
-
-/** Build a fully-populated canonical request, overriding the interesting bits. */
+/** Build a fully-populated wire request, overriding the interesting bits. */
 function makeRequest(
-  overrides: Partial<CanonicalGuardianRequest> & { kind: string },
-): CanonicalGuardianRequest {
+  overrides: Partial<GuardianRequestWire> & { kind: string },
+): GuardianRequestWire {
   return {
     id: "req-1",
     sourceType: "channel",
     sourceChannel: "telegram",
-    conversationId: "conv-1",
+    sourceConversationId: "conv-1",
     requesterExternalUserId: "req-user",
     requesterChatId: "req-chat",
-    trigger: null,
+    requestTrigger: null,
     guardianExternalUserId: "guardian-user",
     guardianPrincipalId: "guardian-principal",
     callSessionId: null,
@@ -229,26 +244,26 @@ describe("notifyExpiredGuardianRequest", () => {
 
 describe("sweep integration", () => {
   beforeEach(() => {
-    const db = getDb();
-    db.run("DELETE FROM canonical_guardian_requests");
-    db.run("DELETE FROM canonical_guardian_deliveries");
+    gatewayRequests.clear();
   });
 
   test("expired access_request is transitioned and the requester is notified", async () => {
-    const request = createCanonicalGuardianRequest({
-      kind: "access_request",
-      sourceType: "channel",
-      sourceChannel: "telegram",
-      requesterChatId: "tg-chat",
-      requesterExternalUserId: "tg-user",
-      guardianPrincipalId: "guardian-principal",
-      expiresAt: Date.now() - 1000, // already past
-    });
+    gatewayRequests.set(
+      "req-sweep",
+      makeRequest({
+        id: "req-sweep",
+        kind: "access_request",
+        status: "pending",
+        requesterChatId: "tg-chat",
+        requesterExternalUserId: "tg-user",
+        expiresAt: Date.now() - 1000, // already past
+      }),
+    );
 
-    const expiredCount = await sweepExpiredCanonicalGuardianRequests();
+    const expiredCount = await runGuardianExpirySweep();
 
     expect(expiredCount).toBe(1);
-    expect(getCanonicalGuardianRequest(request.id)?.status).toBe("expired");
+    expect(gatewayRequests.get("req-sweep")?.status).toBe("expired");
     expect(withdrawCalls).toBe(1);
     expect(deliveredReplies).toHaveLength(1);
     expect(deliveredReplies[0].payload.text).toContain(
@@ -257,19 +272,21 @@ describe("sweep integration", () => {
   });
 
   test("not-yet-expired requests are left pending and unnotified", async () => {
-    const request = createCanonicalGuardianRequest({
-      kind: "access_request",
-      sourceType: "channel",
-      sourceChannel: "telegram",
-      requesterChatId: "tg-chat",
-      guardianPrincipalId: "guardian-principal",
-      expiresAt: Date.now() + 60_000, // still in the future
-    });
+    gatewayRequests.set(
+      "req-fresh",
+      makeRequest({
+        id: "req-fresh",
+        kind: "access_request",
+        status: "pending",
+        requesterChatId: "tg-chat",
+        expiresAt: Date.now() + 60_000, // still in the future
+      }),
+    );
 
-    const expiredCount = await sweepExpiredCanonicalGuardianRequests();
+    const expiredCount = await runGuardianExpirySweep();
 
     expect(expiredCount).toBe(0);
-    expect(getCanonicalGuardianRequest(request.id)?.status).toBe("pending");
+    expect(gatewayRequests.get("req-fresh")?.status).toBe("pending");
     expect(deliveredReplies).toHaveLength(0);
   });
 });

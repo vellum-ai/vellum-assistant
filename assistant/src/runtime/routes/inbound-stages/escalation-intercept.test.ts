@@ -5,7 +5,7 @@
  * present-but-empty: the intercept adopts the principal from the assistant's
  * vellum anchor (via `resolveDecidableGuardianPrincipalId`), and when neither
  * resolves it fails closed instead of creating an undecidable (principal-less)
- * canonical request. The `""`-is-unresolved contract itself is pinned in
+ * guardian request. The `""`-is-unresolved contract itself is pinned in
  * `local-actor-identity.test.ts`.
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -32,8 +32,8 @@ mock.module("../../local-actor-identity.js", () => ({
 }));
 
 const createdRequests: Array<Record<string, unknown>> = [];
-mock.module("../../../contacts/canonical-guardian-store.js", () => ({
-  createCanonicalGuardianRequest: (params: Record<string, unknown>) => {
+mock.module("../../../channels/gateway-guardian-requests.js", () => ({
+  createGuardianRequest: async (params: Record<string, unknown>) => {
     createdRequests.push(params);
     return { ...params, requestCode: "ABC123" };
   },

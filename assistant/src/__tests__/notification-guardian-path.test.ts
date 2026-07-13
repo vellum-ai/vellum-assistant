@@ -1,5 +1,5 @@
 /**
- * Regression tests for the ASK_GUARDIAN canonical notification path.
+ * Regression tests for the ASK_GUARDIAN notification path.
  *
  * Validates that guardian dispatch relies on the generic notification
  * pipeline (including conversation-created callbacks) without a custom dispatch path.
@@ -70,6 +70,18 @@ mock.module("../contacts/guardian-delivery-reader.js", () => ({
   anyGuardian: (list: unknown[]) => list[0],
 }));
 
+// Guardian requests/deliveries are created through the gateway client; serve
+// that surface from the in-memory sim the assertions read.
+import {
+  bridgeState,
+  gatewayGuardianRequestsStoreBridge,
+} from "./helpers/gateway-guardian-requests-store-bridge.js";
+
+mock.module(
+  "../channels/gateway-guardian-requests.js",
+  () => gatewayGuardianRequestsStoreBridge,
+);
+
 import {
   createCallSession,
   createPendingQuestion,
@@ -95,12 +107,15 @@ function ensureConversation(id: string): void {
     .run();
 }
 
+function requestForCallSession(callSessionId: string) {
+  return [...bridgeState.requests.values()]
+    .filter((r) => r.callSessionId === callSessionId)
+    .sort((a, b) => a.createdAt - b.createdAt)[0];
+}
+
 function resetTables(): void {
   const db = getDb();
-  db.run("DELETE FROM canonical_guardian_deliveries");
-  db.run("DELETE FROM canonical_guardian_requests");
-  db.run("DELETE FROM guardian_action_deliveries");
-  db.run("DELETE FROM guardian_action_requests");
+  bridgeState.reset();
   db.run("DELETE FROM call_pending_questions");
   db.run("DELETE FROM call_events");
   db.run("DELETE FROM call_sessions");
@@ -135,7 +150,7 @@ function resetTables(): void {
   };
 }
 
-describe("ASK_GUARDIAN canonical notification path", () => {
+describe("ASK_GUARDIAN notification path", () => {
   beforeEach(() => {
     resetTables();
   });
@@ -262,35 +277,21 @@ describe("ASK_GUARDIAN canonical notification path", () => {
       pendingQuestion: pq,
     });
 
-    const db = getDb();
-    const raw = (db as unknown as { $client: import("bun:sqlite").Database })
-      .$client;
-    const request = raw
-      .query(
-        "SELECT * FROM canonical_guardian_requests WHERE call_session_id = ?",
-      )
-      .get(session.id) as { id: string } | undefined;
-    const deliveries = raw
-      .query(
-        "SELECT destination_channel, destination_conversation_id, destination_chat_id, status FROM canonical_guardian_deliveries WHERE request_id = ? ORDER BY destination_channel ASC",
-      )
-      .all(request!.id) as Array<{
-      destination_channel: string;
-      destination_conversation_id: string | null;
-      destination_chat_id: string | null;
-      status: string;
-    }>;
+    const request = requestForCallSession(session.id);
+    const deliveries = bridgeState.deliveries.filter(
+      (d) => d.requestId === request!.id,
+    );
 
     expect(deliveries).toHaveLength(2);
     const telegram = deliveries.find(
-      (d) => d.destination_channel === "telegram",
+      (d) => d.destinationChannel === "telegram",
     );
-    const vellum = deliveries.find((d) => d.destination_channel === "vellum");
+    const vellum = deliveries.find((d) => d.destinationChannel === "vellum");
     expect(telegram).toBeDefined();
-    expect(telegram!.destination_chat_id).toBe("tg-chat-abc");
+    expect(telegram!.destinationChatId).toBe("tg-chat-abc");
     expect(telegram!.status).toBe("sent");
     expect(vellum).toBeDefined();
-    expect(vellum!.destination_conversation_id).toBe("conv-guardian-vellum");
+    expect(vellum!.destinationConversationId).toBe("conv-guardian-vellum");
     expect(vellum!.status).toBe("sent");
   });
 
@@ -323,19 +324,10 @@ describe("ASK_GUARDIAN canonical notification path", () => {
       }),
     ).resolves.toBeUndefined();
 
-    const db = getDb();
-    const raw = (db as unknown as { $client: import("bun:sqlite").Database })
-      .$client;
-    const request = raw
-      .query(
-        "SELECT * FROM canonical_guardian_requests WHERE call_session_id = ?",
-      )
-      .get(session.id) as { id: string } | undefined;
-    const vellumDelivery = raw
-      .query(
-        "SELECT status FROM canonical_guardian_deliveries WHERE request_id = ? AND destination_channel = ?",
-      )
-      .get(request!.id, "vellum") as { status: string } | undefined;
+    const request = requestForCallSession(session.id);
+    const vellumDelivery = bridgeState.deliveries.find(
+      (d) => d.requestId === request!.id && d.destinationChannel === "vellum",
+    );
 
     expect(vellumDelivery).toBeDefined();
     expect(vellumDelivery!.status).toBe("failed");
@@ -436,34 +428,23 @@ describe("ASK_GUARDIAN canonical notification path", () => {
       pendingQuestion: pq2,
     });
 
-    // Verify: two distinct canonical_guardian_requests exist
-    const db = getDb();
-    const raw = (db as unknown as { $client: import("bun:sqlite").Database })
-      .$client;
-    const requests = raw
-      .query(
-        "SELECT id, question_text FROM canonical_guardian_requests WHERE call_session_id = ? ORDER BY created_at ASC",
-      )
-      .all(session.id) as Array<{ id: string; question_text: string }>;
+    // Verify: two distinct requests exist
+    const requests = [...bridgeState.requests.values()]
+      .filter((r) => r.callSessionId === session.id)
+      .sort((a, b) => a.createdAt - b.createdAt);
     expect(requests).toHaveLength(2);
-    expect(requests[0].question_text).toBe(
+    expect(requests[0].questionText).toBe(
       "Can they enter through the side gate?",
     );
-    expect(requests[1].question_text).toBe("What about the back door?");
+    expect(requests[1].questionText).toBe("What about the back door?");
 
     // Verify: each request has its own delivery row pointing to the shared conversation
-    const deliveries = raw
-      .query(
-        "SELECT request_id, destination_conversation_id, status FROM canonical_guardian_deliveries WHERE destination_conversation_id = ? ORDER BY created_at ASC",
-      )
-      .all(sharedConvId) as Array<{
-      request_id: string;
-      destination_conversation_id: string;
-      status: string;
-    }>;
+    const deliveries = bridgeState.deliveries.filter(
+      (d) => d.destinationConversationId === sharedConvId,
+    );
     expect(deliveries).toHaveLength(2);
-    expect(deliveries[0].request_id).toBe(requests[0].id);
-    expect(deliveries[1].request_id).toBe(requests[1].id);
+    expect(deliveries[0].requestId).toBe(requests[0].id);
+    expect(deliveries[1].requestId).toBe(requests[1].id);
     expect(deliveries[0].status).toBe("sent");
     expect(deliveries[1].status).toBe("sent");
   });
@@ -497,21 +478,12 @@ describe("ASK_GUARDIAN canonical notification path", () => {
     });
 
     // The dispatch should still create a failed fallback delivery row
-    const db = getDb();
-    const raw = (db as unknown as { $client: import("bun:sqlite").Database })
-      .$client;
-    const request = raw
-      .query(
-        "SELECT id FROM canonical_guardian_requests WHERE call_session_id = ?",
-      )
-      .get(session.id) as { id: string } | undefined;
+    const request = requestForCallSession(session.id);
     expect(request).toBeDefined();
 
-    const delivery = raw
-      .query(
-        "SELECT status FROM canonical_guardian_deliveries WHERE request_id = ? AND destination_channel = ?",
-      )
-      .get(request!.id, "vellum") as { status: string } | undefined;
+    const delivery = bridgeState.deliveries.find(
+      (d) => d.requestId === request!.id && d.destinationChannel === "vellum",
+    );
     expect(delivery).toBeDefined();
     expect(delivery!.status).toBe("failed");
   });

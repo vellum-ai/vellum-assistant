@@ -7,8 +7,10 @@
  * Extracted from inbound-message-handler.ts to keep the top-level handler
  * focused on orchestration.
  */
+import { v4 as uuid } from "uuid";
+
+import { createGuardianRequest } from "../../../channels/gateway-guardian-requests.js";
 import type { ChannelId, InterfaceId } from "../../../channels/types.js";
-import { createCanonicalGuardianRequest } from "../../../contacts/canonical-guardian-store.js";
 import { emitNotificationSignal } from "../../../notifications/emit-signal.js";
 import { storePayload } from "../../../persistence/delivery-crud.js";
 import { getLogger } from "../../../util/logger.js";
@@ -129,11 +131,11 @@ export async function handleEscalationIntercept(
   });
 
   try {
-    createCanonicalGuardianRequest({
+    await createGuardianRequest({
+      id: uuid(),
       kind: "tool_approval",
-      sourceType: "channel",
       sourceChannel,
-      conversationId,
+      sourceConversationId: conversationId,
       requesterExternalUserId: canonicalSenderId ?? rawSenderId ?? undefined,
       guardianExternalUserId: binding.guardianExternalUserId,
       guardianPrincipalId,
@@ -144,7 +146,7 @@ export async function handleEscalationIntercept(
   } catch (err) {
     log.warn(
       { err, conversationId, sourceChannel },
-      "Failed to create canonical guardian request for ingress escalation — escalation continues via notification pipeline",
+      "Failed to create guardian request for ingress escalation — escalation continues via notification pipeline",
     );
   }
 

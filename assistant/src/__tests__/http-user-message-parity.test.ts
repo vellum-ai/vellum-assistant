@@ -24,13 +24,6 @@ const routeGuardianReplyMock = mock(async () => ({
   type: "not_consumed" as const,
 })) as any;
 
-const listPendingByDestinationMock = mock(
-  (_conversationId: string, _sourceChannel?: string) =>
-    [] as Array<{ id: string; kind?: string }>,
-);
-const listCanonicalMock = mock(
-  (_filters?: Record<string, unknown>) => [] as Array<{ id: string }>,
-);
 const addMessageMock = mock(
   async (
     _conversationId: string,
@@ -70,31 +63,11 @@ mock.module("../runtime/guardian-vellum-migration.js", () => ({
   },
 }));
 
-mock.module("../contacts/canonical-guardian-store.js", () => ({
-  createCanonicalGuardianRequest: () => ({
-    id: "canonical-id",
+mock.module("../channels/gateway-guardian-requests.js", () => ({
+  createGuardianRequest: async (params: Record<string, unknown>) => ({
+    ...params,
     requestCode: "ABC123",
   }),
-  generateCanonicalRequestCode: () => "ABC123",
-  listPendingCanonicalGuardianRequestsByDestinationConversation: (
-    conversationId: string,
-    sourceChannel?: string,
-  ) => listPendingByDestinationMock(conversationId, sourceChannel),
-  listCanonicalGuardianRequests: (filters?: Record<string, unknown>) =>
-    listCanonicalMock(filters),
-  listPendingRequestsByConversationScope: (conversationId: string) => {
-    const byDest = listPendingByDestinationMock(conversationId);
-    const bySrc = listCanonicalMock({ status: "pending", conversationId });
-    const seen = new Set<string>();
-    const result: Array<{ id: string; kind?: string }> = [];
-    for (const r of [...bySrc, ...byDest]) {
-      if (!seen.has(r.id)) {
-        seen.add(r.id);
-        result.push(r);
-      }
-    }
-    return result;
-  },
 }));
 
 mock.module("../runtime/confirmation-request-guardian-bridge.js", () => ({
@@ -308,8 +281,6 @@ async function sendMessage(
 describe("HTTP POST /v1/messages does not intercept recording intents (by design)", () => {
   beforeEach(() => {
     routeGuardianReplyMock.mockClear();
-    listPendingByDestinationMock.mockClear();
-    listCanonicalMock.mockClear();
     addMessageMock.mockClear();
   });
 
@@ -376,8 +347,6 @@ describe("HTTP POST /v1/messages does not intercept recording intents (by design
 describe("HTTP POST /v1/messages clientTimezone transport metadata", () => {
   beforeEach(() => {
     routeGuardianReplyMock.mockClear();
-    listPendingByDestinationMock.mockClear();
-    listCanonicalMock.mockClear();
     addMessageMock.mockClear();
   });
 
@@ -480,8 +449,6 @@ describe("HTTP POST /v1/messages clientTimezone transport metadata", () => {
 describe("HTTP POST /v1/messages client metadata headers", () => {
   beforeEach(() => {
     routeGuardianReplyMock.mockClear();
-    listPendingByDestinationMock.mockClear();
-    listCanonicalMock.mockClear();
     addMessageMock.mockClear();
   });
 

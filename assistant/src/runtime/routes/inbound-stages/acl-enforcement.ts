@@ -389,11 +389,11 @@ export async function enforceIngressAcl(
         const nonMemberSenderId = canonicalSenderId ?? rawSenderId;
         const terminallyDenied =
           !!nonMemberSenderId &&
-          isAccessRequestDenied({
+          (await isAccessRequestDenied({
             canonicalAssistantId,
             sourceChannel,
             actorExternalId: nonMemberSenderId,
-          });
+          }));
 
         // Slack-specific: send a verification challenge directly to the
         // user's DM instead of requiring guardian-mediated approval. The
@@ -537,14 +537,14 @@ export async function enforceIngressAcl(
 
         // Notify the guardian about the access request so they can approve/deny.
         // Uses the shared helper which handles guardian binding lookup,
-        // deduplication, canonical request creation, and notification emission.
+        // deduplication, guardian request creation, and notification emission.
         // Skipped for callback interactions — a button press must not create
         // an access request — but the handshake window is still probed so the
         // reply doesn't tell a just-approved sender they lack access.
         let guardianNotified = false;
         let handshakeInProgress = false;
         if (isCallbackInteraction) {
-          handshakeInProgress = isApprovalHandshakeInProgress({
+          handshakeInProgress = await isApprovalHandshakeInProgress({
             canonicalAssistantId,
             sourceChannel,
             actorExternalId: (canonicalSenderId ?? rawSenderId)!,
@@ -700,11 +700,11 @@ export async function enforceIngressAcl(
           const terminallyDenied =
             !isBlockedMember &&
             !!inactiveSenderId &&
-            isAccessRequestDenied({
+            (await isAccessRequestDenied({
               canonicalAssistantId,
               sourceChannel,
               actorExternalId: inactiveSenderId,
-            });
+            }));
 
           // Slack-specific: re-verify inactive members via DM challenge
           // (same as non-member path). Blocked members are excluded —
@@ -799,7 +799,7 @@ export async function enforceIngressAcl(
           let handshakeInProgress = false;
           if (resolvedMember.status !== "blocked") {
             if (isCallbackInteraction) {
-              handshakeInProgress = isApprovalHandshakeInProgress({
+              handshakeInProgress = await isApprovalHandshakeInProgress({
                 canonicalAssistantId,
                 sourceChannel,
                 actorExternalId: (canonicalSenderId ?? rawSenderId)!,
