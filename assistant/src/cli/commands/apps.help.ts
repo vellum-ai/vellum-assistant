@@ -25,11 +25,12 @@ Examples:
         { flags: "--json", description: "Machine-readable JSON output" },
       ],
       helpText: `
-Lists every app with its name and the absolute path to its source directory as
-the first two columns, followed by the app ID and last-updated time.
-
+Lists every app with its name and the absolute path to its source directory.
 The source path is the app's directory under the workspace apps directory; it
 holds index.html (single-file apps) or the TSX source tree (multi-file apps).
+
+Pass --json for the full record, including the app ID, format version, and
+last-updated time.
 
 Examples:
   $ assistant apps list

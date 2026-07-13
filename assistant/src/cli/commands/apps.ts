@@ -49,18 +49,13 @@ export function registerAppsCommand(program: Command): void {
           return;
         }
 
-        // Name and source lead; align both into columns so the source path is
-        // scannable across rows.
+        // Name and source lead; align the name into a column so the source
+        // path is scannable across rows.
         const nameWidth = Math.max(4, ...entries.map((e) => e.name.length));
-        const srcWidth = Math.max(6, ...entries.map((e) => e.source.length));
         log.info(`Apps (${entries.length}):\n`);
-        log.info(
-          `  ${"NAME".padEnd(nameWidth)}  ${"SOURCE".padEnd(srcWidth)}  ID`,
-        );
+        log.info(`  ${"NAME".padEnd(nameWidth)}  SOURCE`);
         for (const e of entries) {
-          log.info(
-            `  ${e.name.padEnd(nameWidth)}  ${e.source.padEnd(srcWidth)}  ${e.id}`,
-          );
+          log.info(`  ${e.name.padEnd(nameWidth)}  ${e.source}`);
         }
       });
     },

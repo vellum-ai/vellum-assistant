@@ -11,6 +11,7 @@
  * the memory indexer no longer needs `buildCliProgramTree()`.
  */
 
+import { appsHelp } from "./commands/apps.help.js";
 import { attachmentHelp } from "./commands/attachment.help.js";
 import { auditHelp } from "./commands/audit.help.js";
 import { authHelp } from "./commands/auth.help.js";
@@ -61,6 +62,7 @@ import { webhooksHelp } from "./commands/webhooks.help.js";
 import type { CliCommandHelp } from "./lib/cli-command-help.js";
 
 export const CLI_COMMAND_HELP: readonly CliCommandHelp[] = [
+  appsHelp,
   attachmentHelp,
   auditHelp,
   authHelp,
