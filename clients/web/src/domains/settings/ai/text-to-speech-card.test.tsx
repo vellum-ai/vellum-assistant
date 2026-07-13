@@ -205,5 +205,12 @@ describe("TextToSpeechCard — daemon provisioning on Save", () => {
     expect(ttsBody.services.tts.mode).toBe("your-own");
     expect(ttsBody.services.tts.provider).toBeDefined();
     expect(ttsBody.services.tts.provider).not.toBe("vellum");
+    // The credential must land under the same provider the PATCH activates —
+    // storing it under the reserved id would leave the activated provider
+    // keyless while the save appears successful.
+    expect(credentialsSetCalls).toHaveLength(1);
+    expect((credentialsSetCalls[0]!.body as { service: string }).service).toBe(
+      ttsBody.services.tts.provider as string,
+    );
   });
 });

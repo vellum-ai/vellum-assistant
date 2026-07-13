@@ -119,12 +119,19 @@ export function TextToSpeechCard() {
     const trimmedKey = apiKeyText.trim();
     const trimmedVoiceId = voiceIdText.trim();
 
+    // The provider everything is saved under. Matches draftProvider except
+    // when the daemon reports one the dropdown can't represent (e.g. the
+    // reserved managed-mode "vellum" id) — then it is the rendered fallback,
+    // so the credential, local state, and config PATCH all target the same
+    // provider the save activates.
+    const activeProvider = selectedProvider.id;
+
     // Local settings back the client-side voice path; keep them in sync.
-    setLocalSetting(LS_TTS_PROVIDER, draftProvider);
+    setLocalSetting(LS_TTS_PROVIDER, activeProvider);
     if (trimmedKey.length > 0) {
-      setLocalSetting(LS_TTS_API_KEY_PREFIX + draftProvider, trimmedKey);
+      setLocalSetting(LS_TTS_API_KEY_PREFIX + activeProvider, trimmedKey);
     }
-    setLocalSetting(LS_TTS_VOICE_ID_PREFIX + draftProvider, trimmedVoiceId);
+    setLocalSetting(LS_TTS_VOICE_ID_PREFIX + activeProvider, trimmedVoiceId);
 
     // Provision the daemon too: the server-side live-voice session reads the
     // credential store (CES) and `services.tts` config, never localStorage.
@@ -133,8 +140,8 @@ export function TextToSpeechCard() {
     const effectiveKey =
       trimmedKey.length > 0
         ? trimmedKey
-        : getLocalSetting(LS_TTS_API_KEY_PREFIX + draftProvider, "");
-    const voiceField = TTS_VOICE_CONFIG_FIELD[draftProvider];
+        : getLocalSetting(LS_TTS_API_KEY_PREFIX + activeProvider, "");
+    const voiceField = TTS_VOICE_CONFIG_FIELD[activeProvider];
 
     setSaving(true);
     try {
@@ -142,7 +149,7 @@ export function TextToSpeechCard() {
         const { response: keyRes } = await credentialsSetPost({
           path: { assistant_id: assistantId },
           body: {
-            service: draftProvider,
+            service: activeProvider,
             field: "api_key",
             value: effectiveKey,
             label: `${selectedProvider.displayName} API Key`,
@@ -160,19 +167,18 @@ export function TextToSpeechCard() {
       // key/voice would silently switch a provider set elsewhere. Saving from
       // this card is explicit BYOK intent, so a managed-mode daemon is also
       // switched back to your-own — otherwise the saved key would appear to
-      // take effect while the daemon kept using managed speech. The provider
-      // comes from selectedProvider (always catalog-representable) because a
-      // managed daemon may report the reserved "vellum" provider, which is
-      // invalid outside managed mode.
+      // take effect while the daemon kept using managed speech.
       const shouldSetProvider =
         draftProvider !== serverProvider || !daemonHasProvider;
       const ttsBody = {
-        ...(shouldSetProvider ? { provider: draftProvider } : {}),
-        ...(daemonManaged
-          ? { mode: "your-own", provider: selectedProvider.id }
+        ...(shouldSetProvider || daemonManaged
+          ? { provider: activeProvider }
           : {}),
+        ...(daemonManaged ? { mode: "your-own" } : {}),
         ...(voiceField
-          ? { providers: { [draftProvider]: { [voiceField]: trimmedVoiceId } } }
+          ? {
+              providers: { [activeProvider]: { [voiceField]: trimmedVoiceId } },
+            }
           : {}),
       };
       if (Object.keys(ttsBody).length > 0) {
