@@ -7,7 +7,7 @@
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import type { SttStreamServerEvent } from "../../../stt/types.js";
+import { SttError, type SttStreamServerEvent } from "../../../stt/types.js";
 import { VellumManagedRealtimeTranscriber } from "../vellum-managed-realtime.js";
 import type { SpeechRelayConnection } from "../vellum-speech-relay-connection.js";
 
@@ -350,6 +350,26 @@ describe("VellumManagedRealtimeTranscriber", () => {
     sockets[0]!.simulateClose(1006, "");
 
     await expect(startPromise).rejects.toThrow(/credits/);
+  });
+
+  test("an auth rejection at dial time keeps its category through the throw", async () => {
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ code: "invalid_key", detail: "bad" }), {
+        status: 401,
+      })) as unknown as typeof fetch;
+
+    const adapter = new VellumManagedRealtimeTranscriber(CONNECTION);
+    const startPromise = adapter.start(() => {});
+    sockets[0]!.simulateClose(1006, "");
+
+    let thrown: unknown;
+    try {
+      await startPromise;
+    } catch (err) {
+      thrown = err;
+    }
+    expect(thrown).toBeInstanceOf(SttError);
+    expect((thrown as SttError).category).toBe("auth");
   });
 
   test("connect failures never leak the API key", async () => {

@@ -35,7 +35,11 @@ import {
   supportsBoundary,
 } from "../providers/speech-to-text/provider-catalog.js";
 import { getLogger } from "../util/logger.js";
-import type { StreamingTranscriber, SttStreamServerEvent } from "./types.js";
+import {
+  SttError,
+  type StreamingTranscriber,
+  type SttStreamServerEvent,
+} from "./types.js";
 
 const log = getLogger("stt-stream-session");
 
@@ -231,7 +235,9 @@ export class SttStreamSession {
       );
       this.sendEvent({
         type: "error",
-        category: "provider-error",
+        // Adapters reject with SttError when they know better than the
+        // generic bucket (e.g. a relay auth rejection at dial time).
+        category: err instanceof SttError ? err.category : "provider-error",
         message: `Failed to start streaming session: ${message}`,
       });
       this.sendEvent({ type: "closed" });

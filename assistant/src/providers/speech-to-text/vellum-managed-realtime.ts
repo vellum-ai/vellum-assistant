@@ -20,9 +20,10 @@
  *   opens a fresh relay session and continues without surfacing an error.
  */
 
-import type {
-  StreamingTranscriber,
-  SttStreamServerEvent,
+import {
+  SttError,
+  type StreamingTranscriber,
+  type SttStreamServerEvent,
 } from "../../stt/types.js";
 import { getLogger } from "../../util/logger.js";
 import { DeepgramRealtimeTranscriber } from "./deepgram-realtime.js";
@@ -106,7 +107,10 @@ export class VellumManagedRealtimeTranscriber implements StreamingTranscriber {
       // requests, including velay's own).
       const rejection = await probeVelayRejection(this.probeUrl());
       if (rejection) {
-        throw new Error(mapVelayError(rejection).message);
+        // Typed so the stream session preserves the mapped category —
+        // an auth/setup failure must not surface as a provider outage.
+        const mapped = mapVelayError(rejection);
+        throw new SttError(mapped.category, mapped.message);
       }
       throw err;
     }
