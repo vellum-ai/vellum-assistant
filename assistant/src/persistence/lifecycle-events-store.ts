@@ -1,7 +1,4 @@
-import { v4 as uuid } from "uuid";
-
-import { getCachedShareAnalytics } from "../platform/consent-cache.js";
-import { insertTelemetryOutboxEvent } from "../telemetry/telemetry-events-outbox.js";
+import { recordTelemetryOutboxEvent } from "../telemetry/telemetry-events-outbox.js";
 import type { LifecycleTelemetryEvent } from "../telemetry/types.js";
 import { APP_VERSION } from "../version.js";
 
@@ -35,19 +32,8 @@ export function buildLifecycleTelemetryEvent(
  * telemetry database is unavailable (degraded mode).
  */
 export function recordLifecycleEvent(eventName: string): LifecycleEvent | null {
-  if (!getCachedShareAnalytics()) {
-    return null;
-  }
-  const event: LifecycleEvent = {
-    id: uuid(),
-    eventName,
-    createdAt: Date.now(),
-  };
-  const inserted = insertTelemetryOutboxEvent({
-    id: event.id,
-    name: "lifecycle",
-    createdAt: event.createdAt,
-    event: buildLifecycleTelemetryEvent(event.id, eventName, event.createdAt),
-  });
-  return inserted ? event : null;
+  const recorded = recordTelemetryOutboxEvent("lifecycle", (id, createdAt) =>
+    buildLifecycleTelemetryEvent(id, eventName, createdAt),
+  );
+  return recorded ? { ...recorded, eventName } : null;
 }

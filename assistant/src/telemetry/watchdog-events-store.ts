@@ -1,8 +1,5 @@
-import { v4 as uuid } from "uuid";
-
-import { getCachedShareAnalytics } from "../platform/consent-cache.js";
 import { APP_VERSION } from "../version.js";
-import { insertTelemetryOutboxEvent } from "./telemetry-events-outbox.js";
+import { recordTelemetryOutboxEvent } from "./telemetry-events-outbox.js";
 import type { WatchdogTelemetryEvent } from "./types.js";
 
 /**
@@ -27,19 +24,16 @@ export interface WatchdogEventRecord {
  * unavailable.
  */
 export function recordWatchdogEvent(record: WatchdogEventRecord): void {
-  if (!getCachedShareAnalytics()) {
-    return;
-  }
-  const id = uuid();
-  const createdAt = Date.now();
-  const event: WatchdogTelemetryEvent = {
-    type: "watchdog",
-    daemon_event_id: id,
-    recorded_at: createdAt,
-    check_name: record.checkName,
-    value: record.value ?? null,
-    detail: record.detail ?? null,
-    assistant_version: APP_VERSION,
-  };
-  insertTelemetryOutboxEvent({ id, name: "watchdog", createdAt, event });
+  recordTelemetryOutboxEvent(
+    "watchdog",
+    (id, createdAt): WatchdogTelemetryEvent => ({
+      type: "watchdog",
+      daemon_event_id: id,
+      recorded_at: createdAt,
+      check_name: record.checkName,
+      value: record.value ?? null,
+      detail: record.detail ?? null,
+      assistant_version: APP_VERSION,
+    }),
+  );
 }

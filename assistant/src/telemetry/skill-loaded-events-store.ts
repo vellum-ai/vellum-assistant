@@ -1,10 +1,7 @@
-import { v4 as uuid } from "uuid";
-
-import { getCachedShareAnalytics } from "../platform/consent-cache.js";
 import type { UsageAttributionColumns } from "../usage/attribution.js";
 import type { UsageAttributionProfileSource } from "../usage/types.js";
 import { APP_VERSION } from "../version.js";
-import { insertTelemetryOutboxEvent } from "./telemetry-events-outbox.js";
+import { recordTelemetryOutboxEvent } from "./telemetry-events-outbox.js";
 import type { SkillLoadedTelemetryEvent } from "./types.js";
 
 /**
@@ -30,30 +27,22 @@ export interface SkillLoadedEventRecord extends Partial<UsageAttributionColumns>
  * telemetry DB is unavailable.
  */
 export function recordSkillLoadedEvent(record: SkillLoadedEventRecord): void {
-  if (!getCachedShareAnalytics()) {
-    return;
-  }
-  const id = uuid();
-  const createdAt = Date.now();
-  const event: SkillLoadedTelemetryEvent = {
-    type: "skill_loaded",
-    daemon_event_id: id,
-    recorded_at: createdAt,
-    skill_name: record.skillName,
-    skill_updated_at: record.skillUpdatedAt ?? null,
-    conversation_id: record.conversationId ?? null,
-    provider: record.provider ?? null,
-    model: record.model ?? null,
-    inference_profile: record.inferenceProfile ?? null,
-    inference_profile_source: (record.inferenceProfileSource ??
-      null) as UsageAttributionProfileSource | null,
-    assistant_version: APP_VERSION,
-  };
-  insertTelemetryOutboxEvent({
-    id,
-    name: "skill_loaded",
-    createdAt,
-    conversationId: record.conversationId ?? null,
-    event,
-  });
+  recordTelemetryOutboxEvent(
+    "skill_loaded",
+    (id, createdAt): SkillLoadedTelemetryEvent => ({
+      type: "skill_loaded",
+      daemon_event_id: id,
+      recorded_at: createdAt,
+      skill_name: record.skillName,
+      skill_updated_at: record.skillUpdatedAt ?? null,
+      conversation_id: record.conversationId ?? null,
+      provider: record.provider ?? null,
+      model: record.model ?? null,
+      inference_profile: record.inferenceProfile ?? null,
+      inference_profile_source: (record.inferenceProfileSource ??
+        null) as UsageAttributionProfileSource | null,
+      assistant_version: APP_VERSION,
+    }),
+    { conversationId: record.conversationId ?? null },
+  );
 }

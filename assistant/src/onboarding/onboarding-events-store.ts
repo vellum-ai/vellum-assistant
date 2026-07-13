@@ -1,6 +1,3 @@
-import { v4 as uuid } from "uuid";
-
-import { getCachedShareAnalytics } from "../platform/consent-cache.js";
 import {
   ACTIVATION_AB_VARIANT,
   ACTIVATION_FUNNEL_VERSION,
@@ -8,25 +5,15 @@ import {
   type ActivationStepName,
   buildActivationDaemonEventId,
 } from "../telemetry/activation-funnel.js";
-import { insertTelemetryOutboxEvent } from "../telemetry/telemetry-events-outbox.js";
+import { recordTelemetryOutboxEvent } from "../telemetry/telemetry-events-outbox.js";
 import type { OnboardingTelemetryEvent } from "../telemetry/types.js";
 import { APP_VERSION } from "../version.js";
 
+/** Identity of a recorded outbox row; the full payload lives in the outbox. */
 export interface OnboardingEvent {
   id: string;
   createdAt: number;
-  screen: string;
-  toolsJson: string | null;
-  tasksJson: string | null;
-  tone: string | null;
-  googleConnected: boolean | null;
-  googleScopesJson: string | null;
-  abVariant: string | null;
-  sessionId: string | null;
-  stepName: string | null;
-  stepIndex: number | null;
   completedAt: string | null;
-  funnelVersion: string | null;
 }
 
 export interface RecordOnboardingEventParams {
@@ -93,46 +80,6 @@ function buildOnboardingTelemetryEvent(
 }
 
 /**
- * Build the wire payload and insert it into the `telemetry_events` outbox.
- * Shared by all record* entry points. Returns null when the telemetry
- * database is unavailable — the event is dropped, matching the degraded-mode
- * behavior of the other telemetry stores.
- */
-function insertOnboardingEvent(
-  id: string,
-  createdAt: number,
-  params: RecordOnboardingEventParams,
-): OnboardingEvent | null {
-  const inserted = insertTelemetryOutboxEvent({
-    id,
-    name: "onboarding",
-    createdAt,
-    event: buildOnboardingTelemetryEvent(id, createdAt, params),
-  });
-  if (!inserted) {
-    return null;
-  }
-  return {
-    id,
-    createdAt,
-    screen: params.screen,
-    toolsJson: params.tools ? JSON.stringify(params.tools) : null,
-    tasksJson: params.tasks ? JSON.stringify(params.tasks) : null,
-    tone: params.tone ?? null,
-    googleConnected: params.googleConnected ?? null,
-    googleScopesJson: params.googleScopes
-      ? JSON.stringify(params.googleScopes)
-      : null,
-    abVariant: params.abVariant ?? null,
-    sessionId: params.sessionId ?? null,
-    stepName: params.stepName ?? null,
-    stepIndex: params.stepIndex ?? null,
-    completedAt: params.completedAt ?? null,
-    funnelVersion: params.funnelVersion ?? null,
-  };
-}
-
-/**
  * Record an onboarding event (pre-chat selections and Google connect status).
  * Returns null when usage data collection is disabled or the telemetry
  * database is unavailable.
@@ -140,10 +87,12 @@ function insertOnboardingEvent(
 export function recordOnboardingEvent(
   params: RecordOnboardingEventParams,
 ): OnboardingEvent | null {
-  if (!getCachedShareAnalytics()) {
-    return null;
-  }
-  return insertOnboardingEvent(uuid(), Date.now(), params);
+  const recorded = recordTelemetryOutboxEvent("onboarding", (id, createdAt) =>
+    buildOnboardingTelemetryEvent(id, createdAt, params),
+  );
+  return recorded
+    ? { ...recorded, completedAt: params.completedAt ?? null }
+    : null;
 }
 
 /**
@@ -157,17 +106,18 @@ export function recordActivationEvent(params: {
   userId?: string | null;
   abVariant?: string;
 }): OnboardingEvent | null {
-  if (!getCachedShareAnalytics()) {
-    return null;
-  }
-  const createdAt = Date.now();
-  return insertOnboardingEvent(uuid(), createdAt, {
-    screen: params.stepName,
-    abVariant: params.abVariant ?? ACTIVATION_AB_VARIANT,
-    sessionId: params.sessionId,
-    stepName: params.stepName,
-    stepIndex: activationStepIndex(params.stepName),
-    completedAt: new Date(createdAt).toISOString(),
-    funnelVersion: ACTIVATION_FUNNEL_VERSION,
-  });
+  const recorded = recordTelemetryOutboxEvent("onboarding", (id, createdAt) =>
+    buildOnboardingTelemetryEvent(id, createdAt, {
+      screen: params.stepName,
+      abVariant: params.abVariant ?? ACTIVATION_AB_VARIANT,
+      sessionId: params.sessionId,
+      stepName: params.stepName,
+      stepIndex: activationStepIndex(params.stepName),
+      completedAt: new Date(createdAt).toISOString(),
+      funnelVersion: ACTIVATION_FUNNEL_VERSION,
+    }),
+  );
+  return recorded
+    ? { ...recorded, completedAt: new Date(recorded.createdAt).toISOString() }
+    : null;
 }

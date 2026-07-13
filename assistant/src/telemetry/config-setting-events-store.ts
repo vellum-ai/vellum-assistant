@@ -1,8 +1,5 @@
-import { v4 as uuid } from "uuid";
-
-import { getCachedShareAnalytics } from "../platform/consent-cache.js";
 import { APP_VERSION } from "../version.js";
-import { insertTelemetryOutboxEvent } from "./telemetry-events-outbox.js";
+import { recordTelemetryOutboxEvent } from "./telemetry-events-outbox.js";
 import type { ConfigSettingTelemetryEvent } from "./types.js";
 
 /**
@@ -37,23 +34,17 @@ export interface ConfigSettingEventRecord {
 export function recordConfigSettingEvent(
   record: ConfigSettingEventRecord,
 ): boolean {
-  if (!getCachedShareAnalytics()) {
-    return false;
-  }
-  const id = uuid();
-  const createdAt = Date.now();
-  const event: ConfigSettingTelemetryEvent = {
-    type: "config_setting",
-    daemon_event_id: id,
-    recorded_at: createdAt,
-    config_key: record.configKey.slice(0, MAX_CONFIG_KEY_CHARS),
-    config_value: record.configValue.slice(0, MAX_CONFIG_VALUE_CHARS),
-    assistant_version: APP_VERSION,
-  };
-  return insertTelemetryOutboxEvent({
-    id,
-    name: "config_setting",
-    createdAt,
-    event,
-  });
+  return (
+    recordTelemetryOutboxEvent(
+      "config_setting",
+      (id, createdAt): ConfigSettingTelemetryEvent => ({
+        type: "config_setting",
+        daemon_event_id: id,
+        recorded_at: createdAt,
+        config_key: record.configKey.slice(0, MAX_CONFIG_KEY_CHARS),
+        config_value: record.configValue.slice(0, MAX_CONFIG_VALUE_CHARS),
+        assistant_version: APP_VERSION,
+      }),
+    ) !== null
+  );
 }
