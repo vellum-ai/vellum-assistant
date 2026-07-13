@@ -111,7 +111,6 @@ import { enforceAdmissionPolicy } from "./inbound-stages/admission-policy.js";
 import { processChannelMessageInBackground } from "./inbound-stages/background-dispatch.js";
 import { handleBootstrapIntercept } from "./inbound-stages/bootstrap-intercept.js";
 import { handleEditIntercept } from "./inbound-stages/edit-intercept.js";
-import { handleEscalationIntercept } from "./inbound-stages/escalation-intercept.js";
 import { handleGuardianActivationIntercept } from "./inbound-stages/guardian-activation-intercept.js";
 import { handleGuardianReplyIntercept } from "./inbound-stages/guardian-reply-intercept.js";
 import {
@@ -972,28 +971,6 @@ export async function handleChannelInbound({
       reason: diskPressureDecision.reason,
     };
   }
-
-  // ── Ingress escalation ──
-  const escalationResponse = await handleEscalationIntercept({
-    resolvedMember,
-    canonicalAssistantId,
-    sourceChannel,
-    sourceInterface,
-    conversationExternalId,
-    externalMessageId,
-    conversationId: result.conversationId,
-    eventId: result.eventId,
-    content: trimmedContent,
-    attachmentIds,
-    sourceMetadata: body.sourceMetadata,
-    actorDisplayName: body.actorDisplayName,
-    actorExternalId: body.actorExternalId,
-    actorUsername: body.actorUsername,
-    replyCallbackUrl: body.replyCallbackUrl,
-    canonicalSenderId,
-    rawSenderId,
-  });
-  if (escalationResponse) return escalationResponse;
 
   const metadataHintsRaw = sourceMetadata?.hints;
   const metadataHints = Array.isArray(metadataHintsRaw)
