@@ -6,8 +6,8 @@
  *   - plugins/marketplace.json    → the assistant plugin catalog (offline reader)
  *
  * Usage:
- *   bun run meta/feature-flags/sync-bundled-copies.ts          # write copies
- *   bun run meta/feature-flags/sync-bundled-copies.ts --check  # fail on drift
+ *   bun run meta/sync-bundled-copies.ts          # write copies
+ *   bun run meta/sync-bundled-copies.ts --check  # fail on drift
  */
 import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
@@ -17,17 +17,17 @@ const ROOT = resolve(import.meta.dir);
 
 const PAIRS: { canonical: string; targets: string[] }[] = [
   {
-    canonical: join(ROOT, "feature-flag-registry.json"),
+    canonical: join(ROOT, "feature-flags", "feature-flag-registry.json"),
     targets: [
-      join(ROOT, "..", "..", "assistant", "src", "config", "feature-flag-registry.json"),
-      join(ROOT, "..", "..", "gateway", "src", "feature-flag-registry.json"),
-      join(ROOT, "..", "..", "clients", "web", "src", "lib", "feature-flags", "feature-flag-registry.json"),
+      join(ROOT, "..", "assistant", "src", "config", "feature-flag-registry.json"),
+      join(ROOT, "..", "gateway", "src", "feature-flag-registry.json"),
+      join(ROOT, "..", "clients", "web", "src", "lib", "feature-flags", "feature-flag-registry.json"),
     ],
   },
   {
-    canonical: join(ROOT, "..", "..", "plugins", "marketplace.json"),
+    canonical: join(ROOT, "..", "plugins", "marketplace.json"),
     targets: [
-      join(ROOT, "..", "..", "assistant", "src", "cli", "lib", "bundled-marketplace.json"),
+      join(ROOT, "..", "assistant", "src", "cli", "lib", "bundled-marketplace.json"),
     ],
   },
 ];
@@ -74,7 +74,7 @@ if (CHECK) {
   if (drifted.length > 0) {
     console.error(
       "✗ Bundled copies are out of sync with their canonical sources. " +
-        "Run `bun run meta/feature-flags/sync-bundled-copies.ts` and commit:",
+        "Run `bun run meta/sync-bundled-copies.ts` and commit:",
     );
     for (const target of drifted) console.error(`  - ${target}`);
     process.exit(1);
