@@ -16,9 +16,30 @@ import {
   beforeAll,
   beforeEach,
   afterAll,
+  mock,
 } from "bun:test";
 
 import "./test-preload.js";
+
+// Record info output. Real logger exports are preserved; the migration
+// module loads dynamically below, after this mock, so its module-level
+// `log` binds to the recorder.
+const realLogger = await import("../logger.js");
+const infoLogs: unknown[][] = [];
+const recordingLog = {
+  fatal: () => {},
+  error: () => {},
+  warn: () => {},
+  debug: () => {},
+  trace: () => {},
+  info: (...args: unknown[]) => {
+    infoLogs.push(args);
+  },
+};
+mock.module("../logger.js", () => ({
+  ...realLogger,
+  getLogger: () => recordingLog,
+}));
 
 import {
   initGatewayDb,
@@ -26,11 +47,10 @@ import {
   resetGatewayDb,
 } from "../db/connection.js";
 import { contacts, contactChannels } from "../db/schema.js";
-import { MIGRATIONS } from "../db/data-migrations/index.js";
-import {
-  up as m0017Up,
-  down as m0017Down,
-} from "../db/data-migrations/m0017-coerce-escalate-policy.js";
+
+const { MIGRATIONS } = await import("../db/data-migrations/index.js");
+const { up: m0017Up, down: m0017Down } =
+  await import("../db/data-migrations/m0017-coerce-escalate-policy.js");
 
 beforeAll(async () => {
   await initGatewayDb();
@@ -40,6 +60,7 @@ beforeEach(() => {
   const db = getGatewayDb();
   db.delete(contactChannels).run();
   db.delete(contacts).run();
+  infoLogs.length = 0;
 });
 
 afterAll(() => {
@@ -116,6 +137,32 @@ describe("m0017-coerce-escalate-policy", () => {
 
     expect(m0017Up()).toBe("done");
     expect(channelRow("ch-allow")).toEqual(allowBefore);
+  });
+
+  test("logs the coerced count (no silent data change)", () => {
+    seedChannel("ch-escalate-1", "escalate", 111);
+    seedChannel("ch-escalate-2", "escalate", 222);
+
+    expect(m0017Up()).toBe("done");
+    const coercionLog = infoLogs.find(
+      (args) =>
+        typeof args[0] === "object" &&
+        args[0] !== null &&
+        (args[0] as { coerced?: number }).coerced === 2,
+    );
+    expect(coercionLog).toBeDefined();
+
+    // A run that coerces nothing stays silent.
+    infoLogs.length = 0;
+    expect(m0017Up()).toBe("done");
+    expect(
+      infoLogs.some(
+        (args) =>
+          typeof args[0] === "object" &&
+          args[0] !== null &&
+          "coerced" in (args[0] as object),
+      ),
+    ).toBe(false);
   });
 
   test("is registered directly after m0016", () => {
