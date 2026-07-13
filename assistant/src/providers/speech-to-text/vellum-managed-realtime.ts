@@ -21,8 +21,8 @@
  */
 
 import {
-  SttError,
   type StreamingTranscriber,
+  SttError,
   type SttStreamServerEvent,
 } from "../../stt/types.js";
 import { getLogger } from "../../util/logger.js";
