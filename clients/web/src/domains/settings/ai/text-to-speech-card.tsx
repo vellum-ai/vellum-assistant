@@ -164,17 +164,21 @@ export function TextToSpeechCard() {
       }
       // Only PATCH the provider when it truly diverges from the persisted
       // value (or the daemon has none yet); otherwise a re-save with just a new
-      // key/voice would silently switch a provider set elsewhere. Saving from
-      // this card is explicit BYOK intent, so a managed-mode daemon is also
-      // switched back to your-own — otherwise the saved key would appear to
-      // take effect while the daemon kept using managed speech.
+      // key/voice would silently switch a provider set elsewhere. Saving a key
+      // from this card is explicit BYOK intent, so a managed-mode daemon is
+      // also switched back to your-own — otherwise the key would appear to
+      // take effect while the daemon kept using managed speech. Without an
+      // effective key (e.g. a voice-ID-only save) the mode stays managed:
+      // flipping would trade a working managed setup for a credential-less
+      // BYOK provider.
+      const escapeManaged = daemonManaged && effectiveKey.length > 0;
       const shouldSetProvider =
         draftProvider !== serverProvider || !daemonHasProvider;
       const ttsBody = {
-        ...(shouldSetProvider || daemonManaged
+        ...(shouldSetProvider || escapeManaged
           ? { provider: activeProvider }
           : {}),
-        ...(daemonManaged ? { mode: "your-own" } : {}),
+        ...(escapeManaged ? { mode: "your-own" } : {}),
         ...(voiceField
           ? {
               providers: { [activeProvider]: { [voiceField]: trimmedVoiceId } },

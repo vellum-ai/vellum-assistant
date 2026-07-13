@@ -246,4 +246,24 @@ describe("SpeechToTextCard — macOS Native Dictation option", () => {
       services: { stt: { provider: "deepgram", mode: "your-own" } },
     });
   });
+
+  test("a provider change with no key keeps managed mode", async () => {
+    // Switching the BYOK preference without supplying a credential must not
+    // trade a working managed setup for a credential-less provider.
+    daemonConfigData = {
+      services: { stt: { provider: "deepgram", mode: "managed" } },
+    };
+    renderCard();
+
+    openProviderDropdown();
+    selectOption("OpenAI");
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(configPatchCalls.length).toBe(1));
+    const sttBody = configPatchCalls[0]!.body as {
+      services: { stt: Record<string, unknown> };
+    };
+    expect(sttBody.services.stt.mode).toBeUndefined();
+    expect(credentialsSetCalls).toHaveLength(0);
+  });
 });

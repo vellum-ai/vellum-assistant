@@ -189,20 +189,23 @@ export function SpeechToTextCard() {
         // Only PATCH the provider when it truly diverges from the persisted
         // value (or the daemon has none yet); otherwise a re-save with just a
         // new key would silently switch a provider set elsewhere — including
-        // one the dropdown can't represent. Saving from this card is explicit
-        // BYOK intent, so a managed-mode daemon is also switched back to
-        // your-own — otherwise the saved key would appear to take effect while
-        // the daemon kept using managed speech.
+        // one the dropdown can't represent. Saving a key from this card is
+        // explicit BYOK intent, so a managed-mode daemon is also switched
+        // back to your-own — otherwise the saved key would appear to take
+        // effect while the daemon kept using managed speech. Without an
+        // effective key the mode stays managed: flipping would trade a
+        // working managed setup for a credential-less BYOK provider.
+        const escapeManaged = daemonManaged && effectiveKey.length > 0;
         const shouldSetProvider =
           draftProvider !== serverProvider || !daemonHasProvider;
-        if (shouldSetProvider || daemonManaged) {
+        if (shouldSetProvider || escapeManaged) {
           const { response: cfgRes } = await configPatch({
             path: { assistant_id: assistantId },
             body: {
               services: {
                 stt: {
                   provider: daemon.provider,
-                  ...(daemonManaged ? { mode: "your-own" } : {}),
+                  ...(escapeManaged ? { mode: "your-own" } : {}),
                 },
               },
             },

@@ -182,6 +182,28 @@ describe("TextToSpeechCard — daemon provisioning on Save", () => {
     });
   });
 
+  test("a voice-ID-only save with no key keeps managed mode", async () => {
+    // Editing a voice preference without supplying a credential must not
+    // trade a working managed setup for a credential-less BYOK provider.
+    daemonConfigData = {
+      services: { tts: { provider: "fish-audio", mode: "managed" } },
+    };
+    renderCard();
+
+    fireEvent.change(screen.getByPlaceholderText("Enter a voice ID"), {
+      target: { value: "voice-456" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(configPatchCalls.length).toBe(1));
+    const ttsBody = configPatchCalls[0]!.body as {
+      services: { tts: Record<string, unknown> };
+    };
+    expect(ttsBody.services.tts.mode).toBeUndefined();
+    expect(ttsBody.services.tts.provider).toBeUndefined();
+    expect(credentialsSetCalls).toHaveLength(0);
+  });
+
   test("a managed daemon reporting the reserved vellum provider gets a representable one", async () => {
     // A managed daemon may report provider "vellum", which the dropdown cannot
     // show and which is schema-invalid outside managed mode — the PATCH must
