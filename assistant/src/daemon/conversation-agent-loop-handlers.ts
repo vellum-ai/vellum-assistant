@@ -1076,19 +1076,21 @@ function handleTextDelta(
         conversationId: deps.ctx.conversationId,
         messageId: state.lastAssistantMessageId,
       });
+      // Mirror only the guarded (emitted) text into currentMessageContent
+      // so partial flushes persist exactly what the client received.
+      // Buffered bytes (partial sentinel triggers) are excluded until they
+      // are flushed and emitted in a later chunk.
+      appendTextToCurrentMessage(state, guarded.emitText);
+      // The hub stamps `seq` synchronously on the delta emitted above, so
+      // `getCurrentSeq()` here is that delta's seq -- the position the
+      // mirrored content now reflects. A partial flush snapshots this to
+      // record how far the durable rows track the live stream.
+      state.lastPersistedContentSeq = getCurrentSeq();
+      schedulePartialFlush(state, deps);
     }
     if (deps.shouldGenerateTitle) {
       state.firstAssistantText += drained.emitText;
     }
-    // Mirror the drained delta into state.currentMessageContent so partial
-    // flushes mid-turn see the same content the user is watching live.
-    appendTextToCurrentMessage(state, drained.emitText);
-    // The hub stamps `seq` synchronously on the delta emitted above, so
-    // `getCurrentSeq()` here is that delta's seq -- the position the
-    // mirrored content now reflects. A partial flush snapshots this to
-    // record how far the durable rows track the live stream.
-    state.lastPersistedContentSeq = getCurrentSeq();
-    schedulePartialFlush(state, deps);
   }
 }
 
