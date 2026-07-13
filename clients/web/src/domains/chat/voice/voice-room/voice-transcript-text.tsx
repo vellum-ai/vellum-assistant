@@ -15,9 +15,12 @@
  * room tone (`--room-fg` / `--room-fg-muted`) with the theme content tokens as
  * the fallback, so captions match the room chrome over any avatar color.
  *
- * Decorative: the caller owns the `aria-live` region; this is `aria-hidden`
- * visuals only. Reduced motion drops the per-word entrance (words appear
- * immediately) but keeps the leading-edge tone.
+ * Accessibility: the words stay in the accessibility tree (NOT `aria-hidden`) —
+ * the caller wraps this in the `aria-live` region, and the plain sentence is
+ * exactly its `textContent`, so screen readers announce the transcript as it
+ * streams. The per-word animation is purely visual (transform/opacity/color)
+ * and doesn't change what's read. Reduced motion drops the per-word entrance
+ * (words appear immediately) but keeps the leading-edge tone.
  */
 
 import { Fragment, useMemo } from "react";
@@ -32,7 +35,7 @@ export function VoiceTranscriptText({ text }: { text: string }) {
   const lastIndex = words.length - 1;
 
   return (
-    <span aria-hidden="true">
+    <>
       {words.map((word, i) => {
         const leading = i === lastIndex;
         return (
@@ -57,6 +60,6 @@ export function VoiceTranscriptText({ text }: { text: string }) {
           </Fragment>
         );
       })}
-    </span>
+    </>
   );
 }
