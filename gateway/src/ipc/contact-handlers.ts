@@ -14,6 +14,7 @@ import {
   ListContactsIpcParamsSchema,
   MarkChannelRevokedIpcParamsSchema,
   MarkChannelRevokedIpcResponseSchema,
+  MergeContactsIpcParamsSchema,
   UpdateContactChannelIpcParamsSchema,
   UpsertVerifiedChannelIpcParamsSchema,
   UpsertVerifiedChannelIpcResponseSchema,
@@ -21,7 +22,10 @@ import {
 import { z } from "zod";
 
 import { ContactStore } from "../db/contact-store.js";
-import { updateContactChannelCore } from "../http/routes/contacts-control-plane-proxy.js";
+import {
+  mergeContactsCore,
+  updateContactChannelCore,
+} from "../http/routes/contacts-control-plane-proxy.js";
 import { getLogger } from "../logger.js";
 import {
   getGatewayChannelByKey,
@@ -204,6 +208,17 @@ export const contactRoutes: IpcRoute[] = [
       // server's buildErrorResponse mirrors into the wire envelope; unexpected
       // errors propagate as a generic IPC error (no fallback).
       return updateContactChannelCore(parsed);
+    },
+  },
+  {
+    method: "merge_contacts",
+    schema: MergeContactsIpcParamsSchema,
+    handler: (params?: Record<string, unknown>) => {
+      const parsed = MergeContactsIpcParamsSchema.parse(params);
+      // Thrown MergeContactsError carries statusCode/code, which the IPC
+      // server's buildErrorResponse mirrors into the wire envelope; unexpected
+      // errors propagate as a generic IPC error (no fallback).
+      return mergeContactsCore(parsed);
     },
   },
   {

@@ -988,6 +988,207 @@ describe("IPC contact routes", () => {
     });
   });
 
+  // ── merge_contacts (gateway-native merge over IPC) ─────────────────────
+  describe("merge_contacts", () => {
+    /**
+     * Insert a donor contact with one channel duplicating the survivor's
+     * (by (type, address COLLATE NOCASE)) and one unique channel.
+     */
+    function seedDonor(): void {
+      const db = getGatewayDb();
+      const now = Date.now();
+      db.insert(contacts)
+        .values({
+          id: "c3",
+          displayName: "Donor Contact",
+          role: "contact",
+          principalId: null,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .run();
+      db.insert(contactChannels)
+        .values([
+          {
+            // Case-variant duplicate of c2's ch3 (email test@example.com):
+            // must be dup-skipped, then cascade-deleted with the donor.
+            id: "ch_dup",
+            contactId: "c3",
+            type: "email",
+            address: "TEST@Example.com",
+            isPrimary: true,
+            externalChatId: null,
+            status: "active",
+            policy: "allow",
+            interactionCount: 2,
+            createdAt: now,
+          },
+          {
+            id: "ch_uniq",
+            contactId: "c3",
+            type: "telegram",
+            address: "tg-donor-001",
+            isPrimary: false,
+            externalChatId: "chat-donor-001",
+            status: "active",
+            policy: "allow",
+            interactionCount: 4,
+            createdAt: now,
+          },
+        ])
+        .run();
+    }
+
+    test("merges over the socket: donor deleted, channels reparented with NOCASE dup-skip", async () => {
+      seedTestData();
+      seedDonor();
+
+      const ipcCalls: { method: string; body?: Record<string, unknown> }[] = [];
+      ipcCallAssistantMock = mock(async (method, params) => {
+        ipcCalls.push({
+          method,
+          body: params?.body as Record<string, unknown> | undefined,
+        });
+        return {};
+      });
+
+      await startServerAndConnect();
+      const res = await sendRequest(client, "merge_contacts", {
+        keepId: "c2",
+        mergeId: "c3",
+      });
+
+      expect(res.error).toBeUndefined();
+      const body = res.result as {
+        ok: boolean;
+        contact: {
+          id: string;
+          displayName: string;
+          channels: { id: string; address: string; externalUserId: string }[];
+        };
+      };
+      expect(body.ok).toBe(true);
+      // Survivor payload matches the HTTP handler's toContactPayload shape,
+      // including the externalUserId = address channel compat field.
+      expect(body.contact.id).toBe("c2");
+      expect(body.contact.displayName).toBe("Test Contact");
+      expect(body.contact.channels.map((ch) => ch.id).sort()).toEqual([
+        "ch3",
+        "ch_uniq",
+      ]);
+      for (const ch of body.contact.channels) {
+        expect(ch.externalUserId).toBe(ch.address);
+      }
+
+      // Gateway DB: donor row gone, unique channel reparented, duplicate
+      // channel cascade-deleted with the donor.
+      const db = getGatewayDb();
+      const store = new ContactStore(db);
+      expect(store.getContact("c3")).toBeUndefined();
+      const uniq = db
+        .select()
+        .from(contactChannels)
+        .where(eq(contactChannels.id, "ch_uniq"))
+        .get();
+      expect(uniq?.contactId).toBe("c2");
+      const dup = db
+        .select()
+        .from(contactChannels)
+        .where(eq(contactChannels.id, "ch_dup"))
+        .get();
+      expect(dup).toBeUndefined();
+      // The survivor keeps its original casing of the shared address.
+      const kept = db
+        .select()
+        .from(contactChannels)
+        .where(eq(contactChannels.id, "ch3"))
+        .get();
+      expect(kept?.contactId).toBe("c2");
+      expect(kept?.address).toBe("test@example.com");
+
+      // Exactly one assistant mirror op, plus the contacts_changed emit.
+      const mirror = ipcCalls.filter(
+        (c) => c.method === "contacts_mirror_merge_contact",
+      );
+      expect(mirror).toHaveLength(1);
+      expect(mirror[0].body!.keepContactId).toBe("c2");
+      expect(mirror[0].body!.mergeContactId).toBe("c3");
+      const emits = ipcCalls.filter((c) => c.method === "emit_event");
+      expect(emits).toHaveLength(1);
+      expect(emits[0].body!.kind).toBe("contacts_changed");
+    });
+
+    test("self-merge is rejected with the 400-shaped wire error", async () => {
+      seedTestData();
+      await startServerAndConnect();
+
+      const res = await sendRequest(client, "merge_contacts", {
+        keepId: "c2",
+        mergeId: "c2",
+      });
+
+      expect(res.error).toBeDefined();
+      expect(res.statusCode).toBe(400);
+      expect(res.errorCode).toBe("MERGE_CONTACTS_INVALID");
+      expect(res.error).toMatch(/itself/);
+    });
+
+    test("unknown contact is rejected with the 400-shaped wire error", async () => {
+      seedTestData();
+      await startServerAndConnect();
+
+      const res = await sendRequest(client, "merge_contacts", {
+        keepId: "does-not-exist",
+        mergeId: "c2",
+      });
+
+      expect(res.error).toBeDefined();
+      expect(res.statusCode).toBe(400);
+      expect(res.errorCode).toBe("MERGE_CONTACTS_INVALID");
+      expect(res.error).toMatch(/not found/);
+    });
+
+    test("guardian donor is rejected and left untouched", async () => {
+      seedTestData();
+      await startServerAndConnect();
+
+      const res = await sendRequest(client, "merge_contacts", {
+        keepId: "c2",
+        mergeId: "c1",
+      });
+
+      expect(res.error).toBeDefined();
+      expect(res.statusCode).toBe(400);
+      expect(res.errorCode).toBe("MERGE_CONTACTS_INVALID");
+      expect(res.error).toMatch(/guardian/);
+
+      const store = new ContactStore(getGatewayDb());
+      expect(store.getContact("c1")).toBeDefined();
+      expect(store.getChannelsForContact("c1")).toHaveLength(2);
+    });
+
+    test("missing params are rejected by the schema", async () => {
+      await startServerAndConnect();
+      const res = await sendRequest(client, "merge_contacts", {
+        keepId: "c2",
+      });
+
+      expect(res.error).toBeDefined();
+      expect(res.error).toContain("Invalid params");
+    });
+
+    test("empty-string params are rejected by the schema", async () => {
+      await startServerAndConnect();
+      const res = await sendRequest(client, "merge_contacts", {
+        keepId: "",
+        mergeId: "c2",
+      });
+
+      expect(res.error).toBeDefined();
+      expect(res.error).toContain("Invalid params");
+    });
+  });
+
   // ── Rich reads (contacts_list_rich / contacts_get_rich) ─────────────────
   //
   // The assistant DB proxy is not available in this test harness, so the rich
