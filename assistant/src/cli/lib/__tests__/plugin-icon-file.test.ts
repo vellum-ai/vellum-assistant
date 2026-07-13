@@ -12,7 +12,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { readValidatedPluginIcon } from "../plugin-icon-file.js";
+import {
+  MAX_ICON_BYTES,
+  MAX_ICON_DIMENSION,
+  readValidatedPluginIcon,
+  validatePluginIconBytes,
+} from "../plugin-icon-file.js";
 
 const PNG_SIGNATURE = Buffer.from([
   0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
@@ -138,5 +143,49 @@ describe("readValidatedPluginIcon", () => {
   test("returns hasIcon:false for a non-existent plugin directory", () => {
     const missing = join(pluginDir, "does-not-exist");
     expect(readValidatedPluginIcon(missing)).toEqual({ hasIcon: false });
+  });
+});
+
+describe("validatePluginIconBytes", () => {
+  test("accepts a valid <=128x128 PNG with a content-hash version (no path)", () => {
+    // GIVEN well-formed in-memory PNG bytes
+    const bytes = makePng(64, 64);
+
+    // WHEN we validate them directly
+    const result = validatePluginIconBytes(bytes);
+
+    // THEN it is surfaced with a stable content-hash version and no path
+    expect(result).toEqual({ hasIcon: true, iconVersion: sha16(bytes) });
+  });
+
+  test("accepts exactly MAX_ICON_DIMENSION (the boundary)", () => {
+    const bytes = makePng(MAX_ICON_DIMENSION, MAX_ICON_DIMENSION);
+    expect(validatePluginIconBytes(bytes).hasIcon).toBe(true);
+  });
+
+  test("rejects oversized dimensions (129x129)", () => {
+    const bytes = makePng(MAX_ICON_DIMENSION + 1, MAX_ICON_DIMENSION + 1);
+    expect(validatePluginIconBytes(bytes)).toEqual({ hasIcon: false });
+  });
+
+  test("rejects a buffer larger than MAX_ICON_BYTES", () => {
+    const bytes = makePng(64, 64, MAX_ICON_BYTES + 1);
+    expect(validatePluginIconBytes(bytes)).toEqual({ hasIcon: false });
+  });
+
+  test("rejects a buffer with wrong magic bytes", () => {
+    const jpeg = Buffer.alloc(24);
+    jpeg.writeUInt16BE(0xffd8, 0); // JPEG SOI marker
+    expect(validatePluginIconBytes(jpeg)).toEqual({ hasIcon: false });
+  });
+
+  test("rejects a signature-prefixed buffer whose first chunk is not IHDR", () => {
+    const buf = makePng(64, 64);
+    buf.write("IDAT", 12, "ascii");
+    expect(validatePluginIconBytes(buf)).toEqual({ hasIcon: false });
+  });
+
+  test("rejects a buffer shorter than the minimum header", () => {
+    expect(validatePluginIconBytes(PNG_SIGNATURE)).toEqual({ hasIcon: false });
   });
 });

@@ -212,6 +212,12 @@ const pluginSearchMatchSchema = z.object({
     .string()
     .optional()
     .describe("Short description, when known (external entries only today)."),
+  icon: z
+    .string()
+    .optional()
+    .describe(
+      "Plugin icon: a curated emoji from the marketplace entry, or an icon URL served by the platform catalog when the plugin ships a bundled image.",
+    ),
   category: z
     .string()
     .nullable()
@@ -788,6 +794,7 @@ interface PluginMatchView {
   name: string;
   path: string;
   description?: string;
+  icon?: string;
   category: string | null;
   source: { kind: "github"; repo: string; path?: string; ref: string };
 }
@@ -814,6 +821,9 @@ function projectMatch(
   };
   if (m.description !== undefined) {
     view.description = m.description;
+  }
+  if (m.icon !== undefined) {
+    view.icon = m.icon;
   }
   return view;
 }
