@@ -7,8 +7,10 @@
  * Two looks, resolved per session assistant ({@link resolveVoiceRoomLook}):
  *
  * - Character avatars get the onboarding "full-screen color with eyes"
- *   treatment — the avatar color fills the room and the avatar's giant eyes
- *   peek from the bottom edge, with the control chrome toned for contrast
+ *   treatment — entering the room plays the Introduction-step grow (the
+ *   avatar's body springs from its on-screen size to BE the screen, the color
+ *   fades in behind it, the giant eyes rise into their bottom-edge rest; see
+ *   {@link VoiceRoomColorLook}), with the control chrome toned for contrast
  *   against that color ({@link toneForBg}, via the `--room-*` CSS vars).
  * - Custom-image / no-character avatars fall back to the deep-dark ambient
  *   void with the state-driven avatar at its center and the listening waves —
@@ -29,13 +31,14 @@
  * Sessions are hands-free (server-VAD): the user just speaks, so there is no
  * push-to-talk control. Bottom-center carries the session controls in the
  * call-app idiom: a mic mute toggle (always) and, while the assistant speaks
- * hands-free, a turn-scoped ■ stop. Exit is first-class: a persistent
+ * hands-free, a turn-scoped ■ stop. Exit is first-class: the persistent
  * ✕ control (always rendered, even while the avatar/assistant data is loading
- * or failed) ends the session. Escape deliberately does nothing — an
- * accidental keypress must not end a live call.
+ * or failed) and Escape both end the session — the room is modal with no
+ * lesser dismissal, so the platform "leave" key maps to the only exit there
+ * is. The key handler attaches only while the room is mounted.
  */
 
-import type { CSSProperties } from "react";
+import { useEffect, type CSSProperties } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { Captions, CaptionsOff, Mic, MicOff, Square, X } from "lucide-react";
 
@@ -63,7 +66,7 @@ import { VoiceAvatar } from "./voice-avatar";
 import { VoiceListeningWaves } from "./voice-listening-waves";
 import { AVATAR_ENTER_SPRING } from "./voice-motion";
 import { VoiceRoomAmbientBackground } from "./voice-room-ambient-background";
-import { VoiceRoomEyes, resolveVoiceRoomLook } from "./voice-room-eyes";
+import { VoiceRoomColorLook, resolveVoiceRoomLook } from "./voice-room-eyes";
 import { useIsVoiceRoomVisible } from "./use-is-voice-room-visible";
 
 const AVATAR_SIZE = 220;
@@ -156,6 +159,22 @@ function VoiceRoomOverlay() {
     "--room-border": tone?.wash ?? "rgba(255,255,255,0.15)",
   } as CSSProperties;
 
+  // Global Escape, live only while the room is mounted: ends the session,
+  // same as the ✕ — the room is modal with no lesser dismissal, so the
+  // platform "leave" key maps to the only exit there is. It fires even when
+  // the composer textarea (or any other focused element) still holds focus as
+  // the room opens, so it is intentionally not guarded by the event target.
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        endLiveVoiceSession();
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+
   return (
     <motion.div
       className="fixed inset-0 z-50 flex items-center justify-center overflow-hidden"
@@ -183,19 +202,10 @@ function VoiceRoomOverlay() {
       exit={{ opacity: 0 }}
       transition={{ duration: reduce ? 0 : 0.4 }}
     >
-      {look ? (
-        <div
-          className="absolute inset-0"
-          style={{ backgroundColor: look.bgHex }}
-        />
-      ) : (
-        <VoiceRoomAmbientBackground />
-      )}
-
-      {/* The assistant's giant eyes peeking from the bottom — the color look's
-          entire cast. The void look expresses the session through the centered
-          avatar and the listening waves instead. */}
-      {look ? <VoiceRoomEyes art={look.art} /> : null}
+      {/* The color look (body grow entrance + color fade + peeking eyes) is
+          the entire cast; the void look expresses the session through the
+          centered avatar and the listening waves instead. */}
+      {look ? <VoiceRoomColorLook look={look} /> : <VoiceRoomAmbientBackground />}
 
       {/* Listening waves: the user's voice arriving as energy coming in, rising
           from the bottom edge with live mic amplitude. Void look only, while
@@ -242,7 +252,7 @@ function VoiceRoomOverlay() {
             )}
           </button>
         </Tooltip>
-        <Tooltip content="End voice session">
+        <Tooltip content="End voice session (Esc)">
           <button
             type="button"
             onClick={endLiveVoiceSession}

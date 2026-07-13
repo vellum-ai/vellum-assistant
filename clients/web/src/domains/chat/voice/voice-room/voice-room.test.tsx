@@ -10,9 +10,9 @@
  * so the exit control's independence from avatar readiness is testable).
  *
  * Exit is the load-bearing behavior: the room is a full-app takeover with no
- * minimize — the ✕ control (which ends the session) is the only way out, it
- * renders even with no assistant resolved, and Escape deliberately does
- * nothing (an accidental keypress must not end a live call).
+ * minimize — ending the session is the only way out, via the ✕ control (which
+ * renders even with no assistant resolved) or Escape, and the key listener is
+ * removed on unmount (no leaks).
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -92,7 +92,13 @@ mock.module("@/hooks/use-assistant-avatar", () => ({
 
 /** Minimal character components: one body/eye/color of each. */
 const CHARACTER_COMPONENTS = {
-  bodyShapes: [{ id: "sprout", svgPath: "M0 0 L10 0 L10 10 Z" }],
+  bodyShapes: [
+    {
+      id: "sprout",
+      svgPath: "M0 0 L10 0 L10 10 Z",
+      viewBox: { width: 10, height: 10 },
+    },
+  ],
   eyeStyles: [
     {
       id: "curious",
@@ -241,13 +247,36 @@ describe("VoiceRoom — no way out but ending the session", () => {
     ).toBeNull();
   });
 
-  test("Escape neither dismisses the room nor ends the session", () => {
+  test("Escape ends the session, same as ✕", () => {
     startOwnedSession("listening");
     render(<VoiceRoom />);
     act(() => {
       window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
     });
-    expect(roomDialog()).not.toBeNull();
+    expect(controls.stop).toHaveBeenCalledTimes(1);
+  });
+
+  test("Escape ends the session even when an editable element holds focus (global key)", () => {
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+    // The room can open while the composer textarea still owns focus; the key
+    // is global and must fire regardless of the editable target guard.
+    const input = document.createElement("input");
+    document.body.appendChild(input);
+    act(() => {
+      input.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      );
+    });
+    expect(controls.stop).toHaveBeenCalledTimes(1);
+    input.remove();
+  });
+
+  test("the key listener is removed on unmount — no stray Escape handling", () => {
+    startOwnedSession("listening");
+    const { unmount } = render(<VoiceRoom />);
+    unmount();
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
     expect(controls.stop).not.toHaveBeenCalled();
   });
 });
