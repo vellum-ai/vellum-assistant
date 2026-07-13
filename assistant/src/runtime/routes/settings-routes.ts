@@ -424,6 +424,38 @@ interface ToolNamesListResponse {
 }
 
 /**
+ * Convert a list of tool names into the `ToolNamesListResponse` shape the
+ * route returns: sorted names, per-name schemas (resolved from the global
+ * registry so `injectActivityField` transforms are applied), and per-name
+ * catalog entries with ownership metadata. Names without a registry entry
+ * still appear with empty schemas and `unknown` source — this lets the
+ * `conversationId` path surface tools that were active when the snapshot
+ * was taken but have since been unloaded.
+ */
+function buildToolListResponse(names: string[]): ToolNamesListResponse {
+  const sorted = [...names].sort((a, b) => a.localeCompare(b));
+
+  const schemaByName = new Map<string, SchemaShape>(
+    injectActivityField(getAllTools(), ACTIVITY_SKIP_SET).map((d) => [
+      d.name,
+      d.input_schema as SchemaShape,
+    ]),
+  );
+
+  const schemas: Record<string, SchemaShape> = {};
+  const tools: ToolListEntry[] = [];
+  for (const name of sorted) {
+    const schema = schemaByName.get(name);
+    if (schema) {
+      schemas[name] = schema;
+    }
+    tools.push(toolEntryForName(name));
+  }
+
+  return { names: sorted, schemas, tools };
+}
+
+/**
  * Tool inventory. With no `conversationId`, reports every tool in the
  * global registry that is currently active — tools contributed by a
  * disabled plugin are filtered out at read time, so the listing matches
@@ -437,10 +469,12 @@ function handleToolNamesList(
   agent?: string,
 ): ToolNamesListResponse {
   if (agent) {
-    return handleAgentToolList(agent);
+    return buildToolListResponse(handleAgentToolList(agent).map((d) => d.name));
   }
   if (conversationId) {
-    return handleConversationToolList(conversationId);
+    return buildToolListResponse(
+      Array.from(handleConversationToolList(conversationId)),
+    );
   }
 
   const tools = getEnabledTools();
@@ -497,8 +531,11 @@ function handleToolNamesList(
  *
  * For a subagent id: resolve it via the SubagentManager to its conversationId,
  * then delegate to {@link handleConversationToolList} for the live snapshot.
+ *
+ * Returns raw tool definitions; the caller ({@link handleToolNamesList})
+ * converts them to the response shape via {@link buildToolListResponse}.
  */
-function handleAgentToolList(agent: string): ToolNamesListResponse {
+function handleAgentToolList(agent: string): ToolDefinition[] {
   // Try subagent id first — if the manager has it, use the live conversation.
   const state = getSubagentManager().getState(agent);
   if (state?.conversationId) {
@@ -548,31 +585,9 @@ function handleAgentToolList(agent: string): ToolNamesListResponse {
   // any skill activations have been recorded.
   const resolveTools = createResolveToolsCallback(toolDefs, ctx);
   if (!resolveTools) {
-    return { names: [], schemas: {}, tools: [] };
+    return [];
   }
-  const resolvedDefs = resolveTools([]);
-  const names = resolvedDefs
-    .map((d) => d.name)
-    .sort((a, b) => a.localeCompare(b));
-
-  const schemaByName = new Map<string, SchemaShape>(
-    injectActivityField(getAllTools(), ACTIVITY_SKIP_SET).map((d) => [
-      d.name,
-      d.input_schema as SchemaShape,
-    ]),
-  );
-
-  const schemas: Record<string, SchemaShape> = {};
-  const tools: ToolListEntry[] = [];
-  for (const name of names) {
-    const schema = schemaByName.get(name);
-    if (schema) {
-      schemas[name] = schema;
-    }
-    tools.push(toolEntryForName(name));
-  }
-
-  return { names, schemas, tools };
+  return resolveTools([]);
 }
 
 /**
@@ -581,11 +596,12 @@ function handleAgentToolList(agent: string): ToolNamesListResponse {
  * registry over-reports what a given conversation can actually call. We
  * read the conversation's turn snapshot (`getRegisteredToolNames()`) — a
  * pure read that does not re-run the side-effecting `resolveTools`
- * callback — and resolve each name's metadata/schema from the registry.
+ * callback — and return the raw name set. The caller
+ * ({@link handleToolNamesList}) converts names to the response shape via
+ * {@link buildToolListResponse}, which resolves schemas and metadata from
+ * the registry (or marks names absent from the registry as `unknown`).
  */
-function handleConversationToolList(
-  conversationId: string,
-): ToolNamesListResponse {
+function handleConversationToolList(conversationId: string): Set<string> {
   const conversation = findConversation(conversationId);
   if (!conversation) {
     throw new NotFoundError(
@@ -593,28 +609,7 @@ function handleConversationToolList(
     );
   }
 
-  const names = Array.from(conversation.getRegisteredToolNames()).sort((a, b) =>
-    a.localeCompare(b),
-  );
-
-  const schemaByName = new Map<string, SchemaShape>(
-    injectActivityField(getAllTools(), ACTIVITY_SKIP_SET).map((d) => [
-      d.name,
-      d.input_schema as SchemaShape,
-    ]),
-  );
-
-  const schemas: Record<string, SchemaShape> = {};
-  const tools: ToolListEntry[] = [];
-  for (const name of names) {
-    const schema = schemaByName.get(name);
-    if (schema) {
-      schemas[name] = schema;
-    }
-    tools.push(toolEntryForName(name));
-  }
-
-  return { names, schemas, tools };
+  return conversation.getRegisteredToolNames();
 }
 
 interface ToolListEntry {
