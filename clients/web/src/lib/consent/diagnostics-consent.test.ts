@@ -111,6 +111,21 @@ describe("applyResolvedDiagnosticsConsent — saved preference", () => {
     expectGate(true);
   });
 
+  // KEY REGRESSION: a no-row response materializes the old platform's API
+  // default `true` — not a user choice. It must not reopen the gate over an
+  // explicit local opt-out whose backfill hasn't landed.
+  test("no-record API-default true + local opt-out preference → gate stays closed", () => {
+    devicePreference = false;
+    const setShareDiagnostics = mock((_: boolean) => {});
+    const result = applyResolvedDiagnosticsConsent(
+      { shareDiagnostics: true, hasServerRecord: false },
+      setShareDiagnostics,
+    );
+    expect(result).toBeNull();
+    expect(setShareDiagnostics).not.toHaveBeenCalled();
+    expectGate(false);
+  });
+
   // KEY REGRESSION: a local explicit opt-out whose patchConsent write hasn't
   // landed (server still null) must stay closed — null never overrides an
   // explicit device preference.
