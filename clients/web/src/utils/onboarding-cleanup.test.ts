@@ -543,7 +543,24 @@ describe("saveConsent", () => {
     expect(localStorage.getItem(diagnosticsKey("user-1"))).toBe(null);
     // Never-asked has nothing to re-review — must not bounce to review-terms.
     expect(storeState.setDiagnosticsConsentCurrent).toHaveBeenCalledWith(true);
-    // Opt-out: never-asked leaves the effective reporting gate OPEN.
+    // Null must not touch the gate: an explicit device opt-out survives
+    // flows that don't show the toggle (a never-written gate reads open by
+    // default via the opt-out read fallback).
+    const gateWrites = setDeviceBoolMock.mock.calls.filter(
+      (call) => call[0] === "diagnosticsReporting",
+    );
+    expect(gateWrites).toEqual([]);
+  });
+
+  test("explicit shareDiagnostics=true opens the reporting gate", () => {
+    saveConsent({
+      userId: "user-1",
+      tos: true,
+      privacy: true,
+      shareAnalytics: null,
+      shareDiagnostics: true,
+      hasPlatformSession: false,
+    });
     expect(setDeviceBoolMock).toHaveBeenCalledWith("diagnosticsReporting", true);
   });
 

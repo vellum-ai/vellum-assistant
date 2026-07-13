@@ -259,8 +259,10 @@ export function saveConsent(opts: {
    * choice is recorded anywhere — the server keeps the column null and no
    * versioned device ack is stamped — but the in-memory currency flag is
    * still set: never-asked consent has nothing to re-review, so it must not
-   * bounce the user to review-terms. Telemetry is opt-out, so a null
-   * diagnostics choice leaves the effective reporting gate OPEN.
+   * bounce the user to review-terms. A null diagnostics choice also leaves
+   * the effective reporting gate untouched: a never-written gate reads open
+   * by default (telemetry is opt-out), while an explicit device opt-out must
+   * survive flows that don't show the toggle.
    */
   shareAnalytics: boolean | null;
   /** See {@link shareAnalytics}. */
@@ -275,14 +277,15 @@ export function saveConsent(opts: {
   }
   if (opts.shareDiagnostics !== null) {
     store.setShareDiagnostics(opts.shareDiagnostics);
+    // Only an explicit choice writes the gate; null leaves the existing
+    // gate (and any explicit device opt-out) untouched.
+    setDiagnosticsReportingGate(opts.shareDiagnostics);
   }
   store.setAnalyticsConsentCurrent(true);
   store.setDiagnosticsConsentCurrent(true);
   // An explicit user acceptance is authoritative hydration — route guards may
   // trust the flags without waiting for a session sync.
   store.setConsentHydrated(true);
-  // Opt-out: only an explicit "off" closes the gate; never-asked stays open.
-  setDiagnosticsReportingGate(opts.shareDiagnostics !== false);
 
   persistConsentForUser(opts.userId, opts.tos, opts.privacy);
   persistToggleConsent(opts.userId, {
