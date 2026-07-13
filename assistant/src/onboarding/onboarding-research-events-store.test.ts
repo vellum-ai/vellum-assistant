@@ -1,18 +1,21 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
-
-let shareAnalytics = true;
-
-mock.module("../platform/consent-cache.js", () => ({
-  getCachedShareAnalytics: () => shareAnalytics,
-}));
+import { beforeEach, describe, expect, test } from "bun:test";
 
 import { getTelemetryDb } from "../persistence/db-connection.js";
-import { initializeDb } from "../persistence/db-init.js";
 import { telemetryEvents } from "../persistence/schema/index.js";
+import {
+  resetOutboxTable,
+  setShareAnalytics,
+  setShareDiagnostics,
+} from "../telemetry/__tests__/outbox-test-harness.js";
 import { APP_VERSION } from "../version.js";
 import { recordOnboardingResearchEvent } from "./onboarding-research-events-store.js";
 
-await initializeDb();
+const SAMPLE_CLAIMS = [
+  { claim: "Senior engineer at an AI infra startup", confidence: "confident" as const, sources: ["https://linkedin.com/in/example"] },
+  { claim: "Based in Boulder, CO", confidence: "confident" as const, sources: [] },
+  { claim: "Active climber on Mountain Project", confidence: "maybe" as const, sources: [] },
+  { claim: "Focused on evals", confidence: "guessing" as const, sources: ["https://github.com/example"] },
+];
 
 function pendingRows(): Array<{
   id: string;
@@ -33,12 +36,13 @@ function pendingRows(): Array<{
 
 describe("onboarding-research-events-store", () => {
   beforeEach(() => {
-    shareAnalytics = true;
-    getTelemetryDb()!.delete(telemetryEvents).run();
+    setShareAnalytics(true);
+    setShareDiagnostics(true);
+    resetOutboxTable();
   });
 
   test("honors the share_analytics opt-out (records nothing)", () => {
-    shareAnalytics = false;
+    setShareAnalytics(false);
     recordOnboardingResearchEvent({
       conversationId: "conv-xyz",
       status: "done",
@@ -50,16 +54,37 @@ describe("onboarding-research-events-store", () => {
     expect(pendingRows()).toHaveLength(0);
   });
 
+  test("honors the share_diagnostics opt-out (records nothing) even with analytics consent", () => {
+    setShareDiagnostics(false);
+    recordOnboardingResearchEvent({
+      conversationId: "conv-xyz",
+      status: "done",
+      claims: SAMPLE_CLAIMS,
+      suggestions: [],
+      plugins: [],
+      installedPlugins: [],
+    });
+    expect(pendingRows()).toHaveLength(0);
+  });
+
+  test("honors a stale accepted diagnostics-consent version (records nothing)", () => {
+    setShareDiagnostics(true, "2000-01-01");
+    recordOnboardingResearchEvent({
+      conversationId: "conv-xyz",
+      status: "done",
+      claims: SAMPLE_CLAIMS,
+      suggestions: [],
+      plugins: [],
+      installedPlugins: [],
+    });
+    expect(pendingRows()).toHaveLength(0);
+  });
+
   test("record writes the full wire payload into the outbox, with confidence-tier counts", () => {
     recordOnboardingResearchEvent({
       conversationId: "conv-xyz",
       status: "done",
-      claims: [
-        { claim: "Senior engineer at an AI infra startup", confidence: "confident", sources: ["https://linkedin.com/in/example"] },
-        { claim: "Based in Boulder, CO", confidence: "confident", sources: [] },
-        { claim: "Active climber on Mountain Project", confidence: "maybe", sources: [] },
-        { claim: "Focused on evals", confidence: "guessing", sources: ["https://github.com/example"] },
-      ],
+      claims: SAMPLE_CLAIMS,
       suggestions: [{ suggestion: "I'll find 3 papers", prompt: "Find me 3 papers" }],
       plugins: ["marketing-expert"],
       installedPlugins: ["marketing-expert", "web-research"],
@@ -82,12 +107,7 @@ describe("onboarding-research-events-store", () => {
       recorded_at: row.createdAt,
       conversation_id: "conv-xyz",
       status: "done",
-      claims: [
-        { claim: "Senior engineer at an AI infra startup", confidence: "confident", sources: ["https://linkedin.com/in/example"] },
-        { claim: "Based in Boulder, CO", confidence: "confident", sources: [] },
-        { claim: "Active climber on Mountain Project", confidence: "maybe", sources: [] },
-        { claim: "Focused on evals", confidence: "guessing", sources: ["https://github.com/example"] },
-      ],
+      claims: SAMPLE_CLAIMS,
       claim_count: 4,
       claims_confident: 2,
       claims_maybe: 1,

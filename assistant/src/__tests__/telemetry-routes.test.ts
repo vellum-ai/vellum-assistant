@@ -1,27 +1,20 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 
-let shareAnalytics = true;
-
-mock.module("../platform/consent-cache.js", () => ({
-  getCachedShareAnalytics: () => shareAnalytics,
-}));
-
-import { initializeDb } from "../persistence/db-init.js";
 import { ACTOR_PRINCIPALS } from "../runtime/auth/route-policy.js";
 import { RouteError } from "../runtime/routes/errors.js";
 import { ROUTES } from "../runtime/routes/telemetry-routes.js";
 import type { RouteHandlerArgs } from "../runtime/routes/types.js";
 import {
-  discardPendingTelemetryOutboxEvents,
-  queryTelemetryOutboxBatch,
-} from "../telemetry/telemetry-events-outbox.js";
+  pendingOutboxPayloads,
+  resetOutboxTable,
+  setShareAnalytics,
+  setShareDiagnostics,
+} from "../telemetry/__tests__/outbox-test-harness.js";
 import type { OnboardingResearchTelemetryEvent } from "../telemetry/types.js";
 
-await initializeDb();
-
 function pendingPayloads(): OnboardingResearchTelemetryEvent[] {
-  return queryTelemetryOutboxBatch("onboarding_research", 100).map(
-    (r) => JSON.parse(r.payload) as OnboardingResearchTelemetryEvent,
+  return pendingOutboxPayloads<OnboardingResearchTelemetryEvent>(
+    "onboarding_research",
   );
 }
 
@@ -47,8 +40,9 @@ const VALID_BODY = {
 
 describe("telemetry-routes: onboarding-research", () => {
   beforeEach(() => {
-    shareAnalytics = true;
-    discardPendingTelemetryOutboxEvents("onboarding_research");
+    setShareAnalytics(true);
+    setShareDiagnostics(true);
+    resetOutboxTable();
   });
 
   test("route policy matches the other client-facing telemetry routes", () => {
@@ -77,8 +71,14 @@ describe("telemetry-routes: onboarding-research", () => {
     });
   });
 
-  test("returns skipped and persists nothing under the opt-out", () => {
-    shareAnalytics = false;
+  test("returns skipped and persists nothing under the analytics opt-out", () => {
+    setShareAnalytics(false);
+    expect(call(VALID_BODY)).toEqual({ skipped: true });
+    expect(pendingPayloads().length).toBe(0);
+  });
+
+  test("returns skipped and persists nothing under the diagnostics opt-out", () => {
+    setShareDiagnostics(false);
     expect(call(VALID_BODY)).toEqual({ skipped: true });
     expect(pendingPayloads().length).toBe(0);
   });
