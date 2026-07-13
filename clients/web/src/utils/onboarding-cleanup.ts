@@ -235,6 +235,18 @@ export function resolveServerConsent(
     !!consent.share_diagnostics_accepted_version ||
     consent.share_analytics === false ||
     consent.share_diagnostics === false;
+  // An implicit grant — true with NO version on record — is never-asked in
+  // disguise, not an explicit choice: a pre-nullable platform materializes
+  // its DB default `true` on rows created without the toggle shown (e.g. a
+  // ToS-only row), while every explicit write stamps a version. Resolve it
+  // to null so no consumer can mistake it for a user grant — the diagnostics
+  // gate chokepoint and the analytics store adoption would otherwise
+  // overwrite an explicit local opt-out whose patch hasn't landed. An
+  // explicit opt-out (false) is never excused this way.
+  const analyticsImplicitDefault =
+    consent.share_analytics === true && !consent.share_analytics_accepted_version;
+  const diagnosticsImplicitDefault =
+    consent.share_diagnostics === true && !consent.share_diagnostics_accepted_version;
   return {
     // The ToS checkbox covers only the Terms of Service. The privacy checkbox
     // covers both the Privacy Policy and the AI Data Sharing Policy, so it is
@@ -243,26 +255,21 @@ export function resolveServerConsent(
     privacy:
       versionIsCurrent(consent.privacy_policy_accepted_version, PRIVACY_CONSENT_VERSION) &&
       versionIsCurrent(consent.ai_data_sharing_accepted_version, PRIVACY_CONSENT_VERSION),
-    shareAnalytics: consent.share_analytics,
-    shareDiagnostics: consent.share_diagnostics,
+    shareAnalytics: analyticsImplicitDefault ? null : consent.share_analytics,
+    shareDiagnostics: diagnosticsImplicitDefault ? null : consent.share_diagnostics,
     // Share-toggle re-review is owed only for an explicit, genuinely stale
     // choice on record. Onboarding doesn't show the analytics toggle, so
     // `share_analytics` stays null until the user chooses via settings or
-    // review-terms — null reads as "nothing to re-review". An implicit grant
-    // — true with an EMPTY version — is never-asked in disguise, not stale
-    // consent: a pre-nullable platform materializes its DB default `true` on
-    // rows created without the toggle shown, while every explicit write
-    // stamps a version. An explicit opt-out (false) is never excused this
-    // way — a false with a stale/empty version still re-reviews.
+    // review-terms — null (including an implicit default resolved to null
+    // above) reads as "nothing to re-review", not stale consent. An explicit
+    // false with a stale/empty version still re-reviews.
     analyticsCurrent:
       consent.share_analytics === null ||
-      (consent.share_analytics === true &&
-        consent.share_analytics_accepted_version === "") ||
+      analyticsImplicitDefault ||
       analyticsVersionCurrent,
     diagnosticsCurrent:
       consent.share_diagnostics === null ||
-      (consent.share_diagnostics === true &&
-        consent.share_diagnostics_accepted_version === "") ||
+      diagnosticsImplicitDefault ||
       diagnosticsVersionCurrent,
     analyticsVersionCurrent,
     diagnosticsVersionCurrent,

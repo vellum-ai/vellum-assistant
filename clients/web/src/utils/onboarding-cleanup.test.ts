@@ -201,6 +201,18 @@ describe("resolveServerConsent", () => {
     expect(r.diagnosticsCurrent).toBe(true);
     expect(r.analyticsVersionCurrent).toBe(false);
     expect(r.diagnosticsVersionCurrent).toBe(false);
+    // The values resolve to null so no consumer treats the materialized
+    // default as an explicit grant — the diagnostics gate chokepoint and
+    // the analytics store adoption must not overwrite an explicit local
+    // opt-out whose patch hasn't landed on such a row.
+    expect(r.shareAnalytics).toBeNull();
+    expect(r.shareDiagnostics).toBeNull();
+  });
+
+  test("an explicit grant with a version on record resolves the raw values", () => {
+    const r = resolveServerConsent(makeConsent());
+    expect(r.shareAnalytics).toBe(true);
+    expect(r.shareDiagnostics).toBe(true);
   });
 
   test("reports stale toggles for explicit opt-outs with empty versions", () => {
