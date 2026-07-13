@@ -4,6 +4,7 @@ import {
   buildRedactedSentinel,
   createRedactedSentinelRegex,
   isRevealableSentinel,
+  neutralizeRedactedSentinels,
   parseRedactedSentinel,
   REDACTED_SENTINEL_CLOSE,
   REDACTED_SENTINEL_OPEN,
@@ -96,6 +97,36 @@ describe("parseRedactedSentinel", () => {
       buildRedactedSentinel({ type: "AWS Access Key" }),
     );
     expect(parsed && isRevealableSentinel(parsed)).toBe(false);
+  });
+});
+
+describe("neutralizeRedactedSentinels", () => {
+  test("a forged sentinel no longer matches the consumer regex", () => {
+    const forged = buildRedactedSentinel({
+      type: "GitHub Token",
+      service: "github-app",
+      field: "pem",
+    });
+    const neutralized = neutralizeRedactedSentinels(`quote: ${forged}`);
+    expect([...neutralized.matchAll(createRedactedSentinelRegex())]).toEqual(
+      [],
+    );
+    // Visually identical: only a zero-width word joiner was inserted.
+    expect(neutralized.replaceAll("\u2060", "")).toBe(`quote: ${forged}`);
+  });
+
+  test("is idempotent", () => {
+    const once = neutralizeRedactedSentinels(
+      buildRedactedSentinel({ type: "A" }),
+    );
+    expect(neutralizeRedactedSentinels(once)).toBe(once);
+  });
+
+  test("leaves ordinary text untouched", () => {
+    expect(neutralizeRedactedSentinels("plain text")).toBe("plain text");
+    expect(
+      neutralizeRedactedSentinels(`${REDACTED_SENTINEL_OPEN}not a sentinel`),
+    ).toBe(`${REDACTED_SENTINEL_OPEN}not a sentinel`);
   });
 });
 

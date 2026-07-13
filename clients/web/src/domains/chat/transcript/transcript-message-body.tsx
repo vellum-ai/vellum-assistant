@@ -475,6 +475,7 @@ export function TranscriptMessageBody({
                   attachments={message.attachments}
                   assistantId={assistantId}
                   streamWordFade={streamWordFade}
+                  redactedCredentialChips={!isUser}
                 />
               </div>
             );
@@ -491,6 +492,7 @@ export function TranscriptMessageBody({
           attachments={message.attachments}
           assistantId={assistantId}
           streamWordFade={streamWordFade}
+          redactedCredentialChips={!isUser}
         />
       </div>
     );

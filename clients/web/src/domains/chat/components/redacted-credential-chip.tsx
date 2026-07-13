@@ -25,8 +25,8 @@
 import { Check, Copy, Eye, EyeOff, KeyRound, Loader2 } from "lucide-react";
 import { useCallback, useRef, useState } from "react";
 
-import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { credentialsRevealPost } from "@/generated/daemon/sdk.gen";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { toast } from "@vellumai/design-library/components/toast";
 
 const COPIED_FEEDBACK_MS = 1500;
@@ -51,7 +51,11 @@ export function RedactedCredentialChip({
   service,
   field,
 }: RedactedCredentialChipProps) {
-  const assistantId = useActiveAssistantId();
+  // Raw nullable read on purpose: transcripts render on pre-active paths
+  // (ChatPage loading/connecting) outside `ActiveAssistantGate`, where the
+  // throwing `useActiveAssistantId()` would crash the view. A null id simply
+  // renders the non-revealable badge until the assistant is active.
+  const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const [revealed, setRevealed] = useState<string | null>(null);
   const [isRevealing, setIsRevealing] = useState(false);
   const [justCopied, setJustCopied] = useState(false);

@@ -104,6 +104,31 @@ export function createRedactedSentinelRegex(): RegExp {
 }
 
 /**
+ * Neutralize sentinel-shaped strings that were NOT produced by the redactor.
+ *
+ * The sentinel is plain text, so any content source (model output quoting a
+ * transcript, fetched web content, a pasted message) could otherwise forge
+ * one and manufacture a reveal chip for an arbitrary stored credential.
+ * Producers must call this on raw text *before* inserting their own
+ * sentinels, so the only sentinels that survive persistence are the ones the
+ * redactor itself emitted from a detected secret.
+ *
+ * Neutralization inserts a word joiner (U+2060, zero-width, non-breaking)
+ * after the opening bracket — visually identical for a human reading a
+ * quoted sentinel, but the consumer regex no longer matches. Idempotent:
+ * after one pass the trigger prefix no longer occurs, so re-running is a
+ * no-op and never corrupts text further.
+ */
+export function neutralizeRedactedSentinels(text: string): string {
+  const trigger = `${REDACTED_SENTINEL_OPEN}${REDACTED_SENTINEL_TAG}:`;
+  if (!text.includes(trigger)) return text;
+  return text.replaceAll(
+    trigger,
+    `${REDACTED_SENTINEL_OPEN}\u2060${REDACTED_SENTINEL_TAG}:`,
+  );
+}
+
+/**
  * Parse a single exact sentinel string (the whole input must be one
  * sentinel). Returns undefined when the input is not a valid sentinel.
  */

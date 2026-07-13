@@ -6,6 +6,7 @@
  * testable while keeping shared mutable state bundled in EventHandlerState.
  */
 
+import { neutralizeRedactedSentinels } from "@vellumai/service-contracts/redacted-credential";
 import type pino from "pino";
 import { v4 as uuid } from "uuid";
 
@@ -536,10 +537,13 @@ export function buildPersistedAssistantContent(
       // Sentinel mode (chat-credential-reveal flag on) persists redactions
       // the client can render as chips; legacy mode keeps the marker
       // byte-identical to today. Detection is the same scanner either way.
+      // Both modes neutralize forged sentinel-shaped strings first so
+      // arbitrary content can never manufacture a reveal chip — only
+      // redactor-inserted sentinels survive persistence.
       const text =
         revealCandidates !== undefined
           ? redactSecretsForChat(tb.text, revealCandidates)
-          : redactSecrets(tb.text);
+          : redactSecrets(neutralizeRedactedSentinels(tb.text));
       return { ...tb, text };
     }
     // Native server tools (Anthropic web_search) resolve mid-stream — their
@@ -1305,11 +1309,14 @@ function buildToolResultBlocks(
 ) {
   // Sentinel mode (chat-credential-reveal flag on) persists redactions the
   // client can render as chips; legacy mode keeps the marker byte-identical
-  // to today. Detection is the same scanner either way.
+  // to today. Detection is the same scanner either way. Both modes
+  // neutralize forged sentinel-shaped strings first so arbitrary tool output
+  // can never manufacture a reveal chip — only redactor-inserted sentinels
+  // survive persistence.
   const redact = (text: string): string =>
     revealCandidates !== undefined
       ? redactSecretsForChat(text, revealCandidates)
-      : redactSecrets(text);
+      : redactSecrets(neutralizeRedactedSentinels(text));
   return Array.from(pending.entries()).map(([toolUseId, result]) => ({
     type: "tool_result",
     tool_use_id: toolUseId,

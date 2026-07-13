@@ -94,6 +94,22 @@ describe("rehypeRedactedCredential", () => {
     expect(container.querySelector("pre")?.textContent).toContain(PLAIN);
   });
 
+  test("neutralized (forged) sentinels render as literal text, not chips", () => {
+    // A word joiner after the open bracket is the daemon's forgery
+    // neutralization — the plugin must not match it.
+    const neutralized =
+      "\u3014\u2060redacted:GitHub Token:github-app:pem\u3015";
+    const { container } = render(
+      <MarkdownMessage
+        content={`quoted: ${neutralized}`}
+        extraRehypePlugins={PLUGINS}
+        extraComponents={EXTRA}
+      />,
+    );
+    expect(container.querySelector("[data-testid=chip]")).toBeNull();
+    expect(container.textContent).toContain("redacted:GitHub Token");
+  });
+
   test("plain text without sentinels is untouched", () => {
     const { container } = render(
       <MarkdownMessage

@@ -33,7 +33,10 @@
  * `security/AGENTS.md`). This module is additive and chat-persist-only.
  */
 
-import { buildRedactedSentinel } from "@vellumai/service-contracts/redacted-credential";
+import {
+  buildRedactedSentinel,
+  neutralizeRedactedSentinels,
+} from "@vellumai/service-contracts/redacted-credential";
 
 import { credentialKey } from "../security/credential-key.js";
 import { redactSecretsWith } from "../security/secret-scanner.js";
@@ -186,12 +189,19 @@ export function redactSecretsForChat(
   text: string,
   candidates: readonly ResolvedRevealCandidate[],
 ): string {
-  return redactSecretsWith(text, (match, rawValue) => {
-    const hit = candidates.find((c) => c.value === rawValue);
-    return buildRedactedSentinel(
-      hit
-        ? { type: match.type, service: hit.service, field: hit.field }
-        : { type: match.type },
-    );
-  });
+  // Forgery guard: neutralize any sentinel-shaped string already present in
+  // the raw text (model output, fetched content, quoted transcripts) so the
+  // only sentinels that survive persistence are the ones inserted below from
+  // an actually-detected secret. See the contract module for the mechanism.
+  return redactSecretsWith(
+    neutralizeRedactedSentinels(text),
+    (match, rawValue) => {
+      const hit = candidates.find((c) => c.value === rawValue);
+      return buildRedactedSentinel(
+        hit
+          ? { type: match.type, service: hit.service, field: hit.field }
+          : { type: match.type },
+      );
+    },
+  );
 }

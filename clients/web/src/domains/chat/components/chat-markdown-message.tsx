@@ -257,6 +257,15 @@ export interface ChatMarkdownMessageProps extends Omit<
    * content should render plain (`undefined`).
    */
   streamWordFade?: "revealing" | "caughtUp";
+  /**
+   * Render redacted-credential sentinels as interactive chips (see
+   * `rehypeRedactedCredential`). Enable ONLY for daemon-persisted content
+   * (assistant text, tool results) — the persist seams neutralize forged
+   * sentinel strings there, so surviving sentinels are redactor-authored.
+   * Never enable for user-authored content: a pasted sentinel-shaped string
+   * must render as literal text, not manufacture a reveal affordance.
+   */
+  redactedCredentialChips?: boolean;
 }
 
 export const ChatMarkdownMessage = memo(function ChatMarkdownMessage({
@@ -267,6 +276,7 @@ export const ChatMarkdownMessage = memo(function ChatMarkdownMessage({
   attachments,
   assistantId,
   streamWordFade,
+  redactedCredentialChips,
 }: ChatMarkdownMessageProps) {
   const { openPreview, previewModal } = useAttachmentPreview(
     assistantId,
@@ -303,10 +313,14 @@ export const ChatMarkdownMessage = memo(function ChatMarkdownMessage({
 
   const extraRehypePlugins = useMemo(
     () => [
-      // Upgrade redacted-credential sentinels into chip elements. Applied
-      // unconditionally: sentinels only exist where the daemon persisted
-      // them, and history must stay renderable regardless of flag state.
-      rehypeRedactedCredential as import("unified").Pluggable,
+      // Upgrade redacted-credential sentinels into chip elements — only for
+      // content the daemon persisted (assistant text, tool results), where
+      // forged sentinel strings are neutralized at the persist seams. User
+      // messages never enable this, so pasted sentinel-shaped text renders
+      // as literal text instead of manufacturing a reveal affordance.
+      ...(redactedCredentialChips
+        ? [rehypeRedactedCredential as import("unified").Pluggable]
+        : []),
       ...(streamWordFade
         ? [
             [
@@ -316,7 +330,7 @@ export const ChatMarkdownMessage = memo(function ChatMarkdownMessage({
           ]
         : []),
     ],
-    [streamWordFade],
+    [redactedCredentialChips, streamWordFade],
   );
 
   const imageComponent: MarkdownImageComponent = useMemo(
@@ -348,7 +362,7 @@ export const ChatMarkdownMessage = memo(function ChatMarkdownMessage({
         imageComponent={imageComponent}
         urlTransform={vellumUrlTransform}
         extraRehypePlugins={extraRehypePlugins}
-        extraComponents={EXTRA_COMPONENTS}
+        extraComponents={redactedCredentialChips ? EXTRA_COMPONENTS : undefined}
       />
       {previewModal}
     </>
