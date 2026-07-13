@@ -11,10 +11,11 @@ import {
   validatePluginIconBytes,
 } from "../generate-plugin-icons.mjs";
 
-// The assistant is the source of truth for these mirrored helpers; assert the
-// .mjs copies agree with the TS originals on the same inputs.
+// The assistant validator is the source of truth for the byte format; assert
+// the mirrored .mjs validator agrees with it on the same inputs. (The transient
+// classifier is covered separately below without a TS import — plugin-marketplace.ts
+// pulls in zod, which this install-free CI job cannot resolve.)
 import { validatePluginIconBytes as tsValidate } from "../../../assistant/src/cli/lib/plugin-icon-file.ts";
-import { isTransientUpstreamStatus as tsIsTransient } from "../../../assistant/src/cli/lib/plugin-marketplace.ts";
 
 /** Build a minimal but structurally valid PNG with the given IHDR dimensions. */
 function makePng(width, height, { padTo = 0 } = {}) {
@@ -122,20 +123,23 @@ describe("validatePluginIconBytes mirrors the assistant validator", () => {
 });
 
 describe("isTransientUpstreamStatus mirrors the assistant classifier", () => {
-  test("agrees with the TS classifier across statuses", () => {
+  // Spec: `isTransientUpstreamStatus` in
+  // assistant/src/cli/lib/plugin-marketplace.ts — 429/5xx always transient; a
+  // 403 is transient only when the rate-limit quota header is exhausted.
+  test("classifies statuses per the TS spec", () => {
     const res = (status, headers = {}) => ({ status, headers: new Headers(headers) });
     const cases = [
-      res(200),
-      res(403), // hard authorization failure — quota not exhausted
-      res(403, { "x-ratelimit-remaining": "0" }), // rate-limit signal
-      res(404),
-      res(408),
-      res(429),
-      res(500),
-      res(503),
+      [res(200), false],
+      [res(403), false], // hard authorization failure — quota not exhausted
+      [res(403, { "x-ratelimit-remaining": "0" }), true], // rate-limit signal
+      [res(404), false],
+      [res(408), false],
+      [res(429), true],
+      [res(500), true],
+      [res(503), true],
     ];
-    for (const r of cases) {
-      expect(isTransientUpstreamStatus(r)).toBe(tsIsTransient(r));
+    for (const [r, expected] of cases) {
+      expect(isTransientUpstreamStatus(r)).toBe(expected);
     }
   });
 });

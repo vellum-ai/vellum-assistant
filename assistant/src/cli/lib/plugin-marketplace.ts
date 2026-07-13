@@ -183,7 +183,7 @@ export class MarketplaceFetchError extends Error {
  * rate-limit signal only when the remaining-quota header is exhausted — a 403
  * without it is a genuine authorization failure and stays hard.
  */
-export function isTransientUpstreamStatus(res: Response): boolean {
+function isTransientUpstreamStatus(res: Response): boolean {
   if (res.status === 429 || res.status >= 500) return true;
   if (res.status === 403) {
     return res.headers.get("x-ratelimit-remaining") === "0";
