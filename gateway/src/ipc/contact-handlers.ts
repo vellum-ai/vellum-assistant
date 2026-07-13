@@ -215,9 +215,6 @@ export const contactRoutes: IpcRoute[] = [
     schema: MergeContactsIpcParamsSchema,
     handler: (params?: Record<string, unknown>) => {
       const parsed = MergeContactsIpcParamsSchema.parse(params);
-      // Thrown MergeContactsError carries statusCode/code, which the IPC
-      // server's buildErrorResponse mirrors into the wire envelope; unexpected
-      // errors propagate as a generic IPC error (no fallback).
       return mergeContactsCore(parsed);
     },
   },

@@ -771,11 +771,9 @@ export async function updateContactChannelCore(params: {
  * transaction + best-effort assistant mirror), emits `contacts_changed`, and
  * returns the survivor contact payload.
  *
- * Throws `MergeContactsError` (statusCode 400, code MERGE_CONTACTS_INVALID)
- * for validation failures (self-merge, contact not found, guardian donor).
- * The HTTP handler maps it to a 400; the IPC server mirrors `statusCode`/
- * `code` into the wire envelope. Unexpected errors propagate so each
- * transport surfaces a 500-equivalent — never a silent fallback.
+ * Throws `MergeContactsError` for validation failures; unexpected errors
+ * propagate so each transport surfaces a 500-equivalent — never a silent
+ * fallback.
  */
 export async function mergeContactsCore(params: {
   keepId: string;
@@ -1211,8 +1209,7 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
       }
 
       const assistantMeta = body.assistantMetadata as
-        | { species?: unknown; metadata?: unknown }
-        | undefined;
+        { species?: unknown; metadata?: unknown } | undefined;
 
       if (body.contactType === "assistant") {
         if (!assistantMeta) {
@@ -1368,9 +1365,7 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
                 species: assistantMeta.species as string,
                 metadata:
                   (assistantMeta.metadata as
-                    | Record<string, unknown>
-                    | null
-                    | undefined) ?? null,
+                    Record<string, unknown> | null | undefined) ?? null,
               }
             : undefined,
         channels: channelInputs?.map((ch) => ({

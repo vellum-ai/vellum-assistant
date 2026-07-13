@@ -50,12 +50,11 @@ mock.module("../ipc/cli-client.js", () => ({
       // merge core, which validates and mirrors back into the assistant DB.
       // Emulate that against the fixture DB via the mirror write path.
       const { keepId, mergeId } = body as { keepId: string; mergeId: string };
+      // The tool pre-validates both contacts via getContact, so the fake only
+      // needs the survivor row (for keepDisplayName).
       const keep = store.getContact(keepId);
       if (!keep) {
         return { ok: false, error: `Contact "${keepId}" not found` };
-      }
-      if (!store.getContact(mergeId)) {
-        return { ok: false, error: `Contact "${mergeId}" not found` };
       }
       store.mergeContactMirror({
         keepContactId: keepId,
