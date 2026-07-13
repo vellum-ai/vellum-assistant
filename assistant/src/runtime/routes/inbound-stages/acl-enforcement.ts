@@ -1,6 +1,6 @@
 /**
  * Ingress ACL enforcement stage: resolves the inbound actor to a member
- * record, enforces allow/deny/escalate policies, and notifies the guardian
+ * record, enforces allow/deny policies, and notifies the guardian
  * of denied access requests.
  *
  * Invite code/token redemption is intercepted at gateway ingress; redeemed
@@ -175,7 +175,7 @@ export interface AclResult {
 
 /**
  * Enforce ingress ACL rules: member lookup, non-member/inactive denial,
- * policy enforcement (allow/deny/escalate bypass), and guardian
+ * policy enforcement (allow/deny), and guardian
  * notification for denied access.
  */
 export async function enforceIngressAcl(
