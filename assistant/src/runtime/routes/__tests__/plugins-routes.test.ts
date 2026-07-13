@@ -1366,6 +1366,18 @@ describe("GET /v1/plugins/:name", () => {
     ).rejects.toBeInstanceOf(NotFoundError);
   });
 
+  test("PluginCatalogUnavailableError → ServiceUnavailableError (503)", async () => {
+    // A catalog outage blocking a remote-only detail view is transient — the
+    // handler surfaces it as retryable rather than a misleading 404/500.
+    detailsSpy.mockImplementation(async () => {
+      throw new PluginCatalogUnavailableError("HTTP 503", 503);
+    });
+
+    await expect(
+      invokeGet({ pathParams: { name: "caveman" } }),
+    ).rejects.toBeInstanceOf(ServiceUnavailableError);
+  });
+
   test("unknown errors → InternalError with original message preserved", async () => {
     detailsSpy.mockImplementation(async () => {
       throw new Error("ENOTFOUND api.github.com");
