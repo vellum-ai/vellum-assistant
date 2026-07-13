@@ -40,10 +40,10 @@ describe("fetchPluginCatalogFromPlatform", () => {
             category: "productivity",
             homepage: "https://example.com",
             license: "MIT",
+            icon: "🧠",
             // dropped keys
             id: "abc",
             display_name: "Memory Graph",
-            icon: "🧠",
           },
           {
             name: "alpha-tool",
@@ -65,6 +65,7 @@ describe("fetchPluginCatalogFromPlatform", () => {
       name: "memory-graph",
       path: `github:acme/memory-graph/packages/plugin@${SHA_B}`,
       description: "graph memory",
+      icon: "🧠",
       category: "productivity",
       homepage: "https://example.com",
       license: "MIT",
@@ -78,6 +79,7 @@ describe("fetchPluginCatalogFromPlatform", () => {
 
     const alpha = catalog.matches[0];
     expect(alpha.category).toBeNull();
+    expect(alpha.icon).toBeUndefined();
     expect(alpha.homepage).toBeUndefined();
     expect(alpha.license).toBeUndefined();
     expect(alpha.source).toEqual({

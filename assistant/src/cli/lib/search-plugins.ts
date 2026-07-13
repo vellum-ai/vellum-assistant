@@ -43,6 +43,8 @@ export interface PluginSearchMatch {
   readonly path: string;
   /** Short description, when known (external entries only today). */
   readonly description?: string;
+  /** Curated author/curator emoji from the marketplace entry, when present. */
+  readonly icon?: string;
   /**
    * Free-form grouping hint from the curated marketplace entry (e.g.
    * `productivity`), or `null` when the entry declares none.
@@ -128,6 +130,7 @@ export function marketplaceMatch(entry: MarketplaceEntry): PluginSearchMatch {
     name: entry.name,
     path: locator,
     description: entry.description,
+    icon: entry.icon,
     category: entry.category ?? null,
     homepage: entry.homepage,
     license: entry.license,

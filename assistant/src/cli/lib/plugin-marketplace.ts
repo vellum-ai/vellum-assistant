@@ -98,6 +98,19 @@ const marketplaceEntrySchema = z.object({
   category: z.string().optional(),
   homepage: z.string().optional(),
   license: z.string().optional(),
+  /**
+   * A single curated author/curator emoji shown as the plugin's icon (e.g. on
+   * the marketing catalog). Not a URL or file path — bounded to a short
+   * emoji-length string; a multi-code-point emoji (skin tone, ZWJ sequence)
+   * still fits comfortably under the cap.
+   */
+  icon: z
+    .string()
+    .refine(
+      (s) => [...s].length <= 8 && !/[/\\]|^https?:/i.test(s),
+      "expected a short emoji, not a URL or path",
+    )
+    .optional(),
 });
 
 export const marketplaceManifestSchema = z.object({
