@@ -16,10 +16,16 @@
  *   variants degrade to their fallback like the production client.
  *
  * Per the test-machinery isolation rules this helper imports nothing from
- * `src/`; the wire shapes are declared structurally.
+ * `src/`; the wire shapes are declared structurally and the pure derivations
+ * come from the shared contract package.
  */
 
 import { randomUUID } from "node:crypto";
+
+import {
+  deriveGuardianRequestSourceType,
+  isGuardianRequestExpired,
+} from "@vellumai/gateway-client";
 
 export interface SimGuardianRequest {
   id: string;
@@ -90,14 +96,6 @@ export interface MintedSession {
   ttlSeconds: number;
 }
 
-function computeSourceType(
-  sourceChannel: string | null | undefined,
-): "voice" | "desktop" | "channel" {
-  if (sourceChannel === "phone") return "voice";
-  if (sourceChannel === "vellum") return "desktop";
-  return "channel";
-}
-
 let codeCounter = 0;
 function generateCode(): string {
   codeCounter += 1;
@@ -137,7 +135,9 @@ export function createGuardianGatewaySim() {
       id: params.id ?? randomUUID(),
       kind: params.kind,
       sourceChannel: params.sourceChannel ?? null,
-      sourceType: params.sourceType ?? computeSourceType(params.sourceChannel),
+      sourceType:
+        params.sourceType ??
+        deriveGuardianRequestSourceType(params.sourceChannel ?? null),
       sourceConversationId: params.sourceConversationId ?? null,
       requesterExternalUserId: params.requesterExternalUserId ?? null,
       requesterChatId: params.requesterChatId ?? null,
@@ -191,7 +191,9 @@ export function createGuardianGatewaySim() {
   }
 
   function throwIfReadError(): void {
-    if (state.readError) throw state.readError;
+    if (state.readError) {
+      throw state.readError;
+    }
   }
 
   // ── Client-module implementations ───────────────────────────────────
@@ -265,7 +267,9 @@ export function createGuardianGatewaySim() {
     >,
   ): Promise<void> {
     const row = requests.get(id);
-    if (!row) throw new Error(`sim: request ${id} not found`);
+    if (!row) {
+      throw new Error(`sim: request ${id} not found`);
+    }
     Object.assign(row, patch, { updatedAt: Date.now() });
   }
 
@@ -279,7 +283,9 @@ export function createGuardianGatewaySim() {
   > {
     state.beforeDecide?.();
     state.decideCalls.push(params);
-    if (state.decideError) throw state.decideError;
+    if (state.decideError) {
+      throw state.decideError;
+    }
     const row = requests.get(params.id);
     if (!row || row.status !== params.expectedStatus) {
       return { applied: false, reason: "status_conflict" };
@@ -289,7 +295,9 @@ export function createGuardianGatewaySim() {
       throw state.outcomeError;
     }
     row.status = params.status;
-    if (params.answerText !== undefined) row.answerText = params.answerText;
+    if (params.answerText !== undefined) {
+      row.answerText = params.answerText;
+    }
     if (params.decidedByExternalUserId !== undefined) {
       row.decidedByExternalUserId = params.decidedByExternalUserId;
     }
@@ -297,7 +305,9 @@ export function createGuardianGatewaySim() {
       row.decidedByPrincipalId = params.decidedByPrincipalId;
     }
     row.updatedAt = Date.now();
-    if (params.aclOutcome) state.appliedOutcomes.push(params.aclOutcome);
+    if (params.aclOutcome) {
+      state.appliedOutcomes.push(params.aclOutcome);
+    }
 
     let mintedSession: MintedSession | undefined;
     if (params.aclOutcome?.type === "mint_outbound_session") {
@@ -316,10 +326,15 @@ export function createGuardianGatewaySim() {
     };
   }
 
-  async function reopenGuardianRequest(
+  /**
+   * Test-internal terminal → pending CAS (not part of the client-module
+   * surface): the store bridge uses it to mirror the gateway decide
+   * transaction's rollback after a failed ACL outcome.
+   */
+  function reopenRequest(
     id: string,
     fromStatus: SimGuardianRequest["status"],
-  ): Promise<void> {
+  ): void {
     const row = requests.get(id);
     if (!row || row.status !== fromStatus) {
       throw new Error(`sim: reopen CAS miss for ${id}`);
@@ -346,10 +361,12 @@ export function createGuardianGatewaySim() {
     let expired = 0;
     const now = Date.now();
     for (const row of requests.values()) {
-      if (row.status !== "pending") continue;
+      if (row.status !== "pending") {
+        continue;
+      }
       const interactionBound =
         row.kind === "tool_approval" || row.kind === "pending_question";
-      if (interactionBound || (row.expiresAt !== null && row.expiresAt < now)) {
+      if (interactionBound || isGuardianRequestExpired(row, now)) {
         row.status = "expired";
         row.updatedAt = now;
         expired += 1;
@@ -364,11 +381,7 @@ export function createGuardianGatewaySim() {
     const cutoff = now ?? Date.now();
     const expired: SimGuardianRequest[] = [];
     for (const row of requests.values()) {
-      if (
-        row.status === "pending" &&
-        row.expiresAt !== null &&
-        row.expiresAt < cutoff
-      ) {
+      if (row.status === "pending" && isGuardianRequestExpired(row, cutoff)) {
         row.status = "expired";
         row.updatedAt = cutoff;
         expired.push({ ...row });
@@ -390,7 +403,9 @@ export function createGuardianGatewaySim() {
     >,
   ): Promise<void> {
     const row = deliveries.find((d) => d.id === id);
-    if (!row) throw new Error(`sim: delivery ${id} not found`);
+    if (!row) {
+      throw new Error(`sim: delivery ${id} not found`);
+    }
     Object.assign(row, patch, { updatedAt: Date.now() });
   }
 
@@ -415,7 +430,9 @@ export function createGuardianGatewaySim() {
         d.destinationChatId === chatId &&
         d.destinationMessageId === messageId,
     );
-    if (!delivery) return null;
+    if (!delivery) {
+      return null;
+    }
     const request = requests.get(delivery.requestId);
     return request?.status === "pending" ? { ...request } : null;
   }
@@ -441,10 +458,14 @@ export function createGuardianGatewaySim() {
     const seen = new Set<string>();
     const result: SimGuardianRequest[] = [];
     for (const delivery of matched) {
-      if (seen.has(delivery.requestId)) continue;
+      if (seen.has(delivery.requestId)) {
+        continue;
+      }
       seen.add(delivery.requestId);
       const request = requests.get(delivery.requestId);
-      if (request?.status === "pending") result.push({ ...request });
+      if (request?.status === "pending") {
+        result.push({ ...request });
+      }
     }
     return result;
   }
@@ -461,7 +482,7 @@ export function createGuardianGatewaySim() {
       if (
         row.status === "pending" &&
         row.sourceConversationId === conversationId &&
-        !(row.expiresAt !== null && row.expiresAt < now)
+        !isGuardianRequestExpired(row, now)
       ) {
         seen.add(row.id);
         result.push({ ...row });
@@ -472,10 +493,7 @@ export function createGuardianGatewaySim() {
       ...(channel ? { channel } : {}),
     });
     for (const row of byDestination) {
-      if (
-        !seen.has(row.id) &&
-        !(row.expiresAt !== null && row.expiresAt < now)
-      ) {
+      if (!seen.has(row.id) && !isGuardianRequestExpired(row, now)) {
         seen.add(row.id);
         result.push(row);
       }
@@ -490,8 +508,12 @@ export function createGuardianGatewaySim() {
   ): Promise<boolean> {
     throwIfReadError();
     const request = requests.get(requestId);
-    if (!request) return false;
-    if (request.sourceConversationId === conversationId) return true;
+    if (!request) {
+      return false;
+    }
+    if (request.sourceConversationId === conversationId) {
+      return true;
+    }
     return deliveries.some(
       (d) =>
         d.requestId === requestId &&
@@ -517,7 +539,9 @@ export function createGuardianGatewaySim() {
   ): Promise<SimGuardianRequest | null> {
     throwIfReadError();
     for (const row of requests.values()) {
-      if (row.pendingQuestionId === pendingQuestionId) return { ...row };
+      if (row.pendingQuestionId === pendingQuestionId) {
+        return { ...row };
+      }
     }
     return null;
   }
@@ -541,18 +565,19 @@ export function createGuardianGatewaySim() {
     };
   }
 
-  /** Drop-in replacement for the gateway-guardian-requests client module. */
+  /**
+   * Drop-in replacement for the gateway-guardian-requests client module —
+   * same surface: reads whose only callers are deny paths appear solely as
+   * their degrading variant.
+   */
   const module = {
     createGuardianRequest,
     getGuardianRequest,
     getGuardianRequestOrNull: degrade(getGuardianRequest, null),
-    getGuardianRequestByCode,
     getGuardianRequestByCodeOrNull: degrade(getGuardianRequestByCode, null),
-    listGuardianRequests,
     listGuardianRequestsOrEmpty: degrade(listGuardianRequests, []),
     updateGuardianRequest,
     decideGuardianRequest,
-    reopenGuardianRequest,
     expireGuardianRequest,
     expireInteractionBoundGuardianRequests,
     sweepExpiredGuardianRequests,
@@ -563,26 +588,22 @@ export function createGuardianGatewaySim() {
       listGuardianRequestDeliveries,
       [],
     ),
-    getPendingRequestByDestinationMessage,
     getPendingRequestByDestinationMessageOrNull: degrade(
       getPendingRequestByDestinationMessage,
       null,
     ),
-    listPendingRequestsByDestination,
     listPendingRequestsByDestinationOrEmpty: degrade(
       listPendingRequestsByDestination,
       [],
     ),
     listPendingRequestsByScope,
     listPendingRequestsByScopeOrEmpty: degrade(listPendingRequestsByScope, []),
-    isGuardianRequestInScope,
     isGuardianRequestInScopeOrFalse: degrade(isGuardianRequestInScope, false),
     getPendingRequestByCallSession,
     getPendingRequestByCallSessionOrNull: degrade(
       getPendingRequestByCallSession,
       null,
     ),
-    getRequestByPendingQuestion,
     getRequestByPendingQuestionOrNull: degrade(
       getRequestByPendingQuestion,
       null,
@@ -597,6 +618,7 @@ export function createGuardianGatewaySim() {
     seedRequest,
     seedDelivery,
     getRequest,
+    reopenRequest,
     module,
   };
 }

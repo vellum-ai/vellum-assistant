@@ -275,7 +275,7 @@ describe("ToolApprovalHandler / grant-miss escalation", () => {
     expect(result.result.content).toContain("verified channel identity");
 
     // No guardian request should have been created
-    const requests = await sim.module.listGuardianRequests({
+    const requests = await sim.module.listGuardianRequestsOrEmpty({
       kind: "tool_grant_request",
       status: "pending",
     });
@@ -607,7 +607,7 @@ describe("inline wait-and-resume", () => {
     expect(elapsed).toBeLessThan(200);
 
     // No guardian request created
-    const requests = await sim.module.listGuardianRequests({
+    const requests = await sim.module.listGuardianRequestsOrEmpty({
       kind: "tool_grant_request",
       status: "pending",
     });

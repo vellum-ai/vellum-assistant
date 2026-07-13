@@ -198,7 +198,7 @@ export type {
 } from "./verification-session-contract.js";
 
 // Guardian-request contract (shared gateway ↔ daemon) — status/kind enums,
-// wire DTOs + guardian_requests_* IPC schemas
+// wire DTOs, pure helpers + guardian_requests_* IPC schemas
 export {
   CreateGuardianRequestDeliveryIpcParamsSchema,
   CreateGuardianRequestDeliveryIpcResponseSchema,
@@ -206,6 +206,7 @@ export {
   CreateGuardianRequestIpcResponseSchema,
   DecideGuardianRequestIpcParamsSchema,
   DecideGuardianRequestIpcResponseSchema,
+  deriveGuardianRequestSourceType,
   ExpireGuardianRequestIpcParamsSchema,
   ExpireInteractionBoundIpcParamsSchema,
   ExpireInteractionBoundIpcResponseSchema,
@@ -229,11 +230,11 @@ export {
   GuardianRequestSchema,
   GuardianRequestSourceTypeSchema,
   GuardianRequestStatusSchema,
+  isGuardianRequestExpired,
   ListGuardianRequestDeliveriesIpcParamsSchema,
   ListGuardianRequestsIpcParamsSchema,
   ListPendingGuardianRequestsByDestinationIpcParamsSchema,
   ListPendingGuardianRequestsByScopeIpcParamsSchema,
-  ReopenGuardianRequestIpcParamsSchema,
   SweepExpiredGuardianRequestsIpcParamsSchema,
   SweepExpiredGuardianRequestsIpcResponseSchema,
   UpdateGuardianRequestDeliveryIpcParamsSchema,
@@ -272,7 +273,6 @@ export type {
   ListGuardianRequestsIpcParams,
   ListPendingGuardianRequestsByDestinationIpcParams,
   ListPendingGuardianRequestsByScopeIpcParams,
-  ReopenGuardianRequestIpcParams,
   SweepExpiredGuardianRequestsIpcParams,
   SweepExpiredGuardianRequestsIpcResponse,
   UpdateGuardianRequestDeliveryIpcParams,

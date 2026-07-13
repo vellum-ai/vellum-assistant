@@ -131,7 +131,7 @@ async function decideGuardianRequest(
     ({ mintedSession } = await applyAclOutcome(aclOutcome));
   } catch (err) {
     // Mirror the gateway transaction rollback: the CAS never lands.
-    await bridgeState.module.reopenGuardianRequest(parsed.id, parsed.status);
+    bridgeState.reopenRequest(parsed.id, parsed.status);
     throw err;
   }
 

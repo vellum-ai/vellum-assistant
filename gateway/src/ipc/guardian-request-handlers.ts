@@ -30,7 +30,6 @@ import {
   ListGuardianRequestsIpcParamsSchema,
   ListPendingGuardianRequestsByDestinationIpcParamsSchema,
   ListPendingGuardianRequestsByScopeIpcParamsSchema,
-  ReopenGuardianRequestIpcParamsSchema,
   SweepExpiredGuardianRequestsIpcParamsSchema,
   UpdateGuardianRequestDeliveryIpcParamsSchema,
   UpdateGuardianRequestIpcParamsSchema,
@@ -53,7 +52,6 @@ import {
   listGuardianRequests,
   listPendingRequestsByDestination,
   listPendingRequestsByScope,
-  reopenGuardianRequest,
   sweepExpiredRequests,
   updateGuardianRequest,
   updateGuardianRequestDelivery,
@@ -133,17 +131,6 @@ export const guardianRequestRoutes: IpcRoute[] = [
     handler: async (params?: Record<string, unknown>) => {
       const input = DecideGuardianRequestIpcParamsSchema.parse(params);
       return decideGuardianRequest(input);
-    },
-  },
-  {
-    // CAS `fromStatus` → pending; a missed swap acks without reopening.
-    method: GUARDIAN_REQUESTS_IPC_METHODS.reopen,
-    schema: ReopenGuardianRequestIpcParamsSchema,
-    handler: (params?: Record<string, unknown>) => {
-      const { id, fromStatus } =
-        ReopenGuardianRequestIpcParamsSchema.parse(params);
-      reopenGuardianRequest(id, fromStatus);
-      return { ok: true };
     },
   },
   {
