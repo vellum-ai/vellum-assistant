@@ -76,19 +76,21 @@
       "description": "Ultra-compressed communication mode that strips filler words to cut token usage.",
       "category": "productivity",
       "homepage": "https://github.com/JuliusBrussee/caveman",
-      "license": "MIT"
+      "license": "MIT",
+      "icon": "🦴"
     },
     {
       "name": "coffee-aficionado",
       "source": {
         "source": "github",
         "repo": "vellum-ai/coffee-aficionado",
-        "ref": "b37a0b5adc2bda5559d3b21abe38e436093c1ff3"
+        "ref": "facd5a03979605edc894ea61e9a45f7b6a53214a"
       },
       "description": "Find great coffee beans and machines matched to your taste profile, budget, and kitchen. Persistent memory learns your preferences over time.",
       "category": "lifestyle",
       "homepage": "https://github.com/vellum-ai/coffee-aficionado",
-      "license": "MIT"
+      "license": "MIT",
+      "icon": "☕"
     },
     {
       "name": "cofounder",
