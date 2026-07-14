@@ -836,6 +836,79 @@ paths:
           description: ''
       x-vellum-api-clients:
       - platform
+  /v1/assistants/{assistant_id}/doctor/sessions/{session_id}/user-outcome/:
+    post:
+      operationId: assistants_doctor_sessions_user_outcome_create
+      description: |-
+        Record whether the Doctor solved the user's problem.
+
+        Writes only to the persisted Django row (no upstream Doctor call),
+        so it works for live sessions and for sessions that already ended.
+        Idempotent: the latest answer wins.
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      - in: path
+        name: assistant_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      - in: path
+        name: session_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - assistants
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DoctorSessionUserOutcomeRequestRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/DoctorSessionUserOutcomeRequestRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/DoctorSessionUserOutcomeRequestRequest'
+        required: true
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DoctorSessionUserOutcomeResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+        '503':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
   /v1/assistants/{assistant_id}/domains/:
     get:
       operationId: assistants_domains_list
@@ -6423,6 +6496,17 @@ components:
             * `active` - Active
             * `completed` - Completed
             * `error` - Error
+        user_outcome:
+          readOnly: true
+          nullable: true
+          description: |-
+            User-reported outcome: whether the Doctor solved their problem. Null until the user answers the outcome prompt.
+
+            * `resolved` - Resolved
+            * `not_resolved` - Not resolved
+          oneOf:
+          - $ref: '#/components/schemas/UserOutcomeEnum'
+          - $ref: '#/components/schemas/NullEnum'
         last_message_at:
           type: string
           format: date-time
@@ -6486,6 +6570,7 @@ components:
       - total_estimated_cost_usd
       - total_input_tokens
       - total_output_tokens
+      - user_outcome
     DoctorSessionList:
       type: object
       description: |-
@@ -6509,6 +6594,17 @@ components:
             * `active` - Active
             * `completed` - Completed
             * `error` - Error
+        user_outcome:
+          readOnly: true
+          nullable: true
+          description: |-
+            User-reported outcome: whether the Doctor solved their problem. Null until the user answers the outcome prompt.
+
+            * `resolved` - Resolved
+            * `not_resolved` - Not resolved
+          oneOf:
+          - $ref: '#/components/schemas/UserOutcomeEnum'
+          - $ref: '#/components/schemas/NullEnum'
         last_message_at:
           type: string
           format: date-time
@@ -6566,6 +6662,7 @@ components:
       - total_estimated_cost_usd
       - total_input_tokens
       - total_output_tokens
+      - user_outcome
     DoctorSessionMessageRequestRequest:
       type: object
       description: Request body for sending a message to a Doctor session.
@@ -6589,6 +6686,23 @@ components:
         * `active` - Active
         * `completed` - Completed
         * `error` - Error
+    DoctorSessionUserOutcomeRequestRequest:
+      type: object
+      description: Request body for recording whether the Doctor solved the user's
+        problem.
+      properties:
+        resolved:
+          type: boolean
+      required:
+      - resolved
+    DoctorSessionUserOutcomeResponse:
+      type: object
+      description: Response after recording a Doctor session user outcome.
+      properties:
+        user_outcome:
+          type: string
+      required:
+      - user_outcome
     DomainVerificationStatus:
       type: object
       properties:
@@ -8763,6 +8877,14 @@ components:
       required:
       - event_count
       - total_usd
+    UserOutcomeEnum:
+      enum:
+      - resolved
+      - not_resolved
+      type: string
+      description: |-
+        * `resolved` - Resolved
+        * `not_resolved` - Not resolved
   securitySchemes:
     AssistantAPIKey:
       type: apiKey
