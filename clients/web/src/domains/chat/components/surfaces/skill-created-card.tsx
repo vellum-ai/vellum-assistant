@@ -14,11 +14,12 @@ import { routes } from "@/utils/routes";
 
 /**
  * Card copy lives here as the single source so a design copy swap is a
- * one-line change. The subline is static because the card can arrive long
- * after the triggering work (the retrospective runs in the background).
+ * one-line change. Each skill renders as a single row whose title is the
+ * full "I just learned…" sentence (no generic card header): the card should
+ * read like the assistant sharing what it picked up, not like a technical
+ * "skill created" notice.
  */
-const SKILL_CARD_FALLBACK_TITLE = "New skill learned";
-const SKILL_CARD_SUBLINE = "Saved to your skills from this conversation's work";
+const skillRowTitle = (name: string) => `I just learned how to do ${name}`;
 
 interface SkillCardEntry {
   skillId: string;
@@ -87,14 +88,7 @@ export function SkillCreatedCard({ surface, onAction }: SkillCreatedCardProps) {
 
   return (
     <SurfaceContainer surface={surface} onAction={onAction} hideTitle>
-      <h3 className="text-title-small text-[var(--content-strong)]">
-        {surface.title ?? SKILL_CARD_FALLBACK_TITLE}
-      </h3>
-      <p className="mt-0.5 text-body-small-default text-[var(--content-quiet)]">
-        {SKILL_CARD_SUBLINE}
-      </p>
-
-      <div className="mt-3 divide-y divide-[var(--border-base)]">
+      <div className="divide-y divide-[var(--border-base)]">
         {/* The whole row is one native button (name, description, and the
             "View" chip all open the skill) — matching the clickable-row
             pattern in home-schedule-row.tsx. The chip is purely visual, so
@@ -115,7 +109,7 @@ export function SkillCreatedCard({ surface, onAction }: SkillCreatedCardProps) {
             </span>
             <div className="min-w-0 flex-1">
               <div className="truncate text-body-medium-default text-[var(--content-strong)]">
-                {skill.name}
+                {skillRowTitle(skill.name)}
               </div>
               {skill.description && (
                 <p className="truncate text-body-small-default text-[var(--content-tertiary)]">

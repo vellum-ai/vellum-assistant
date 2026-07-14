@@ -9,9 +9,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 
+import type { Conversation } from "../daemon/conversation.js";
 import {
   isToolActiveForContext,
-  type SkillProjectionContext,
   SUBAGENT_ONLY_TOOL_NAMES,
 } from "../daemon/conversation-tool-setup.js";
 import { fileListTool } from "../tools/filesystem/list.js";
@@ -60,7 +60,9 @@ describe("FileSystemOps.listDirSafe", () => {
     const ops = new FileSystemOps(sandboxPolicyFor(dir));
     const result = ops.listDirSafe({ path: dir });
     expect(result.ok).toBe(true);
-    if (!result.ok) return;
+    if (!result.ok) {
+      return;
+    }
 
     const lines = result.value.listing.split("\n");
     // Directories first with trailing /
@@ -81,7 +83,9 @@ describe("FileSystemOps.listDirSafe", () => {
     const ops = new FileSystemOps(sandboxPolicyFor(dir));
     const result = ops.listDirSafe({ path: dir, glob: "*.md" });
     expect(result.ok).toBe(true);
-    if (!result.ok) return;
+    if (!result.ok) {
+      return;
+    }
 
     const lines = result.value.listing.split("\n");
     expect(lines.length).toBe(2);
@@ -96,7 +100,9 @@ describe("FileSystemOps.listDirSafe", () => {
     const ops = new FileSystemOps(sandboxPolicyFor(dir));
     const result = ops.listDirSafe({ path: join(dir, "regular-file.txt") });
     expect(result.ok).toBe(false);
-    if (result.ok) return;
+    if (result.ok) {
+      return;
+    }
     expect(result.error.code).toBe("NOT_A_DIRECTORY");
   });
 
@@ -106,7 +112,9 @@ describe("FileSystemOps.listDirSafe", () => {
     const ops = new FileSystemOps(sandboxPolicyFor(dir));
     const result = ops.listDirSafe({ path: join(dir, "nonexistent") });
     expect(result.ok).toBe(false);
-    if (result.ok) return;
+    if (result.ok) {
+      return;
+    }
     expect(result.error.code).toBe("NOT_FOUND");
   });
 
@@ -116,7 +124,9 @@ describe("FileSystemOps.listDirSafe", () => {
     const ops = new FileSystemOps(sandboxPolicyFor(dir));
     const result = ops.listDirSafe({ path: "../../../etc" });
     expect(result.ok).toBe(false);
-    if (result.ok) return;
+    if (result.ok) {
+      return;
+    }
     expect(result.error.code).toBe("PATH_OUT_OF_BOUNDS");
   });
 });
@@ -186,31 +196,31 @@ describe("file_list subagent visibility", () => {
   });
 
   test("isToolActiveForContext hides file_list when isSubagent is false", () => {
-    const ctx: SkillProjectionContext = {
+    const ctx = {
       skillProjectionState: new Map(),
       skillProjectionCache: {},
       toolsDisabledDepth: 0,
-    };
+    } as unknown as Conversation;
     expect(isToolActiveForContext("file_list", ctx)).toBe(false);
   });
 
   test("isToolActiveForContext hides file_list when isSubagent is undefined", () => {
-    const ctx: SkillProjectionContext = {
+    const ctx = {
       skillProjectionState: new Map(),
       skillProjectionCache: {},
       toolsDisabledDepth: 0,
       isSubagent: undefined,
-    };
+    } as unknown as Conversation;
     expect(isToolActiveForContext("file_list", ctx)).toBe(false);
   });
 
   test("isToolActiveForContext shows file_list when isSubagent is true", () => {
-    const ctx: SkillProjectionContext = {
+    const ctx = {
       skillProjectionState: new Map(),
       skillProjectionCache: {},
       toolsDisabledDepth: 0,
       isSubagent: true,
-    };
+    } as unknown as Conversation;
     expect(isToolActiveForContext("file_list", ctx)).toBe(true);
   });
 });

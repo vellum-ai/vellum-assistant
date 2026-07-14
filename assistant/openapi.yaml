@@ -3,7 +3,7 @@
 openapi: 3.1.0
 info:
   title: Vellum Assistant API
-  version: 0.10.9
+  version: 0.10.8
   description: Auto-generated OpenAPI specification for the Vellum Assistant runtime HTTP server.
 servers:
   - url: http://127.0.0.1:7821
@@ -606,6 +606,8 @@ paths:
                           type: string
                         contentId:
                           type: string
+                        origin:
+                          type: string
                       required:
                         - id
                         - name
@@ -613,6 +615,7 @@ paths:
                         - updatedAt
                         - version
                         - contentId
+                        - origin
                       additionalProperties: false
                 required:
                   - apps
@@ -11554,6 +11557,27 @@ paths:
                   - lines
                   - truncated
                 additionalProperties: false
+  /v1/gateway/status:
+    get:
+      operationId: gateway_status_get
+      summary: Get gateway status
+      description:
+        Reports the gateway's public tunnel status. `tunnel` holds the active public URL when a tunnel is connected
+        and is omitted otherwise. Errors with 503 when the gateway is not running. The tunnel only matters for routing
+        inbound Twilio webhooks and live voice/audio WebSockets.
+      tags:
+        - gateway
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tunnel:
+                    type: string
+                additionalProperties: false
   /v1/groups:
     get:
       operationId: groups_get
@@ -21925,7 +21949,9 @@ paths:
     get:
       operationId: platform_status_get
       summary: Get platform deployment context and connection status
-      description: Aggregates platform context, credentials, assistant ID, webhook secret, and Velay tunnel status.
+      description:
+        Aggregates platform context, credentials, assistant ID, and webhook secret. Velay tunnel status is reported
+        separately by gateway_status.
       tags:
         - platform
       responses:
@@ -21960,21 +21986,6 @@ paths:
                     anyOf:
                       - type: string
                       - type: "null"
-                  velayTunnel:
-                    anyOf:
-                      - type: object
-                        properties:
-                          connected:
-                            type: boolean
-                          publicUrl:
-                            anyOf:
-                              - type: string
-                              - type: "null"
-                        required:
-                          - connected
-                          - publicUrl
-                        additionalProperties: false
-                      - type: "null"
                 required:
                   - isPlatform
                   - baseUrl
@@ -21985,7 +21996,6 @@ paths:
                   - available
                   - organizationId
                   - userId
-                  - velayTunnel
                 additionalProperties: false
   /v1/playground/seed-conversation:
     post:

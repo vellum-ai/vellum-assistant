@@ -1,7 +1,6 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 
-import type { AppSummary } from "@/types/app-types";
-import { loadPinnedApps } from "@/utils/app-pin-storage";
+import { loadPinnedApps, type PinnableApp } from "@/utils/app-pin-storage";
 import { installMemoryStorage } from "@/utils/memory-storage.test-helper";
 import { usePinnedAppsStore } from "@/stores/pinned-apps-store";
 
@@ -14,18 +13,14 @@ beforeEach(() => {
   usePinnedAppsStore.setState({ pinnedApps: [], pinnedAppIds: new Set() });
 });
 
-function makeApp(overrides: Partial<AppSummary> & { id: string }): AppSummary {
+function makeApp(overrides: Partial<PinnableApp> & { id: string }): PinnableApp {
   return {
     name: `App ${overrides.id}`,
-    createdAt: 0,
-    updatedAt: 0,
-    version: "1.0.0",
-    contentId: `content_${overrides.id}`,
     ...overrides,
   };
 }
 
-function pin(app: AppSummary): void {
+function pin(app: PinnableApp): void {
   usePinnedAppsStore.getState().togglePin(app);
 }
 

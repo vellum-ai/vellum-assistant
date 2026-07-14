@@ -67,10 +67,23 @@ import { VoiceAvatar } from "./voice-avatar";
 import { VoiceListeningWaves } from "./voice-listening-waves";
 import { AVATAR_ENTER_SPRING } from "./voice-motion";
 import { VoiceRoomAmbientBackground } from "./voice-room-ambient-background";
-import { VoiceRoomColorLook, resolveVoiceRoomLook } from "./voice-room-eyes";
+import {
+  VoiceRespondingRings,
+  VoiceRoomColorLook,
+  VoiceStateCaption,
+  resolveVoiceRoomLook,
+} from "./voice-room-eyes";
 import { useIsVoiceRoomVisible } from "./use-is-voice-room-visible";
 
 const AVATAR_SIZE = 220;
+/**
+ * State caption anchor for the void look — just below the centered avatar's
+ * bottom edge (half its size from center, plus a gap), the void-look counterpart
+ * to the color look's caption below the eyes. Sits above the assistant
+ * transcript's `50% + 15vmin + 2.5rem` clearance on any typical viewport, and it
+ * only shows when that transcript is off (see below), so the two never collide.
+ */
+const VOID_CAPTION_TOP = `calc(50% + ${AVATAR_SIZE / 2}px + 1.75rem)`;
 
 /**
  * Safe-area insets (see `docs/CAPACITOR.md`): the `var()` is set by
@@ -118,6 +131,9 @@ export function VoiceRoom() {
 function VoiceRoomOverlay() {
   const state = useLiveVoiceStore.use.state();
   const reconnecting = useLiveVoiceStore.use.reconnecting();
+  // `speaking` stays set across a mid-turn tool run; gate `responding` on audio
+  // actually flowing so the room reads `thinking` while the tool works.
+  const assistantAudioActive = useLiveVoiceStore.use.assistantAudioActive();
   const assistantId = useLiveVoiceStore.use.assistantId();
   const muted = useLiveVoiceStore.use.muted();
   // Turn-scoped ■ stop is hands-free-only (a manual session's interrupt ends
@@ -129,8 +145,14 @@ function VoiceRoomOverlay() {
   const entryOrigin = useLiveVoiceStore.use.entryOrigin();
   const reduce = useReducedMotion();
 
-  const visual = toVoiceAvatarVisual(state, reconnecting);
-  const stateLabel = liveVoiceStateLabel(state, reconnecting);
+  const visual = toVoiceAvatarVisual(state, reconnecting, assistantAudioActive);
+  // The label + sr-only announcement must follow the same audio-aware mapping as
+  // the visual: a silent mid-turn `speaking` (ack spoken, tool now running)
+  // reads as "Thinking…", not "Speaking…", so screen-reader users aren't told
+  // the assistant is talking while it's actually silent (JARVIS-1279).
+  const labelState =
+    state === "speaking" && !assistantAudioActive ? "thinking" : state;
+  const stateLabel = liveVoiceStateLabel(labelState, reconnecting);
 
   // Captions = the two persisted transcript prefs, toggled together from the
   // room. Bound to the same `voice-prefs` store as the settings page and the
@@ -208,8 +230,11 @@ function VoiceRoomOverlay() {
     >
       {/* The color look (body grow entrance + color fade + centered waves +
           centered eyes) is the entire cast; the void look expresses the
-          session through the centered avatar and the bottom listening waves
-          instead. Both draw the waves only while `listening`, from live mic
+          session through the centered avatar, but shares the color look's
+          foreground chrome — the listening waves sweep in from the same top edge
+          and the same state caption names the beat below the centerpiece — so
+          the room reads identically for a custom avatar bar the full-screen
+          color + eyes. Both draw the waves only while `listening`, from live mic
           amplitude. */}
       {look ? (
         <VoiceRoomColorLook
@@ -231,7 +256,24 @@ function VoiceRoomOverlay() {
             <VoiceListeningWaves
               getAmplitude={getLiveVoiceInputAmplitude}
               palette="accent"
+              // Same top edge as the color look, above the centered avatar —
+              // positional parity, only the aurora/accent color differs from the
+              // color look's avatar-toned band.
+              placement="top"
             />
+          ) : null}
+          {/* Responding: the same concentric rings the color look radiates from
+              behind the eyes, here behind the centered avatar (both centered, so
+              they emanate from the centerpiece the same way). Rendered before the
+              avatar so it paints them behind it; rides the TTS-output amplitude. */}
+          {visual === "responding" ? (
+            <VoiceRespondingRings getAmplitude={getLiveVoiceOutputAmplitude} />
+          ) : null}
+          {/* Same state caption + gating as the color look (stands down only for
+              the assistant-transcript pref), anchored below the centered avatar
+              instead of the eyes. */}
+          {!showAssistantTranscript ? (
+            <VoiceStateCaption visual={visual} top={VOID_CAPTION_TOP} />
           ) : null}
         </>
       )}

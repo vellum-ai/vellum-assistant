@@ -679,6 +679,48 @@ describe("plugin runtime activation", () => {
     expect(readFileSync(initMarker, "utf8").trim().split("\n")).toHaveLength(1);
   });
 
+  test("a runtime install is reconciled even when the sentinel mtime never moves (coarse-mtime filesystems)", async () => {
+    await populateCacheAtBoot(); // empty plugins dir
+
+    // Pin every sentinel write back to the SAME timestamp, simulating a
+    // filesystem whose mtime granularity can't distinguish two rewrites (the
+    // virtiofs / 9p / network mounts the watcher polls precisely because their
+    // timestamps are unreliable). Only the sentinel's size + inode move — and
+    // the reconcile gate keys on those, not mtime alone.
+    const FIXED = new Date("2020-01-01T00:00:00.000Z");
+    const pinMtime = (): void =>
+      utimesSync(getSourceVersionsPath(), FIXED, FIXED);
+
+    // First install → publish → dispatch. Pin the mtime so the SECOND publish
+    // below shares it exactly.
+    const dirA = freshPluginDir("coarse-a");
+    writePackageJson(dirA, { ...SIMPLE_PKG, name: "coarse-a" });
+    writeTool(dirA, "coarse-a-tool", TOOL_SRC("coarse-a-tool"));
+    expect(publishSourceChanges()).toBe(true);
+    pinMtime();
+    await getUserHooksFor("user-prompt-submit");
+    await loadPluginTools();
+    expect(
+      getAllToolDefinitions().some((t) => t.name === "coarse-a-tool"),
+    ).toBe(true);
+
+    // Second install → publish → pin the SAME mtime as the first. An mtime-only
+    // gate would see no change and never reconcile (the plugin would go live
+    // only at the next daemon restart); the composite signature still moves —
+    // the atomic rename swaps in a fresh inode and the sentinel grew — so the
+    // plugin goes live on the very next dispatch.
+    const dirB = freshPluginDir("coarse-b");
+    writePackageJson(dirB, { ...SIMPLE_PKG, name: "coarse-b" });
+    writeTool(dirB, "coarse-b-tool", TOOL_SRC("coarse-b-tool"));
+    expect(publishSourceChanges()).toBe(true);
+    pinMtime();
+    await getUserHooksFor("user-prompt-submit");
+    await loadPluginTools();
+    expect(
+      getAllToolDefinitions().some((t) => t.name === "coarse-b-tool"),
+    ).toBe(true);
+  });
+
   test("activation is idempotent — republishing without changes does not re-run init", async () => {
     const dir = freshPluginDir("idem-plugin");
     writePackageJson(dir, { ...SIMPLE_PKG, name: "idem-plugin" });

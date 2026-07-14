@@ -2,9 +2,9 @@
  * Listening-state waves for the voice room: layered sine waves that swell as
  * the user speaks — the visual language of energy coming *in* (the user's
  * voice arriving), the counterpart to the assistant's outward `responding`
- * pulse on the avatar. `placement` anchors the band: `bottom` rises from the
- * floor edge (the void look), `center` is a symmetric band around the middle
- * (the color look, gathering behind the centered eyes).
+ * pulse on the avatar. `placement` anchors the band: `top` sweeps in from the
+ * ceiling edge (both looks — above the centerpiece, leaving it clear), `bottom`
+ * rises from the floor edge, `center` is a symmetric band around the middle.
  *
  * The waves always drift horizontally (a slow CSS loop); the user's live mic
  * amplitude drives how high they rise and how bright they are, written
@@ -72,9 +72,9 @@ export type VoiceWaveStyle = "fill" | "line";
 export type VoiceWavePalette = "aurora" | "accent" | "tone";
 
 /**
- * Where the wave band sits: `bottom` rises from the floor edge (the void
- * look), `top` sweeps in from the ceiling edge (the color look — the voice
- * arriving above the centered eyes, leaving them clear), `center` swells
+ * Where the wave band sits: `top` sweeps in from the ceiling edge (both room
+ * looks — the voice arriving above the centered eyes / avatar, leaving the
+ * centerpiece clear), `bottom` rises from the floor edge, `center` swells
  * symmetrically around the middle of the screen.
  */
 export type VoiceWavePlacement = "bottom" | "top" | "center";

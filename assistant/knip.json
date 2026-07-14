@@ -9,10 +9,7 @@
     "src/config/bundled-skills/**/tools/**/*.ts!"
   ],
   "project": ["src/**/*.ts!", "src/**/*.tsx!", "scripts/**/*.ts"],
-  "ignore": [
-    "src/config/preloaded-apps/**",
-    "src/telemetry/telemetry-wire.generated.ts"
-  ],
+  "ignore": ["src/config/preloaded-apps/**"],
   "ignoreDependencies": [
     "@microsoft/api-extractor",
     "@vellumai/ces-client",

@@ -14,6 +14,7 @@ import {
   BackupPromptBlock,
   ErrorMessage,
   FeedbackPromptBlock,
+  UserOutcomePromptBlock,
   StatusMessage,
   ToolCallBlock,
   UserMessage,
@@ -21,6 +22,7 @@ import {
 import { DoctorAvatar } from "@/domains/settings/components/panels/doctor-avatar";
 import {
   type ChatEntry,
+  applySessionUserOutcome,
   hasPendingApproval,
   hasPendingBackup,
   latestReplayableDoctorSourceEventId,
@@ -43,7 +45,11 @@ import {
   assistantsDoctorHistoryRetrieveOptions,
   useAssistantsDoctorSessionsMessagesCreateMutation,
 } from "@/generated/api/@tanstack/react-query.gen";
-import { type Options, assistantsDoctorSessionsCreate } from "@/generated/api/sdk.gen";
+import {
+  type Options,
+  assistantsDoctorSessionsCreate,
+  assistantsDoctorSessionsUserOutcomeCreate,
+} from "@/generated/api/sdk.gen";
 import type { AssistantsDoctorSessionsCreateData } from "@/generated/api/types.gen";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
 import { captureError } from "@/lib/sentry/capture-error";
@@ -178,7 +184,10 @@ export function DoctorPanel() {
   const historyEntries = useMemo(
     () =>
       historyDetail
-        ? mapPersistedMessagesToEntries(historyDetail.messages ?? [])
+        ? applySessionUserOutcome(
+            mapPersistedMessagesToEntries(historyDetail.messages ?? []),
+            historyDetail.user_outcome,
+          )
         : [],
     [historyDetail],
   );
@@ -205,7 +214,10 @@ export function DoctorPanel() {
 
     const store = useDoctorPanelStore.getState();
     const messages = historyDetail.messages ?? [];
-    const resumedEntries = mapPersistedMessagesToEntries(messages);
+    const resumedEntries = applySessionUserOutcome(
+      mapPersistedMessagesToEntries(messages),
+      historyDetail.user_outcome,
+    );
     store.setEntries(resumedEntries);
     store.setPendingApproval(hasPendingApproval(resumedEntries));
     store.setPendingBackup(hasPendingBackup(resumedEntries));
@@ -346,6 +358,52 @@ export function DoctorPanel() {
     setFeedbackOpen(false);
     setFeedbackDraft(null);
   }, []);
+
+  const refetchHistoryDetail = historyDetailQuery.refetch;
+  const handleUserOutcomeRespond = useCallback(
+    (entryId: string, resolved: boolean) => {
+      const store = useDoctorPanelStore.getState();
+      const isHistoryView = store.sessionId === null;
+      const targetSessionId = store.sessionId ?? latestHistorySessionId;
+      if (!assistantId || !targetSessionId) {
+        return;
+      }
+      // Optimistic answer for the live-session view (store-backed entries).
+      store.updateEntries((entries) =>
+        entries.map((entry) =>
+          entry.id === entryId && entry.kind === "user_outcome_prompt"
+            ? {
+                ...entry,
+                meta: {
+                  ...entry.meta,
+                  answer: resolved ? "resolved" : "not_resolved",
+                },
+              }
+            : entry,
+        ),
+      );
+      assistantsDoctorSessionsUserOutcomeCreate({
+        path: { assistant_id: assistantId, session_id: targetSessionId },
+        body: { resolved },
+        throwOnError: false,
+      }).then(({ error }) => {
+        if (error) {
+          captureError(error, { context: "doctor_session_user_outcome" });
+        } else if (isHistoryView) {
+          // History-view entries render from the query cache, not the
+          // store — refetch so the answered state comes back via
+          // applySessionUserOutcome.
+          void refetchHistoryDetail();
+        }
+      });
+      if (!resolved) {
+        handleOpenFeedback({
+          message: "The Doctor wasn't able to solve my problem: ",
+        });
+      }
+    },
+    [assistantId, latestHistorySessionId, handleOpenFeedback, refetchHistoryDetail],
+  );
 
   const handleEndSession = () => {
     abort();
@@ -642,6 +700,18 @@ export function DoctorPanel() {
                                   : entry.content,
                               reason: entry.meta?.reason,
                             })
+                          }
+                        />
+                      </div>
+                    );
+                  case "user_outcome_prompt":
+                    return (
+                      <div key={entry.id} className="max-w-[90%]">
+                        <UserOutcomePromptBlock
+                          question={entry.content}
+                          answer={entry.meta?.answer}
+                          onRespond={(resolved) =>
+                            handleUserOutcomeRespond(entry.id, resolved)
                           }
                         />
                       </div>

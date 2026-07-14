@@ -123,6 +123,7 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "db status",
   "db repair",
   "gateway",
+  "gateway status",
   "gateway logs",
   "gateway logs tail",
   "image-generation",

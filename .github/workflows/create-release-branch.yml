@@ -2,13 +2,11 @@ name: Create Release Branch
 
 on:
   schedule:
-    # Release at 9am ET every Tuesday and Friday. Two entries cover EDT (UTC-4)
-    # and EST (UTC-5); schedule-guard picks the one matching today's offset and
-    # drops the other. Scheduled at 7:50am ET (~70 min early) so GitHub's
-    # variable cron delay can't push us past 9am; schedule-guard then sleeps off
-    # the remaining buffer so the release lands at exactly 9am ET.
-    - cron: "50 11 * * 2,5"  # EDT: 7:50am ET
-    - cron: "50 12 * * 2,5"  # EST: 7:50am ET
+    # Release at 8:52am ET every Tuesday and Friday. Two entries cover EDT
+    # (UTC-4) and EST (UTC-5); schedule-guard picks the one matching today's
+    # offset and drops the other.
+    - cron: "52 12 * * 2,5"  # EDT: 8:52am ET
+    - cron: "52 13 * * 2,5"  # EST: 8:52am ET
   workflow_dispatch:
     inputs:
       bump:
@@ -31,41 +29,32 @@ concurrency:
 jobs:
   schedule-guard:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 5
     outputs:
       should-run: ${{ steps.check.outputs.should-run }}
     steps:
-      - name: Wait until 9am ET, then decide
+      - name: Pick the cron entry matching today's ET offset
         id: check
         run: |
           if [ "${{ github.event_name }}" != "schedule" ]; then
             echo "should-run=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          # Two cron entries fire (11:50 and 12:50 UTC) to cover EDT/EST. Run
+          # Two cron entries fire (12:52 and 13:52 UTC) to cover EDT/EST. Run
           # only the entry matching today's Eastern offset so the release fires
           # once. Keying off the triggering cron (not the wall-clock hour at job
           # start) stays correct even when GitHub delays the scheduled run.
           OFFSET=$(TZ=America/New_York date +%z)
           if [ "$OFFSET" = "-0400" ]; then
-            EXPECTED="50 11 * * 2,5"  # EDT: 7:50am ET = 11:50 UTC
+            EXPECTED="52 12 * * 2,5"  # EDT: 8:52am ET = 12:52 UTC
           else
-            EXPECTED="50 12 * * 2,5"  # EST: 7:50am ET = 12:50 UTC
+            EXPECTED="52 13 * * 2,5"  # EST: 8:52am ET = 13:52 UTC
           fi
           if [ "${{ github.event.schedule }}" != "$EXPECTED" ]; then
             echo "should-run=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           echo "should-run=true" >> "$GITHUB_OUTPUT"
-          # Crons are scheduled ~70 min early to absorb GitHub's variable delay;
-          # sleep off whatever buffer remains so downstream jobs start at 9am ET.
-          # If GitHub already delayed us past 9am, proceed immediately.
-          TARGET=$(TZ=America/New_York date -d 'today 09:00' +%s)
-          NOW=$(date +%s)
-          if [ "$NOW" -lt "$TARGET" ]; then
-            echo "Waiting $((TARGET - NOW))s until 9:00am ET"
-            sleep $((TARGET - NOW))
-          fi
 
   compute-version:
     needs: schedule-guard

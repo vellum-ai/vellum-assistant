@@ -99,6 +99,11 @@ export function mapVelayError(error: VelayErrorInfo): {
 } {
   switch (error.code) {
     case "invalid_key":
+      return {
+        category: "auth",
+        message:
+          "The Vellum speech relay rejected this assistant's API key — the assistant's platform environment may not match the relay it is dialing (set VELAY_BASE_URL on the gateway to the matching environment, e.g. https://velay-staging.vellum.ai for staging).",
+      };
     case "missing_platform_connection":
       return {
         category: "auth",
