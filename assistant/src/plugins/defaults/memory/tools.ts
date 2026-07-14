@@ -7,7 +7,7 @@
  * memory feature (`src/memory/*`).
  */
 
-import { getConfig } from "../../../config/loader.js";
+import { getConfig, getConfigReadOnly } from "../../../config/loader.js";
 import { RiskLevel } from "../../../permissions/types.js";
 import { resolveCapabilities } from "../../../runtime/capabilities.js";
 import type {
@@ -19,6 +19,7 @@ import { runAgenticRecall } from "./context-search/agent-runner.js";
 import type { RecallInput } from "./context-search/types.js";
 import { handleRemember, type RememberInput } from "./graph/tool-handlers.js";
 import {
+  buildRememberInputSchema,
   graphRecallDefinition,
   graphRememberDefinition,
 } from "./graph/tools.js";
@@ -31,7 +32,16 @@ export const rememberTool = {
   category: "memory",
   executionTarget: "sandbox",
   defaultRiskLevel: RiskLevel.Low,
-  input_schema: graphRememberDefinition.input_schema,
+  // The [[slug]] page-hint guidance applies only under the wiki memory model
+  // (v1/PKB has no pages for hints to reference), so the schema is resolved
+  // against config when the registry finalizes the tool at startup rather
+  // than baked in statically. Read-only accessor: a definition read must
+  // never create workspace directories.
+  get input_schema() {
+    return buildRememberInputSchema({
+      pageHints: getConfigReadOnly().memory.v2.enabled,
+    });
+  },
 
   async execute(
     input: Record<string, unknown>,

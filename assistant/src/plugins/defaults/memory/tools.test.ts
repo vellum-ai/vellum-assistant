@@ -370,3 +370,24 @@ describe("rememberTool.execute — batch (array) content", () => {
     expect(enqueueCalls).toHaveLength(0);
   });
 });
+
+describe("rememberTool definition — page-hint guidance gating", () => {
+  // The rest of this file exercises the v1 PKB path; restore its seed.
+  afterAll(() => {
+    setConfig("memory", { v2: { enabled: false } });
+  });
+
+  test("omits the [[slug]] hint guidance in v1/PKB mode", () => {
+    setConfig("memory", { v2: { enabled: false } });
+    expect(
+      rememberTool.input_schema.properties.content.description,
+    ).not.toContain("[[slug]]");
+  });
+
+  test("includes the [[slug]] hint guidance under wiki memory (v2)", () => {
+    setConfig("memory", { v2: { enabled: true } });
+    expect(rememberTool.input_schema.properties.content.description).toContain(
+      "[[slug]] wikilinks",
+    );
+  });
+});
