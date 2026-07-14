@@ -15,7 +15,8 @@ export type VoiceAvatarVisual =
 
 /**
  * Pure mapping from a live-voice session phase (plus the orthogonal
- * `reconnecting` retry signal) to the avatar's visual mode.
+ * `reconnecting` retry signal and whether assistant audio is actually flowing)
+ * to the avatar's visual mode.
  *
  * - `connecting` while `reconnecting` → `"reconnecting"` (a dropped connection
  *   is being retried; visually distinct from the initial connect).
@@ -23,11 +24,22 @@ export type VoiceAvatarVisual =
  *   express — hosts typically unmount the room in the terminal states).
  * - `listening` → `"listening"`.
  * - `transcribing` / `thinking` → `"thinking"`.
- * - `speaking` → `"responding"`.
+ * - `speaking` → `"responding"` while audio is flowing, else `"thinking"`.
+ *
+ * The `speaking` phase is a pure mirror of the server's turn framing — it is set
+ * on the first `tts_audio` frame and cleared only on `tts_done` (turn end) or a
+ * barge-in. A turn that speaks a short ack and then runs a tool (e.g. the
+ * app-builder skill) stays `speaking` for the whole silent tool run. Gating on
+ * `assistantAudioActive` (audio actually queued/playing, tracked by the
+ * controller from the player) collapses that silent stretch back to `thinking`,
+ * so the room stops claiming the assistant is talking mid-turn. Defaults to
+ * `true` — a non-`speaking` phase never reads it, and callers without the signal
+ * keep the plain `speaking → responding` behavior. (JARVIS-1279)
  */
 export function toVoiceAvatarVisual(
   state: LiveVoiceSessionState,
   reconnecting: boolean,
+  assistantAudioActive = true,
 ): VoiceAvatarVisual {
   switch (state) {
     case "connecting":
@@ -42,6 +54,6 @@ export function toVoiceAvatarVisual(
     case "thinking":
       return "thinking";
     case "speaking":
-      return "responding";
+      return assistantAudioActive ? "responding" : "thinking";
   }
 }

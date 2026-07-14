@@ -62,6 +62,7 @@ export function VoiceAmbientTranscript() {
   // `inputAmplitude` churn the narrow subscriptions above avoid.
   const state = useLiveVoiceStore.use.state();
   const reconnecting = useLiveVoiceStore.use.reconnecting();
+  const assistantAudioActive = useLiveVoiceStore.use.assistantAudioActive();
   const reduce = useReducedMotion();
 
   // In-flight partial wins over the last finalized transcript — same precedence
@@ -74,7 +75,7 @@ export function VoiceAmbientTranscript() {
   // assistant caption. Hide that half while listening (the assistant isn't
   // speaking then anyway); in thinking/responding the eyes are centered and the
   // clearance clears them.
-  const visual = toVoiceAvatarVisual(state, reconnecting);
+  const visual = toVoiceAvatarVisual(state, reconnecting, assistantAudioActive);
   const showUserHalf = showUser && userText.length > 0;
   const showAssistantHalf =
     showAssistant && assistantTranscript.length > 0 && visual !== "listening";

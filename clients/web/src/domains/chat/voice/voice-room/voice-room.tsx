@@ -131,6 +131,9 @@ export function VoiceRoom() {
 function VoiceRoomOverlay() {
   const state = useLiveVoiceStore.use.state();
   const reconnecting = useLiveVoiceStore.use.reconnecting();
+  // `speaking` stays set across a mid-turn tool run; gate `responding` on audio
+  // actually flowing so the room reads `thinking` while the tool works.
+  const assistantAudioActive = useLiveVoiceStore.use.assistantAudioActive();
   const assistantId = useLiveVoiceStore.use.assistantId();
   const muted = useLiveVoiceStore.use.muted();
   // Turn-scoped ■ stop is hands-free-only (a manual session's interrupt ends
@@ -142,7 +145,7 @@ function VoiceRoomOverlay() {
   const entryOrigin = useLiveVoiceStore.use.entryOrigin();
   const reduce = useReducedMotion();
 
-  const visual = toVoiceAvatarVisual(state, reconnecting);
+  const visual = toVoiceAvatarVisual(state, reconnecting, assistantAudioActive);
   const stateLabel = liveVoiceStateLabel(state, reconnecting);
 
   // Captions = the two persisted transcript prefs, toggled together from the
