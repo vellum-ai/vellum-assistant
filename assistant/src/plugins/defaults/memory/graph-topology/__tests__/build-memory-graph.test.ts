@@ -163,6 +163,37 @@ describe("assembleMemoryGraph", () => {
     expect(nodes.map((n) => n.id).sort()).toEqual(["a", "skills/orphan"]);
   });
 
+  it("re-prunes a functionality node stranded by truncation", () => {
+    const { nodes, edges, truncated } = assembleMemoryGraph({
+      entries: [
+        entry("hub"),
+        entry("h1"),
+        entry("h2"),
+        entry("h3"),
+        entry("p"),
+        entry("q"),
+        entry("skills/s", { modifiedAt: 0 }),
+      ],
+      // hub has degree 3; skills/s has degree 2 (p, q). The cap keeps the top 2
+      // by degree (hub, skills/s) but drops every one of skills/s's neighbors.
+      staticAdjacency: adjacency([
+        ["hub", "h1", undefined],
+        ["hub", "h2", undefined],
+        ["hub", "h3", undefined],
+        ["skills/s", "p", undefined],
+        ["skills/s", "q", undefined],
+      ]),
+      maxNodes: 2,
+      pruneDisconnectedNonConcepts: true,
+    });
+
+    expect(truncated).toBe(true);
+    // skills/s survived the cap but lost both neighbors → re-pruned as isolated;
+    // the isolated concept hub is kept (concepts always survive).
+    expect(nodes.map((n) => n.id)).toEqual(["hub"]);
+    expect(edges).toEqual([]);
+  });
+
   it("treats a real page under a reserved prefix as a concept, not a prunable skill", () => {
     // A non-colliding user page like `skills/my-notes` survives the page index
     // with a real mtime; it must classify as a concept (by modifiedAt, not the

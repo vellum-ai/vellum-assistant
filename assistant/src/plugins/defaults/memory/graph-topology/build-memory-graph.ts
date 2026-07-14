@@ -220,6 +220,20 @@ export function assembleMemoryGraph(input: AssembleMemoryGraphInput): {
   const keptEdges = edges.filter(
     (e) => kept.has(e.source) && kept.has(e.target),
   );
+
+  // Truncation can strand a functionality node whose only neighbors were
+  // dropped. Re-prune against post-truncation degree so the connected-only
+  // guarantee holds even in a capped graph. An isolated node touches no kept
+  // edge by definition, so no further edge cleanup is needed.
+  if (input.pruneDisconnectedNonConcepts) {
+    const connected = new Set<string>();
+    for (const e of keptEdges) {
+      connected.add(e.source);
+      connected.add(e.target);
+    }
+    nodes = nodes.filter((n) => n.kind === "concept" || connected.has(n.id));
+  }
+
   return { nodes, edges: keptEdges, truncated: true };
 }
 
