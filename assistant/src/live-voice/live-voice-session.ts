@@ -26,6 +26,7 @@ import {
 } from "../calls/voice-triage-escalate.js";
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getConfig } from "../config/loader.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
 import { ensureConversationExists } from "../persistence/conversation-crud.js";
 import {
   listProviderIds,
@@ -2575,8 +2576,49 @@ async function defaultStartVoiceTurn(
       options.conversationId,
     );
   }
+  // Stamp the turn with the guardian's trust context — the same resolution the
+  // text-send route runs for a local vellum principal. A local live-voice
+  // session only exists for the guardian's own authenticated client (the
+  // gateway pins the `/v1/live-voice` upgrade to the bound guardian), but the
+  // live-voice ingress bypasses the send-message route, so without this stamp
+  // the turn resolved to the fail-closed `unknown` trust class and every
+  // sensitive tool was denied. Resolution stays fail-closed: a gateway miss /
+  // missing binding leaves the context unset (`unknown`), never a blind grant.
+  const trustContext = await resolveLocalLiveVoiceTrustContext(
+    options.conversationId,
+  );
   const { startVoiceTurn } = await import("../calls/voice-session-bridge.js");
-  return startVoiceTurn(options);
+  return startVoiceTurn({
+    ...options,
+    ...(trustContext ? { trustContext } : {}),
+  });
+}
+
+/**
+ * Resolve the local guardian's {@link TrustContext} for a live-voice turn, or
+ * `undefined` when it cannot be established (no vellum guardian binding, or
+ * the gateway is unreachable) — the turn then runs under the fail-closed
+ * `unknown` capability set, exactly as an unstamped turn does.
+ */
+async function resolveLocalLiveVoiceTrustContext(
+  conversationId: string,
+): Promise<TrustContext | undefined> {
+  const { findLocalGuardianPrincipalId } =
+    await import("../runtime/local-actor-identity.js");
+  const { resolveLocalPrincipalTrustContext } =
+    await import("../runtime/local-principal-trust.js");
+  const guardianPrincipalId = await findLocalGuardianPrincipalId();
+  if (!guardianPrincipalId) {
+    return undefined;
+  }
+  const trustContext = await resolveLocalPrincipalTrustContext({
+    actorPrincipalId: guardianPrincipalId,
+    sourceChannel: "vellum",
+    conversationExternalId: conversationId,
+  });
+  // Only stamp a positive guardian resolution; the resolver's own
+  // fail-closed `unknown` carries no more information than no stamp.
+  return trustContext.trustClass === "guardian" ? trustContext : undefined;
 }
 
 async function defaultStreamLiveVoiceTtsAudio(
