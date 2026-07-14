@@ -93,10 +93,12 @@ const SERVER_VAD_PRE_ROLL_MAX_CHUNKS = 25;
 // provider keeps its own, longer, finalize fallback).
 const FINALIZE_GRACE_MS = 1_000;
 // Consecutive speech (ms) required before speech during assistant playback
-// flushes it (speech_started) and cancels the turn, so a cough or noise blip
-// cannot kill a reply mid-sentence. Mirrors the liveVoice.vad.bargeInMinSpeechMs
-// schema default; 0 disables the guard for instant barge-in.
-const DEFAULT_BARGE_IN_MIN_SPEECH_MS = 60;
+// flushes it (speech_started) and cancels the turn, so a cough, a filler word,
+// or the assistant's own TTS bleeding through imperfect browser echo
+// cancellation cannot kill a reply mid-sentence. Mirrors the
+// liveVoice.vad.bargeInMinSpeechMs schema default; 0 disables the guard for
+// instant barge-in.
+const DEFAULT_BARGE_IN_MIN_SPEECH_MS = 250;
 // At most this many TTS segment jobs are open (provider stream started,
 // frames not yet fully emitted) per turn: the emitting job plus one
 // prefetching job. The prefetch buffers its chunks in memory until promoted;
@@ -386,12 +388,23 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       ...(options.metricsClock ? { clock: options.metricsClock } : {}),
     });
     this.speechEnergyThreshold = options.speechEnergyThreshold;
+    // Precedence for the two sensitivity knobs: per-session start-frame
+    // override (the client's user setting) > daemon `liveVoice.vad` config
+    // (seeded into `options` by the factory) > in-code default.
     this.bargeInMinSpeechMs =
-      options.bargeInMinSpeechMs ?? DEFAULT_BARGE_IN_MIN_SPEECH_MS;
+      context.startFrame.bargeInMinSpeechMs ??
+      options.bargeInMinSpeechMs ??
+      DEFAULT_BARGE_IN_MIN_SPEECH_MS;
     this.finalizeGraceMs = options.finalizeGraceMs ?? FINALIZE_GRACE_MS;
+    const turnDetectorConfig: TurnDetectorConfig = {
+      ...(options.turnDetectorConfig ?? {}),
+      ...(context.startFrame.silenceThresholdMs !== undefined
+        ? { silenceThresholdMs: context.startFrame.silenceThresholdMs }
+        : {}),
+    };
     this.turnDetector =
       context.startFrame.turnDetection === "server_vad"
-        ? new MediaTurnDetector(options.turnDetectorConfig ?? {}, {
+        ? new MediaTurnDetector(turnDetectorConfig, {
             onTurnStart: () => this.handleVadSpeechStart(),
             onTurnEnd: (reason) => this.handleVadUtteranceEnd(reason),
           })

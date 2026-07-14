@@ -20,9 +20,9 @@ export const LiveVoiceVadConfigSchema = z
       .number({ error: "liveVoice.vad.silenceThresholdMs must be a number" })
       .int("liveVoice.vad.silenceThresholdMs must be an integer")
       .positive("liveVoice.vad.silenceThresholdMs must be a positive integer")
-      .default(800)
+      .default(1200)
       .describe(
-        "Trailing silence duration (ms) after speech that ends the user's turn",
+        "Trailing silence duration (ms) after speech that ends the user's turn — the default 'pause before reply'. Clients may override it per-session via the start frame.",
       ),
     maxTurnDurationMs: z
       .number({ error: "liveVoice.vad.maxTurnDurationMs must be a number" })
@@ -38,9 +38,9 @@ export const LiveVoiceVadConfigSchema = z
       .nonnegative(
         "liveVoice.vad.bargeInMinSpeechMs must be a nonnegative integer",
       )
-      .default(60)
+      .default(250)
       .describe(
-        "Sustained speech (ms) required before speech during assistant playback interrupts it; 0 disables the guard",
+        "Sustained speech (ms) required before speech during assistant playback interrupts it — the default 'interrupt sensitivity' (higher = harder to interrupt). 0 disables the guard. Clients may override it per-session via the start frame. Raised from 60 so brief TTS bleed through imperfect echo cancellation no longer self-interrupts the assistant.",
       ),
   })
   .describe(

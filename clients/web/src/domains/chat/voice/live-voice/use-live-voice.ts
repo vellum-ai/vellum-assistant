@@ -98,6 +98,10 @@ import {
   useLiveVoiceStore,
   type LiveVoiceSessionState,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
+import {
+  interruptSensitivityToMs,
+  useVoicePrefsStore,
+} from "@/stores/voice-prefs-store";
 
 // ---------------------------------------------------------------------------
 // Thresholds (mirror the macOS LiveVoiceChannelManager defaults)
@@ -549,11 +553,20 @@ export function useLiveVoice(
       // Registered here (not on `ready`) so a globally mounted surface can
       // drive the session from the moment it exists; cleared by the store
       // reset in teardown()/stop().
-      store.setControls({ stop: () => void stop(), release, interrupt, setMuted });
+      store.setControls({
+        stop: () => void stop(),
+        release,
+        interrupt,
+        setMuted,
+      });
 
       const opts = optionsRef.current;
-      const client = (opts.createClient ?? (() => new LiveVoiceChannelClient()))();
-      const player = (opts.createPlayer ?? (() => new LiveVoiceAudioPlayer()))();
+      const client = (
+        opts.createClient ?? (() => new LiveVoiceChannelClient())
+      )();
+      const player = (
+        opts.createPlayer ?? (() => new LiveVoiceAudioPlayer())
+      )();
       // Resume the playback AudioContext now, while we're still in the
       // mic-button click's gesture. Deferring to the first `tts_audio` frame
       // (its lazy creation point) lands outside any gesture, so the browser
@@ -588,9 +601,12 @@ export function useLiveVoice(
         assistantAudioIdleTimer: null,
       };
 
-      const capture = (opts.createCapture ?? ((o) => new LiveVoiceAudioCapture(o)))({
+      const capture = (
+        opts.createCapture ?? ((o) => new LiveVoiceAudioCapture(o))
+      )({
         onChunk: (buf) => handleChunk(session, buf),
-        onAmplitude: (amplitude) => handleAmplitude(session, amplitude, teardown),
+        onAmplitude: (amplitude) =>
+          handleAmplitude(session, amplitude, teardown),
       });
       session.capture = capture;
       sessionRef.current = session;
@@ -809,7 +825,11 @@ export function useLiveVoice(
         }),
         client.on("busy", () => {
           if (!live()) return;
-          finishWithError(session, teardown, "Another live-voice session is active.");
+          finishWithError(
+            session,
+            teardown,
+            "Another live-voice session is active.",
+          );
         }),
         client.on("error", (err: LiveVoiceClientError) => {
           if (!live()) return;
@@ -917,7 +937,12 @@ export function useLiveVoice(
             // timer re-enters `connectSession`) so the surface shows a
             // reconnect, not a fresh connect. Cleared on `ready`/teardown.
             s.setReconnecting(true);
-            s.setControls({ stop: () => void stop(), release, interrupt, setMuted });
+            s.setControls({
+              stop: () => void stop(),
+              release,
+              interrupt,
+              setMuted,
+            });
             console.warn(
               `live-voice: transport closed (code ${info.code}); reconnecting ` +
                 `(attempt ${attempt + 1}/${backoff.length})`,
@@ -935,10 +960,29 @@ export function useLiveVoice(
         }),
       );
 
+      // The pause + interrupt-sensitivity settings only apply to hands-free
+      // (server_vad) sessions — server VAD owns endpointing and barge-in. Read
+      // from the store (not the `.use.*` hook) since this is a callback, so a
+      // mid-session settings change also takes effect on the next reconnect.
+      // Each override is sent ONLY when the user has explicitly set it (non-null):
+      // otherwise it is omitted so the daemon's configured `liveVoice.vad`
+      // defaults govern, rather than a web-client default silently clobbering a
+      // self-hosted workspace's configuration.
+      const voicePrefs = useVoicePrefsStore.getState();
+      const pauseMs = voicePrefs.pauseBeforeReplyMs;
+      const sensitivity = voicePrefs.interruptSensitivity;
       await client.connect({
         assistantId,
         conversationId,
-        ...(session.handsFree ? { turnDetection: "server_vad" as const } : {}),
+        ...(session.handsFree
+          ? {
+              turnDetection: "server_vad" as const,
+              ...(pauseMs !== null ? { silenceThresholdMs: pauseMs } : {}),
+              ...(sensitivity !== null
+                ? { bargeInMinSpeechMs: interruptSensitivityToMs(sensitivity) }
+                : {}),
+            }
+          : {}),
       });
     },
     [teardown, stop, release, interrupt, setMuted],
@@ -1105,7 +1149,11 @@ function handleAmplitude(
   // barge-in) from a muted mic would contradict the substituted stream.
   const muted = useLiveVoiceStore.getState().muted;
   useLiveVoiceStore.getState().setInputAmplitude(muted ? 0 : amplitude);
-  if (!muted && !session.handsFree && amplitude >= BARGE_IN_AMPLITUDE_THRESHOLD) {
+  if (
+    !muted &&
+    !session.handsFree &&
+    amplitude >= BARGE_IN_AMPLITUDE_THRESHOLD
+  ) {
     interruptIfSpeaking(session, teardown);
   }
 }
@@ -1114,7 +1162,10 @@ function handleAmplitude(
  * Track speech / trailing-silence durations and auto-release push-to-talk once
  * a real utterance is followed by a long-enough silence window.
  */
-function updateAutomaticRelease(session: SessionContext, buf: ArrayBuffer): void {
+function updateAutomaticRelease(
+  session: SessionContext,
+  buf: ArrayBuffer,
+): void {
   if (useLiveVoiceStore.getState().state !== "listening") return;
   const durationMs = chunkDurationMs(buf);
   if (durationMs <= 0) return;

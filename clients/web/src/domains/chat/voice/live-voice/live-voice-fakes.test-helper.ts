@@ -41,6 +41,8 @@ export class FakeClient {
     assistantId: string;
     conversationId?: string;
     turnDetection?: "manual" | "server_vad";
+    silenceThresholdMs?: number;
+    bargeInMinSpeechMs?: number;
   } | null = null;
   sentAudio: ArrayBuffer[] = [];
   pttReleaseCount = 0;
@@ -70,6 +72,8 @@ export class FakeClient {
     assistantId: string;
     conversationId?: string;
     turnDetection?: "manual" | "server_vad";
+    silenceThresholdMs?: number;
+    bargeInMinSpeechMs?: number;
   }): Promise<void> {
     this.connectArgs = args;
   }

@@ -78,7 +78,35 @@ export interface LiveVoiceClientStartFrame {
    * utterance boundaries and runs repeated utterance→turn cycles.
    */
   readonly turnDetection?: LiveVoiceTurnDetectionMode;
+  /**
+   * Per-session override for the trailing-silence duration (ms) that ends the
+   * user's turn — the "pause before reply" the client exposes as a setting.
+   * Absent falls back to the daemon `liveVoice.vad.silenceThresholdMs` config.
+   * Only meaningful for `turnDetection: "server_vad"`. Bounded to
+   * [{@link MIN_SILENCE_THRESHOLD_MS}, {@link MAX_SILENCE_THRESHOLD_MS}].
+   */
+  readonly silenceThresholdMs?: number;
+  /**
+   * Per-session override for the sustained speech (ms) required before the
+   * user's speech interrupts the assistant mid-reply — the "interrupt
+   * sensitivity" the client exposes as a setting (higher = harder to
+   * interrupt; 0 disables the guard so barge-in is immediate). Absent falls
+   * back to the daemon `liveVoice.vad.bargeInMinSpeechMs` config. Bounded to
+   * [{@link MIN_BARGE_IN_MIN_SPEECH_MS}, {@link MAX_BARGE_IN_MIN_SPEECH_MS}].
+   */
+  readonly bargeInMinSpeechMs?: number;
 }
+
+/**
+ * Bounds for the per-session turn-detection overrides carried on the start
+ * frame. Kept deliberately wide — they only reject nonsensical values (a
+ * sub-100 ms pause would end turns mid-word; a 10 s barge-in guard would make
+ * the assistant uninterruptible). The daemon config defaults sit inside these.
+ */
+export const MIN_SILENCE_THRESHOLD_MS = 100;
+export const MAX_SILENCE_THRESHOLD_MS = 5_000;
+export const MIN_BARGE_IN_MIN_SPEECH_MS = 0;
+export const MAX_BARGE_IN_MIN_SPEECH_MS = 3_000;
 
 export interface LiveVoiceClientAudioFrame {
   readonly type: "audio";
@@ -448,6 +476,38 @@ function validateStartFrame(
     );
   }
 
+  if (
+    "silenceThresholdMs" in value &&
+    !isIntInRange(
+      value.silenceThresholdMs,
+      MIN_SILENCE_THRESHOLD_MS,
+      MAX_SILENCE_THRESHOLD_MS,
+    )
+  ) {
+    return protocolError(
+      "invalid_field",
+      `start frame field silenceThresholdMs must be an integer in [${MIN_SILENCE_THRESHOLD_MS}, ${MAX_SILENCE_THRESHOLD_MS}]`,
+      "silenceThresholdMs",
+      "start",
+    );
+  }
+
+  if (
+    "bargeInMinSpeechMs" in value &&
+    !isIntInRange(
+      value.bargeInMinSpeechMs,
+      MIN_BARGE_IN_MIN_SPEECH_MS,
+      MAX_BARGE_IN_MIN_SPEECH_MS,
+    )
+  ) {
+    return protocolError(
+      "invalid_field",
+      `start frame field bargeInMinSpeechMs must be an integer in [${MIN_BARGE_IN_MIN_SPEECH_MS}, ${MAX_BARGE_IN_MIN_SPEECH_MS}]`,
+      "bargeInMinSpeechMs",
+      "start",
+    );
+  }
+
   return {
     ok: true,
     frame: {
@@ -459,8 +519,24 @@ function validateStartFrame(
       ...(isLiveVoiceTurnDetectionMode(value.turnDetection)
         ? { turnDetection: value.turnDetection }
         : {}),
+      ...(typeof value.silenceThresholdMs === "number"
+        ? { silenceThresholdMs: value.silenceThresholdMs }
+        : {}),
+      ...(typeof value.bargeInMinSpeechMs === "number"
+        ? { bargeInMinSpeechMs: value.bargeInMinSpeechMs }
+        : {}),
     },
   };
+}
+
+/** Whether `value` is an integer within the inclusive `[min, max]` range. */
+function isIntInRange(value: unknown, min: number, max: number): boolean {
+  return (
+    typeof value === "number" &&
+    Number.isInteger(value) &&
+    value >= min &&
+    value <= max
+  );
 }
 
 function validateAudioFrame(
