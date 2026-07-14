@@ -842,29 +842,27 @@ export function createResolveToolsCallback(
     // is picked up without recreating the conversation.
     void loadPluginTools();
 
-    // Re-read plugin tool definitions from the registry each turn and scope them
-    // to the conversation's per-chat plugin set. Plugin tools share core's
-    // context filter + allowlist path, so combine them with the core snapshot
-    // before filtering. Ownership lives in the registry (queried via
-    // getToolOwner), not on the Tool object.
+    // Read every registered plugin tool each turn (so runtime installs/edits
+    // are picked up) and let one filter decide visibility, making the two
+    // precedence rules explicit side by side. Plugin tools share core's context
+    // filter + allowlist path, so combine them with the core snapshot before
+    // filtering. Ownership lives in the registry (getToolOwner), not on the Tool.
     //
-    // `null` = no per-chat restriction: use the workspace-gated read so a
-    // `.disabled` plugin's tools stay hidden. Otherwise the conversation's
-    // explicit scope is the single authority (rule 1 > rule 2, see
-    // getEffectiveEnabledPluginSet), so read ALL plugin tools — including those
-    // from a workspace-disabled plugin — and keep only the ones the effective
-    // set enables. This lets a chat re-enable a workspace-disabled plugin for
-    // itself; a workspace-disabled plugin absent from the set stays filtered out
-    // because it is not in the effective set.
-    const scopedPluginDefs =
-      effectiveEnabledPluginSet === null
-        ? getPluginToolDefinitions()
-        : getAllPluginToolDefinitions().filter((d) => {
-            const ownerId = getToolOwner(d.name)?.id;
-            return (
-              ownerId !== undefined && effectiveEnabledPluginSet.has(ownerId)
-            );
-          });
+    //   - No per-chat scope (null): keep tools whose plugin is not disabled at
+    //     the workspace level (the `.disabled` sentinel gate).
+    //   - Explicit per-chat scope: the scope is the sole authority (rule 1 >
+    //     rule 2, see getEffectiveEnabledPluginSet) — keep tools the scope
+    //     enables, so a chat can re-enable a workspace-disabled plugin for
+    //     itself while a plugin the scope omits stays hidden.
+    const scopedPluginDefs = getAllPluginToolDefinitions().filter((d) => {
+      const ownerId = getToolOwner(d.name)?.id;
+      if (ownerId === undefined) {
+        return false;
+      }
+      return effectiveEnabledPluginSet === null
+        ? !isPluginDisabled(ownerId)
+        : effectiveEnabledPluginSet.has(ownerId);
+    });
 
     // Filter core + plugin tools based on current conversation context so that
     // tools irrelevant to this turn (e.g. UI tools when no client is connected)
@@ -957,12 +955,24 @@ export function createResolveToolsCallback(
     // any degraded-mode narrowing below — `allowedToolNames` is the per-turn
     // execution gate (cleared at teardown and restricted under disk pressure),
     // whereas this snapshot answers "what tools does this conversation have".
-    // Resolve names to definitions against the live registry so skill/MCP/
-    // plugin tools — whose defs are not in the base turn snapshot — are
-    // captured with their metadata.
+    // Reuse the definitions already resolved this turn (base + appended skill
+    // defs); only active-skill names that carry no appended definition (the
+    // cached skill-projection path returns names without defs) fall back to a
+    // registry lookup for their metadata.
+    const resolvedDefsByName = new Map<string, ToolDefinition>();
+    for (const def of allBaseDefs) {
+      resolvedDefsByName.set(def.name, def);
+    }
+    for (const def of projection.toolDefinitions) {
+      resolvedDefsByName.set(def.name, def);
+    }
     ctx.registeredToolDefinitions = Array.from(turnAllowed)
       .sort((a, b) => a.localeCompare(b))
       .map((name) => {
+        const known = resolvedDefsByName.get(name);
+        if (known !== undefined) {
+          return known;
+        }
         const tool = getTool(name);
         return {
           name,

@@ -591,26 +591,21 @@ function handleConversationToolList(
     );
   }
 
-  const names = conversation
-    .getRegisteredToolDefinitions()
-    .map((d) => d.name)
-    .sort((a, b) => a.localeCompare(b));
+  // The snapshot already carries each tool's definition, so read schemas off it
+  // directly (activity-injected the same way the global catalog is) rather than
+  // flattening to names and re-looking-them-up in the registry.
+  const defs = injectActivityField(
+    conversation.getRegisteredToolDefinitions(),
+    ACTIVITY_SKIP_SET,
+  ).sort((a, b) => a.name.localeCompare(b.name));
 
-  const schemaByName = new Map<string, SchemaShape>(
-    injectActivityField(getAllTools(), ACTIVITY_SKIP_SET).map((d) => [
-      d.name,
-      d.input_schema as SchemaShape,
-    ]),
-  );
-
+  const names: string[] = [];
   const schemas: Record<string, SchemaShape> = {};
   const tools: ToolListEntry[] = [];
-  for (const name of names) {
-    const schema = schemaByName.get(name);
-    if (schema) {
-      schemas[name] = schema;
-    }
-    tools.push(toolEntryForName(name));
+  for (const def of defs) {
+    names.push(def.name);
+    schemas[def.name] = def.input_schema as SchemaShape;
+    tools.push(toolEntryForName(def.name));
   }
 
   return { names, schemas, tools };

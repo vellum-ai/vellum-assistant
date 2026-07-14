@@ -2360,19 +2360,7 @@ export class Conversation {
 
   // ── Tools ────────────────────────────────────────────────────────
 
-  /**
-   * The full tool definitions (name, description, input schema) available to
-   * this conversation as of its most recent turn — including skill/MCP tools
-   * registered over the conversation's lifecycle. Returns the durable
-   * {@link registeredToolDefinitions} snapshot the `resolveTools` callback
-   * records each turn (which, unlike the per-turn `allowedToolNames` gate, is
-   * not cleared at turn teardown); before the first turn it is the initial
-   * snapshot seeded in the constructor. This is a pure read: it does not re-run
-   * `resolveTools`, which has registry/projection side effects that must not
-   * fire outside a turn. Consumers (e.g. turn-trace telemetry, the tool
-   * inventory route) read this instead of reaching into the tool registry
-   * themselves.
-   */
+  /** The tool inventory resolved on this conversation's most recent turn. */
   getRegisteredToolDefinitions(): ToolDefinition[] {
     return this.registeredToolDefinitions;
   }
