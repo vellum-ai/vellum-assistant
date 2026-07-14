@@ -372,11 +372,26 @@ export interface EventHandlerState {
   /**
    * Credential refs parsed from `credentials reveal` invocations in this
    * turn's shell-style tool commands (see `chat-credential-redaction.ts`).
-   * Recorded in `handleToolUse`, consumed at the persist seams to scope the
-   * candidate fetch for redaction-sentinel enrichment. Only ever read when
-   * the `chat-credential-reveal` feature flag is on.
+   * Staged per tool_use in {@link pendingRevealRefsByToolUse} and promoted
+   * here only when that tool's result arrives successfully; consumed at the
+   * persist seams to scope the candidate fetch for redaction-sentinel
+   * enrichment. Only ever read when the `chat-credential-reveal` feature
+   * flag is on.
    */
   readonly revealCandidateRefs: RevealCandidateRef[];
+  /**
+   * Reveal refs parsed at `tool_use` time, staged until the tool's result
+   * proves the reveal actually executed. `tool_use` is emitted BEFORE tool
+   * execution — approval denial, cancellation, or the route's
+   * untrusted-shell block can still stop the command — and candidate
+   * resolution reads plaintext straight from the store, so resolving at
+   * propose time would fetch secrets for a reveal that never ran,
+   * side-stepping the reveal route's own policy gates. Promoted to
+   * {@link revealCandidateRefs} (and primed into the live guard) in
+   * `handleToolResult` on a genuine non-error result; dropped on
+   * cancellation or error.
+   */
+  readonly pendingRevealRefsByToolUse: Map<string, RevealCandidateRef[]>;
   /**
    * Live text the sentinel stream guard held back from
    * `assistant_text_delta` emission — a trailing partial `〔redacted:`
@@ -390,10 +405,10 @@ export interface EventHandlerState {
    * Precomputed live-swap entries for this turn's reveal candidates: when
    * the model echoes a candidate's plaintext, the stream guard replaces it
    * with its enriched sentinel before emission so the secret never reaches
-   * the wire. Primed asynchronously when `handleToolUse` records a reveal
-   * invocation — the store read settles while the tool itself is still
-   * running, long before its stdout can flow back into model output.
-   * Empty when the `chat-credential-reveal` flag is off.
+   * the wire. Primed asynchronously when `handleToolResult` confirms a
+   * staged reveal invocation actually succeeded — before the model's next
+   * text can echo the tool's stdout. Empty when the
+   * `chat-credential-reveal` flag is off.
    */
   liveRevealGuardEntries: readonly LiveRevealGuardEntry[];
   /**
@@ -506,6 +521,7 @@ export function createEventHandlerState(): EventHandlerState {
     latencyCursor: 0,
     deferredFinalizeEffects: [],
     revealCandidateRefs: [],
+    pendingRevealRefsByToolUse: new Map(),
     revealCandidateCache: undefined,
     pendingSentinelGuardBuffer: "",
     liveRevealGuardEntries: [],
@@ -547,16 +563,18 @@ async function chatRevealCandidates(
 
 /**
  * Kick off (or refresh) the live stream guard's swap entries from the
- * memoized candidate resolution. `handleToolUse` is synchronous, so the
- * store read starts here and usually settles while the reveal tool call is
- * still executing — but "usually" is not a guarantee: a fast tool return
- * plus a slow `getSecureKeyAsync` would let the next stream's text deltas
- * reach the guard before entries exist. The pending promise is therefore
- * recorded on state and awaited by the dispatcher at the delta boundary
- * (see `dispatchAgentEvent`), turning the race into a barrier. If
- * resolution fails, the guard stays on its previous entries and the
- * persist seams still redact; the stream guard remains a wire-level layer,
- * persistence the redaction boundary.
+ * memoized candidate resolution. Called from `handleToolResult` once a
+ * staged reveal invocation is confirmed successful — never at propose
+ * time, since candidate resolution reads plaintext straight from the
+ * store and the tool may yet be denied or cancelled. The store read is
+ * asynchronous while the dispatcher moves on, so a slow
+ * `getSecureKeyAsync` could let the next text deltas reach the guard
+ * before entries exist. The pending promise is therefore recorded on
+ * state and awaited by the dispatcher at the delta boundary (see
+ * `dispatchAgentEvent`), turning the race into a barrier. If resolution
+ * fails, the guard stays on its previous entries and the persist seams
+ * still redact; the stream guard remains a wire-level layer, persistence
+ * the redaction boundary.
  */
 function primeLiveRevealGuard(state: EventHandlerState): void {
   const priming = chatRevealCandidates(state)
@@ -1234,13 +1252,15 @@ export function handleToolUse(
   // redaction sentinels with a proven vault identity (chat-credential-reveal).
   // Tool-name agnostic on purpose: any shell-style tool (bash, host_bash)
   // carries the command in `input.command`. Pure string parse — no store
-  // access happens here.
+  // access happens here: `tool_use` precedes execution, and the refs are
+  // only STAGED until `handleToolResult` sees the reveal actually succeed
+  // (see `pendingRevealRefsByToolUse` — priming at propose time would read
+  // plaintext for a command that approval/cancellation may still block).
   const command = (event.input as { command?: unknown } | undefined)?.command;
   if (typeof command === "string" && command.length > 0) {
     const refs = collectRevealRefsFromCommand(command);
     if (refs.length > 0) {
-      state.revealCandidateRefs.push(...refs);
-      primeLiveRevealGuard(state);
+      state.pendingRevealRefsByToolUse.set(event.id, refs);
     }
   }
   const startedAt = Date.now();
@@ -1664,6 +1684,23 @@ export async function handleToolResult(
   deps: EventHandlerDeps,
   event: Extract<AgentEvent, { type: "tool_result" }>,
 ): Promise<void> {
+  // Promote staged reveal refs now that the tool's outcome is known: only a
+  // genuine non-error, non-cancelled result proves the reveal route actually
+  // ran (approval denial, cancellation, and the untrusted-shell block all
+  // surface as errored/cancelled results), so only then may candidate
+  // resolution read the plaintext from the store. Synchronous — the
+  // dispatcher awaits `tool_result` before any later `text_delta`, so the
+  // priming promise is registered before the barrier can be consulted.
+  const stagedRevealRefs = state.pendingRevealRefsByToolUse.get(
+    event.toolUseId,
+  );
+  if (stagedRevealRefs !== undefined) {
+    state.pendingRevealRefsByToolUse.delete(event.toolUseId);
+    if (!event.cancelled && !event.isError) {
+      state.revealCandidateRefs.push(...stagedRevealRefs);
+      primeLiveRevealGuard(state);
+    }
+  }
   // A synthesized cancellation (the tool never executed) is captured for
   // persistence and forwarded to the client like any result, but skips every
   // side effect that assumes the tool ran. A real result already captured or

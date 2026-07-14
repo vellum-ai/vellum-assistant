@@ -136,6 +136,13 @@ const REVEAL_TOOL_USE = {
   },
 } as Extract<AgentEvent, { type: "tool_use" }>;
 
+const REVEAL_TOOL_RESULT = {
+  type: "tool_result",
+  toolUseId: "toolu_reveal",
+  content: "(revealed value printed to stdout)",
+  isError: false,
+} as Extract<AgentEvent, { type: "tool_result" }>;
+
 beforeEach(() => {
   _resetStreamStateForTesting();
   pendingStoreReads.length = 0;
@@ -147,9 +154,14 @@ describe("live reveal guard priming barrier", () => {
     const state = createEventHandlerState();
     const deps = createMockDeps(events);
 
-    // tool_use records the reveal and starts priming; the store read is
-    // still pending when the echo delta arrives.
+    // tool_use only STAGES the reveal — no store read may happen while the
+    // command is merely proposed (it can still be denied or cancelled).
     await dispatchAgentEvent(state, deps, REVEAL_TOOL_USE);
+    expect(pendingStoreReads.length).toBe(0);
+
+    // The successful result confirms execution and starts priming; the
+    // store read is still pending when the echo delta arrives.
+    await dispatchAgentEvent(state, deps, REVEAL_TOOL_RESULT);
     expect(pendingStoreReads.length).toBe(1);
 
     const delta = dispatchAgentEvent(state, deps, {
@@ -177,6 +189,7 @@ describe("live reveal guard priming barrier", () => {
     const deps = createMockDeps(events);
 
     await dispatchAgentEvent(state, deps, REVEAL_TOOL_USE);
+    await dispatchAgentEvent(state, deps, REVEAL_TOOL_RESULT);
     const delta = dispatchAgentEvent(state, deps, {
       type: "text_delta",
       text: "plain text, no secret echoed",
@@ -188,6 +201,36 @@ describe("live reveal guard priming barrier", () => {
     await delta;
 
     expect(streamedText(events)).toBe("plain text, no secret echoed");
+  });
+
+  test("a denied or failed reveal never reads the store and stays unrevealable", async () => {
+    const events: ServerMessage[] = [];
+    const state = createEventHandlerState();
+    const deps = createMockDeps(events);
+
+    // Round-13 case: `tool_use` is emitted before execution, so approval
+    // denial / cancellation / the route's untrusted-shell block can still
+    // stop the command. An errored result must drop the staged refs
+    // without ever touching the store — resolving at propose time would
+    // read plaintext for a reveal that never ran, bypassing the reveal
+    // route's own policy gates.
+    await dispatchAgentEvent(state, deps, REVEAL_TOOL_USE);
+    await dispatchAgentEvent(state, deps, {
+      type: "tool_result",
+      toolUseId: "toolu_reveal",
+      content: "Command was denied by the user",
+      isError: true,
+    } as Extract<AgentEvent, { type: "tool_result" }>);
+
+    expect(pendingStoreReads.length).toBe(0);
+
+    // The refs are gone for the rest of the turn, not merely deferred.
+    await dispatchAgentEvent(state, deps, {
+      type: "text_delta",
+      text: "understood, not revealing anything",
+    } as Extract<AgentEvent, { type: "text_delta" }>);
+    expect(pendingStoreReads.length).toBe(0);
+    expect(streamedText(events)).toContain("not revealing anything");
   });
 
   test("steady-state deltas with no priming in flight emit synchronously", async () => {
