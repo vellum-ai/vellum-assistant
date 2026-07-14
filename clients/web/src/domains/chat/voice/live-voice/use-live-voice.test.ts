@@ -212,6 +212,8 @@ describe("full turn", () => {
     });
     expect(h.view.result.current.state).toBe("speaking");
     expect(h.player.enqueued).toHaveLength(1);
+    // Audio is flowing, so the avatar reads `responding` (JARVIS-1279).
+    expect(useLiveVoiceStore.getState().assistantAudioActive).toBe(true);
 
     // tts_done awaits playback drain, then ends the session (single-utterance):
     // the socket is closed and the mic is shut down, returning to idle.
@@ -223,6 +225,73 @@ describe("full turn", () => {
     expect(h.view.result.current.state).toBe("idle");
     expect(h.client.closed).toBe(true);
     expect(h.getCapture().shutdownCount).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Assistant-audio activity (mid-turn tool run) — JARVIS-1279
+// ---------------------------------------------------------------------------
+
+describe("assistant-audio activity", () => {
+  function emitTts(h: ReturnType<typeof renderController>, seq: number) {
+    h.client.emit("ttsAudio", {
+      type: "tts_audio",
+      seq,
+      mimeType: "audio/pcm",
+      sampleRate: 24000,
+      dataBase64: "AAAA",
+    });
+  }
+
+  test("stays `speaking` but marks audio inactive after the idle window when the player falls silent mid-turn", async () => {
+    const h = renderController();
+    await startListening(h, { handsFree: true });
+
+    act(() => {
+      h.client.emit("thinking", { type: "thinking", seq: 2, turnId: "t1" });
+      emitTts(h, 3);
+    });
+    expect(h.view.result.current.state).toBe("speaking");
+    expect(useLiveVoiceStore.getState().assistantAudioActive).toBe(true);
+
+    // The ack audio finishes but the turn stays open — the assistant is now
+    // running a tool, so no `tts_done` arrives.
+    act(() => {
+      h.player.finishPlayback();
+    });
+
+    // After the idle grace with a silent player, audio is marked inactive while
+    // the phase is still `speaking`, so the avatar can read `thinking`.
+    await act(async () => {
+      await sleep(650); // > ASSISTANT_AUDIO_IDLE_MS (500ms)
+    });
+    expect(h.view.result.current.state).toBe("speaking");
+    expect(useLiveVoiceStore.getState().assistantAudioActive).toBe(false);
+
+    // More TTS for the same turn re-activates it (back to `responding`).
+    act(() => {
+      emitTts(h, 4);
+    });
+    expect(useLiveVoiceStore.getState().assistantAudioActive).toBe(true);
+  });
+
+  test("keeps audio active across the idle window while the player is still draining", async () => {
+    const h = renderController();
+    await startListening(h, { handsFree: true });
+
+    act(() => {
+      h.client.emit("thinking", { type: "thinking", seq: 2, turnId: "t1" });
+      emitTts(h, 3);
+    });
+    // FakePlayer.enqueue leaves isPlaying true; never finish playback here.
+    expect(h.player.isPlaying).toBe(true);
+
+    // The idle check fires but re-arms because audio is still playing out — the
+    // avatar must not blink to `thinking` over audible speech.
+    await act(async () => {
+      await sleep(650);
+    });
+    expect(useLiveVoiceStore.getState().assistantAudioActive).toBe(true);
   });
 });
 

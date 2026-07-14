@@ -118,6 +118,9 @@ export function VoiceRoom() {
 function VoiceRoomOverlay() {
   const state = useLiveVoiceStore.use.state();
   const reconnecting = useLiveVoiceStore.use.reconnecting();
+  // `speaking` stays set across a mid-turn tool run; gate `responding` on audio
+  // actually flowing so the room reads `thinking` while the tool works.
+  const assistantAudioActive = useLiveVoiceStore.use.assistantAudioActive();
   const assistantId = useLiveVoiceStore.use.assistantId();
   const muted = useLiveVoiceStore.use.muted();
   // Turn-scoped ■ stop is hands-free-only (a manual session's interrupt ends
@@ -129,8 +132,14 @@ function VoiceRoomOverlay() {
   const entryOrigin = useLiveVoiceStore.use.entryOrigin();
   const reduce = useReducedMotion();
 
-  const visual = toVoiceAvatarVisual(state, reconnecting);
-  const stateLabel = liveVoiceStateLabel(state, reconnecting);
+  const visual = toVoiceAvatarVisual(state, reconnecting, assistantAudioActive);
+  // The label + sr-only announcement must follow the same audio-aware mapping as
+  // the visual: a silent mid-turn `speaking` (ack spoken, tool now running)
+  // reads as "Thinking…", not "Speaking…", so screen-reader users aren't told
+  // the assistant is talking while it's actually silent (JARVIS-1279).
+  const labelState =
+    state === "speaking" && !assistantAudioActive ? "thinking" : state;
+  const stateLabel = liveVoiceStateLabel(labelState, reconnecting);
 
   // Captions = the two persisted transcript prefs, toggled together from the
   // room. Bound to the same `voice-prefs` store as the settings page and the
