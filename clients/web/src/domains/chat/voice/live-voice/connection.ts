@@ -175,6 +175,18 @@ export interface BuildSelfHostedLiveVoiceWsUrlArgs {
 }
 
 /**
+ * Local gateway proxy path (`/assistant/__gateway/<port>`) as produced by
+ * `gatewayProxyUrl` in local-mode. HTTP gateway traffic rides this same-origin
+ * proxy, but a live-voice WebSocket cannot: both hosts that serve the proxy —
+ * the Vite dev-server middleware and the Electron `app://` protocol forward —
+ * proxy HTTP only and drop the WS upgrade, so a WS dialled at the proxy path
+ * never reaches the gateway. When the ingress is this proxy path we therefore
+ * bypass it and dial the loopback gateway port directly (the `ws://127.0.0.1:*`
+ * shape the desktop CSP already allowlists).
+ */
+const LOCAL_GATEWAY_PROXY_PATH = /^\/assistant\/__gateway\/(\d+)\/?$/;
+
+/**
  * Build the live-voice WebSocket URL for the self-hosted / local path:
  *
  *   ws(s)://<ingressHost>/v1/live-voice?token=<actorToken>[&conversationId=<id>]
@@ -188,11 +200,12 @@ export interface BuildSelfHostedLiveVoiceWsUrlArgs {
  *   `?token=` because the browser WebSocket API can't set an `Authorization`
  *   header; the gateway's non-managed `checkLiveVoiceAuth` reads it there.
  *
- * The ingress *path prefix* is preserved and `/v1/live-voice` is appended to it
- * — in local Docker mode the gateway is reached at a path-based proxy
- * (`<origin>/assistant/__gateway/{port}`), exactly as the HTTP interceptor
- * (`rewriteForSelfHostedIngress`) splices it. Any query/hash on the ingress is
- * dropped.
+ * When the ingress is the local `/assistant/__gateway/<port>` proxy path we dial
+ * the loopback gateway (`ws://127.0.0.1:<port>/v1/live-voice`) directly, since
+ * that HTTP-only proxy can't carry the WS upgrade — see
+ * {@link LOCAL_GATEWAY_PROXY_PATH}. A remote ingress (e.g. an ngrok `wss://`
+ * URL) keeps its host and path prefix, with `/v1/live-voice` appended. Any
+ * query/hash on the ingress is dropped.
  */
 export function buildSelfHostedLiveVoiceWsUrl({
   ingressUrl,
@@ -200,6 +213,19 @@ export function buildSelfHostedLiveVoiceWsUrl({
   token,
 }: BuildSelfHostedLiveVoiceWsUrlArgs): string {
   const url = new URL(ingressUrl);
+
+  // Local `__gateway` proxy path: the HTTP-only proxy can't carry a WS upgrade,
+  // so dial the loopback gateway port directly (see LOCAL_GATEWAY_PROXY_PATH).
+  const localProxy = url.pathname.match(LOCAL_GATEWAY_PROXY_PATH);
+  if (localProxy) {
+    const direct = new URL(`ws://127.0.0.1:${localProxy[1]}/v1/live-voice`);
+    direct.searchParams.set("token", token);
+    if (conversationId) {
+      direct.searchParams.set("conversationId", conversationId);
+    }
+    return direct.toString();
+  }
+
   url.protocol = url.protocol === "http:" ? "ws:" : "wss:";
   const prefix = url.pathname.replace(/\/+$/, "");
   url.pathname = `${prefix}/v1/live-voice`;
