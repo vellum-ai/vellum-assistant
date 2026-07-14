@@ -359,6 +359,17 @@ export function useLiveVoice(
   // useCallback self-reference cycle.
   const reconnectAttemptRef = useRef(0);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Initial-connect resilience (JARVIS-1282). `hasReadyRef` records whether the
+  // current session lifecycle ever reached `ready` — false during the very
+  // first connect, so a transient pre-`ready` connection failure (cold velay
+  // tunnel, token-mint blip) is retried within the backoff budget instead of
+  // flashing `failed` while the room's avatar is still animating in.
+  // `initialConnectAttemptRef` counts those first-connect retries (distinct
+  // from `reconnectAttemptRef` so the room shows "Connecting…", not
+  // "Reconnecting…"), sharing `reconnectTimerRef` for cancellation. Both reset
+  // on a fresh `start()`, on `ready`, and on teardown/stop.
+  const hasReadyRef = useRef(false);
+  const initialConnectAttemptRef = useRef(0);
   const connectSessionRef = useRef<
     | ((
         assistantId: string,
@@ -390,6 +401,8 @@ export function useLiveVoice(
     // a queued reconnect must not resurrect the session behind idle UI.
     clearReconnectTimer();
     reconnectAttemptRef.current = 0;
+    initialConnectAttemptRef.current = 0;
+    hasReadyRef.current = false;
     const session = sessionRef.current;
     if (!session) {
       // During the reconnect backoff gap `sessionRef` is null while the store
@@ -413,6 +426,8 @@ export function useLiveVoice(
     // reconnect and its attempt budget.
     clearReconnectTimer();
     reconnectAttemptRef.current = 0;
+    initialConnectAttemptRef.current = 0;
+    hasReadyRef.current = false;
     const session = sessionRef.current;
     if (!session) {
       useLiveVoiceStore.getState().reset();
@@ -604,6 +619,11 @@ export function useLiveVoice(
           // budget so a later, unrelated tunnel drop gets its full retry set,
           // and drop the reconnect label so the surface stops showing a retry.
           reconnectAttemptRef.current = 0;
+          // The session has connected at least once: retire the initial-connect
+          // resilience (a later drop reconnects via `reconnectAttemptRef`) and
+          // clear its budget.
+          hasReadyRef.current = true;
+          initialConnectAttemptRef.current = 0;
           useLiveVoiceStore.getState().setReconnecting(false);
           // When started from a new/empty conversation, `conversationId` was
           // undefined at start() and the store published `null`. The server
@@ -802,6 +822,58 @@ export function useLiveVoice(
             if (s.state === "transcribing") s.setState("listening");
             return;
           }
+          // Initial-connect resilience (JARVIS-1282): a hands-free session's
+          // very first connect can transiently fail before `ready` — a managed
+          // assistant's velay tunnel is briefly cold, or the token mint blips —
+          // and finishing with that error flashes the failure surface while the
+          // room's avatar is still animating in. Retry within the backoff
+          // budget instead, holding the room in `connecting` (a first connect,
+          // so NOT the "Reconnecting…" label), and only surface `failed` once
+          // the budget is spent. Scoped to connection-level failures pre-`ready`
+          // so a mid-session fatal error still fails immediately as before.
+          if (
+            session.handsFree &&
+            !hasReadyRef.current &&
+            (err.reason === "connection-failed" || err.reason === "timeout")
+          ) {
+            const backoff =
+              optionsRef.current.reconnectBackoffMs ?? RECONNECT_BACKOFF_MS;
+            if (initialConnectAttemptRef.current < backoff.length) {
+              const attempt = initialConnectAttemptRef.current;
+              initialConnectAttemptRef.current = attempt + 1;
+              const delayMs = backoff[attempt] ?? 0;
+              const assistantId = session.assistantId;
+              // The session hasn't reached `ready`, so no server-assigned id
+              // exists yet — re-attach to whatever it was started with.
+              const conversationId =
+                useLiveVoiceStore.getState().startedConversationId ?? undefined;
+              // Drop the dead primitives but hold the UI in `connecting` with a
+              // live stop control (the store still carries the session context +
+              // entry origin, which the re-entered `connectSession` preserves),
+              // so the avatar keeps animating and the user can still bail.
+              sessionRef.current = null;
+              disposeSessionPrimitives(session);
+              const s = useLiveVoiceStore.getState();
+              s.setState("connecting");
+              s.setControls({
+                stop: () => void stop(),
+                release,
+                interrupt,
+                setMuted,
+              });
+              console.warn(
+                `live-voice: initial connect failed (${err.reason}); retrying ` +
+                  `(attempt ${attempt + 1}/${backoff.length})`,
+              );
+              reconnectTimerRef.current = setTimeout(() => {
+                reconnectTimerRef.current = null;
+                void connectSessionRef.current?.(assistantId, conversationId, {
+                  handsFree: true,
+                });
+              }, delayMs);
+              return;
+            }
+          }
           finishWithError(session, teardown, err.message);
         }),
         client.on("closed", (info) => {
@@ -894,9 +966,12 @@ export function useLiveVoice(
       // also covers an in-flight reconnect, so a mic click during the backoff
       // gap doesn't spawn a second session.
       if (isLiveVoiceSessionActive(useLiveVoiceStore.getState().state)) return;
-      // Fresh user-initiated session: drop any stale reconnect budget/timer.
+      // Fresh user-initiated session: drop any stale reconnect budget/timer and
+      // the initial-connect resilience budget (a new session starts unreadied).
       clearReconnectTimer();
       reconnectAttemptRef.current = 0;
+      initialConnectAttemptRef.current = 0;
+      hasReadyRef.current = false;
       await connectSession(assistantId, conversationId, startOptions ?? {});
     },
     [connectSession, clearReconnectTimer],
