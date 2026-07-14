@@ -716,7 +716,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-07-14T10:48:52.000Z"
+      "updatedAt": "2026-07-14T12:09:21.000Z"
     },
     {
       "id": "public-ingress",
@@ -950,7 +950,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-15T21:08:24.000Z"
+      "updatedAt": "2026-07-14T19:51:12.000Z"
     },
     {
       "id": "typescript-eval",

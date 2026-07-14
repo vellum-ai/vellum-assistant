@@ -3,7 +3,8 @@
  *
  * Serves six operations:
  *   - platform_status (GET platform/status): aggregates platform context,
- *     credentials, assistant ID, webhook secret, and Velay tunnel status.
+ *     credentials, assistant ID, and webhook secret. (Velay tunnel status
+ *     lives on the gateway — see gateway_status.)
  *   - platform_connect (POST platform/connect): checks existing credentials
  *     and emits the show_platform_login signal to connected clients.
  *   - platform_disconnect (POST platform/disconnect): deletes stored platform
@@ -23,7 +24,6 @@ import {
   registerCallbackRoute,
   resolvePlatformCallbackRegistrationContext,
 } from "../../inbound/platform-callback-registration.js";
-import { ipcGetVelayStatus } from "../../ipc/gateway-client.js";
 import { credentialKey } from "../../security/credential-key.js";
 import {
   deleteSecureKeyAsync,
@@ -56,11 +56,6 @@ const CREDENTIAL_KEYS = {
 // Schemas
 // ---------------------------------------------------------------------------
 
-const VelayTunnelStatusSchema = z.object({
-  connected: z.boolean(),
-  publicUrl: z.string().nullable(),
-});
-
 const PlatformStatusResponseSchema = z.object({
   isPlatform: z.boolean(),
   baseUrl: z.string(),
@@ -71,7 +66,6 @@ const PlatformStatusResponseSchema = z.object({
   available: z.boolean(),
   organizationId: z.string().nullable(),
   userId: z.string().nullable(),
-  velayTunnel: VelayTunnelStatusSchema.nullable(),
 });
 type PlatformStatusResponse = z.infer<typeof PlatformStatusResponseSchema>;
 
@@ -137,10 +131,7 @@ type PlatformCreditsResponse = z.infer<typeof PlatformCreditsResponseSchema>;
 async function handlePlatformStatus(
   _args: RouteHandlerArgs,
 ): Promise<PlatformStatusResponse> {
-  const [context, velayTunnel] = await Promise.all([
-    resolvePlatformCallbackRegistrationContext(),
-    ipcGetVelayStatus().catch(() => null),
-  ]);
+  const context = await resolvePlatformCallbackRegistrationContext();
 
   const [orgIdRaw, userIdRaw, webhookSecretRaw] = await Promise.all([
     getSecureKeyAsync(
@@ -172,7 +163,6 @@ async function handlePlatformStatus(
     available: context.enabled,
     organizationId: organizationId || null,
     userId: userId || null,
-    velayTunnel,
   };
 }
 
@@ -433,7 +423,7 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "Get platform deployment context and connection status",
     description:
-      "Aggregates platform context, credentials, assistant ID, webhook secret, and Velay tunnel status.",
+      "Aggregates platform context, credentials, assistant ID, and webhook secret. Velay tunnel status is reported separately by gateway_status.",
     tags: ["platform"],
     handler: handlePlatformStatus,
     responseBody: PlatformStatusResponseSchema,

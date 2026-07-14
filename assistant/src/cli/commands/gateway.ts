@@ -2,15 +2,17 @@
  * `assistant gateway` CLI namespace.
  *
  * Subcommands:
+ *   status   — Show the gateway's public tunnel status via the daemon IPC proxy.
  *   logs tail — Show the last N gateway log entries via the daemon IPC proxy.
  */
 
 import type { Command } from "commander";
 
-import { cliIpcCall } from "../../ipc/cli-client.js";
+import { cliIpcCall, exitFromIpcResult } from "../../ipc/cli-client.js";
 import { applyCommandHelp, subcommand } from "../lib/cli-command-help.js";
 import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
+import { shouldOutputJson, writeOutput } from "../output.js";
 import { gatewayHelp } from "./gateway.help.js";
 
 // -- Types --------------------------------------------------------------------
@@ -21,6 +23,10 @@ interface PinoEntry {
   module?: string;
   msg?: string;
   [key: string]: unknown;
+}
+
+interface GatewayStatusResult {
+  tunnel?: string;
 }
 
 // -- Helpers ------------------------------------------------------------------
@@ -65,6 +71,39 @@ export function registerGatewayCommand(program: Command): void {
     description: gatewayHelp.description,
     build: (gateway) => {
       applyCommandHelp(gateway, gatewayHelp);
+
+      // -----------------------------------------------------------------------
+      // status
+      // -----------------------------------------------------------------------
+
+      subcommand(gateway, "status").action(async (_opts, cmd: Command) => {
+        const r = await cliIpcCall<GatewayStatusResult>("gateway_status", {});
+        if (!r.ok)
+          return exitFromIpcResult(
+            { ok: false, error: r.error, statusCode: r.statusCode },
+            cmd,
+          );
+
+        const result = r.result!;
+
+        if (shouldOutputJson(cmd)) {
+          writeOutput(cmd, result);
+          return;
+        }
+
+        if (result.tunnel) {
+          log.info(`Tunnel: connected (${result.tunnel})`);
+        } else {
+          log.info("Tunnel: not connected");
+        }
+        log.info(
+          "  The public tunnel is only used to route inbound Twilio webhooks and",
+        );
+        log.info(
+          "  live voice/audio WebSockets. It is not needed for text channels or",
+        );
+        log.info("  the managed LLM proxy.");
+      });
 
       const logs = subcommand(gateway, "logs");
 
