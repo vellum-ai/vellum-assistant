@@ -357,6 +357,18 @@ describe("live reveal swap (stream plaintext hold-back)", () => {
     );
   });
 
+  test("redactCandidateValuesLegacy does not depend on the sentinel flag's marker format", () => {
+    // Round-17 case: the fallback protects legacy mode too — keeping a
+    // route-proven plaintext out of persisted rows is independent of
+    // which marker format the client renders. The output is the legacy
+    // marker, valid on flag-off surfaces.
+    const out = redactCandidateValuesLegacy("value: opaque-manual-secret", [
+      { service: "svc", field: "f", value: "opaque-manual-secret" },
+    ]);
+    expect(out).toBe('value: <redacted type="Credential" />');
+    expect(out).not.toContain("\u3014");
+  });
+
   test("the persist fallback applies the duplicate-identity degrade rule", () => {
     const candidates = [
       { service: "svc", field: "f", value: "shared plain value" },

@@ -541,11 +541,16 @@ export function createEventHandlerState(): EventHandlerState {
  * Resolve this turn's reveal candidates for chat sentinel redaction.
  *
  * Returns `undefined` when the `chat-credential-reveal` flag is off — the
- * persist seams then use the legacy `<redacted type="…" />` marker,
- * byte-identical to today. When the flag is on, returns the resolved
- * candidates (possibly empty: sentinel mode with nothing revealable).
- * Resolution is memoized on the ref count so plaintexts are fetched at most
- * once per new batch of reveal invocations.
+ * persist seams then use the legacy `<redacted type="…" />` marker for
+ * SCANNER matches, byte-identical to today (the candidate-aware
+ * exact-match fallback still applies via
+ * {@link resolvedRevealCandidatesForState}, which is deliberately not
+ * flag-gated: keeping a proven revealed plaintext out of persisted rows
+ * is independent of which marker format the client renders). When the
+ * flag is on, returns the resolved candidates (possibly empty: sentinel
+ * mode with nothing revealable). Resolution is memoized on the ref count
+ * so plaintexts are fetched at most once per new batch of reveal
+ * invocations.
  */
 async function chatRevealCandidates(
   state: EventHandlerState,
@@ -553,6 +558,22 @@ async function chatRevealCandidates(
   if (!isAssistantFeatureFlagEnabled("chat-credential-reveal", getConfig())) {
     return undefined;
   }
+  return resolvedRevealCandidatesForState(state);
+}
+
+/**
+ * Flag-independent candidate resolution for the legacy-marker fallbacks:
+ * a route-proven reveal plaintext must be kept out of persisted rows in
+ * BOTH modes, so the fallback surfaces (tool results always; assistant
+ * text when the sentinel flag is off) resolve candidates here directly.
+ * Refs only exist when the reveal route actually served the identity
+ * (see `filterRefsByRevealProof`), so with the flag off this performs no
+ * store reads until a genuine reveal has already happened. Shares the
+ * per-state memoization with {@link chatRevealCandidates}.
+ */
+async function resolvedRevealCandidatesForState(
+  state: EventHandlerState,
+): Promise<readonly ResolvedRevealCandidate[]> {
   const refCount = state.revealCandidateRefs.length;
   if (refCount === 0) {
     return [];
@@ -626,12 +647,21 @@ async function awaitLiveRevealGuardReady(
 
 // ── Partial-persistence helpers ──────────────────────────────────────
 
-/** Canonical persisted-content build: clean → append surfaces → redact. */
+/**
+ * Canonical persisted-content build: clean → append surfaces → redact.
+ *
+ * `revealCandidates` (defined only when the sentinel flag is on) selects
+ * sentinel-mode redaction; `legacyFallbackCandidates` feeds the
+ * flag-independent exact-match fallback in legacy mode, so a route-proven
+ * reveal plaintext the scanner cannot classify never persists raw
+ * regardless of which marker format is active.
+ */
 export function buildPersistedAssistantContent(
   rawBlocks: readonly ContentBlock[],
   surfaces: readonly AssistantSurface[],
   activityByToolUseId?: ReadonlyMap<string, ToolActivityMetadata>,
   revealCandidates?: readonly ResolvedRevealCandidate[],
+  legacyFallbackCandidates: readonly ResolvedRevealCandidate[] = [],
 ): ContentBlock[] {
   const { cleanedContent } = cleanAssistantContent(rawBlocks);
   const cleaned = cleanedContent as ContentBlock[];
@@ -665,7 +695,10 @@ export function buildPersistedAssistantContent(
       const text =
         revealCandidates !== undefined
           ? redactSecretsForChat(tb.text, revealCandidates)
-          : redactSecrets(neutralizeRedactedSentinels(tb.text));
+          : redactCandidateValuesLegacy(
+              redactSecrets(neutralizeRedactedSentinels(tb.text)),
+              legacyFallbackCandidates,
+            );
       return { ...tb, text, _redactionVersion: SENTINEL_REDACTION_VERSION };
     }
     // Native server tools (Anthropic web_search) resolve mid-stream — their
@@ -872,6 +905,7 @@ async function flushAccumulatedContent(
     [],
     state.toolActivityMetadata,
     await chatRevealCandidates(state),
+    await resolvedRevealCandidatesForState(state),
   );
   // Pair the seq with the exact content snapshot taken above: deltas that
   // arrive while the write is in flight bump `lastPersistedContentSeq`
@@ -1566,7 +1600,7 @@ async function persistPendingToolResultRow(
   // the in-flight delta file; the finalize seam folds the row inline.
   const batchBlocks = buildToolResultBlocks(
     state.pendingToolResults,
-    (await chatRevealCandidates(state)) ?? [],
+    await resolvedRevealCandidatesForState(state),
   ) as ContentBlock[];
   const writer = state.inflightWriters.get(rowId);
   const persisted = writer
@@ -1618,7 +1652,7 @@ export async function finalizePendingToolResultRow(
   // writes keep base64 for durability); the send boundary re-inflates the refs.
   const blocks = buildToolResultBlocks(
     state.pendingToolResults,
-    (await chatRevealCandidates(state)) ?? [],
+    await resolvedRevealCandidatesForState(state),
   );
   const contentJson = JSON.stringify(
     conv != null
@@ -2416,6 +2450,7 @@ export async function handleMessageComplete(
       deps.ctx.currentTurnSurfaces,
       state.toolActivityMetadata,
       await chatRevealCandidates(state),
+      await resolvedRevealCandidatesForState(state),
     ),
     state.currentThinkingTimestamps,
   );
