@@ -2355,6 +2355,27 @@ export async function handleSurfaceAction(
   const onEvent = (msg: ServerMessage) =>
     broadcastMessage(msg, ctx.conversationId);
 
+  // A live-voice conversation resumes as a *spoken* turn: route the follow-up
+  // through the voice session instead of the silent text `processMessage`
+  // path, so completing e.g. an oauth_connect surface produces a spoken
+  // continuation that re-reads connection state at turn start (JARVIS-1286/7).
+  // This must be decided BEFORE the enqueue below: a busy conversation would
+  // otherwise push the completion onto the silent text queue and drain it via
+  // `processMessage`, never speaking it. `resumeWithText` serializes on the
+  // session's resume chain and waits for any in-flight turn to go idle, so it
+  // safely handles a busy session without touching the text queue.
+  // Attachments never travel this path (OAuth connect carries none); if any
+  // are present, fall back to the text path so the model still sees them.
+  const voiceResumeHandler = getVoiceResumeHandler(ctx.conversationId);
+  const routeToVoice =
+    voiceResumeHandler !== undefined && pendingAttachments.length === 0;
+  if (voiceResumeHandler && pendingAttachments.length > 0) {
+    log.warn(
+      { surfaceId, actionId, attachmentCount: pendingAttachments.length },
+      "Live-voice resume skipped: surface action carries attachments; falling back to text processMessage",
+    );
+  }
+
   log.info(
     {
       surfaceId,
@@ -2366,20 +2387,25 @@ export async function handleSurfaceAction(
         dataLength: a.data?.length ?? 0,
       })),
       contentPreview: content.slice(0, 200),
+      routeToVoice,
     },
     "Surface action follow-up: preparing to send message to model",
   );
 
-  const result = ctx.enqueueMessage({
-    content,
-    attachments: pendingAttachments,
-    onEvent,
-    requestId,
-    activeSurfaceId: surfaceId,
-    displayContent,
-    sourceActorPrincipalId,
-  });
-  if (result.rejected) {
+  // The voice path bypasses the queue entirely; the text path enqueues, which
+  // may reject (queue full) or queue behind an in-flight turn.
+  const result = routeToVoice
+    ? null
+    : ctx.enqueueMessage({
+        content,
+        attachments: pendingAttachments,
+        onEvent,
+        requestId,
+        activeSurfaceId: surfaceId,
+        displayContent,
+        sourceActorPrincipalId,
+      });
+  if (result?.rejected) {
     ctx.surfaceActionRequestIds.delete(requestId);
     return;
   }
@@ -2434,11 +2460,31 @@ export async function handleSurfaceAction(
       conversationId: ctx.conversationId,
     });
   }
-  if (result.queued) {
+  // Consume the pending-surface guard for every delivery path (voice, queued
+  // text, immediate text). The rejected path returned above without clearing
+  // it, so the surface stays active and retryable there.
+  if (!retainPending) {
+    ctx.pendingSurfaceActions.delete(surfaceId);
+  }
+
+  if (voiceResumeHandler && routeToVoice) {
+    // Reuse the accepted surface-action `requestId` (already in
+    // `ctx.surfaceActionRequestIds`) as the resumed turn's request id, so a
+    // tool gated on `triggeredBySurfaceAction` still sees `currentRequestId`
+    // in the set — parity with the text path, which passes it too.
+    voiceResumeHandler.resumeWithText(content, {
+      ...(displayContent !== undefined ? { displayContent } : {}),
+      requestId,
+    });
+    log.info(
+      { surfaceId, actionId, requestId },
+      "Surface action routed to live-voice spoken resume",
+    );
+    return;
+  }
+
+  if (result?.queued) {
     const position = ctx.getQueueDepth();
-    if (!retainPending) {
-      ctx.pendingSurfaceActions.delete(surfaceId);
-    }
     log.info(
       { surfaceId, actionId, requestId },
       "Surface action queued (conversation busy)",
@@ -2452,9 +2498,6 @@ export async function handleSurfaceAction(
     return;
   }
 
-  if (!retainPending) {
-    ctx.pendingSurfaceActions.delete(surfaceId);
-  }
   log.info(
     {
       surfaceId,
@@ -2464,34 +2507,6 @@ export async function handleSurfaceAction(
     },
     "Processing surface action as follow-up with attachments",
   );
-
-  // A live-voice conversation resumes as a *spoken* turn: route the follow-up
-  // through the voice session instead of the silent text `processMessage`
-  // path, so completing e.g. an oauth_connect surface produces a spoken
-  // continuation that re-reads connection state at turn start (JARVIS-1286/7).
-  // Attachments never travel this path (OAuth connect carries none); if any
-  // are present, fall back to `processMessage` so the model still sees them.
-  const voiceResumeHandler = getVoiceResumeHandler(ctx.conversationId);
-  if (voiceResumeHandler && pendingAttachments.length === 0) {
-    // Reuse the accepted surface-action `requestId` (already in
-    // `ctx.surfaceActionRequestIds`) as the resumed turn's request id, so a
-    // tool gated on `triggeredBySurfaceAction` still sees `currentRequestId`
-    // in the set — parity with the text path below, which passes it too.
-    voiceResumeHandler.resumeWithText(content, {
-      ...(displayContent !== undefined ? { displayContent } : {}),
-      ...(sourceActorPrincipalId !== undefined
-        ? { sourceActorPrincipalId }
-        : {}),
-      requestId,
-    });
-    return;
-  }
-  if (voiceResumeHandler && pendingAttachments.length > 0) {
-    log.warn(
-      { surfaceId, actionId, attachmentCount: pendingAttachments.length },
-      "Live-voice resume skipped: surface action carries attachments; falling back to text processMessage",
-    );
-  }
 
   ctx
     .processMessage({
