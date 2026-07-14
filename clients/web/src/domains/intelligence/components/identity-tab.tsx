@@ -183,10 +183,9 @@ export function IdentityTab({ assistantId, onOpenThread }: IdentityTabProps) {
   const [modalOpen, setModalOpen] = useState(false);
   const [paneFullscreen, setPaneFullscreen] = useState(false);
 
-  // The Identity tab's companion pane is the skills constellation. The memory
-  // concept graph now lives on its own Memory tab (`/assistant/memory`, gated
-  // by the memory-concept-graph flag), so it is no longer probed or rendered
-  // here.
+  // The Identity tab's companion pane is the skills constellation. (The memory
+  // concept graph has its own Memory tab at `/assistant/memory`, gated by the
+  // memory-concept-graph flag.)
   const skillsQuery = useQuery({
     ...skillsGetOptions({
       path: { assistant_id: assistantId },
