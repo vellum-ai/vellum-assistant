@@ -33,6 +33,7 @@ import {
   type LiveVoiceAudioCaptureOptions,
   type LiveVoiceCaptureResult,
 } from "@/domains/chat/voice/live-voice/pcm-capture";
+import { buildSelfHostedGatewayWsUrl } from "@/domains/chat/voice/live-voice/connection";
 import { LIVE_VOICE_AUDIO_FORMAT } from "@/domains/chat/voice/live-voice/protocol";
 import {
   getSelfHostedActorToken,
@@ -75,10 +76,10 @@ export interface DictationStreamOptions {
  *
  *   ws(s)://<ingressHost>/v1/stt/stream?token=…&mimeType=audio/pcm&sampleRate=16000
  *
- * Same shape rules as `buildSelfHostedLiveVoiceWsUrl`: scheme follows the
- * ingress (`http`→`ws`, `https`→`wss`), any ingress path prefix is preserved
- * (local Docker mode proxies the gateway at a sub-path), and query/hash on
- * the ingress are dropped. Exported for unit tests.
+ * Delegates to {@link buildSelfHostedGatewayWsUrl} so this dictation stream and
+ * live-voice share one transport rule set — including the local
+ * `/assistant/__gateway/<port>` → loopback bypass (the HTTP-only proxy can't
+ * carry a WS upgrade). Exported for unit tests.
  */
 export function buildSttStreamWsUrl({
   ingressUrl,
@@ -87,16 +88,15 @@ export function buildSttStreamWsUrl({
   ingressUrl: string;
   token: string;
 }): string {
-  const url = new URL(ingressUrl);
-  url.protocol = url.protocol === "http:" ? "ws:" : "wss:";
-  const prefix = url.pathname.replace(/\/+$/, "");
-  url.pathname = `${prefix}/v1/stt/stream`;
-  url.search = "";
-  url.hash = "";
-  url.searchParams.set("token", token);
-  url.searchParams.set("mimeType", LIVE_VOICE_AUDIO_FORMAT.mimeType);
-  url.searchParams.set("sampleRate", String(LIVE_VOICE_AUDIO_FORMAT.sampleRate));
-  return url.toString();
+  return buildSelfHostedGatewayWsUrl({
+    ingressUrl,
+    routePath: "/v1/stt/stream",
+    token,
+    params: {
+      mimeType: LIVE_VOICE_AUDIO_FORMAT.mimeType,
+      sampleRate: String(LIVE_VOICE_AUDIO_FORMAT.sampleRate),
+    },
+  });
 }
 
 /** Join transcript segments with a single space, ignoring blanks. */
