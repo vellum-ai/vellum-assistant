@@ -439,6 +439,7 @@ function VoiceStateCaption({
       {label ? (
         <motion.div
           key={label}
+          data-testid="voice-state-caption"
           aria-hidden="true"
           className="pointer-events-none absolute left-1/2 z-[1] -translate-x-1/2 text-center text-[clamp(15px,2.2vmin,22px)] font-medium tracking-wide text-[var(--room-fg-muted,rgba(255,255,255,0.7))]"
           style={{ top }}
@@ -822,10 +823,12 @@ export function VoiceRoomEyes({
     >
       {/* Per-state size: the eyes stay put and resize, on the same motion tween
           system as the entrance. `sizeScale` retargets `scale`; a mid-flight
-          state change continues smoothly from wherever the eyes are. */}
+          state change continues smoothly from wherever the eyes are. Reduced
+          motion still targets `sizeScale` (it's the state cue now the sink is
+          gone) — just snaps to it instantly rather than tweening. */}
       <motion.div
         style={{ transformOrigin: "center" }}
-        animate={reduce ? { scale: 1 } : { scale: sizeScale }}
+        animate={{ scale: sizeScale }}
         transition={
           reduce ? { duration: 0 } : { duration: EYE_RESIZE_MS / 1000, ease: "easeInOut" }
         }

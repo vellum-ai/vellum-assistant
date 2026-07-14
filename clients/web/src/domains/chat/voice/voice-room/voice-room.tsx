@@ -217,9 +217,11 @@ function VoiceRoomOverlay() {
           visual={visual}
           getAmplitude={getLiveVoiceInputAmplitude}
           getResponseAmplitude={getLiveVoiceOutputAmplitude}
-          // Captions on → the transcript names/fills the space below the eyes,
-          // so the state caption stands down to avoid doubling up.
-          showStateCaption={!captionsOn}
+          // Only the *assistant* transcript occupies the space below the eyes
+          // (the user transcript floats above), so the state caption stands down
+          // for that pref alone — enabling only user captions must not blank the
+          // lower zone the caption fills.
+          showStateCaption={!showAssistantTranscript}
           entryOrigin={entryOrigin}
         />
       ) : (

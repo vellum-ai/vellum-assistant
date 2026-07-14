@@ -449,6 +449,39 @@ describe("VoiceRoom — looks (color-with-eyes vs ambient void)", () => {
   });
 });
 
+describe("VoiceRoom — color-look state caption", () => {
+  const caption = () => screen.queryByTestId("voice-state-caption");
+
+  function renderCharacterLook(state: LiveVoiceSessionState) {
+    mockAvatarData = {
+      components: CHARACTER_COMPONENTS,
+      traits: { bodyShape: "sprout", eyeStyle: "curious", color: "green" },
+      customImageUrl: null,
+    };
+    startOwnedSession(state);
+    render(<VoiceRoom />);
+  }
+
+  test("shows the state caption below the eyes by default (captions off)", () => {
+    renderCharacterLook("listening");
+    expect(caption()?.textContent).toBe("Listening");
+  });
+
+  test("stands the caption down when the assistant transcript is enabled", () => {
+    useVoicePrefsStore.setState({ showAssistantTranscript: true });
+    renderCharacterLook("speaking");
+    expect(caption()).toBeNull();
+  });
+
+  test("keeps the caption when only the user transcript is enabled", () => {
+    // The user transcript floats *above* the eyes, so it never fills the
+    // caption's lower space — enabling it alone must not blank the caption.
+    useVoicePrefsStore.setState({ showUserTranscript: true });
+    renderCharacterLook("listening");
+    expect(caption()?.textContent).toBe("Listening");
+  });
+});
+
 describe("VoiceRoom — no push-to-talk / manual-release affordance (hands-free)", () => {
   // Sessions are hands-free (server-VAD): the user just speaks, so the room
   // offers no push-to-talk control and no manual "send now" — the controller's
