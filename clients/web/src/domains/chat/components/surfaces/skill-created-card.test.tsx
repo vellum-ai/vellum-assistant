@@ -64,7 +64,8 @@ describe("SkillCreatedCard", () => {
   test("renders a single learned-sentence row per skill (no generic header)", () => {
     const { getByText, getByRole, queryByText } = renderCard(makeSurface());
 
-    // The generic header and subline are gone — the row title IS the copy.
+    // The card renders no generic header or subline: each row's title
+    // carries the full learned sentence, so a header would double-announce.
     expect(queryByText("New skill learned")).toBeNull();
     expect(
       queryByText("Saved to your skills from this conversation's work"),
