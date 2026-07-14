@@ -39,11 +39,11 @@ mock.module("@/runtime/is-electron", () => ({
   isElectron: () => mockIsElectron,
 }));
 
-// Capacitor-iOS detection. The composer skips the first-run prefs card on the
-// native iOS shell (a dismissible pre-prompt before the `getUserMedia`
-// permission alert violates `docs/CAPACITOR.md` § OS permission requests) and
-// starts the session directly. Defaults to non-iOS (web) so the existing
-// first-run tests exercise the card path unchanged.
+// Capacitor-iOS detection, kept as a regression guard. The first-run prefs card
+// is now shown on EVERY platform, the native iOS shell included (a deliberate
+// parity choice that knowingly deviates from `docs/CAPACITOR.md` § OS permission
+// requests — see the composer's `handleLiveVoiceStart` note), so setting this to
+// iOS must NOT suppress the card. Defaults to non-iOS (web).
 let mockIsNativeIOS = false;
 mock.module("@/runtime/platform-detection", () => ({
   isNativeIOS: () => mockIsNativeIOS,
@@ -906,25 +906,25 @@ describe("ChatComposer — live-voice integration", () => {
     expect(useVoicePrefsStore.getState().firstRunSeen).toBe(false);
   });
 
-  test("Capacitor iOS: first-ever entry skips the card and starts directly (permission alert reached)", () => {
+  test("Capacitor iOS: first-ever entry shows the prefs card too (web↔iOS parity)", () => {
     // GIVEN the native iOS shell, the flag on, no session, and a first-ever
-    // entry — a dismissible pre-prompt here would violate CAPACITOR.md
-    // § OS permission requests, so the card must be skipped.
+    // entry. The card is intentionally shown on every platform — a deliberate
+    // deviation from CAPACITOR.md's "no dismissible pre-prompt before
+    // getUserMedia" rule, chosen for parity with web (see the composer's
+    // handleLiveVoiceStart note) — so the iOS shell must get it too.
     useTurnStore.setState(INITIAL_TURN_STATE);
     mockVoiceMode = true;
     mockIsNativeIOS = true;
     useVoicePrefsStore.setState({ firstRunSeen: false });
 
     // WHEN the user clicks the entry-point mic
-    const { getByLabelText, queryByTestId } = renderVoiceComposer();
+    const { getByLabelText, getByTestId } = renderVoiceComposer();
     fireEvent.click(getByLabelText("Start voice mode"));
 
-    // THEN no card renders and the session starts straight away so the OS
-    // getUserMedia alert is the next thing the user sees. The first-run flag
-    // is left untouched (the card, not the mic, owns marking it seen).
-    expect(queryByTestId("first-run-card")).toBeNull();
-    expect(liveStarterSpy).toHaveBeenCalledTimes(1);
-    expect(liveStarterSpy).toHaveBeenCalledWith("asst_test", "conv_test");
+    // THEN the same prefs card appears and the session has NOT started yet —
+    // identical to the web first-run path.
+    expect(getByTestId("first-run-card")).toBeTruthy();
+    expect(liveStarterSpy).not.toHaveBeenCalled();
   });
 
   test("Capacitor iOS: returning-user entry still starts directly (unchanged)", () => {

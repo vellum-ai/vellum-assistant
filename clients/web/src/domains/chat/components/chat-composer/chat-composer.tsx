@@ -53,7 +53,6 @@ import { useVoicePrefsStore } from "@/stores/voice-prefs-store";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { isElectron } from "@/runtime/is-electron";
 import { useIsNativePlatform } from "@/runtime/native-auth";
-import { isNativeIOS } from "@/runtime/platform-detection";
 import { isPointerCoarse } from "@/utils/pointer";
 import { Button, Notice, Popover } from "@vellumai/design-library";
 
@@ -355,15 +354,17 @@ export function ChatComposer({
         return;
       }
       liveVoiceEntryOriginRef.current = origin ?? null;
-      // First-run preferences card — shown on every platform EXCEPT Capacitor
-      // iOS. On the iOS shell a dismissible pre-prompt before the live-voice
-      // `getUserMedia` permission alert violates `docs/CAPACITOR.md` § OS
-      // permission requests (Apple HIG / App Store Review 5.1.1(iv)) and the
-      // `voice/live-voice/pcm-capture.ts` caller contract, which require any
-      // pre-permission UI to lead directly to the system alert. On iOS we
-      // therefore start directly (same as the returning-user path) so the OS
-      // alert is reached without an intervening dismissible modal.
-      if (!useVoicePrefsStore.getState().firstRunSeen && !isNativeIOS()) {
+      // First-run preferences card — shown on the first-ever voice entry on
+      // EVERY platform, the Capacitor iOS shell included. This is a deliberate
+      // product decision (web↔iOS parity for the welcome card) that knowingly
+      // deviates from `docs/CAPACITOR.md` § OS permission requests and the
+      // `voice/live-voice/pcm-capture.ts` caller contract, which ask that no
+      // dismissible pre-prompt precede the live-voice `getUserMedia` alert on
+      // iOS (Apple HIG / App Store Review 5.1.1(iv)). The card's only forward
+      // action ("Start talking") leads straight to that alert; dismissing is a
+      // plain cancel that never reaches it. If this is ever revisited, re-sync
+      // the two docs above with the choice made here.
+      if (!useVoicePrefsStore.getState().firstRunSeen) {
         setFirstRunCardOpen(true);
         return;
       }

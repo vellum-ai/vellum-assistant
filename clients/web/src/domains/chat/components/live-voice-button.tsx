@@ -43,7 +43,11 @@ export function LiveVoiceButton({
 
   return (
     <Button
-      variant="ghost"
+      // Filled `primary` (black) so the voice entry point carries the same
+      // prominence as the send button it shares the composer's send slot with
+      // (both `Button variant="primary"` icon-only, so identical footprint +
+      // fill) — rather than a low-emphasis ghost that reads as secondary.
+      variant="primary"
       iconOnly={<AudioLines strokeWidth={2} />}
       onClick={(event) => {
         const rect = event.currentTarget.getBoundingClientRect();
@@ -52,7 +56,6 @@ export function LiveVoiceButton({
       disabled={disabled}
       aria-label="Start voice mode"
       title="Start voice mode"
-      className="[--vbtn-fg:var(--content-secondary)]"
     />
   );
 }
