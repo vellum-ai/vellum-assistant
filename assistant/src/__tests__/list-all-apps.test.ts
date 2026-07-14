@@ -3,7 +3,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { createApp, listAllApps, listPluginApps } from "../apps/app-store.js";
+import {
+  createApp,
+  listAllApps,
+  listPluginApps,
+  resolveAppSource,
+} from "../apps/app-store.js";
 import { getWorkspacePluginsDir } from "../util/platform.js";
 
 let workspaceDir: string;
@@ -69,6 +74,7 @@ describe("listAllApps", () => {
     const all = listAllApps();
     expect(all).toHaveLength(1);
     expect(all[0].origin).toEqual({ kind: "workspace" });
+    expect(all[0].id).toBe(created.id);
     expect(all[0].name).toBe("Budget");
     // Workspace source resolves through the dirName-based resolver.
     expect(all[0].sourcePath).toContain(join("data", "apps"));
@@ -87,6 +93,7 @@ describe("listAllApps", () => {
     const plugin = listPluginApps();
     expect(plugin).toHaveLength(1);
     expect(plugin[0].origin).toEqual({ kind: "plugin", pluginName: "acme" });
+    expect(plugin[0].id).toBe("plugins/acme/acme-dashboard");
     expect(plugin[0].name).toBe("acme-dashboard");
     expect(plugin[0].sourcePath).toBe(
       join(pluginDir, "apps", "acme-dashboard"),
@@ -130,5 +137,68 @@ describe("listAllApps", () => {
 
     expect(listPluginApps()).toEqual([]);
     expect(listAllApps()).toEqual([]);
+  });
+});
+
+describe("resolveAppSource", () => {
+  test("resolves a workspace app by its UUID", () => {
+    const created = createApp({
+      name: "Budget",
+      schemaJson: "{}",
+      htmlDefinition: "<h1>Budget</h1>",
+    });
+
+    const source = resolveAppSource(created.id);
+    expect(source).not.toBeNull();
+    expect(source!.origin).toEqual({ kind: "workspace" });
+    expect(source!.name).toBe("Budget");
+    expect(source!.sourceDir).toContain(join("data", "apps"));
+    // Single-file app (index.html at root).
+    expect(source!.formatVersion).toBe(1);
+  });
+
+  test("resolves a plugin app by its plugins/<name>/<app> id", () => {
+    const pluginDir = installPlugin("acme");
+    bundleApp(pluginDir, "acme-dashboard");
+
+    const source = resolveAppSource("plugins/acme/acme-dashboard");
+    expect(source).not.toBeNull();
+    expect(source!.origin).toEqual({ kind: "plugin", pluginName: "acme" });
+    expect(source!.name).toBe("acme-dashboard");
+    expect(source!.sourceDir).toBe(join(pluginDir, "apps", "acme-dashboard"));
+    // bundleApp writes index.html at the root → single-file.
+    expect(source!.formatVersion).toBe(1);
+  });
+
+  test("returns null for an unknown workspace id", () => {
+    expect(resolveAppSource("11111111-1111-1111-1111-111111111111")).toBeNull();
+  });
+
+  test("returns null for a plugin app whose plugin is disabled", () => {
+    const pluginDir = installPlugin("acme", { disabled: true });
+    bundleApp(pluginDir, "acme-dashboard");
+
+    expect(resolveAppSource("plugins/acme/acme-dashboard")).toBeNull();
+  });
+
+  test("returns null for a plugin dir without a package.json manifest", () => {
+    // Stray directory shaped like a plugin app but not an installed plugin.
+    const strayApp = join(
+      getWorkspacePluginsDir(),
+      "not-a-plugin",
+      "apps",
+      "x",
+    );
+    mkdirSync(strayApp, { recursive: true });
+
+    expect(resolveAppSource("plugins/not-a-plugin/x")).toBeNull();
+  });
+
+  test("returns null for traversal and malformed plugin ids", () => {
+    installPlugin("acme");
+    expect(resolveAppSource("plugins/../secrets")).toBeNull();
+    expect(resolveAppSource("plugins/acme/../..")).toBeNull();
+    expect(resolveAppSource("plugins/acme")).toBeNull(); // missing app segment
+    expect(resolveAppSource("plugins/acme/a/b")).toBeNull(); // too deep
   });
 });

@@ -87,6 +87,28 @@ export function resolveEffectiveAppHtml(app: AppDefinition): string {
 }
 
 /**
+ * Resolve the effective, self-contained HTML for an app given its source
+ * directory and format, without needing a loaded {@link AppDefinition}. Used
+ * to render apps addressed by path (e.g. plugin-bundled apps). Single-file
+ * apps serve their root index.html; multi-file apps serve the compiled
+ * dist/index.html with JS/CSS inlined.
+ */
+export function resolveEffectiveAppHtmlFromDir(
+  sourceDir: string,
+  formatVersion: number,
+): string {
+  if (formatVersion !== 2) {
+    const indexPath = join(sourceDir, "index.html");
+    return existsSync(indexPath) ? readFileSync(indexPath, "utf-8") : "";
+  }
+  const distIndex = join(sourceDir, "dist", "index.html");
+  if (existsSync(distIndex)) {
+    return inlineDistAssets(sourceDir, readFileSync(distIndex, "utf-8"));
+  }
+  return `<p>App compilation failed. Edit a source file to trigger a rebuild.</p>`;
+}
+
+/**
  * Inline dist assets (main.js, main.css) into the compiled HTML so it can be
  * delivered as a self-contained string via loadHTMLString/SSE without needing
  * the client to resolve external script/stylesheet URLs.
@@ -638,8 +660,27 @@ export type AppOrigin =
   | { readonly kind: "workspace" }
   | { readonly kind: "plugin"; readonly pluginName: string };
 
+/**
+ * Id prefix marking a plugin-bundled app. A plugin app's id is its location:
+ * `plugins/<pluginName>/<appDir>`, which maps directly to
+ * `<workspace>/plugins/<pluginName>/apps/<appDir>` (the `apps/` segment is
+ * implied). Unlike workspace apps — whose id is an opaque UUID looked up by
+ * scanning — a plugin app is resolved by a direct path build.
+ */
+const PLUGIN_APP_ID_PREFIX = "plugins/";
+
+/** Build the addressable id for a plugin-bundled app. */
+function pluginAppId(pluginName: string, appDir: string): string {
+  return `${PLUGIN_APP_ID_PREFIX}${pluginName}/${appDir}`;
+}
+
 /** An app paired with the absolute path to its source and its origin. */
 export interface EnumeratedApp {
+  /**
+   * Addressable app id: an opaque UUID for workspace apps, or
+   * `plugins/<name>/<app>` for plugin-bundled apps.
+   */
+  readonly id: string;
   /** Human-readable app name. */
   readonly name: string;
   /** Absolute path to the app's source directory. */
@@ -677,6 +718,7 @@ function listAppsForPlugin(
       continue;
     }
     apps.push({
+      id: pluginAppId(pluginName, entry),
       name: entry,
       sourcePath: appDir,
       origin: { kind: "plugin", pluginName },
@@ -733,11 +775,115 @@ export function listPluginApps(): EnumeratedApp[] {
  */
 export function listAllApps(): EnumeratedApp[] {
   const workspaceApps: EnumeratedApp[] = listApps().map((definition) => ({
+    id: definition.id,
     name: definition.name,
     sourcePath: getAppDirPath(definition.id),
     origin: { kind: "workspace" as const },
   }));
   return [...workspaceApps, ...listPluginApps()];
+}
+
+/** An app id resolved to its on-disk source and metadata. */
+export interface ResolvedAppSource {
+  /** The id that was resolved (echoed back for the caller). */
+  readonly id: string;
+  /** Human-readable app name. */
+  readonly name: string;
+  /** Filesystem directory stem — the workspace slug or the plugin app dir. */
+  readonly dirName: string;
+  /** Absolute path to the app's source directory. */
+  readonly sourceDir: string;
+  /** Where the app is provided from. */
+  readonly origin: AppOrigin;
+  /** 1 = single-file (index.html at root); 2 = multi-file (compiled dist/). */
+  readonly formatVersion: number;
+}
+
+/**
+ * Validate a single plugin-app id path segment (plugin name or app directory).
+ * Rejects empty, traversal, separators, and untrimmed values so an id can be
+ * mapped to a filesystem path without escaping the plugins root.
+ */
+function isSafeIdSegment(segment: string): boolean {
+  return (
+    segment.length > 0 &&
+    segment === segment.trim() &&
+    !segment.includes("/") &&
+    !segment.includes("\\") &&
+    !segment.includes("..") &&
+    segment !== "."
+  );
+}
+
+/**
+ * Resolve an app id to its on-disk source, for both workspace apps (opaque
+ * UUID, looked up via {@link getApp}) and plugin-bundled apps
+ * (`plugins/<name>/<app>`, resolved by direct path build). Returns null when
+ * the app does not exist, or when a plugin id fails the same installed-plugin
+ * gates as discovery (directory, `package.json` manifest, not disabled).
+ */
+export function resolveAppSource(id: string): ResolvedAppSource | null {
+  if (id.startsWith(PLUGIN_APP_ID_PREFIX)) {
+    const rest = id.slice(PLUGIN_APP_ID_PREFIX.length);
+    const slash = rest.indexOf("/");
+    if (slash === -1) {
+      return null;
+    }
+    const pluginName = rest.slice(0, slash);
+    const appDirName = rest.slice(slash + 1);
+    // Both segments must be single safe path components (rejects a deeper
+    // `plugins/<name>/<a>/<b>` since appDirName would then contain a slash).
+    if (!isSafeIdSegment(pluginName) || !isSafeIdSegment(appDirName)) {
+      return null;
+    }
+    const pluginDir = join(getWorkspacePluginsDir(), pluginName);
+    try {
+      if (!statSync(pluginDir).isDirectory()) {
+        return null;
+      }
+    } catch {
+      return null;
+    }
+    if (!existsSync(join(pluginDir, "package.json"))) {
+      return null;
+    }
+    if (isPluginDisabled(pluginName)) {
+      return null;
+    }
+    const sourceDir = join(pluginDir, "apps", appDirName);
+    try {
+      if (!statSync(sourceDir).isDirectory()) {
+        return null;
+      }
+    } catch {
+      return null;
+    }
+    // Single-file apps ship index.html at the root; anything else is treated
+    // as multi-file (served from a compiled dist/).
+    const formatVersion = existsSync(join(sourceDir, "index.html")) ? 1 : 2;
+    return {
+      id,
+      name: appDirName,
+      dirName: appDirName,
+      sourceDir,
+      origin: { kind: "plugin", pluginName },
+      formatVersion,
+    };
+  }
+
+  const app = getApp(id);
+  if (!app) {
+    return null;
+  }
+  const { dirName } = resolveAppDir(id);
+  return {
+    id,
+    name: app.name,
+    dirName,
+    sourceDir: getAppDirPath(id),
+    origin: { kind: "workspace" },
+    formatVersion: app.formatVersion ?? 1,
+  };
 }
 
 export function updateApp(
