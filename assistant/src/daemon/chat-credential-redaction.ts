@@ -483,24 +483,34 @@ function resolveRawSpans(text: string, targets: readonly string[]): RawSpan[] {
  * sentinel and corrupt it into nested, unrenderable markers. Resolving all
  * spans against the raw text first makes replacements structurally
  * invisible to later targets.
+ *
+ * `transformGap` is applied to the text BETWEEN spans (and to the whole
+ * text when nothing matches). Callers use it for forgery neutralization:
+ * it must run over raw bytes the spans do not claim, and never over the
+ * spans themselves — a candidate value may itself contain the sentinel
+ * trigger, and mutating it before the exact-match resolution would break
+ * the strongest guarantee this module makes.
  */
 function replaceRawSpans(
   text: string,
   targets: readonly string[],
   replacementFor: (priority: number) => string,
+  transformGap: (segment: string) => string = (segment) => segment,
 ): string {
   const spans = resolveRawSpans(text, targets);
   if (spans.length === 0) {
-    return text;
+    return transformGap(text);
   }
   spans.sort((a, b) => a.start - b.start);
   let out = "";
   let cursor = 0;
   for (const span of spans) {
-    out += text.slice(cursor, span.start) + replacementFor(span.priority);
+    out +=
+      transformGap(text.slice(cursor, span.start)) +
+      replacementFor(span.priority);
     cursor = span.end;
   }
-  return out + text.slice(cursor);
+  return out + transformGap(text.slice(cursor));
 }
 
 /**
@@ -524,6 +534,32 @@ export function swapLiveRevealValues(
     text,
     ordered.map((entry) => entry.value),
     (priority) => ordered[priority].replacement,
+  );
+}
+
+/**
+ * The live-emit transform: swap candidate values for their sentinels AND
+ * neutralize forged sentinels — resolved together on the RAW bytes, with
+ * neutralization applied only to the text between candidate spans.
+ * Sequencing them instead (`swapLiveRevealValues(neutralizeRedactedSentinels(text))`)
+ * breaks when a candidate's plaintext itself contains the sentinel trigger
+ * (manual values are arbitrary strings): neutralization would mutate the
+ * value's occurrence first, the exact-match swap would miss it, and an
+ * opaque secret would cross the wire almost intact. Candidate spans win;
+ * forgery neutralization covers everything they don't claim — exactly the
+ * occurrence semantics `stableEmitLen` models when it analyzes the trigger
+ * and the values as one priority-ordered target set.
+ */
+export function neutralizeAndSwapLiveRevealValues(
+  text: string,
+  entries: readonly LiveRevealGuardEntry[],
+): string {
+  const ordered = [...entries].sort((a, b) => b.value.length - a.value.length);
+  return replaceRawSpans(
+    text,
+    ordered.map((entry) => entry.value),
+    (priority) => ordered[priority].replacement,
+    neutralizeRedactedSentinels,
   );
 }
 
@@ -555,14 +591,15 @@ export function swapLiveRevealValues(
  *        left-to-right for the same target, priority order across
  *        targets), so the threat is moot — `E` commits whole.
  *
- * Prior leaks each map to a case above: round 8 (self-overlap `abcabc`
- * chunked `abc`+`abc`: own-tail threat is moot, occurrence commits
- * whole), round 11 (candidate A's tail is a prefix of longer candidate
- * B: threat outranks A, A is held whole — emitting A would leak B's
- * suffix raw when B completes), round 12 (equal-length `aba`/`bab`:
+ * Each case guards a real leak shape: a self-overlapping value chunked at
+ * the overlap boundary (`abcabc` as `abc`+`abc`: the own-tail threat is
+ * moot, the occurrence commits whole); a candidate whose tail is a prefix
+ * of a longer candidate (the threat outranks it, so it is held whole —
+ * emitting it would leak the longer value's suffix raw once it
+ * completes); equal-length overlapping entries (`aba`/`bab`: the
  * earlier-sorted entry outranks, so a completed `bab` holds while `aba`
- * may still complete — keeping chunked output identical to the
- * unchunked swap).
+ * may still complete — keeping chunked output identical to the unchunked
+ * swap).
  *
  * The boundary never splits a consumed span: it lands either outside
  * all spans or exactly on a span's start.
@@ -612,8 +649,8 @@ function stableEmitLen(buffer: string, targets: readonly string[]): number {
  * it (see `stableEmitLen`), so the remainder is bounded by roughly twice
  * the longest target. Callers must re-prepend the remainder to
  * the next chunk and, at end-of-message, flush it through
- * `swapLiveRevealValues(neutralizeRedactedSentinels(...))` — nothing can
- * complete a partial prefix after the message ends.
+ * `neutralizeAndSwapLiveRevealValues` — nothing can complete a partial
+ * prefix after the message ends.
  *
  * `consumedRaw` is the untransformed input the emit covers. Callers that
  * mirror streamed text for partial persistence must mirror `consumedRaw`,
@@ -640,10 +677,7 @@ export function drainSentinelGuardedText(
   const emitLen = stableEmitLen(buffer, targets);
   const consumedRaw = buffer.slice(0, emitLen);
   return {
-    emitText: swapLiveRevealValues(
-      neutralizeRedactedSentinels(consumedRaw),
-      entries,
-    ),
+    emitText: neutralizeAndSwapLiveRevealValues(consumedRaw, entries),
     consumedRaw,
     bufferedRemainder: buffer.slice(emitLen),
   };
@@ -699,22 +733,21 @@ export function redactSecretsForChat(
   text: string,
   candidates: readonly ResolvedRevealCandidate[],
 ): string {
-  // Forgery guard: neutralize any sentinel-shaped string already present in
-  // the raw text (model output, fetched content, quoted transcripts) so the
-  // only sentinels that survive persistence are the ones inserted below from
-  // an actually-detected secret. See the contract module for the mechanism.
-  const neutralized = neutralizeRedactedSentinels(text);
-  // Candidate protection runs BEFORE the scanner. A proven plaintext is a
-  // secret whole; the scanner, however, may only recognize a SUBSTRING of it
-  // (the `Private Key` pattern consumes just the `-----BEGIN … -----` header,
-  // leaving the key body), and once the scanner has replaced that substring
-  // the full candidate value is no longer present for an exact-match pass to
-  // find — the body would stream/persist raw. Replacing each proven value as
-  // an atomic unit up front closes that gap: the scanner then only ever sees
-  // text outside any candidate span. The inserted sentinels use corner
-  // brackets that are not part of any secret pattern, so the scanner pass
-  // below can neither match nor corrupt them.
-  const candidatePass = protectCandidateSpans(neutralized, candidates);
+  // Candidate protection runs FIRST, on the raw bytes, and BEFORE the
+  // scanner. First: a manual candidate value may itself contain the
+  // sentinel trigger, so running forgery neutralization over the whole
+  // text up front would mutate the value's occurrence and the exact-match
+  // pass — the strongest guarantee here — would miss it; neutralization
+  // therefore applies only to the text between candidate spans (inside
+  // `protectCandidateSpans`). Before the scanner: the scanner may only
+  // recognize a SUBSTRING of a proven plaintext (the `Private Key` pattern
+  // consumes just the `-----BEGIN … -----` header, leaving the key body),
+  // and once it has replaced that substring the full candidate value is no
+  // longer present for an exact-match pass to find — the body would
+  // stream/persist raw. The inserted sentinels use corner brackets that
+  // are not part of any secret pattern, so the scanner pass below can
+  // neither match nor corrupt them.
+  const candidatePass = protectCandidateSpans(text, candidates);
   // Scanner pass over the remainder. Values fully classified inline still get
   // their precise type label here; candidate values were already removed, so
   // this only redacts secrets the reveal registry never proved (defense in
@@ -734,6 +767,11 @@ export function redactSecretsForChat(
  * BEFORE the scanner runs, so a value the scanner would only partially match
  * (e.g. a PEM key, where only the header is recognized) is still redacted as
  * a whole and its body can never survive into the streamed/persisted text.
+ * Forgery neutralization rides along on the text between candidate spans:
+ * candidate spans are resolved on the RAW bytes (a manual value may itself
+ * contain the sentinel trigger, and neutralizing first would break the
+ * exact match), while any sentinel-shaped string outside them is forged by
+ * construction and gets neutralized.
  *
  * Longest value first (mirroring `swapLiveRevealValues`) so a value that is a
  * substring of another does not pre-empt the larger match; the span-based
@@ -750,7 +788,7 @@ function protectCandidateSpans(
   candidates: readonly ResolvedRevealCandidate[],
 ): string {
   if (candidates.length === 0) {
-    return text;
+    return neutralizeRedactedSentinels(text);
   }
   const seen = new Set<string>();
   const values: string[] = [];
@@ -780,8 +818,11 @@ function protectCandidateSpans(
     }
     return sentinel;
   };
-  return replaceRawSpans(text, values, (priority) =>
-    sentinelForValue(values[priority]),
+  return replaceRawSpans(
+    text,
+    values,
+    (priority) => sentinelForValue(values[priority]),
+    neutralizeRedactedSentinels,
   );
 }
 
@@ -824,18 +865,19 @@ export function redactCandidateValuesLegacy(
   text: string,
   candidates: readonly ResolvedRevealCandidate[],
 ): string {
-  // Neutralize forged sentinels, protect every proven candidate value as an
-  // atomic legacy marker, THEN run the scanner over what remains. Candidate
-  // protection must precede the scanner: a value the scanner only partially
-  // recognizes (a PEM key, where the `Private Key` pattern consumes just the
-  // header) would otherwise have its recognized substring replaced first,
-  // destroying the full-value match so the key body persists raw. The
-  // inserted `<redacted … />` markers contain no secret-shaped bytes, so the
-  // scanner pass can neither re-match nor corrupt them.
-  const protectedText = protectCandidateValuesLegacy(
-    neutralizeRedactedSentinels(text),
-    candidates,
-  );
+  // Protect every proven candidate value as an atomic legacy marker
+  // (neutralizing forged sentinels in the text between the spans), THEN run
+  // the scanner over what remains. Candidate spans resolve on the RAW
+  // bytes: a manual value may itself contain the sentinel trigger, and
+  // neutralizing the whole text first would mutate the occurrence and
+  // break the exact match. Candidate protection must precede the scanner:
+  // a value the scanner only partially recognizes (a PEM key, where the
+  // `Private Key` pattern consumes just the header) would otherwise have
+  // its recognized substring replaced first, destroying the full-value
+  // match so the key body persists raw. The inserted `<redacted … />`
+  // markers contain no secret-shaped bytes, so the scanner pass can
+  // neither re-match nor corrupt them.
+  const protectedText = protectCandidateValuesLegacy(text, candidates);
   return redactSecrets(protectedText);
 }
 
@@ -852,7 +894,7 @@ function protectCandidateValuesLegacy(
   candidates: readonly ResolvedRevealCandidate[],
 ): string {
   if (candidates.length === 0) {
-    return text;
+    return neutralizeRedactedSentinels(text);
   }
   const seen = new Set<string>();
   const values: string[] = [];
@@ -868,6 +910,7 @@ function protectCandidateValuesLegacy(
     text,
     values,
     () => `<redacted type="${FALLBACK_SENTINEL_TYPE}" />`,
+    neutralizeRedactedSentinels,
   );
 }
 

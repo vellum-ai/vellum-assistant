@@ -11,7 +11,7 @@
  * in-flight priming before guarding a `text_delta` and before the
  * end-of-message guard flush.
  *
- * Since round 18 the candidate value is the plaintext the reveal ROUTE
+ * The candidate value is the plaintext the reveal ROUTE
  * served (captured on the success record), so resolution no longer re-reads
  * the vault for a proven ref — the store mock below stays untouched on the
  * proven path and is only exercised by the deliberate store-fallback case.
@@ -234,7 +234,7 @@ describe("live reveal guard priming barrier", () => {
     const state = createEventHandlerState();
     const deps = createMockDeps(events);
 
-    // Round-13 case: `tool_use` is emitted before execution, so approval
+    // `tool_use` is emitted before execution, so approval
     // denial / cancellation / the route's untrusted-shell block can still
     // stop the command. A blocked reveal never reaches the route, so no
     // success is recorded and the staged refs must be dropped without ever
@@ -263,7 +263,7 @@ describe("live reveal guard priming barrier", () => {
     const state = createEventHandlerState();
     const deps = createMockDeps([]);
 
-    // Round-14 case: `reveal … || true` (or an echo of the command text)
+    // `reveal … || true` (or an echo of the command text)
     // yields a SUCCESSFUL tool result even though the reveal route failed
     // or never ran. Without the route's own success record, the staged
     // refs must not promote.

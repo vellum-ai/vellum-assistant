@@ -444,6 +444,20 @@ describe("redactSecretsForChat", () => {
     );
     expect(out).not.toContain(forged);
   });
+
+  test("a candidate value containing the sentinel trigger is still redacted whole", () => {
+    // Manual credential values are arbitrary strings — one may embed the
+    // sentinel trigger itself. Neutralizing the whole text BEFORE the
+    // exact-match pass would mutate the value's occurrence and the protect
+    // pass would miss it, so candidate spans resolve on the raw bytes and
+    // neutralization applies only to the text between them.
+    const value = "weird\u3014redacted:inner\u3015token";
+    const out = redactSecretsForChat(`v: ${value} end`, [
+      { service: "svc", field: "f", value },
+    ]);
+    expect(out).toBe("v: \u3014redacted:Credential:svc:f\u3015 end");
+    expect(out).not.toContain("weird");
+  });
 });
 
 describe("drainSentinelGuardedText (live-stream forgery guard)", () => {
@@ -507,7 +521,7 @@ describe("live reveal swap (stream plaintext hold-back)", () => {
   });
 
   test("buildLiveRevealGuardEntries covers a value the scanner cannot classify bare", () => {
-    // Round-14 case: several scanner patterns only match WITH context
+    // Several scanner patterns only match WITH context
     // (`password=<value>` and friends), so a bare-undetectable candidate
     // must still get an entry — dropping it let the plaintext cross the
     // live stream raw while final persistence redacted the contextual
@@ -526,7 +540,7 @@ describe("live reveal swap (stream plaintext hold-back)", () => {
   });
 
   test("persist redacts an unclassifiable candidate value via the exact-match fallback", () => {
-    // Round-15 case: the live guard swaps a scanner-unclassifiable value,
+    // The live guard swaps a scanner-unclassifiable value,
     // so persistence MUST redact it too — otherwise the SSE transcript
     // hides the secret while the stored row keeps the raw plaintext and a
     // refresh or history fetch exposes it. The persisted bytes must equal
@@ -548,7 +562,7 @@ describe("live reveal swap (stream plaintext hold-back)", () => {
   });
 
   test("redactCandidateValuesLegacy covers unclassifiable values on legacy-marker surfaces", () => {
-    // Round-16 case: the reveal command's own stdout persists into the
+    // The reveal command's own stdout persists into the
     // tool_result row via the legacy `<redacted type/>` path (the tool
     // detail panel renders no chips). An opaque/manual value with no
     // scanner-recognizable shape must still be redacted there — the
@@ -583,7 +597,7 @@ describe("live reveal swap (stream plaintext hold-back)", () => {
   });
 
   test("redactCandidateValuesLegacy does not depend on the sentinel flag's marker format", () => {
-    // Round-17 case: the fallback protects legacy mode too — keeping a
+    // The fallback protects legacy mode too — keeping a
     // route-proven plaintext out of persisted rows is independent of
     // which marker format the client renders. The output is the legacy
     // marker, valid on flag-off surfaces.
@@ -609,6 +623,18 @@ describe("live reveal swap (stream plaintext hold-back)", () => {
     expect(out).toContain('<redacted type="Credential" />');
     expect(out).not.toContain("multi");
     expect(out).not.toContain("secret");
+  });
+
+  test("redactCandidateValuesLegacy covers a value containing the sentinel trigger", () => {
+    // Same raw-bytes-first ordering as the sentinel path: neutralizing the
+    // whole text before the exact match would mutate the value's occurrence
+    // and the opaque secret would persist almost intact.
+    const value = "weird\u3014redacted:inner\u3015token";
+    const out = redactCandidateValuesLegacy(`v: ${value} end`, [
+      { service: "svc", field: "f", value },
+    ]);
+    expect(out).toBe('v: <redacted type="Credential" /> end');
+    expect(out).not.toContain("weird");
   });
 
   test("redactCandidateValuesLegacy keeps emitted markers intact when a value appears inside them", () => {
@@ -747,14 +773,13 @@ describe("live reveal swap (stream plaintext hold-back)", () => {
   });
 
   test("holds a completed value whole while a higher-priority match could claim its tail", () => {
-    // Round-11 case: candidate A ends with a proper prefix of longer
+    // Candidate A ends with a proper prefix of longer
     // (higher-priority) candidate B (`…-sk` / `sk-…`). At a chunk boundary
     // right after a complete A the outcome is genuinely ambiguous — the
     // next bytes decide whether the full-text swap consumes A or a B
     // starting inside A's tail — so A must be held WHOLE. Splitting A to
-    // hold only B's prefix leaks A's head raw (the original round-11
-    // report); committing A immediately leaks B's suffix raw when B
-    // completes.
+    // hold only B's prefix leaks A's head raw; committing A immediately
+    // leaks B's suffix raw when B completes.
     const entries = [
       { value: "xx-sk", replacement: "[A]" },
       { value: "sk-yyyy", replacement: "[B]" },
@@ -785,7 +810,7 @@ describe("live reveal swap (stream plaintext hold-back)", () => {
   });
 
   test("equal-length overlapping entries stay chunk-independent", () => {
-    // Round-12 case: `aba` outranks `bab` (equal length, earlier in the
+    // `aba` outranks `bab` (equal length, earlier in the
     // sorted order — same tie-break as `swapLiveRevealValues`). Chunks
     // `bab` + `a` must produce the same output as the unchunked swap of
     // `baba` (`b` + swapped `aba`), not commit the completed `bab` and
@@ -875,6 +900,18 @@ describe("live reveal swap (stream plaintext hold-back)", () => {
     expect(swapLiveRevealValues(text, ENTRIES)).toBe(
       `a ${SENTINEL} b ${SENTINEL} c`,
     );
+  });
+
+  test("the live guard swaps a value containing the sentinel trigger", () => {
+    // The emit transform resolves candidate spans and forgery
+    // neutralization together on the raw bytes — sequencing neutralization
+    // first would mutate this value's occurrence and stream it raw.
+    const value = "weird\u3014redacted:inner\u3015token";
+    const candidates = [{ service: "svc", field: "f", value }];
+    const entries = buildLiveRevealGuardEntries(candidates);
+    const out = drainSentinelGuardedText(`v: ${value} end`, entries);
+    expect(out.emitText).toBe("v: \u3014redacted:Credential:svc:f\u3015 end");
+    expect(out.bufferedRemainder).toBe("");
   });
 
   test("swapLiveRevealValues never rewrites inside an earlier entry's replacement", () => {

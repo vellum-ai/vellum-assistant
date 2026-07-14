@@ -6,10 +6,7 @@
  * testable while keeping shared mutable state bundled in EventHandlerState.
  */
 
-import {
-  neutralizeRedactedSentinels,
-  SENTINEL_REDACTION_VERSION,
-} from "@vellumai/service-contracts/redacted-credential";
+import { SENTINEL_REDACTION_VERSION } from "@vellumai/service-contracts/redacted-credential";
 import type pino from "pino";
 import { v4 as uuid } from "uuid";
 
@@ -97,12 +94,12 @@ import {
   drainCandidateGuardedChunk,
   drainSentinelGuardedText,
   filterRefsByRevealProof,
+  neutralizeAndSwapLiveRevealValues,
   redactCandidateValuesLegacy,
   redactSecretsForChat,
   resolveProvenRevealCandidates,
   resolveRefIdentities,
   resolveRevealCandidates,
-  swapLiveRevealValues,
 } from "./chat-credential-redaction.js";
 import type { Conversation } from "./conversation.js";
 import type { AssistantSurface } from "./conversation-agent-loop.js";
@@ -826,7 +823,7 @@ function resetPartialPersistAccumulator(state: EventHandlerState): void {
   // bytes would be prepended to the retry's first text_delta, potentially
   // emitting a raw credential prefix if it no longer matches a candidate.
   // Clear alongside the other per-row accumulators so the new LLM call
-  // starts from an empty buffer. (Codex R19 P1)
+  // starts from an empty buffer.
   state.pendingSentinelGuardBuffer = "";
 }
 
@@ -2484,10 +2481,10 @@ export async function handleMessageComplete(
 
   // Flush any remaining directive display buffer, prepending live text the
   // sentinel guard held back (a split trigger or candidate-prefix tail).
-  // The concatenation is neutralized and candidate-swapped as a whole: at
-  // end-of-message nothing can complete a partial trigger (a completed one
-  // here would be a forged sentinel), and a reveal-candidate plaintext that
-  // completes across the two buffers still swaps to its sentinel.
+  // The concatenation is candidate-swapped and gap-neutralized as a whole:
+  // at end-of-message nothing can complete a partial trigger (a completed
+  // one here would be a forged sentinel), and a reveal-candidate plaintext
+  // that completes across the two buffers still swaps to its sentinel.
   const trailingLiveText =
     state.pendingSentinelGuardBuffer + state.pendingDirectiveDisplayBuffer;
   if (trailingLiveText.length > 0) {
@@ -2496,8 +2493,8 @@ export async function handleMessageComplete(
     await awaitLiveRevealGuardReady(state);
     deps.onEvent({
       type: "assistant_text_delta",
-      text: swapLiveRevealValues(
-        neutralizeRedactedSentinels(trailingLiveText),
+      text: neutralizeAndSwapLiveRevealValues(
+        trailingLiveText,
         state.liveRevealGuardEntries,
       ),
       conversationId: deps.ctx.conversationId,
