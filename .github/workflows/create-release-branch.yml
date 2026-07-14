@@ -227,7 +227,7 @@ jobs:
               - type: section
                 text:
                   type: mrkdwn
-                  text: "*Workflow:* Create Release Branch\n*Version:* `${{ needs.compute-version.outputs.version }}`\n*Bump:* `${{ inputs.bump || 'patch' }}`\n*Triggered by:* ${{ github.event_name == 'schedule' && 'Scheduled' || github.actor }}"
+                  text: "*Workflow:* Create Release Branch\n*Version:* `${{ needs.compute-version.outputs.version }}`\n*Bump:* `${{ inputs.bump || 'patch' }}`\n*Triggered by:* ${{ github.event_name == 'schedule' && 'Scheduled' || github.actor }}\n*Cut SHA:* `${{ needs.create-release-branch.outputs.cut-sha-short }}`\n*Trigger SHA:* `${{ needs.create-release-branch.outputs.trigger-sha-short }}`\n*Commits since trigger:* ${{ needs.create-release-branch.outputs.commits-since-trigger }}"
               - type: actions
                 elements:
                   - type: button
@@ -240,6 +240,12 @@ jobs:
     needs: compute-version
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    outputs:
+      cut-sha: ${{ steps.create.outputs.cut-sha }}
+      cut-sha-short: ${{ steps.create.outputs.cut-sha-short }}
+      trigger-sha: ${{ steps.create.outputs.trigger-sha }}
+      trigger-sha-short: ${{ steps.create.outputs.trigger-sha-short }}
+      commits-since-trigger: ${{ steps.create.outputs.commits-since-trigger }}
     steps:
       - name: Generate GitHub App token
         id: app-token
@@ -264,23 +270,11 @@ jobs:
       - name: Set up Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
 
-      # Hotfix releases can check out a pre-workspace tag (no root bun.lock);
-      # those trees still install per package.
-      - name: Install dependencies
-        run: |
-          if [ -f bun.lock ]; then
-            bun install --frozen-lockfile --filter=@vellumai/assistant
-          else
-            for pkg in packages/*/ assistant; do
-              [ -f "$pkg/package.json" ] || continue
-              (cd "$pkg" && bun install --frozen-lockfile)
-            done
-          fi
-
       - name: Disable local git hooks
         run: git config --unset core.hooksPath || true
 
       - name: Create release branch and bump versions
+        id: create
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
@@ -289,30 +283,56 @@ jobs:
           SKIP_CI="${{ needs.compute-version.outputs.skip-ci }}"
           BRANCH="release/v$VERSION"
           CHERRY_PICK_BRANCH="cherry-pick/$BRANCH"
+          TRIGGER_SHA="$GITHUB_SHA"
+          TRIGGER_SHA_SHORT="$(git rev-parse --short "$TRIGGER_SHA")"
+          COMMITS_SINCE_TRIGGER="n/a"
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          # Delete existing cherry-pick branch if it exists (must happen before release branch)
-          if git ls-remote --exit-code origin "$CHERRY_PICK_BRANCH" >/dev/null 2>&1; then
-            echo "Deleting existing cherry-pick branch: $CHERRY_PICK_BRANCH"
-            git push origin --delete "$CHERRY_PICK_BRANCH"
-          fi
-
-          # Delete existing release branch if it exists
-          if git ls-remote --exit-code origin "$BRANCH" >/dev/null 2>&1; then
-            echo "Deleting existing release branch: $BRANCH"
-            git push origin --delete "$BRANCH"
-          fi
-
-          # Hotfix releases branch from the latest release tag's commit so the
-          # patch contains only the released code (plus fixes cherry-picked
-          # later). Other bump types branch from the checked-out main HEAD.
+          # Hotfix releases branch from the latest release tag's commit. Other
+          # bump types refresh origin/main so scheduled cuts use main at the
+          # 9am ET cut time.
           if [ -n "$BASE_REF" ]; then
+            CUT_SHA="$(git rev-parse "$BASE_REF")"
+            CUT_SHA_SHORT="$(git rev-parse --short "$CUT_SHA")"
             echo "Creating $BRANCH from $BASE_REF"
             git checkout -b "$BRANCH" "$BASE_REF"
           else
-            git checkout -b "$BRANCH"
+            git fetch origin +refs/heads/main:refs/remotes/origin/main
+            CUT_SHA="$(git rev-parse origin/main)"
+            CUT_SHA_SHORT="$(git rev-parse --short "$CUT_SHA")"
+
+            if git merge-base --is-ancestor "$TRIGGER_SHA" "$CUT_SHA"; then
+              COUNT="$(git rev-list --count "$TRIGGER_SHA..$CUT_SHA")"
+              if [ "$COUNT" = "1" ]; then
+                COMMITS_SINCE_TRIGGER="1 commit"
+              else
+                COMMITS_SINCE_TRIGGER="$COUNT commits"
+              fi
+            else
+              COMMITS_SINCE_TRIGGER="unavailable"
+            fi
+
+            echo "Creating $BRANCH from origin/main ($CUT_SHA_SHORT)"
+            git checkout -b "$BRANCH" origin/main
+          fi
+
+          echo "cut-sha=$CUT_SHA" >> "$GITHUB_OUTPUT"
+          echo "cut-sha-short=$CUT_SHA_SHORT" >> "$GITHUB_OUTPUT"
+          echo "trigger-sha=$TRIGGER_SHA" >> "$GITHUB_OUTPUT"
+          echo "trigger-sha-short=$TRIGGER_SHA_SHORT" >> "$GITHUB_OUTPUT"
+          echo "commits-since-trigger=$COMMITS_SINCE_TRIGGER" >> "$GITHUB_OUTPUT"
+
+          # Hotfix releases can branch from a pre-workspace tag (no root
+          # bun.lock); those trees still install per package.
+          if [ -f bun.lock ]; then
+            bun install --frozen-lockfile --filter=@vellumai/assistant
+          else
+            for pkg in packages/*/ assistant; do
+              [ -f "$pkg/package.json" ] || continue
+              (cd "$pkg" && bun install --frozen-lockfile)
+            done
           fi
 
           # Bump all package.json files
@@ -358,4 +378,17 @@ jobs:
           if ! git diff --cached --quiet; then
             git commit -m "$COMMIT_MSG"
           fi
+
+          # Delete existing cherry-pick branch if it exists (must happen before release branch push)
+          if git ls-remote --exit-code origin "$CHERRY_PICK_BRANCH" >/dev/null 2>&1; then
+            echo "Deleting existing cherry-pick branch: $CHERRY_PICK_BRANCH"
+            git push origin --delete "$CHERRY_PICK_BRANCH"
+          fi
+
+          # Delete existing release branch if it exists
+          if git ls-remote --exit-code origin "$BRANCH" >/dev/null 2>&1; then
+            echo "Deleting existing release branch: $BRANCH"
+            git push origin --delete "$BRANCH"
+          fi
+
           git push --no-verify origin "$BRANCH"
