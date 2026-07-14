@@ -302,6 +302,24 @@ describe("VoiceRoom — captions toggle", () => {
   });
 });
 
+describe("VoiceRoom — Electron title-bar clickability", () => {
+  // Regression: the top-right controls sit in the band where the still-mounted
+  // ChatLayoutHeader owns the `-webkit-app-region: drag` window-drag region. A
+  // drag region stays draggable under a painted-over overlay, so without a
+  // `no-drag` carve-out these buttons swallow their clicks on macOS.
+  test("top-right controls carve out of the window-drag region", () => {
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+    const exit = screen.getByRole("button", { name: "Exit voice session" });
+    const captions = screen.getByRole("button", { name: "Show captions" });
+    const cluster = exit.closest<HTMLElement>("[class*='no-drag']");
+    expect(cluster).not.toBeNull();
+    expect(cluster?.className).toContain("[-webkit-app-region:no-drag]");
+    // Both top-right controls share the one carved-out cluster.
+    expect(cluster?.contains(captions)).toBe(true);
+  });
+});
+
 describe("VoiceRoom — mute toggle", () => {
   test("mute drives the registered setMuted control", () => {
     startOwnedSession("listening");
