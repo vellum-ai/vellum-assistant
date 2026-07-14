@@ -49,9 +49,6 @@ export function SettingsLayout() {
         if (item.id === "credentials" && !credentialsSettingsEnabled) {
           return false;
         }
-        if (item.id === "devices" && platformGate === "gated") {
-          return false;
-        }
         if (item.id === "developer") {
           return false;
         }

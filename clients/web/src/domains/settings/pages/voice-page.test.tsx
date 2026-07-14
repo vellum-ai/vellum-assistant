@@ -5,7 +5,7 @@
  * voice-prefs store starts empty), and flipping each switch writes the new
  * value straight through to `useVoicePrefsStore`.
  *
- * Drives the real `VoicePage` and the real `voice-prefs-store`; only
+ * Drives the real `VoiceSections` and the real `voice-prefs-store`; only
  * `localStorage` is stubbed so the persist middleware has somewhere to write.
  * Follows single-file `bun test` isolation.
  */
@@ -15,13 +15,13 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 
-import { VoicePage } from "@/domains/settings/pages/voice-page";
+import { VoiceSections } from "@/domains/settings/pages/voice-page";
 import { useVoicePrefsStore } from "@/stores/voice-prefs-store";
 
 function renderPage() {
   return render(
     <MemoryRouter>
-      <VoicePage />
+      <VoiceSections />
     </MemoryRouter>,
   );
 }
@@ -39,7 +39,7 @@ afterEach(() => {
   cleanup();
 });
 
-describe("VoicePage transcription toggles", () => {
+describe("VoiceSections transcription toggles", () => {
   test("both transcript toggles default to off on first render", () => {
     renderPage();
 
