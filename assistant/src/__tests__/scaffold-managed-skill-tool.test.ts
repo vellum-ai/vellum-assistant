@@ -169,7 +169,7 @@ describe("scaffold_managed_skill tool", () => {
       {
         checkName: "skill_authored",
         value: 1,
-        detail: { authored_by: "user", skill_id: "test-skill" },
+        detail: { authored_by: "user" },
       },
     ]);
   });
@@ -729,7 +729,7 @@ describe("scaffold_managed_skill tool", () => {
       {
         checkName: "skill_authored",
         value: 1,
-        detail: { authored_by: "retrospective", skill_id: "retro-skill" },
+        detail: { authored_by: "retrospective" },
       },
     ]);
   });

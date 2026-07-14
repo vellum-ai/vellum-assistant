@@ -310,8 +310,11 @@ export async function executeScaffoldManagedSkill(
   // the watchdog check_name). Genuine creates only — refinements of a
   // pre-existing skill are not new capabilities and would double-count.
   // `authored_by` distinguishes proactive retrospective authoring from
-  // user-directed scaffolds. Never throws: a telemetry failure must not
-  // fail a scaffold that already succeeded.
+  // user-directed scaffolds; the skill id itself stays out of the detail
+  // bag — ids derive from user/model content (a name can encode a
+  // customer or procedure), and watchdog events are metadata-only with no
+  // deletion-redaction tie to the source conversation. Never throws: a
+  // telemetry failure must not fail a scaffold that already succeeded.
   if (!managedSkillExistedBefore) {
     try {
       recordWatchdogEvent({
@@ -319,7 +322,6 @@ export async function executeScaffoldManagedSkill(
         value: 1,
         detail: {
           authored_by: fromRetrospective ? "retrospective" : "user",
-          skill_id: id,
         },
       });
     } catch {
