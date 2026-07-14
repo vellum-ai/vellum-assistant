@@ -2473,11 +2473,16 @@ export async function handleSurfaceAction(
   // are present, fall back to `processMessage` so the model still sees them.
   const voiceResumeHandler = getVoiceResumeHandler(ctx.conversationId);
   if (voiceResumeHandler && pendingAttachments.length === 0) {
+    // Reuse the accepted surface-action `requestId` (already in
+    // `ctx.surfaceActionRequestIds`) as the resumed turn's request id, so a
+    // tool gated on `triggeredBySurfaceAction` still sees `currentRequestId`
+    // in the set — parity with the text path below, which passes it too.
     voiceResumeHandler.resumeWithText(content, {
       ...(displayContent !== undefined ? { displayContent } : {}),
       ...(sourceActorPrincipalId !== undefined
         ? { sourceActorPrincipalId }
         : {}),
+      requestId,
     });
     return;
   }

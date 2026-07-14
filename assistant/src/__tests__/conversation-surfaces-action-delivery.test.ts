@@ -545,7 +545,11 @@ describe("surface action delivery to assistant", () => {
 
     const resumeCalls: Array<{
       content: string;
-      opts?: { displayContent?: string; sourceActorPrincipalId?: string };
+      opts?: {
+        displayContent?: string;
+        sourceActorPrincipalId?: string;
+        requestId?: string;
+      };
     }> = [];
     const handler: VoiceResumeHandler = {
       resumeWithText: (content, opts) => resumeCalls.push({ content, opts }),
@@ -584,6 +588,18 @@ describe("surface action delivery to assistant", () => {
       expect(resumeCalls[0]!.content).toContain("oauth_connect");
       expect(resumeCalls[0]!.opts?.sourceActorPrincipalId).toBe(
         "principal-committer",
+      );
+      // The accepted surface-action request id rides into the resume and is the
+      // one tracked in `surfaceActionRequestIds`, so the resumed turn adopting
+      // it keeps `currentRequestId` inside the surface-action set.
+      const resumeRequestId = resumeCalls[0]!.opts?.requestId;
+      expect(resumeRequestId).toBeDefined();
+      expect(ctx.surfaceActionRequestIds.has(resumeRequestId!)).toBe(true);
+      // The user-facing label (not the raw payload) rides along for the
+      // persisted/echoed user row.
+      expect(resumeCalls[0]!.opts?.displayContent).toBeDefined();
+      expect(resumeCalls[0]!.opts?.displayContent).not.toContain(
+        "[User action on",
       );
       // The pending-surface guard is cleared on the voice-routed path too.
       expect(ctx.pendingSurfaceActions.has(surfaceId)).toBe(false);

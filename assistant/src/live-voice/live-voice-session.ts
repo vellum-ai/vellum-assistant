@@ -122,6 +122,18 @@ export type LiveVoiceTurnStarter = (
   options: VoiceTurnOptions,
 ) => Promise<VoiceTurnHandle>;
 
+/**
+ * Per-turn overrides carried from an interactive-surface completion into the
+ * resumed voice turn. `requestId` is the accepted surface-action request id
+ * (keeps `currentRequestId` in the conversation's `surfaceActionRequestIds`
+ * set); `displayContent` is the user-facing label persisted/echoed in place of
+ * the model-facing content.
+ */
+interface ResumeTurnMetadata {
+  requestId?: string;
+  displayContent?: string;
+}
+
 export type LiveVoiceTtsStreamer = (
   options: LiveVoiceTtsOptions,
 ) => Promise<LiveVoiceTtsResult>;
@@ -1482,6 +1494,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   private async startAssistantTurnForUtterance(
     utterance: UtteranceCycle,
     content: string,
+    resume?: ResumeTurnMetadata,
   ): Promise<void> {
     utterance.assistantTurnStarted = true;
     const token = Symbol("live-voice-assistant-turn");
@@ -1536,6 +1549,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
             frontDoor: true,
           }
         : { content },
+      resume,
     );
   }
 
@@ -1552,7 +1566,11 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
    */
   resumeWithText(
     content: string,
-    opts?: { displayContent?: string; sourceActorPrincipalId?: string },
+    opts?: {
+      displayContent?: string;
+      sourceActorPrincipalId?: string;
+      requestId?: string;
+    },
   ): void {
     const trimmed = content.trim();
     if (trimmed.length === 0) {
@@ -1563,16 +1581,30 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         conversationId: this.conversationId,
         hasDisplayContent: opts?.displayContent != null,
         sourceActorPrincipalId: opts?.sourceActorPrincipalId,
+        requestId: opts?.requestId,
       },
       "Live voice resume requested from interactive surface completion",
     );
+    // The surface-action request id and user-facing label ride the turn down to
+    // `startVoiceTurn`: the id keeps `currentRequestId` inside the accepted
+    // `surfaceActionRequestIds` set (so surface-gated tools run), and the label
+    // is what the persisted user row / echo shows instead of the raw payload.
+    const resume: ResumeTurnMetadata = {
+      ...(opts?.requestId !== undefined ? { requestId: opts.requestId } : {}),
+      ...(opts?.displayContent !== undefined
+        ? { displayContent: opts.displayContent }
+        : {}),
+    };
     this.resumeChain = this.resumeChain
       .catch(() => {})
-      .then(() => this.runResumeTurn(trimmed));
+      .then(() => this.runResumeTurn(trimmed, resume));
     void this.resumeChain.catch(() => {});
   }
 
-  private async runResumeTurn(content: string): Promise<void> {
+  private async runResumeTurn(
+    content: string,
+    resume?: ResumeTurnMetadata,
+  ): Promise<void> {
     if (this.isClosedOrFailed || !this.startVoiceTurn) {
       return;
     }
@@ -1590,7 +1622,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       released: true,
       finalTranscriptSegments: [content],
     });
-    await this.startAssistantTurnForUtterance(utterance, content);
+    await this.startAssistantTurnForUtterance(utterance, content, resume);
   }
 
   /**
@@ -1614,6 +1646,11 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       routingLeg?: VoiceRoutingLeg;
       frontDoor?: boolean;
     },
+    // Surface-resume metadata for the primary leg only. `escalateTurn` starts
+    // the escalated continuation leg without it: that leg persists an internal
+    // `[continue]` prompt, so it must neither reuse the surface request id nor
+    // show the surface's user-facing label.
+    resume?: ResumeTurnMetadata,
   ): Promise<void> {
     if (!this.startVoiceTurn) {
       return;
@@ -1687,6 +1724,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
           ? { overrideProfile: leg.overrideProfile }
           : {}),
         ...(leg.routingLeg != null ? { routingLeg: leg.routingLeg } : {}),
+        ...(resume?.requestId != null ? { requestId: resume.requestId } : {}),
+        ...(resume?.displayContent != null
+          ? { displayContent: resume.displayContent }
+          : {}),
         callbacks: {
           assistant_text_delta: (msg) => {
             if (!this.isForwardingAssistantText(token)) {

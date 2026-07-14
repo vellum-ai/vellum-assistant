@@ -468,4 +468,61 @@ describe("LiveVoiceSession surface resume", () => {
     await session.close("client_end");
     expect(getVoiceResumeHandler("conversation-123")).toBeUndefined();
   });
+
+  test("threads the surface-action requestId and displayContent into the resumed turn", async () => {
+    const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
+      options.callbacks?.assistant_text_delta?.({
+        type: "assistant_text_delta",
+        text: "Archived. ",
+        conversationId: options.conversationId,
+      });
+      options.callbacks?.message_complete?.({
+        type: "message_complete",
+        conversationId: options.conversationId,
+        messageId: "assistant-message-resume",
+      });
+      return { turnId: "bridge-resume-1", abort: mock() };
+    });
+    const { session } = createSessionHarness({ startVoiceTurn });
+
+    await session.start();
+    session.resumeWithText("[User action on table surface: archive]", {
+      displayContent: "Archive selected emails",
+      requestId: "surface-request-1",
+    });
+    await waitFor(() => startVoiceTurn.mock.calls.length > 0);
+
+    // The surface request id becomes the resumed turn's request id so
+    // `currentRequestId` lands in `surfaceActionRequestIds` and surface-gated
+    // tools run; the display label rides along for the persisted/echoed row.
+    expect(startVoiceTurn.mock.calls[0]?.[0]).toMatchObject({
+      content: "[User action on table surface: archive]",
+      requestId: "surface-request-1",
+      displayContent: "Archive selected emails",
+    });
+
+    await session.close("client_end");
+  });
+
+  test("a resume without opts mints no requestId or displayContent override", async () => {
+    const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
+      options.callbacks?.message_complete?.({
+        type: "message_complete",
+        conversationId: options.conversationId,
+        messageId: "assistant-message-resume",
+      });
+      return { turnId: "bridge-resume-1", abort: mock() };
+    });
+    const { session } = createSessionHarness({ startVoiceTurn });
+
+    await session.start();
+    session.resumeWithText("[User connected Google]");
+    await waitFor(() => startVoiceTurn.mock.calls.length > 0);
+
+    const opts = startVoiceTurn.mock.calls[0]?.[0];
+    expect(opts?.requestId).toBeUndefined();
+    expect(opts?.displayContent).toBeUndefined();
+
+    await session.close("client_end");
+  });
 });

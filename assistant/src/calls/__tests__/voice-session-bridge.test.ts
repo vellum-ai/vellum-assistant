@@ -20,8 +20,30 @@ import { describe, expect, mock, setSystemTime, test } from "bun:test";
 // Swapped per-test to hand startVoiceTurn a scripted fake conversation.
 let fakeConversation: FakeConversation;
 
+// Captures every message the bridge broadcasts (e.g. `user_message_echo`), so
+// tests can assert what the transcript/hub sees. Reset per test.
+const broadcasts: Array<{ type: string; [k: string]: unknown }> = [];
+
 mock.module("../../daemon/conversation-store.js", () => ({
   getOrCreateConversation: async () => fakeConversation,
+}));
+
+// Non-synthetic content reaches the user-echo broadcast + persisted-seq
+// side-effect path; stub those to capture the echo and keep the DB/event-hub
+// out of the unit test.
+mock.module("../../runtime/assistant-event-hub.js", () => ({
+  broadcastMessage: (msg: { type: string; [k: string]: unknown }) => {
+    broadcasts.push(msg);
+  },
+}));
+mock.module("../../persistence/conversation-crud.js", () => ({
+  recordConversationPersistedSeq: () => {},
+}));
+mock.module("../../runtime/assistant-stream-state.js", () => ({
+  getCurrentSeq: () => 0,
+}));
+mock.module("../../runtime/sync/resource-sync-events.js", () => ({
+  publishConversationMessagesChanged: () => {},
 }));
 
 import { setConfig } from "../../__tests__/helpers/set-config.js";
@@ -65,6 +87,7 @@ interface FakeConversation {
   persistUserMessage: (opts: {
     content: string;
     requestId: string;
+    displayContent?: string;
     metadata?: Record<string, unknown>;
   }) => Promise<{ id: string }>;
   updateClient: (cb: unknown, reset?: boolean) => void;
@@ -85,7 +108,12 @@ function makeFakeConversation(opts: {
   const waitForIdleCalls: WaitForIdleCall[] = [];
   let persistCount = 0;
   let lastPersistOpts:
-    | { content: string; requestId: string; metadata?: Record<string, unknown> }
+    | {
+        content: string;
+        requestId: string;
+        displayContent?: string;
+        metadata?: Record<string, unknown>;
+      }
     | undefined;
   const conversation: FakeConversation = {
     conversationId: "conv-voice-bridge-test",
@@ -291,6 +319,60 @@ describe("startVoiceTurn escalation-continuation persistence", () => {
     await startVoiceTurn(makeTurnOptions()); // content: CALL_OPENING_MARKER
 
     expect(fake.lastPersistOpts()?.metadata).toBeUndefined();
+  });
+});
+
+describe("startVoiceTurn surface-resume metadata", () => {
+  test("adopts the supplied requestId and persists/echoes displayContent", async () => {
+    broadcasts.length = 0;
+    const fake = makeFakeConversation({ processing: false });
+    fakeConversation = fake.conversation;
+
+    await startVoiceTurn({
+      ...makeTurnOptions(),
+      // A real surface-resume turn: raw model-facing content + a friendly label
+      // + the accepted surface-action request id.
+      content: "[User action on table surface: archive]",
+      requestId: "surface-request-1",
+      displayContent: "Archive selected emails",
+    });
+
+    // The turn adopts the surface request id (so `currentRequestId` stays in
+    // `surfaceActionRequestIds`) rather than minting a fresh one.
+    expect(fake.lastPersistOpts()?.requestId).toBe("surface-request-1");
+    // The persisted row stores the friendly label; the model still receives the
+    // raw content.
+    expect(fake.lastPersistOpts()?.content).toBe(
+      "[User action on table surface: archive]",
+    );
+    expect(fake.lastPersistOpts()?.displayContent).toBe(
+      "Archive selected emails",
+    );
+
+    // The user echo carries the label, never the raw `[User action on …]`
+    // payload.
+    const echo = broadcasts.find((m) => m.type === "user_message_echo");
+    expect(echo).toBeDefined();
+    expect(echo?.text).toBe("Archive selected emails");
+    expect(echo?.requestId).toBe("surface-request-1");
+  });
+
+  test("a normal turn mints its own requestId and echoes raw content", async () => {
+    broadcasts.length = 0;
+    const fake = makeFakeConversation({ processing: false });
+    fakeConversation = fake.conversation;
+
+    await startVoiceTurn({
+      ...makeTurnOptions(),
+      content: "what's the weather",
+    });
+
+    // No caller requestId → a fresh one is minted (not undefined).
+    expect(fake.lastPersistOpts()?.requestId).toBeString();
+    expect(fake.lastPersistOpts()?.displayContent).toBeUndefined();
+
+    const echo = broadcasts.find((m) => m.type === "user_message_echo");
+    expect(echo?.text).toBe("what's the weather");
   });
 });
 
