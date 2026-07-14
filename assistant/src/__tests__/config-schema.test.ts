@@ -452,7 +452,7 @@ describe("AssistantConfigSchema", () => {
     }
   });
 
-  test("accepts memory.cleanup.llmRequestLogRetentionMs: 0 (prune immediately)", () => {
+  test("accepts memory.cleanup.llmRequestLogRetentionMs: 0 (disables pruning)", () => {
     const result = AssistantConfigSchema.safeParse({
       memory: { cleanup: { llmRequestLogRetentionMs: 0 } },
     });

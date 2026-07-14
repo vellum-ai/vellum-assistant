@@ -184,6 +184,18 @@ describe("maybeEnqueueScheduledCleanupJobs retention-derived cadence", () => {
     expect(llmCalls).toEqual([]);
   });
 
+  test("zero LLM-log retention disables pruning and never busy-loops", () => {
+    // A retention of 0 makes the cadence interval 0, so `isDue` would be true
+    // on every tick. Guard against the resulting runaway enqueue loop: 0 must
+    // enqueue nothing, on the first tick and on every subsequent one.
+    const config = makeConfig({ llmRequestLogRetentionMs: 0 });
+
+    expect(maybeEnqueueScheduledCleanupJobs(config, BASE)).toBe(false);
+    expect(maybeEnqueueScheduledCleanupJobs(config, BASE + 1)).toBe(false);
+    expect(maybeEnqueueScheduledCleanupJobs(config, BASE + 60_000)).toBe(false);
+    expect(llmCalls).toEqual([]);
+  });
+
   test("resetCleanupScheduleThrottle makes every job due on the next tick", () => {
     const config = makeConfig({
       conversationRetentionDays: 30,

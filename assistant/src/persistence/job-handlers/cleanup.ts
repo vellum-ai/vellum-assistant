@@ -38,8 +38,13 @@ export async function pruneOldLlmRequestLogsJob(
         ? rawRetention
         : config.memory.cleanup.llmRequestLogRetentionMs;
 
-  // null means "keep forever" — skip pruning entirely
-  if (retentionMs === null || retentionMs === undefined) return;
+  // null/0 means "keep forever" — skip pruning entirely. 0 is excluded (not
+  // just null) to match the scheduler in maybeEnqueueScheduledCleanupJobs,
+  // which no longer enqueues a retention-0 prune; guarding here too ensures a
+  // job left pending from before that fix does not wipe every log on its next
+  // run.
+  if (retentionMs === null || retentionMs === undefined || retentionMs <= 0)
+    return;
 
   const cutoffMs = Math.floor(Date.now() - retentionMs);
   if (!Number.isFinite(cutoffMs)) return;
