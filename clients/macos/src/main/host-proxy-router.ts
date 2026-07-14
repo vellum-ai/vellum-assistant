@@ -93,7 +93,19 @@ function dispatchMessage(message: HostProxySseMessage, poster: HostProxyPoster):
   const { type } = message;
   const route = executorKindForType(type);
   if (!route) {
-    log.warn("[host-proxy-router] unknown message type, ignoring", { type });
+    // The gateway's /v1/events endpoint is the full assistant-event
+    // firehose — streaming deltas (assistant_text_delta,
+    // assistant_thinking_delta), tool events, sync notifications, and so
+    // on. This connection exists only to service host_* proxy requests, so
+    // every other event type is expected traffic we deliberately drop.
+    // Only a host_*-shaped type we can't route is genuinely anomalous;
+    // reserve the warning for that and ignore the rest silently. (Warning
+    // per message previously emitted tens of thousands of lines per session
+    // — dominated by streaming deltas — which buried real errors in the log
+    // and pushed it toward the 10 MB rotation cap.)
+    if (type.startsWith("host_")) {
+      log.warn("[host-proxy-router] unrecognized host proxy message type, ignoring", { type });
+    }
     return;
   }
 
