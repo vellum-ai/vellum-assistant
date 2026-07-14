@@ -901,6 +901,7 @@ describe("AssistantConfigSchema", () => {
         bargeInMinSpeechMs: 60,
       },
       maxSessionDurationSeconds: 1800,
+      archiveAudio: false,
     });
   });
 

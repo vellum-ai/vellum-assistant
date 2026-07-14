@@ -2072,9 +2072,13 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     if (activeTurn?.token !== token) {
       return;
     }
-    activeTurn.assistantAudioChunks.push(
-      Buffer.from(chunk.dataBase64, "base64"),
-    );
+    // Only retain the assistant TTS audio when it will be archived (see
+    // collectUserAudio); the mime/sample-rate are cheap and left unconditional.
+    if (this.archiveAudio) {
+      activeTurn.assistantAudioChunks.push(
+        Buffer.from(chunk.dataBase64, "base64"),
+      );
+    }
     activeTurn.assistantAudioMimeType = chunk.contentType;
     activeTurn.assistantAudioSampleRate = chunk.sampleRate;
     job.frames = job.frames.then(async () => {
@@ -2114,7 +2118,12 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   }
 
   private collectUserAudio(utterance: UtteranceCycle, chunk: Buffer): void {
-    utterance.userAudioChunks.push(Buffer.from(chunk));
+    // Only retain the raw audio when it will actually be archived — otherwise
+    // buffering a whole turn's PCM is dead memory. The first-audio metric is
+    // independent of archiving, so it stays unconditional.
+    if (this.archiveAudio) {
+      utterance.userAudioChunks.push(Buffer.from(chunk));
+    }
     this.markUtteranceMetric(utterance, "firstAudioAtMs", (turnId) =>
       this.metrics.markFirstAudio(turnId),
     );
@@ -2509,7 +2518,8 @@ export function createLiveVoiceSession(
   // unchanged. Optional-chained
   // because hand-built test configs may predate the liveVoice namespace;
   // absent config falls through to the in-code defaults.
-  const vadConfig = getConfig().liveVoice?.vad;
+  const liveVoiceConfig = getConfig().liveVoice;
+  const vadConfig = liveVoiceConfig?.vad;
   return new LiveVoiceSession(context, {
     ...options,
     turnDetectorConfig:
@@ -2533,9 +2543,16 @@ export function createLiveVoiceSession(
       options.streamTtsAudio === undefined
         ? defaultStreamLiveVoiceTtsAudio
         : options.streamTtsAudio,
+    // Off by default (see the `liveVoice.archiveAudio` schema): voice turns
+    // persist only their transcribed text, so the recorded audio never lands
+    // as an attachment on the conversation messages. Enable via config for
+    // playback/debugging. An explicit option (incl. `null`) always wins — the
+    // test seam and any future caller override.
     archiveAudio:
       options.archiveAudio === undefined
-        ? defaultArchiveLiveVoiceAudio
+        ? liveVoiceConfig?.archiveAudio
+          ? defaultArchiveLiveVoiceAudio
+          : null
         : options.archiveAudio,
     emitMetrics: options.emitMetrics ?? true,
   });
