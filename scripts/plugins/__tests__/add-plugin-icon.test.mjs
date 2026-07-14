@@ -88,14 +88,32 @@ describe("serializeMarketplace", () => {
 });
 
 describe("isCuratedEmoji", () => {
-  test("accepts emoji glyphs, rejects URLs/paths/empties", () => {
+  // Must match the `icon` refinement in marketplaceEntrySchema
+  // (assistant/src/cli/lib/plugin-marketplace.ts) so this tool never writes a
+  // value the reader later rejects.
+  // 👨‍👩‍👧‍👦 = 4 emoji joined by 3 ZWJ (U+200D) → 7 code points.
+  const ZWJ = String.fromCodePoint(0x200d);
+  const FAMILY = [0x1f468, 0x1f469, 0x1f467, 0x1f466]
+    .map((cp) => String.fromCodePoint(cp))
+    .join(ZWJ);
+
+  test("accepts emoji glyphs, including multi-code-point sequences", () => {
     expect(isCuratedEmoji(COFFEE)).toBe(true);
     expect(isCuratedEmoji(BONE)).toBe(true);
+    expect(isCuratedEmoji(FAMILY)).toBe(true); // 7 code points ≤ 8
+  });
+
+  test("rejects URLs, slashes, over-length, and empties (schema parity)", () => {
     expect(isCuratedEmoji("")).toBe(false);
+    expect(isCuratedEmoji(undefined)).toBe(false);
     expect(isCuratedEmoji("/icons/x.png")).toBe(false);
     expect(isCuratedEmoji("https://example.com/x.png")).toBe(false);
+    expect(isCuratedEmoji("HTTPS://example.com/x.png")).toBe(false); // case-insensitive
     expect(isCuratedEmoji("http://x")).toBe(false);
-    expect(isCuratedEmoji(undefined)).toBe(false);
+    expect(isCuratedEmoji("a\\b")).toBe(false); // backslash anywhere
+    expect(isCuratedEmoji(`${COFFEE}/x`)).toBe(false); // slash not just leading
+    expect(isCuratedEmoji("not-an-emoji-just-text")).toBe(false); // > 8 code points
+    expect(isCuratedEmoji(COFFEE.repeat(9))).toBe(false); // 9 code points
   });
 });
 
@@ -210,7 +228,7 @@ describe("addPluginIcon", () => {
         runSync: sync,
         log: quietLog,
       }),
-    ).rejects.toThrow(/emoji glyph/);
+    ).rejects.toThrow(/short emoji/);
     expect(readFileSync(marketplacePath, "utf-8")).toBe(before);
     expect(genCalls.n).toBe(0);
     expect(syncCalls.n).toBe(0);

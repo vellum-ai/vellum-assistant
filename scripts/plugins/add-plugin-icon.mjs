@@ -55,17 +55,19 @@ export function serializeMarketplace(data) {
 }
 
 /**
- * Whether `value` is a curated emoji glyph rather than a URL or path. Mirrors
- * `_curated_emoji` in the platform's `django/app/plugins/serializers.py`: a
- * value that starts with `/` or `http` is treated as a URL/path (not an emoji)
- * and rejected here so it never lands in the curated `icon` field.
+ * Whether `value` is a valid curated `icon` per the marketplace schema — so this
+ * tool never writes a value the reader would later reject. Mirrors the `icon`
+ * refinement in `marketplaceEntrySchema` (`assistant/src/cli/lib/plugin-marketplace.ts`):
+ * at most 8 code points, and no slash/backslash or `http(s):` URL (case-insensitive).
+ * We additionally require it be non-empty, since the schema's `.optional()` covers
+ * "no icon" but an explicit empty `--emoji ""` is a user error here.
  */
 export function isCuratedEmoji(value) {
   return (
     typeof value === "string" &&
     value.length > 0 &&
-    !value.startsWith("/") &&
-    !value.startsWith("http")
+    [...value].length <= 8 &&
+    !/[/\\]|^https?:/i.test(value)
   );
 }
 
@@ -119,7 +121,8 @@ export async function addPluginIcon({
   if (emoji !== undefined) {
     if (!isCuratedEmoji(emoji)) {
       throw new Error(
-        `--emoji must be an emoji glyph, not a URL or path (got ${JSON.stringify(emoji)}).`,
+        `--emoji must be a short emoji (at most 8 code points, no slashes or ` +
+          `URLs), per the marketplace schema (got ${JSON.stringify(emoji)}).`,
       );
     }
     if (entry.icon === emoji) {
