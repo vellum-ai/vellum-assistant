@@ -5,13 +5,14 @@ import { routes } from "@/utils/routes";
 
 /**
  * Forwards legacy `/assistant/settings/keyboard-shortcuts` deep links to
- * Settings → General, where the Preferences modal hosts shortcut rebinding.
+ * Settings → General with the Preferences modal open, which hosts the
+ * shortcut rebinding controls.
  */
 export function KeyboardShortcutsRedirectPage() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    navigate(routes.settings.general, { replace: true });
+    navigate(`${routes.settings.general}?preferences=open`, { replace: true });
   }, [navigate]);
 
   return null;
