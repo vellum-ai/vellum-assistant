@@ -258,72 +258,89 @@ export function swapLiveRevealValues(
 }
 
 /**
- * Length of the longest suffix of `text` that is a PROPER prefix of
- * `target` (a complete occurrence is not a hold-back case — the caller's
- * transform consumes it).
- */
-function trailingProperPrefixLen(text: string, target: string): number {
-  const maxLen = Math.min(target.length - 1, text.length);
-  for (let len = maxLen; len > 0; len--) {
-    if (text.endsWith(target.slice(0, len))) {
-      return len;
-    }
-  }
-  return 0;
-}
-
-/**
- * End offset of the last byte consumed by a complete occurrence of any
- * target — occurrences resolved longest-target-first, greedily
- * left-to-right, non-overlapping: exactly the semantics of
- * `swapLiveRevealValues` (and of trigger neutralization, whose complete
- * matches are likewise transformed, not held). Hold-back may only extend
- * into bytes AFTER this offset.
+ * Length of the prefix of `buffer` whose transform result is STABLE —
+ * i.e. cannot change no matter what bytes arrive next — under the
+ * transform's occurrence semantics: targets resolved in priority order
+ * (the caller passes them highest-priority first, matching
+ * `swapLiveRevealValues`' longest-value-first stable sort), each target's
+ * occurrences greedy left-to-right, non-overlapping with higher-priority
+ * spans. Everything past the returned offset must be held back.
  *
- * The consumed-set must span ALL targets, not just the one being
- * hold-checked. Two prior leaks motivate this:
+ * Two steps:
  *
- * - Self-overlap (round 8): a value whose proper prefix is also its
- *   suffix (`abcabc` chunked as `abc` + `abc`) matches a plain
- *   trailing-prefix check on its OWN tail — the guard would split the
- *   complete occurrence and emit the first half raw.
- * - Cross-entry (round 11): when candidate A's value ends with a proper
- *   prefix of candidate B's value, a per-entry hold computed over the
- *   whole buffer holds B's prefix out of a chunk in which those bytes
- *   completed A — splitting A so the swap misses it and A's plaintext
- *   (minus the held tail) goes out raw.
+ * 1. Resolve the consumed spans of the CURRENT buffer exactly as the
+ *    swap would.
+ * 2. Find every "threat": a suffix of the buffer that is a proper prefix
+ *    of some target `T` — bytes a future chunk could complete into a
+ *    `T`-occurrence. Each threat pulls the stable boundary back:
+ *    - threat starts OUTSIDE any consumed span → hold from the threat
+ *      start (the classic split-value hold);
+ *    - threat starts INSIDE a consumed span of occurrence `E`:
+ *      - `priority(T)` higher than `priority(E)` → the future `T` match
+ *        would beat `E` in the full-text swap, so `E` cannot be
+ *        committed yet — hold from `E`'s START (emitting any part of
+ *        `E` would leak raw bytes on one continuation or emit the wrong
+ *        replacement on the other);
+ *      - otherwise → `E` wins regardless of future bytes (greedy
+ *        left-to-right for the same target, priority order across
+ *        targets), so the threat is moot — `E` commits whole.
+ *
+ * Prior leaks each map to a case above: round 8 (self-overlap `abcabc`
+ * chunked `abc`+`abc`: own-tail threat is moot, occurrence commits
+ * whole), round 11 (candidate A's tail is a prefix of longer candidate
+ * B: threat outranks A, A is held whole — emitting A would leak B's
+ * suffix raw when B completes), round 12 (equal-length `aba`/`bab`:
+ * earlier-sorted entry outranks, so a completed `bab` holds while `aba`
+ * may still complete — keeping chunked output identical to the
+ * unchunked swap).
+ *
+ * The boundary never splits a consumed span: it lands either outside
+ * all spans or exactly on a span's start.
  */
-function lastConsumedEnd(text: string, targets: readonly string[]): number {
-  const consumed: Array<{ start: number; end: number }> = [];
-  let maxEnd = 0;
-  const ordered = [...targets].sort((a, b) => b.length - a.length);
-  for (const target of ordered) {
+function stableEmitLen(buffer: string, targets: readonly string[]): number {
+  const consumed: Array<{ start: number; end: number; priority: number }> = [];
+  targets.forEach((target, priority) => {
     if (target.length === 0) {
-      continue;
+      return;
     }
     let scanFrom = 0;
     for (;;) {
-      const idx = text.indexOf(target, scanFrom);
+      const idx = buffer.indexOf(target, scanFrom);
       if (idx === -1) {
         break;
       }
       const end = idx + target.length;
-      // An occurrence overlapping a longer target's consumed span no
-      // longer exists in the swap's transformed text (the replacement
-      // sentinel contains no credential bytes) — skip it, but keep
-      // scanning from the next byte for a later disjoint occurrence.
+      // An occurrence overlapping a higher-priority consumed span no
+      // longer exists in the transformed text (replacements contain no
+      // credential bytes) — skip it, but keep scanning from the next
+      // byte for a later disjoint occurrence.
       if (consumed.some((s) => idx < s.end && end > s.start)) {
         scanFrom = idx + 1;
         continue;
       }
-      consumed.push({ start: idx, end });
-      if (end > maxEnd) {
-        maxEnd = end;
-      }
+      consumed.push({ start: idx, end, priority });
       scanFrom = end;
     }
-  }
-  return maxEnd;
+  });
+  let emitLen = buffer.length;
+  targets.forEach((target, priority) => {
+    const maxLen = Math.min(target.length - 1, buffer.length);
+    for (let len = maxLen; len > 0; len--) {
+      if (!buffer.endsWith(target.slice(0, len))) {
+        continue;
+      }
+      const start = buffer.length - len;
+      const host = consumed.find((s) => s.start <= start && start < s.end);
+      if (host === undefined) {
+        if (start < emitLen) {
+          emitLen = start;
+        }
+      } else if (priority < host.priority && host.start < emitLen) {
+        emitLen = host.start;
+      }
+    }
+  });
+  return emitLen;
 }
 
 /**
@@ -340,9 +357,11 @@ function lastConsumedEnd(text: string, targets: readonly string[]): number {
  *    persist time) matches what was streamed.
  *
  * A trailing PARTIAL trigger or candidate-value prefix (split across
- * streaming chunks) is held back in `bufferedRemainder` — at most
- * `max(trigger, longest candidate) - 1` characters — so the next chunk
- * decides whether it completes. Callers must re-prepend the remainder to
+ * streaming chunks) is held back in `bufferedRemainder` so the next chunk
+ * decides whether it completes; when that partial prefix could outrank a
+ * completed occurrence it starts inside, the whole occurrence is held with
+ * it (see `stableEmitLen`), so the remainder is bounded by roughly twice
+ * the longest target. Callers must re-prepend the remainder to
  * the next chunk and, at end-of-message, flush it through
  * `swapLiveRevealValues(neutralizeRedactedSentinels(...))` — nothing can
  * complete a partial prefix after the message ends.
@@ -361,31 +380,23 @@ export function drainSentinelGuardedText(
   consumedRaw: string;
   bufferedRemainder: string;
 } {
-  // Hold-back is computed only over the tail AFTER the last byte any
-  // complete occurrence consumes (see `lastConsumedEnd`): a suffix
-  // reaching into a consumed occurrence would split bytes the swap (or
-  // trigger neutralization) is about to transform whole.
-  const tail = buffer.slice(
-    lastConsumedEnd(buffer, [
-      SENTINEL_TRIGGER,
-      ...entries.map((entry) => entry.value),
-    ]),
-  );
-  let holdLen = trailingProperPrefixLen(tail, SENTINEL_TRIGGER);
-  for (const entry of entries) {
-    const len = trailingProperPrefixLen(tail, entry.value);
-    if (len > holdLen) {
-      holdLen = len;
-    }
-  }
-  const consumedRaw = buffer.slice(0, buffer.length - holdLen);
+  // Priority order must mirror the transforms exactly:
+  // `swapLiveRevealValues` sorts entries longest-value-first (stable),
+  // and the trigger joins the same ordering so its complete occurrences
+  // (consumed by neutralization) participate in the stability analysis.
+  const targets = [
+    SENTINEL_TRIGGER,
+    ...entries.map((entry) => entry.value),
+  ].sort((a, b) => b.length - a.length);
+  const emitLen = stableEmitLen(buffer, targets);
+  const consumedRaw = buffer.slice(0, emitLen);
   return {
     emitText: swapLiveRevealValues(
       neutralizeRedactedSentinels(consumedRaw),
       entries,
     ),
     consumedRaw,
-    bufferedRemainder: buffer.slice(buffer.length - holdLen),
+    bufferedRemainder: buffer.slice(emitLen),
   };
 }
 

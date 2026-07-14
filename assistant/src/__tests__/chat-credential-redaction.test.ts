@@ -401,19 +401,77 @@ describe("live reveal swap (stream plaintext hold-back)", () => {
     expect(out.bufferedRemainder).toBe("abc");
   });
 
-  test("does not split a completed value to hold another entry's prefix", () => {
-    // Round-11 case: candidate A ends with a proper prefix of candidate B
-    // (`…-sk` / `sk-…`). A chunk ending exactly after a complete A must
-    // swap A whole — a per-entry hold computed over the raw buffer would
-    // hold B's `sk` prefix out of A's tail, splitting A so the swap
-    // misses it and `xx-` leaks raw over the live stream.
+  test("holds a completed value whole while a higher-priority match could claim its tail", () => {
+    // Round-11 case: candidate A ends with a proper prefix of longer
+    // (higher-priority) candidate B (`…-sk` / `sk-…`). At a chunk boundary
+    // right after a complete A the outcome is genuinely ambiguous — the
+    // next bytes decide whether the full-text swap consumes A or a B
+    // starting inside A's tail — so A must be held WHOLE. Splitting A to
+    // hold only B's prefix leaks A's head raw (the original round-11
+    // report); committing A immediately leaks B's suffix raw when B
+    // completes.
     const entries = [
       { value: "xx-sk", replacement: "[A]" },
       { value: "sk-yyyy", replacement: "[B]" },
     ];
-    const out = drainSentinelGuardedText("token xx-sk", entries);
-    expect(out.emitText).toBe("token [A]");
-    expect(out.consumedRaw).toBe("token xx-sk");
+    const first = drainSentinelGuardedText("token xx-sk", entries);
+    expect(first.emitText).toBe("token ");
+    expect(first.consumedRaw).toBe("token ");
+    expect(first.bufferedRemainder).toBe("xx-sk");
+
+    // Continuation 1: B completes inside A's tail — matches the unchunked
+    // swap of `xx-sk-yyyy` (B wins, A's occurrence is blocked by overlap).
+    const bWins = drainSentinelGuardedText(
+      first.bufferedRemainder + "-yyyy ok",
+      entries,
+    );
+    expect(bWins.emitText).toBe("xx-[B] ok");
+    expect(bWins.consumedRaw).toBe("xx-sk-yyyy ok");
+    expect(bWins.bufferedRemainder).toBe("");
+
+    // Continuation 2: the threat dissolves — A swaps whole.
+    const aWins = drainSentinelGuardedText(
+      first.bufferedRemainder + " ok",
+      entries,
+    );
+    expect(aWins.emitText).toBe("[A] ok");
+    expect(aWins.consumedRaw).toBe("xx-sk ok");
+    expect(aWins.bufferedRemainder).toBe("");
+  });
+
+  test("equal-length overlapping entries stay chunk-independent", () => {
+    // Round-12 case: `aba` outranks `bab` (equal length, earlier in the
+    // sorted order — same tie-break as `swapLiveRevealValues`). Chunks
+    // `bab` + `a` must produce the same output as the unchunked swap of
+    // `baba` (`b` + swapped `aba`), not commit the completed `bab` and
+    // emit a raw trailing `a`.
+    const entries = [
+      { value: "aba", replacement: "[ABA]" },
+      { value: "bab", replacement: "[BAB]" },
+    ];
+    const first = drainSentinelGuardedText("bab", entries);
+    expect(first.emitText).toBe("");
+    expect(first.consumedRaw).toBe("");
+    expect(first.bufferedRemainder).toBe("bab");
+    const second = drainSentinelGuardedText(
+      first.bufferedRemainder + "a",
+      entries,
+    );
+    expect(second.emitText).toBe("b[ABA]");
+    expect(second.consumedRaw).toBe("baba");
+    expect(second.bufferedRemainder).toBe("");
+  });
+
+  test("commits an equal-length occurrence once no higher-priority prefix survives", () => {
+    // Same entries, but the bytes after the completed `bab` rule out any
+    // pending `aba` — the occurrence commits whole with no held tail.
+    const entries = [
+      { value: "aba", replacement: "[ABA]" },
+      { value: "bab", replacement: "[BAB]" },
+    ];
+    const out = drainSentinelGuardedText("bab end", entries);
+    expect(out.emitText).toBe("[BAB] end");
+    expect(out.consumedRaw).toBe("bab end");
     expect(out.bufferedRemainder).toBe("");
   });
 
