@@ -4,8 +4,8 @@ import { useNavigate } from "react-router";
 import { routes } from "@/utils/routes";
 
 /**
- * Legacy `/assistant/settings/sounds` deep links land here; the page's
- * content now lives on Settings → Voice & Sounds under the Sounds tab.
+ * Forwards legacy `/assistant/settings/sounds` deep links to the Sounds
+ * tab of Settings → Voice & Sounds.
  */
 export function SoundsRedirectPage() {
   const navigate = useNavigate();
