@@ -36,6 +36,9 @@ Manual edits in this directory are needed **only** to override a default:
 - **Diagnostics-gated flush** (payload carries PII, gate at flush like `onboarding_research`): add it to `OUTBOX_SOURCE_FACTORY` in `telemetry-event-sources.ts`.
 - **Daemon-partition flush** (needs live in-process state, like `turn`): add its source to `DAEMON_TELEMETRY_EVENT_SOURCES`.
 - **Richer daemon type** than the wire: add an `Overrides` entry in `types.ts` with the drift guards (see the wire-contract section above).
-- **A camelCase domain wrapper** (`record<Thing>Event`): optional sugar — write a small store module like `skill-loaded-events-store.ts` if you want a typed domain API instead of the raw snake-case `recordTelemetryEvent` call.
 
 If the type previously existed daemon-only, also move it out of `Extensions` in `types.ts`.
+
+**For a new event type, prefer calling `recordTelemetryEvent` directly** rather than adding a `record<Thing>Event` store wrapper. A wrapper that only renames camelCase fields to the snake-case wire shape is gratuitous indirection now that `recordTelemetryEvent`'s `fields` argument is fully typed from the wire. Add a store module only when it earns its keep: clamp values to server bounds (`config-setting-events-store.ts`), stamp a custom deterministic `daemon_event_id` via `recordTelemetryOutboxEvent` (`onboarding-research-events-store.ts`), aggregate multiple events (`auth-fallback-events-store.ts`), centralize a non-trivial mapping reused across many call sites (`watchdog-events-store.ts`), or provide a stable, mockable seam for tests (`skill-loaded-events-store.ts`).
+
+The generic outbox also self-heals: rows for a type the platform later removes or renames are drained by the synthetic orphan-drain source (`orphanOutboxDrainSource` in `telemetry-event-sources.ts`), so a retired type needs no cleanup step here.
