@@ -34,6 +34,18 @@ function collect(events: AgentEvent[]): (event: AgentEvent) => void {
   return (event) => events.push(event);
 }
 
+function usageEvent(
+  events: AgentEvent[],
+): Extract<AgentEvent, { type: "usage" }> {
+  const usage = events.find(
+    (e): e is Extract<AgentEvent, { type: "usage" }> => e.type === "usage",
+  );
+  if (!usage) {
+    throw new Error("no usage event emitted");
+  }
+  return usage;
+}
+
 function streamedText(events: AgentEvent[]): string {
   return events
     .filter(
@@ -423,6 +435,92 @@ describe("agent loop output hooks", () => {
     expect(seeded).toBe("seed-profile");
     // AND clearing it sends no override on the provider call
     expect(calls[0].options?.config?.overrideProfile).toBeUndefined();
+  });
+
+  test("usage event reports the hook's routed profile as the applied override", async () => {
+    // GIVEN a hook that routes the user-facing call to a different profile
+    registerOutputHookPlugin({
+      preModelCall: (ctx) => {
+        if (ctx.callSite !== "mainAgent") return;
+        ctx.modelProfile = "quality-profile";
+      },
+    });
+    const { provider } = createMockProvider([textResponse("hi")]);
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+    });
+
+    // WHEN the loop runs (no turn-level override — the hook is the only source)
+    const events: AgentEvent[] = [];
+    await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: collect(events),
+      callSite: "mainAgent",
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
+
+    // THEN the usage event credits the hook's profile so downstream
+    // attribution records what actually ran, not the pre-hook (default) profile
+    const usage = usageEvent(events);
+    expect(usage.appliedOverrideProfile).toBe("quality-profile");
+    expect(usage.appliedForceOverrideProfile).toBe(false);
+  });
+
+  test("usage event reports the turn override when no hook re-routes the call", async () => {
+    // GIVEN a turn-level override and no hook mutation
+    registerOutputHookPlugin({ preModelCall: () => {} });
+    const { provider } = createMockProvider([textResponse("hi")]);
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+    });
+
+    // WHEN the loop runs with an ad-hoc override profile
+    const events: AgentEvent[] = [];
+    await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: collect(events),
+      callSite: "mainAgent",
+      overrideProfile: "pinned-profile",
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
+
+    // THEN the usage event carries the turn override
+    expect(usageEvent(events).appliedOverrideProfile).toBe("pinned-profile");
+  });
+
+  test("usage event reports no applied override when the hook clears the seeded one", async () => {
+    // GIVEN a hook that clears the loop's seeded override
+    registerOutputHookPlugin({
+      preModelCall: (ctx) => {
+        ctx.modelProfile = null;
+      },
+    });
+    const { provider } = createMockProvider([textResponse("hi")]);
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+    });
+
+    // WHEN the loop runs with an ad-hoc override the hook then clears
+    const events: AgentEvent[] = [];
+    await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: collect(events),
+      callSite: "mainAgent",
+      overrideProfile: "seed-profile",
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
+
+    // THEN the usage event records no override, matching the cleared request
+    expect(usageEvent(events).appliedOverrideProfile).toBeNull();
   });
 
   // Context-window sizing and overflow recovery read the profile resolved

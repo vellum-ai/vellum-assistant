@@ -1437,7 +1437,14 @@ export async function runAgentLoopImpl(
       },
       {
         callSite: turnCallSite,
-        overrideProfile: resolveCurrentOverrideProfile() ?? null,
+        // Attribute to the override actually applied to the turn's calls
+        // (including a `PRE_MODEL_CALL` hook's per-message routing), not the
+        // turn-level override — otherwise `llm_usage` reports the pre-hook
+        // profile while the request ran on the hook's. Mirrors `state.model`:
+        // last-call wins for the aggregated exchange row.
+        overrideProfile: state.appliedOverrideProfile,
+        forceOverrideProfile: state.appliedForceOverrideProfile,
+        selectionSeed: ctx.conversationId,
       },
       turnCronRunId,
     );
@@ -1696,6 +1703,8 @@ function emitUsage(
   attribution?: {
     callSite: LLMCallSite | null;
     overrideProfile?: string | null;
+    forceOverrideProfile?: boolean;
+    selectionSeed?: string;
   },
   cronRunId: string | null = null,
 ): void {

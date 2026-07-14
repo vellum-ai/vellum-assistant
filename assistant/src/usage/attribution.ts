@@ -207,6 +207,10 @@ function resolveAppliedProfile(input: {
       input.overrideProfile != null &&
       input.profiles[input.overrideProfile] != null
     ) {
+      // "conversation" covers any per-request override floated above the
+      // active profile — a conversation-scoped selection or a `PRE_MODEL_CALL`
+      // hook's per-message routing. Both reach here through `overrideProfile`,
+      // so the source is the same.
       return {
         appliedProfile: input.overrideProfile,
         profileSource: "conversation",
