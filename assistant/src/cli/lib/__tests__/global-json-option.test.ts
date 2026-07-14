@@ -9,20 +9,48 @@ function hasJsonOption(cmd: Command): boolean {
 }
 
 describe("registerGlobalJsonOption", () => {
-  it("adds --json to every subcommand, including nested ones", () => {
+  it("adds --json to leaf commands (including nested leaves)", () => {
     const program = new Command();
     program.name("assistant");
     const memory = program.command("memory");
     const items = memory.command("items");
-    items.command("list");
+    const list = items.command("list");
     const status = program.command("status");
 
     registerGlobalJsonOption(program);
 
-    expect(hasJsonOption(memory)).toBe(true);
-    expect(hasJsonOption(items)).toBe(true);
-    expect(hasJsonOption(items.commands[0]!)).toBe(true);
+    expect(hasJsonOption(list)).toBe(true);
     expect(hasJsonOption(status)).toBe(true);
+  });
+
+  it("does NOT add --json to group commands (would steal the flag from subcommands)", () => {
+    const program = new Command();
+    program.name("assistant");
+    const clients = program.command("clients");
+    const list = clients.command("list");
+
+    registerGlobalJsonOption(program);
+
+    // Commander consumes a recognized option at the outermost declaring
+    // command, so a group-level --json would swallow `clients list --json`
+    // before the leaf action reads it.
+    expect(hasJsonOption(clients)).toBe(false);
+    expect(hasJsonOption(list)).toBe(true);
+  });
+
+  it("keeps `<group> <leaf> --json` bound to the leaf's own opts", () => {
+    const program = new Command();
+    program.name("assistant").exitOverride();
+    const clients = program.command("clients");
+    let leafJson: unknown;
+    clients.command("list").action((opts: { json?: boolean }) => {
+      leafJson = opts.json;
+    });
+
+    registerGlobalJsonOption(program);
+
+    program.parse(["node", "assistant", "clients", "list", "--json"]);
+    expect(leafJson).toBe(true);
   });
 
   it("does not duplicate --json on a command that already declares it", () => {
