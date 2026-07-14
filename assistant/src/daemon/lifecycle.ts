@@ -10,6 +10,7 @@ import {
   loadConfig,
   mergeDefaultWorkspaceConfig,
 } from "../config/loader.js";
+import { maybeDefaultSpeechToManaged } from "../config/managed-speech-defaults.js";
 import { seedInferenceProfiles } from "../config/seed-inference-profiles.js";
 import { reconcileFlagGatedProfiles } from "../config/sync-gated-profiles.js";
 import { startCes } from "../credential-execution/ces-runtime.js";
@@ -566,6 +567,13 @@ export async function runDaemon(): Promise<void> {
   // on failure. The sidecar accepts exactly one bootstrap connection, so this
   // happens at the process level.
   await startCes(config);
+
+  // Speech-mode defaulting follows the platform connection (logged in ⇒
+  // managed, explicit modes always win). Placed after startCes so the
+  // credential store — where the platform connection lives in Docker/managed
+  // mode — is readable; runs every boot so installs that connected before this
+  // defaulting existed converge. Detached — must not block startup.
+  void maybeDefaultSpeechToManaged();
 
   // Bring up the plugin layer: install the runtime bridge, register the
   // first-party defaults, load user plugins, and run every plugin's
