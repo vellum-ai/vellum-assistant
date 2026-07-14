@@ -950,7 +950,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-07-14T19:51:12.000Z"
+      "updatedAt": "2026-07-14T20:56:46.000Z"
     },
     {
       "id": "typescript-eval",
@@ -1257,7 +1257,7 @@
     {
       "id": "watch-together",
       "name": "watch-together",
-      "description": "Watch TV shows and movies with the user in real time by processing screen captures into frames and audio analysis.",
+      "description": "Watch TV shows and movies with the user in real time. A fast editor model watches every captured chunk, transcribes dialogue, and picks story-critical frames, waking the assistant at the moments that matter instead of on a fixed timer.",
       "metadata": {
         "emoji": "📺",
         "vellum": {
@@ -1266,7 +1266,7 @@
           "emoji": "📺"
         }
       },
-      "updatedAt": "2026-06-12T18:05:36.000Z"
+      "updatedAt": "2026-07-14T23:44:45.000Z"
     },
     {
       "id": "watcher",

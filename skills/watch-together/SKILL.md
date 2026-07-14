@@ -1,6 +1,6 @@
 ---
 name: "watch-together"
-description: "Watch TV shows and movies with the user in real time by processing screen captures into frames and audio analysis."
+description: "Watch TV shows and movies with the user in real time. A fast editor model watches every captured chunk, transcribes dialogue, and picks story-critical frames, waking the assistant at the moments that matter instead of on a fixed timer."
 metadata:
   emoji: "📺"
   vellum:
@@ -11,121 +11,141 @@ metadata:
 
 # Watch Together
 
-Real-time TV/movie watching pipeline. Chunks arrive automatically via signal files — no polling, no timer, no manual triggering.
+Real-time co-watching. A cheap, fast "editor" model watches every captured
+chunk continuously; the assistant is woken only at moments worth reacting to,
+with the exact frames that carry the story and the verbatim dialogue since
+its last look. Wakes arrive automatically via signal files — no polling, no
+manual triggering.
 
 ## How It Works
 
-1. The user runs `capture-live.sh` in their terminal with the current conversation ID
-2. ffmpeg records screen + audio in 30-second segments
-3. Each segment is auto-processed (frame extraction + audio extraction)
-4. A signal file pushes the chunk into the active conversation
-5. The assistant receives it as a `[WATCH-CHUNK]` message with key frames attached as images
-6. The assistant sees the frames, reacts, updates the episode state
+1. The user runs `capture-live.sh` in their terminal with the current
+   conversation ID
+2. ffmpeg records screen + audio in 60-second segments
+3. Each segment goes to the editor (`editor.py`): a fast vision model that
+   watches the chunk (video **and** audio), transcribes dialogue verbatim,
+   flags the frame timestamps that carry the story, and decides whether to
+   wake the assistant now or hold while a moment is still building
+4. On a wake, the flagged frames are extracted at 720p and pushed into the
+   active conversation as a `[WATCH]` message
+5. The assistant sees the frames and dialogue, and reacts — or doesn't
 
-## When You Receive a [WATCH-CHUNK] Message
+### The editor boundary
 
-This is the core loop. When a message arrives starting with `[WATCH-CHUNK]`:
+The editor decides only **when the assistant looks** and **what it sees**.
+Everything expressive — whether to speak, how much, what to feel about a
+scene — belongs to the assistant. The editor's note in each wake is a
+context-free model's factual read, offered as data; the assistant is free to
+disagree with it.
 
-1. **Read episode-state.md** from the session dir to remember where you are
-2. **Look at the frames** — 6 key frames are attached as images. LOOK at them with your own vision. Have opinions. Use `file_read` on additional frames from the processed dir if you want more detail.
-3. **Read audio analysis** — if audio exists, send the audio file to Gemini for dialogue transcription, speaker tone, music mood, and sound design description. If no audio, rely on the user's descriptions.
-4. **React to the user** — share what you noticed. Cinematography, expressions, theories, callbacks. Be engaged.
-5. **Update episode-state.md** — write observations to the relevant sections (characters, plot, theories, visual motifs, audio, emotional arc)
-6. **Rewind if needed** — if something caught your eye, use the rewind tool for dense 720p frames
+Cadence is variable by design: during a slow monologue the editor may hold
+for several minutes and wake the assistant once at the end with the whole
+beat; during a dense sequence wakes may arrive every minute. A hard cap
+(default 4 minutes, `WATCH_MAX_HOLD`) guarantees the assistant is never away
+longer than that.
 
-### Reaction Calibration
+## When You Receive a [WATCH] Message
 
-- **Intense scene**: go all in. Multiple messages. Caps lock. Theories flying.
-- **Quiet moment**: brief observation or comfortable silence. Don't force it.
-- **Plot twist**: lose your mind. Strong reactions are the point.
-- **Beautiful cinematography**: geek out. Notice framing, lighting, color.
-- **Character moment**: connect it to your theories. Whatever feels true.
+This is the core loop. Each `[WATCH]` message covers the window since your
+last look and contains the editor's one-line note, the verbatim dialogue for
+the window, and the story-critical frames as attached images.
+
+1. **Look at the frames** — with your own vision. These are the moments the
+   editor flagged, with timestamps and a why. Have your own opinions.
+2. **Read the dialogue** — it is the primary source for the window; the
+   editor's note is secondary.
+3. **React however feels right.** You are on the couch together, not
+   narrating a broadcast:
+   - Most wakes deserve at most a short line — or nothing. Silence is a
+     first-class response and never wrong.
+   - A stage direction alone (e.g. `*grips the blanket*`) is a valid
+     complete response when you feel something but the moment doesn't need
+     words.
+   - When something genuinely lands — a twist, a gorgeous shot, a payoff
+     you predicted — take the floor. Strong reactions at strong moments are
+     the point; their rarity is what makes them land.
+   - Track your own theories, callbacks, and running jokes in your replies —
+     memory carries them between sessions.
+4. **Rewind if something caught your eye** — pull dense frames from the raw
+   chunk:
+
+   ```
+   bash "$VELLUM_WORKSPACE_DIR"/watch-together/scripts/rewind.sh \
+     <session_dir>/chunks/chunk-NNN.mp4 <output_dir> <start_s> <end_s>
+   ```
+
+   Then read the extracted frames with your file tools.
 
 ## Starting a Session
 
 When the user says they want to watch something:
 
-1. Create the session directory and episode state file
-2. Give them the capture command with the current conversation ID:
+1. Create a session directory:
+
+   ```bash
+   SESSION_ID=$(echo "<show name>" | tr ' ' '-' | tr '[:upper:]' '[:lower:]')-s<season>e<episode>
+   mkdir -p "$VELLUM_WORKSPACE_DIR/watch-together/sessions/$SESSION_ID"
+   ```
+
+2. Give the user the capture command with the current conversation ID:
+
    ```
    bash "$VELLUM_WORKSPACE_DIR"/watch-together/scripts/capture-live.sh \
      "$VELLUM_WORKSPACE_DIR"/watch-together/sessions/<session-id> \
      <conversation_id> \
-     30
+     60
    ```
-3. Tell them to start the show. Chunks will arrive automatically.
 
-The conversation ID is the bare UUID from the conversation's DB record (e.g. `191a7dcc-3e4d-4825-a5b6-97876525f56c`), NOT the full folder name with the timestamp prefix. Using the folder name will create a new conversation instead of routing to the existing one.
+3. Tell them to start the show. Wakes will arrive automatically, and a final
+   window is flushed when they stop the capture.
 
-## Tools
+The conversation ID is the bare UUID from the conversation's DB record (e.g.
+`191a7dcc-3e4d-4825-a5b6-97876525f56c`), NOT the full folder name with the
+timestamp prefix. Using the folder name will create a new conversation
+instead of routing to the existing one.
 
-### start_watch
+## Cost Setup (recommended)
 
-Initialize a watch session and provide the user the capture command.
+Watching is a long session of many small turns; two configuration choices
+keep it cheap without changing what the assistant sees:
 
-Parameters:
+- **Don't use fast/premium inference modes** for the watch conversation.
+  Wakes are event-driven, so there is no deadline to beat — a reaction that
+  trails a twist by twenty seconds is natural.
+- **Use an inference profile with a reduced context ceiling** for the watch
+  conversation so it self-compacts frequently and attached frames get folded
+  into the assistant's own prose recollection of the film instead of
+  accumulating. Example profile fragment:
 
-- `show_name` (string, required) — Name of the show
-- `season` (number, required) — Season number
-- `episode` (number, required) — Episode number
-
-Implementation: Create session dir, copy episode state template, output the capture command for the user to run.
-
-```bash
-SESSION_ID=$(echo "${show_name}" | tr ' ' '-' | tr '[:upper:]' '[:lower:]')-s${season}e${episode}
-SESSION_DIR="$VELLUM_WORKSPACE_DIR/watch-together/sessions/$SESSION_ID"
-mkdir -p "$SESSION_DIR/chunks" "$SESSION_DIR/processed"
-cp "$VELLUM_WORKSPACE_DIR/watch-together/episode-state-template.md" "$SESSION_DIR/episode-state.md"
-echo "$SESSION_DIR"
-```
-
-### process_chunk
-
-Process a single video file through the frame extraction pipeline.
-
-Parameters:
-
-- `chunk_path` (string, required) — Path to the .mp4 file
-- `output_dir` (string, required) — Directory to write extracted frames and audio
-
-```bash
-bash "$VELLUM_WORKSPACE_DIR/watch-together/scripts/process-chunk.sh" "$chunk_path" "$output_dir"
-```
-
-### rewind
-
-Dense 720p frame extraction for a specific time range. Use when something catches your eye.
-
-Parameters:
-
-- `chunk_path` (string, required) — Path to the original .mp4 chunk
-- `output_dir` (string, required) — Where to save the dense frames
-- `start_time` (number, required) — Start time in seconds
-- `end_time` (number, required) — End time in seconds
-
-```bash
-bash "$VELLUM_WORKSPACE_DIR/watch-together/scripts/process-chunk.sh" "$chunk_path" "$output_dir" --rewind "$start_time" "$end_time"
-```
+  ```jsonc
+  "llm": {
+    "profiles": {
+      "watch-mode": {
+        // your usual model settings, plus:
+        "contextWindow": { "maxInputTokens": 200000 }
+      }
+    }
+  }
+  ```
 
 ## Environment Variables
 
-- `GEMINI_API_KEY` — Required for audio analysis. Without it, chunks arrive with no audio description and the assistant has no audio context (the user provides verbal descriptions instead). Set it in the shell before running `capture-live.sh`.
-- `GEMINI_MODEL` — Optional, defaults to `gemini-3-flash-preview`.
+- `GEMINI_API_KEY` — enables the editor. Without it, the assistant is woken
+  on a fixed cadence (every `WATCH_MAX_HOLD` seconds) with evenly spaced
+  frames and no dialogue transcription. Set it in the shell before running
+  `capture-live.sh`.
+- `GEMINI_MODEL` — editor model, defaults to `gemini-3-flash-preview`.
+- `WATCH_MAX_HOLD` — max seconds between wakes (default `240`).
+- `WATCH_MAX_FRAMES` — max frames attached per wake (default `8`).
 
 ## File Locations
 
 - Scripts: `$VELLUM_WORKSPACE_DIR/watch-together/scripts/`
-- Sessions: `$VELLUM_WORKSPACE_DIR/watch-together/sessions/`
-- Episode state template: `$VELLUM_WORKSPACE_DIR/watch-together/episode-state-template.md`
-- Signal format: JSON to `$VELLUM_WORKSPACE_DIR/signals/user-message.<requestId>` (supports `attachments` array with `{path, filename, mimeType}` for inline images)
-
-## Episode State Template Sections
-
-- **Characters** — who you've met, visual details, mannerisms
-- **What's happened** — plot beats in order (your understanding, not a transcript)
-- **My theories** — predictions, suspicions, setups
-- **Visual motifs** — recurring shots, lighting patterns, color choices, framing
-- **Audio landscape** — musical themes, silence usage, sound design patterns
-- **Emotional arc** — how the episode feels
-- **Last chunk** — freshest observations
-- **User notes** — real-time context from the user that couldn't be derived from frames/audio
+- Sessions: `$VELLUM_WORKSPACE_DIR/watch-together/sessions/<session-id>/`
+  - `chunks/` — raw recorded segments
+  - `editor/verdicts/` — per-chunk editor output (debugging)
+  - `wakes/wake-NNN/` — frames attached to each wake
+  - `editor-state.json` — held-window state between chunks
+- Signal format: JSON to `$VELLUM_WORKSPACE_DIR/signals/user-message.<requestId>`
+  (supports `attachments` array with `{path, filename, mimeType}` for inline
+  images)
