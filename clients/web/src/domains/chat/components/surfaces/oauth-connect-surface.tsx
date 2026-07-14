@@ -160,12 +160,11 @@ export function OAuthConnectSurface({
         accountLabel: result.connection?.account_label,
         scopesGranted: result.connection?.scopes_granted ?? [],
       });
-      // The settings connect hooks (use-oauth-connect) refresh the connections
-      // list on success, but this surface-driven flow never did — so a
-      // just-connected account still read as unconnected anywhere the list
-      // query is mounted (e.g. the settings integrations page). Invalidate the
-      // platform-assistant-scoped list key so it refetches. Best-effort: skip
-      // silently if the platform id can't resolve.
+      // Invalidate the platform-assistant-scoped connections list so anywhere
+      // that query is mounted (e.g. the settings integrations page) refetches
+      // and reflects the just-connected account. Mirrors the settings connect
+      // hooks (use-oauth-connect). Best-effort: skip silently if the platform
+      // id can't resolve.
       void resolveLocalAssistantPlatformIdentity(assistantId)
         .then((platformAssistantId) => {
           void queryClient.invalidateQueries({
