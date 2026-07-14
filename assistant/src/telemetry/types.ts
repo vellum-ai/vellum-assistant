@@ -560,10 +560,23 @@ export type AuthFallbackTelemetryEvent = EventMap["auth_fallback"];
 export type ConfigSettingTelemetryEvent = EventMap["config_setting"];
 
 // ---- Compile-time drift guards ----
-// Each `_*Narrows` alias fails to compile when the daemon's hand-written
-// event type stops being assignable to the generated wire type, so a wire
-// sync PR that moves the platform contract turns red here instead of
-// drifting silently.
+// Each `Overrides` entry is pinned to its wire type in BOTH directions, so a
+// wire sync PR that moves the platform contract turns red here instead of
+// drifting silently:
+//
+//   - `_*Narrows` — the daemon type stays assignable to the wire type, i.e.
+//     every daemon field's value is acceptable to the wire. Catches wire-side
+//     tightening (narrowed unions, newly required fields) and daemon-side
+//     loosening.
+//   - `_*KeysExist` — every key the daemon emits still exists on the wire
+//     type. Structural subtyping treats a daemon field the wire dropped as a
+//     harmless extra property, so `_*Narrows` alone stays green when the
+//     platform REMOVES or RENAMES a field; this key-set check is what catches
+//     those.
+//
+// Flow-through (non-override) events need no guards: they use the generated
+// wire types directly, so their construction sites get excess-property /
+// missing-field errors the moment the contract moves.
 type AssertNarrows<_Narrow extends Wide, Wide> = true;
 type AssertNoWireCollision<_Keys extends never> = true;
 
@@ -598,6 +611,31 @@ type _skillLoadedNarrows = AssertNarrows<
 type _watchdogNarrows = AssertNarrows<
   Omit<WatchdogTelemetryEvent, "detail">,
   Omit<wire.WatchdogTelemetryEvent, "detail">
+>;
+// Reverse (key-existence) direction. The opaque-JSON fields excluded from the
+// `_*Narrows` guards above are excluded here too: the server treats them as
+// schemaless JSON columns, so their shape — and by the same token their
+// presence in the generated type — is not part of the typed contract these
+// guards pin.
+type _llmUsageKeysExist = AssertNarrows<
+  Exclude<keyof LlmUsageTelemetryEvent, "raw_usage">,
+  keyof wire.LlmUsageTelemetryEvent
+>;
+type _turnKeysExist = AssertNarrows<
+  Exclude<keyof TurnTelemetryEvent, "trace" | "client">,
+  keyof wire.TurnTelemetryEvent
+>;
+type _toolExecutedKeysExist = AssertNarrows<
+  keyof ToolExecutedTelemetryEvent,
+  keyof wire.ToolExecutedTelemetryEvent
+>;
+type _skillLoadedKeysExist = AssertNarrows<
+  keyof SkillLoadedTelemetryEvent,
+  keyof wire.SkillLoadedTelemetryEvent
+>;
+type _watchdogKeysExist = AssertNarrows<
+  Exclude<keyof WatchdogTelemetryEvent, "detail">,
+  keyof wire.WatchdogTelemetryEvent
 >;
 // An `Extensions` key that also exists in the wire map would silently
 // shadow the generated type; this stays `never` only while the key sets
