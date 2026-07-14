@@ -31,8 +31,11 @@ import { toast } from "@vellumai/design-library/components/toast";
 
 const COPIED_FEEDBACK_MS = 1500;
 
+// Matches the chat tool-call chip family (rounded-lg, borderless
+// surface-overlay) so a revealed secret reads as a tool result inline in the
+// transcript rather than a bordered outlier.
 const CHIP_CLASS =
-  "inline-flex max-w-full min-w-0 items-center gap-1 rounded-md border border-[var(--border-default)] bg-[var(--surface-secondary)] px-1.5 py-0.5 align-middle text-[0.85em] leading-tight text-[var(--content-secondary)]";
+  "inline-flex max-w-full min-w-0 items-center gap-1.5 rounded-lg bg-[var(--surface-overlay)] px-2 py-1 align-middle text-[0.85em] leading-tight text-[var(--content-secondary)]";
 
 const ICON_BUTTON_CLASS =
   "shrink-0 rounded-sm p-0.5 text-[var(--content-tertiary)] transition-colors hover:text-[var(--content-secondary)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--border-focus)]";
@@ -149,7 +152,7 @@ export function RedactedCredentialChip({
         className={CHIP_CLASS}
         title="Redacted — this value is not linked to a stored credential"
       >
-        <KeyRound className="h-3 w-3 shrink-0" aria-hidden />
+        <KeyRound className="h-3.5 w-3.5 shrink-0" aria-hidden />
         <span className="truncate">{label}</span>
       </span>
     );
@@ -159,7 +162,7 @@ export function RedactedCredentialChip({
 
   return (
     <span className={CHIP_CLASS}>
-      <KeyRound className="h-3 w-3 shrink-0" aria-hidden />
+      <KeyRound className="h-3.5 w-3.5 shrink-0" aria-hidden />
       {isRevealed ? (
         <span className="min-w-0 truncate font-mono text-[var(--content-default)]">
           {revealed}
@@ -177,7 +180,7 @@ export function RedactedCredentialChip({
         </button>
       )}
       {isRevealing ? (
-        <Loader2 className="h-3 w-3 shrink-0 animate-spin" aria-hidden />
+        <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" aria-hidden />
       ) : isRevealed ? (
         <>
           <button
@@ -188,9 +191,9 @@ export function RedactedCredentialChip({
             className={ICON_BUTTON_CLASS}
           >
             {justCopied ? (
-              <Check className="h-3 w-3" aria-hidden />
+              <Check className="h-3.5 w-3.5" aria-hidden />
             ) : (
-              <Copy className="h-3 w-3" aria-hidden />
+              <Copy className="h-3.5 w-3.5" aria-hidden />
             )}
           </button>
           <button
@@ -200,7 +203,7 @@ export function RedactedCredentialChip({
             title="Hide value"
             className={ICON_BUTTON_CLASS}
           >
-            <EyeOff className="h-3 w-3" aria-hidden />
+            <EyeOff className="h-3.5 w-3.5" aria-hidden />
           </button>
         </>
       ) : (
@@ -212,7 +215,7 @@ export function RedactedCredentialChip({
           title="Click to reveal"
           className={ICON_BUTTON_CLASS}
         >
-          <Eye className="h-3 w-3" aria-hidden />
+          <Eye className="h-3.5 w-3.5" aria-hidden />
         </button>
       )}
     </span>
