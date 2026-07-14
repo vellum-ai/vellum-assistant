@@ -4,8 +4,8 @@ import { useNavigate } from "react-router";
 import { routes } from "@/utils/routes";
 
 /**
- * Legacy `/assistant/settings/keyboard-shortcuts` deep links land here; the
- * page's content now lives in the Preferences modal on Settings → General.
+ * Forwards legacy `/assistant/settings/keyboard-shortcuts` deep links to
+ * Settings → General, where the Preferences modal hosts shortcut rebinding.
  */
 export function KeyboardShortcutsRedirectPage() {
   const navigate = useNavigate();
