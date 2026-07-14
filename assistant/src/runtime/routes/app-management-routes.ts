@@ -8,6 +8,7 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { stat, unlink } from "node:fs/promises";
@@ -22,15 +23,15 @@ import {
   createAppRecord,
   deleteApp,
   deleteAppRecord,
-  getApp,
+  type EnumeratedApp,
   getAppDirPath,
   getAppPreview,
-  isMultifileApp,
   listApps,
   listAppsByConversation,
+  listPluginApps,
   queryAppRecords,
-  resolveAppDir,
-  resolveEffectiveAppHtml,
+  resolveAppSource,
+  resolveEffectiveAppHtmlFromDir,
   updateApp,
   updateAppRecord,
 } from "../../apps/app-store.js";
@@ -75,7 +76,7 @@ function getSharedAppsDir(): string {
 // Extracted business logic
 // ---------------------------------------------------------------------------
 
-function listAppsFiltered(apps?: AppDefinition[]): Array<{
+interface AppListItem {
   id: string;
   name: string;
   description?: string;
@@ -84,21 +85,44 @@ function listAppsFiltered(apps?: AppDefinition[]): Array<{
   updatedAt: number;
   version: string;
   contentId: string;
-}> {
-  return (apps ?? listApps()).map((a) => {
-    const version = a.version ?? "1.0.0";
-    const contentId = computeContentId(a.name);
-    return {
-      id: a.id,
-      name: a.name,
-      description: a.description,
-      icon: a.icon,
-      createdAt: a.createdAt,
-      updatedAt: a.updatedAt,
-      version,
-      contentId,
-    };
-  });
+  /** "workspace" or "plugin:<name>" — identifies where the app comes from. */
+  origin: string;
+}
+
+function workspaceAppItem(a: AppDefinition): AppListItem {
+  return {
+    id: a.id,
+    name: a.name,
+    description: a.description,
+    icon: a.icon,
+    createdAt: a.createdAt,
+    updatedAt: a.updatedAt,
+    version: a.version ?? "1.0.0",
+    contentId: computeContentId(a.name),
+    origin: "workspace",
+  };
+}
+
+function pluginAppItem(app: EnumeratedApp): AppListItem {
+  // Plugin apps carry no stored timestamps; use the source dir mtime so the
+  // library can still order them sensibly.
+  let mtime = 0;
+  try {
+    mtime = statSync(app.sourcePath).mtimeMs;
+  } catch {
+    // Directory vanished between enumeration and stat — leave mtime at 0.
+  }
+  const pluginName =
+    app.origin.kind === "plugin" ? app.origin.pluginName : "unknown";
+  return {
+    id: app.id,
+    name: app.name,
+    createdAt: mtime,
+    updatedAt: mtime,
+    version: "1.0.0",
+    contentId: computeContentId(app.name),
+    origin: `plugin:${pluginName}`,
+  };
 }
 
 function getAppDataResult(
@@ -507,9 +531,17 @@ async function importBundle(
 function handleListApps({ queryParams }: RouteHandlerArgs) {
   const conversationId = queryParams?.conversationId;
   if (conversationId) {
-    return { apps: listAppsFiltered(listAppsByConversation(conversationId)) };
+    // Conversation scoping is a workspace-app concept; plugin apps are not
+    // associated with conversations, so they are omitted from this view.
+    return {
+      apps: listAppsByConversation(conversationId).map(workspaceAppItem),
+    };
   }
-  return { apps: listAppsFiltered() };
+  const apps: AppListItem[] = [
+    ...listApps().map(workspaceAppItem),
+    ...listPluginApps().map(pluginAppItem),
+  ];
+  return { apps };
 }
 
 async function handleOpenBundle({ body }: RouteHandlerArgs) {
@@ -619,16 +651,19 @@ function handleMutateAppData({ pathParams, body }: RouteHandlerArgs) {
 
 async function handleOpenApp({ pathParams }: RouteHandlerArgs) {
   const appId = pathParams?.id as string;
-  const app = getApp(appId);
-  if (!app) {
+  const source = resolveAppSource(appId);
+  if (!source) {
     throw new NotFoundError(`App not found: ${appId}`);
   }
 
-  if (isMultifileApp(app)) {
-    const appDir = getAppDirPath(appId);
-    const distIndex = join(appDir, "dist", "index.html");
+  // Multifile workspace apps auto-compile on open when their dist is missing.
+  // Plugin apps are not compiled here — a compile cache for plugin sources is a
+  // follow-up — so a multifile plugin app without a prebuilt dist/ renders its
+  // fallback message.
+  if (source.formatVersion === 2 && source.origin.kind === "workspace") {
+    const distIndex = join(source.sourceDir, "dist", "index.html");
     if (!existsSync(distIndex)) {
-      const result = await compileApp(appDir);
+      const result = await compileApp(source.sourceDir);
       if (!result.ok) {
         log.warn(
           { appId, errors: result.errors },
@@ -637,9 +672,17 @@ async function handleOpenApp({ pathParams }: RouteHandlerArgs) {
       }
     }
   }
-  const html = resolveEffectiveAppHtml(app);
-  const { dirName } = resolveAppDir(app.id);
-  return { appId: app.id, dirName, name: app.name, html };
+
+  const html = resolveEffectiveAppHtmlFromDir(
+    source.sourceDir,
+    source.formatVersion,
+  );
+  return {
+    appId: source.id,
+    dirName: source.dirName,
+    name: source.name,
+    html,
+  };
 }
 
 function handleDeleteApp({ pathParams, headers }: RouteHandlerArgs) {
@@ -721,6 +764,7 @@ export const ROUTES: RouteDefinition[] = [
           updatedAt: z.number(),
           version: z.string(),
           contentId: z.string(),
+          origin: z.string(),
         }),
       ),
     }),
