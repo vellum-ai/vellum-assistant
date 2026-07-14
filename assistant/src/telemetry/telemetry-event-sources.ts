@@ -187,47 +187,6 @@ export function outboxSource(
   };
 }
 
-/**
- * Build an ack-mode source like {@link outboxSource}, but additionally
- * re-checks `share_diagnostics` eligibility (at an eligible accepted
- * version) on every collect, not just at record time. A writer's record-
- * time gate only covers the moment the row is recorded — if the owner
- * revokes diagnostics consent after that but before the next flush, a
- * still-pending row must not ship anyway (unlike `turnSource`'s trace,
- * which is assembled fresh at flush time and so re-evaluates consent for
- * free, a pre-built outbox payload has no such natural re-check point).
- * Ineligible pending rows are purged outright rather than held for a later
- * re-check, mirroring the corrupt-payload purge above — consent revocation
- * calls for dropping the backlog, not retrying it.
- */
-function diagnosticsGatedOutboxSource(
-  name: OutboxTelemetryEventName,
-): TelemetryEventSource {
-  const base = outboxSource(name);
-  return {
-    id: base.id,
-    collect(afterCreatedAt, afterId, limit) {
-      if (
-        !getCachedShareDiagnostics() ||
-        !isDiagnosticsConsentVersionEligible(getCachedShareDiagnosticsVersion())
-      ) {
-        const rows = queryTelemetryOutboxBatch(name, limit);
-        if (rows.length > 0) {
-          deleteTelemetryOutboxEvents(rows.map((row) => row.id));
-        }
-        return {
-          events: [],
-          rowIds: [],
-          lastCursor: null,
-          fullBatch: rows.length === limit,
-        };
-      }
-      return base.collect(afterCreatedAt, afterId, limit);
-    },
-    ack: base.ack,
-  };
-}
-
 // ---------------------------------------------------------------------------
 // Sources
 // ---------------------------------------------------------------------------
@@ -495,17 +454,16 @@ const WATERMARK_TELEMETRY_EVENT_SOURCES: readonly TelemetryEventSource[] = [
  * Per-outbox-event flush-source override. The default for every outbox event is
  * the plain {@link outboxSource}; list only the exceptions here. A new outbox
  * event type therefore needs no edit — it flushes through `outboxSource`
- * automatically. `onboarding_research` is diagnostics-gated at flush time (not
- * just record time) because its payload carries raw inferred claims.
+ * automatically. There are currently no exceptions: every outbox event,
+ * including `onboarding_research`, flushes through the default source and is
+ * gated only by the `share_analytics` consent enforced at record time.
  */
 const OUTBOX_SOURCE_FACTORY: Partial<
   Record<
     OutboxTelemetryEventName,
     (name: OutboxTelemetryEventName) => TelemetryEventSource
   >
-> = {
-  onboarding_research: diagnosticsGatedOutboxSource,
-};
+> = {};
 
 /**
  * Every telemetry event source, in payload order (watermark sources first, then
