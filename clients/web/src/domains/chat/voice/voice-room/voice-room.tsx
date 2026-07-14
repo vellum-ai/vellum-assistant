@@ -146,7 +146,13 @@ function VoiceRoomOverlay() {
   const reduce = useReducedMotion();
 
   const visual = toVoiceAvatarVisual(state, reconnecting, assistantAudioActive);
-  const stateLabel = liveVoiceStateLabel(state, reconnecting);
+  // The label + sr-only announcement must follow the same audio-aware mapping as
+  // the visual: a silent mid-turn `speaking` (ack spoken, tool now running)
+  // reads as "Thinking…", not "Speaking…", so screen-reader users aren't told
+  // the assistant is talking while it's actually silent (JARVIS-1279).
+  const labelState =
+    state === "speaking" && !assistantAudioActive ? "thinking" : state;
+  const stateLabel = liveVoiceStateLabel(labelState, reconnecting);
 
   // Captions = the two persisted transcript prefs, toggled together from the
   // room. Bound to the same `voice-prefs` store as the settings page and the

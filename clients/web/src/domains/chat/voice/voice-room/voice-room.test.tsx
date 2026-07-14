@@ -375,6 +375,26 @@ describe("VoiceRoom — connect feedback", () => {
   });
 });
 
+describe("VoiceRoom — audio-aware status label (JARVIS-1279)", () => {
+  // The sr-only aria-live region uses the "…"-suffixed state labels, distinct
+  // from the caption's un-suffixed text (e.g. "Thinking" vs "Thinking…").
+  test("announces Thinking… (not Speaking…) during a silent mid-turn speaking phase", () => {
+    startOwnedSession("speaking");
+    // A mid-turn tool run: still `speaking`, but audio has stopped flowing.
+    useLiveVoiceStore.setState({ assistantAudioActive: false });
+    render(<VoiceRoom />);
+    expect(screen.getByText("Thinking…")).toBeTruthy();
+    expect(screen.queryByText("Speaking…")).toBeNull();
+  });
+
+  test("announces Speaking… while audio is actually flowing", () => {
+    // seedLiveVoiceSession marks a `speaking` session audio-active.
+    startOwnedSession("speaking");
+    render(<VoiceRoom />);
+    expect(screen.getByText("Speaking…")).toBeTruthy();
+  });
+});
+
 describe("VoiceRoom — full-app takeover", () => {
   test("the room is a modal full-viewport overlay", () => {
     startOwnedSession("listening");
