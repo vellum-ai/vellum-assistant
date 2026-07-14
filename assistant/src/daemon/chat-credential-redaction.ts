@@ -43,6 +43,7 @@ import {
   REDACTED_SENTINEL_TAG,
 } from "@vellumai/service-contracts/redacted-credential";
 
+import { hasRevealSuccessSince } from "../runtime/reveal-success-registry.js";
 import { credentialKey } from "../security/credential-key.js";
 import { redactSecretsWith } from "../security/secret-scanner.js";
 import { getSecureKeyAsync } from "../security/secure-keys.js";
@@ -128,6 +129,40 @@ export function collectRevealRefsFromCommand(
   return refs;
 }
 
+/**
+ * Keep only refs whose identity the reveal route ACTUALLY served after
+ * `watermark` was captured (see `reveal-success-registry`). A shell tool's
+ * overall success is not proof the nested reveal ran — `reveal … || true`
+ * succeeds when the route failed, and an `echo` containing the command
+ * text never calls the route — so candidate resolution (which reads
+ * plaintext from the store) must be gated on the route's own record.
+ * Identity for id-form refs comes from the metadata store: a
+ * metadata-only lookup, no secret access. Unresolvable refs are dropped —
+ * the safe direction.
+ */
+export function filterRefsByRevealProof(
+  refs: readonly RevealCandidateRef[],
+  watermark: number,
+): RevealCandidateRef[] {
+  return refs.filter((ref) => {
+    let service = ref.service;
+    let field = ref.field;
+    if (ref.id !== undefined) {
+      try {
+        const meta = getCredentialMetadataById(ref.id);
+        if (!meta) return false;
+        service = meta.service;
+        field = meta.field;
+      } catch (err) {
+        log.debug({ err }, "reveal proof id lookup failed; dropping ref");
+        return false;
+      }
+    }
+    if (service === undefined || field === undefined) return false;
+    return hasRevealSuccessSince(watermark, service, field);
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Candidate resolution (scoped store read)
 // ---------------------------------------------------------------------------
@@ -200,12 +235,30 @@ export interface LiveRevealGuardEntry {
 }
 
 /**
- * Precompute live-swap entries from resolved reveal candidates. Each entry's
- * replacement is what persist-time redaction produces for the bare value, so
- * the live stream and the persisted row agree byte-for-byte on redacted
- * spans. A value the secret scanner does not detect is dropped: persist
- * would leave it untouched, so swapping it live would make the stream and
- * the stored transcript disagree.
+ * Fallback type label for a candidate whose bare value the scanner cannot
+ * classify on its own (context-sensitive patterns like `password=…`).
+ */
+const FALLBACK_SENTINEL_TYPE = "Credential";
+
+/**
+ * Precompute live-swap entries from resolved reveal candidates. Every
+ * candidate gets an entry — the guard's job is to keep revealed plaintext
+ * off the wire, whatever the surrounding text turns out to be.
+ *
+ * When the scanner detects the bare value, the replacement is exactly what
+ * persist-time redaction produces, so the live stream and the persisted
+ * row agree byte-for-byte. When it does not — several scanner patterns
+ * only match WITH context (`password=<value>`, `token: "<value>"`,
+ * lookbehind-anchored shapes), so "bare value undetected" does not mean
+ * "persist will keep it" — a generic-typed sentinel is built directly
+ * from the candidate identity. Dropping such values entirely (the old
+ * behavior) let `password=<revealed value>` cross the live stream raw
+ * while final persistence redacted it: the secret sat in the live
+ * transcript until refresh. The residual divergence is bounded and safe
+ * in both directions: a contextual persist match may carry a more
+ * specific type label than the live chip (cosmetic), and a value persist
+ * never redacts shows a chip live where the stored row keeps the text —
+ * the stream can only ever be MORE redacted than the transcript.
  */
 export function buildLiveRevealGuardEntries(
   candidates: readonly ResolvedRevealCandidate[],
@@ -227,7 +280,23 @@ export function buildLiveRevealGuardEntries(
     const replacement = redactSecretsForChat(candidate.value, candidates);
     if (replacement !== candidate.value) {
       entries.push({ value: candidate.value, replacement });
+      continue;
     }
+    // Scanner miss on the bare value: build the sentinel directly, with
+    // the same unique-identity degrade rule as the persist seam.
+    const hit = uniqueCandidateForValue(candidates, candidate.value);
+    entries.push({
+      value: candidate.value,
+      replacement: buildRedactedSentinel(
+        hit
+          ? {
+              type: FALLBACK_SENTINEL_TYPE,
+              service: hit.service,
+              field: hit.field,
+            }
+          : { type: FALLBACK_SENTINEL_TYPE },
+      ),
+    });
   }
   return entries;
 }

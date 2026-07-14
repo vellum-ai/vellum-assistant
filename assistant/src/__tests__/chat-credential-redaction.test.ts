@@ -296,12 +296,40 @@ describe("live reveal swap (stream plaintext hold-back)", () => {
     expect(SENTINEL).toContain(":openai:api_key\u3015");
   });
 
-  test("buildLiveRevealGuardEntries drops a value the scanner does not detect", () => {
+  test("buildLiveRevealGuardEntries covers a value the scanner cannot classify bare", () => {
+    // Round-14 case: several scanner patterns only match WITH context
+    // (`password=<value>` and friends), so a bare-undetectable candidate
+    // must still get an entry — dropping it let the plaintext cross the
+    // live stream raw while final persistence redacted the contextual
+    // occurrence. The replacement falls back to a generic-typed enriched
+    // sentinel built from the candidate identity.
     expect(
       buildLiveRevealGuardEntries([
         { service: "svc", field: "f", value: "not a real secret shape" },
       ]),
-    ).toEqual([]);
+    ).toEqual([
+      {
+        value: "not a real secret shape",
+        replacement: "\u3014redacted:Credential:svc:f\u3015",
+      },
+    ]);
+  });
+
+  test("a bare-unclassifiable duplicate plaintext degrades to the plain generic sentinel", () => {
+    // The unique-identity degrade rule applies to fallback entries too:
+    // two identities sharing an unclassifiable value must not mint an
+    // identity-carrying chip for either.
+    expect(
+      buildLiveRevealGuardEntries([
+        { service: "svc", field: "f", value: "shared plain value" },
+        { service: "other", field: "g", value: "shared plain value" },
+      ]),
+    ).toEqual([
+      {
+        value: "shared plain value",
+        replacement: "\u3014redacted:Credential\u3015",
+      },
+    ]);
   });
 
   test("buildLiveRevealGuardEntries degrades a duplicate plaintext to the plain sentinel, matching persist", () => {

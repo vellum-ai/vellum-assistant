@@ -66,6 +66,7 @@ import type {
   Message,
 } from "../providers/types.js";
 import { getCurrentSeq } from "../runtime/assistant-stream-state.js";
+import { currentRevealSuccessWatermark } from "../runtime/reveal-success-registry.js";
 import { redactSecrets } from "../security/secret-scanner.js";
 import { extractDomain } from "../tools/network/domain-normalize.js";
 import {
@@ -95,6 +96,7 @@ import {
   buildLiveRevealGuardEntries,
   collectRevealRefsFromCommand,
   drainSentinelGuardedText,
+  filterRefsByRevealProof,
   redactSecretsForChat,
   resolveRevealCandidates,
   swapLiveRevealValues,
@@ -380,18 +382,23 @@ export interface EventHandlerState {
    */
   readonly revealCandidateRefs: RevealCandidateRef[];
   /**
-   * Reveal refs parsed at `tool_use` time, staged until the tool's result
-   * proves the reveal actually executed. `tool_use` is emitted BEFORE tool
+   * Reveal refs parsed at `tool_use` time, staged until the reveal route
+   * itself proves it executed. `tool_use` is emitted BEFORE tool
    * execution — approval denial, cancellation, or the route's
    * untrusted-shell block can still stop the command — and candidate
    * resolution reads plaintext straight from the store, so resolving at
    * propose time would fetch secrets for a reveal that never ran,
-   * side-stepping the reveal route's own policy gates. Promoted to
-   * {@link revealCandidateRefs} (and primed into the live guard) in
-   * `handleToolResult` on a genuine non-error result; dropped on
-   * cancellation or error.
+   * side-stepping the reveal route's own policy gates. The enclosing
+   * tool's success is not proof either (`reveal … || true`, or an echo of
+   * the command text), so each staging captures a reveal-success-registry
+   * watermark and `handleToolResult` promotes only the refs whose
+   * identity the route actually served after it (see
+   * `filterRefsByRevealProof`); the rest are dropped.
    */
-  readonly pendingRevealRefsByToolUse: Map<string, RevealCandidateRef[]>;
+  readonly pendingRevealRefsByToolUse: Map<
+    string,
+    { refs: RevealCandidateRef[]; watermark: number }
+  >;
   /**
    * Live text the sentinel stream guard held back from
    * `assistant_text_delta` emission — a trailing partial `〔redacted:`
@@ -1260,7 +1267,12 @@ export function handleToolUse(
   if (typeof command === "string" && command.length > 0) {
     const refs = collectRevealRefsFromCommand(command);
     if (refs.length > 0) {
-      state.pendingRevealRefsByToolUse.set(event.id, refs);
+      state.pendingRevealRefsByToolUse.set(event.id, {
+        refs,
+        // Captured before execution: only reveal-route successes recorded
+        // AFTER this point can prove these refs at result time.
+        watermark: currentRevealSuccessWatermark(),
+      });
     }
   }
   const startedAt = Date.now();
@@ -1684,20 +1696,25 @@ export async function handleToolResult(
   deps: EventHandlerDeps,
   event: Extract<AgentEvent, { type: "tool_result" }>,
 ): Promise<void> {
-  // Promote staged reveal refs now that the tool's outcome is known: only a
-  // genuine non-error, non-cancelled result proves the reveal route actually
-  // ran (approval denial, cancellation, and the untrusted-shell block all
-  // surface as errored/cancelled results), so only then may candidate
-  // resolution read the plaintext from the store. Synchronous — the
-  // dispatcher awaits `tool_result` before any later `text_delta`, so the
-  // priming promise is registered before the barrier can be consulted.
-  const stagedRevealRefs = state.pendingRevealRefsByToolUse.get(
-    event.toolUseId,
-  );
-  if (stagedRevealRefs !== undefined) {
+  // Promote staged reveal refs now that the tool has finished: a ref is
+  // promoted only if the reveal ROUTE recorded a success for its identity
+  // after the staging watermark — the enclosing tool's exit status proves
+  // nothing (`reveal … || true` succeeds when the route failed; an echo of
+  // the command text never calls the route; conversely, a compound command
+  // can print the secret and then exit non-zero, in which case the model
+  // HAS the plaintext and the guard entry is protective). Only then may
+  // candidate resolution read the plaintext from the store. Synchronous —
+  // the dispatcher awaits `tool_result` before any later `text_delta`, so
+  // the priming promise is registered before the barrier can be consulted.
+  const stagedReveal = state.pendingRevealRefsByToolUse.get(event.toolUseId);
+  if (stagedReveal !== undefined) {
     state.pendingRevealRefsByToolUse.delete(event.toolUseId);
-    if (!event.cancelled && !event.isError) {
-      state.revealCandidateRefs.push(...stagedRevealRefs);
+    const provenRefs = filterRefsByRevealProof(
+      stagedReveal.refs,
+      stagedReveal.watermark,
+    );
+    if (provenRefs.length > 0) {
+      state.revealCandidateRefs.push(...provenRefs);
       primeLiveRevealGuard(state);
     }
   }

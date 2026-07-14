@@ -48,6 +48,7 @@ import {
 } from "../../tools/credentials/metadata-store.js";
 import type { CredentialInjectionTemplate } from "../../tools/credentials/policy-types.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
+import { recordRevealSuccess } from "../reveal-success-registry.js";
 import { InjectionTemplateSchema } from "./credential-prompt-routes.js";
 import { BadRequestError, InternalError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
@@ -313,6 +314,17 @@ async function handleCredentialsReveal({ body }: RouteHandlerArgs) {
       );
     }
     throw new BadRequestError("Credential not found");
+  }
+
+  // Ground truth for the chat-credential-reveal persist seams: this route
+  // is the only place a reveal legitimately reads plaintext, so a success
+  // recorded here is the proof the agent loop requires before promoting
+  // staged reveal candidates (a shell command can "succeed" without ever
+  // reaching this handler — `… || true`, or an echo of the command text).
+  // Both lookup branches populate service/field; the guard only satisfies
+  // the loose `CredentialLookup` type.
+  if (lookup.service !== undefined && lookup.field !== undefined) {
+    recordRevealSuccess(lookup.service, lookup.field);
   }
 
   return { value: secret };

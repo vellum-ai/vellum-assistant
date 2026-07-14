@@ -85,6 +85,10 @@ import {
 } from "../daemon/conversation-agent-loop-handlers.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import { _resetStreamStateForTesting } from "../runtime/assistant-stream-state.js";
+import {
+  _resetRevealSuccessRegistryForTest,
+  recordRevealSuccess,
+} from "../runtime/reveal-success-registry.js";
 import { SYNTHETIC_OPENAI_PROJECT_KEY } from "./secret-fixtures.js";
 
 function createMockDeps(collected: ServerMessage[]): EventHandlerDeps {
@@ -145,6 +149,7 @@ const REVEAL_TOOL_RESULT = {
 
 beforeEach(() => {
   _resetStreamStateForTesting();
+  _resetRevealSuccessRegistryForTest();
   pendingStoreReads.length = 0;
 });
 
@@ -159,8 +164,10 @@ describe("live reveal guard priming barrier", () => {
     await dispatchAgentEvent(state, deps, REVEAL_TOOL_USE);
     expect(pendingStoreReads.length).toBe(0);
 
-    // The successful result confirms execution and starts priming; the
-    // store read is still pending when the echo delta arrives.
+    // The reveal route records its success while the tool runs; the
+    // result then promotes the proven refs and starts priming — the store
+    // read is still pending when the echo delta arrives.
+    recordRevealSuccess("openai", "api_key");
     await dispatchAgentEvent(state, deps, REVEAL_TOOL_RESULT);
     expect(pendingStoreReads.length).toBe(1);
 
@@ -189,6 +196,7 @@ describe("live reveal guard priming barrier", () => {
     const deps = createMockDeps(events);
 
     await dispatchAgentEvent(state, deps, REVEAL_TOOL_USE);
+    recordRevealSuccess("openai", "api_key");
     await dispatchAgentEvent(state, deps, REVEAL_TOOL_RESULT);
     const delta = dispatchAgentEvent(state, deps, {
       type: "text_delta",
@@ -210,10 +218,10 @@ describe("live reveal guard priming barrier", () => {
 
     // Round-13 case: `tool_use` is emitted before execution, so approval
     // denial / cancellation / the route's untrusted-shell block can still
-    // stop the command. An errored result must drop the staged refs
-    // without ever touching the store — resolving at propose time would
-    // read plaintext for a reveal that never ran, bypassing the reveal
-    // route's own policy gates.
+    // stop the command. A blocked reveal never reaches the route, so no
+    // success is recorded and the staged refs must be dropped without ever
+    // touching the store — resolving at propose time would read plaintext
+    // for a reveal that never ran, bypassing the route's own policy gates.
     await dispatchAgentEvent(state, deps, REVEAL_TOOL_USE);
     await dispatchAgentEvent(state, deps, {
       type: "tool_result",
@@ -231,6 +239,48 @@ describe("live reveal guard priming barrier", () => {
     } as Extract<AgentEvent, { type: "text_delta" }>);
     expect(pendingStoreReads.length).toBe(0);
     expect(streamedText(events)).toContain("not revealing anything");
+  });
+
+  test("a successful shell command is not proof — no route success, no store read", async () => {
+    const state = createEventHandlerState();
+    const deps = createMockDeps([]);
+
+    // Round-14 case: `reveal … || true` (or an echo of the command text)
+    // yields a SUCCESSFUL tool result even though the reveal route failed
+    // or never ran. Without the route's own success record, the staged
+    // refs must not promote.
+    await dispatchAgentEvent(state, deps, REVEAL_TOOL_USE);
+    await dispatchAgentEvent(state, deps, REVEAL_TOOL_RESULT);
+    expect(pendingStoreReads.length).toBe(0);
+  });
+
+  test("a route success for a different identity does not promote the staged refs", async () => {
+    const state = createEventHandlerState();
+    const deps = createMockDeps([]);
+
+    await dispatchAgentEvent(state, deps, REVEAL_TOOL_USE);
+    recordRevealSuccess("linear", "api_key");
+    await dispatchAgentEvent(state, deps, REVEAL_TOOL_RESULT);
+    expect(pendingStoreReads.length).toBe(0);
+  });
+
+  test("a proven reveal primes even when the enclosing command exits non-zero", async () => {
+    const state = createEventHandlerState();
+    const deps = createMockDeps([]);
+
+    // Compound command: the reveal route succeeded (secret is in the
+    // model's context) but a later segment failed the tool overall. The
+    // guard entry is protective here — the plaintext can still be echoed.
+    await dispatchAgentEvent(state, deps, REVEAL_TOOL_USE);
+    recordRevealSuccess("openai", "api_key");
+    await dispatchAgentEvent(state, deps, {
+      type: "tool_result",
+      toolUseId: "toolu_reveal",
+      content: "sk-…\ncommand not found: bogus-follow-up",
+      isError: true,
+    } as Extract<AgentEvent, { type: "tool_result" }>);
+    expect(pendingStoreReads.length).toBe(1);
+    pendingStoreReads[0]!(SYNTHETIC_OPENAI_PROJECT_KEY);
   });
 
   test("steady-state deltas with no priming in flight emit synchronously", async () => {
