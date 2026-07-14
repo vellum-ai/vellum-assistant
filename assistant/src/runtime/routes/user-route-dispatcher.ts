@@ -27,17 +27,15 @@
  * whose file does not exist 404s — nothing is registered ahead of time.
  */
 
-import { existsSync, statSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { statSync } from "node:fs";
 
-import { isPluginDisabled } from "../../plugins/disabled-state.js";
 import { getLogger } from "../../util/logger.js";
-import {
-  getWorkspacePluginsDir,
-  getWorkspaceRoutesDir,
-} from "../../util/platform.js";
 import type { AssistantEventHub } from "../assistant-event-hub.js";
 import { httpError } from "../http-errors.js";
+import {
+  resolveHandlerFile,
+  resolveRouteLocation,
+} from "./user-route-resolution.js";
 
 const log = getLogger("user-routes");
 
@@ -131,44 +129,6 @@ interface CachedModule {
 /** Default per-request timeout for user-defined route handlers (30 seconds). */
 const DEFAULT_HANDLER_TIMEOUT_MS = 30_000;
 
-/** Supported file extensions for handler modules. */
-const HANDLER_EXTENSIONS = [".ts", ".js"] as const;
-
-/** Path segment reserved for plugin-namespaced routes under `/x/`. */
-const PLUGIN_ROUTE_SEGMENT = "plugins";
-
-/**
- * Resolve an `/x/` route path to the base directory + sub-path the handler file
- * is looked up under.
- *
- * `plugins/<name>/<rest>` resolves against that plugin's own
- * `<workspaceDir>/plugins/<name>/routes/` directory (`<rest>` may be empty,
- * mapping to the namespace's `index` handler). Everything else resolves against
- * the workspace `routes/` directory. Returns `null` (caller 404s) when:
- *
- * - the path is a malformed plugin path (`plugins` with no name segment), so it
- *   never falls back to a workspace route — the `plugins/` prefix is reserved
- *   for plugin routes; or
- * - the named plugin is disabled (`.disabled` sentinel present), so a disabled
- *   plugin serves no routes even though its files remain on disk.
- */
-function resolveRouteLocation(
-  routePath: string,
-): { routesDir: string; subPath: string } | null {
-  const segments = routePath.split("/");
-  if (segments[0] === PLUGIN_ROUTE_SEGMENT) {
-    const pluginName = segments[1];
-    if (!pluginName || isPluginDisabled(pluginName)) {
-      return null;
-    }
-    return {
-      routesDir: join(getWorkspacePluginsDir(), pluginName, "routes"),
-      subPath: segments.slice(2).join("/"),
-    };
-  }
-  return { routesDir: getWorkspaceRoutesDir(), subPath: routePath };
-}
-
 export class UserRouteDispatcher {
   private moduleCache = new Map<string, CachedModule>();
   private handlerTimeoutMs: number;
@@ -197,7 +157,7 @@ export class UserRouteDispatcher {
 
     const location = resolveRouteLocation(routePath);
     const filePath = location
-      ? this.resolveHandlerFile(location.routesDir, location.subPath)
+      ? resolveHandlerFile(location.routesDir, location.subPath)
       : null;
 
     if (!filePath) {
@@ -221,46 +181,6 @@ export class UserRouteDispatcher {
     }
 
     return this.executeHandler(handler, request, routePath);
-  }
-
-  /**
-   * Resolve a route path to a handler file on disk.
-   *
-   * Checks for direct file matches first (`<path>.ts`, `<path>.js`),
-   * then falls back to index files (`<path>/index.ts`, `<path>/index.js`).
-   *
-   * Returns the absolute path to the handler file, or null if not found.
-   */
-  private resolveHandlerFile(
-    routesDir: string,
-    routePath: string,
-  ): string | null {
-    const basePath = join(routesDir, routePath);
-    const resolved = resolve(basePath);
-
-    // Ensure the resolved path is within the routes directory to prevent
-    // any path traversal that slipped through the initial check.
-    if (!resolved.startsWith(resolve(routesDir))) {
-      return null;
-    }
-
-    // Direct file match: routes/<path>.ts or routes/<path>.js
-    for (const ext of HANDLER_EXTENSIONS) {
-      const candidate = `${resolved}${ext}`;
-      if (existsSync(candidate)) {
-        return candidate;
-      }
-    }
-
-    // Index file convention: routes/<path>/index.ts or routes/<path>/index.js
-    for (const ext of HANDLER_EXTENSIONS) {
-      const candidate = join(resolved, `index${ext}`);
-      if (existsSync(candidate)) {
-        return candidate;
-      }
-    }
-
-    return null;
   }
 
   /**
