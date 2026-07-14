@@ -14,8 +14,11 @@
  * The capture is permission-agnostic: it requests `getUserMedia` directly and
  * surfaces a denial as a typed `LiveVoiceCaptureResult` rather than throwing.
  * Per `clients/web/AGENTS.md` / `docs/CAPACITOR.md` § OS permission requests,
- * callers own any pre-permission UX (and must not render a dismissible
- * pre-prompt on Capacitor iOS).
+ * callers own any pre-permission UX: no *dismissible* pre-prompt may precede
+ * this `getUserMedia` alert on Capacitor iOS. The live-voice composer's
+ * first-run card complies by rendering locked (no ✕ / backdrop / Escape, a
+ * single "Start talking" that leads straight here) on iOS — see
+ * `chat-composer.tsx`'s `handleLiveVoiceStart` and `VoiceFirstRunCard`.
  */
 
 // Import the worklet as a Vite-bundled, *transpiled* classic script asset and

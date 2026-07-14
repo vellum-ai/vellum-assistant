@@ -93,4 +93,26 @@ describe("VoiceFirstRunCard", () => {
     fireEvent.click(getByText("Start"));
     expect(useVoicePrefsStore.getState().firstRunSeen).toBe(true);
   });
+
+  test("dismissible by default (web): renders the ✕ close affordance", () => {
+    const { getByLabelText } = render(
+      <VoiceFirstRunCard assistantId="asst_test" onStart={() => {}} />,
+    );
+    expect(getByLabelText("Close")).toBeTruthy();
+  });
+
+  test("nonDismissible (iOS lock): no ✕, only Start talking leads forward", () => {
+    // The lock strips the close affordance so the pre-permission card leads
+    // straight to the mic alert (CAPACITOR.md § OS permission requests); there
+    // is intentionally no card-level cancel.
+    const { queryByLabelText, getByText } = render(
+      <VoiceFirstRunCard
+        assistantId="asst_test"
+        onStart={() => {}}
+        nonDismissible
+      />,
+    );
+    expect(queryByLabelText("Close")).toBeNull();
+    expect(getByText("Start talking")).toBeTruthy();
+  });
 });

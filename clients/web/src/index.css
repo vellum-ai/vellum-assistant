@@ -807,3 +807,30 @@ body {
     opacity: 0.4;
   }
 }
+
+/* Responding-treatment tint (the concentric rings + the halo bloom radiating
+ * from behind the eyes / avatar; see the responding treatments in
+ * voice-room-eyes.tsx). Follows the room foreground tone (--room-fg) so it reads
+ * on any avatar-color background, and — like the wave palette rules above —
+ * declares a plain rgba() BEFORE the color-mix() so engines without color-mix
+ * (Safari/iOS < 16.2; the iOS shell still targets 15.0) keep the visible white
+ * fallback instead of dropping the invalid declaration to `currentColor`. The
+ * amplitude-driven size/opacity stay inline at the call site; only the tinted
+ * color lives here (the fallback pattern needs two declarations, which a React
+ * inline style object can't express). */
+.voice-responding-ring {
+  border-color: rgba(255, 255, 255, 0.55);
+  border-color: color-mix(in srgb, var(--room-fg, #ffffff) 55%, transparent);
+}
+.voice-responding-halo {
+  background: radial-gradient(
+    circle,
+    rgba(255, 255, 255, 0.24) 0%,
+    transparent 66%
+  );
+  background: radial-gradient(
+    circle,
+    color-mix(in srgb, var(--room-fg, #ffffff) 24%, transparent) 0%,
+    transparent 66%
+  );
+}
