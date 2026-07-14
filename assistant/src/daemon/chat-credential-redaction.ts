@@ -211,8 +211,20 @@ export function buildLiveRevealGuardEntries(
   candidates: readonly ResolvedRevealCandidate[],
 ): LiveRevealGuardEntry[] {
   const entries: LiveRevealGuardEntry[] = [];
+  const seen = new Set<string>();
   for (const candidate of candidates) {
-    const replacement = redactSecretsForChat(candidate.value, [candidate]);
+    // Dedupe by value — duplicate plaintexts would otherwise register two
+    // entries and split/join order would silently pick one.
+    if (seen.has(candidate.value)) {
+      continue;
+    }
+    seen.add(candidate.value);
+    // Derive the replacement against the FULL candidate list, exactly as
+    // the persist seam does: a value shared by two identities degrades to
+    // the plain type-only sentinel there (see `uniqueCandidateForValue`),
+    // and the live swap must emit the same bytes or the streamed text and
+    // the persisted row would disagree on reconnect.
+    const replacement = redactSecretsForChat(candidate.value, candidates);
     if (replacement !== candidate.value) {
       entries.push({ value: candidate.value, replacement });
     }
@@ -343,8 +355,9 @@ export function drainSentinelGuardedText(
 /**
  * Redact secrets in chat-persisted text using sentinels instead of the
  * legacy HTML marker. A span whose bytes exactly equal a candidate's
- * plaintext gets the enriched (revealable) shape; everything else gets the
- * plain type-only shape. Detection itself is unchanged — same scanner, same
+ * plaintext gets the enriched (revealable) shape — but only when that value
+ * maps to exactly one vault identity; everything else gets the plain
+ * type-only shape. Detection itself is unchanged — same scanner, same
  * patterns, same overlap handling as `redactSecrets`.
  */
 export function redactSecretsForChat(
@@ -358,7 +371,7 @@ export function redactSecretsForChat(
   return redactSecretsWith(
     neutralizeRedactedSentinels(text),
     (match, rawValue) => {
-      const hit = candidates.find((c) => c.value === rawValue);
+      const hit = uniqueCandidateForValue(candidates, rawValue);
       return buildRedactedSentinel(
         hit
           ? { type: match.type, service: hit.service, field: hit.field }
@@ -366,4 +379,35 @@ export function redactSecretsForChat(
       );
     },
   );
+}
+
+/**
+ * Resolve a matched plaintext to a candidate identity — but only when the
+ * mapping is unambiguous. A byte match proves the VALUE, not the vault
+ * identity: if two revealed credentials happen to share the same plaintext
+ * (the same API key stored under two services), picking either would mint a
+ * chip whose label — and whose click-to-reveal path — names a credential the
+ * user may not have revealed, and whose value silently diverges if that
+ * credential later rotates. Duplicate-value spans therefore degrade to the
+ * plain type-only sentinel. Multiple candidate entries that agree on
+ * service:field (the same reveal parsed twice) are still unique.
+ */
+function uniqueCandidateForValue(
+  candidates: readonly ResolvedRevealCandidate[],
+  rawValue: string,
+): ResolvedRevealCandidate | undefined {
+  let hit: ResolvedRevealCandidate | undefined;
+  for (const candidate of candidates) {
+    if (candidate.value !== rawValue) {
+      continue;
+    }
+    if (
+      hit !== undefined &&
+      (hit.service !== candidate.service || hit.field !== candidate.field)
+    ) {
+      return undefined;
+    }
+    hit = candidate;
+  }
+  return hit;
 }

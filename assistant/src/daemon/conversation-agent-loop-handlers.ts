@@ -397,6 +397,16 @@ export interface EventHandlerState {
    */
   liveRevealGuardEntries: readonly LiveRevealGuardEntry[];
   /**
+   * In-flight priming of {@link liveRevealGuardEntries}. The dispatcher
+   * awaits this before processing a `text_delta` (and before the
+   * end-of-message guard flush) so a fast reveal echo can never race the
+   * guard: without the barrier, a quick tool return plus a slow store read
+   * would let `drainSentinelGuardedText` run with an empty entry list and
+   * send the plaintext over SSE even though the persisted row redacts it.
+   * Cleared once settled — steady-state deltas await nothing.
+   */
+  liveRevealGuardPriming: Promise<void> | undefined;
+  /**
    * Memoized resolution of {@link revealCandidateRefs} so a turn with many
    * persist flushes fetches each candidate's plaintext once. Invalidated by
    * ref-count when a later tool call adds more reveal invocations mid-turn.
@@ -499,6 +509,7 @@ export function createEventHandlerState(): EventHandlerState {
     revealCandidateCache: undefined,
     pendingSentinelGuardBuffer: "",
     liveRevealGuardEntries: [],
+    liveRevealGuardPriming: undefined,
   };
 }
 
@@ -536,15 +547,19 @@ async function chatRevealCandidates(
 
 /**
  * Kick off (or refresh) the live stream guard's swap entries from the
- * memoized candidate resolution. Fire-and-forget by design: `handleToolUse`
- * is synchronous, and the store read settles while the reveal tool call is
- * still executing — before its stdout can flow back into model output. If
- * resolution loses that race or fails, the guard simply stays on its
- * previous entries and the persist seams still redact; the stream guard is
- * a wire-level improvement, not the redaction boundary.
+ * memoized candidate resolution. `handleToolUse` is synchronous, so the
+ * store read starts here and usually settles while the reveal tool call is
+ * still executing — but "usually" is not a guarantee: a fast tool return
+ * plus a slow `getSecureKeyAsync` would let the next stream's text deltas
+ * reach the guard before entries exist. The pending promise is therefore
+ * recorded on state and awaited by the dispatcher at the delta boundary
+ * (see `dispatchAgentEvent`), turning the race into a barrier. If
+ * resolution fails, the guard stays on its previous entries and the
+ * persist seams still redact; the stream guard remains a wire-level layer,
+ * persistence the redaction boundary.
  */
 function primeLiveRevealGuard(state: EventHandlerState): void {
-  void chatRevealCandidates(state)
+  const priming = chatRevealCandidates(state)
     .then((candidates) => {
       if (candidates !== undefined && candidates.length > 0) {
         state.liveRevealGuardEntries = buildLiveRevealGuardEntries(candidates);
@@ -555,7 +570,32 @@ function primeLiveRevealGuard(state: EventHandlerState): void {
         { err },
         "live reveal guard priming failed; stream swap stays inactive",
       );
+    })
+    .finally(() => {
+      // Only clear our own registration — a later reveal in the same turn
+      // may have replaced the pending promise with a fresh one.
+      if (state.liveRevealGuardPriming === priming) {
+        state.liveRevealGuardPriming = undefined;
+      }
     });
+  state.liveRevealGuardPriming = priming;
+}
+
+/**
+ * Barrier for the live reveal guard: resolves once any in-flight priming
+ * has settled. Awaited before text deltas are guarded and before the
+ * end-of-message guard flush, so echoed plaintext can never beat the
+ * guard entries onto the wire. No-op (no await, no microtask churn) when
+ * nothing is being primed.
+ */
+async function awaitLiveRevealGuardReady(
+  state: EventHandlerState,
+): Promise<void> {
+  // Loop: priming that settles can be superseded by a newer registration
+  // (two reveals back-to-back) before this await resumes.
+  while (state.liveRevealGuardPriming !== undefined) {
+    await state.liveRevealGuardPriming;
+  }
 }
 
 // ── Partial-persistence helpers ──────────────────────────────────────
@@ -2232,6 +2272,9 @@ export async function handleMessageComplete(
   const trailingLiveText =
     state.pendingSentinelGuardBuffer + state.pendingDirectiveDisplayBuffer;
   if (trailingLiveText.length > 0) {
+    // Same barrier as the text-delta path: the flush below swaps against
+    // `liveRevealGuardEntries`, so an in-flight priming must settle first.
+    await awaitLiveRevealGuardReady(state);
     deps.onEvent({
       type: "assistant_text_delta",
       text: swapLiveRevealValues(
@@ -2622,6 +2665,11 @@ export async function dispatchAgentEvent(
         await handleLlmCallStarted(state, deps);
         break;
       case "text_delta":
+        // Reveal-guard barrier: if a `credentials reveal` tool_use just
+        // started priming the live guard, resolve it before this delta is
+        // guarded — otherwise a fast reveal echo could cross SSE with an
+        // empty entry list. Steady state awaits nothing.
+        await awaitLiveRevealGuardReady(state);
         handleTextDelta(state, deps, event);
         break;
       case "thinking_delta":

@@ -172,6 +172,48 @@ describe("redactSecretsForChat", () => {
     expect(out).toBe("\u3014redacted:OpenAI Project Key\u3015");
   });
 
+  test("duplicate plaintext across two identities degrades to the plain sentinel", () => {
+    // A byte match proves the value, not the vault identity: when two
+    // revealed credentials share the same plaintext, minting either chip
+    // would mislabel the span (and reveal the wrong value later if that
+    // credential rotates). The ambiguity must fail safe.
+    const out = redactSecretsForChat(`key: ${SYNTHETIC_OPENAI_PROJECT_KEY}`, [
+      {
+        service: "openai",
+        field: "api_key",
+        value: SYNTHETIC_OPENAI_PROJECT_KEY,
+      },
+      {
+        service: "litellm",
+        field: "api_key",
+        value: SYNTHETIC_OPENAI_PROJECT_KEY,
+      },
+    ]);
+    expect(out).toBe("key: \u3014redacted:OpenAI Project Key\u3015");
+    expect(out).not.toContain(":openai:");
+    expect(out).not.toContain(":litellm:");
+  });
+
+  test("duplicate candidate entries that agree on identity stay revealable", () => {
+    // The same reveal recorded twice (repeated command in one turn) is not
+    // ambiguous — only distinct identities sharing a value degrade.
+    const out = redactSecretsForChat(`key: ${SYNTHETIC_OPENAI_PROJECT_KEY}`, [
+      {
+        service: "openai",
+        field: "api_key",
+        value: SYNTHETIC_OPENAI_PROJECT_KEY,
+      },
+      {
+        service: "openai",
+        field: "api_key",
+        value: SYNTHETIC_OPENAI_PROJECT_KEY,
+      },
+    ]);
+    expect(out).toBe(
+      "key: \u3014redacted:OpenAI Project Key:openai:api_key\u3015",
+    );
+  });
+
   test("clean text passes through untouched", () => {
     expect(redactSecretsForChat("no secrets here", candidates)).toBe(
       "no secrets here",
@@ -260,6 +302,30 @@ describe("live reveal swap (stream plaintext hold-back)", () => {
         { service: "svc", field: "f", value: "not a real secret shape" },
       ]),
     ).toEqual([]);
+  });
+
+  test("buildLiveRevealGuardEntries degrades a duplicate plaintext to the plain sentinel, matching persist", () => {
+    // Two identities sharing one value: the persist seam degrades that span
+    // to the plain type-only sentinel, so the live swap must emit the same
+    // bytes — one deduped entry whose replacement carries no identity.
+    const entries = buildLiveRevealGuardEntries([
+      {
+        service: "openai",
+        field: "api_key",
+        value: SYNTHETIC_OPENAI_PROJECT_KEY,
+      },
+      {
+        service: "litellm",
+        field: "api_key",
+        value: SYNTHETIC_OPENAI_PROJECT_KEY,
+      },
+    ]);
+    expect(entries).toEqual([
+      {
+        value: SYNTHETIC_OPENAI_PROJECT_KEY,
+        replacement: "\u3014redacted:OpenAI Project Key\u3015",
+      },
+    ]);
   });
 
   test("swaps a complete echoed value within one chunk", () => {
