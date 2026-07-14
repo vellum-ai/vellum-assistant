@@ -324,7 +324,7 @@ async function handleCredentialsReveal({ body }: RouteHandlerArgs) {
   // Both lookup branches populate service/field; the guard only satisfies
   // the loose `CredentialLookup` type.
   if (lookup.service !== undefined && lookup.field !== undefined) {
-    recordRevealSuccess(lookup.service, lookup.field);
+    recordRevealSuccess(lookup.service, lookup.field, secret);
   }
 
   return { value: secret };

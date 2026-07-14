@@ -75,6 +75,30 @@ describe("collectRevealRefsFromCommand", () => {
     ]);
   });
 
+  test("splits on a single & background separator", () => {
+    expect(
+      collectRevealRefsFromCommand(
+        "assistant credentials reveal --service a --field b & assistant credentials reveal --service c --field d",
+      ),
+    ).toEqual([
+      { service: "a", field: "b" },
+      { service: "c", field: "d" },
+    ]);
+  });
+
+  test("does not treat && as two single-& separators", () => {
+    // The two-char operator must win at its position; a spurious empty split
+    // between the ampersands would drop the second invocation's flags.
+    expect(
+      collectRevealRefsFromCommand(
+        "assistant credentials reveal --service a --field b&&assistant credentials reveal --service c --field d",
+      ),
+    ).toEqual([
+      { service: "a", field: "b" },
+      { service: "c", field: "d" },
+    ]);
+  });
+
   test("ignores commands without a reveal invocation", () => {
     expect(collectRevealRefsFromCommand("echo hello")).toEqual([]);
     expect(collectRevealRefsFromCommand("assistant credentials list")).toEqual(
@@ -171,6 +195,28 @@ describe("redactSecretsForChat", () => {
   test("empty candidate list still redacts, as plain sentinels", () => {
     const out = redactSecretsForChat(SYNTHETIC_OPENAI_PROJECT_KEY, []);
     expect(out).toBe("\u3014redacted:OpenAI Project Key\u3015");
+  });
+
+  test("a full PEM candidate is redacted whole, not just its header", () => {
+    // The scanner's `Private Key` pattern matches ONLY the
+    // `-----BEGIN … PRIVATE KEY-----` header, so a scanner-first pass would
+    // replace the header and leave the base64 body raw — and the full-value
+    // fallback would then miss because the intact value no longer exists.
+    // Candidate protection must run before the scanner so the whole key
+    // becomes one sentinel and no body bytes survive.
+    const pem =
+      "-----BEGIN RSA PRIVATE KEY-----\n" +
+      "MIIBOgIBAAJBAKj34GkxFhD90vcNLYLInFEX6Ppy1tPf9Cnzj4p4WGeKLs1Pt8Q\n" +
+      "uKUpRKfFLfRYC9AIKjbJTWit+CqvjfRasdf0123456789abcdefGHIJKLMNOPQR\n" +
+      "-----END RSA PRIVATE KEY-----";
+    const out = redactSecretsForChat(`here:\n${pem}\ndone`, [
+      { service: "github-app", field: "pem", value: pem },
+    ]);
+    expect(out).not.toContain("MIIBOgIBAAJBAKj34GkxFhD90");
+    expect(out).not.toContain("PRIVATE KEY");
+    expect(out).toBe(
+      "here:\n\u3014redacted:Private Key:github-app:pem\u3015\ndone",
+    );
   });
 
   test("duplicate plaintext across two identities degrades to the plain sentinel", () => {
@@ -355,6 +401,22 @@ describe("live reveal swap (stream plaintext hold-back)", () => {
     expect(redactCandidateValuesLegacy("stdout: hunter2-opaque\n", [])).toBe(
       "stdout: hunter2-opaque\n",
     );
+  });
+
+  test("redactCandidateValuesLegacy redacts a full PEM candidate whole", () => {
+    // Same PEM hazard on the legacy surface: the scanner recognizes only the
+    // header, so candidate protection must run before it or the key body
+    // persists raw in the tool-result row.
+    const pem =
+      "-----BEGIN RSA PRIVATE KEY-----\n" +
+      "MIIBOgIBAAJBAKj34GkxFhD90vcNLYLInFEX6Ppy1tPf9Cnzj4p4WGeKLs1Pt8Q\n" +
+      "-----END RSA PRIVATE KEY-----";
+    const out = redactCandidateValuesLegacy(`pem:\n${pem}\n`, [
+      { service: "github-app", field: "pem", value: pem },
+    ]);
+    expect(out).not.toContain("MIIBOgIBAAJBAKj34GkxFhD90");
+    expect(out).not.toContain("PRIVATE KEY");
+    expect(out).toBe('pem:\n<redacted type="Credential" />\n');
   });
 
   test("redactCandidateValuesLegacy does not depend on the sentinel flag's marker format", () => {

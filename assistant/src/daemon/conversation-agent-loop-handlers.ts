@@ -67,7 +67,6 @@ import type {
 } from "../providers/types.js";
 import { getCurrentSeq } from "../runtime/assistant-stream-state.js";
 import { currentRevealSuccessWatermark } from "../runtime/reveal-success-registry.js";
-import { redactSecrets } from "../security/secret-scanner.js";
 import { extractDomain } from "../tools/network/domain-normalize.js";
 import {
   classifyWebSearchFailure,
@@ -695,10 +694,7 @@ export function buildPersistedAssistantContent(
       const text =
         revealCandidates !== undefined
           ? redactSecretsForChat(tb.text, revealCandidates)
-          : redactCandidateValuesLegacy(
-              redactSecrets(neutralizeRedactedSentinels(tb.text)),
-              legacyFallbackCandidates,
-            );
+          : redactCandidateValuesLegacy(tb.text, legacyFallbackCandidates);
       return { ...tb, text, _redactionVersion: SENTINEL_REDACTION_VERSION };
     }
     // Native server tools (Anthropic web_search) resolve mid-stream — their
@@ -1503,10 +1499,7 @@ function buildToolResultBlocks(
   // stdout) get a candidate-aware legacy-marker fallback — the tool detail
   // panel and history must not retain a value every other surface redacts.
   const redact = (text: string): string =>
-    redactCandidateValuesLegacy(
-      redactSecrets(neutralizeRedactedSentinels(text)),
-      revealCandidates,
-    );
+    redactCandidateValuesLegacy(text, revealCandidates);
   return Array.from(pending.entries()).map(([toolUseId, result]) => ({
     type: "tool_result",
     tool_use_id: toolUseId,
@@ -1764,6 +1757,37 @@ export async function handleToolResult(
       primeLiveRevealGuard(state);
     }
   }
+
+  // Redact THIS tool's own stdout before it leaves the daemon. The reveal
+  // command that just proved a candidate printed the plaintext into its own
+  // `event.content`; priming the assistant-text guard only protects a later
+  // echo, not this result. The persist path already redacts via
+  // `buildToolResultBlocks`, but the LIVE `tool_result` SSE below forwards
+  // `event.content` verbatim and the web reducer stores `event.result`
+  // directly — so an opaque/manual value the scanner cannot classify would
+  // flash in the tool card until a history refetch. Apply the same
+  // candidate-aware legacy redaction the persisted tool-result row uses, to
+  // both the buffered content and the emitted result, so wire and storage
+  // agree from the first frame. Resolution is memoized per state; refs only
+  // exist once the reveal route actually served the identity, so this is a
+  // no-op store-touch until a genuine reveal has happened this turn.
+  const revealCandidatesForResult =
+    await resolvedRevealCandidatesForState(state);
+  const redactRevealStdout = (text: string): string =>
+    redactCandidateValuesLegacy(text, revealCandidatesForResult);
+  const redactedContent =
+    revealCandidatesForResult.length > 0
+      ? redactRevealStdout(event.content)
+      : event.content;
+  const redactedContentBlocks =
+    revealCandidatesForResult.length > 0 && event.contentBlocks
+      ? event.contentBlocks.map((block) =>
+          block.type === "text"
+            ? { ...block, text: redactRevealStdout(block.text) }
+            : block,
+        )
+      : event.contentBlocks;
+
   // A synthesized cancellation (the tool never executed) is captured for
   // persistence and forwarded to the client like any result, but skips every
   // side effect that assumes the tool ran. A real result already captured or
@@ -1776,14 +1800,14 @@ export async function handleToolResult(
       return;
     }
     state.pendingToolResults.set(event.toolUseId, {
-      content: event.content,
+      content: redactedContent,
       isError: event.isError,
     });
     state.currentToolUseId = undefined;
     deps.onEvent({
       type: "tool_result",
       toolName: "",
-      result: event.content,
+      result: redactedContent,
       isError: event.isError,
       conversationId: deps.ctx.conversationId,
       messageId: state.lastAssistantMessageId,
@@ -1817,10 +1841,12 @@ export async function handleToolResult(
   // Perform state mutations before deps.onEvent() so that if onEvent throws
   // (e.g. SSE disconnection) and the error is suppressed by dispatchAgentEvent,
   // critical state like pendingToolResults and currentToolUseId is still updated.
+  // Buffer the reveal-redacted content so the message_complete drain and any
+  // retry persist the same bytes the live emit sends.
   state.pendingToolResults.set(event.toolUseId, {
-    content: event.content,
+    content: redactedContent,
     isError: event.isError,
-    contentBlocks: event.contentBlocks,
+    contentBlocks: redactedContentBlocks,
   });
 
   // Record tool completion timestamp
@@ -1924,10 +1950,12 @@ export async function handleToolResult(
   }
 
   // Send to client last so state is consistent even if onEvent throws.
+  // `result` carries the reveal-redacted stdout (see above) so the live tool
+  // card never shows a revealed plaintext the persisted row hides.
   deps.onEvent({
     type: "tool_result",
     toolName: "",
-    result: event.content,
+    result: redactedContent,
     isError: event.isError,
     diff: event.diff,
     status: event.status,

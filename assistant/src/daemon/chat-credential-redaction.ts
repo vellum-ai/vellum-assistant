@@ -43,9 +43,13 @@ import {
   REDACTED_SENTINEL_TAG,
 } from "@vellumai/service-contracts/redacted-credential";
 
-import { hasRevealSuccessSince } from "../runtime/reveal-success-registry.js";
+import { revealedValueSince } from "../runtime/reveal-success-registry.js";
 import { credentialKey } from "../security/credential-key.js";
-import { redactSecretsWith } from "../security/secret-scanner.js";
+import {
+  redactSecrets,
+  redactSecretsWith,
+  scanText,
+} from "../security/secret-scanner.js";
 import { getSecureKeyAsync } from "../security/secure-keys.js";
 import { getCredentialMetadataById } from "../tools/credentials/metadata-store.js";
 import { getLogger } from "../util/logger.js";
@@ -62,6 +66,15 @@ export interface RevealCandidateRef {
   field?: string;
   /** Opaque credential UUID (positional CLI arg) — resolved to service/field. */
   id?: string;
+  /**
+   * The plaintext the reveal route served for this ref, captured by
+   * {@link filterRefsByRevealProof} at proof time. When present, candidate
+   * resolution redacts these EXACT bytes and skips the vault read — so a
+   * rotation/deletion between reveal and persist can't make the redacted
+   * value diverge from what the tool actually printed. Absent only for refs
+   * that were never proven (which resolution drops anyway).
+   */
+  provenValue?: string;
 }
 
 /** A candidate with its plaintext, ready for byte-comparison. */
@@ -110,7 +123,11 @@ export function collectRevealRefsFromCommand(
   const refs: RevealCandidateRef[] = [];
   // Split compound commands so flags from one invocation can't bleed into
   // another (`reveal --service a --field b && reveal --service c --field d`).
-  const segments = command.split(/(?:&&|\|\||[;|\n])/);
+  // `&&` and `||` are listed before the single-char `&`/`|` so the two-char
+  // operators win at a given position; a lone `&` (background job separator,
+  // e.g. `reveal … & reveal …`) splits too, so a second backgrounded reveal
+  // is staged rather than swallowed into the first segment.
+  const segments = command.split(/(?:&&|\|\||[;&|\n])/);
   for (const segment of segments) {
     if (!REVEAL_INVOCATION_RE.test(segment)) continue;
     const service = flagValue(segment, SERVICE_FLAG_RE);
@@ -144,23 +161,31 @@ export function filterRefsByRevealProof(
   refs: readonly RevealCandidateRef[],
   watermark: number,
 ): RevealCandidateRef[] {
-  return refs.filter((ref) => {
+  const proven: RevealCandidateRef[] = [];
+  for (const ref of refs) {
     let service = ref.service;
     let field = ref.field;
     if (ref.id !== undefined) {
       try {
         const meta = getCredentialMetadataById(ref.id);
-        if (!meta) return false;
+        if (!meta) continue;
         service = meta.service;
         field = meta.field;
       } catch (err) {
         log.debug({ err }, "reveal proof id lookup failed; dropping ref");
-        return false;
+        continue;
       }
     }
-    if (service === undefined || field === undefined) return false;
-    return hasRevealSuccessSince(watermark, service, field);
-  });
+    if (service === undefined || field === undefined) continue;
+    // Capture the plaintext the route served alongside the proof, in the same
+    // lookup. Resolving service/field here too means the returned ref is fully
+    // self-describing, so candidate resolution needs neither the metadata
+    // lookup nor the vault read again.
+    const provenValue = revealedValueSince(watermark, service, field);
+    if (provenValue === undefined) continue;
+    proven.push({ service, field, provenValue });
+  }
+  return proven;
 }
 
 // ---------------------------------------------------------------------------
@@ -197,6 +222,15 @@ export async function resolveRevealCandidates(
     const key = credentialKey(service, field);
     if (seen.has(key)) continue;
     seen.add(key);
+    // Prefer the plaintext the reveal route actually served (captured at proof
+    // time). Re-reading the vault here would return a rotated or deleted
+    // value, so the guard/fallback could miss the exact bytes the tool
+    // printed. Only fall back to a store read when a ref carries no proven
+    // value — which today means it was constructed outside the proof path.
+    if (ref.provenValue !== undefined && ref.provenValue.length > 0) {
+      candidates.push({ service, field, value: ref.provenValue });
+      continue;
+    }
     try {
       const value = await getSecureKeyAsync(key);
       if (value != null && value.length > 0) {
@@ -467,74 +501,47 @@ export function redactSecretsForChat(
   // the raw text (model output, fetched content, quoted transcripts) so the
   // only sentinels that survive persistence are the ones inserted below from
   // an actually-detected secret. See the contract module for the mechanism.
-  const scannerPass = redactSecretsWith(
-    neutralizeRedactedSentinels(text),
-    (match, rawValue) => {
-      const hit = uniqueCandidateForValue(candidates, rawValue);
-      return buildRedactedSentinel(
-        hit
-          ? { type: match.type, service: hit.service, field: hit.field }
-          : { type: match.type },
-      );
-    },
-  );
-  // Exact-match fallback: a PROVEN candidate plaintext is a secret whether
-  // or not the scanner can classify it bare (opaque manual tokens carry no
-  // recognizable shape; several patterns only match with surrounding
-  // context). Any occurrence the scanner pass left raw is swapped for a
-  // generic-typed sentinel here, so the persisted row can never retain a
-  // revealed value the live guard already hides — refresh/history must not
-  // expose what the stream redacted.
-  return swapCandidateValueFallbacks(scannerPass, candidates);
+  const neutralized = neutralizeRedactedSentinels(text);
+  // Candidate protection runs BEFORE the scanner. A proven plaintext is a
+  // secret whole; the scanner, however, may only recognize a SUBSTRING of it
+  // (the `Private Key` pattern consumes just the `-----BEGIN … -----` header,
+  // leaving the key body), and once the scanner has replaced that substring
+  // the full candidate value is no longer present for an exact-match pass to
+  // find — the body would stream/persist raw. Replacing each proven value as
+  // an atomic unit up front closes that gap: the scanner then only ever sees
+  // text outside any candidate span. The inserted sentinels use corner
+  // brackets that are not part of any secret pattern, so the scanner pass
+  // below can neither match nor corrupt them.
+  const candidatePass = protectCandidateSpans(neutralized, candidates);
+  // Scanner pass over the remainder. Values fully classified inline still get
+  // their precise type label here; candidate values were already removed, so
+  // this only redacts secrets the reveal registry never proved (defense in
+  // depth against any secret the model emitted that the vault did not serve).
+  return redactSecretsWith(candidatePass, (match, rawValue) => {
+    const hit = uniqueCandidateForValue(candidates, rawValue);
+    return buildRedactedSentinel(
+      hit
+        ? { type: match.type, service: hit.service, field: hit.field }
+        : { type: match.type },
+    );
+  });
 }
 
 /**
- * Legacy-marker twin of the persist fallback, for surfaces that keep the
- * `<redacted type/>` marker instead of sentinels (persisted tool_result
- * blocks — see `buildToolResultBlocks`). A `credentials reveal` whose
- * stdout is an opaque/manual value with no scanner-recognizable shape
- * would otherwise persist raw in the tool-result row and surface in the
- * tool detail panel and history, even though every other surface redacts
- * it. Exact occurrences of proven candidate plaintexts (deduped, longest
- * value first) become the generic legacy marker; no identity is carried —
- * these surfaces render no chips.
+ * Replace every occurrence of a proven candidate plaintext with its sentinel
+ * BEFORE the scanner runs, so a value the scanner would only partially match
+ * (e.g. a PEM key, where only the header is recognized) is still redacted as
+ * a whole and its body can never survive into the streamed/persisted text.
+ *
+ * Longest value first (mirroring `swapLiveRevealValues`) so a value that is a
+ * substring of another does not pre-empt the larger match. Each value is
+ * classified by scanning it in isolation: when a single scanner match spans
+ * the ENTIRE value the precise type label is preserved (a recognizable key
+ * keeps "Anthropic API Key" rather than degrading to the generic type);
+ * otherwise the generic `Credential` type is used. Identity enrichment still
+ * requires a unique vault match, exactly as the scanner path.
  */
-export function redactCandidateValuesLegacy(
-  text: string,
-  candidates: readonly ResolvedRevealCandidate[],
-): string {
-  if (candidates.length === 0) {
-    return text;
-  }
-  const seen = new Set<string>();
-  const values: string[] = [];
-  for (const candidate of candidates) {
-    if (candidate.value.length === 0 || seen.has(candidate.value)) {
-      continue;
-    }
-    seen.add(candidate.value);
-    values.push(candidate.value);
-  }
-  values.sort((a, b) => b.length - a.length);
-  let out = text;
-  for (const value of values) {
-    if (out.includes(value)) {
-      out = out
-        .split(value)
-        .join(`<redacted type="${FALLBACK_SENTINEL_TYPE}" />`);
-    }
-  }
-  return out;
-}
-
-/**
- * Replace remaining raw occurrences of candidate plaintexts (longest value
- * first, mirroring `swapLiveRevealValues`) with the generic-typed fallback
- * sentinel, applying the same unique-identity degrade rule as the scanner
- * pass. Sentinels inserted earlier contain no credential bytes, so this
- * pass can never corrupt them.
- */
-function swapCandidateValueFallbacks(
+function protectCandidateSpans(
   text: string,
   candidates: readonly ResolvedRevealCandidate[],
 ): string {
@@ -560,13 +567,103 @@ function swapCandidateValueFallbacks(
     const sentinel = buildRedactedSentinel(
       hit
         ? {
-            type: FALLBACK_SENTINEL_TYPE,
+            type: classifyCandidateType(value),
             service: hit.service,
             field: hit.field,
           }
-        : { type: FALLBACK_SENTINEL_TYPE },
+        : { type: classifyCandidateType(value) },
     );
     out = out.split(value).join(sentinel);
+  }
+  return out;
+}
+
+/**
+ * The scanner type label for a candidate value, or the generic `Credential`
+ * type when the scanner does not recognize it. The value is scanned in
+ * isolation (so no neighbouring match bleeds in) and a match ANCHORED AT THE
+ * START is used — a value that begins with a recognized signature is that
+ * type even when the pattern consumes only a prefix (the `Private Key`
+ * pattern matches just the `-----BEGIN … -----` header, yet the value is
+ * unambiguously a private key). The longest such anchored match wins.
+ * Matches that merely appear mid-value are ignored: they could be a
+ * coincidental substring, and mislabelling a chip is worse than the generic
+ * type. Identity enrichment is still gated on a unique vault match upstream,
+ * so the label never drives which secret a chip can reveal.
+ */
+function classifyCandidateType(value: string): string {
+  let best: { type: string; endIndex: number } | undefined;
+  for (const m of scanText(value)) {
+    if (m.startIndex !== 0) continue;
+    if (best === undefined || m.endIndex > best.endIndex) {
+      best = { type: m.type, endIndex: m.endIndex };
+    }
+  }
+  return best?.type ?? FALLBACK_SENTINEL_TYPE;
+}
+
+/**
+ * Legacy-marker twin of the persist fallback, for surfaces that keep the
+ * `<redacted type/>` marker instead of sentinels (persisted tool_result
+ * blocks — see `buildToolResultBlocks`). A `credentials reveal` whose
+ * stdout is an opaque/manual value with no scanner-recognizable shape
+ * would otherwise persist raw in the tool-result row and surface in the
+ * tool detail panel and history, even though every other surface redacts
+ * it. Exact occurrences of proven candidate plaintexts (deduped, longest
+ * value first) become the generic legacy marker; no identity is carried —
+ * these surfaces render no chips.
+ */
+export function redactCandidateValuesLegacy(
+  text: string,
+  candidates: readonly ResolvedRevealCandidate[],
+): string {
+  // Neutralize forged sentinels, protect every proven candidate value as an
+  // atomic legacy marker, THEN run the scanner over what remains. Candidate
+  // protection must precede the scanner: a value the scanner only partially
+  // recognizes (a PEM key, where the `Private Key` pattern consumes just the
+  // header) would otherwise have its recognized substring replaced first,
+  // destroying the full-value match so the key body persists raw. The
+  // inserted `<redacted … />` markers contain no secret-shaped bytes, so the
+  // scanner pass can neither re-match nor corrupt them.
+  const protectedText = protectCandidateValuesLegacy(
+    neutralizeRedactedSentinels(text),
+    candidates,
+  );
+  return redactSecrets(protectedText);
+}
+
+/**
+ * Replace every occurrence of a proven candidate plaintext with the generic
+ * legacy marker BEFORE the scanner runs (longest value first, mirroring
+ * `swapLiveRevealValues`). Twin of {@link protectCandidateSpans} for surfaces
+ * that keep the `<redacted type="…" />` marker instead of sentinels; no
+ * identity is carried — these surfaces render no chips, so the generic type
+ * is always used.
+ */
+function protectCandidateValuesLegacy(
+  text: string,
+  candidates: readonly ResolvedRevealCandidate[],
+): string {
+  if (candidates.length === 0) {
+    return text;
+  }
+  const seen = new Set<string>();
+  const values: string[] = [];
+  for (const candidate of candidates) {
+    if (candidate.value.length === 0 || seen.has(candidate.value)) {
+      continue;
+    }
+    seen.add(candidate.value);
+    values.push(candidate.value);
+  }
+  values.sort((a, b) => b.length - a.length);
+  let out = text;
+  for (const value of values) {
+    if (out.includes(value)) {
+      out = out
+        .split(value)
+        .join(`<redacted type="${FALLBACK_SENTINEL_TYPE}" />`);
+    }
   }
   return out;
 }

@@ -30,6 +30,15 @@ interface RevealSuccessRecord {
   readonly seq: number;
   readonly service: string;
   readonly field: string;
+  /**
+   * The plaintext the route actually served for this success. Retained so the
+   * persist seams redact the EXACT bytes the tool printed, rather than a later
+   * vault read that a rotation/deletion between reveal and persist could make
+   * diverge (or empty). This is the same secret the model already received in
+   * the tool result — holding it in the process-local, count-and-age-bounded
+   * registry for the length of one turn adds no new exposure surface.
+   */
+  readonly value: string;
   readonly recordedAtMs: number;
 }
 
@@ -57,12 +66,17 @@ export function currentRevealSuccessWatermark(): number {
 /**
  * Record a successful reveal. Call ONLY from the `credentials_reveal`
  * route handler, after the plaintext has been located — this is the
- * ground truth the promotion check trusts.
+ * ground truth the promotion check trusts. `value` is the plaintext the
+ * route served, retained so persist redacts the exact printed bytes.
  */
-export function recordRevealSuccess(service: string, field: string): void {
+export function recordRevealSuccess(
+  service: string,
+  field: string,
+  value: string,
+): void {
   const nowMs = Date.now();
   seqCounter += 1;
-  records.push({ seq: seqCounter, service, field, recordedAtMs: nowMs });
+  records.push({ seq: seqCounter, service, field, value, recordedAtMs: nowMs });
   prune(nowMs);
 }
 
@@ -75,14 +89,36 @@ export function hasRevealSuccessSince(
   service: string,
   field: string,
 ): boolean {
+  return revealedValueSince(watermark, service, field) !== undefined;
+}
+
+/**
+ * The plaintext the reveal route served for `service`/`field` after
+ * `watermark`, or `undefined` if no matching success was recorded. When
+ * several successes match (a value re-revealed within the window), the most
+ * recent wins — it reflects what the latest reveal actually printed. Callers
+ * use this to redact the exact served bytes instead of re-reading the vault,
+ * which a rotation/deletion between reveal and persist could make diverge.
+ */
+export function revealedValueSince(
+  watermark: number,
+  service: string,
+  field: string,
+): string | undefined {
   const nowMs = Date.now();
-  return records.some(
-    (r) =>
+  let best: RevealSuccessRecord | undefined;
+  for (const r of records) {
+    if (
       r.seq > watermark &&
       r.service === service &&
       r.field === field &&
-      nowMs - r.recordedAtMs <= MAX_AGE_MS,
-  );
+      nowMs - r.recordedAtMs <= MAX_AGE_MS &&
+      (best === undefined || r.seq > best.seq)
+    ) {
+      best = r;
+    }
+  }
+  return best?.value;
 }
 
 /** Test-only: clear all records and reset the watermark counter. */
