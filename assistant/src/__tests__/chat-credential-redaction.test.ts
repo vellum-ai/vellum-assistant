@@ -347,6 +347,23 @@ describe("live reveal swap (stream plaintext hold-back)", () => {
     expect(out.bufferedRemainder).toBe("");
   });
 
+  test("swaps the longest matching value when one candidate prefixes another", () => {
+    // Insertion order must not matter: with the shorter entry first, the
+    // longer echoed value would otherwise get the shorter chip plus its
+    // unmatched suffix emitted raw — inconsistent with persist-time
+    // redaction, which redacts the whole longer span.
+    const entries = [
+      { value: "sk-abc", replacement: "[SHORT]" },
+      { value: "sk-abcdef", replacement: "[LONG]" },
+    ];
+    expect(swapLiveRevealValues("key: sk-abcdef end", entries)).toBe(
+      "key: [LONG] end",
+    );
+    expect(swapLiveRevealValues("a sk-abc b sk-abcdef c", entries)).toBe(
+      "a [SHORT] b [LONG] c",
+    );
+  });
+
   test("swapLiveRevealValues replaces multiple occurrences", () => {
     const text = `a ${SYNTHETIC_OPENAI_PROJECT_KEY} b ${SYNTHETIC_OPENAI_PROJECT_KEY} c`;
     expect(swapLiveRevealValues(text, ENTRIES)).toBe(

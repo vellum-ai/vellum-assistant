@@ -220,13 +220,24 @@ export function buildLiveRevealGuardEntries(
   return entries;
 }
 
-/** Replace every occurrence of each entry's plaintext with its sentinel. */
+/**
+ * Replace every occurrence of each entry's plaintext with its sentinel.
+ * Longest value first: when one candidate's plaintext is a prefix (or
+ * substring) of another's, insertion order would let the shorter entry
+ * consume the head of the longer value — emitting the shorter chip plus
+ * the longer credential's unmatched suffix as raw text, while persist-time
+ * redaction (whose scanner prefers the longer span) redacts the whole
+ * value. Descending-length ordering keeps the live swap consistent with
+ * persistence; a replacement sentinel contains no credential bytes, so
+ * later (shorter) entries can never match inside an earlier swap.
+ */
 export function swapLiveRevealValues(
   text: string,
   entries: readonly LiveRevealGuardEntry[],
 ): string {
+  const ordered = [...entries].sort((a, b) => b.value.length - a.value.length);
   let out = text;
-  for (const entry of entries) {
+  for (const entry of ordered) {
     if (out.includes(entry.value)) {
       out = out.split(entry.value).join(entry.replacement);
     }
