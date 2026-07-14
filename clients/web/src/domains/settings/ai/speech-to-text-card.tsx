@@ -208,41 +208,48 @@ export function SpeechToTextCard() {
             );
           }
         }
-        // Saving from the "Your Own" panel is explicit BYOK intent, so a
-        // managed-mode daemon is switched back to your-own even without a new
-        // key — the user reached these inputs by toggling off Managed.
-        const escapeManaged = daemonManaged;
-        const shouldSetProvider =
-          draftProvider !== serverProvider || !daemonHasProvider;
-        // Only write `provider` when the user actually changed it, or when
-        // escaping managed leaves nothing valid to keep (no stored provider, or
-        // the managed-only "vellum" sentinel the schema rejects outside managed
-        // mode). Otherwise write mode only and let the daemon's deep-merge
-        // preserve the stored BYOK provider — which may be one the dropdown
-        // can't represent (e.g. google-gemini set via CLI) and would be
-        // silently overwritten by the mapped fallback.
-        const writeProvider =
-          shouldSetProvider ||
-          (escapeManaged &&
-            (!daemonSttProvider || daemonSttProvider === "vellum"));
-        if (writeProvider || escapeManaged) {
-          const { response: cfgRes } = await configPatch({
-            path: { assistant_id: assistantId },
-            body: {
-              services: {
-                stt: {
-                  ...(writeProvider ? { provider: daemon.provider } : {}),
-                  ...(escapeManaged ? { mode: "your-own" } : {}),
-                },
+      }
+
+      // The config PATCH runs even for the client-only native choice (which has
+      // no daemon mapping): leaving managed must still flip services.stt.mode
+      // server-side, or a refetch snaps the card back to Managed. Saving from
+      // the "Your Own" panel is explicit BYOK intent, so a managed daemon flips
+      // even without a new key — the user reached these inputs by toggling off
+      // Managed.
+      const escapeManaged = daemonManaged;
+      const providerChanged =
+        !!daemon && (draftProvider !== serverProvider || !daemonHasProvider);
+      // Write `provider` only when the user changed it, or when escaping managed
+      // leaves nothing valid to keep (no stored provider, or the managed-only
+      // "vellum" sentinel the schema rejects outside managed mode). Otherwise
+      // write mode only and let the daemon's deep-merge preserve the stored
+      // provider — which may be one the dropdown can't represent (e.g.
+      // google-gemini via CLI) and would be silently overwritten by the fallback.
+      const writeProvider =
+        providerChanged ||
+        (escapeManaged &&
+          (!daemonSttProvider || daemonSttProvider === "vellum"));
+      if (writeProvider || escapeManaged) {
+        const providerValue =
+          daemon?.provider ??
+          STT_DAEMON_PROVIDER[draftProvider]?.provider ??
+          "deepgram";
+        const { response: cfgRes } = await configPatch({
+          path: { assistant_id: assistantId },
+          body: {
+            services: {
+              stt: {
+                ...(writeProvider ? { provider: providerValue } : {}),
+                ...(escapeManaged ? { mode: "your-own" } : {}),
               },
             },
-            throwOnError: false,
-          });
-          if (!cfgRes?.ok) {
-            throw new Error(
-              `Failed to save configuration (HTTP ${cfgRes?.status ?? "?"})`,
-            );
-          }
+          },
+          throwOnError: false,
+        });
+        if (!cfgRes?.ok) {
+          throw new Error(
+            `Failed to save configuration (HTTP ${cfgRes?.status ?? "?"})`,
+          );
         }
       }
 

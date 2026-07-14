@@ -350,6 +350,30 @@ describe("SpeechToTextCard — macOS Native Dictation option", () => {
     });
   });
 
+  test("escaping managed to native dictation still flips the daemon mode", async () => {
+    // Native is client-only (no daemon mapping), but leaving managed must still
+    // PATCH services.stt.mode server-side — otherwise a refetch snaps the card
+    // back to Managed. The stored provider is preserved via deep-merge.
+    nativeDictationSupported = true;
+    daemonConfigData = {
+      services: { stt: { provider: "deepgram", mode: "managed" } },
+    };
+    renderCard();
+
+    setMode("Your Own");
+    openProviderDropdown();
+    selectOption("macOS Native Dictation");
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(configPatchCalls.length).toBe(1));
+    const sttBody = configPatchCalls[0]!.body as {
+      services: { stt: Record<string, unknown> };
+    };
+    expect(sttBody.services.stt.mode).toBe("your-own");
+    expect(sttBody.services.stt).not.toHaveProperty("provider");
+    expect(credentialsSetCalls).toHaveLength(0);
+  });
+
   test("leaving managed without a provider change preserves an unlisted provider", async () => {
     // Daemon provider is a valid one the dropdown can't show (set via CLI).
     // Toggling to Your Own and saving mode-only must not overwrite it with the
