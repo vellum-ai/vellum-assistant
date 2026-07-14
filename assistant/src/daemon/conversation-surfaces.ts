@@ -17,6 +17,7 @@ import {
   resolveEffectiveAppHtml,
   updateApp,
 } from "../apps/app-store.js";
+import { getVoiceResumeHandler } from "../live-voice/live-voice-resume-registry.js";
 import { recordActivationEvent } from "../onboarding/onboarding-events-store.js";
 import {
   getMessages,
@@ -2463,6 +2464,30 @@ export async function handleSurfaceAction(
     },
     "Processing surface action as follow-up with attachments",
   );
+
+  // A live-voice conversation resumes as a *spoken* turn: route the follow-up
+  // through the voice session instead of the silent text `processMessage`
+  // path, so completing e.g. an oauth_connect surface produces a spoken
+  // continuation that re-reads connection state at turn start (JARVIS-1286/7).
+  // Attachments never travel this path (OAuth connect carries none); if any
+  // are present, fall back to `processMessage` so the model still sees them.
+  const voiceResumeHandler = getVoiceResumeHandler(ctx.conversationId);
+  if (voiceResumeHandler && pendingAttachments.length === 0) {
+    voiceResumeHandler.resumeWithText(content, {
+      ...(displayContent !== undefined ? { displayContent } : {}),
+      ...(sourceActorPrincipalId !== undefined
+        ? { sourceActorPrincipalId }
+        : {}),
+    });
+    return;
+  }
+  if (voiceResumeHandler && pendingAttachments.length > 0) {
+    log.warn(
+      { surfaceId, actionId, attachmentCount: pendingAttachments.length },
+      "Live-voice resume skipped: surface action carries attachments; falling back to text processMessage",
+    );
+  }
+
   ctx
     .processMessage({
       content,

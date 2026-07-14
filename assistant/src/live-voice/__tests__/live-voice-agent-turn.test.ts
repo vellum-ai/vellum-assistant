@@ -8,6 +8,7 @@ import type {
   StreamingTranscriber,
   SttStreamServerEvent,
 } from "../../stt/types.js";
+import { getVoiceResumeHandler } from "../live-voice-resume-registry.js";
 import {
   LiveVoiceSession,
   type LiveVoiceTurnStarter,
@@ -396,5 +397,75 @@ describe("LiveVoiceSession assistant turn", () => {
       "stt_final",
       "thinking",
     ]);
+  });
+});
+
+describe("LiveVoiceSession surface resume", () => {
+  test("resumeWithText runs a spoken synthetic turn with no user transcript", async () => {
+    const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
+      options.callbacks?.assistant_text_delta?.({
+        type: "assistant_text_delta",
+        text: "You're connected. ",
+        conversationId: options.conversationId,
+      });
+      options.callbacks?.message_complete?.({
+        type: "message_complete",
+        conversationId: options.conversationId,
+        messageId: "assistant-message-resume",
+      });
+      return { turnId: "bridge-resume-1", abort: mock() };
+    });
+    const { frames, session } = createSessionHarness({ startVoiceTurn });
+
+    await session.start();
+    session.resumeWithText("[User connected Google: user@example.com]");
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+
+    expect(startVoiceTurn).toHaveBeenCalledTimes(1);
+    expect(startVoiceTurn.mock.calls[0]?.[0]).toMatchObject({
+      conversationId: "conversation-123",
+      content: "[User connected Google: user@example.com]",
+      isInbound: true,
+    });
+    const types = frames.map((frame) => frame.type);
+    // No user speech is echoed for a resume: no stt_final frame is emitted.
+    expect(types).not.toContain("stt_final");
+    expect(types).toEqual([
+      "ready",
+      "thinking",
+      "assistant_text_delta",
+      "tts_done",
+    ]);
+
+    await session.close("client_end");
+  });
+
+  test("registers a discoverable resume handler while active and clears it on close", async () => {
+    const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
+      options.callbacks?.assistant_text_delta?.({
+        type: "assistant_text_delta",
+        text: "Done.",
+        conversationId: options.conversationId,
+      });
+      options.callbacks?.message_complete?.({
+        type: "message_complete",
+        conversationId: options.conversationId,
+        messageId: "assistant-message-resume",
+      });
+      return { turnId: "bridge-resume-1", abort: mock() };
+    });
+    const { frames, session } = createSessionHarness({ startVoiceTurn });
+
+    await session.start();
+
+    const handler = getVoiceResumeHandler("conversation-123");
+    expect(handler).toBeDefined();
+
+    handler?.resumeWithText("[User connected Google]");
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+    expect(startVoiceTurn).toHaveBeenCalledTimes(1);
+
+    await session.close("client_end");
+    expect(getVoiceResumeHandler("conversation-123")).toBeUndefined();
   });
 });
