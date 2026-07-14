@@ -221,6 +221,22 @@ export interface VoiceTurnOptions {
    * supplies its own `voiceControlPrompt`.
    */
   routingLeg?: VoiceRoutingLeg;
+  /**
+   * Request id to adopt for this turn instead of minting a fresh one. Set by a
+   * live-voice surface resume to the accepted surface-action request id, so the
+   * turn's `currentRequestId` stays inside the conversation's
+   * `surfaceActionRequestIds` set and surface-gated tools
+   * (`ToolContext.triggeredBySurfaceAction`) run. Undefined = mint one.
+   */
+  requestId?: string;
+  /**
+   * User-facing label persisted and echoed for this turn's user message in
+   * place of the model-facing `content`. Set by a live-voice surface resume so
+   * the transcript/history shows the friendly surface label (parity with the
+   * text path) rather than the raw `[User action on …]` payload. The agent loop
+   * still receives `content`. Undefined = persist/echo `content`.
+   */
+  displayContent?: string;
 }
 
 export interface VoiceTurnHandle {
@@ -596,12 +612,18 @@ export async function startVoiceTurn(
     }
   };
 
-  const requestId = uuidv7();
+  const requestId = opts.requestId ?? uuidv7();
   const turnId = crypto.randomUUID();
   const persistTurnUserMessage = async (): Promise<string> => {
     const persistResult = await conversation.persistUserMessage({
       content: persistedContent,
       requestId,
+      // Persist the user-facing label (when the caller supplied one) so
+      // `/messages` shows it after a refetch — the agent loop still receives
+      // `persistedContent`. Parity with the text path's `displayContent`.
+      ...(opts.displayContent !== undefined
+        ? { displayContent: opts.displayContent }
+        : {}),
       ...(isHiddenSyntheticPrompt ? { metadata: { hidden: true } } : {}),
     });
     return persistResult.id;
@@ -799,7 +821,10 @@ export async function startVoiceTurn(
   if (!isSyntheticVoicePrompt) {
     broadcastMessage({
       type: "user_message_echo",
-      text: persistedContent,
+      // Echo the user-facing label when supplied (surface resume), matching the
+      // persisted row and the text path — never the raw `[User action on …]`
+      // payload.
+      text: opts.displayContent ?? persistedContent,
       conversationId: opts.conversationId,
       messageId,
       requestId,

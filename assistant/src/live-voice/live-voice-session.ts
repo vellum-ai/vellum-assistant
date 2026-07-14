@@ -55,6 +55,11 @@ import {
   type LiveVoiceTurnSeedMarks,
 } from "./live-voice-metrics.js";
 import {
+  registerVoiceResumeHandler,
+  unregisterVoiceResumeHandler,
+  type VoiceResumeHandler,
+} from "./live-voice-resume-registry.js";
+import {
   type LiveVoiceSession as LiveVoiceSessionContract,
   type LiveVoiceSessionCloseReason,
   type LiveVoiceSessionFactoryContext,
@@ -116,6 +121,18 @@ export type LiveVoiceCredentialReadinessResolver =
 export type LiveVoiceTurnStarter = (
   options: VoiceTurnOptions,
 ) => Promise<VoiceTurnHandle>;
+
+/**
+ * Per-turn overrides carried from an interactive-surface completion into the
+ * resumed voice turn. `requestId` is the accepted surface-action request id
+ * (keeps `currentRequestId` in the conversation's `surfaceActionRequestIds`
+ * set); `displayContent` is the user-facing label persisted/echoed in place of
+ * the model-facing content.
+ */
+interface ResumeTurnMetadata {
+  requestId?: string;
+  displayContent?: string;
+}
 
 export type LiveVoiceTtsStreamer = (
   options: LiveVoiceTtsOptions,
@@ -302,6 +319,17 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   private currentUtterance: UtteranceCycle | null = null;
   private outboundFrames: Promise<void> = Promise.resolve();
   private activeAssistantTurn: ActiveAssistantTurn | null = null;
+  // Serializes surface-completion resumes so back-to-back resumes on the same
+  // conversation run one after another rather than clobbering each other.
+  private resumeChain: Promise<void> = Promise.resolve();
+  // Resolved whenever the active assistant turn clears, so a queued resume can
+  // wait for turn-idle instead of throwing CONVERSATION_BUSY.
+  private assistantTurnIdleWaiters: Array<() => void> = [];
+  // Stable handler reference for the resume registry: the same object is used
+  // for register (on start) and the identity-checked unregister (on close).
+  private readonly voiceResumeHandler: VoiceResumeHandler = {
+    resumeWithText: (content, opts) => this.resumeWithText(content, opts),
+  };
   private sessionEndMetricsEmitted = false;
   // Non-null iff the start frame requested turnDetection "server_vad".
   private readonly turnDetector: MediaTurnDetector | null;
@@ -445,6 +473,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     // through the pending/pre-roll paths and flushes on arm. An arm failure
     // surfaces as a non-recoverable error frame instead of a start rejection.
     this.state = "active";
+    // The conversation id is stable now (adopted from the start frame); expose a
+    // resume handler so an interactive-surface completion on this conversation
+    // resumes as a spoken voice turn instead of a silent text turn.
+    registerVoiceResumeHandler(this.conversationId, this.voiceResumeHandler);
     void this.armUtterance().catch(() => {});
     this.metrics.markReady();
     await this.sendFrame({
@@ -488,6 +520,8 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
 
     const shouldEmitSessionEndMetrics = this.state !== "failed";
     this.state = "closed";
+    unregisterVoiceResumeHandler(this.conversationId, this.voiceResumeHandler);
+    this.resolveAssistantTurnIdleWaiters();
     this.turnDetector?.dispose();
     this.stopSessionTranscriber();
     await this.cancelAssistantTurn("session_closed");
@@ -504,29 +538,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // mode, again after every finalized turn (per-utterance phase tracks the
   // cycle).
   private async beginUtterance(): Promise<UtteranceStartResult> {
-    const utterance: UtteranceCycle = {
-      phase: "pending",
-      released: false,
-      assistantTurnStarted: false,
-      completed: false,
-      finalizeRequested: false,
-      transcriber: null,
-      pendingAudioChunks: [],
-      pendingAudioBytes: 0,
-      finalTranscriptSegments: [],
-      turnId: null,
-      userMessageId: null,
-      userAudioChunks: [],
-      metricsTurnStarted: false,
-      metricsTurnFinished: false,
-      stashedMetricsMarks: {
-        firstAudioAtMs: null,
-        firstPartialAtMs: null,
-        speechStartAtMs: null,
-        utteranceEndAtMs: null,
-        finalTranscriptAtMs: null,
-      },
-    };
+    const utterance = createUtteranceCycle();
     this.currentUtterance = utterance;
     // Speech parked while the previous cycle wound down belongs to this
     // cycle: buffer it before the transcriber arms, and capture the detector
@@ -1469,6 +1481,21 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       return;
     }
 
+    await this.startAssistantTurnForUtterance(utterance, content);
+  }
+
+  /**
+   * Build the {@link ActiveAssistantTurn}, announce it (`thinking`), and drive
+   * its first model leg from `content`. Shared by the STT turn-start path and
+   * the surface-completion resume path — a resume supplies a synthetic stub
+   * utterance rather than a transcribed one, but the turn machinery downstream
+   * is identical.
+   */
+  private async startAssistantTurnForUtterance(
+    utterance: UtteranceCycle,
+    content: string,
+    resume?: ResumeTurnMetadata,
+  ): Promise<void> {
     utterance.assistantTurnStarted = true;
     const token = Symbol("live-voice-assistant-turn");
     const turnId = this.ensureTurnId(utterance);
@@ -1493,7 +1520,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       assistantAudioChunks: [],
       assistantAudioMimeType: "audio/pcm",
     };
-    this.activeAssistantTurn = activeTurn;
+    this.setActiveAssistantTurn(activeTurn);
 
     await this.sendFrame({ type: "thinking", turnId });
     if (!this.isActiveAssistantTurn(token)) {
@@ -1522,7 +1549,80 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
             frontDoor: true,
           }
         : { content },
+      resume,
     );
+  }
+
+  /**
+   * Resume the conversation as a spoken voice turn from supplied text (an
+   * interactive-surface completion, e.g. an OAuth connect). The turn is
+   * synthetic: no user audio is captured or archived, and no user transcript
+   * (`stt_final`) is emitted, so it does not surface as user speech. Registered
+   * per-conversation via {@link registerVoiceResumeHandler} and invoked by the
+   * surface-action dispatcher instead of the silent text `processMessage` path.
+   *
+   * Resumes serialize on {@link resumeChain} and wait for any in-flight turn to
+   * go idle rather than throwing CONVERSATION_BUSY.
+   */
+  resumeWithText(
+    content: string,
+    opts?: {
+      displayContent?: string;
+      sourceActorPrincipalId?: string;
+      requestId?: string;
+    },
+  ): void {
+    const trimmed = content.trim();
+    if (trimmed.length === 0) {
+      return;
+    }
+    log.info(
+      {
+        conversationId: this.conversationId,
+        hasDisplayContent: opts?.displayContent != null,
+        sourceActorPrincipalId: opts?.sourceActorPrincipalId,
+        requestId: opts?.requestId,
+      },
+      "Live voice resume requested from interactive surface completion",
+    );
+    // The surface-action request id and user-facing label ride the turn down to
+    // `startVoiceTurn`: the id keeps `currentRequestId` inside the accepted
+    // `surfaceActionRequestIds` set (so surface-gated tools run), and the label
+    // is what the persisted user row / echo shows instead of the raw payload.
+    const resume: ResumeTurnMetadata = {
+      ...(opts?.requestId !== undefined ? { requestId: opts.requestId } : {}),
+      ...(opts?.displayContent !== undefined
+        ? { displayContent: opts.displayContent }
+        : {}),
+    };
+    this.resumeChain = this.resumeChain
+      .catch(() => {})
+      .then(() => this.runResumeTurn(trimmed, resume));
+    void this.resumeChain.catch(() => {});
+  }
+
+  private async runResumeTurn(
+    content: string,
+    resume?: ResumeTurnMetadata,
+  ): Promise<void> {
+    if (this.isClosedOrFailed || !this.startVoiceTurn) {
+      return;
+    }
+    await this.waitForAssistantTurnIdle();
+    if (this.isClosedOrFailed || this.activeAssistantTurn !== null) {
+      return;
+    }
+    // A turn-only synthetic utterance: the transcript is the supplied content
+    // and it carries no user audio, so the audio-archive step (which tolerates
+    // empty audio) records no user utterance. It is never installed as
+    // `currentUtterance`, so it doesn't disturb the transcriber listening for
+    // the next real utterance.
+    const utterance = createUtteranceCycle({
+      phase: "transcriber_closed",
+      released: true,
+      finalTranscriptSegments: [content],
+    });
+    await this.startAssistantTurnForUtterance(utterance, content, resume);
   }
 
   /**
@@ -1546,6 +1646,11 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       routingLeg?: VoiceRoutingLeg;
       frontDoor?: boolean;
     },
+    // Surface-resume metadata for the primary leg only. `escalateTurn` starts
+    // the escalated continuation leg without it: that leg persists an internal
+    // `[continue]` prompt, so it must neither reuse the surface request id nor
+    // show the surface's user-facing label.
+    resume?: ResumeTurnMetadata,
   ): Promise<void> {
     if (!this.startVoiceTurn) {
       return;
@@ -1619,6 +1724,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
           ? { overrideProfile: leg.overrideProfile }
           : {}),
         ...(leg.routingLeg != null ? { routingLeg: leg.routingLeg } : {}),
+        ...(resume?.requestId != null ? { requestId: resume.requestId } : {}),
+        ...(resume?.displayContent != null
+          ? { displayContent: resume.displayContent }
+          : {}),
         callbacks: {
           assistant_text_delta: (msg) => {
             if (!this.isForwardingAssistantText(token)) {
@@ -1716,7 +1825,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         return;
       }
       if (current.finalized) {
-        this.activeAssistantTurn = null;
+        this.setActiveAssistantTurn(null);
         return;
       }
       // The front-door leg may have handed off before its handle resolved;
@@ -1732,7 +1841,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         return;
       }
 
-      this.activeAssistantTurn = null;
+      this.setActiveAssistantTurn(null);
       await this.sendFrame({
         type: "error",
         code: LiveVoiceProtocolErrorCode.InvalidField,
@@ -1788,7 +1897,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
 
   private async cancelAssistantTurn(reason: string): Promise<void> {
     const turn = this.activeAssistantTurn;
-    this.activeAssistantTurn = null;
+    this.setActiveAssistantTurn(null);
     if (turn) {
       turn.abortController.abort();
       turn.handle?.abort();
@@ -1806,6 +1915,37 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       await this.finalizePendingUtterance(utterance, reason);
     }
     this.scheduleRearmAfterTurn();
+  }
+
+  // Single choke point for the active-turn slot so a queued resume can observe
+  // the turn clearing (see waitForAssistantTurnIdle).
+  private setActiveAssistantTurn(turn: ActiveAssistantTurn | null): void {
+    this.activeAssistantTurn = turn;
+    if (turn === null) {
+      this.resolveAssistantTurnIdleWaiters();
+    }
+  }
+
+  private resolveAssistantTurnIdleWaiters(): void {
+    if (this.activeAssistantTurn !== null && !this.isClosedOrFailed) {
+      return;
+    }
+    const waiters = this.assistantTurnIdleWaiters;
+    if (waiters.length === 0) {
+      return;
+    }
+    this.assistantTurnIdleWaiters = [];
+    for (const resolve of waiters) {
+      resolve();
+    }
+  }
+
+  private async waitForAssistantTurnIdle(): Promise<void> {
+    while (this.activeAssistantTurn !== null && !this.isClosedOrFailed) {
+      await new Promise<void>((resolve) => {
+        this.assistantTurnIdleWaiters.push(resolve);
+      });
+    }
   }
 
   private isActiveAssistantTurn(token: symbol): boolean {
@@ -1890,7 +2030,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
 
         if (this.activeAssistantTurn?.token === token) {
           if (currentTurn.handle && currentTurn.finalized) {
-            this.activeAssistantTurn = null;
+            this.setActiveAssistantTurn(null);
           }
         }
 
@@ -2298,7 +2438,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       this.activeAssistantTurn?.token === turn.token &&
       turn.handle
     ) {
-      this.activeAssistantTurn = null;
+      this.setActiveAssistantTurn(null);
     }
 
     if (options.rearm ?? true) {
@@ -2519,6 +2659,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   private get isClosed(): boolean {
     return this.state === "closed";
   }
+
+  private get isClosedOrFailed(): boolean {
+    return this.state === "closed" || this.state === "failed";
+  }
 }
 
 export function createLiveVoiceSession(
@@ -2668,6 +2812,38 @@ async function defaultArchiveLiveVoiceAudio(
   return input.role === "user"
     ? linkLiveVoiceUserUtteranceAudioToMessage(input)
     : linkLiveVoiceAssistantResponseAudioToMessage(input);
+}
+
+// Fresh utterance record with per-cycle defaults; `overrides` tailor it (e.g. a
+// synthetic resume cycle that is already `transcriber_closed`). Every call
+// allocates its own arrays/objects so cycles never share mutable buffers.
+function createUtteranceCycle(
+  overrides?: Partial<UtteranceCycle>,
+): UtteranceCycle {
+  return {
+    phase: "pending",
+    released: false,
+    assistantTurnStarted: false,
+    completed: false,
+    finalizeRequested: false,
+    transcriber: null,
+    pendingAudioChunks: [],
+    pendingAudioBytes: 0,
+    finalTranscriptSegments: [],
+    turnId: null,
+    userMessageId: null,
+    userAudioChunks: [],
+    metricsTurnStarted: false,
+    metricsTurnFinished: false,
+    stashedMetricsMarks: {
+      firstAudioAtMs: null,
+      firstPartialAtMs: null,
+      speechStartAtMs: null,
+      utteranceEndAtMs: null,
+      finalTranscriptAtMs: null,
+    },
+    ...overrides,
+  };
 }
 
 function toSeedMarks(stashed: StashedMetricsMarks): LiveVoiceTurnSeedMarks {
