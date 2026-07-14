@@ -308,6 +308,45 @@ describe("live reveal swap (stream plaintext hold-back)", () => {
     );
   });
 
+  test("swaps a self-overlapping value chunked at the overlap boundary", () => {
+    // A value whose proper prefix is also its suffix (`abcabc`), chunked
+    // exactly at the overlap (`abc` + `abc`). The hold must consume the
+    // complete occurrence instead of re-holding the trailing repeat —
+    // otherwise the first half is emitted as raw plaintext and the swap
+    // never sees the full value.
+    const entries = [{ value: "abcabc", replacement: "[SWAPPED]" }];
+    const first = drainSentinelGuardedText("abc", entries);
+    expect(first.emitText).toBe("");
+    expect(first.bufferedRemainder).toBe("abc");
+    const second = drainSentinelGuardedText(
+      first.bufferedRemainder + "abc",
+      entries,
+    );
+    expect(second.emitText).toBe("[SWAPPED]");
+    expect(second.consumedRaw).toBe("abcabc");
+    expect(second.bufferedRemainder).toBe("");
+  });
+
+  test("holds only the partial repeat after a complete self-overlapping occurrence", () => {
+    const entries = [{ value: "abcabc", replacement: "[SWAPPED]" }];
+    const out = drainSentinelGuardedText("abcabcabc", entries);
+    expect(out.emitText).toBe("[SWAPPED]");
+    expect(out.consumedRaw).toBe("abcabc");
+    expect(out.bufferedRemainder).toBe("abc");
+  });
+
+  test("hold-back skips occurrences with the swap's greedy left-to-right semantics", () => {
+    // `abab` with value `aba`: split/join consumes the occurrence at 0 and
+    // does NOT match the overlapping occurrence at 2, so the guard must not
+    // hold the trailing `b` (not a prefix) — live emit and persist-time
+    // redaction stay byte-identical.
+    const entries = [{ value: "aba", replacement: "[X]" }];
+    const out = drainSentinelGuardedText("abab", entries);
+    expect(out.emitText).toBe("[X]b");
+    expect(out.consumedRaw).toBe("abab");
+    expect(out.bufferedRemainder).toBe("");
+  });
+
   test("swapLiveRevealValues replaces multiple occurrences", () => {
     const text = `a ${SYNTHETIC_OPENAI_PROJECT_KEY} b ${SYNTHETIC_OPENAI_PROJECT_KEY} c`;
     expect(swapLiveRevealValues(text, ENTRIES)).toBe(

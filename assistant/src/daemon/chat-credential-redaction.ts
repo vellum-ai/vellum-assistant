@@ -250,6 +250,29 @@ function trailingProperPrefixLen(text: string, target: string): number {
 }
 
 /**
+ * Hold-back length for `target`: the longest suffix of `text` that is a
+ * proper prefix of `target`, computed AFTER skipping complete occurrences
+ * greedily left-to-right — the same non-overlapping semantics as the
+ * split/join swap, so the two always agree on which bytes an occurrence
+ * consumed. Without the skip, a value whose proper prefix is also its
+ * suffix (`abcabc` chunked as `abc` + `abc`) matches the plain
+ * trailing-prefix check on its OWN tail: the guard would split the
+ * complete occurrence, emit the first half as raw plaintext, and the swap
+ * would never see the full value.
+ */
+function trailingHoldLen(text: string, target: string): number {
+  let scanFrom = 0;
+  for (;;) {
+    const idx = text.indexOf(target, scanFrom);
+    if (idx === -1) {
+      break;
+    }
+    scanFrom = idx + target.length;
+  }
+  return trailingProperPrefixLen(text.slice(scanFrom), target);
+}
+
+/**
  * Streaming redaction guard for live `assistant_text_delta` emission
  * (mirrors `drainDirectiveDisplayBuffer`'s hold-back pattern). Two jobs:
  *
@@ -284,9 +307,9 @@ export function drainSentinelGuardedText(
   consumedRaw: string;
   bufferedRemainder: string;
 } {
-  let holdLen = trailingProperPrefixLen(buffer, SENTINEL_TRIGGER);
+  let holdLen = trailingHoldLen(buffer, SENTINEL_TRIGGER);
   for (const entry of entries) {
-    const len = trailingProperPrefixLen(buffer, entry.value);
+    const len = trailingHoldLen(buffer, entry.value);
     if (len > holdLen) {
       holdLen = len;
     }

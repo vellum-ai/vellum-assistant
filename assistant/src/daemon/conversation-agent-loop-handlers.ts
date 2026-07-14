@@ -2241,6 +2241,15 @@ export async function handleMessageComplete(
       conversationId: deps.ctx.conversationId,
       messageId: state.lastAssistantMessageId,
     });
+    // The hub stamps `seq` synchronously on the delta emitted above, so
+    // `getCurrentSeq()` is that delta's position — advance the persisted-seq
+    // mirror exactly like the normal text-delta path. The finalize below
+    // records this value; without the advance it would record the PREVIOUS
+    // emitted chunk's seq, so a `/messages` snapshot could contain this tail
+    // while advertising a seq before the delta that carried it — and a
+    // reconnecting client applying `seq > snapshot.seq` would append the
+    // tail a second time.
+    state.lastPersistedContentSeq = getCurrentSeq();
     if (deps.shouldGenerateTitle) {
       state.firstAssistantText += state.pendingDirectiveDisplayBuffer;
     }
