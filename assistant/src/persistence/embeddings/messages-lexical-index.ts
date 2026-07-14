@@ -96,6 +96,7 @@ export class MessagesLexicalIndex {
       const exists = await this.client.collectionExists(this.collection);
       if (exists.exists) {
         await this.reconcileSparseIndexOnDisk();
+        await this.reconcileSegmentNumber();
         if (await this.ensurePayloadIndexesSafe()) {
           this.collectionReady = true;
         }
@@ -398,6 +399,54 @@ export class MessagesLexicalIndex {
       log.warn(
         { err, collection: this.collection, onDisk: this.onDisk },
         "Failed to update sparse index placement — continuing with current index",
+      );
+    }
+  }
+
+  /**
+   * Align an existing collection's segment count with
+   * {@link DEFAULT_SEGMENT_NUMBER}. A collection created without an explicit
+   * count keeps Qdrant's CPU-count auto-detection (reported as unset/0);
+   * `updateCollection` sets the target and the background optimizer merges
+   * segments toward it in place.
+   *
+   * Best-effort: a failed probe or update logs and leaves the collection
+   * serving with its current segments — search keeps working either way.
+   */
+  private async reconcileSegmentNumber(): Promise<void> {
+    try {
+      const info = await this.client.getCollection(this.collection);
+      const current =
+        (
+          info.config as
+            | {
+                optimizer_config?: {
+                  default_segment_number?: number | null;
+                } | null;
+              }
+            | undefined
+        )?.optimizer_config?.default_segment_number ?? 0;
+      if (current === DEFAULT_SEGMENT_NUMBER) {
+        return;
+      }
+
+      await this.client.updateCollection(this.collection, {
+        optimizers_config: {
+          default_segment_number: DEFAULT_SEGMENT_NUMBER,
+        },
+      });
+      log.info(
+        {
+          collection: this.collection,
+          from: current,
+          to: DEFAULT_SEGMENT_NUMBER,
+        },
+        "Set explicit segment count on existing Qdrant collection",
+      );
+    } catch (err) {
+      log.warn(
+        { err, collection: this.collection },
+        "Failed to update collection segment count — continuing with current segments",
       );
     }
   }
