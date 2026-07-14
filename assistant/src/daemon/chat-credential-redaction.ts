@@ -105,6 +105,77 @@ function flagValue(segment: string, re: RegExp): string | undefined {
 }
 
 /**
+ * Split a shell command into segments at UNQUOTED separators (`&&`, `||`,
+ * `;`, `|`, a lone `&`, newline). A separator inside a quoted flag value —
+ * `--service 'R&D'` — is part of the value, and cutting there would orphan
+ * the invocation's flags across two broken segments: no ref gets staged,
+ * so the reveal's output could stream or persist raw even though the route
+ * served it. Minimal POSIX-ish quoting: single quotes are literal to the
+ * next single quote, double quotes honor backslash escapes, and a
+ * backslash outside quotes escapes the next character. An unterminated
+ * quote runs to the end of the string — the remainder stays one segment,
+ * which at worst stages nothing (the same safe direction as before).
+ * Quotes are kept in the output so the flag regexes see them.
+ */
+function splitShellSegments(command: string): string[] {
+  const segments: string[] = [];
+  let current = "";
+  let quote: "'" | '"' | undefined;
+  let i = 0;
+  while (i < command.length) {
+    const ch = command[i]!;
+    if (quote === "'") {
+      current += ch;
+      if (ch === "'") quote = undefined;
+      i += 1;
+      continue;
+    }
+    if (quote === '"') {
+      if (ch === "\\" && i + 1 < command.length) {
+        current += ch + command[i + 1];
+        i += 2;
+        continue;
+      }
+      current += ch;
+      if (ch === '"') quote = undefined;
+      i += 1;
+      continue;
+    }
+    if (ch === "\\" && i + 1 < command.length) {
+      current += ch + command[i + 1];
+      i += 2;
+      continue;
+    }
+    if (ch === "'" || ch === '"') {
+      quote = ch;
+      current += ch;
+      i += 1;
+      continue;
+    }
+    if (ch === "&" || ch === "|") {
+      // `&&`/`||` consume both characters so the two-char operator is one
+      // boundary; a lone `&` (background job separator) or `|` splits too,
+      // so a second backgrounded/piped reveal is staged rather than
+      // swallowed into the first segment.
+      segments.push(current);
+      current = "";
+      i += command[i + 1] === ch ? 2 : 1;
+      continue;
+    }
+    if (ch === ";" || ch === "\n") {
+      segments.push(current);
+      current = "";
+      i += 1;
+      continue;
+    }
+    current += ch;
+    i += 1;
+  }
+  segments.push(current);
+  return segments;
+}
+
+/**
  * Extract credential refs from a shell command that may contain one or more
  * `credentials reveal` invocations (compound commands split on shell
  * separators). Returns an empty array for commands that never touch reveal —
@@ -122,12 +193,10 @@ export function collectRevealRefsFromCommand(
   if (!command.includes("reveal")) return [];
   const refs: RevealCandidateRef[] = [];
   // Split compound commands so flags from one invocation can't bleed into
-  // another (`reveal --service a --field b && reveal --service c --field d`).
-  // `&&` and `||` are listed before the single-char `&`/`|` so the two-char
-  // operators win at a given position; a lone `&` (background job separator,
-  // e.g. `reveal … & reveal …`) splits too, so a second backgrounded reveal
-  // is staged rather than swallowed into the first segment.
-  const segments = command.split(/(?:&&|\|\||[;&|\n])/);
+  // another (`reveal --service a --field b && reveal --service c --field d`),
+  // honoring quotes so a separator inside a flag value can't cut the
+  // invocation apart (see `splitShellSegments`).
+  const segments = splitShellSegments(command);
   for (const segment of segments) {
     if (!REVEAL_INVOCATION_RE.test(segment)) continue;
     const service = flagValue(segment, SERVICE_FLAG_RE);
@@ -733,45 +802,52 @@ export function redactSecretsForChat(
   text: string,
   candidates: readonly ResolvedRevealCandidate[],
 ): string {
-  // Candidate protection runs FIRST, on the raw bytes, and BEFORE the
-  // scanner. First: a manual candidate value may itself contain the
-  // sentinel trigger, so running forgery neutralization over the whole
-  // text up front would mutate the value's occurrence and the exact-match
-  // pass — the strongest guarantee here — would miss it; neutralization
-  // therefore applies only to the text between candidate spans (inside
-  // `protectCandidateSpans`). Before the scanner: the scanner may only
-  // recognize a SUBSTRING of a proven plaintext (the `Private Key` pattern
-  // consumes just the `-----BEGIN … -----` header, leaving the key body),
-  // and once it has replaced that substring the full candidate value is no
-  // longer present for an exact-match pass to find — the body would
-  // stream/persist raw. The inserted sentinels use corner brackets that
-  // are not part of any secret pattern, so the scanner pass below can
-  // neither match nor corrupt them.
-  const candidatePass = protectCandidateSpans(text, candidates);
-  // Scanner pass over the remainder. Values fully classified inline still get
-  // their precise type label here; candidate values were already removed, so
-  // this only redacts secrets the reveal registry never proved (defense in
-  // depth against any secret the model emitted that the vault did not serve).
-  return redactSecretsWith(candidatePass, (match, rawValue) => {
-    const hit = uniqueCandidateForValue(candidates, rawValue);
-    return buildRedactedSentinel(
-      hit
-        ? { type: match.type, service: hit.service, field: hit.field }
-        : { type: match.type },
+  // Candidate spans resolve FIRST, on the raw bytes; forgery
+  // neutralization and the scanner then run ONLY over the text between
+  // them (the gap transform below). Raw bytes first because a manual
+  // candidate value may itself contain the sentinel trigger — mutating it
+  // up front would break the exact-match pass, the strongest guarantee
+  // here. Before the scanner because the scanner may only recognize a
+  // SUBSTRING of a proven plaintext (the `Private Key` pattern consumes
+  // just the `-----BEGIN … -----` header, leaving the key body), and once
+  // it has replaced that substring the full candidate value is no longer
+  // present for an exact-match pass to find — the body would
+  // stream/persist raw. Gaps only because a minted sentinel is not
+  // scanner-inert: its service/field segments are arbitrary user strings
+  // that can themselves look secret-shaped, and a scanner match inside a
+  // fresh sentinel would corrupt it into a nested, unrenderable marker.
+  //
+  // Within each gap the scanner still redacts secrets the reveal registry
+  // never proved (defense in depth against any secret the model emitted
+  // that the vault did not serve), with the precise type label for values
+  // it classifies inline.
+  const redactGap = (segment: string): string =>
+    redactSecretsWith(
+      neutralizeRedactedSentinels(segment),
+      (match, rawValue) => {
+        const hit = uniqueCandidateForValue(candidates, rawValue);
+        return buildRedactedSentinel(
+          hit
+            ? { type: match.type, service: hit.service, field: hit.field }
+            : { type: match.type },
+        );
+      },
     );
-  });
+  return protectCandidateSpans(text, candidates, redactGap);
 }
 
 /**
- * Replace every occurrence of a proven candidate plaintext with its sentinel
- * BEFORE the scanner runs, so a value the scanner would only partially match
- * (e.g. a PEM key, where only the header is recognized) is still redacted as
- * a whole and its body can never survive into the streamed/persisted text.
- * Forgery neutralization rides along on the text between candidate spans:
- * candidate spans are resolved on the RAW bytes (a manual value may itself
- * contain the sentinel trigger, and neutralizing first would break the
- * exact match), while any sentinel-shaped string outside them is forged by
- * construction and gets neutralized.
+ * Replace every occurrence of a proven candidate plaintext with its sentinel,
+ * applying `transformGap` (the caller's neutralize+scan pipeline) only to the
+ * text between the spans. Candidate spans are resolved on the RAW bytes (a
+ * manual value may itself contain the sentinel trigger, and neutralizing
+ * first would break the exact match), and protection precedes the scanner so
+ * a value the scanner would only partially match (e.g. a PEM key, where only
+ * the header is recognized) is still redacted as a whole — its body can
+ * never survive into the streamed/persisted text. Minted sentinels are never
+ * fed back through `transformGap`: their service/field segments are
+ * arbitrary user strings that can look secret-shaped, and a scanner rewrite
+ * inside a fresh sentinel would corrupt it.
  *
  * Longest value first (mirroring `swapLiveRevealValues`) so a value that is a
  * substring of another does not pre-empt the larger match; the span-based
@@ -786,9 +862,10 @@ export function redactSecretsForChat(
 function protectCandidateSpans(
   text: string,
   candidates: readonly ResolvedRevealCandidate[],
+  transformGap: (segment: string) => string,
 ): string {
   if (candidates.length === 0) {
-    return neutralizeRedactedSentinels(text);
+    return transformGap(text);
   }
   const seen = new Set<string>();
   const values: string[] = [];
@@ -822,7 +899,7 @@ function protectCandidateSpans(
     text,
     values,
     (priority) => sentinelForValue(values[priority]),
-    neutralizeRedactedSentinels,
+    transformGap,
   );
 }
 

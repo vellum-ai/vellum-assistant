@@ -107,6 +107,29 @@ describe("collectRevealRefsFromCommand", () => {
     ]);
   });
 
+  test("a quoted separator inside a flag value does not split the invocation", () => {
+    // Service/field identifiers are arbitrary strings; a shell separator
+    // inside quotes is part of the value. Cutting there would orphan the
+    // flags across two broken segments and stage nothing — and an
+    // unstageable reveal's opaque output could stream or persist raw.
+    expect(
+      collectRevealRefsFromCommand(
+        "assistant credentials reveal --service 'R&D' --field token",
+      ),
+    ).toEqual([{ service: "R&D", field: "token" }]);
+  });
+
+  test("quoted separators cannot swallow a following invocation", () => {
+    expect(
+      collectRevealRefsFromCommand(
+        'assistant credentials reveal --service "a&&b;c" --field x && assistant credentials reveal --service d --field e',
+      ),
+    ).toEqual([
+      { service: "a&&b;c", field: "x" },
+      { service: "d", field: "e" },
+    ]);
+  });
+
   test("ignores commands without a reveal invocation", () => {
     expect(collectRevealRefsFromCommand("echo hello")).toEqual([]);
     expect(collectRevealRefsFromCommand("assistant credentials list")).toEqual(
@@ -443,6 +466,24 @@ describe("redactSecretsForChat", () => {
       "\u3014redacted:OpenAI Project Key:openai:api_key\u3015",
     );
     expect(out).not.toContain(forged);
+  });
+
+  test("a secret-shaped service name is not re-scanned inside the minted sentinel", () => {
+    // The credential routes accept arbitrary service strings — one can look
+    // exactly like a known key format, and the sentinel embeds it as
+    // readable text between colons. The scanner must only run over the text
+    // between candidate spans; a match inside the just-minted sentinel
+    // would corrupt it into a nested marker and lose the chip.
+    const out = redactSecretsForChat("v: hunter2-opaque-secret end", [
+      {
+        service: SYNTHETIC_OPENAI_PROJECT_KEY,
+        field: "api_key",
+        value: "hunter2-opaque-secret",
+      },
+    ]);
+    expect(out).toBe(
+      `v: \u3014redacted:Credential:${SYNTHETIC_OPENAI_PROJECT_KEY}:api_key\u3015 end`,
+    );
   });
 
   test("a candidate value containing the sentinel trigger is still redacted whole", () => {
