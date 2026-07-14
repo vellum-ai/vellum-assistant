@@ -612,17 +612,19 @@ type _watchdogNarrows = AssertNarrows<
   Omit<WatchdogTelemetryEvent, "detail">,
   Omit<wire.WatchdogTelemetryEvent, "detail">
 >;
-// Reverse (key-existence) direction. The opaque-JSON fields excluded from the
-// `_*Narrows` guards above are excluded here too: the server treats them as
-// schemaless JSON columns, so their shape — and by the same token their
-// presence in the generated type — is not part of the typed contract these
-// guards pin.
+// Reverse (key-existence) direction. Unlike the `_*Narrows` guards, the
+// opaque-JSON fields are NOT excluded here: opacity is about a field's
+// SHAPE (the daemon's richer types aren't assignable to `JsonValue`), but
+// key PRESENCE is part of the typed contract — the generated wire types
+// declare `raw_usage`/`trace`/`client`/`detail`, and a platform sync that
+// removed or renamed one of them would otherwise leave every guard green
+// while the daemon kept emitting a field the server discards.
 type _llmUsageKeysExist = AssertNarrows<
-  Exclude<keyof LlmUsageTelemetryEvent, "raw_usage">,
+  keyof LlmUsageTelemetryEvent,
   keyof wire.LlmUsageTelemetryEvent
 >;
 type _turnKeysExist = AssertNarrows<
-  Exclude<keyof TurnTelemetryEvent, "trace" | "client">,
+  keyof TurnTelemetryEvent,
   keyof wire.TurnTelemetryEvent
 >;
 type _toolExecutedKeysExist = AssertNarrows<
@@ -634,7 +636,7 @@ type _skillLoadedKeysExist = AssertNarrows<
   keyof wire.SkillLoadedTelemetryEvent
 >;
 type _watchdogKeysExist = AssertNarrows<
-  Exclude<keyof WatchdogTelemetryEvent, "detail">,
+  keyof WatchdogTelemetryEvent,
   keyof wire.WatchdogTelemetryEvent
 >;
 // An `Extensions` key that also exists in the wire map would silently
