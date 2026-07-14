@@ -54,7 +54,10 @@ describe("resolveSpeechRelayConnection", () => {
 
 describe("mapVelayError", () => {
   test("maps the relay contract's codes onto categories", () => {
-    expect(mapVelayError({ code: "invalid_key" }).category).toBe("auth");
+    expect(mapVelayError({ code: "invalid_key" })).toMatchObject({
+      category: "auth",
+      message: expect.stringContaining("VELAY_BASE_URL"),
+    });
     expect(
       mapVelayError({ code: "missing_platform_connection" }),
     ).toMatchObject({
