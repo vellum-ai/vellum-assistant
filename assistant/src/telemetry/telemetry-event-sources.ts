@@ -31,6 +31,7 @@ import type {
   TelemetryEvent,
   TurnTelemetryClientInfo,
 } from "./types.js";
+import { OUTBOX_TELEMETRY_EVENT_NAMES } from "./types.js";
 
 const log = getLogger("usage-telemetry");
 
@@ -480,27 +481,46 @@ const toolExecutedSource = simpleSource(
 export const TOOL_EXECUTED_SOURCE_ID = toolExecutedSource.id;
 
 /**
- * Every telemetry event source, in payload order. The order is part of the
- * observable wire behavior (events of different types appear in this order
- * within one batch), so keep it stable. This is the test/reference list;
- * production reporters run the daemon/monitor partitions below.
+ * Watermark-flushed sources — the high-volume events on their own SQLite
+ * tables (`WATERMARK_TELEMETRY_EVENT_NAMES`), read forward by a `(createdAt,
+ * id)` cursor rather than the generic outbox.
  */
-export const ALL_TELEMETRY_EVENT_SOURCES: readonly TelemetryEventSource[] = [
+const WATERMARK_TELEMETRY_EVENT_SOURCES: readonly TelemetryEventSource[] = [
   usageSource,
   turnSource,
-  outboxSource("lifecycle"),
-  outboxSource("onboarding"),
-  outboxSource("auth_fallback"),
   toolExecutedSource,
-  outboxSource("skill_loaded"),
-  outboxSource("watchdog"),
-  outboxSource("config_setting"),
-  // Onboarding research-turn results are client-orchestrated (the web
-  // client reports the settled `{claims, suggestions, plugins}` payload
-  // once via POST /v1/telemetry/onboarding-research) but land in the same
-  // outbox as every other event type. Diagnostics-gated at flush time (not
-  // just record time) since the payload carries raw inferred claims.
-  diagnosticsGatedOutboxSource("onboarding_research"),
+];
+
+/**
+ * Per-outbox-event flush-source override. The default for every outbox event is
+ * the plain {@link outboxSource}; list only the exceptions here. A new outbox
+ * event type therefore needs no edit — it flushes through `outboxSource`
+ * automatically. `onboarding_research` is diagnostics-gated at flush time (not
+ * just record time) because its payload carries raw inferred claims.
+ */
+const OUTBOX_SOURCE_FACTORY: Partial<
+  Record<
+    OutboxTelemetryEventName,
+    (name: OutboxTelemetryEventName) => TelemetryEventSource
+  >
+> = {
+  onboarding_research: diagnosticsGatedOutboxSource,
+};
+
+/**
+ * Every telemetry event source, in payload order (watermark sources first, then
+ * outbox events in wire-contract order). Derived from the wire contract via
+ * {@link OUTBOX_TELEMETRY_EVENT_NAMES}, so a new event type gets a flush source
+ * with no edit here. Intra-batch ordering is not load-bearing downstream
+ * (events are typed and deduped on `daemon_event_id`, not positional). This is
+ * the test/reference list; production reporters run the daemon/monitor
+ * partitions below.
+ */
+export const ALL_TELEMETRY_EVENT_SOURCES: readonly TelemetryEventSource[] = [
+  ...WATERMARK_TELEMETRY_EVENT_SOURCES,
+  ...OUTBOX_TELEMETRY_EVENT_NAMES.map((name) =>
+    (OUTBOX_SOURCE_FACTORY[name] ?? outboxSource)(name),
+  ),
 ];
 
 /**
