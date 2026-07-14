@@ -19,13 +19,18 @@ import {
 import {
   _recordCountForTest,
   _resetRevealSuccessRegistryForTest,
+  closeRevealProofWindow,
   currentRevealSuccessWatermark,
+  openRevealProofWindow,
   recordRevealSuccess,
   revealedValueSince,
 } from "../runtime/reveal-success-registry.js";
 
 beforeEach(() => {
   _resetRevealSuccessRegistryForTest();
+  // Recording is gated on an open proof window (a staged tool reveal);
+  // these tests exercise retention semantics, so arm one for the file.
+  openRevealProofWindow();
 });
 
 afterEach(() => {
@@ -58,6 +63,25 @@ describe("reveal success registry retention", () => {
     expect(revealedValueSince(watermark, "openai", "api_key")).toBe(
       "after-watermark",
     );
+  });
+
+  test("records nothing while no proof window is open", () => {
+    // A user's own local CLI reveal outside any assistant tool turn has no
+    // pending proof to satisfy — retaining its plaintext for the age bound
+    // would expand every CLI reveal's exposure for nothing.
+    _resetRevealSuccessRegistryForTest();
+    recordRevealSuccess("svc", "f", "hunter2-no-window");
+    expect(_recordCountForTest()).toBe(0);
+    expect(revealedValueSince(0, "svc", "f")).toBeUndefined();
+
+    // With a window open the same reveal records, and closing the window
+    // stops further recording without dropping the consumed-by-proof read.
+    const token = openRevealProofWindow();
+    recordRevealSuccess("svc", "f", "hunter2-windowed");
+    expect(revealedValueSince(0, "svc", "f")).toBe("hunter2-windowed");
+    closeRevealProofWindow(token);
+    recordRevealSuccess("svc", "f", "hunter2-after-close");
+    expect(revealedValueSince(0, "svc", "f")).toBe("hunter2-windowed");
   });
 
   test("an expired record is EVICTED on read, not merely filtered", () => {

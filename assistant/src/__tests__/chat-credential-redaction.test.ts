@@ -39,6 +39,7 @@ import {
 } from "../daemon/chat-credential-redaction.js";
 import {
   _resetRevealSuccessRegistryForTest,
+  openRevealProofWindow,
   recordRevealSuccess,
 } from "../runtime/reveal-success-registry.js";
 import { redactSecrets } from "../security/secret-scanner.js";
@@ -318,6 +319,7 @@ describe("filterRefsByRevealProof identity handling", () => {
     // carried identity must satisfy the proof — a metadata re-lookup would
     // fail and silently drop the ref for a value the tool already printed.
     _resetRevealSuccessRegistryForTest();
+    openRevealProofWindow();
     recordRevealSuccess("gone-service", "api_key", "hunter2-removed");
     const proven = filterRefsByRevealProof(
       [

@@ -63,7 +63,11 @@ import type {
   Message,
 } from "../providers/types.js";
 import { getCurrentSeq } from "../runtime/assistant-stream-state.js";
-import { currentRevealSuccessWatermark } from "../runtime/reveal-success-registry.js";
+import {
+  closeRevealProofWindow,
+  currentRevealSuccessWatermark,
+  openRevealProofWindow,
+} from "../runtime/reveal-success-registry.js";
 import { extractDomain } from "../tools/network/domain-normalize.js";
 import {
   classifyWebSearchFailure,
@@ -397,7 +401,9 @@ export interface EventHandlerState {
    */
   readonly pendingRevealRefsByToolUse: Map<
     string,
-    { refs: RevealCandidateRef[]; watermark: number }
+    /** `proofWindowToken` arms registry recording for this staging's
+     *  lifetime (see `openRevealProofWindow`) and is closed at result. */
+    { refs: RevealCandidateRef[]; watermark: number; proofWindowToken: number }
   >;
   /**
    * Tool stdout held back from live `tool_output_chunk` emission because
@@ -1324,6 +1330,9 @@ export function handleToolUse(
         // Captured before execution: only reveal-route successes recorded
         // AFTER this point can prove these refs at result time.
         watermark: currentRevealSuccessWatermark(),
+        // Arms registry recording for this staging's lifetime — the route
+        // retains plaintext only while some tool's proof is pending.
+        proofWindowToken: openRevealProofWindow(),
       });
     }
   }
@@ -1813,6 +1822,9 @@ export async function handleToolResult(
       stagedReveal.refs,
       stagedReveal.watermark,
     );
+    // The proof is consumed (proven values now ride the refs), so this
+    // staging no longer needs the registry to record.
+    closeRevealProofWindow(stagedReveal.proofWindowToken);
     if (provenRefs.length > 0) {
       state.revealCandidateRefs.push(...provenRefs);
       primeLiveRevealGuard(state);

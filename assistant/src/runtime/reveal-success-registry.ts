@@ -118,12 +118,52 @@ export function currentRevealSuccessWatermark(): number {
 }
 
 /**
+ * Open proof windows — one per tool_use that STAGED reveal refs, closed
+ * when its tool_result consumes the proof. Plaintext is only ever recorded
+ * while at least one window is open: a user's own local CLI reveal outside
+ * any assistant tool turn has no pending proof to satisfy, and retaining
+ * its value for the age bound would expand every CLI reveal's exposure for
+ * nothing. Windows auto-expire at the age bound so a leaked window (a tool
+ * whose result never arrives) cannot arm recording forever.
+ */
+interface RevealProofWindow {
+  readonly token: number;
+  readonly openedAtMs: number;
+}
+
+let windowCounter = 0;
+let openWindows: RevealProofWindow[] = [];
+
+function expireWindows(nowMs: number): void {
+  openWindows = openWindows.filter((w) => nowMs - w.openedAtMs <= MAX_AGE_MS);
+}
+
+/**
+ * Open a proof window. Call when a tool_use stages reveal refs — BEFORE
+ * the tool executes, so the route's success during the run is recordable.
+ * Returns a token the staging seam must pass to
+ * {@link closeRevealProofWindow} when the tool's result consumes the proof.
+ */
+export function openRevealProofWindow(): number {
+  expireWindows(Date.now());
+  windowCounter += 1;
+  openWindows.push({ token: windowCounter, openedAtMs: Date.now() });
+  return windowCounter;
+}
+
+/** Close a proof window once its staged refs have been consumed. */
+export function closeRevealProofWindow(token: number): void {
+  openWindows = openWindows.filter((w) => w.token !== token);
+}
+
+/**
  * Record a successful reveal. Call ONLY from the `credentials_reveal`
  * route handler, after the plaintext has been located AND the caller was
  * verified as the `local` principal (a tool shell's direct-IPC CLI call) —
  * this is the ground truth the promotion check trusts. `value` is the
  * plaintext the route served, retained so persist redacts the exact
- * printed bytes.
+ * printed bytes. A no-op while no proof window is open — with no staged
+ * tool reveal anywhere, there is nothing the plaintext could prove.
  */
 export function recordRevealSuccess(
   service: string,
@@ -131,6 +171,10 @@ export function recordRevealSuccess(
   value: string,
 ): void {
   const nowMs = Date.now();
+  expireWindows(nowMs);
+  if (openWindows.length === 0) {
+    return;
+  }
   seqCounter += 1;
   records.push({ seq: seqCounter, service, field, value, recordedAtMs: nowMs });
   prune(nowMs);
@@ -202,10 +246,12 @@ export function _recordCountForTest(): number {
   return records.length;
 }
 
-/** Test-only: clear all records, the prune timer, and the watermark. */
+/** Test-only: clear records, windows, the prune timer, and the watermark. */
 export function _resetRevealSuccessRegistryForTest(): void {
   seqCounter = 0;
   records = [];
+  windowCounter = 0;
+  openWindows = [];
   if (pruneTimer !== undefined) {
     clearTimeout(pruneTimer);
     pruneTimer = undefined;

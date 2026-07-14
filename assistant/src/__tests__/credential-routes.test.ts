@@ -111,6 +111,7 @@ mock.module("../credential-execution/managed-catalog.js", () => ({
 import {
   _resetRevealSuccessRegistryForTest,
   currentRevealSuccessWatermark,
+  openRevealProofWindow,
   revealedValueSince,
 } from "../runtime/reveal-success-registry.js";
 import { ROUTES } from "../runtime/routes/credential-routes.js";
@@ -151,8 +152,10 @@ describe("credentials routes", () => {
        * the direct-IPC `local` principal; its success is the ground truth
        * the chat-credential persist seams use to promote staged refs.
        */
-      // GIVEN a stored credential and the staging watermark
+      // GIVEN a stored credential, a staged tool reveal (open proof
+      // window), and the staging watermark
       secureStore.set("vercel:api_token", SECRET_VALUE);
+      openRevealProofWindow();
       const watermark = currentRevealSuccessWatermark();
 
       // WHEN revealed by the local principal
@@ -176,6 +179,7 @@ describe("credentials routes", () => {
        * in a concurrent turn whose command merely echoed the invocation.
        */
       secureStore.set("vercel:api_token", SECRET_VALUE);
+      openRevealProofWindow();
       const watermark = currentRevealSuccessWatermark();
 
       for (const principal of ["user", "svc_gateway"]) {
@@ -199,6 +203,7 @@ describe("credentials routes", () => {
        * is a tool shell's CLI and may become proof.
        */
       secureStore.set("vercel:api_token", SECRET_VALUE);
+      openRevealProofWindow();
       const watermark = currentRevealSuccessWatermark();
 
       const result = (await revealRoute!.handler({
@@ -215,8 +220,29 @@ describe("credentials routes", () => {
       ).toBeUndefined();
     });
 
+    test("a local reveal with NO staged tool reveal records no proof", async () => {
+      /**
+       * A user's own terminal CLI reveal outside any assistant tool turn
+       * has no pending proof to satisfy — the registry must not retain its
+       * plaintext at all (recording is gated on an open proof window).
+       */
+      secureStore.set("vercel:api_token", SECRET_VALUE);
+      const watermark = currentRevealSuccessWatermark();
+
+      const result = (await revealRoute!.handler({
+        body: { service: "vercel", field: "api_token" },
+        headers: { "x-vellum-principal-type": "local" },
+      })) as { value: string };
+
+      expect(result.value).toBe(SECRET_VALUE);
+      expect(
+        revealedValueSince(watermark, "vercel", "api_token"),
+      ).toBeUndefined();
+    });
+
     test("a reveal with no principal header records no proof (fails closed)", async () => {
       secureStore.set("vercel:api_token", SECRET_VALUE);
+      openRevealProofWindow();
       const watermark = currentRevealSuccessWatermark();
 
       const result = (await revealRoute!.handler({
