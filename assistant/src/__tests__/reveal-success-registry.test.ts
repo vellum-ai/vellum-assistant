@@ -7,9 +7,17 @@
  * records must therefore survive the count cap — only the age bound may
  * remove them while a window could still be active.
  */
-import { beforeEach, describe, expect, test } from "bun:test";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  setSystemTime,
+  test,
+} from "bun:test";
 
 import {
+  _recordCountForTest,
   _resetRevealSuccessRegistryForTest,
   currentRevealSuccessWatermark,
   recordRevealSuccess,
@@ -18,6 +26,10 @@ import {
 
 beforeEach(() => {
   _resetRevealSuccessRegistryForTest();
+});
+
+afterEach(() => {
+  setSystemTime();
 });
 
 describe("reveal success registry retention", () => {
@@ -46,5 +58,20 @@ describe("reveal success registry retention", () => {
     expect(revealedValueSince(watermark, "openai", "api_key")).toBe(
       "after-watermark",
     );
+  });
+
+  test("an expired record is EVICTED on read, not merely filtered", () => {
+    // Records hold credential plaintext. Filtering expired records out of
+    // read results while retaining them in memory would keep a lone
+    // reveal's secret alive indefinitely — eviction must happen on any
+    // registry activity (a write, a read, or the idle timer).
+    setSystemTime(new Date("2026-01-01T00:00:00Z"));
+    recordRevealSuccess("svc", "f", "hunter2-expiring");
+    expect(_recordCountForTest()).toBe(1);
+
+    // Past the 6-hour age bound with NO further writes.
+    setSystemTime(new Date("2026-01-01T07:00:00Z"));
+    expect(revealedValueSince(0, "svc", "f")).toBeUndefined();
+    expect(_recordCountForTest()).toBe(0);
   });
 });

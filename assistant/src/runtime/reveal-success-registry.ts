@@ -64,6 +64,16 @@ const COUNT_PRUNE_GRACE_MS = 15 * 60 * 1000;
 
 let seqCounter = 0;
 let records: RevealSuccessRecord[] = [];
+/**
+ * Evicts expired records even when the registry goes idle. Records hold
+ * credential plaintext, and pruning only on the next write would retain a
+ * lone reveal's secret in memory indefinitely — there may never be another
+ * reveal. Armed on every write for the earliest record's expiry,
+ * self-reschedules while records remain, and unref'd so it never holds the
+ * process open. Reads prune too, so an active conversation drops expired
+ * records without waiting for the timer.
+ */
+let pruneTimer: ReturnType<typeof setTimeout> | undefined;
 
 function prune(nowMs: number): void {
   records = records.filter((r) => nowMs - r.recordedAtMs <= MAX_AGE_MS);
@@ -79,6 +89,24 @@ function prune(nowMs: number): void {
       return true;
     });
   }
+}
+
+function schedulePrune(nowMs: number): void {
+  if (pruneTimer !== undefined || records.length === 0) {
+    return;
+  }
+  const earliestExpiryMs = records[0]!.recordedAtMs + MAX_AGE_MS;
+  const timer = setTimeout(
+    () => {
+      pruneTimer = undefined;
+      const t = Date.now();
+      prune(t);
+      schedulePrune(t);
+    },
+    Math.max(earliestExpiryMs - nowMs, 1000),
+  );
+  timer.unref?.();
+  pruneTimer = timer;
 }
 
 /**
@@ -106,6 +134,7 @@ export function recordRevealSuccess(
   seqCounter += 1;
   records.push({ seq: seqCounter, service, field, value, recordedAtMs: nowMs });
   prune(nowMs);
+  schedulePrune(nowMs);
 }
 
 /**
@@ -149,13 +178,12 @@ export function revealedValuesSince(
   field: string,
 ): string[] {
   const nowMs = Date.now();
+  // Evict, don't just filter: expired records hold plaintext and must
+  // leave memory as soon as any registry activity notices them.
+  prune(nowMs);
   const matches = records
     .filter(
-      (r) =>
-        r.seq > watermark &&
-        r.service === service &&
-        r.field === field &&
-        nowMs - r.recordedAtMs <= MAX_AGE_MS,
+      (r) => r.seq > watermark && r.service === service && r.field === field,
     )
     .sort((a, b) => b.seq - a.seq);
   const seen = new Set<string>();
@@ -169,8 +197,17 @@ export function revealedValuesSince(
   return values;
 }
 
-/** Test-only: clear all records and reset the watermark counter. */
+/** Test-only: number of retained records, for retention assertions. */
+export function _recordCountForTest(): number {
+  return records.length;
+}
+
+/** Test-only: clear all records, the prune timer, and the watermark. */
 export function _resetRevealSuccessRegistryForTest(): void {
   seqCounter = 0;
   records = [];
+  if (pruneTimer !== undefined) {
+    clearTimeout(pruneTimer);
+    pruneTimer = undefined;
+  }
 }
