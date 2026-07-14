@@ -27,6 +27,7 @@ import type { GatewayConfig } from "../../config.js";
 import type { CredentialCache } from "../../credential-cache.js";
 import { credentialKey } from "../../credential-key.js";
 import { getLogger } from "../../logger.js";
+import { getPlatformBaseUrl } from "../../platform-url.js";
 import { VELAY_FORWARDED_HEADER } from "../../velay/bridge-utils.js";
 import { requestHasVelayBridgeAuth } from "../../velay/bridge-auth.js";
 
@@ -108,17 +109,58 @@ function jsonError(status: number, code: string, detail: string): Response {
   });
 }
 
-function velaySpeechUrls(
+/**
+ * Map a Vellum platform host onto its environment's velay origin, following
+ * the deployment naming convention (`platform.vellum.ai` → `velay.vellum.ai`,
+ * `{env}-platform.vellum.ai` → `velay-{env}.vellum.ai`). Returns null for
+ * hosts outside that convention (localhost, custom domains).
+ */
+export function velayOriginForPlatformHost(host: string): string | null {
+  if (host === "platform.vellum.ai") {
+    return "https://velay.vellum.ai";
+  }
+  const match = /^([a-z0-9-]+)-platform\.vellum\.ai$/.exec(host);
+  return match ? `https://velay-${match[1]}.vellum.ai` : null;
+}
+
+/**
+ * Resolve the velay origin for this dial. An explicit VELAY_BASE_URL always
+ * wins; otherwise derive it from the stored platform base URL so a non-prod
+ * assistant's key is presented to its own environment's velay rather than
+ * prod (which would reject it with `invalid_key`).
+ */
+async function resolveVelayBaseUrl(
   config: GatewayConfig,
+  deps: SpeechRelayDeps,
+): Promise<string> {
+  if (config.velayBaseUrl) {
+    return config.velayBaseUrl;
+  }
+  const platformBaseUrl = await getPlatformBaseUrl(deps.credentials);
+  if (platformBaseUrl) {
+    try {
+      const derived = velayOriginForPlatformHost(
+        new URL(platformBaseUrl).hostname,
+      );
+      if (derived) {
+        return derived;
+      }
+    } catch {
+      // Unparseable platform URL — fall through to the prod default.
+    }
+  }
+  return DEFAULT_VELAY_BASE_URL;
+}
+
+function velaySpeechUrls(
+  velayBaseUrl: string,
   operation: SpeechRelayOperation,
   params: URLSearchParams,
 ): { wsUrl: string; httpUrl: string } {
   // The velay tunnel client accepts ws(s):// bases too — normalize to the
   // http(s) twin first so the probe URL is always fetchable, then derive
   // the ws(s) dial URL from that.
-  const httpBase = (config.velayBaseUrl ?? DEFAULT_VELAY_BASE_URL)
-    .replace(/\/+$/, "")
-    .replace(/^ws/, "http");
+  const httpBase = velayBaseUrl.replace(/\/+$/, "").replace(/^ws/, "http");
   const query = params.toString();
   const path = `/v1/speech/${operation}/stream${query ? `?${query}` : ""}`;
   return {
@@ -221,7 +263,11 @@ export function createSpeechRelayUpgradeHandler(
         );
       }
     }
-    const { wsUrl, httpUrl } = velaySpeechUrls(config, operation, params);
+    const { wsUrl, httpUrl } = velaySpeechUrls(
+      await resolveVelayBaseUrl(config, deps),
+      operation,
+      params,
+    );
 
     // Non-upgrade request: this is the daemon's dial-failure probe.
     // Replay the gate and hand back velay's own rejection.

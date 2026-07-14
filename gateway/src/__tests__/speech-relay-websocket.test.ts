@@ -1,4 +1,4 @@
-import { describe, test, expect, mock } from "bun:test";
+import { afterAll, beforeAll, describe, test, expect, mock } from "bun:test";
 import type { GatewayConfig } from "../config.js";
 import { initSigningKey, mintToken } from "../auth/token-service.js";
 import { CURRENT_POLICY_EPOCH } from "../auth/policy.js";
@@ -6,6 +6,7 @@ import type { CredentialCache } from "../credential-cache.js";
 import {
   createSpeechRelayUpgradeHandler,
   getSpeechRelayWebsocketHandlers,
+  velayOriginForPlatformHost,
   type SpeechRelaySocketData,
 } from "../http/routes/speech-relay-websocket.js";
 import { VELAY_FORWARDED_HEADER } from "../velay/bridge-utils.js";
@@ -80,6 +81,126 @@ async function bodyOf(
 }
 
 const TOKEN = mintDaemonServiceToken();
+
+function makeKeyedCredentials(
+  values: Record<string, string | undefined>,
+): CredentialCache {
+  return {
+    get: mock(async (key: string) => values[key]),
+  } as unknown as CredentialCache;
+}
+
+describe("velay origin derivation", () => {
+  // getPlatformBaseUrl falls back to this env var; pin it absent so the
+  // missing-credential cases below are deterministic on dev machines.
+  const savedPlatformUrl = process.env.VELLUM_PLATFORM_URL;
+  beforeAll(() => {
+    delete process.env.VELLUM_PLATFORM_URL;
+  });
+  afterAll(() => {
+    if (savedPlatformUrl !== undefined) {
+      process.env.VELLUM_PLATFORM_URL = savedPlatformUrl;
+    }
+  });
+
+  test("velayOriginForPlatformHost follows the deployment naming convention", () => {
+    expect(velayOriginForPlatformHost("platform.vellum.ai")).toBe(
+      "https://velay.vellum.ai",
+    );
+    expect(velayOriginForPlatformHost("staging-platform.vellum.ai")).toBe(
+      "https://velay-staging.vellum.ai",
+    );
+    expect(velayOriginForPlatformHost("dev-platform.vellum.ai")).toBe(
+      "https://velay-dev.vellum.ai",
+    );
+    expect(velayOriginForPlatformHost("localhost")).toBeNull();
+    expect(velayOriginForPlatformHost("example.com")).toBeNull();
+    expect(
+      velayOriginForPlatformHost("staging-platform.vellum.ai.evil.com"),
+    ).toBeNull();
+  });
+
+  test("derives the velay origin from the stored platform base URL when VELAY_BASE_URL is unset", async () => {
+    const server = makeFakeServer();
+    const handler = createSpeechRelayUpgradeHandler(
+      makeConfig({ velayBaseUrl: undefined }),
+      "stt",
+      {
+        credentials: makeKeyedCredentials({
+          "credential/vellum/assistant_api_key": "vk-1",
+          "credential/vellum/platform_base_url":
+            "https://staging-platform.vellum.ai",
+        }),
+      },
+    );
+    const req = new Request(
+      `http://127.0.0.1:7830/v1/speech/stt/stream?key=${TOKEN}`,
+      { headers: { upgrade: "websocket" } },
+    );
+
+    expect(await handler(req, server)).toBeUndefined();
+    const data = (server.upgrade as unknown as { mock: { calls: unknown[][] } })
+      .mock.calls[0]![1] as { data: SpeechRelaySocketData };
+    expect(new URL(data.data.upstreamWsUrl).origin).toBe(
+      "wss://velay-staging.vellum.ai",
+    );
+    expect(new URL(data.data.upstreamHttpUrl).origin).toBe(
+      "https://velay-staging.vellum.ai",
+    );
+  });
+
+  test("falls back to prod velay for an off-convention or missing platform base URL", async () => {
+    for (const platformBaseUrl of [
+      "http://localhost:8000",
+      "not a url",
+      undefined,
+    ]) {
+      const server = makeFakeServer();
+      const handler = createSpeechRelayUpgradeHandler(
+        makeConfig({ velayBaseUrl: undefined }),
+        "stt",
+        {
+          credentials: makeKeyedCredentials({
+            "credential/vellum/assistant_api_key": "vk-1",
+            "credential/vellum/platform_base_url": platformBaseUrl,
+          }),
+        },
+      );
+      const req = new Request(
+        `http://127.0.0.1:7830/v1/speech/stt/stream?key=${TOKEN}`,
+        { headers: { upgrade: "websocket" } },
+      );
+
+      expect(await handler(req, server)).toBeUndefined();
+      const data = (
+        server.upgrade as unknown as { mock: { calls: unknown[][] } }
+      ).mock.calls[0]![1] as { data: SpeechRelaySocketData };
+      expect(new URL(data.data.upstreamWsUrl).origin).toBe(
+        "wss://velay.vellum.ai",
+      );
+    }
+  });
+
+  test("an explicit VELAY_BASE_URL wins over the stored platform base URL", async () => {
+    const server = makeFakeServer();
+    const handler = createSpeechRelayUpgradeHandler(makeConfig(), "stt", {
+      credentials: makeKeyedCredentials({
+        "credential/vellum/assistant_api_key": "vk-1",
+        "credential/vellum/platform_base_url":
+          "https://staging-platform.vellum.ai",
+      }),
+    });
+    const req = new Request(
+      `http://127.0.0.1:7830/v1/speech/stt/stream?key=${TOKEN}`,
+      { headers: { upgrade: "websocket" } },
+    );
+
+    expect(await handler(req, server)).toBeUndefined();
+    const data = (server.upgrade as unknown as { mock: { calls: unknown[][] } })
+      .mock.calls[0]![1] as { data: SpeechRelaySocketData };
+    expect(new URL(data.data.upstreamWsUrl).origin).toBe("wss://velay.test");
+  });
+});
 
 describe("createSpeechRelayUpgradeHandler — gate", () => {
   test("upgrades a daemon service connection and strips the key param", async () => {
