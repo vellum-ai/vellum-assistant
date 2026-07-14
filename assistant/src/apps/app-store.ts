@@ -35,10 +35,11 @@ import {
 } from "node:path";
 
 import { rawAll } from "../persistence/raw-query.js";
+import { isPluginDisabled } from "../plugins/disabled-state.js";
 import type { EditEngineResult } from "../tools/shared/filesystem/edit-engine.js";
 import { applyEdit } from "../tools/shared/filesystem/edit-engine.js";
 import { getLogger } from "../util/logger.js";
-import { getDataDir } from "../util/platform.js";
+import { getDataDir, getWorkspacePluginsDir } from "../util/platform.js";
 
 export interface AppDefinition {
   id: string;
@@ -622,6 +623,121 @@ export function listApps(): AppDefinition[] {
   }
   apps.sort((a, b) => b.updatedAt - a.updatedAt);
   return apps;
+}
+
+// ---------------------------------------------------------------------------
+// Cross-source enumeration (workspace + plugin-bundled apps)
+// ---------------------------------------------------------------------------
+
+/**
+ * Where an app is provided from. Workspace apps are user-created and live under
+ * `<workspace>/data/apps/`; plugin apps are bundled by an installed plugin
+ * under `<workspace>/plugins/<name>/apps/`.
+ */
+export type AppOrigin =
+  | { readonly kind: "workspace" }
+  | { readonly kind: "plugin"; readonly pluginName: string };
+
+/** An app paired with the absolute path to its source and its origin. */
+export interface EnumeratedApp {
+  /** Human-readable app name. */
+  readonly name: string;
+  /** Absolute path to the app's source directory. */
+  readonly sourcePath: string;
+  /** Where the app is provided from. */
+  readonly origin: AppOrigin;
+}
+
+/**
+ * Enumerate apps bundled under a single plugin's `apps/` directory. Each
+ * immediate subdirectory is one app: its directory name is the app name and
+ * its path is the source.
+ */
+function listAppsForPlugin(
+  pluginName: string,
+  pluginDir: string,
+): EnumeratedApp[] {
+  const appsDir = join(pluginDir, "apps");
+  let entries: string[];
+  try {
+    entries = readdirSync(appsDir);
+  } catch {
+    // No apps/ directory (or unreadable) — this plugin bundles no apps.
+    return [];
+  }
+  const apps: EnumeratedApp[] = [];
+  for (const entry of entries) {
+    const appDir = join(appsDir, entry);
+    try {
+      // statSync follows symlinks so a symlinked app directory still counts.
+      if (!statSync(appDir).isDirectory()) {
+        continue;
+      }
+    } catch {
+      continue;
+    }
+    apps.push({
+      name: entry,
+      sourcePath: appDir,
+      origin: { kind: "plugin", pluginName },
+    });
+  }
+  return apps;
+}
+
+/**
+ * Enumerate apps bundled by installed, enabled plugins under
+ * `<workspace>/plugins/<name>/apps/`.
+ *
+ * Plugin discovery mirrors the plugin loader's `scanPlugins`: a plugin is an
+ * entry that resolves to a directory (following symlinks) and carries a
+ * `package.json` manifest. Stray directories without a manifest are ignored,
+ * and disabled plugins (those with a `.disabled` sentinel) contribute nothing,
+ * matching how their other surfaces (tools, hooks, routes) are gated.
+ */
+export function listPluginApps(): EnumeratedApp[] {
+  const pluginsRoot = getWorkspacePluginsDir();
+  if (!existsSync(pluginsRoot)) {
+    return [];
+  }
+  let entries: string[];
+  try {
+    entries = readdirSync(pluginsRoot);
+  } catch {
+    return [];
+  }
+  const apps: EnumeratedApp[] = [];
+  for (const name of entries) {
+    const pluginDir = join(pluginsRoot, name);
+    try {
+      if (!statSync(pluginDir).isDirectory()) {
+        continue;
+      }
+    } catch {
+      continue;
+    }
+    if (!existsSync(join(pluginDir, "package.json"))) {
+      continue;
+    }
+    if (isPluginDisabled(name)) {
+      continue;
+    }
+    apps.push(...listAppsForPlugin(name, pluginDir));
+  }
+  return apps;
+}
+
+/**
+ * Enumerate every app the assistant can surface, tagged with its origin:
+ * workspace apps (user-created) followed by apps bundled by installed plugins.
+ */
+export function listAllApps(): EnumeratedApp[] {
+  const workspaceApps: EnumeratedApp[] = listApps().map((definition) => ({
+    name: definition.name,
+    sourcePath: getAppDirPath(definition.id),
+    origin: { kind: "workspace" as const },
+  }));
+  return [...workspaceApps, ...listPluginApps()];
 }
 
 export function updateApp(
