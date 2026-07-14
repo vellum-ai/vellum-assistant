@@ -94,8 +94,7 @@
       "description": "Find great coffee beans and machines matched to your taste profile, budget, and kitchen. Persistent memory learns your preferences over time.",
       "category": "lifestyle",
       "homepage": "https://github.com/vellum-ai/coffee-aficionado",
-      "license": "MIT",
-      "icon": "☕"
+      "license": "MIT"
     },
     {
       "name": "cofounder",
