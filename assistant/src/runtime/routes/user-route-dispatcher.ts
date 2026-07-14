@@ -1,10 +1,20 @@
 /**
  * File-based route dispatcher for user-defined HTTP endpoints.
  *
- * Maps requests under the `/x/*` path prefix to handler modules in the
- * workspace routes directory (`$VELLUM_WORKSPACE_DIR/routes/`). Each handler file
- * exports named functions for HTTP methods (GET, POST, PUT, etc.) using
- * the standard Web API Request/Response signature.
+ * Maps requests under the `/x/*` path prefix to handler modules resolved from
+ * the filesystem at request time. Two locations back the surface:
+ *
+ * - `$VELLUM_WORKSPACE_DIR/routes/<path>` — workspace routes, served at
+ *   `/x/<path>`.
+ * - `$VELLUM_WORKSPACE_DIR/plugins/<name>/routes/<path>` — a plugin's routes,
+ *   served in that plugin's namespace at `/x/plugins/<name>/<path>`. The
+ *   `plugins/<name>/` prefix is reserved for this: a request there resolves
+ *   only against the named plugin's `routes/` directory (never the workspace
+ *   `routes/plugins/…` tree) so plugins can't collide with workspace routes or
+ *   each other.
+ *
+ * Each handler file exports named functions for HTTP methods (GET, POST, PUT,
+ * etc.) using the standard Web API Request/Response signature.
  *
  * Handlers receive a second `context` argument with runtime singletons
  * (event hub, assistant ID, etc.) that would otherwise be unreachable
@@ -13,14 +23,19 @@
  *
  * Modules are lazily loaded on first request and cached by file path +
  * mtime. When a file changes on disk, the next request reloads it via
- * Bun's dynamic `import()` with a cache-busting query parameter.
+ * Bun's dynamic `import()` with a cache-busting query parameter. A request
+ * whose file does not exist 404s — nothing is registered ahead of time.
  */
 
 import { existsSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 
+import { isPluginDisabled } from "../../plugins/disabled-state.js";
 import { getLogger } from "../../util/logger.js";
-import { getWorkspaceRoutesDir } from "../../util/platform.js";
+import {
+  getWorkspacePluginsDir,
+  getWorkspaceRoutesDir,
+} from "../../util/platform.js";
 import type { AssistantEventHub } from "../assistant-event-hub.js";
 import { httpError } from "../http-errors.js";
 
@@ -119,6 +134,41 @@ const DEFAULT_HANDLER_TIMEOUT_MS = 30_000;
 /** Supported file extensions for handler modules. */
 const HANDLER_EXTENSIONS = [".ts", ".js"] as const;
 
+/** Path segment reserved for plugin-namespaced routes under `/x/`. */
+const PLUGIN_ROUTE_SEGMENT = "plugins";
+
+/**
+ * Resolve an `/x/` route path to the base directory + sub-path the handler file
+ * is looked up under.
+ *
+ * `plugins/<name>/<rest>` resolves against that plugin's own
+ * `<workspaceDir>/plugins/<name>/routes/` directory (`<rest>` may be empty,
+ * mapping to the namespace's `index` handler). Everything else resolves against
+ * the workspace `routes/` directory. Returns `null` (caller 404s) when:
+ *
+ * - the path is a malformed plugin path (`plugins` with no name segment), so it
+ *   never falls back to a workspace route — the `plugins/` prefix is reserved
+ *   for plugin routes; or
+ * - the named plugin is disabled (`.disabled` sentinel present), so a disabled
+ *   plugin serves no routes even though its files remain on disk.
+ */
+function resolveRouteLocation(
+  routePath: string,
+): { routesDir: string; subPath: string } | null {
+  const segments = routePath.split("/");
+  if (segments[0] === PLUGIN_ROUTE_SEGMENT) {
+    const pluginName = segments[1];
+    if (!pluginName || isPluginDisabled(pluginName)) {
+      return null;
+    }
+    return {
+      routesDir: join(getWorkspacePluginsDir(), pluginName, "routes"),
+      subPath: segments.slice(2).join("/"),
+    };
+  }
+  return { routesDir: getWorkspaceRoutesDir(), subPath: routePath };
+}
+
 export class UserRouteDispatcher {
   private moduleCache = new Map<string, CachedModule>();
   private handlerTimeoutMs: number;
@@ -145,8 +195,10 @@ export class UserRouteDispatcher {
       return httpError("BAD_REQUEST", "Path traversal is not allowed", 400);
     }
 
-    const routesDir = getWorkspaceRoutesDir();
-    const filePath = this.resolveHandlerFile(routesDir, routePath);
+    const location = resolveRouteLocation(routePath);
+    const filePath = location
+      ? this.resolveHandlerFile(location.routesDir, location.subPath)
+      : null;
 
     if (!filePath) {
       return httpError(

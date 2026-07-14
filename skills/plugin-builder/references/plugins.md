@@ -17,6 +17,8 @@ my-plugin/
 │   └── pre-model-call.ts
 ├── tools/                     # Model-visible tools, one per file
 │   └── example.ts
+├── routes/                    # HTTP routes, served under /x/plugins/<name>/
+│   └── status.ts
 ├── skills/                    # On-demand instruction bundles
 │   └── my-skill/
 │       └── SKILL.md
@@ -55,6 +57,8 @@ A plugin must be fully self-contained: every byte of durable state it keeps live
 The assistant's own database is internal — `@vellumai/plugin-api` exposes no handle to it, and a plugin must not persist state elsewhere in the workspace. Keeping everything in `data/` is also what makes uninstall clean: removing the plugin directory removes all of its state.
 
 Each surface can also be dropped straight into the workspace at `/workspace/<surface>/<name>/` without wrapping it in a plugin. A plugin is what lets you ship several surfaces together as one installable unit.
+
+The per-surface contracts live in their own references: [hooks.md](hooks.md), [tools.md](tools.md), [skills.md](skills.md), and [routes.md](routes.md).
 
 ## The manifest
 
@@ -117,7 +121,6 @@ The assistant supports these surfaces today, but they are not yet contributed th
 | -------------- | ------------------------------------------------------------------------------------------------------------- |
 | Schedules      | Cron-style triggers that fire on a recurring schedule.                                                        |
 | Apps           | Persistent interactive apps (dashboards, games, tools) served in the workspace panel.                         |
-| Routes         | HTTP routes the assistant exposes, used for webhooks and integrations.                                        |
 | Artifacts      | Versioned outputs the assistant produces and tracks (documents, diagrams, generated files).                   |
 | Webhooks       | Inbound HTTP endpoints that deliver external events into the assistant.                                       |
 | Prompts        | Reusable system prompt fragments and templates.                                                               |
