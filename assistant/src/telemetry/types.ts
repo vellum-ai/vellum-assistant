@@ -504,23 +504,22 @@ type Overrides = {
   tool_executed: ToolExecutedTelemetryEvent;
   skill_loaded: SkillLoadedTelemetryEvent;
   watchdog: WatchdogTelemetryEvent;
+  onboarding_research: OnboardingResearchTelemetryEvent;
 };
 
 /**
- * Daemon-only event types not (yet) in the platform wire contract.
+ * Daemon-only event types not (yet) in the platform wire contract — i.e. types
+ * the daemon emits but `POST /v1/telemetry/ingest/` would silently skip because
+ * they have no serializer in the platform's `TELEMETRY_EVENT_SERIALIZERS`.
  *
- * WARNING: the platform ingest endpoint DROPS `onboarding_research` — it has
- * no serializer in the platform's `TELEMETRY_EVENT_SERIALIZERS`, so
- * `POST /v1/telemetry/ingest/` silently skips these events. Adding the
- * serializer (plus its Terraform and dbt touchpoints) is a platform-repo
- * follow-up. When the platform adds a wire type for an extension key, the
- * key must leave `Extensions` — into `Overrides` if the daemon type stays
- * narrower, or plain wire flow-through otherwise (the collision guard below
- * enforces this).
+ * Currently EMPTY: every emitted type is in the wire contract. When the daemon
+ * needs to emit a type before the platform accepts it, add it here (keyed by
+ * its wire `type`). Once the platform adds the serializer and the wire sync
+ * lands, the key must leave `Extensions` — into `Overrides` if the daemon type
+ * stays narrower than the wire, or plain wire flow-through otherwise. The
+ * `_extensionsDontCollide` guard below turns red until that move is made.
  */
-type Extensions = {
-  onboarding_research: OnboardingResearchTelemetryEvent;
-};
+type Extensions = Record<never, never>;
 
 type EventMap = Omit<WireDaemonized, keyof Overrides> & Overrides & Extensions;
 
@@ -638,6 +637,19 @@ type _skillLoadedKeysExist = AssertNarrows<
 type _watchdogKeysExist = AssertNarrows<
   keyof WatchdogTelemetryEvent,
   keyof wire.WatchdogTelemetryEvent
+>;
+// `claims` and `suggestions` are excluded from the narrows: the server types
+// both as opaque JSON arrays (`z.array(jsonValueSchema)`), so the daemon's
+// structured `OnboardingResearchClaim[]` / `OnboardingResearchSuggestion[]`
+// shapes are wire-safe even though they aren't assignable to `JsonValue[]`.
+// Runtime size bounds are enforced by the wire schema's superRefine.
+type _onboardingResearchNarrows = AssertNarrows<
+  Omit<OnboardingResearchTelemetryEvent, "claims" | "suggestions">,
+  Omit<wire.OnboardingResearchTelemetryEvent, "claims" | "suggestions">
+>;
+type _onboardingResearchKeysExist = AssertNarrows<
+  keyof OnboardingResearchTelemetryEvent,
+  keyof wire.OnboardingResearchTelemetryEvent
 >;
 // An `Extensions` key that also exists in the wire map would silently
 // shadow the generated type; this stays `never` only while the key sets

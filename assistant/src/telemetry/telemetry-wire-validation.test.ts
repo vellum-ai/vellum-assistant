@@ -13,7 +13,6 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import type { Logger } from "pino";
 
 import {
-  makeOnboardingResearchEvent,
   turnEventSample,
   wireEventSamples,
 } from "./__tests__/telemetry-event-fixtures.js";
@@ -67,10 +66,10 @@ describe("validateWireEvents", () => {
     };
     const invalidLifecycle = {
       type: "lifecycle",
-      // Mirrors the activation-funnel id shape (`version:sessionId:step`),
-      // which embeds the onboarding session id and exceeds the wire schema's
-      // 36-char daemon_event_id bound — the id itself must never be logged.
-      daemon_event_id: `activation_v1_2026_06:${sentinel}:activation_moment_1_complete`,
+      // An id embedding the onboarding session id and padded past the wire
+      // schema's 128-char daemon_event_id bound — the id value itself must
+      // never be logged, only its (redacted) issue path.
+      daemon_event_id: `activation_v1_2026_06:${sentinel}:${"x".repeat(100)}`,
       recorded_at: 1_700_000_000_011,
       assistant_version: sentinel,
       // event_name is missing.
@@ -132,18 +131,27 @@ describe("validateWireEvents", () => {
   });
 
   test("unknown event types are reported and warned once per process per type", () => {
-    const first = validateWireEvents([makeOnboardingResearchEvent()], stubLog);
-    const second = validateWireEvents([makeOnboardingResearchEvent()], stubLog);
+    // A type the platform ingest endpoint has no serializer for: the server
+    // silently skips it. Uses a synthetic never-shipped discriminant so the
+    // test stays valid as real event types graduate into the wire contract.
+    const unknownEvent = {
+      type: "speculative_future_event",
+      daemon_event_id: "evt-unknown-1",
+      recorded_at: 1_700_000_000_020,
+      assistant_version: "1.2.3",
+    };
+    const first = validateWireEvents([unknownEvent], stubLog);
+    const second = validateWireEvents([unknownEvent], stubLog);
 
     expect(first).toEqual({
       checked: 0,
       invalid: 0,
-      unknownTypes: ["onboarding_research"],
+      unknownTypes: ["speculative_future_event"],
     });
-    expect(second.unknownTypes).toEqual(["onboarding_research"]);
+    expect(second.unknownTypes).toEqual(["speculative_future_event"]);
 
     // Rate-limited: the warn fires exactly once across both calls.
     expect(warnCalls).toHaveLength(1);
-    expect(warnCalls[0][0]).toEqual({ eventType: "onboarding_research" });
+    expect(warnCalls[0][0]).toEqual({ eventType: "speculative_future_event" });
   });
 });

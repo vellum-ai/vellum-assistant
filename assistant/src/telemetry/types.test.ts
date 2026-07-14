@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
 import {
-  makeOnboardingResearchEvent,
   turnEventSample,
   wireEventSamples,
 } from "./__tests__/telemetry-event-fixtures.js";
@@ -34,17 +33,6 @@ describe("daemon telemetry types against the wire contract", () => {
       client: nestedClient,
     };
     const result = telemetryEventSchema.safeParse(invalidTurn);
-    expect(result.success).toBe(false);
-  });
-
-  test("onboarding_research is not in the wire contract — the server drops it", () => {
-    // Documents the extension gap: `onboarding_research` is daemon-only and
-    // has no platform ingest serializer, so the server silently drops these
-    // events. The platform-repo follow-up (serializer + Terraform + dbt)
-    // closes this; until then the schema rejects the unknown discriminator.
-    const result = telemetryEventSchema.safeParse(
-      makeOnboardingResearchEvent(),
-    );
     expect(result.success).toBe(false);
   });
 });
