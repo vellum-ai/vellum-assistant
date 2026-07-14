@@ -174,6 +174,11 @@ export class LiveVoiceChannelClient {
   private turnDetection: LiveVoiceTurnDetectionMode | undefined;
   private silenceThresholdMs: number | undefined;
   private bargeInMinSpeechMs: number | undefined;
+  // Set once an assistant running daemon code older than the `update_config`
+  // frame rejects it with `unknown_type`. We then stop sending config updates
+  // for this session so an older assistant is neither killed nor spammed by the
+  // voice-room settings (version-skew forward-compat).
+  private configUpdatesUnsupported = false;
 
   private readonly listeners: {
     [E in LiveVoiceClientEventName]: Set<LiveVoiceClientEventHandler<E>>;
@@ -312,7 +317,7 @@ export class LiveVoiceChannelClient {
     silenceThresholdMs?: number;
     bargeInMinSpeechMs?: number;
   }): void {
-    if (this.state !== "active") return;
+    if (this.state !== "active" || this.configUpdatesUnsupported) return;
     this.trySend(
       JSON.stringify({
         type: "update_config",
@@ -422,6 +427,20 @@ export class LiveVoiceChannelClient {
         this.emit("archived", frame);
         return;
       case "error":
+        // An assistant running daemon code older than a client frame we sent
+        // rejects it with `unknown_type`. The only frame we send optimistically
+        // is `update_config` (the voice-room settings), so this is a
+        // forward-compat no-op, not a session failure: latch it off and keep
+        // the session alive. Mirrors the `unknown_frame` handling below for the
+        // reverse (newer-server) direction.
+        if (frame.code === "unknown_type") {
+          this.configUpdatesUnsupported = true;
+          console.warn(
+            "live-voice: assistant rejected update_config (unknown_type); " +
+              "in-session settings changes won't apply until it is upgraded",
+          );
+          return;
+        }
         // A recoverable mid-session error leaves the transport open; the
         // session controller decides whether the session survives. (`in`
         // narrows past LiveVoiceInvalidJsonFrame, which is never recoverable.)

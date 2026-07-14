@@ -467,6 +467,40 @@ describe("server frame dispatch", () => {
     expect(ws.closed).toBe(true);
   });
 
+  test("an unknown_type error (older assistant rejecting update_config) is non-fatal and latches off further updates", async () => {
+    const { client, ws } = await ready();
+    const errors: unknown[] = [];
+    let closedCount = 0;
+    client.on("error", (e) => errors.push(e));
+    client.on("closed", () => closedCount++);
+
+    // A newer client sends update_config; an older daemon rejects the frame.
+    client.updateConfig({ silenceThresholdMs: 1400 });
+    ws.receive({
+      type: "error",
+      seq: 10,
+      code: "unknown_type",
+      message: "Unknown live voice client frame type: update_config",
+    });
+
+    // Not fatal: no error surfaced, session stays open, later frames dispatch.
+    expect(errors).toEqual([]);
+    expect(closedCount).toBe(0);
+    expect(ws.closed).toBe(false);
+
+    // Further updateConfig calls are suppressed (no more frames go out).
+    const sentBefore = ws.sentJson.length;
+    client.updateConfig({ silenceThresholdMs: 1600 });
+    expect(ws.sentJson.length).toBe(sentBefore);
+
+    const seen: unknown[] = [];
+    client.on("sttPartial", (f) => seen.push(f));
+    ws.receive({ type: "stt_partial", seq: 11, text: "still here" });
+    expect(seen).toEqual([
+      { type: "stt_partial", seq: 11, text: "still here" },
+    ]);
+  });
+
   test("recoverable error frame emits the error but keeps the session alive", async () => {
     const { client, ws } = await ready();
     const errors: {
