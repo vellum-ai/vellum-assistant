@@ -73,6 +73,14 @@ Some routes are IPC-only (defined in `src/ipc/routes/`, not in the shared array)
 
 The module-level dependency-injection pattern (`registerFooDeps()`) used by some IPC routes is a known antipattern. New IPC-only routes should avoid it.
 
+## Telemetry wire contract
+
+`src/telemetry/telemetry-wire.generated.ts` is generated from the platform's telemetry ingest serializers and auto-synced here on platform merges (the platform's `sync-telemetry-wire.yaml` workflow). **Never edit it by hand** — contract changes belong in `vellum-assistant-platform` at `django/app/assistant/self_hosted_local/serializers.py`.
+
+`src/telemetry/types.ts` is the override layer on top of it: simple events flow through `WireEventMap` without restating fields — they use the generated types directly, so their construction sites get excess-property/missing-field errors when the contract moves. Events where the daemon's type is intentionally richer live in `Overrides`, each pinned to the wire type by compile-time guards covering both drift directions: `_*Narrows` (daemon values stay wire-assignable — catches wire-side tightening) and `_*KeysExist` (the daemon emits no field the wire no longer declares — catches platform-side field removals/renames, which structural subtyping would otherwise let through silently). Daemon-only events live in `Extensions`. A red guard or a failing `types.test.ts` on a sync PR means the platform contract moved — reconcile the override to the new wire shape, don't loosen the guard.
+
+Pre-flush validation (`src/telemetry/telemetry-wire-validation.ts`) checks outgoing events against the wire schemas and logs any the server would silently drop; it is observability only and never blocks or mutates the batch.
+
 ## Code comments
 
 When writing or updating comments, **do not reference code that has been removed.** Comments should describe the current state of the codebase, not narrate its history. Avoid phrases like "no longer does X", "previously used Y", or "was removed in PR Z" — future readers should not need to understand past implementations to understand the current code.
