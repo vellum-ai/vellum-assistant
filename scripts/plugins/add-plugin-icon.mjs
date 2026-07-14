@@ -41,17 +41,14 @@ const SYNC_SCRIPT = "meta/sync-bundled-copies.ts";
 
 /**
  * Serialize marketplace data to the exact on-disk canonical form: 2-space
- * indent, non-ASCII escaped as `\uXXXX` (matching the committed file, which
- * escapes emoji and punctuation like `—`), trailing newline. `JSON.stringify`
- * emits raw Unicode, so the escape pass is what keeps a one-field edit from
- * flipping every existing escaped character in the file.
+ * indent, raw UTF-8 (emoji and punctuation like `—` are kept human-readable,
+ * not `\uXXXX`-escaped), trailing newline — matching how `JSON.stringify`
+ * emits Unicode. The whole file is stored raw, so a one-field edit here
+ * reproduces it byte-for-byte and the stability guard in `addPluginIcon`
+ * stays satisfied.
  */
 export function serializeMarketplace(data) {
-  const json = JSON.stringify(data, null, 2).replace(
-    /[\u007f-\uffff]/g,
-    (c) => "\\u" + c.charCodeAt(0).toString(16).padStart(4, "0"),
-  );
-  return `${json}\n`;
+  return `${JSON.stringify(data, null, 2)}\n`;
 }
 
 /**
@@ -132,7 +129,7 @@ export async function addPluginIcon({
       // otherwise a one-field edit would silently reformat unrelated entries.
       if (serializeMarketplace(data) !== raw) {
         throw new Error(
-          `${marketplacePath} is not in the canonical 2-space, ASCII-escaped JSON ` +
+          `${marketplacePath} is not in the canonical 2-space, raw-UTF-8 JSON ` +
             `form this tool writes. Refusing to rewrite it to avoid a large unrelated ` +
             `diff — normalize the file first.`,
         );

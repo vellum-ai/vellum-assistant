@@ -16,7 +16,7 @@
       "category": "productivity",
       "homepage": "https://github.com/vellum-ai/admin-copilot",
       "license": "MIT",
-      "icon": "\ud83e\uddd1\u200d\ud83d\udcbc"
+      "icon": "🧑‍💼"
     },
     {
       "name": "agent-wrapped",
@@ -30,7 +30,7 @@
       "license": "MIT",
       "submittedBy": "marina",
       "homepage": "https://agent-wrapped.com",
-      "icon": "\ud83c\udf81"
+      "icon": "🎁"
     },
     {
       "name": "ai-hero-engineer-kit",
@@ -39,11 +39,11 @@
         "repo": "marinatrajk/ai-hero-engineer-kit",
         "ref": "18d33c62b15a3e2cc22dc070723fe3077749dcec"
       },
-      "description": "Five engineering skills adapted from Matt Pocock's '5 Agent Skills I Use Every Day' \u2014 plans, PRDs, vertical-slice issues, TDD loop, and codebase deepening in one install.",
+      "description": "Five engineering skills adapted from Matt Pocock's '5 Agent Skills I Use Every Day' — plans, PRDs, vertical-slice issues, TDD loop, and codebase deepening in one install.",
       "category": "developer",
       "homepage": "https://github.com/marinatrajk/ai-hero-engineer-kit",
       "license": "MIT",
-      "icon": "\ud83e\uddf0"
+      "icon": "🧰"
     },
     {
       "name": "amex-perk-reminder",
@@ -56,7 +56,7 @@
       "category": "lifestyle",
       "homepage": "https://github.com/AnitaKirkovska/amex-perk-reminder",
       "license": "MIT",
-      "icon": "\ud83d\udcb3"
+      "icon": "💳"
     },
     {
       "name": "astrology-horoscope",
@@ -69,7 +69,7 @@
       "category": "hobby",
       "homepage": "https://github.com/vellum-ai/astrology-horoscope",
       "license": "MIT",
-      "icon": "\ud83d\udd2e"
+      "icon": "🔮"
     },
     {
       "name": "caveman",
@@ -82,7 +82,7 @@
       "category": "productivity",
       "homepage": "https://github.com/JuliusBrussee/caveman",
       "license": "MIT",
-      "icon": "\ud83e\uddb4"
+      "icon": "🦴"
     },
     {
       "name": "coffee-aficionado",
@@ -95,7 +95,7 @@
       "category": "lifestyle",
       "homepage": "https://github.com/vellum-ai/coffee-aficionado",
       "license": "MIT",
-      "icon": "\u2615"
+      "icon": "☕"
     },
     {
       "name": "cofounder",
@@ -108,7 +108,7 @@
       "category": "productivity",
       "homepage": "https://github.com/vellum-ai/cofounder",
       "license": "MIT",
-      "icon": "\ud83e\udd1d"
+      "icon": "🤝"
     },
     {
       "name": "cognee",
@@ -121,7 +121,7 @@
       "description": "Cognee knowledge graph memory for Vellum Assistant: session-aware storage, auto-routing recall, and persistent learning across sessions. Supports local mode and Cognee Cloud.",
       "category": "memory",
       "homepage": "https://github.com/topoteretes/cognee-integrations/tree/main/integrations/vellum-assistant",
-      "icon": "\ud83d\udd78\ufe0f"
+      "icon": "🕸️"
     },
     {
       "name": "dynamic-notch",
@@ -134,7 +134,7 @@
       "category": "interface",
       "homepage": "https://github.com/AnitaKirkovska/dynamic-notch",
       "license": "MIT",
-      "icon": "\ud83d\udcbb"
+      "icon": "💻"
     },
     {
       "name": "family-briefing",
@@ -147,7 +147,7 @@
       "category": "productivity",
       "homepage": "https://github.com/AnitaKirkovska/family-briefing",
       "license": "MIT",
-      "icon": "\ud83d\udc68\u200d\ud83d\udc69\u200d\ud83d\udc67\u200d\ud83d\udc66"
+      "icon": "👨‍👩‍👧‍👦"
     },
     {
       "name": "fitness-companion",
@@ -160,7 +160,7 @@
       "category": "health",
       "homepage": "https://github.com/vellum-ai/fitness-companion",
       "license": "MIT",
-      "icon": "\ud83d\udcaa"
+      "icon": "💪"
     },
     {
       "name": "git-workflow",
@@ -173,7 +173,7 @@
       "category": "developer",
       "homepage": "https://github.com/vellum-ai/git-workflow",
       "license": "MIT",
-      "icon": "\ud83d\udd00"
+      "icon": "🔀"
     },
     {
       "name": "google-drive-search",
@@ -186,7 +186,7 @@
       "category": "productivity",
       "homepage": "https://github.com/ZeebBoyBlue/google-drive-search",
       "license": "Apache-2.0",
-      "icon": "\ud83d\udd0d"
+      "icon": "🔍"
     },
     {
       "name": "influencer-marketing",
@@ -199,7 +199,7 @@
       "category": "marketing",
       "homepage": "https://github.com/ZeebBoyBlue/influencer",
       "license": "MIT",
-      "icon": "\ud83d\udce3"
+      "icon": "📣"
     },
     {
       "name": "kitchen-companion",
@@ -212,7 +212,7 @@
       "category": "lifestyle",
       "homepage": "https://github.com/vellum-ai/kitchen-companion",
       "license": "MIT",
-      "icon": "\ud83c\udf73"
+      "icon": "🍳"
     },
     {
       "name": "level-up",
@@ -225,7 +225,7 @@
       "category": "developer",
       "homepage": "https://github.com/vellum-ai/level-up",
       "license": "MIT",
-      "icon": "\ud83c\udd99"
+      "icon": "🆙"
     },
     {
       "name": "marketing-expert",
@@ -238,7 +238,7 @@
       "category": "marketing",
       "homepage": "https://github.com/vellum-ai/marketing-expert",
       "license": "MIT",
-      "icon": "\ud83d\udcc8"
+      "icon": "📈"
     },
     {
       "name": "model-router",
@@ -251,7 +251,7 @@
       "category": "productivity",
       "homepage": "https://github.com/AnitaKirkovska/model-router",
       "license": "MIT",
-      "icon": "\ud83d\udea6"
+      "icon": "🚦"
     },
     {
       "name": "motion-design",
@@ -264,7 +264,7 @@
       "category": "creative",
       "homepage": "https://github.com/vellum-ai/motion-design",
       "license": "MIT",
-      "icon": "\ud83c\udfac"
+      "icon": "🎬"
     },
     {
       "name": "originkit",
@@ -277,7 +277,7 @@
       "category": "productivity",
       "homepage": "https://github.com/vellum-ai/originkit",
       "license": "MIT",
-      "icon": "\ud83e\uddf1"
+      "icon": "🧱"
     },
     {
       "name": "personal-finance",
@@ -290,7 +290,7 @@
       "category": "productivity",
       "homepage": "https://github.com/AnitaKirkovska/personal-finance",
       "license": "MIT",
-      "icon": "\ud83d\udcb0"
+      "icon": "💰"
     },
     {
       "name": "plant-doctor",
@@ -303,7 +303,7 @@
       "category": "lifestyle",
       "homepage": "https://github.com/vellum-ai/plant-doctor",
       "license": "MIT",
-      "icon": "\ud83e\udeb4"
+      "icon": "🪴"
     },
     {
       "name": "polyglot",
@@ -316,7 +316,7 @@
       "category": "education",
       "homepage": "https://github.com/vellum-ai/polyglot",
       "license": "MIT",
-      "icon": "\ud83d\udde3\ufe0f"
+      "icon": "🗣️"
     },
     {
       "name": "proactive-slacks",
@@ -329,7 +329,7 @@
       "category": "productivity",
       "homepage": "https://github.com/AnitaKirkovska/proactive-slacks",
       "license": "MIT",
-      "icon": "\ud83d\udcac"
+      "icon": "💬"
     },
     {
       "name": "reading-pal",
@@ -342,7 +342,7 @@
       "category": "hobby",
       "homepage": "https://github.com/vellum-ai/reading-pal",
       "license": "MIT",
-      "icon": "\ud83d\udcda"
+      "icon": "📚"
     },
     {
       "name": "simple-memory",
@@ -355,7 +355,7 @@
       "category": "memory",
       "homepage": "https://github.com/vellum-ai/simple-memory",
       "license": "MIT",
-      "icon": "\ud83e\udde0"
+      "icon": "🧠"
     },
     {
       "name": "smb-inbox-brief",
@@ -368,7 +368,7 @@
       "category": "productivity",
       "homepage": "https://github.com/AnitaKirkovska/smb-inbox-brief",
       "license": "MIT",
-      "icon": "\ud83d\udce7"
+      "icon": "📧"
     },
     {
       "name": "tennis-companion",
@@ -381,7 +381,7 @@
       "category": "health",
       "homepage": "https://github.com/vellum-ai/tennis-companion",
       "license": "MIT",
-      "icon": "\ud83c\udfbe"
+      "icon": "🎾"
     },
     {
       "name": "travel-planner",
@@ -394,7 +394,7 @@
       "category": "lifestyle",
       "homepage": "https://github.com/AnitaKirkovska/travel-planner",
       "license": "MIT",
-      "icon": "\u2708\ufe0f"
+      "icon": "✈️"
     },
     {
       "name": "vellum-client-qa",
@@ -407,7 +407,7 @@
       "category": "developer",
       "homepage": "https://github.com/vellum-ai/vellum-client-qa",
       "license": "MIT",
-      "icon": "\ud83e\uddea"
+      "icon": "🧪"
     },
     {
       "name": "writing-coach",
@@ -420,7 +420,7 @@
       "category": "hobby",
       "homepage": "https://github.com/vellum-ai/writing-coach",
       "license": "MIT",
-      "icon": "\u270d\ufe0f"
+      "icon": "✍️"
     }
   ]
 }
