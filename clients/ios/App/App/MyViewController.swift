@@ -78,6 +78,15 @@ class MyViewController: CAPBridgeViewController {
         webView?.isOpaque = false
         webView?.backgroundColor = surfaceOverlay
         webView?.scrollView.backgroundColor = surfaceOverlay
+        // WebKit paints a `WKColorExtensionView` ABOVE the web content at
+        // obscured-inset edges (e.g. the home-indicator zone), colored by
+        // `underPageBackgroundColor` — which defaults to `systemBackground`
+        // (#FFFFFF light). None of the view/webView/scrollView backgrounds
+        // above can cover it, so it must be painted explicitly or a white
+        // band shows at the bottom edge in light mode on device.
+        if let surfaceOverlay {
+            webView?.underPageBackgroundColor = surfaceOverlay
+        }
     }
 
     override open func capacitorDidLoad() {
@@ -247,6 +256,7 @@ extension MyViewController: WKScriptMessageHandler {
             view.backgroundColor = color
             webView?.backgroundColor = color
             webView?.scrollView.backgroundColor = color
+            webView?.underPageBackgroundColor = color
             return
         }
         guard message.name == Self.textSelectionHandlerName,

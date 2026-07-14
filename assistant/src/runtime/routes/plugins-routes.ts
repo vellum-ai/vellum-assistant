@@ -49,6 +49,7 @@ import {
   listInstalledPlugins,
 } from "../../cli/lib/list-installed-plugins.js";
 import { getPluginCatalog } from "../../cli/lib/plugin-catalog-cache.js";
+import { resolvePluginSourceFromCatalog } from "../../cli/lib/plugin-catalog-resolve.js";
 import {
   DEFAULT_PIN_HISTORY_LIMIT,
   DEFAULT_PLUGIN_REF,
@@ -87,9 +88,11 @@ import {
   PluginNotUpgradableError,
   upgradePlugin,
 } from "../../cli/lib/upgrade-plugin.js";
+import { getPlatformBaseUrl } from "../../config/env.js";
 import { isPluginDisabled } from "../../plugins/disabled-state.js";
 import { ensurePluginApiShim } from "../../plugins/ensure-plugin-api-shim.js";
 import { getLocalCategorySlugs } from "../../skills/categories-cache.js";
+import { getLogger } from "../../util/logger.js";
 import { getWorkspacePluginsDir } from "../../util/platform.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import {
@@ -211,6 +214,12 @@ const pluginSearchMatchSchema = z.object({
     .string()
     .optional()
     .describe("Short description, when known (external entries only today)."),
+  icon: z
+    .string()
+    .optional()
+    .describe(
+      "Plugin icon: a curated emoji from the marketplace entry, or an icon URL served by the platform catalog when the plugin ships a bundled image.",
+    ),
   category: z
     .string()
     .nullable()
@@ -694,6 +703,37 @@ const pluginDiffResponseSchema = z.object({
 // Helpers
 // ---------------------------------------------------------------------------
 
+const log = getLogger("plugins-routes");
+
+/**
+ * Emit a structured log for a platform plugin-catalog outage before the caller
+ * maps it to a client-facing error.
+ *
+ * The catalog fetcher (`plugin-catalog-platform.ts`) throws
+ * `PluginCatalogUnavailableError` without logging, and the transport adapters
+ * return the resulting `RouteError` (a 503) without any Sentry capture — so an
+ * outage on the platform-first paths (`search`, `install`, the remote-only
+ * detail view) otherwise leaves no trace beyond the daemon access-log status
+ * code, and the real upstream status / URL is lost. Log at `error` so the
+ * outage is time-correlatable in the daemon log and surfaces in Sentry;
+ * `upstreamStatus` preserves the true platform status (e.g. 404 / 500 / 503)
+ * that the client-facing 503 collapses.
+ */
+function logPluginCatalogUnavailable(
+  operation: string,
+  err: PluginCatalogUnavailableError,
+): void {
+  log.error(
+    {
+      err,
+      operation,
+      upstreamStatus: err.status,
+      platformBaseUrl: getPlatformBaseUrl(),
+    },
+    "Platform plugin catalog unavailable",
+  );
+}
+
 interface PluginView {
   id: string;
   name: string;
@@ -787,6 +827,7 @@ interface PluginMatchView {
   name: string;
   path: string;
   description?: string;
+  icon?: string;
   category: string | null;
   source: { kind: "github"; repo: string; path?: string; ref: string };
 }
@@ -813,6 +854,9 @@ function projectMatch(
   };
   if (m.description !== undefined) {
     view.description = m.description;
+  }
+  if (m.icon !== undefined) {
+    view.icon = m.icon;
   }
   return view;
 }
@@ -869,10 +913,31 @@ export async function loadCategoryMapBounded(
       }),
     ]);
     if (!catalog) {
+      // Timed out past the budget: the installed list degrades to no
+      // categories rather than stalling. Non-fatal, but log it so a slow
+      // marketplace is diagnosable and not silently invisible.
+      log.warn(
+        { timeoutMs, platformBaseUrl: getPlatformBaseUrl() },
+        "Plugin catalog lookup timed out; listing without categories",
+      );
       return new Map();
     }
     return new Map(catalog.matches.map((m) => [m.name, m.category]));
-  } catch {
+  } catch (err) {
+    // The installed list must never fail on a catalog outage, so this degrades
+    // to no categories — but log it (warn: the request still succeeds) so the
+    // same platform outage that hard-fails search/install is not invisible on
+    // the list path. `upstreamStatus` is preserved when the failure carries one.
+    log.warn(
+      {
+        err,
+        platformBaseUrl: getPlatformBaseUrl(),
+        ...(err instanceof PluginCatalogUnavailableError
+          ? { upstreamStatus: err.status }
+          : {}),
+      },
+      "Plugin catalog lookup failed; listing without categories",
+    );
     return new Map();
   } finally {
     if (timer) {
@@ -988,6 +1053,7 @@ async function handleSearchPlugins({
     // misleading 500 so the client can show a "temporarily unavailable"
     // state and retry later.
     if (err instanceof PluginCatalogUnavailableError) {
+      logPluginCatalogUnavailable("search", err);
       throw new ServiceUnavailableError(err.message);
     }
     throw new InternalError(
@@ -1065,6 +1131,13 @@ async function handleGetPluginDetails({
     if (err instanceof PluginDetailsNotFoundError) {
       throw new NotFoundError(err.message);
     }
+    // A catalog outage blocking a remote-only (not-installed) detail view is
+    // transient — surface it as retryable rather than a misleading 404/500 so
+    // clients retry instead of treating the plugin as permanently gone.
+    if (err instanceof PluginCatalogUnavailableError) {
+      logPluginCatalogUnavailable("details", err);
+      throw new ServiceUnavailableError(err.message);
+    }
     throw new InternalError(
       err instanceof Error ? err.message : "plugin detail lookup failed",
     );
@@ -1102,29 +1175,59 @@ async function resolveInstallMarketplaceRef(
 }
 
 async function handleInstallPlugin({ body = {}, headers }: RouteHandlerArgs) {
-  const name = typeof body.name === "string" ? body.name : "";
-  if (!name) {
+  const rawName = typeof body.name === "string" ? body.name : "";
+  if (!rawName) {
     throw new BadRequestError("`name` is required");
   }
   const force = typeof body.force === "boolean" ? body.force : undefined;
   const pin = typeof body.pin === "string" ? body.pin : undefined;
 
-  // The marketplace ref is never taken raw from the request: a caller-supplied
+  // The install source is never taken raw from the request: a caller-supplied
   // ref would let any `settings.write` principal install from an unreviewed
   // revision (a PR branch, fork ref, ...) whose manifest could carry attacker
-  // code the loader then dynamically imports. Installs over HTTP therefore
-  // resolve only against reviewed history. A `pin` is honored by mapping it —
-  // server-side — to the marketplace commit that introduced it, but only if it
-  // appears in the plugin's reviewed pin history; an unreviewed SHA is refused.
-  // The default install reads the current catalog on `DEFAULT_PLUGIN_REF`.
-  // Operators who need an unreviewed revision use the local CLI's
-  // `assistant plugins install --pin <sha> --allow-unreviewed`.
+  // code the loader then dynamically imports. The default (no-pin) install
+  // resolves owner/repo/ref from the gated catalog — platform-first, or the
+  // bundled manifest when platform features are disabled — which is the same
+  // reviewed source of truth `handleSearchPlugins` advertises, and installs via
+  // a trusted pre-resolved source (no direct `plugins/marketplace.json` fetch).
+  // A `pin` is honored by mapping it — server-side — to the marketplace commit
+  // that introduced it through the plugin's reviewed pin history; an unreviewed
+  // SHA is refused. Operators who need an unreviewed revision use the local
+  // CLI's `assistant plugins install --pin <sha> --allow-unreviewed`.
   try {
-    const marketplaceRef = await resolveInstallMarketplaceRef(name, pin);
-    const result = await installPlugin(
-      { name, ref: marketplaceRef, force },
-      { fetch: globalThis.fetch.bind(globalThis) },
-    );
+    // Validate the name up front — before any catalog/pin/network work — so a
+    // malformed name (`../escape`) is a deterministic 400 rather than a 404/503
+    // from the catalog lookup. `installPlugin` sanitizes too; this restores the
+    // advertised 400 across both the no-pin and pin paths.
+    const name = sanitizePluginName(rawName);
+    let result;
+    if (pin) {
+      const marketplaceRef = await resolveInstallMarketplaceRef(name, pin);
+      result = await installPlugin(
+        { name, ref: marketplaceRef, force },
+        { fetch: globalThis.fetch.bind(globalThis) },
+      );
+    } else {
+      const source = await resolvePluginSourceFromCatalog(name, {
+        fetch: globalThis.fetch.bind(globalThis),
+      });
+      if (!source) {
+        throw new NotFoundError(`No plugin named "${name}" in the catalog.`);
+      }
+      result = await installPlugin(
+        {
+          name,
+          force,
+          trustedSource: {
+            owner: source.owner,
+            repo: source.repo,
+            rootPath: source.path,
+            ref: source.ref,
+          },
+        },
+        { fetch: globalThis.fetch.bind(globalThis) },
+      );
+    }
     publishPluginsChanged(getOriginClientId(headers));
     return {
       ok: true as const,
@@ -1134,7 +1237,7 @@ async function handleInstallPlugin({ body = {}, headers }: RouteHandlerArgs) {
       ref: result.ref,
     };
   } catch (err) {
-    // Pin resolution already maps unreviewed/bad-pin cases to a RouteError;
+    // Pin resolution and the not-in-catalog case already map to a RouteError;
     // re-throw those verbatim rather than masking them as a 500.
     if (err instanceof RouteError) {
       throw err;
@@ -1155,6 +1258,12 @@ async function handleInstallPlugin({ body = {}, headers }: RouteHandlerArgs) {
     }
     // The pin-history read hits GitHub too; treat its failures as retryable.
     if (err instanceof PluginPinHistoryError) {
+      throw new ServiceUnavailableError(err.message);
+    }
+    // A rate-limited or unavailable platform catalog (no stale fallback) is
+    // transient — surface it as retryable rather than a misleading 500.
+    if (err instanceof PluginCatalogUnavailableError) {
+      logPluginCatalogUnavailable("install", err);
       throw new ServiceUnavailableError(err.message);
     }
     throw new InternalError(

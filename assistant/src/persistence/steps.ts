@@ -440,6 +440,9 @@ import { migrateMoveOnboardingEventsToTelemetryDb } from "./migrations/329-move-
 import { migrateMoveAuthFallbackEventsToTelemetryDb } from "./migrations/330-move-auth-fallback-events-to-telemetry-db.js";
 import { migrateMoveLifecycleEventsToTelemetryDb } from "./migrations/331-move-lifecycle-events-to-telemetry-db.js";
 import { migrateMoveSkillLoadedEventsToTelemetryDb } from "./migrations/332-move-skill-loaded-events-to-telemetry-db.js";
+import { migrateCreateTelemetryEventsTable } from "./migrations/333-create-telemetry-events-table.js";
+import { migrateBackfillTelemetryEventsOutbox } from "./migrations/334-backfill-telemetry-events-outbox.js";
+import { migrateCollapseMemoryEmbedBacklog } from "./migrations/335-collapse-memory-embed-backlog.js";
 import type { MigrationStep } from "./migrations/run-migrations.js";
 
 export const migrationSteps: MigrationStep[] = [
@@ -1351,4 +1354,7 @@ export const migrationSteps: MigrationStep[] = [
   migrateMoveAuthFallbackEventsToTelemetryDb,
   migrateMoveLifecycleEventsToTelemetryDb,
   migrateMoveSkillLoadedEventsToTelemetryDb,
+  migrateCreateTelemetryEventsTable,
+  migrateBackfillTelemetryEventsOutbox,
+  migrateCollapseMemoryEmbedBacklog,
 ];

@@ -44,10 +44,19 @@ export interface PluginSearchMatch {
   /** Short description, when known (external entries only today). */
   readonly description?: string;
   /**
+   * Plugin icon: a curated emoji from the marketplace entry, or an icon URL
+   * served by the platform catalog when the plugin ships a bundled image.
+   */
+  readonly icon?: string;
+  /**
    * Free-form grouping hint from the curated marketplace entry (e.g.
    * `productivity`), or `null` when the entry declares none.
    */
   readonly category: string | null;
+  /** Homepage URL, from the curated marketplace entry when present. */
+  readonly homepage?: string;
+  /** License identifier, from the curated marketplace entry when present. */
+  readonly license?: string;
   /** Discriminated origin, so callers can render/install accordingly. */
   readonly source: PluginMatchSource;
 }
@@ -124,7 +133,10 @@ export function marketplaceMatch(entry: MarketplaceEntry): PluginSearchMatch {
     name: entry.name,
     path: locator,
     description: entry.description,
+    icon: entry.icon,
     category: entry.category ?? null,
+    homepage: entry.homepage,
+    license: entry.license,
     source: { kind: "github", repo, path, ref },
   };
 }

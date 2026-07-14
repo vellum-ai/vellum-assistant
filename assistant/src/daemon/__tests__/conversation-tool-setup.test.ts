@@ -29,6 +29,9 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import type { Conversation } from "../conversation.js";
+import type { ChannelCapabilities } from "../conversation-runtime-assembly.js";
+
 // ── Module-level mocks ─────────────────────────────────────────────
 
 // Control how many capable clients the hub reports per capability.
@@ -51,21 +54,20 @@ mock.module("../../runtime/assistant-event-hub.js", () => ({
 // before the modules under test are loaded.
 const { HOST_TOOL_NAMES, HOST_TOOL_TO_CAPABILITY, isToolActiveForContext } =
   await import("../conversation-tool-setup.js");
-type SkillProjectionContext =
-  import("../conversation-tool-setup.js").SkillProjectionContext;
 type SkillProjectionCache =
   import("../conversation-skill-tools.js").SkillProjectionCache;
 
 function makeCtx(
-  overrides: Partial<SkillProjectionContext> = {},
-): SkillProjectionContext {
+  overrides: Partial<Omit<Conversation, "channelCapabilities">> & {
+    channelCapabilities?: Partial<ChannelCapabilities>;
+  } = {},
+): Conversation {
   return {
     skillProjectionState: new Map(),
     skillProjectionCache: {} as SkillProjectionCache,
-    coreToolNames: new Set<string>(),
     toolsDisabledDepth: 0,
     ...overrides,
-  };
+  } as unknown as Conversation;
 }
 
 beforeEach(() => {

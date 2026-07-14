@@ -1,8 +1,10 @@
 /**
- * Listening-state waves for the voice room: layered sine waves that rise from
- * the bottom edge of the screen as the user speaks — the visual language of
- * energy coming *in* (the user's voice arriving), the counterpart to the
- * assistant's outward `responding` pulse on the avatar.
+ * Listening-state waves for the voice room: layered sine waves that swell as
+ * the user speaks — the visual language of energy coming *in* (the user's
+ * voice arriving), the counterpart to the assistant's outward `responding`
+ * pulse on the avatar. `placement` anchors the band: `top` sweeps in from the
+ * ceiling edge (both looks — above the centerpiece, leaving it clear), `bottom`
+ * rises from the floor edge, `center` is a symmetric band around the middle.
  *
  * The waves always drift horizontally (a slow CSS loop); the user's live mic
  * amplitude drives how high they rise and how bright they are, written
@@ -64,19 +66,30 @@ export type VoiceWaveStyle = "fill" | "line";
 /**
  * Color language: `aurora` is the fixed cyan→indigo accent (matches the
  * listening sonar); `accent` tints the waves from the assistant's avatar color
- * (`--avatar-accent`).
+ * (`--avatar-accent`); `tone` follows the room foreground (`--room-fg`) so the
+ * waves read on any solid avatar-color background (the color look).
  */
-export type VoiceWavePalette = "aurora" | "accent";
+export type VoiceWavePalette = "aurora" | "accent" | "tone";
+
+/**
+ * Where the wave band sits: `top` sweeps in from the ceiling edge (both room
+ * looks — the voice arriving above the centered eyes / avatar, leaving the
+ * centerpiece clear), `bottom` rises from the floor edge, `center` swells
+ * symmetrically around the middle of the screen.
+ */
+export type VoiceWavePlacement = "bottom" | "top" | "center";
 
 export function VoiceListeningWaves({
   getAmplitude,
   waveStyle = "fill",
   palette = "aurora",
+  placement = "bottom",
 }: {
   /** Mic amplitude source (0–1), polled in a rAF loop. */
   getAmplitude: () => number;
   waveStyle?: VoiceWaveStyle;
   palette?: VoiceWavePalette;
+  placement?: VoiceWavePlacement;
 }) {
   const ref = useRef<HTMLDivElement | null>(null);
   const getAmplitudeRef = useRef(getAmplitude);
@@ -112,22 +125,40 @@ export function VoiceListeningWaves({
 
   const buildPath = waveStyle === "line" ? wavePathLine : wavePathFill;
 
+  const layers = () =>
+    WAVE_LAYERS.map((layer) => (
+      <svg
+        key={layer.modifier}
+        className={`voice-wave voice-wave--${layer.modifier}`}
+        viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
+        preserveAspectRatio="none"
+      >
+        <path d={buildPath(layer.amplitude, layer.cycles, layer.phase)} />
+      </svg>
+    ));
+
+  const className = `voice-listening-waves voice-listening-waves--${waveStyle} voice-listening-waves--${palette} voice-listening-waves--${placement}`;
+
+  // Center: the wave fill hugs the bottom edge of its box, so a merely
+  // centered box would still read low. Mirror the band into two halves that
+  // meet at the midline — the fill hugs the center line from above and below,
+  // its wavy edges rippling outward — for a waveform that is visually centered.
+  if (placement === "center") {
+    return (
+      <div ref={ref} className={className} aria-hidden>
+        <div className="voice-listening-waves__half voice-listening-waves__half--top">
+          {layers()}
+        </div>
+        <div className="voice-listening-waves__half voice-listening-waves__half--bottom">
+          {layers()}
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div
-      ref={ref}
-      className={`voice-listening-waves voice-listening-waves--${waveStyle} voice-listening-waves--${palette}`}
-      aria-hidden
-    >
-      {WAVE_LAYERS.map((layer) => (
-        <svg
-          key={layer.modifier}
-          className={`voice-wave voice-wave--${layer.modifier}`}
-          viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
-          preserveAspectRatio="none"
-        >
-          <path d={buildPath(layer.amplitude, layer.cycles, layer.phase)} />
-        </svg>
-      ))}
+    <div ref={ref} className={className} aria-hidden>
+      {layers()}
     </div>
   );
 }

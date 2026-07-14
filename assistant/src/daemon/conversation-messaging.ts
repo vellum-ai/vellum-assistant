@@ -625,6 +625,12 @@ export interface PersistMessageOptions {
   metadata?: Record<string, unknown>;
   displayContent?: string;
   clientMessageId?: string;
+  /**
+   * Persist the row without indexing it (no memory segments, embeddings, or
+   * lexical-index entry). For machine-authored prompts that must not enter
+   * memory or search; see `ProcessMessageOptions.skipUserMessageIndexing`.
+   */
+  skipIndexing?: boolean;
 }
 
 // ── persistUserMessage ───────────────────────────────────────────────
@@ -721,6 +727,7 @@ export async function persistQueuedMessageBody(
     metadata,
     displayContent,
     clientMessageId,
+    skipIndexing,
   } = options;
   const attachmentInputs: MessageAttachmentInput[] = attachments.map(
     (attachment) => ({
@@ -823,7 +830,12 @@ export async function persistQueuedMessageBody(
       ctx.conversationId,
       "user",
       contentToPersist,
-      { metadata: mergedMetadata, clientMessageId, id: requestId },
+      {
+        metadata: mergedMetadata,
+        clientMessageId,
+        id: requestId,
+        ...(skipIndexing ? { skipIndexing: true } : {}),
+      },
     );
 
     if (persistedUserMessage.deduplicated) {

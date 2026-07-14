@@ -204,7 +204,14 @@ async function incrementalSync(
   let nextSyncToken: string | undefined;
 
   do {
-    const query: Record<string, string> = { syncToken };
+    // Match fetchInitialSyncToken's query shape. Google's sync guide asks that
+    // allowed params stay consistent between initial and incremental requests.
+    // The sync stream is intentionally kept COLLAPSED (no singleEvents): a
+    // single change to a recurring series then yields one changed parent event
+    // rather than one event per expanded instance, which would otherwise flood
+    // the watcher/LLM. Instance expansion happens only in the bounded display
+    // query (fallbackFetch), which pairs singleEvents with a timeMin window.
+    const query: Record<string, string> = { syncToken, maxResults: "250" };
     if (pageToken) query.pageToken = pageToken;
 
     const resp = await connection.request({
@@ -238,6 +245,72 @@ async function incrementalSync(
   return { items: allItems, nextSyncToken };
 }
 
+/**
+ * Establish the initial syncToken (stored as the watermark).
+ *
+ * Sends a bare listing request (maxResults only) that does NOT carry timeMin
+ * or other filter params — Google withholds nextSyncToken when the request is
+ * filtered. The resulting syncToken encodes the current calendar state so
+ * subsequent incrementalSync() calls detect changes without needing a time
+ * window.
+ *
+ * singleEvents is deliberately omitted so the sync stream stays collapsed: a
+ * change to a recurring series yields one changed parent event rather than one
+ * event per expanded instance (which would flood the watcher, especially for
+ * open-ended recurrences that have no expansion bound). Instances are expanded
+ * only in the bounded display query (fallbackFetch), which pairs singleEvents
+ * with a timeMin window.
+ *
+ * Google's sync guide says params must be "consistent" between initial and
+ * incremental requests to avoid undefined behavior: incrementalSync() omits
+ * timeMin (it's forbidden with syncToken) and sends the same consistent subset
+ * (syncToken + maxResults).
+ *
+ * Returns no items; the watermark marks the current point so the first
+ * incremental sync picks up only events that change afterward.
+ */
+async function fetchInitialSyncToken(
+  connection: OAuthConnection,
+): Promise<string | undefined> {
+  let pageToken: string | undefined;
+  let syncToken: string | undefined;
+
+  do {
+    // Google withholds nextSyncToken on filtered requests — no timeMin. Also no
+    // singleEvents: the token stream stays collapsed so a recurring-series edit
+    // surfaces as one changed parent, not one event per expanded instance.
+    const query: Record<string, string> = {
+      maxResults: "250",
+    };
+    if (pageToken) query.pageToken = pageToken;
+
+    const resp = await connection.request({
+      method: "GET",
+      path: "/calendars/primary/events",
+      query,
+      baseUrl: GOOGLE_CALENDAR_BASE_URL,
+    });
+
+    if (resp.status < 200 || resp.status >= 300) {
+      const bodyStr =
+        typeof resp.body === "string"
+          ? resp.body
+          : JSON.stringify(resp.body ?? "");
+      throw new CalendarApiError(
+        resp.status,
+        "",
+        `Calendar API ${resp.status}: ${bodyStr}`,
+      );
+    }
+
+    const page = (resp.body ?? {}) as CalendarEventsListResponse;
+    syncToken = page.nextSyncToken;
+    pageToken = page.nextPageToken;
+  } while (pageToken && !syncToken);
+
+  return syncToken;
+}
+
 class SyncTokenExpiredError extends Error {
   constructor(message: string) {
     super(message);
@@ -253,24 +326,7 @@ export const googleCalendarProvider: WatcherProvider = {
   async getInitialWatermark(credentialService: string): Promise<string> {
     const connection = await resolveOAuthConnection(credentialService);
 
-    // Do a full sync with a narrow window to get the initial syncToken.
-    // The API may paginate even for small result sets, so follow nextPageToken
-    // until we reach the final page that carries the nextSyncToken.
-    const now = new Date().toISOString();
-    let pageToken: string | undefined;
-    let syncToken: string | undefined;
-
-    do {
-      const result = await listEvents(connection, "primary", {
-        timeMin: now,
-        maxResults: 250,
-        singleEvents: true,
-        pageToken,
-      });
-      syncToken = result.nextSyncToken;
-      pageToken = result.nextPageToken;
-    } while (pageToken && !syncToken);
-
+    const syncToken = await fetchInitialSyncToken(connection);
     if (!syncToken) {
       throw new Error("Calendar API did not return a syncToken");
     }
@@ -286,22 +342,8 @@ export const googleCalendarProvider: WatcherProvider = {
     const connection = await resolveOAuthConnection(credentialService);
 
     if (!watermark) {
-      // No watermark — paginate through to get the initial syncToken, return no items
-      const now = new Date().toISOString();
-      let pageToken: string | undefined;
-      let syncToken: string | undefined;
-
-      do {
-        const result = await listEvents(connection, "primary", {
-          timeMin: now,
-          maxResults: 250,
-          singleEvents: true,
-          pageToken,
-        });
-        syncToken = result.nextSyncToken;
-        pageToken = result.nextPageToken;
-      } while (pageToken && !syncToken);
-
+      // No watermark — establish the initial syncToken and return no items.
+      const syncToken = await fetchInitialSyncToken(connection);
       return { items: [], watermark: syncToken ?? "" };
     }
 
@@ -358,20 +400,10 @@ async function fallbackFetch(
     eventToItem(event, "new_calendar_event"),
   );
 
-  // Paginate through to get a fresh syncToken for the next watermark
-  let pageToken: string | undefined;
-  let syncToken: string | undefined;
-
-  do {
-    const syncResult = await listEvents(connection, "primary", {
-      timeMin: now,
-      maxResults: 250,
-      singleEvents: true,
-      pageToken,
-    });
-    syncToken = syncResult.nextSyncToken;
-    pageToken = syncResult.nextPageToken;
-  } while (pageToken && !syncToken);
+  // Re-establish a fresh syncToken for the next watermark via the same
+  // paging-only request as initialization; a filtered request would withhold
+  // nextSyncToken.
+  const syncToken = await fetchInitialSyncToken(connection);
 
   return { items, watermark: syncToken ?? "" };
 }

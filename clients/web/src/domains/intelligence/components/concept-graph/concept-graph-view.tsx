@@ -8,9 +8,11 @@ import { Button } from "@vellumai/design-library";
 
 import { buildForceLayout } from "./build-force-layout";
 import { ConceptDetailPanel, type ConceptDetailNode } from "./concept-detail-panel";
+import { ConceptGraphIntroBanner } from "./concept-graph-intro-banner";
 import { ConceptGraphLegend } from "./concept-graph-legend";
 import { EDGE_LEARNED_COLOR, NODE_KIND_COLORS } from "./constants";
 import type { ConceptNodeKind, GraphLayoutNode } from "./types";
+import { useGraphIntroDismissed } from "./use-graph-intro-dismissed";
 
 const NODE_KIND_ORDER: ConceptNodeKind[] = [
   "concept",
@@ -29,6 +31,13 @@ const DEPTH_ALPHA_MIN = 0.32;
 const MIN_ZOOM = 0.45;
 const MAX_ZOOM = 3;
 const HUB_LABEL_DEGREE = 4;
+
+// Recency emphasis: recently-updated concepts glow brighter, and the freshest
+// gently pulse, so the map reads as alive and "what did it just learn?" pops.
+const DAY_MS = 24 * 60 * 60 * 1000;
+const RECENCY_GLOW_WINDOW_MS = 14 * DAY_MS; // recency fades out over ~2 weeks
+const RECENCY_GLOW_MAX = 12; // extra shadowBlur at peak freshness
+const PULSE_WINDOW_MS = 2 * DAY_MS; // newer than this → pulses (unless reduced motion)
 
 interface Projected {
   id: string;
@@ -56,6 +65,9 @@ export interface ConceptGraphViewProps {
   className?: string;
   isFullscreen?: boolean;
   onToggleFullscreen?: () => void;
+  /** Opens a fresh chat seeded with a message; wired to the node detail drawer's
+   * chat-from-node actions. When absent, those actions are hidden. */
+  onOpenThread?: (message: string) => void;
 }
 
 function CenteredMessage({ title, detail }: { title: string; detail?: string }) {
@@ -84,6 +96,7 @@ export function ConceptGraphView({
   className,
   isFullscreen,
   onToggleFullscreen,
+  onOpenThread,
 }: ConceptGraphViewProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -156,6 +169,10 @@ export function ConceptGraphView({
   // The concept opened into the detail drawer (null = graph only).
   const [openNode, setOpenNode] = useState<ConceptDetailNode | null>(null);
 
+  // First-run explainer: shown over the graph (empty or populated) until the
+  // user dismisses it; the dismissal sticks per-assistant.
+  const [introDismissed, dismissIntro] = useGraphIntroDismissed(assistantId);
+
   const labelFor = useCallback(
     (id: string | null): string | null => {
       if (!id) {return null;}
@@ -227,6 +244,7 @@ export function ConceptGraphView({
       last = t;
       const v = view.current;
       const colors = colorsRef.current;
+      const nowMs = Date.now();
 
       const idle = !v.dragging && t - v.lastInteractAt > IDLE_RESUME_MS;
       if (idle && !reduceMotion) {
@@ -322,7 +340,21 @@ export function ConceptGraphView({
         const depthA = DEPTH_ALPHA_MIN + (1 - DEPTH_ALPHA_MIN) * p.depth;
         const alpha = lit ? depthA : depthA * 0.18;
 
-        const glow = (isActive ? 16 : node.degree >= HUB_LABEL_DEGREE ? 8 : 4) * p.depth;
+        let glow = (isActive ? 16 : node.degree >= HUB_LABEL_DEGREE ? 8 : 4) * p.depth;
+        // Recency: fresh concepts glow brighter; the very newest pulse. Static
+        // (no pulse) under reduced motion, which only ever redraws on input.
+        const updatedAtMs = node.updatedAtMs;
+        if (updatedAtMs) {
+          const age = nowMs - updatedAtMs;
+          const recency = Math.max(0, 1 - age / RECENCY_GLOW_WINDOW_MS);
+          if (recency > 0) {
+            let boost = recency * RECENCY_GLOW_MAX;
+            if (!reduceMotion && age < PULSE_WINDOW_MS) {
+              boost *= 0.55 + 0.45 * Math.sin(t / 420 + idx * 1.7);
+            }
+            glow += boost * p.depth;
+          }
+        }
         ctx.shadowColor = color;
         ctx.shadowBlur = lit ? glow : 0;
 
@@ -504,6 +536,10 @@ export function ConceptGraphView({
   const hasLearned = useMemo(() => layout.edges.some((e) => e.kind === "learned"), [layout.edges]);
   const hasLinks = useMemo(() => layout.edges.some((e) => e.kind !== "learned"), [layout.edges]);
 
+  // The intro banner shows over a supported graph (empty or populated), never
+  // over the loading / error / unsupported states.
+  const showIntro = query.data?.kind === "ready" && !introDismissed;
+
   let body: React.ReactNode;
   if (query.isLoading) {
     body = (
@@ -546,7 +582,7 @@ export function ConceptGraphView({
           hasLearned={hasLearned}
         />
 
-        {focusLabel ? (
+        {focusLabel && !showIntro ? (
           <div
             className="pointer-events-none absolute left-1/2 top-4 max-w-[80%] -translate-x-1/2 truncate rounded-full px-3 py-1 text-[12px]"
             style={{
@@ -622,6 +658,8 @@ export function ConceptGraphView({
         </div>
       ) : null}
 
+      {showIntro ? <ConceptGraphIntroBanner onDismiss={dismissIntro} /> : null}
+
       {body}
 
       {ready && openNode ? (
@@ -629,6 +667,7 @@ export function ConceptGraphView({
           assistantId={assistantId}
           node={openNode}
           onClose={() => setOpenNode(null)}
+          onOpenThread={onOpenThread}
         />
       ) : null}
     </div>

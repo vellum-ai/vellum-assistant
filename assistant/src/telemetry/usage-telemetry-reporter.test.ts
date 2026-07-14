@@ -171,49 +171,11 @@ mock.module("./turn-trace-store.js", () => ({
   isTurnSettled: mockIsTurnSettled,
 }));
 
-const mockQueryUnreportedLifecycleEvents = mock(
-  () =>
-    [] as {
-      id: string;
-      eventName: string;
-      createdAt: number;
-    }[],
-);
-
-mock.module("../persistence/lifecycle-events-store.js", () => ({
-  queryUnreportedLifecycleEvents: mockQueryUnreportedLifecycleEvents,
-}));
-
-const mockQueryUnreportedOnboardingEvents = mock(
-  () =>
-    [] as {
-      id: string;
-      createdAt: number;
-      screen: string;
-      toolsJson: string | null;
-      tasksJson: string | null;
-      tone: string | null;
-      googleConnected: boolean | null;
-      googleScopesJson: string | null;
-      priorAssistantsJson: string | null;
-      abVariant: string | null;
-      sessionId: string | null;
-      stepName: string | null;
-      stepIndex: number | null;
-      completedAt: string | null;
-      funnelVersion: string | null;
-    }[],
-);
-
-mock.module("../onboarding/onboarding-events-store.js", () => ({
-  queryUnreportedOnboardingEvents: mockQueryUnreportedOnboardingEvents,
-}));
-
-// The auth-fallback, tool-executed, and skill-loaded stores are intentionally
-// NOT mocked — they have their own DB-backed tests, and Bun's `mock.module`
-// is process-global, so mocking them here would leak into those tests when
-// files share an invocation. We seed the real DB instead so every test stays
-// order-independent.
+// The auth-fallback, tool-executed, and skill-loaded stores are
+// intentionally NOT mocked — they have their own DB-backed tests, and Bun's
+// `mock.module` is process-global, so mocking them here would leak into those
+// tests when files share an invocation. We seed the real DB instead so every
+// test stays order-independent.
 
 // ---------------------------------------------------------------------------
 // Production import (after mocks)
@@ -224,13 +186,16 @@ import {
   TOOL_INVOCATION_PII_SENTINEL as TOOL_PII_SENTINEL,
   type ToolInvocationSeedSpec,
 } from "../__tests__/test-support/tool-invocation-seed.js";
+import {
+  recordActivationEvent,
+  recordOnboardingEvent,
+} from "../onboarding/onboarding-events-store.js";
 import { getDb, getTelemetryDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
+import { recordLifecycleEvent } from "../persistence/lifecycle-events-store.js";
 import {
-  authFallbackEvents,
-  configSettingEvents,
   conversations,
-  skillLoadedEvents,
+  telemetryEvents,
   toolInvocations,
 } from "../persistence/schema/index.js";
 import { recordAuthFallbackCounts } from "../security/auth-fallback-events-store.js";
@@ -245,11 +210,19 @@ import {
   ALL_TELEMETRY_EVENT_SOURCES,
   DAEMON_TELEMETRY_EVENT_SOURCES,
   MONITOR_TELEMETRY_EVENT_SOURCES,
+  outboxSource,
+  type TelemetryEventSource,
 } from "./telemetry-event-sources.js";
+import {
+  insertTelemetryOutboxEvent,
+  queryTelemetryOutboxBatch,
+} from "./telemetry-events-outbox.js";
+import type { OutboxTelemetryEventName, TelemetryEvent } from "./types.js";
 import {
   initToolExecutedWatermarkIfAbsent,
   UsageTelemetryReporter,
 } from "./usage-telemetry-reporter.js";
+import { recordWatchdogEvent } from "./watchdog-events-store.js";
 
 /**
  * Construct a reporter wired to the in-memory checkpoint fake. All tests go
@@ -307,34 +280,6 @@ function makeUsageEvent(
     conversationType: "standard",
     turnIndex: 1,
     llmCallCount: 1,
-    ...overrides,
-  };
-}
-
-type OnboardingEventFixture = ReturnType<
-  typeof mockQueryUnreportedOnboardingEvents
->[number];
-
-function makeOnboardingEvent(
-  overrides: Partial<OnboardingEventFixture> = {},
-): OnboardingEventFixture {
-  eventIdCounter += 1;
-  return {
-    id: `onb-${eventIdCounter}`,
-    createdAt: 1700000000000 + eventIdCounter * 1000,
-    screen: "tools",
-    toolsJson: null,
-    tasksJson: null,
-    tone: null,
-    googleConnected: null,
-    googleScopesJson: null,
-    priorAssistantsJson: null,
-    abVariant: null,
-    sessionId: null,
-    stepName: null,
-    stepIndex: null,
-    completedAt: null,
-    funnelVersion: null,
     ...overrides,
   };
 }
@@ -400,14 +345,8 @@ beforeEach(() => {
   mockQueryUnreportedUsageEvents.mockReset();
   mockQueryUnreportedTurnEvents.mockReset();
   mockQueryUnreportedTurnEvents.mockReturnValue([]);
-  mockQueryUnreportedLifecycleEvents.mockReset();
-  mockQueryUnreportedLifecycleEvents.mockReturnValue([]);
-  mockQueryUnreportedOnboardingEvents.mockReset();
-  mockQueryUnreportedOnboardingEvents.mockReturnValue([]);
   getDb().delete(toolInvocations).run();
-  getTelemetryDb()!.delete(skillLoadedEvents).run();
-  getTelemetryDb()!.delete(authFallbackEvents).run();
-  getTelemetryDb()!.delete(configSettingEvents).run();
+  getTelemetryDb()!.delete(telemetryEvents).run();
   delete process.env.VELLUM_DISABLE_PLATFORM;
   delete process.env.IS_PLATFORM;
   mockGetPlatformBaseUrl.mockReset();
@@ -1642,25 +1581,19 @@ describe("UsageTelemetryReporter", () => {
     // No HTTP call should have been made
     expect(mockFetch).not.toHaveBeenCalled();
 
-    // All 9 timestamp watermarks should have been advanced, and all 9 ID
-    // watermarks pinned to the high-sorting sentinel (a truthy value keeps
-    // the compound-cursor branch active while closing its same-millisecond
-    // arm against opt-out rows).
-    expect(mockSetFlushCheckpoint).toHaveBeenCalledTimes(18);
+    // All 3 watermark-mode timestamp watermarks should have been advanced,
+    // and their 3 ID watermarks pinned to the high-sorting sentinel (a truthy
+    // value keeps the compound-cursor branch active while closing its
+    // same-millisecond arm against opt-out rows). Ack-mode sources
+    // (lifecycle, onboarding, auth_fallback, skill_loaded, watchdog,
+    // config_setting) discard their pending outbox rows instead and never
+    // touch `flush_checkpoints`.
+    expect(mockSetFlushCheckpoint).toHaveBeenCalledTimes(6);
 
     const calls = mockSetFlushCheckpoint.mock.calls;
     const keys = calls.map((c) => c[0]);
-    const eventTypes = [
-      "usage",
-      "turns",
-      "lifecycle",
-      "onboarding",
-      "auth_fallback",
-      "tool_executed",
-      "skill_loaded",
-      "watchdog",
-      "config_setting",
-    ];
+    expect(keys.some((k) => k.includes("skill_loaded"))).toBe(false);
+    const eventTypes = ["usage", "turns", "tool_executed"];
     for (const eventType of eventTypes) {
       expect(keys).toContain(`telemetry:${eventType}:last_reported_at`);
       const idCall = calls.find(
@@ -1668,6 +1601,11 @@ describe("UsageTelemetryReporter", () => {
       );
       expect(idCall?.[1]).toBe("ffffffff-ffff-ffff-ffff-ffffffffffff");
     }
+    expect(keys).not.toContain("telemetry:auth_fallback:last_reported_at");
+    expect(keys).not.toContain("telemetry:auth_fallback:last_reported_id");
+    expect(keys.some((k) => k.includes(":lifecycle:"))).toBe(false);
+    expect(keys).not.toContain("telemetry:onboarding:last_reported_at");
+    expect(keys).not.toContain("telemetry:onboarding:last_reported_id");
   });
 
   test("platform disabled takes precedence over consent off — watermarks NOT advanced", async () => {
@@ -1742,9 +1680,9 @@ describe("UsageTelemetryReporter", () => {
   //
   // The envelope's `assistant_version` is upload-time (always the current
   // binary). The per-event field is record-time (the binary that was running
-  // when the event was persisted to SQLite). In this PR only `llm_usage`
-  // events carry a true record-time value; turn events (and lifecycle /
-  // onboarding events, not asserted here) stamp the running binary's
+  // when the event was persisted to SQLite). `llm_usage` events and the
+  // outbox-backed types carry a true record-time value; turn events
+  // (not asserted here) stamp the running binary's
   // `APP_VERSION` directly until their respective follow-ups land.
   // Nullable llm_usage cases (legacy rows from before migration 267 ran)
   // fall back to the running binary's `APP_VERSION` rather than emitting
@@ -1908,7 +1846,7 @@ describe("UsageTelemetryReporter", () => {
     expect(typeof body.events[0].daemon_event_id).toBe("string");
   });
 
-  test("auth_fallback watermark advances to the last reported row on success", async () => {
+  test("auth_fallback rows are deleted on success and never watermarked (ack mode)", async () => {
     mockQueryUnreportedUsageEvents.mockReturnValue([]);
     recordAuthFallbackCounts(1700000000000, 1700000001000, [
       {
@@ -1927,54 +1865,61 @@ describe("UsageTelemetryReporter", () => {
     mockFetch.mockImplementation(() =>
       Promise.resolve(new Response('{"accepted":2}', { status: 200 })),
     );
-
-    // The last row by the reporter's (createdAt, id) cursor order is the one
-    // whose watermark should be persisted after a successful upload.
-    const rows = getTelemetryDb()!
-      .select()
-      .from(authFallbackEvents)
-      .orderBy(authFallbackEvents.createdAt, authFallbackEvents.id)
-      .all();
-    const lastRow = rows[rows.length - 1];
+    expect(queryTelemetryOutboxBatch("auth_fallback", 10)).toHaveLength(2);
 
     const reporter = makeReporter();
     await reporter.flush();
 
-    const watermarkCalls = mockSetFlushCheckpoint.mock.calls.filter(
-      (c) => c[0] === "telemetry:auth_fallback:last_reported_at",
+    // Both rows shipped, were acknowledged (deleted), and no auth_fallback
+    // watermark was ever written — ack-mode sources bypass flush_checkpoints.
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
     );
-    expect(watermarkCalls.length).toBeGreaterThanOrEqual(1);
-    expect(watermarkCalls[watermarkCalls.length - 1][1]).toBe(
-      String(lastRow.createdAt),
+    expect(
+      body.events.filter((e: { type: string }) => e.type === "auth_fallback"),
+    ).toHaveLength(2);
+    expect(queryTelemetryOutboxBatch("auth_fallback", 10)).toHaveLength(0);
+    const authFallbackKeys = mockSetFlushCheckpoint.mock.calls.filter((c) =>
+      String(c[0]).startsWith("telemetry:auth_fallback:"),
+    );
+    expect(authFallbackKeys).toHaveLength(0);
+  });
+
+  test("auth_fallback rows survive a failed POST and re-ship on the next flush", async () => {
+    mockQueryUnreportedUsageEvents.mockReturnValue([]);
+    recordAuthFallbackCounts(1700000000000, 1700000001000, [
+      {
+        guard: "edge",
+        path: "/v1/messages",
+        failureKind: "missing_authorization",
+        count: 9,
+      },
+    ]);
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response("server error", { status: 500 })),
     );
 
-    const idCalls = mockSetFlushCheckpoint.mock.calls.filter(
-      (c) => c[0] === "telemetry:auth_fallback:last_reported_id",
+    const reporter = makeReporter();
+    await reporter.flush();
+    expect(queryTelemetryOutboxBatch("auth_fallback", 10)).toHaveLength(1);
+
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
     );
-    expect(idCalls.length).toBeGreaterThanOrEqual(1);
-    expect(idCalls[idCalls.length - 1][1]).toBe(lastRow.id);
+    await reporter.flush();
+    expect(queryTelemetryOutboxBatch("auth_fallback", 10)).toHaveLength(0);
   });
 
   // -------------------------------------------------------------------------
   // Onboarding / activation funnel events
   // -------------------------------------------------------------------------
 
-  test("activation onboarding row serializes funnel fields + deterministic daemon_event_id", async () => {
+  test("activation onboarding row flushes with funnel fields + deterministic daemon_event_id, then acks", async () => {
     mockQueryUnreportedUsageEvents.mockReturnValue([]);
     const sessionId = "sess-activation-1";
     const stepName = "activation_moment_1_complete";
-    mockQueryUnreportedOnboardingEvents.mockReturnValue([
-      makeOnboardingEvent({
-        id: "onb-activation-1",
-        screen: stepName,
-        abVariant: "variant-a",
-        sessionId,
-        stepName,
-        stepIndex: 1,
-        completedAt: "2026-06-06T00:00:00.000Z",
-        funnelVersion: ACTIVATION_FUNNEL_VERSION,
-      }),
-    ]);
+    const recorded = recordActivationEvent({ stepName, sessionId });
+    expect(recorded).not.toBeNull();
     mockFetch.mockImplementation(() =>
       Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
     );
@@ -1992,31 +1937,41 @@ describe("UsageTelemetryReporter", () => {
       session_id: sessionId,
       step_name: stepName,
       step_index: 1,
-      completed_at: "2026-06-06T00:00:00.000Z",
-      funnel_version: "activation_v1_2026_06",
+      funnel_version: ACTIVATION_FUNNEL_VERSION,
       daemon_event_id: buildActivationDaemonEventId(sessionId, stepName),
     });
+    // The wire id is the deterministic activation id, distinct from the
+    // outbox row id (a UUID) the ack deletes by.
+    expect(body.events[0].daemon_event_id).not.toBe(recorded!.id);
+    expect(queryTelemetryOutboxBatch("onboarding", 10)).toHaveLength(0);
   });
 
-  test("activation daemon_event_id is keyed on the row's stored funnel_version, not the binary constant", async () => {
+  test("queued activation row recorded under an older funnel version ships its frozen payload verbatim", async () => {
     mockQueryUnreportedUsageEvents.mockReturnValue([]);
-    const sessionId = "sess-activation-old";
-    const stepName = "activation_moment_1_complete";
-    // A row recorded under an OLDER funnel version, queued across an upgrade.
+    // The payload (including the deterministic daemon_event_id keyed on the
+    // OLD funnel version) was frozen at record time; a flush after a version
+    // bump must not restamp it with the new binary's constant.
     const oldVersion = "activation_v0_2026_05";
     expect(oldVersion).not.toBe(ACTIVATION_FUNNEL_VERSION);
-    mockQueryUnreportedOnboardingEvents.mockReturnValue([
-      makeOnboardingEvent({
-        id: "onb-activation-old",
-        screen: stepName,
-        abVariant: "variant-a",
-        sessionId,
-        stepName,
-        stepIndex: 1,
-        completedAt: "2026-05-01T00:00:00.000Z",
-        funnelVersion: oldVersion,
-      }),
-    ]);
+    const frozen: TelemetryEvent = {
+      type: "onboarding",
+      daemon_event_id: `${oldVersion}:sess-activation-old:activation_moment_1_complete`,
+      recorded_at: 1700000100000,
+      screen: "activation_moment_1_complete",
+      ab_variant: "variant-a",
+      session_id: "sess-activation-old",
+      step_name: "activation_moment_1_complete",
+      step_index: 1,
+      completed_at: "2026-05-01T00:00:00.000Z",
+      funnel_version: oldVersion,
+      assistant_version: "0.9.0-old",
+    };
+    insertTelemetryOutboxEvent({
+      id: "row-activation-old",
+      name: "onboarding",
+      createdAt: 1700000100000,
+      event: frozen,
+    });
     mockFetch.mockImplementation(() =>
       Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
     );
@@ -2027,29 +1982,16 @@ describe("UsageTelemetryReporter", () => {
     const body = JSON.parse(
       (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
     );
-    expect(body.events[0]).toMatchObject({
-      funnel_version: oldVersion,
-      daemon_event_id: buildActivationDaemonEventId(
-        sessionId,
-        stepName,
-        oldVersion,
-      ),
-    });
-    // Guard: the id must carry the row's version, not the binary constant.
-    expect(body.events[0].daemon_event_id).toBe(
-      `${oldVersion}:${sessionId}:${stepName}`,
-    );
+    expect(body.events).toEqual([frozen]);
   });
 
-  test("legacy onboarding row keeps daemon_event_id: e.id and omits funnel fields", async () => {
+  test("legacy onboarding row keeps daemon_event_id = row id and omits funnel fields", async () => {
     mockQueryUnreportedUsageEvents.mockReturnValue([]);
-    mockQueryUnreportedOnboardingEvents.mockReturnValue([
-      makeOnboardingEvent({
-        id: "onb-legacy-1",
-        screen: "tools",
-        toolsJson: JSON.stringify(["calendar"]),
-      }),
-    ]);
+    const recorded = recordOnboardingEvent({
+      screen: "tools",
+      tools: ["calendar"],
+    });
+    expect(recorded).not.toBeNull();
     mockFetch.mockImplementation(() =>
       Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
     );
@@ -2064,7 +2006,8 @@ describe("UsageTelemetryReporter", () => {
     expect(body.events.length).toBe(1);
     const e = body.events[0];
     expect(e.type).toBe("onboarding");
-    expect(e.daemon_event_id).toBe("onb-legacy-1");
+    expect(e.daemon_event_id).toBe(recorded!.id);
+    expect(e.tools).toEqual(["calendar"]);
     expect(e.session_id).toBeUndefined();
     expect(e.step_name).toBeUndefined();
     expect(e.step_index).toBeUndefined();
@@ -2527,51 +2470,35 @@ describe("UsageTelemetryReporter", () => {
     });
   });
 
-  test("skill_loaded watermark advances to the last reported row on success", async () => {
+  test("skill_loaded rows are deleted from the outbox after a 2xx, never via watermarks", async () => {
     mockQueryUnreportedUsageEvents.mockReturnValue([]);
     recordSkillLoadedEvent({ skillName: "web-research" });
     recordSkillLoadedEvent({ skillName: "tasks" });
+    expect(queryTelemetryOutboxBatch("skill_loaded", 10)).toHaveLength(2);
     mockFetch.mockImplementation(() =>
       Promise.resolve(new Response('{"accepted":2}', { status: 200 })),
     );
 
-    // The last row by the reporter's (createdAt, id) cursor order is the one
-    // whose watermark should be persisted after a successful upload.
-    const rows = getTelemetryDb()!
-      .select()
-      .from(skillLoadedEvents)
-      .orderBy(skillLoadedEvents.createdAt, skillLoadedEvents.id)
-      .all();
-    const lastRow = rows[rows.length - 1];
-
     const reporter = makeReporter();
     await reporter.flush();
 
-    const watermarkCalls = mockSetFlushCheckpoint.mock.calls.filter(
-      (c) => c[0] === "telemetry:skill_loaded:last_reported_at",
-    );
-    expect(watermarkCalls.length).toBeGreaterThanOrEqual(1);
-    expect(watermarkCalls[watermarkCalls.length - 1][1]).toBe(
-      String(lastRow.createdAt),
-    );
-
-    const idCalls = mockSetFlushCheckpoint.mock.calls.filter(
-      (c) => c[0] === "telemetry:skill_loaded:last_reported_id",
-    );
-    expect(idCalls.length).toBeGreaterThanOrEqual(1);
-    expect(idCalls[idCalls.length - 1][1]).toBe(lastRow.id);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(queryTelemetryOutboxBatch("skill_loaded", 10)).toHaveLength(0);
+    // Ack-mode: the skill_loaded source never touches flush_checkpoints.
+    expect(
+      mockSetFlushCheckpoint.mock.calls.some((c) =>
+        c[0].includes("skill_loaded"),
+      ),
+    ).toBe(false);
   });
 
-  test("batch recursion when skill_loaded returns a full batch, capped at 10", async () => {
+  test("a full skill_loaded batch drives recursion until the outbox drains", async () => {
     mockQueryUnreportedUsageEvents.mockReturnValue([]);
-    // Exactly BATCH_SIZE rows; the mocked checkpoints never persist, so each
-    // recursion re-reads the same full batch until the cap.
-    const fullBatch = Array.from({ length: 500 }, (_, i) => ({
-      id: `sle-batch-${String(i).padStart(3, "0")}`,
-      createdAt: 1700000000000 + i,
-      skillName: "web-research",
-    }));
-    getTelemetryDb()!.insert(skillLoadedEvents).values(fullBatch).run();
+    // BATCH_SIZE (500) + 1 rows: the first flush ships and deletes a full
+    // batch, and the fullBatch recursion ships the remaining row.
+    for (let i = 0; i < 501; i++) {
+      recordSkillLoadedEvent({ skillName: `skill-${i}` });
+    }
     mockFetch.mockImplementation(() =>
       Promise.resolve(new Response('{"accepted":500}', { status: 200 })),
     );
@@ -2579,8 +2506,8 @@ describe("UsageTelemetryReporter", () => {
     const reporter = makeReporter();
     await reporter.flush();
 
-    // MAX_CONSECUTIVE_BATCHES = 10
-    expect(mockFetch).toHaveBeenCalledTimes(10);
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    expect(queryTelemetryOutboxBatch("skill_loaded", 1000)).toHaveLength(0);
   });
 
   // -------------------------------------------------------------------------
@@ -2630,7 +2557,7 @@ describe("UsageTelemetryReporter", () => {
     });
   });
 
-  test("config_setting watermark advances to the last reported row on success", async () => {
+  test("config_setting rows are deleted on success and no watermark is written", async () => {
     mockQueryUnreportedUsageEvents.mockReturnValue([]);
     recordConfigSettingEvent({
       configKey: "memory.enabled",
@@ -2640,34 +2567,540 @@ describe("UsageTelemetryReporter", () => {
       configKey: "memory.v2.enabled",
       configValue: "true",
     });
+    expect(queryTelemetryOutboxBatch("config_setting", 10)).toHaveLength(2);
     mockFetch.mockImplementation(() =>
       Promise.resolve(new Response('{"accepted":2}', { status: 200 })),
     );
 
-    // The last row by the reporter's (createdAt, id) cursor order is the one
-    // whose watermark should be persisted after a successful upload.
-    const rows = getTelemetryDb()!
-      .select()
-      .from(configSettingEvents)
-      .orderBy(configSettingEvents.createdAt, configSettingEvents.id)
-      .all();
-    const lastRow = rows[rows.length - 1];
+    const reporter = makeReporter();
+    await reporter.flush();
+
+    // Ack-mode: acknowledged rows are deleted from the outbox instead of
+    // advancing a `flush_checkpoints` watermark.
+    expect(queryTelemetryOutboxBatch("config_setting", 10)).toHaveLength(0);
+    const watermarkKeys = mockSetFlushCheckpoint.mock.calls
+      .map((c) => c[0] as string)
+      .filter((key) => key.startsWith("telemetry:config_setting:"));
+    expect(watermarkKeys).toHaveLength(0);
+  });
+
+  test("config_setting rows survive a failed POST for the next flush", async () => {
+    mockQueryUnreportedUsageEvents.mockReturnValue([]);
+    recordConfigSettingEvent({
+      configKey: "memory.enabled",
+      configValue: "true",
+    });
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response("error", { status: 500 })),
+    );
 
     const reporter = makeReporter();
     await reporter.flush();
 
-    const watermarkCalls = mockSetFlushCheckpoint.mock.calls.filter(
-      (c) => c[0] === "telemetry:config_setting:last_reported_at",
-    );
-    expect(watermarkCalls.length).toBeGreaterThanOrEqual(1);
-    expect(watermarkCalls[watermarkCalls.length - 1][1]).toBe(
-      String(lastRow.createdAt),
+    expect(queryTelemetryOutboxBatch("config_setting", 10)).toHaveLength(1);
+  });
+
+  // -------------------------------------------------------------------------
+  // Watchdog events
+  // -------------------------------------------------------------------------
+
+  test("watchdog events ship the record-time payload with nested detail, then delete", async () => {
+    mockQueryUnreportedUsageEvents.mockReturnValue([]);
+    recordWatchdogEvent({
+      checkName: "event_loop_blocked",
+      value: 60000,
+      detail: { reason: "no_bytes_60s", threshold_ms: 5000 },
+    });
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
     );
 
-    const idCalls = mockSetFlushCheckpoint.mock.calls.filter(
-      (c) => c[0] === "telemetry:config_setting:last_reported_id",
+    const reporter = makeReporter();
+    await reporter.flush();
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
     );
-    expect(idCalls.length).toBeGreaterThanOrEqual(1);
-    expect(idCalls[idCalls.length - 1][1]).toBe(lastRow.id);
+    expect(body.events).toHaveLength(1);
+    expect(body.events[0]).toMatchObject({
+      type: "watchdog",
+      check_name: "event_loop_blocked",
+      value: 60000,
+      detail: { reason: "no_bytes_60s", threshold_ms: 5000 },
+      assistant_version: "1.2.3-test",
+    });
+    expect(typeof body.events[0].daemon_event_id).toBe("string");
+    expect(typeof body.events[0].recorded_at).toBe("number");
+    expect(queryTelemetryOutboxBatch("watchdog", 10)).toHaveLength(0);
+  });
+
+  // -------------------------------------------------------------------------
+  // Ack-mode sources (grouped `ack` field: acknowledge + discardPending)
+  // -------------------------------------------------------------------------
+
+  // Wire id deliberately differs from the row id: acknowledge must receive
+  // ROW ids, never wire daemon_event_ids.
+  function fakeWireEvent(rowId: string, createdAt: number): TelemetryEvent {
+    return {
+      type: "lifecycle",
+      daemon_event_id: `wire-${rowId}`,
+      event_name: "fake_event",
+      recorded_at: createdAt,
+      assistant_version: "1.2.3-test",
+    };
+  }
+
+  /**
+   * Ack-mode fake backed by a mutable in-memory row array: `collect` ignores
+   * the cursor args, `acknowledge` deletes the acknowledged rows, and
+   * `discardPending` drops everything — mirroring the outbox-store contract.
+   */
+  function makeAckSource(id: string, rowIds: string[] = []) {
+    let rows = rowIds.map((rowId, i) => ({
+      rowId,
+      createdAt: 1700000000000 + i,
+    }));
+    const acknowledge = mock((acked: string[]) => {
+      rows = rows.filter((r) => !acked.includes(r.rowId));
+    });
+    const discardPending = mock(() => {
+      rows = [];
+    });
+    const source: TelemetryEventSource = {
+      id,
+      collect(_afterCreatedAt, _afterId, limit) {
+        const batch = rows.slice(0, limit);
+        return {
+          events: batch.map((r) => fakeWireEvent(r.rowId, r.createdAt)),
+          rowIds: batch.map((r) => r.rowId),
+          lastCursor: null,
+          fullBatch: batch.length === limit,
+        };
+      },
+      ack: { acknowledge, discardPending },
+    };
+    return { source, acknowledge, discardPending, pending: () => rows.length };
+  }
+
+  function makeWatermarkSource(
+    id: string,
+    rowIds: string[] = [],
+  ): TelemetryEventSource {
+    const rows = rowIds.map((rowId, i) => ({
+      rowId,
+      createdAt: 1700000000000 + i,
+    }));
+    return {
+      id,
+      collect(_afterCreatedAt, _afterId, limit) {
+        const batch = rows.slice(0, limit);
+        const last = batch.length > 0 ? batch[batch.length - 1] : null;
+        return {
+          events: batch.map((r) => fakeWireEvent(r.rowId, r.createdAt)),
+          lastCursor: last
+            ? { createdAt: last.createdAt, id: last.rowId }
+            : null,
+          fullBatch: batch.length === limit,
+        };
+      },
+    };
+  }
+
+  test("ack-mode source: acknowledge receives ROW ids after a 2xx and no watermark keys are written", async () => {
+    const { source, acknowledge } = makeAckSource("fake_ack", [
+      "row-1",
+      "row-2",
+    ]);
+    const reporter = new UsageTelemetryReporter(
+      [source],
+      fakeFlushCheckpointStore,
+    );
+    await reporter.flush();
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    expect(
+      body.events.map((e: { daemon_event_id: string }) => e.daemon_event_id),
+    ).toEqual(["wire-row-1", "wire-row-2"]);
+    expect(acknowledge).toHaveBeenCalledTimes(1);
+    expect(acknowledge.mock.calls[0][0]).toEqual(["row-1", "row-2"]);
+    // Ack-mode sources never touch flush_checkpoints.
+    expect(mockSetFlushCheckpoint).not.toHaveBeenCalled();
+  });
+
+  test("acknowledge is NOT called when the POST fails", async () => {
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response("error", { status: 500 })),
+    );
+    const { source, acknowledge, pending } = makeAckSource("fake_ack", [
+      "row-1",
+    ]);
+    const reporter = new UsageTelemetryReporter(
+      [source],
+      fakeFlushCheckpointStore,
+    );
+    await reporter.flush();
+
+    expect(acknowledge).not.toHaveBeenCalled();
+    expect(pending()).toBe(1);
+    expect(mockSetFlushCheckpoint).not.toHaveBeenCalled();
+  });
+
+  test("acknowledge is NOT called when platform credentials are missing", async () => {
+    mockPlatformClient = null;
+    const { source, acknowledge, pending } = makeAckSource("fake_ack", [
+      "row-1",
+    ]);
+    const reporter = new UsageTelemetryReporter(
+      [source],
+      fakeFlushCheckpointStore,
+    );
+    await reporter.flush();
+
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(acknowledge).not.toHaveBeenCalled();
+    expect(pending()).toBe(1);
+  });
+
+  test("acknowledge is skipped for an empty ack batch shipped alongside a watermark source", async () => {
+    const { source: ackSource, acknowledge } = makeAckSource("fake_ack");
+    const wmSource = makeWatermarkSource("fake_wm", ["wm-1"]);
+    const reporter = new UsageTelemetryReporter(
+      [wmSource, ackSource],
+      fakeFlushCheckpointStore,
+    );
+    await reporter.flush();
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(acknowledge).not.toHaveBeenCalled();
+  });
+
+  test("opt-out: discardPending drops ack-mode rows while watermark sources get the sentinel pin", async () => {
+    mockGetCachedShareAnalytics.mockReturnValue(false);
+    const {
+      source: ackSource,
+      discardPending,
+      pending,
+    } = makeAckSource("fake_ack", ["row-1"]);
+    const wmSource = makeWatermarkSource("fake_wm", ["wm-1"]);
+    const reporter = new UsageTelemetryReporter(
+      [wmSource, ackSource],
+      fakeFlushCheckpointStore,
+    );
+    await reporter.flush();
+
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(discardPending).toHaveBeenCalledTimes(1);
+    expect(pending()).toBe(0);
+
+    const keys = mockSetFlushCheckpoint.mock.calls.map((c) => c[0]);
+    expect(keys).toContain("telemetry:fake_wm:last_reported_at");
+    const wmIdCall = mockSetFlushCheckpoint.mock.calls.find(
+      (c) => c[0] === "telemetry:fake_wm:last_reported_id",
+    );
+    expect(wmIdCall?.[1]).toBe("ffffffff-ffff-ffff-ffff-ffffffffffff");
+    expect(keys.some((k) => k.includes("fake_ack"))).toBe(false);
+  });
+
+  test("mixed watermark+ack sources flush in construction order, each acknowledged in its own mode", async () => {
+    const wmSource = makeWatermarkSource("fake_wm", ["wm-1", "wm-2"]);
+    const { source: ackSource, acknowledge } = makeAckSource("fake_ack", [
+      "row-1",
+    ]);
+    const reporter = new UsageTelemetryReporter(
+      [wmSource, ackSource],
+      fakeFlushCheckpointStore,
+    );
+    await reporter.flush();
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    expect(
+      body.events.map((e: { daemon_event_id: string }) => e.daemon_event_id),
+    ).toEqual(["wire-wm-1", "wire-wm-2", "wire-row-1"]);
+
+    expect(acknowledge).toHaveBeenCalledTimes(1);
+    expect(acknowledge.mock.calls[0][0]).toEqual(["row-1"]);
+
+    const wmAtCalls = mockSetFlushCheckpoint.mock.calls.filter(
+      (c) => c[0] === "telemetry:fake_wm:last_reported_at",
+    );
+    expect(wmAtCalls[wmAtCalls.length - 1][1]).toBe(String(1700000000001));
+    const wmIdCalls = mockSetFlushCheckpoint.mock.calls.filter(
+      (c) => c[0] === "telemetry:fake_wm:last_reported_id",
+    );
+    expect(wmIdCalls[wmIdCalls.length - 1][1]).toBe("wm-2");
+    expect(
+      mockSetFlushCheckpoint.mock.calls.some((c) => c[0].includes("fake_ack")),
+    ).toBe(false);
+  });
+
+  test("an ack-mode full batch drives recursion until the backlog drains", async () => {
+    // 501 rows: the first collect fills BATCH_SIZE (500), acknowledge drains
+    // them, and the fullBatch recursion ships the remaining row.
+    const rowIds = Array.from({ length: 501 }, (_, i) => `row-${i}`);
+    const { source, acknowledge, pending } = makeAckSource("fake_ack", rowIds);
+    const reporter = new UsageTelemetryReporter(
+      [source],
+      fakeFlushCheckpointStore,
+    );
+    await reporter.flush();
+
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    expect(acknowledge).toHaveBeenCalledTimes(2);
+    expect(acknowledge.mock.calls[0][0]).toHaveLength(500);
+    expect(acknowledge.mock.calls[1][0]).toEqual(["row-500"]);
+    expect(pending()).toBe(0);
+  });
+
+  /** Ack source whose collect returns events with broken rowIds. */
+  function makeBrokenAckSource(id: string, rowIds: string[] | undefined) {
+    const acknowledge = mock((_acked: string[]) => {});
+    const discardPending = mock(() => {});
+    const source: TelemetryEventSource = {
+      id,
+      collect() {
+        return {
+          events: [
+            fakeWireEvent("row-1", 1700000000000),
+            fakeWireEvent("row-2", 1700000000001),
+          ],
+          ...(rowIds ? { rowIds } : {}),
+          lastCursor: null,
+          fullBatch: false,
+        };
+      },
+      ack: { acknowledge, discardPending },
+    };
+    return { source, acknowledge };
+  }
+
+  test("an ack batch omitting rowIds ships nothing while other sources still ship", async () => {
+    const { source: brokenSource, acknowledge } = makeBrokenAckSource(
+      "fake_broken_ack",
+      undefined,
+    );
+    const wmSource = makeWatermarkSource("fake_wm", ["wm-1"]);
+    const reporter = new UsageTelemetryReporter(
+      [brokenSource, wmSource],
+      fakeFlushCheckpointStore,
+    );
+    await reporter.flush();
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    expect(
+      body.events.map((e: { daemon_event_id: string }) => e.daemon_event_id),
+    ).toEqual(["wire-wm-1"]);
+    expect(acknowledge).not.toHaveBeenCalled();
+    expect(
+      mockSetFlushCheckpoint.mock.calls.some((c) =>
+        c[0].includes("fake_broken_ack"),
+      ),
+    ).toBe(false);
+  });
+
+  test("an ack batch with mismatched rowIds ships nothing while other sources still ship", async () => {
+    const { source: brokenSource, acknowledge } = makeBrokenAckSource(
+      "fake_broken_ack",
+      ["row-1"],
+    );
+    const wmSource = makeWatermarkSource("fake_wm", ["wm-1"]);
+    const reporter = new UsageTelemetryReporter(
+      [brokenSource, wmSource],
+      fakeFlushCheckpointStore,
+    );
+    await reporter.flush();
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    expect(
+      body.events.map((e: { daemon_event_id: string }) => e.daemon_event_id),
+    ).toEqual(["wire-wm-1"]);
+    expect(acknowledge).not.toHaveBeenCalled();
+  });
+
+  // -------------------------------------------------------------------------
+  // outboxSource (real telemetry_events outbox behind an ack-mode source)
+  // -------------------------------------------------------------------------
+
+  // Synthetic name: these tests exercise the generic outbox machinery, not a
+  // shipped event type.
+  const OUTBOX_NAME = "test_outbox" as OutboxTelemetryEventName;
+
+  function seedOutboxRow(id: string, createdAt: number): void {
+    insertTelemetryOutboxEvent({
+      id,
+      name: OUTBOX_NAME,
+      createdAt,
+      event: fakeWireEvent(id, createdAt),
+    });
+  }
+
+  function pendingOutboxIds(): string[] {
+    return queryTelemetryOutboxBatch(OUTBOX_NAME, 1000).map((r) => r.id);
+  }
+
+  test("outboxSource ships pending rows and deletes them after a 2xx", async () => {
+    seedOutboxRow("ob-1", 1700000001000);
+    seedOutboxRow("ob-2", 1700000002000);
+    const reporter = new UsageTelemetryReporter(
+      [outboxSource(OUTBOX_NAME)],
+      fakeFlushCheckpointStore,
+    );
+    await reporter.flush();
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    expect(
+      body.events.map((e: { daemon_event_id: string }) => e.daemon_event_id),
+    ).toEqual(["wire-ob-1", "wire-ob-2"]);
+    expect(pendingOutboxIds()).toEqual([]);
+    // Ack-mode: flush_checkpoints untouched.
+    expect(mockSetFlushCheckpoint).not.toHaveBeenCalled();
+  });
+
+  test("outboxSource leaves rows intact when the POST fails", async () => {
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response("error", { status: 500 })),
+    );
+    seedOutboxRow("ob-1", 1700000001000);
+    const reporter = new UsageTelemetryReporter(
+      [outboxSource(OUTBOX_NAME)],
+      fakeFlushCheckpointStore,
+    );
+    await reporter.flush();
+
+    expect(pendingOutboxIds()).toEqual(["ob-1"]);
+    expect(mockSetFlushCheckpoint).not.toHaveBeenCalled();
+  });
+
+  test("outboxSource opt-out discards all pending rows for the name", async () => {
+    mockGetCachedShareAnalytics.mockReturnValue(false);
+    seedOutboxRow("ob-1", 1700000001000);
+    seedOutboxRow("ob-2", 1700000002000);
+    const reporter = new UsageTelemetryReporter(
+      [outboxSource(OUTBOX_NAME)],
+      fakeFlushCheckpointStore,
+    );
+    await reporter.flush();
+
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(pendingOutboxIds()).toEqual([]);
+    expect(mockSetFlushCheckpoint).not.toHaveBeenCalled();
+  });
+
+  test("outboxSource purges corrupt-payload rows at collect while valid siblings ship", async () => {
+    // Raw inserts: the store API only writes JSON.stringify-ed events, so
+    // corrupt payloads (invalid JSON, non-object JSON) go in directly.
+    getTelemetryDb()!
+      .insert(telemetryEvents)
+      .values([
+        {
+          id: "ob-corrupt-json",
+          name: OUTBOX_NAME,
+          createdAt: 1700000001000,
+          conversationId: null,
+          payload: "{not json",
+        },
+        {
+          id: "ob-non-object",
+          name: OUTBOX_NAME,
+          createdAt: 1700000002000,
+          conversationId: null,
+          payload: "42",
+        },
+      ])
+      .run();
+    seedOutboxRow("ob-valid", 1700000003000);
+    const reporter = new UsageTelemetryReporter(
+      [outboxSource(OUTBOX_NAME)],
+      fakeFlushCheckpointStore,
+    );
+    await reporter.flush();
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    expect(
+      body.events.map((e: { daemon_event_id: string }) => e.daemon_event_id),
+    ).toEqual(["wire-ob-valid"]);
+    // Corrupt rows are gone (purged at collect), the valid row via ack.
+    expect(pendingOutboxIds()).toEqual([]);
+  });
+
+  test("a full outbox batch drives recursion until the backlog drains", async () => {
+    // 501 rows: the first collect fills BATCH_SIZE (500) and the fullBatch
+    // recursion ships the remaining row.
+    for (let i = 0; i < 501; i++) {
+      seedOutboxRow(`ob-${String(i).padStart(3, "0")}`, 1700000000000 + i);
+    }
+    const reporter = new UsageTelemetryReporter(
+      [outboxSource(OUTBOX_NAME)],
+      fakeFlushCheckpointStore,
+    );
+    await reporter.flush();
+
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    const secondBody = JSON.parse(
+      (mockFetch.mock.calls[1] as [string, RequestInit])[1].body as string,
+    );
+    expect(secondBody.events).toHaveLength(1);
+    expect(pendingOutboxIds()).toEqual([]);
+  });
+
+  // -------------------------------------------------------------------------
+  // Lifecycle events (outbox-backed)
+  // -------------------------------------------------------------------------
+
+  test("a recorded lifecycle event flushes once and its outbox row is deleted", async () => {
+    mockQueryUnreportedUsageEvents.mockReturnValue([]);
+    const recorded = recordLifecycleEvent("app_open");
+    expect(recorded).not.toBeNull();
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
+    );
+
+    const reporter = makeReporter();
+    await reporter.flush();
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    expect(body.events).toHaveLength(1);
+    // The stored payload IS the wire event — record-time version included.
+    expect(body.events[0]).toEqual({
+      type: "lifecycle",
+      daemon_event_id: recorded!.id,
+      event_name: "app_open",
+      recorded_at: recorded!.createdAt,
+      assistant_version: "1.2.3-test",
+    });
+    // Delete-on-flush: the outbox row is gone, and lifecycle (ack-mode)
+    // never touches flush_checkpoints.
+    expect(queryTelemetryOutboxBatch("lifecycle", 10)).toEqual([]);
+    expect(
+      mockSetFlushCheckpoint.mock.calls.some((c) =>
+        c[0].includes(":lifecycle:"),
+      ),
+    ).toBe(false);
+
+    // A second flush finds nothing pending — the event never re-ships.
+    mockFetch.mockClear();
+    await reporter.flush();
+    expect(mockFetch).not.toHaveBeenCalled();
   });
 });

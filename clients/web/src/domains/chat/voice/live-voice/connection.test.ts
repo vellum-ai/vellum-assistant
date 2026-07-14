@@ -206,8 +206,9 @@ describe("buildSelfHostedLiveVoiceWsUrl", () => {
     expect(url.pathname).toBe("/v1/live-voice");
   });
 
-  test("preserves the ingress path prefix (local Docker proxy) and drops query/hash", () => {
-    // Local mode reaches the gateway at a path-based proxy under the SPA origin.
+  test("local __gateway proxy path: dials the loopback gateway port directly", () => {
+    // The HTTP-only __gateway proxy can't carry a WS upgrade, so live-voice must
+    // bypass it and hit 127.0.0.1:<port> directly. Origin host + prefix dropped.
     const url = new URL(
       buildSelfHostedLiveVoiceWsUrl({
         ingressUrl: "http://localhost:3000/assistant/__gateway/7821?a=1#frag",
@@ -216,13 +217,43 @@ describe("buildSelfHostedLiveVoiceWsUrl", () => {
       }),
     );
     expect(url.protocol).toBe("ws:");
-    expect(url.host).toBe("localhost:3000");
-    // Prefix preserved, /v1/live-voice appended — matches the HTTP interceptor.
-    expect(url.pathname).toBe("/assistant/__gateway/7821/v1/live-voice");
+    expect(url.host).toBe("127.0.0.1:7821");
+    expect(url.pathname).toBe("/v1/live-voice");
     expect(url.hash).toBe("");
     expect(url.searchParams.get("a")).toBeNull();
     expect(url.searchParams.get("token")).toBe("actor-tok");
     expect(url.searchParams.get("conversationId")).toBe("conv-xyz");
+  });
+
+  test("local __gateway path bypasses even an https origin (Electron app://-style)", () => {
+    // The bypass keys off the proxy path, not the origin scheme, so a live-voice
+    // WS never rides the same-origin proxy regardless of host.
+    const url = new URL(
+      buildSelfHostedLiveVoiceWsUrl({
+        ingressUrl: "https://app.example/assistant/__gateway/18101",
+        token: "actor-tok",
+      }),
+    );
+    expect(url.protocol).toBe("ws:");
+    expect(url.host).toBe("127.0.0.1:18101");
+    expect(url.pathname).toBe("/v1/live-voice");
+  });
+
+  test("remote ingress (no __gateway path) keeps its host and appends the route", () => {
+    // A real remote gateway ingress is dialled as-is — only the local proxy path
+    // is rewritten to loopback.
+    const url = new URL(
+      buildSelfHostedLiveVoiceWsUrl({
+        ingressUrl: "https://x.ngrok-free.app/gw?a=1#frag",
+        token: "actor-tok",
+      }),
+    );
+    expect(url.protocol).toBe("wss:");
+    expect(url.host).toBe("x.ngrok-free.app");
+    expect(url.pathname).toBe("/gw/v1/live-voice");
+    expect(url.hash).toBe("");
+    expect(url.searchParams.get("a")).toBeNull();
+    expect(url.searchParams.get("token")).toBe("actor-tok");
   });
 });
 

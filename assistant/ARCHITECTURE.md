@@ -509,7 +509,6 @@ gateway trust verdict → trustClass
         ├── guardian / trusted_contact → normal call flow
         ├── blocked → immediate denial + disconnect
         ├── policy: deny → immediate denial + disconnect
-        ├── policy: escalate → denial (voice cannot hold for async approval)
         |
         └── unknown (no binding) ──┐
                                    |

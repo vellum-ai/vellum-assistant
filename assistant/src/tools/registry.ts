@@ -641,23 +641,37 @@ export function getMcpToolDefinitions(): Tool[] {
 }
 
 /**
- * Return tool definitions for all currently registered plugin-origin tools.
- * Used by the session resolver to dynamically pick up plugin tools that were
- * registered after session creation — e.g. a plugin installed at runtime and
- * activated on a subsequent turn (see `plugins/mtime-cache.ts`). Mirrors
+ * Return tool definitions for every registered plugin-origin tool, INCLUDING
+ * tools from workspace-disabled plugins. This does NOT apply the `.disabled`
+ * sentinel gate — the caller owns the scoping decision. Use this when a
+ * conversation's explicit `enabledPlugins` scope is the authority (a plugin the
+ * conversation explicitly enabled must surface its tools even when it is
+ * disabled at the workspace level; see `getEffectiveEnabledPluginSet`). Callers
+ * that report the workspace-level *available* surface want
+ * {@link getPluginToolDefinitions} instead.
+ */
+export function getAllPluginToolDefinitions(): Tool[] {
+  return Array.from(tools.values()).filter(
+    (t) => ownersByName.get(t.name)?.kind === "plugin",
+  );
+}
+
+/**
+ * Return tool definitions for currently registered plugin-origin tools, minus
+ * those contributed by a workspace-disabled plugin. Used by the session
+ * resolver to dynamically pick up plugin tools that were registered after
+ * session creation — e.g. a plugin installed at runtime and activated on a
+ * subsequent turn (see `plugins/mtime-cache.ts`). Mirrors
  * {@link getMcpToolDefinitions} so a plugin install behaves like `mcp reload`.
+ *
+ * The `.disabled` sentinel is filtered at read time so `assistant plugins
+ * disable <name>` takes effect on the next turn without a daemon restart,
+ * mirroring `getHooksFor` (plugins/registry.ts).
  */
 export function getPluginToolDefinitions(): Tool[] {
-  return Array.from(tools.values()).filter((t) => {
+  return getAllPluginToolDefinitions().filter((t) => {
     const owner = ownersByName.get(t.name);
-    if (owner?.kind !== "plugin") {
-      return false;
-    }
-    // Filter out tools contributed by disabled plugins at read time so
-    // `assistant plugins disable <name>` takes effect on the next turn
-    // without a daemon restart. Mirrors the `.disabled` sentinel filtering
-    // in `getHooksFor` (plugins/registry.ts).
-    return !isPluginDisabled(owner.id);
+    return owner !== undefined && !isPluginDisabled(owner.id);
   });
 }
 

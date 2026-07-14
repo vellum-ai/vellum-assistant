@@ -1,11 +1,18 @@
 /**
  * Vellum-managed TTS: synthesis through the platform's managed speech
- * endpoint (Vellum-held Deepgram key, billed to Vellum credits). No provider
+ * surfaces (Vellum-held Deepgram key, billed to Vellum credits). No provider
  * API key exists on this machine — the platform connection is the credential.
  *
- * Batch-only: `supportsStreaming: false`. `allowNativeFallback: false` means
- * synthesis failures propagate to the caller's error handler, so failures
- * here throw with user-actionable messages rather than returning silence.
+ * Two paths:
+ * - Batch `synthesize` (read-aloud, mp3 surfaces) via the Django endpoint.
+ * - Streaming `synthesizeStream` (live voice, telephony PCM) via the
+ *   gateway's speech relay (gateway → velay → Deepgram; velay contact is
+ *   gateway-only — the daemon holds no velay address and no speech
+ *   credential).
+ *
+ * `allowNativeFallback: false` means synthesis failures propagate to the
+ * caller's error handler, so failures here throw with user-actionable
+ * messages rather than returning silence.
  */
 
 import {
@@ -13,6 +20,12 @@ import {
   managedSpeechSynthesize,
   type ManagedSpeechTtsFormat,
 } from "../../platform/managed-speech.js";
+import {
+  mapVelayError,
+  probeVelayRejection,
+  resolveSpeechRelayConnection,
+} from "../../providers/speech-to-text/vellum-speech-relay-connection.js";
+import { getLogger } from "../../util/logger.js";
 import type { TtsProviderDefinition } from "../provider-definition.js";
 import type {
   TtsProvider,
@@ -20,6 +33,11 @@ import type {
   TtsSynthesisRequest,
   TtsSynthesisResult,
 } from "../types.js";
+import { synthesizeOverVellumTtsSocket } from "./vellum-tts-socket.js";
+
+const log = getLogger("vellum-tts");
+
+const TTS_STREAM_PATH = "/v1/speech/tts/stream";
 
 /**
  * The platform's PCM format is fixed at 16 kHz, 16-bit LE mono — the
@@ -72,9 +90,84 @@ async function performSynthesis(
   };
 }
 
+/**
+ * Stream one PCM utterance through the gateway's speech relay. Non-PCM
+ * requests delegate to the batch path — streaming exists for realtime PCM
+ * consumers (live voice, telephony), and the relay's format is pinned to
+ * linear16.
+ */
+async function performStreamingSynthesis(
+  request: TtsSynthesisRequest,
+  onChunk: (chunk: Uint8Array) => void,
+): Promise<TtsSynthesisResult> {
+  if (request.outputFormat !== "pcm") {
+    const result = await performSynthesis(request);
+    onChunk(result.audio);
+    return result;
+  }
+
+  const connection = await resolveSpeechRelayConnection();
+  if (!connection) {
+    throw new Error(
+      "Managed speech is unavailable: the assistant cannot reach its speech relay. Run 'assistant platform connect' to connect your Vellum account.",
+    );
+  }
+
+  const params = new URLSearchParams({
+    key: connection.mintServiceToken(),
+    encoding: "linear16",
+    sample_rate: String(VELLUM_PCM_SAMPLE_RATE_HZ),
+    // Deepgram defaults linear16 to a WAV container; the media-stream path
+    // consumes headerless PCM, so RIFF header bytes would play as static.
+    container: "none",
+  });
+  const url = `${connection.wsBaseUrl}${TTS_STREAM_PATH}?${params.toString()}`;
+
+  log.info(
+    { textLength: request.text.length },
+    "Starting managed streaming TTS synthesis",
+  );
+
+  try {
+    const audio = await synthesizeOverVellumTtsSocket({
+      url,
+      text: request.text,
+      onChunk,
+      signal: request.signal,
+      makeTimeoutError: (timeoutMs) =>
+        new Error(`Managed streaming TTS timed out after ${timeoutMs}ms`),
+      makeStreamError: (detail) =>
+        new Error(`Managed streaming TTS failed: ${detail}`),
+      makeEmptyError: () =>
+        new Error("Managed streaming TTS returned no audio"),
+      makeRelayError: (code, detail) =>
+        new Error(mapVelayError({ code, detail }).message),
+    });
+    return {
+      audio,
+      contentType: "audio/pcm",
+    };
+  } catch (err) {
+    if (request.signal?.aborted) {
+      throw err;
+    }
+    // A rejected upgrade hides the relay's {code, detail}; replay the gate
+    // as a plain GET (the gateway probes velay's own gate too) so auth and
+    // balance failures surface with their mapped messages.
+    const probeKey = encodeURIComponent(connection.mintServiceToken());
+    const rejection = await probeVelayRejection(
+      `${connection.httpBaseUrl}${TTS_STREAM_PATH}?key=${probeKey}`,
+    );
+    if (rejection) {
+      throw new Error(mapVelayError(rejection).message);
+    }
+    throw err;
+  }
+}
+
 export function createVellumProvider(): TtsProvider {
   const capabilities: TtsProviderCapabilities = {
-    supportsStreaming: false,
+    supportsStreaming: true,
     supportedFormats: ["mp3", "pcm"],
   };
 
@@ -86,6 +179,7 @@ export function createVellumProvider(): TtsProvider {
     resolveOutputSampleRateHz: (request) =>
       request.outputFormat === "pcm" ? VELLUM_PCM_SAMPLE_RATE_HZ : undefined,
     synthesize: performSynthesis,
+    synthesizeStream: performStreamingSynthesis,
   };
 }
 
@@ -110,7 +204,7 @@ export const vellumTtsProviderDefinition: TtsProviderDefinition = {
   callMode: "synthesized-play",
   allowNativeFallback: false,
   capabilities: {
-    supportsStreaming: false,
+    supportsStreaming: true,
     supportedFormats: ["mp3", "pcm"],
   },
   // The adapter honours the PCM hint via the platform's pcm_16000 format.

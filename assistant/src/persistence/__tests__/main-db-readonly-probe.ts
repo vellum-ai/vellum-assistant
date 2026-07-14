@@ -22,7 +22,7 @@ import {
 } from "../db-connection.js";
 import { initializeDb } from "../db-init.js";
 import { queryUnreportedUsageEvents } from "../llm-usage-store.js";
-import { configSettingEvents, memoryCheckpoints } from "../schema/index.js";
+import { memoryCheckpoints, telemetryEvents } from "../schema/index.js";
 
 // Create the schema over the normal read-write connections, then reopen
 // with the monitor's posture: telemetry main-DB reads go through the
@@ -67,12 +67,13 @@ if (!telemetryDb) {
   throw new Error("telemetry DB unavailable");
 }
 telemetryDb
-  .insert(configSettingEvents)
+  .insert(telemetryEvents)
   .values({
     id: "readonly-probe-row",
+    name: "config_setting",
     createdAt: Date.now(),
-    configKey: "memory.enabled",
-    configValue: "true",
+    conversationId: null,
+    payload: '{"type":"config_setting"}',
   })
   .run();
 

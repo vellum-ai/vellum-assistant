@@ -472,13 +472,34 @@ async function createStreamingTranscriber(
       });
     }
     case "vellum": {
-      // Managed speech authenticates via the platform connection; the
-      // apiKey argument is unused. Diarization is unsupported and the
-      // option is silently ignored, matching Gemini/Whisper.
-      const { VellumManagedStreamingTranscriber } =
-        await import("./vellum-managed-stream.js");
-      return new VellumManagedStreamingTranscriber({
-        pcmSampleRate: options.sampleRate,
+      // Managed speech dials the GATEWAY's speech relay (velay contact is
+      // gateway-only); the apiKey argument is unused. Diarization is
+      // unsupported (not in the relay's param allowlist) and silently
+      // ignored, matching Gemini/Whisper — as is utteranceEndMs (the relay
+      // allowlist has no utterance_end_ms; boundary finals ride on
+      // endpointing alone).
+      // The gateway is the credential authority, but the platform
+      // connection (API key + assistant ID) is checkable locally — gate
+      // here so preflight reports "connect your account" instead of
+      // resolving a transcriber whose dial is doomed.
+      const { vellumManagedSpeechAvailable } =
+        await import("./vellum-managed.js");
+      if (!(await vellumManagedSpeechAvailable())) {
+        return null;
+      }
+      const { resolveSpeechRelayConnection } =
+        await import("./vellum-speech-relay-connection.js");
+      const connection = await resolveSpeechRelayConnection();
+      if (!connection) {
+        return null;
+      }
+      const { VellumManagedRealtimeTranscriber } =
+        await import("./vellum-managed-realtime.js");
+      return new VellumManagedRealtimeTranscriber(connection, {
+        sampleRate: options.sampleRate,
+        ...(options.utteranceBoundaryFinals
+          ? { utteranceBoundaryFinals: true }
+          : {}),
       });
     }
     default: {

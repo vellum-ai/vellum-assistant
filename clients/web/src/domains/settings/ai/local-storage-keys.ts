@@ -14,8 +14,10 @@ export const LS_WEB_FETCH_PROVIDER = "vellum:ai:webFetchProvider";
 export const LS_EMAIL_MODE = "vellum:ai:emailMode";
 export const LS_EMAIL_BYO_PROVIDER = "vellum:ai:emailByoProvider";
 
+export const LS_TTS_MODE = "vellum:voice:ttsMode";
 export const LS_TTS_PROVIDER = "vellum:voice:ttsProvider";
 export const LS_TTS_API_KEY_PREFIX = "vellum:voice:ttsApiKey:";
 export const LS_TTS_VOICE_ID_PREFIX = "vellum:voice:ttsVoiceId:";
+export const LS_STT_MODE = "vellum:voice:sttMode";
 export const LS_STT_PROVIDER = "vellum:voice:sttProvider";
 export const LS_STT_API_KEY_PREFIX = "vellum:voice:sttApiKey:";

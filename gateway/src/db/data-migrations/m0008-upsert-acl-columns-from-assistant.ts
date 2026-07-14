@@ -33,6 +33,15 @@ function getRawGatewayDb(): Database {
   return (getGatewayDb() as unknown as { $client: Database }).$client;
 }
 
+/**
+ * The escalate policy is removed. This backfill can re-run after
+ * m0017-coerce-escalate-policy has checkpointed, so coerce on import to keep
+ * escalate out of the gateway regardless of ordering (deny = fail-closed).
+ */
+function importedPolicy(policy: string): string {
+  return policy === "escalate" ? "deny" : policy;
+}
+
 interface AssistantContactRow {
   id: string;
   display_name: string;
@@ -167,7 +176,7 @@ export async function up(): Promise<MigrationResult> {
           updateChannelAcl.run(
             ch.contact_id,
             ch.status,
-            ch.policy,
+            importedPolicy(ch.policy),
             ch.verified_at,
             ch.verified_via,
             ch.revoked_reason,
@@ -183,7 +192,7 @@ export async function up(): Promise<MigrationResult> {
             ch.is_primary ? 1 : 0,
             ch.external_chat_id,
             ch.status,
-            ch.policy,
+            importedPolicy(ch.policy),
             ch.verified_at,
             ch.verified_via,
             ch.invite_id,

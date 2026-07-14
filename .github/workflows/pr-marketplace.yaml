@@ -7,9 +7,13 @@ on:
       - 'plugins/marketplace.json'
       - 'scripts/check-marketplace-prefix.mjs'
       - 'meta/feature-flags/feature-flag-registry.json'
-      - 'meta/feature-flags/sync-bundled-copies.ts'
+      - 'meta/sync-bundled-copies.ts'
       - 'assistant/src/cli/lib/bundled-marketplace.json'
       - 'clients/web/src/lib/feature-flags/feature-flag-registry.json'
+      - 'plugins/assets/**'
+      - 'plugins/plugin-icons.json'
+      - 'scripts/plugins/**'
+      - 'assistant/src/cli/lib/plugin-icon-file.ts'
       - '.github/workflows/pr-marketplace.yaml'
 
 concurrency:
@@ -47,4 +51,35 @@ jobs:
           bun-version: '1.3.11'
 
       - name: Verify bundled copies match canonical sources
-        run: bun run meta/feature-flags/sync-bundled-copies.ts --check
+        run: bun run meta/sync-bundled-copies.ts --check
+
+  # Purely local: verifies plugins/plugin-icons.json matches the vendored PNGs
+  # under plugins/assets/, so the derived manifest can't drift from the assets a
+  # PR commits. Does not re-fetch upstream, so a repinned plugin whose upstream
+  # icon.png changed without a regen is not detected here.
+  check-plugin-icons:
+    name: Check Plugin Icons In Sync
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22.22.2'
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: '1.3.11'
+
+      - name: Verify plugin-icons.json matches vendored assets
+        run: node scripts/plugins/generate-plugin-icons.mjs --check
+
+      # Runs from scripts/ so the repo-root `bun test` preload guard does not
+      # apply; guards the TS<->mjs parity of the mirrored validator/classifier.
+      - name: Run plugin-icons generator tests
+        working-directory: scripts
+        run: bun test plugins/__tests__/

@@ -59,14 +59,13 @@ function concatMergedNotes(
 /**
  * Move donor channels onto the survivor, skipping any the survivor already
  * holds by logical (type, address) key. COLLATE NOCASE catches legacy
- * lowercased rows. `touchUpdatedAt` stamps updated_at on moved rows (the
- * mirror op does; the local merge historically does not).
+ * lowercased rows. `touchUpdatedAt` stamps updated_at on moved rows.
  */
 function reparentDonorChannels(
   tx: DbOrTx,
   keepId: string,
   mergeId: string,
-  touchUpdatedAt?: number,
+  touchUpdatedAt: number,
 ): void {
   const donorChannels = tx
     .select()
@@ -89,12 +88,7 @@ function reparentDonorChannels(
 
     if (!exists) {
       tx.update(contactChannels)
-        .set({
-          contactId: keepId,
-          ...(touchUpdatedAt !== undefined
-            ? { updatedAt: touchUpdatedAt }
-            : {}),
-        })
+        .set({ contactId: keepId, updatedAt: touchUpdatedAt })
         .where(eq(contactChannels.id, ch.id))
         .run();
     }
@@ -669,55 +663,6 @@ export function listContacts(
     .limit(effectiveLimit)
     .all();
   return rows.map((r) => withChannels(parseContact(r)));
-}
-
-/**
- * Merge two contacts into one. The surviving contact keeps the
- * more recent interaction timestamp, concatenated notes, and all channels
- * from both contacts. The donor contact is deleted after merging.
- */
-export function mergeContacts(
-  keepId: string,
-  mergeId: string,
-): ContactWithChannels {
-  const db = getDb();
-
-  if (keepId === mergeId) throw new Error("Cannot merge a contact with itself");
-
-  db.transaction((tx) => {
-    const now = Date.now();
-
-    const keep = tx
-      .select()
-      .from(contacts)
-      .where(eq(contacts.id, keepId))
-      .get();
-    if (!keep) throw new Error(`Contact "${keepId}" not found`);
-
-    const merge = tx
-      .select()
-      .from(contacts)
-      .where(eq(contacts.id, mergeId))
-      .get();
-    if (!merge) throw new Error(`Contact "${mergeId}" not found`);
-
-    tx.update(contacts)
-      .set({
-        notes: concatMergedNotes(keep.notes, merge.notes),
-        updatedAt: now,
-      })
-      .where(eq(contacts.id, keepId))
-      .run();
-
-    // Move channels from donor to survivor, skipping duplicates
-    reparentDonorChannels(tx, keepId, mergeId);
-
-    // Delete the donor contact (cascading deletes remaining channels)
-    tx.delete(contacts).where(eq(contacts.id, mergeId)).run();
-  });
-
-  notifyContactsChanged();
-  return getContact(keepId)!;
 }
 
 /**

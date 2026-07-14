@@ -212,6 +212,8 @@ describe("full turn", () => {
     });
     expect(h.view.result.current.state).toBe("speaking");
     expect(h.player.enqueued).toHaveLength(1);
+    // Audio is flowing, so the avatar reads `responding` (JARVIS-1279).
+    expect(useLiveVoiceStore.getState().assistantAudioActive).toBe(true);
 
     // tts_done awaits playback drain, then ends the session (single-utterance):
     // the socket is closed and the mic is shut down, returning to idle.
@@ -223,6 +225,73 @@ describe("full turn", () => {
     expect(h.view.result.current.state).toBe("idle");
     expect(h.client.closed).toBe(true);
     expect(h.getCapture().shutdownCount).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Assistant-audio activity (mid-turn tool run) — JARVIS-1279
+// ---------------------------------------------------------------------------
+
+describe("assistant-audio activity", () => {
+  function emitTts(h: ReturnType<typeof renderController>, seq: number) {
+    h.client.emit("ttsAudio", {
+      type: "tts_audio",
+      seq,
+      mimeType: "audio/pcm",
+      sampleRate: 24000,
+      dataBase64: "AAAA",
+    });
+  }
+
+  test("stays `speaking` but marks audio inactive after the idle window when the player falls silent mid-turn", async () => {
+    const h = renderController();
+    await startListening(h, { handsFree: true });
+
+    act(() => {
+      h.client.emit("thinking", { type: "thinking", seq: 2, turnId: "t1" });
+      emitTts(h, 3);
+    });
+    expect(h.view.result.current.state).toBe("speaking");
+    expect(useLiveVoiceStore.getState().assistantAudioActive).toBe(true);
+
+    // The ack audio finishes but the turn stays open — the assistant is now
+    // running a tool, so no `tts_done` arrives.
+    act(() => {
+      h.player.finishPlayback();
+    });
+
+    // After the idle grace with a silent player, audio is marked inactive while
+    // the phase is still `speaking`, so the avatar can read `thinking`.
+    await act(async () => {
+      await sleep(650); // > ASSISTANT_AUDIO_IDLE_MS (500ms)
+    });
+    expect(h.view.result.current.state).toBe("speaking");
+    expect(useLiveVoiceStore.getState().assistantAudioActive).toBe(false);
+
+    // More TTS for the same turn re-activates it (back to `responding`).
+    act(() => {
+      emitTts(h, 4);
+    });
+    expect(useLiveVoiceStore.getState().assistantAudioActive).toBe(true);
+  });
+
+  test("keeps audio active across the idle window while the player is still draining", async () => {
+    const h = renderController();
+    await startListening(h, { handsFree: true });
+
+    act(() => {
+      h.client.emit("thinking", { type: "thinking", seq: 2, turnId: "t1" });
+      emitTts(h, 3);
+    });
+    // FakePlayer.enqueue leaves isPlaying true; never finish playback here.
+    expect(h.player.isPlaying).toBe(true);
+
+    // The idle check fires but re-arms because audio is still playing out — the
+    // avatar must not blink to `thinking` over audible speech.
+    await act(async () => {
+      await sleep(650);
+    });
+    expect(useLiveVoiceStore.getState().assistantAudioActive).toBe(true);
   });
 });
 
@@ -686,30 +755,255 @@ describe("hands-free mode", () => {
     expect(h.view.result.current.state).toBe("speaking");
   });
 
-  test("controls.release is a no-op in hands-free (mic forwarding stays on)", async () => {
-    const h = renderController();
-    await startListening(h, { handsFree: true });
-
-    // The "send now" ↑ is manual-only. In hands-free the server VAD owns
-    // utterance boundaries, so release must not fire ptt_release or drop
-    // forwarding — otherwise the session strands (looks live, drops chunks).
-    act(() => {
-      useLiveVoiceStore.getState().controls?.release();
-    });
-    expect(h.client.pttReleaseCount).toBe(0);
-    expect(h.view.result.current.state).toBe("listening");
-
-    // Forwarding is untouched: the next mic chunk still streams to the server.
-    act(() => {
-      h.getCapture().pushChunk(pcmChunk(20));
-    });
-    expect(h.client.sentAudio).toHaveLength(1);
-  });
+  // controls.release in hands-free is covered by the dedicated
+  // "hands-free session controls" suite below: it sends ptt_release (the
+  // daemon honors it as a manual VAD override) while leaving forwarding and
+  // local state untouched.
 });
 
 // ---------------------------------------------------------------------------
 // Version skew: hands-free against an older daemon
 // ---------------------------------------------------------------------------
+
+describe("hands-free session controls (send now / stop response / mute)", () => {
+  function controls() {
+    const c = useLiveVoiceStore.getState().controls;
+    expect(c).not.toBeNull();
+    return c!;
+  }
+
+  /** Drive the session into `speaking` with one thinking + tts frame. */
+  function driveToSpeaking(h: ReturnType<typeof renderController>, turnId = "t1") {
+    act(() => {
+      h.client.emit("thinking", { type: "thinking", seq: 2, turnId });
+      h.client.emit("ttsAudio", {
+        type: "tts_audio",
+        seq: 3,
+        mimeType: "audio/pcm",
+        sampleRate: 24000,
+        dataBase64: "AAAA",
+      });
+    });
+    expect(h.view.result.current.state).toBe("speaking");
+  }
+
+  test("release while listening sends ptt_release and leaves forwarding on", async () => {
+    const h = renderController();
+    await startListening(h, { handsFree: true });
+
+    act(() => controls().release());
+    expect(h.client.pttReleaseCount).toBe(1);
+    // The state transition is frame-driven — the daemon's utterance_end owns
+    // it — and forwarding must stay on (the hands-free listening return never
+    // re-enables it, so flipping it off would strand the session).
+    expect(h.view.result.current.state).toBe("listening");
+    act(() => {
+      h.getCapture().pushChunk(pcmChunk(20));
+    });
+    expect(h.client.sentAudio).toHaveLength(1);
+
+    act(() => {
+      h.client.emit("utteranceEnd", {
+        type: "utterance_end",
+        seq: 2,
+        reason: "silence",
+      });
+    });
+    expect(h.view.result.current.state).toBe("transcribing");
+  });
+
+  test("release is a no-op outside listening", async () => {
+    const h = renderController();
+    await startListening(h, { handsFree: true });
+    driveToSpeaking(h);
+
+    act(() => controls().release());
+    expect(h.client.pttReleaseCount).toBe(0);
+  });
+
+  test("stop response while speaking is turn-scoped: playback flushes, session survives", async () => {
+    const h = renderController();
+    await startListening(h, { handsFree: true });
+    driveToSpeaking(h);
+
+    act(() => controls().interrupt());
+    expect(h.client.interruptCount).toBe(1);
+    expect(h.player.stopCount).toBeGreaterThan(0);
+    // NOT torn down: same socket, mic still open and streaming.
+    expect(h.view.result.current.state).toBe("listening");
+    expect(h.client.closed).toBe(false);
+    expect(h.getCapture().shutdownCount).toBe(0);
+    act(() => {
+      h.getCapture().pushChunk(pcmChunk(20));
+    });
+    expect(h.client.sentAudio).toHaveLength(1);
+  });
+
+  test("straggler tts_audio after a client interrupt is dropped until the next turn", async () => {
+    const h = renderController();
+    await startListening(h, { handsFree: true });
+    driveToSpeaking(h);
+    expect(h.player.enqueued).toHaveLength(1);
+
+    act(() => controls().interrupt());
+    // A frame already in transit when the interrupt was sent must not
+    // resurrect playback.
+    act(() => {
+      h.client.emit("ttsAudio", {
+        type: "tts_audio",
+        seq: 4,
+        mimeType: "audio/pcm",
+        sampleRate: 24000,
+        dataBase64: "AAAA",
+      });
+    });
+    expect(h.player.enqueued).toHaveLength(1);
+    expect(h.view.result.current.state).toBe("listening");
+
+    // The next turn lifts the guard.
+    act(() => {
+      h.client.emit("thinking", { type: "thinking", seq: 5, turnId: "t2" });
+      h.client.emit("ttsAudio", {
+        type: "tts_audio",
+        seq: 6,
+        mimeType: "audio/pcm",
+        sampleRate: 24000,
+        dataBase64: "AAAA",
+      });
+    });
+    expect(h.player.enqueued).toHaveLength(2);
+    expect(h.view.result.current.state).toBe("speaking");
+  });
+
+  test("straggler assistant_text_delta after a client interrupt is dropped until the next turn", async () => {
+    const h = renderController();
+    await startListening(h, { handsFree: true });
+    driveToSpeaking(h);
+
+    act(() => controls().interrupt());
+    expect(h.view.result.current.state).toBe("listening");
+    // A delta already in transit for the cancelled turn must not append its
+    // text or drag the flushed `listening` back to `thinking`.
+    act(() => {
+      h.client.emit("assistantTextDelta", {
+        type: "assistant_text_delta",
+        seq: 4,
+        text: "cancelled tail",
+      });
+    });
+    expect(h.view.result.current.state).toBe("listening");
+    expect(useLiveVoiceStore.getState().assistantTranscript).not.toContain(
+      "cancelled tail",
+    );
+
+    // The next turn lifts the guard: its deltas apply again.
+    act(() => {
+      h.client.emit("thinking", { type: "thinking", seq: 5, turnId: "t2" });
+      h.client.emit("assistantTextDelta", {
+        type: "assistant_text_delta",
+        seq: 6,
+        text: "next turn",
+      });
+    });
+    expect(useLiveVoiceStore.getState().assistantTranscript).toBe("next turn");
+  });
+
+  test("stop response is a no-op while not speaking", async () => {
+    const h = renderController();
+    await startListening(h, { handsFree: true });
+
+    act(() => controls().interrupt());
+    expect(h.client.interruptCount).toBe(0);
+    expect(h.view.result.current.state).toBe("listening");
+  });
+
+  test("mute streams silence of equal length and pins amplitude to 0; unmute restores", async () => {
+    const h = renderController();
+    await startListening(h, { handsFree: true });
+
+    act(() => {
+      h.getCapture().pushAmplitude(0.5);
+    });
+    expect(useLiveVoiceStore.getState().inputAmplitude).toBeCloseTo(0.5);
+
+    act(() => controls().setMuted(true));
+    expect(useLiveVoiceStore.getState().muted).toBe(true);
+    // Muting zeroes the published amplitude immediately and pins later samples.
+    expect(useLiveVoiceStore.getState().inputAmplitude).toBe(0);
+    act(() => {
+      h.getCapture().pushAmplitude(0.7);
+    });
+    expect(useLiveVoiceStore.getState().inputAmplitude).toBe(0);
+
+    // Chunks keep flowing (VAD/STT keepalive) but as silence, same length.
+    const loud = new Int16Array(320).fill(1234).buffer;
+    act(() => {
+      h.getCapture().pushChunk(loud);
+    });
+    expect(h.client.sentAudio).toHaveLength(1);
+    const sent = new Int16Array(h.client.sentAudio[0]!);
+    expect(sent).toHaveLength(320);
+    expect(sent.every((sample) => sample === 0)).toBe(true);
+
+    act(() => controls().setMuted(false));
+    act(() => {
+      h.getCapture().pushChunk(loud);
+      h.getCapture().pushAmplitude(0.4);
+    });
+    expect(new Int16Array(h.client.sentAudio[1]!)[0]).toBe(1234);
+    expect(useLiveVoiceStore.getState().inputAmplitude).toBeCloseTo(0.4);
+  });
+
+  test("muted survives a retryable reconnect — no hot mic after a blip", async () => {
+    const h = renderController({ reconnectBackoffMs: [10] });
+    await startListening(h, { handsFree: true });
+    act(() => controls().setMuted(true));
+
+    await act(async () => {
+      h.client.emit("closed", {
+        code: 1013,
+        reason: "assistant tunnel disconnected",
+      });
+    });
+    await act(async () => {
+      await sleep(40);
+    });
+    await act(async () => {
+      h.client.emit("ready", {
+        type: "ready",
+        seq: 1,
+        sessionId: "s2",
+        conversationId: "conv-1",
+        turnDetection: "server_vad",
+      });
+      await Promise.resolve();
+    });
+    expect(h.view.result.current.state).toBe("listening");
+    expect(useLiveVoiceStore.getState().muted).toBe(true);
+  });
+
+  test("publishes handsFree to the store, downgraded on the version-skew fallback", async () => {
+    const h = renderController();
+    // Ready echoes manual — an older daemon ignored turnDetection.
+    await act(async () => {
+      await h.view.result.current.start("assistant-1", "conv-1", {
+        handsFree: true,
+      });
+    });
+    expect(useLiveVoiceStore.getState().handsFree).toBe(true);
+    await act(async () => {
+      h.client.emit("ready", {
+        type: "ready",
+        seq: 1,
+        sessionId: "s1",
+        conversationId: "conv-1",
+        turnDetection: "manual",
+      });
+      await Promise.resolve();
+    });
+    expect(useLiveVoiceStore.getState().handsFree).toBe(false);
+  });
+});
 
 describe("hands-free fallback to manual (older daemon)", () => {
   test("ready without turnDetection re-enables auto-release, amplitude barge-in, and single-turn teardown", async () => {

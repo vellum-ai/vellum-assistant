@@ -1281,7 +1281,7 @@ jobs:
           node-version-file: .nvmrc
 
       - name: Sync feature flag registry for publish
-        run: bun run meta/feature-flags/sync-bundled-copies.ts
+        run: bun run meta/sync-bundled-copies.ts
 
       - name: Install package dependencies
         run: |
@@ -1514,7 +1514,7 @@ jobs:
         with:
           node-version-file: .nvmrc
       - name: Sync feature flag registry
-        run: bun run meta/feature-flags/sync-bundled-copies.ts
+        run: bun run meta/sync-bundled-copies.ts
       - name: Stamp staging version
         run: jq --arg v "${{ needs.extract-version.outputs.version }}" '.version = $v' ${{ matrix.package }}/package.json > ${{ matrix.package }}/package.json.tmp && mv ${{ matrix.package }}/package.json.tmp ${{ matrix.package }}/package.json
       - name: Install package dependencies

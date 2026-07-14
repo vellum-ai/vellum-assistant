@@ -29,6 +29,7 @@ import {
   messagesPost,
   pluginsInstallPost,
   pluginsSearchGet,
+  telemetryOnboardingresearchPost,
 } from "@/generated/daemon/sdk.gen";
 import { archiveResearchConversation } from "@/domains/onboarding/archive-research-conversation";
 import { invalidateConversationQueries } from "@/utils/conversation-cache";
@@ -191,6 +192,51 @@ async function installCapabilityBestEffort(
     });
   } catch (err) {
     captureError(err, { context: "research_onboarding_install" });
+  }
+}
+
+/**
+ * Report a research turn's outcome (claims/suggestions/plugin picks) for
+ * analytics. Client-orchestrated: the daemon never detects this turn on its
+ * own, so the client reports it once — either as the raw model output the
+ * moment the reply parses as a complete JSON payload (`status: "done"`,
+ * before the deterministic-floor merge folds in role-based baseline
+ * plugins), or as whatever had been parsed so far if the poll ceiling fires
+ * first (`status: "error"`). Fire-and-forget: a failure here must never
+ * block or surface in the flow, mirroring `archiveResearchConversation`.
+ */
+async function sendOnboardingResearchTelemetry({
+  assistantId,
+  conversationId,
+  status,
+  claims,
+  suggestions,
+  plugins,
+  installedPlugins,
+}: {
+  assistantId: string;
+  conversationId: string;
+  status: "done" | "error";
+  claims: ResearchFact[];
+  suggestions: ResearchSuggestion[];
+  plugins: string[];
+  installedPlugins: string[];
+}): Promise<void> {
+  try {
+    await telemetryOnboardingresearchPost({
+      path: { assistant_id: assistantId },
+      body: {
+        conversation_id: conversationId,
+        status,
+        claims,
+        suggestions,
+        plugins,
+        installed_plugins: installedPlugins,
+      },
+      throwOnError: false,
+    });
+  } catch (err) {
+    captureError(err, { context: "research_onboarding_telemetry" });
   }
 }
 
@@ -519,6 +565,21 @@ export function useResearchRunner(): UseResearchRunner {
           const deadline = Date.now() + MAX_POLL_MS;
           let lastText = "";
           let stableReads = 0;
+          // Guards the telemetry report to fire exactly once: `complete` can
+          // stay true across the `STABLE_READS_TO_SETTLE` re-polls before the
+          // loop breaks, and would otherwise re-send on every one of them.
+          let telemetrySent = false;
+          // Last-known partial result, so a poll-ceiling timeout (the loop
+          // exits without ever seeing `complete`) can still report what had
+          // been parsed so far instead of the turn silently never being
+          // reported at all. `lastInstalledPlugins` seeds from the
+          // deterministic floor (already fired above, before any poll tick)
+          // rather than `[]`, so a timeout on a turn that never produced any
+          // assistant text doesn't undercount installs that already happened.
+          let lastClaims: ResearchFact[] = [];
+          let lastSuggestions: ResearchSuggestion[] = [];
+          let lastPlugins: string[] = [];
+          let lastInstalledPlugins: string[] = deterministicPlugins;
           // The model's `plugins` picks fire as soon as its array closes — emitted
           // first in the reply, so this lands early while claims/suggestions are
           // still streaming. These union on top of the deterministic floor already
@@ -552,20 +613,39 @@ export function useResearchRunner(): UseResearchRunner {
               // the install set is complete — release the click gate so it waits
               // only on the installs themselves, not the rest of the turn.
               if (pluginsResolved) resolvePluginsReady();
+              // Surface the full set actually installing: the deterministic
+              // floor plus the model's picks, deduped, baseline first. Shared
+              // by the state update and the telemetry report below so it's
+              // only computed once per poll.
+              const installedPlugins = resolveOnboardingPluginInstalls({
+                role: subject.occupation,
+                validNames,
+                modelPlugins: validPlugins,
+              });
               setState({
                 status: "running",
                 claims,
                 suggestions,
-                // Surface the full set actually installing: the deterministic
-                // floor plus the model's picks, deduped, baseline first.
-                installedPlugins: resolveOnboardingPluginInstalls({
-                  role: subject.occupation,
-                  validNames,
-                  modelPlugins: validPlugins,
-                }),
+                installedPlugins,
                 pluginCatalog,
               });
+              lastClaims = claims;
+              lastSuggestions = suggestions;
+              lastPlugins = plugins;
+              lastInstalledPlugins = installedPlugins;
               if (complete) sawCompletePayload = true;
+              if (complete && !telemetrySent) {
+                telemetrySent = true;
+                void sendOnboardingResearchTelemetry({
+                  assistantId,
+                  conversationId,
+                  status: "done",
+                  claims,
+                  suggestions,
+                  plugins,
+                  installedPlugins,
+                });
+              }
               stableReads = text === lastText ? stableReads + 1 : 0;
               lastText = text;
               // Only a complete payload can settle early. A partial JSON object
@@ -578,6 +658,22 @@ export function useResearchRunner(): UseResearchRunner {
           }
 
           if (isStale()) return;
+          // The poll ceiling fired before a complete payload ever landed —
+          // the in-loop send above never ran. Report the timeout with
+          // whatever had been parsed so far rather than letting the turn go
+          // unreported and skewing the event stream toward successful runs.
+          if (!telemetrySent) {
+            telemetrySent = true;
+            void sendOnboardingResearchTelemetry({
+              assistantId,
+              conversationId,
+              status: "error",
+              claims: lastClaims,
+              suggestions: lastSuggestions,
+              plugins: lastPlugins,
+              installedPlugins: lastInstalledPlugins,
+            });
+          }
           setState((s) => ({
             ...s,
             status: resolveResearchCompletionStatus({ sawCompletePayload }),

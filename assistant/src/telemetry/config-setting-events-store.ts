@@ -1,9 +1,4 @@
-import { and, asc, eq, gt, or } from "drizzle-orm";
-import { v4 as uuid } from "uuid";
-
-import { getTelemetryDb } from "../persistence/db-connection.js";
-import { configSettingEvents } from "../persistence/schema/index.js";
-import { getCachedShareAnalytics } from "../platform/consent-cache.js";
+import { recordTelemetryEvent } from "./telemetry-events-outbox.js";
 
 /**
  * Server-side bounds from the platform `ConfigSettingTelemetryEventSerializer`.
@@ -25,77 +20,21 @@ export interface ConfigSettingEventRecord {
   configValue: string;
 }
 
-/** A persisted config_setting event row. */
-export interface ConfigSettingEvent {
-  id: string;
-  createdAt: number;
-  configKey: string;
-  configValue: string;
-}
-
 /**
- * Record a `config_setting` telemetry event. No-ops when usage data
- * collection is disabled (the event is dropped to honor the opt-out,
- * matching the rest of telemetry) — so opt-out rows never exist and the
- * reporter's standard 0 watermark default is safe. Returns whether a row
- * was persisted, so a caller with its own dedupe memo
- * (config-setting-snapshot.ts) only advances the memo on a real write and
- * keeps retrying while consent is off or the telemetry DB is unavailable.
+ * Record a `config_setting` telemetry event, enqueued on the
+ * `telemetry_events` outbox. Consent gating and degraded-mode behavior are
+ * `recordTelemetryEvent`'s. Returns whether the event was persisted, so a
+ * caller with its own dedupe memo (config-setting-snapshot.ts) only advances
+ * the memo on a real write and keeps retrying while consent is off or the
+ * telemetry DB is unavailable.
  */
 export function recordConfigSettingEvent(
   record: ConfigSettingEventRecord,
 ): boolean {
-  if (!getCachedShareAnalytics()) {
-    return false;
-  }
-  const db = getTelemetryDb();
-  if (!db) {
-    return false;
-  }
-  db.insert(configSettingEvents)
-    .values({
-      id: uuid(),
-      createdAt: Date.now(),
-      configKey: record.configKey.slice(0, MAX_CONFIG_KEY_CHARS),
-      configValue: record.configValue.slice(0, MAX_CONFIG_VALUE_CHARS),
-    })
-    .run();
-  return true;
-}
-
-/**
- * Query config_setting events that haven't been reported to telemetry yet.
- * Uses a compound cursor (createdAt + id) for reliable watermarking.
- */
-export function queryUnreportedConfigSettingEvents(
-  afterCreatedAt: number,
-  afterId: string | undefined,
-  limit: number,
-): ConfigSettingEvent[] {
-  const db = getTelemetryDb();
-  if (!db) {
-    return [];
-  }
-  return db
-    .select({
-      id: configSettingEvents.id,
-      createdAt: configSettingEvents.createdAt,
-      configKey: configSettingEvents.configKey,
-      configValue: configSettingEvents.configValue,
-    })
-    .from(configSettingEvents)
-    .where(
-      afterId
-        ? or(
-            gt(configSettingEvents.createdAt, afterCreatedAt),
-            and(
-              eq(configSettingEvents.createdAt, afterCreatedAt),
-              gt(configSettingEvents.id, afterId),
-            ),
-          )
-        : gt(configSettingEvents.createdAt, afterCreatedAt),
-    )
-    .orderBy(asc(configSettingEvents.createdAt), asc(configSettingEvents.id))
-    .limit(limit)
-    .all();
+  return (
+    recordTelemetryEvent("config_setting", {
+      config_key: record.configKey.slice(0, MAX_CONFIG_KEY_CHARS),
+      config_value: record.configValue.slice(0, MAX_CONFIG_VALUE_CHARS),
+    }) !== null
+  );
 }

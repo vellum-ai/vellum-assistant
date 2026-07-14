@@ -11,6 +11,15 @@
  *   - Runner returns ok=false → run_failed surfaced; NO follow-up jobs;
  *     `emitNotificationSignal` was NOT called as a result of the failure
  *     (suppression is honored end-to-end).
+ *   - Progress check: a run that leaves the buffer un-shrunk returns
+ *     `invoked` with `noProgress: true` and enqueues no follow-ups.
+ *   - Follow-up coalescing: a pending job of a follow-up type suppresses
+ *     that enqueue (the pending row already covers it).
+ *   - Consecutive-failure state: failed runs increment the durable
+ *     checkpoint, progressing success clears it, no-progress completions
+ *     record a transient failure, skipped runs and pre-runner bail paths
+ *     leave it alone, and the recorded kind (billing vs transient) tracks
+ *     the most recent failure's classification.
  *
  * Tests use temp workspaces (mkdtemp) and never touch `~/.vellum/`. Sample
  * content uses generic placeholders (Alice).
@@ -43,12 +52,26 @@ import {
 // + trustContext + origin match what the consolidation surface expects.
 let runnerCalls = 0;
 let runnerLastArgs: Record<string, unknown> | null = null;
+// Default stub: a successful run in which the agent drained the buffer — the
+// handler's progress check compares buffer line counts before and after the
+// run, so a stub that never touched buffer.md would register every success as
+// no-progress. No-progress tests override this with an impl that leaves the
+// buffer as-is (or grows it).
+const runnerTrimsBuffer = async (): Promise<{
+  conversationId: string;
+  ok: boolean;
+}> => {
+  writeFileSync(bufferPath(), "");
+  return { conversationId: "conv-1", ok: true };
+};
 let runnerImpl: () => Promise<{
   conversationId: string;
   ok: boolean;
   error?: Error;
   errorKind?: string;
-}> = async () => ({ conversationId: "conv-1", ok: true });
+  failureCode?: string;
+  skipReason?: string;
+}> = runnerTrimsBuffer;
 
 mock.module("../../../../../runtime/background-job-runner.js", () => ({
   runBackgroundJob: async (opts: Record<string, unknown>) => {
@@ -80,12 +103,15 @@ mock.module("../../../../../notifications/emit-signal.js", () => ({
   },
 }));
 
-// ── enqueueMemoryJob mock ───────────────────────────────────────────
+// ── jobs-store mock ─────────────────────────────────────────────────
 const enqueuedJobs: Array<{
   type: string;
   payload: Record<string, unknown>;
 }> = [];
 let nextJobIdCounter = 0;
+// Follow-up types the handler should see as already pending — drives the
+// enqueue-coalescing branch (`hasPendingJobOfType`).
+let pendingJobTypes = new Set<string>();
 
 mock.module("../../../../../persistence/jobs-store.js", () => ({
   enqueueMemoryJob: (
@@ -96,7 +122,26 @@ mock.module("../../../../../persistence/jobs-store.js", () => ({
     nextJobIdCounter += 1;
     return `job-${nextJobIdCounter}`;
   },
+  hasPendingJobOfType: (type: string): boolean => pendingJobTypes.has(type),
   isMemoryEnabled: () => true,
+}));
+
+// ── checkpoints mock ────────────────────────────────────────────────
+//
+// The handler persists consecutive-failure state through the durable
+// checkpoint helpers. An in-memory map stands in for the DB so the tests
+// can assert what the handler wrote without initializing sqlite.
+const checkpointStore = new Map<string, string>();
+
+mock.module("../../../../../persistence/checkpoints.js", () => ({
+  getMemoryCheckpoint: (key: string): string | null =>
+    checkpointStore.get(key) ?? null,
+  setMemoryCheckpoint: (key: string, value: string): void => {
+    checkpointStore.set(key, value);
+  },
+  deleteMemoryCheckpoint: (key: string): void => {
+    checkpointStore.delete(key);
+  },
 }));
 
 // ── v3 live gate mock ───────────────────────────────────────────────
@@ -138,7 +183,8 @@ afterAll(() => {
   rmSync(tmpWorkspace, { recursive: true, force: true });
 });
 
-const { memoryV2ConsolidateJob } = await import("../consolidation-job.js");
+const { memoryV2ConsolidateJob, CONSOLIDATION_FAILURE_CHECKPOINT_KEY } =
+  await import("../consolidation-job.js");
 const { CUTOFF_PLACEHOLDER, CONSOLIDATION_PROMPT } =
   await import("../prompts/consolidation.js");
 
@@ -213,10 +259,12 @@ beforeEach(() => {
 
   runnerCalls = 0;
   runnerLastArgs = null;
-  runnerImpl = async () => ({ conversationId: "conv-1", ok: true });
+  runnerImpl = runnerTrimsBuffer;
   emitCalls.length = 0;
   enqueuedJobs.length = 0;
   nextJobIdCounter = 0;
+  pendingJobTypes = new Set();
+  checkpointStore.clear();
 
   // v3 follow-up flag default: off.
   v3FlagOn = false;
@@ -489,6 +537,16 @@ describe("memoryV2ConsolidateJob — non-empty buffer", () => {
     expect(prompt).toMatch(/\b[A-Z][a-z]{2} \d{1,2}, \d{1,2}:\d{2} (AM|PM)\b/);
   });
 
+  test("dispatches with skipPromptIndexing so the kickoff prompt is not indexed", async () => {
+    // The prompt is a static instruction manual — indexing it would write
+    // near-identical memory segments, embeddings, and a lexical entry on
+    // every scheduled run.
+    await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    expect(runnerCalls).toBe(1);
+    expect(runnerLastArgs?.skipPromptIndexing).toBe(true);
+  });
+
   test("wire-scopes the run to local memory-file tools — no network egress or host tools", async () => {
     // Security: the consolidation run is guardian-trust + non-interactive, so
     // the permission checker auto-approves any tool within the background
@@ -606,6 +664,9 @@ describe("memoryV2ConsolidateJob — non-empty buffer", () => {
     await memoryV2ConsolidateJob(makeJob(), CONFIG);
     expect(runnerLastArgs?.prompt as string).not.toContain("core-pages");
 
+    // The first run's stub drained the buffer — refill it so the second
+    // invocation doesn't bail at the empty-buffer gate.
+    writeFileSync(bufferPath(), "- [Apr 27, 9:10 AM] Alice refactored.\n");
     v3FlagOn = true;
     await memoryV2ConsolidateJob(makeJob(), CONFIG);
     expect(runnerLastArgs?.prompt as string).toContain(
@@ -653,6 +714,106 @@ describe("memoryV2ConsolidateJob — non-empty buffer", () => {
     await memoryV2ConsolidateJob(makeJob(), CONFIG);
 
     expect(emitCalls).toHaveLength(0);
+  });
+});
+
+describe("memoryV2ConsolidateJob — progress check and follow-up coalescing", () => {
+  beforeEach(() => {
+    writeFileSync(
+      bufferPath(),
+      "- [Apr 27, 9:00 AM] Alice prefers VS Code over Vim.\n" +
+        "- [Apr 27, 9:05 AM] Alice ships at end of day.\n",
+    );
+  });
+
+  test("a drained buffer reports progress and enqueues follow-ups", async () => {
+    const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    expect(result.kind).toBe("invoked");
+    if (result.kind !== "invoked") throw new Error("unreachable");
+    expect(result.noProgress).toBe(false);
+    expect(result.followUpJobIds).toEqual(["job-1"]);
+    expect(enqueuedJobs.map((j) => j.type)).toEqual(["memory_v2_reembed"]);
+  });
+
+  test("a partially trimmed buffer counts as progress", async () => {
+    runnerImpl = async () => {
+      writeFileSync(
+        bufferPath(),
+        "- [Apr 27, 9:05 AM] Alice ships at end of day.\n",
+      );
+      return { conversationId: "conv-1", ok: true };
+    };
+
+    const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    expect(result.kind).toBe("invoked");
+    if (result.kind !== "invoked") throw new Error("unreachable");
+    expect(result.noProgress).toBe(false);
+    expect(enqueuedJobs.map((j) => j.type)).toEqual(["memory_v2_reembed"]);
+  });
+
+  test("an unchanged buffer reports noProgress and skips all follow-ups", async () => {
+    // The runner completes ok but never touches buffer.md — the stuck-agent
+    // shape: without the progress check the size trigger would re-fire and
+    // every re-fire would fan out another reembed.
+    runnerImpl = async () => ({ conversationId: "conv-1", ok: true });
+
+    const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    expect(result.kind).toBe("invoked");
+    if (result.kind !== "invoked") throw new Error("unreachable");
+    expect(result.noProgress).toBe(true);
+    expect(result.followUpJobIds).toEqual([]);
+    expect(enqueuedJobs).toHaveLength(0);
+  });
+
+  test("a grown buffer reports noProgress and skips all follow-ups", async () => {
+    runnerImpl = async () => {
+      writeFileSync(
+        bufferPath(),
+        "- [Apr 27, 9:00 AM] Alice prefers VS Code over Vim.\n" +
+          "- [Apr 27, 9:05 AM] Alice ships at end of day.\n" +
+          "- [Apr 27, 9:06 AM] Bob joined the standup.\n",
+      );
+      return { conversationId: "conv-1", ok: true };
+    };
+
+    const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    expect(result.kind).toBe("invoked");
+    if (result.kind !== "invoked") throw new Error("unreachable");
+    expect(result.noProgress).toBe(true);
+    expect(result.followUpJobIds).toEqual([]);
+    expect(enqueuedJobs).toHaveLength(0);
+  });
+
+  test("a pending reembed suppresses its duplicate; v3 maintain still enqueues", async () => {
+    v3FlagOn = true;
+    pendingJobTypes.add("memory_v2_reembed");
+
+    const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    expect(result.kind).toBe("invoked");
+    if (result.kind !== "invoked") throw new Error("unreachable");
+    expect(enqueuedJobs.map((j) => j.type)).toEqual(["memory_v3_maintain"]);
+    expect(result.followUpJobIds).toHaveLength(1);
+  });
+
+  test("pending rows of both follow-up types suppress all enqueues", async () => {
+    v3FlagOn = true;
+    pendingJobTypes.add("memory_v2_reembed");
+    pendingJobTypes.add("memory_v3_maintain");
+
+    const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    expect(result.kind).toBe("invoked");
+    if (result.kind !== "invoked") throw new Error("unreachable");
+    // Dedup is not no-progress: the run drained the buffer; the follow-ups
+    // are simply already covered by pending rows.
+    expect(result.noProgress).toBe(false);
+    expect(result.followUpJobIds).toEqual([]);
+    expect(enqueuedJobs).toHaveLength(0);
   });
 });
 
@@ -731,6 +892,247 @@ describe("memoryV2ConsolidateJob — concurrent invocations", () => {
     expect(result.kind).toBe("invoked");
     expect(runnerCalls).toBe(1);
     expect(existsSync(lockPath())).toBe(false);
+  });
+});
+
+describe("memoryV2ConsolidateJob — consecutive-failure state", () => {
+  function readFailureState(): {
+    consecutiveFailures: number;
+    lastFailureAt: number;
+    kind: string;
+  } | null {
+    const raw = checkpointStore.get(CONSOLIDATION_FAILURE_CHECKPOINT_KEY);
+    return raw === undefined
+      ? null
+      : (JSON.parse(raw) as {
+          consecutiveFailures: number;
+          lastFailureAt: number;
+          kind: string;
+        });
+  }
+
+  function seedFailureState(
+    consecutiveFailures: number,
+    lastFailureAt: number,
+    kind: "billing" | "transient" = "transient",
+  ): void {
+    checkpointStore.set(
+      CONSOLIDATION_FAILURE_CHECKPOINT_KEY,
+      JSON.stringify({ consecutiveFailures, lastFailureAt, kind }),
+    );
+  }
+
+  function failingRunner(failureCode?: string): typeof runnerImpl {
+    return async () => ({
+      conversationId: "conv-1",
+      ok: false,
+      error: new Error("provider refused"),
+      errorKind: "model_provider",
+      ...(failureCode !== undefined ? { failureCode } : {}),
+    });
+  }
+
+  beforeEach(() => {
+    writeFileSync(bufferPath(), "- [Apr 27, 9:00 AM] Alice prefers VS Code.\n");
+  });
+
+  test("a failed run records consecutiveFailures=1 with a failure timestamp", async () => {
+    runnerImpl = failingRunner();
+
+    const before = Date.now();
+    const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
+    const after = Date.now();
+
+    expect(result.kind).toBe("run_failed");
+    const state = readFailureState();
+    expect(state).not.toBeNull();
+    expect(state!.consecutiveFailures).toBe(1);
+    expect(state!.lastFailureAt).toBeGreaterThanOrEqual(before);
+    expect(state!.lastFailureAt).toBeLessThanOrEqual(after);
+  });
+
+  test("consecutive failed runs increment the count", async () => {
+    runnerImpl = failingRunner();
+
+    await memoryV2ConsolidateJob(makeJob(), CONFIG);
+    await memoryV2ConsolidateJob(makeJob(), CONFIG);
+    await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    expect(readFailureState()!.consecutiveFailures).toBe(3);
+  });
+
+  test("a PROVIDER_BILLING turn failure records kind=billing", async () => {
+    runnerImpl = failingRunner("PROVIDER_BILLING");
+
+    await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    expect(readFailureState()!.kind).toBe("billing");
+  });
+
+  test("a failure without a failureCode records kind=transient", async () => {
+    runnerImpl = failingRunner();
+
+    await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    expect(readFailureState()!.kind).toBe("transient");
+  });
+
+  test("a non-billing failureCode records kind=transient", async () => {
+    runnerImpl = failingRunner("PROVIDER_RATE_LIMIT");
+
+    await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    expect(readFailureState()!.kind).toBe("transient");
+  });
+
+  test("the most recent failure's kind wins while the count keeps accruing", async () => {
+    // transient → billing: kind flips to billing at count 2.
+    runnerImpl = failingRunner();
+    await memoryV2ConsolidateJob(makeJob(), CONFIG);
+    runnerImpl = failingRunner("PROVIDER_BILLING");
+    await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    let state = readFailureState()!;
+    expect(state.consecutiveFailures).toBe(2);
+    expect(state.kind).toBe("billing");
+
+    // billing → transient: kind flips back at count 3.
+    runnerImpl = failingRunner();
+    await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    state = readFailureState()!;
+    expect(state.consecutiveFailures).toBe(3);
+    expect(state.kind).toBe("transient");
+  });
+
+  test("a successful run clears the failure state", async () => {
+    seedFailureState(4, Date.now() - 60_000, "billing");
+
+    const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    expect(result.kind).toBe("invoked");
+    expect(readFailureState()).toBeNull();
+  });
+
+  test("a completed run with no progress records a transient failure instead of clearing", async () => {
+    seedFailureState(2, Date.now() - 60_000, "billing");
+    // Completes ok but never touches buffer.md — the stuck-agent shape.
+    runnerImpl = async () => ({ conversationId: "conv-1", ok: true });
+
+    const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    expect(result.kind).toBe("invoked");
+    if (result.kind !== "invoked") {
+      throw new Error("unreachable");
+    }
+    expect(result.noProgress).toBe(true);
+    expect(readFailureState()).toMatchObject({
+      consecutiveFailures: 3,
+      kind: "transient",
+    });
+  });
+
+  test("a skipped run neither clears nor records failure state", async () => {
+    const lastFailureAt = Date.now() - 60_000;
+    seedFailureState(2, lastFailureAt, "billing");
+    runnerImpl = async () => ({
+      conversationId: "",
+      ok: true,
+      skipReason: "pre_first_user_message",
+    });
+
+    await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    expect(readFailureState()).toEqual({
+      consecutiveFailures: 2,
+      lastFailureAt,
+      kind: "billing",
+    });
+  });
+
+  test("a skipped run creates no failure state when none exists", async () => {
+    runnerImpl = async () => ({
+      conversationId: "",
+      ok: true,
+      skipReason: "pre_first_user_message",
+    });
+
+    await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    expect(readFailureState()).toBeNull();
+  });
+
+  test("the disabled bail path leaves the failure state untouched", async () => {
+    const lastFailureAt = Date.now() - 60_000;
+    seedFailureState(2, lastFailureAt);
+
+    const result = await memoryV2ConsolidateJob(makeJob(), CONFIG_DISABLED);
+
+    expect(result.kind).toBe("disabled");
+    expect(readFailureState()).toEqual({
+      consecutiveFailures: 2,
+      lastFailureAt,
+      kind: "transient",
+    });
+  });
+
+  test("the empty-buffer bail path leaves the failure state untouched", async () => {
+    rmSync(bufferPath(), { force: true });
+    const lastFailureAt = Date.now() - 60_000;
+    seedFailureState(2, lastFailureAt);
+
+    const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    expect(result.kind).toBe("empty_buffer");
+    expect(readFailureState()).toEqual({
+      consecutiveFailures: 2,
+      lastFailureAt,
+      kind: "transient",
+    });
+  });
+
+  test("the locked bail path leaves the failure state untouched", async () => {
+    mkdirSync(join(memoryDir(), ".v2-state"), { recursive: true });
+    writeFileSync(lockPath(), `${process.pid} ${Date.now()}\n`);
+    const lastFailureAt = Date.now() - 60_000;
+    seedFailureState(2, lastFailureAt);
+
+    const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    expect(result.kind).toBe("locked");
+    expect(readFailureState()).toEqual({
+      consecutiveFailures: 2,
+      lastFailureAt,
+      kind: "transient",
+    });
+  });
+
+  test("a corrupt failure-state payload restarts the count at 1 on the next failure", async () => {
+    checkpointStore.set(CONSOLIDATION_FAILURE_CHECKPOINT_KEY, "not-json");
+    runnerImpl = failingRunner();
+
+    await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    expect(readFailureState()!.consecutiveFailures).toBe(1);
+  });
+
+  test("a payload with an unknown kind restarts the count at 1 on the next failure", async () => {
+    checkpointStore.set(
+      CONSOLIDATION_FAILURE_CHECKPOINT_KEY,
+      JSON.stringify({
+        consecutiveFailures: 7,
+        lastFailureAt: Date.now(),
+        kind: "mystery",
+      }),
+    );
+    runnerImpl = failingRunner();
+
+    await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    expect(readFailureState()).toMatchObject({
+      consecutiveFailures: 1,
+      kind: "transient",
+    });
   });
 });
 

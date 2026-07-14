@@ -213,6 +213,7 @@ export function makeControlsSpies() {
     stop: mock(() => {}),
     release: mock(() => {}),
     interrupt: mock(() => {}),
+    setMuted: mock((_muted: boolean) => {}),
   } satisfies LiveVoiceSessionControls;
 }
 
@@ -236,4 +237,11 @@ export function seedLiveVoiceSession(
     store.setControls(options.controls);
   }
   store.setState(state);
+  // Mirror the controller's first-`tts_audio` write: entering `speaking` means
+  // audio is flowing, so the avatar reads `responding`. (A silent mid-turn
+  // `speaking` pause is the exception, exercised directly against
+  // `toVoiceAvatarVisual`.)
+  if (state === "speaking") {
+    store.setAssistantAudioActive(true);
+  }
 }

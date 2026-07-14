@@ -108,7 +108,9 @@ export function hasPendingAssistantResponse(
 }
 
 /** Whether any message carries a surface that still accepts user input. */
-export function hasAnyInteractiveSurface(messages: DisplayMessage[]): boolean {
+export function hasAnyInteractiveSurface(
+  messages: readonly DisplayMessage[],
+): boolean {
   for (const msg of messages) {
     if (msg.surfaces) {
       for (const s of msg.surfaces) {

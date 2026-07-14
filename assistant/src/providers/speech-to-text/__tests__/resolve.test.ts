@@ -64,14 +64,24 @@ mock.module("../vellum-managed.js", () => ({
   sttErrorFromManagedSpeech: (failure: unknown) => new Error(String(failure)),
 }));
 
-const vellumStreamCtorCalls: Array<{ options: unknown }> = [];
+const vellumStreamCtorCalls: Array<{ connection: unknown; options: unknown }> =
+  [];
+let mockVelayConnection: {
+  wsBaseUrl: string;
+  httpBaseUrl: string;
+  mintServiceToken: () => string;
+} | null = null;
 
-mock.module("../vellum-managed-stream.js", () => ({
-  VellumManagedStreamingTranscriber: class {
+mock.module("../vellum-speech-relay-connection.js", () => ({
+  resolveSpeechRelayConnection: async () => mockVelayConnection,
+}));
+
+mock.module("../vellum-managed-realtime.js", () => ({
+  VellumManagedRealtimeTranscriber: class {
     readonly providerId = "vellum";
     readonly boundaryId = "daemon-streaming";
-    constructor(options: unknown) {
-      vellumStreamCtorCalls.push({ options });
+    constructor(connection: unknown, options: unknown) {
+      vellumStreamCtorCalls.push({ connection, options });
     }
   },
 }));
@@ -955,6 +965,7 @@ describe("vellum managed resolution", () => {
   beforeEach(() => {
     mockVellumAvailable = false;
     mockProviderKeys = {};
+    mockVelayConnection = null;
     vellumStreamCtorCalls.length = 0;
   });
 
@@ -982,12 +993,17 @@ describe("vellum managed resolution", () => {
     expect(capability.status).toBe("supported");
     if (capability.status === "supported") {
       expect(capability.providerId).toBe("vellum");
-      expect(capability.streamingMode).toBe("incremental-batch");
+      expect(capability.streamingMode).toBe("realtime-ws");
     }
   });
 
-  test("streaming resolver constructs the vellum adapter with the sample rate", async () => {
+  test("streaming resolver constructs the vellum adapter with the velay connection and sample rate", async () => {
     mockVellumAvailable = true;
+    mockVelayConnection = {
+      wsBaseUrl: "ws://gateway.test",
+      httpBaseUrl: "http://gateway.test",
+      mintServiceToken: () => "vk-test",
+    };
     applyConfig({ provider: "openai-whisper", mode: "managed" });
 
     const transcriber = await resolveStreamingTranscriber({
@@ -995,8 +1011,33 @@ describe("vellum managed resolution", () => {
     });
     expect(transcriber?.providerId).toBe("vellum");
     expect(vellumStreamCtorCalls).toEqual([
-      { options: { pcmSampleRate: 24000 } },
+      {
+        connection: mockVelayConnection,
+        options: { sampleRate: 24000 },
+      },
     ]);
+  });
+
+  test("streaming resolver returns null when the platform connection is unavailable", async () => {
+    mockVellumAvailable = false;
+    mockVelayConnection = {
+      wsBaseUrl: "ws://gateway.test",
+      httpBaseUrl: "http://gateway.test",
+      mintServiceToken: () => "vk-test",
+    };
+    applyConfig({ provider: "deepgram", mode: "managed" });
+
+    expect(await resolveStreamingTranscriber({ sampleRate: 16000 })).toBeNull();
+    expect(vellumStreamCtorCalls).toHaveLength(0);
+  });
+
+  test("streaming resolver returns null when the velay connection is missing", async () => {
+    mockVellumAvailable = true;
+    mockVelayConnection = null;
+    applyConfig({ provider: "deepgram", mode: "managed" });
+
+    expect(await resolveStreamingTranscriber({ sampleRate: 16000 })).toBeNull();
+    expect(vellumStreamCtorCalls).toHaveLength(0);
   });
 
   test("conversation streaming capability reports missing credentials without a connection", async () => {

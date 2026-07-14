@@ -327,11 +327,9 @@ export function ChatLayout() {
     consumeSidebarCollapse();
   }, [sidebarCollapseRequested, consumeSidebarCollapse]);
 
-  // Voice-room visibility. On desktop the room is a content-scoped overlay
-  // (mounted inside `<main>` below) that deliberately leaves the sidebar and
-  // header interactive, so the user can keep navigating mid-session — any
-  // navigation away hands the session off to the title-bar pill. Only the
-  // mobile mount is a full-viewport takeover.
+  // Voice-room visibility. The room is a full-viewport takeover on every
+  // platform (mounted at layout scope below): it covers the header and
+  // sidebar, and ending the session is the only way out of it.
   const voiceRoomVisible = useIsVoiceRoomVisible();
 
   const drawerVisible = isMobile && drawerOpen;
@@ -730,15 +728,12 @@ export function ChatLayout() {
     />
   );
 
-  // Blur + freeze the chat body under the MOBILE voice room, which is a
-  // full-viewport takeover. The room is an opaque overlay, so this mainly
-  // matters for the fade transition and to stop stray interaction with the
-  // covered chat. Desktop must NOT get this: its room renders inside `<main>`
-  // itself, so blurring/freezing main would blur and freeze the room too.
-  const mainRoomClass =
-    voiceRoomVisible && isMobile
-      ? "pointer-events-none blur-sm opacity-40 transition-[filter,opacity]"
-      : "";
+  // Blur + freeze the chat body under the voice room, a full-viewport
+  // takeover. The room is an opaque overlay, so this mainly matters for the
+  // fade transition and to stop stray interaction with the covered chat.
+  const mainRoomClass = voiceRoomVisible
+    ? "pointer-events-none blur-sm opacity-40 transition-[filter,opacity]"
+    : "";
 
   return (
     <>
@@ -807,7 +802,14 @@ export function ChatLayout() {
                   the only part of it that shows around the full-bleed menu,
                   and a mismatched background renders as tinted strips along
                   the notch / home-indicator edges on iOS. No border — the
-                  sheet covers the full screen, so there is no edge to draw. */}
+                  sheet covers the full screen, so there is no edge to draw.
+                  No bottom padding either: the SideMenu root clips its
+                  children (`overflow-hidden`), so a bottom inset places the
+                  clip boundary at the home-indicator line and guillotines
+                  the floating action pills' drop shadows into a visible
+                  hard edge in light mode. The menu runs full-bleed to the
+                  physical bottom edge and the pills offset themselves by
+                  the safe-area inset instead. */}
               <aside
                 id="chat-side-menu"
                 className="relative flex h-full w-full flex-col shadow-xl"
@@ -816,8 +818,6 @@ export function ChatLayout() {
                   zIndex: 50,
                   paddingTop:
                     "var(--safe-area-inset-top, env(safe-area-inset-top, 0px))",
-                  paddingBottom:
-                    "var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px))",
                   paddingLeft:
                     "var(--safe-area-inset-left, env(safe-area-inset-left, 0px))",
                 }}
@@ -859,13 +859,10 @@ export function ChatLayout() {
               onWidthChange: handleSidebarWidthChange,
             })}
           </aside>
-          <main className="relative flex min-w-0 flex-1 min-h-0 flex-col overflow-hidden">
+          <main
+            className={`relative flex min-w-0 flex-1 min-h-0 flex-col overflow-hidden ${mainRoomClass}`}
+          >
             <Outlet />
-            {/* Desktop voice room — content-scoped (`absolute inset-0` within
-                this `<main>`), so the header and sidebar stay visible and
-                interactive during a session. Self-gates on
-                `useIsVoiceRoomVisible()`. */}
-            <VoiceRoom variant="content" />
           </main>
         </div>
       )}
@@ -876,12 +873,11 @@ export function ChatLayout() {
           overlay; it never remounts the chat, so a suggestion click's
           navigate + `?prompt=` auto-send isn't raced by a remount. */}
       {isFocused ? <ResearchResultsOverlay /> : null}
-      {/* Mobile live-voice room — a full-viewport takeover mounted at layout
-          scope, next to the other full-viewport overlays (the desktop mount is
-          content-scoped inside `<main>` above). Self-gates on
-          `useIsVoiceRoomVisible()`; the composer's voice bar and transcript
-          render underneath, hidden by it. */}
-      {isMobile ? <VoiceRoom variant="fullscreen" /> : null}
+      {/* Live-voice room — a full-viewport takeover mounted at layout scope,
+          next to the other full-viewport overlays. Self-gates on
+          `useIsVoiceRoomVisible()` (which excludes pop-outs); the composer's
+          voice bar and transcript render underneath, hidden by it. */}
+      <VoiceRoom />
       {/* First step of the focused flow: the gcal "Let's chat tomorrow" page,
           shown over the streaming research output until connect/skip. Self-gates
           on `checkinPending`; top-level so it can compose the onboarding screen. */}

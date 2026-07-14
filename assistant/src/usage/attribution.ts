@@ -54,8 +54,8 @@ export interface UsageAttributionSnapshot {
 }
 
 /**
- * The four nullable attribution columns shared by telemetry event rows
- * (`tool_invocations`, `skill_loaded_events`).
+ * The four nullable attribution columns shared by telemetry events
+ * (`tool_invocations` rows, `skill_loaded` outbox payloads).
  */
 export interface UsageAttributionColumns {
   provider: string | null;

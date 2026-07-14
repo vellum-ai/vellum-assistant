@@ -21,17 +21,21 @@ afterEach(() => {
 });
 
 function renderBar(state: LiveVoiceSessionState, overrides?: {
+  muted?: boolean;
+  onToggleMute?: () => void;
   onEnd?: () => void;
   onSend?: () => void;
-  onExpand?: () => void;
+  onStop?: () => void;
 }) {
   return render(
     <VoiceComposerBar
       state={state}
       getAmplitude={() => 0.5}
+      muted={overrides?.muted ?? false}
+      onToggleMute={overrides?.onToggleMute ?? (() => {})}
       onEnd={overrides?.onEnd ?? (() => {})}
       onSend={overrides?.onSend ?? (() => {})}
-      onExpand={overrides?.onExpand}
+      onStop={overrides?.onStop}
     />,
   );
 }
@@ -116,17 +120,45 @@ describe("VoiceComposerBar — callbacks", () => {
   });
 });
 
-describe("VoiceComposerBar — expand (reopen the minimized voice room)", () => {
-  test("no expand control without onExpand — the room is not minimized", () => {
-    renderBar("listening");
-    expect(screen.queryByRole("button", { name: "Open voice room" })).toBeNull();
+describe("VoiceComposerBar — mute toggle", () => {
+  test("shows 'Mute microphone' when live and fires onToggleMute", () => {
+    const onToggleMute = mock(() => {});
+    renderBar("listening", { onToggleMute });
+    fireEvent.click(screen.getByRole("button", { name: "Mute microphone" }));
+    expect(onToggleMute).toHaveBeenCalledTimes(1);
   });
 
-  test("clicking expand fires onExpand", () => {
-    const onExpand = mock(() => {});
-    renderBar("listening", { onExpand });
-    fireEvent.click(screen.getByRole("button", { name: "Open voice room" }));
-    expect(onExpand).toHaveBeenCalledTimes(1);
+  test("muted: offers unmute and replaces the state label with 'Muted'", () => {
+    renderBar("listening", { muted: true });
+    expect(
+      screen.getByRole("button", { name: "Unmute microphone" }),
+    ).toBeTruthy();
+    expect(screen.getByText("Muted")).toBeTruthy();
+    expect(screen.queryByText("Listening…")).toBeNull();
+  });
+});
+
+describe("VoiceComposerBar — stop response", () => {
+  test("■ renders only while speaking with onStop wired, and fires it", () => {
+    const onStop = mock(() => {});
+    renderBar("speaking", { onStop });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Stop assistant response" }),
+    );
+    expect(onStop).toHaveBeenCalledTimes(1);
+  });
+
+  test("no ■ outside speaking, or without onStop (manual session)", () => {
+    const { unmount } = renderBar("listening", { onStop: () => {} });
+    expect(
+      screen.queryByRole("button", { name: "Stop assistant response" }),
+    ).toBeNull();
+    unmount();
+
+    renderBar("speaking");
+    expect(
+      screen.queryByRole("button", { name: "Stop assistant response" }),
+    ).toBeNull();
   });
 });
 
