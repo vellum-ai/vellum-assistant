@@ -7,7 +7,15 @@
  * AudioContext is touched.
  */
 
-import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  spyOn,
+  test,
+} from "bun:test";
 import { act, cleanup, renderHook } from "@testing-library/react";
 
 // The default client factory in use-live-voice statically imports the real
@@ -37,12 +45,15 @@ import {
 // Import the controller + store *after* the connection mock is registered, so
 // the real connection.ts (which imports the generated SDK) never enters the
 // static import graph.
-const { useLiveVoice } = await import(
-  "@/domains/chat/voice/live-voice/use-live-voice"
-);
-const { useLiveVoiceStore } = await import(
-  "@/domains/chat/voice/live-voice/live-voice-store"
-);
+const { useLiveVoice } =
+  await import("@/domains/chat/voice/live-voice/use-live-voice");
+const { useLiveVoiceStore } =
+  await import("@/domains/chat/voice/live-voice/live-voice-store");
+const {
+  useVoicePrefsStore,
+  DEFAULT_PAUSE_BEFORE_REPLY_MS,
+  DEFAULT_INTERRUPT_SENSITIVITY,
+} = await import("@/stores/voice-prefs-store");
 
 // ---------------------------------------------------------------------------
 // Harness
@@ -120,6 +131,13 @@ async function startListening(
 
 beforeEach(() => {
   useLiveVoiceStore.getState().reset();
+  // The voice-prefs store is a persisted singleton — reset the two turn-taking
+  // settings to their defaults so a test that changes them can't leak into the
+  // connect-args assertions of the next.
+  useVoicePrefsStore.setState({
+    pauseBeforeReplyMs: DEFAULT_PAUSE_BEFORE_REPLY_MS,
+    interruptSensitivity: DEFAULT_INTERRUPT_SENSITIVITY,
+  });
 });
 
 afterEach(() => {
@@ -472,7 +490,26 @@ describe("hands-free mode", () => {
     });
   }
 
-  test("connects with server_vad turn detection", async () => {
+  test("connects with server_vad turn detection and the default pause + interrupt settings", async () => {
+    const h = renderController();
+    await startListening(h, { handsFree: true });
+
+    // Defaults: 1200 ms pause, "medium" interrupt sensitivity → 250 ms.
+    expect(h.client.connectArgs).toEqual({
+      assistantId: "assistant-1",
+      conversationId: "conv-1",
+      turnDetection: "server_vad",
+      silenceThresholdMs: 1200,
+      bargeInMinSpeechMs: 250,
+    });
+    expect(h.view.result.current.state).toBe("listening");
+  });
+
+  test("sends the user's pause + interrupt-sensitivity settings on a hands-free connect", async () => {
+    useVoicePrefsStore.setState({
+      pauseBeforeReplyMs: 1500,
+      interruptSensitivity: "low", // low sensitivity → 600 ms guard
+    });
     const h = renderController();
     await startListening(h, { handsFree: true });
 
@@ -480,8 +517,19 @@ describe("hands-free mode", () => {
       assistantId: "assistant-1",
       conversationId: "conv-1",
       turnDetection: "server_vad",
+      silenceThresholdMs: 1500,
+      bargeInMinSpeechMs: 600,
     });
-    expect(h.view.result.current.state).toBe("listening");
+  });
+
+  test("omits turn-detection + pause + interrupt settings for a manual (non-hands-free) connect", async () => {
+    const h = renderController();
+    await startListening(h); // manual
+
+    expect(h.client.connectArgs).toEqual({
+      assistantId: "assistant-1",
+      conversationId: "conv-1",
+    });
   });
 
   test("runs two full turns on one socket without a second client or ptt_release", async () => {
@@ -773,7 +821,10 @@ describe("hands-free session controls (send now / stop response / mute)", () => 
   }
 
   /** Drive the session into `speaking` with one thinking + tts frame. */
-  function driveToSpeaking(h: ReturnType<typeof renderController>, turnId = "t1") {
+  function driveToSpeaking(
+    h: ReturnType<typeof renderController>,
+    turnId = "t1",
+  ) {
     act(() => {
       h.client.emit("thinking", { type: "thinking", seq: 2, turnId });
       h.client.emit("ttsAudio", {
@@ -2074,7 +2125,11 @@ describe("observeAudioState", () => {
     const rendersBefore = h.getRenderCount();
     act(() => {
       h.client.emit("sttPartial", { type: "stt_partial", seq: 2, text: "hel" });
-      h.client.emit("sttPartial", { type: "stt_partial", seq: 3, text: "hello" });
+      h.client.emit("sttPartial", {
+        type: "stt_partial",
+        seq: 3,
+        text: "hello",
+      });
     });
     // Transcript writes reached the store but not the consumer.
     expect(useLiveVoiceStore.getState().partialTranscript).toBe("hello");
@@ -2308,7 +2363,8 @@ describe("hands-free reconnect (retryable tunnel close)", () => {
     expect(h.view.result.current.state).toBe("connecting");
     expect(useLiveVoiceStore.getState().controls).not.toBeNull();
 
-    // Backoff elapses → a fresh connect to the SAME conversation.
+    // Backoff elapses → a fresh connect to the SAME conversation, carrying the
+    // default turn-taking settings (1200 ms pause / 250 ms barge-in).
     await act(async () => {
       await sleep(80);
     });
@@ -2316,6 +2372,8 @@ describe("hands-free reconnect (retryable tunnel close)", () => {
       assistantId: "assistant-1",
       conversationId: "conv-1",
       turnDetection: "server_vad",
+      silenceThresholdMs: 1200,
+      bargeInMinSpeechMs: 250,
     });
 
     // The reconnected session's `ready` resumes listening (a torn-down session
@@ -2457,7 +2515,8 @@ describe("hands-free reconnect (retryable tunnel close)", () => {
 
 describe("reconnecting signal", () => {
   const FAST_BACKOFF = [20, 40, 60];
-  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+  const sleep = (ms: number) =>
+    new Promise((resolve) => setTimeout(resolve, ms));
 
   test("a retryable close flips reconnecting true while connecting; ready clears it", async () => {
     const h = renderController({ reconnectBackoffMs: FAST_BACKOFF });
@@ -2590,7 +2649,8 @@ describe("initial-connect resilience (JARVIS-1282)", () => {
     expect(useLiveVoiceStore.getState().reconnecting).toBe(false);
     expect(useLiveVoiceStore.getState().controls).not.toBeNull();
 
-    // Backoff elapses → a fresh connect to the same conversation.
+    // Backoff elapses → a fresh connect to the same conversation, carrying the
+    // default turn-taking settings (1200 ms pause / 250 ms barge-in).
     await act(async () => {
       await sleep(30);
     });
@@ -2598,6 +2658,8 @@ describe("initial-connect resilience (JARVIS-1282)", () => {
       assistantId: "assistant-1",
       conversationId: "conv-1",
       turnDetection: "server_vad",
+      silenceThresholdMs: 1200,
+      bargeInMinSpeechMs: 250,
     });
 
     // The retry readies → listening; the error never appeared.

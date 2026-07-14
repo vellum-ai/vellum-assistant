@@ -896,9 +896,9 @@ describe("AssistantConfigSchema", () => {
       mode: "open-mic",
       vad: {
         speechEnergyThreshold: 800,
-        silenceThresholdMs: 800,
+        silenceThresholdMs: 1200,
         maxTurnDurationMs: 30000,
-        bargeInMinSpeechMs: 60,
+        bargeInMinSpeechMs: 250,
       },
       maxSessionDurationSeconds: 1800,
     });

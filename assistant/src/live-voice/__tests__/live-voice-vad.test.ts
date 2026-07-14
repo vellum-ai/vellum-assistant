@@ -63,9 +63,10 @@ function pcm(amplitude: number, sampleCount = 240): Uint8Array {
 
 // 10 ms of speech at 24 kHz.
 const LOUD_CHUNK = pcm(8_000);
-// 60 ms of speech at 24 kHz — meets the default sustained-speech barge-in
-// guard (bargeInMinSpeechMs) in a single chunk.
-const SUSTAINED_LOUD_CHUNK = pcm(8_000, 1_440);
+// 300 ms of speech at 24 kHz — comfortably exceeds the default sustained-speech
+// barge-in guard (bargeInMinSpeechMs, 250 ms) in a single chunk, so a lone
+// chunk trips barge-in. Must stay above that default.
+const SUSTAINED_LOUD_CHUNK = pcm(8_000, 7_200);
 const SILENT_CHUNK = pcm(0);
 
 class MockStreamingTranscriber implements StreamingTranscriber {
@@ -1110,14 +1111,14 @@ describe("LiveVoiceSession VAD threshold configuration", () => {
     expect(countType(raisedGate.frames, "speech_started")).toBe(0);
   });
 
-  test("with no config set the factory defaults to 800 energy / 800 ms silence / 30 s max turn", async () => {
+  test("with no config set the factory defaults to 800 energy / 1200 ms silence / 30 s max turn / 250 ms barge-in", async () => {
     // The test workspace has no liveVoice config, so the factory reads the
-    // schema defaults — which must equal the historical code constants.
+    // schema defaults.
     expect(getConfig().liveVoice.vad).toEqual({
       speechEnergyThreshold: 800,
-      silenceThresholdMs: 800,
+      silenceThresholdMs: 1200,
       maxTurnDurationMs: 30_000,
-      bargeInMinSpeechMs: 60,
+      bargeInMinSpeechMs: 250,
     });
 
     const { frames, session } = createHarness({ viaFactory: true });
@@ -1172,6 +1173,30 @@ describe("LiveVoiceSession VAD threshold configuration", () => {
       saveRawConfig(originalRaw);
     }
   });
+
+  // JARVIS-1284: the per-session start-frame `silenceThresholdMs` wins over the
+  // daemon-config/option value, so the client's "pause before reply" setting
+  // takes effect.
+  test("start-frame silenceThresholdMs overrides the option value", async () => {
+    const { frames, session } = createHarness({
+      // A short per-session pause on the start frame…
+      startFrame: { ...VAD_START_FRAME, silenceThresholdMs: 60 },
+      // …beats a long option/config threshold that would otherwise time the
+      // waitFor out.
+      turnDetectorConfig: { silenceThresholdMs: 5_000 },
+      finals: ["configured turn"],
+      startVoiceTurn: makeAutoCompletingTurnStarter(["Done."]).startVoiceTurn,
+    });
+    await session.start();
+
+    // One speech chunk, then silence: the turn ends ~60 ms later (the frame's
+    // value), well inside the waitFor budget — the 5 s option would time out.
+    await session.handleBinaryAudio(pcm(3_000));
+    await waitFor(() => countType(frames, "utterance_end") === 1);
+    expect(
+      frames.find((frame) => frame.type === "utterance_end"),
+    ).toMatchObject({ type: "utterance_end", reason: "silence" });
+  });
 });
 
 describe("LiveVoiceSession sustained-speech barge-in guard", () => {
@@ -1182,6 +1207,7 @@ describe("LiveVoiceSession sustained-speech barge-in guard", () => {
   function createSpeakingTurnHarness(options: {
     bargeInMinSpeechMs: number;
     finals?: string[];
+    startFrame?: LiveVoiceClientStartFrame;
   }) {
     let callbacks: VoiceTurnCallbacks | undefined;
     const abort = mock();
@@ -1199,6 +1225,7 @@ describe("LiveVoiceSession sustained-speech barge-in guard", () => {
       streamTtsAudio,
       bargeInMinSpeechMs: options.bargeInMinSpeechMs,
       turnDetectorConfig: { silenceThresholdMs: 5_000 },
+      ...(options.startFrame ? { startFrame: options.startFrame } : {}),
     });
 
     async function speakFirstReply(): Promise<void> {
@@ -1397,5 +1424,30 @@ describe("LiveVoiceSession sustained-speech barge-in guard", () => {
     await waitFor(() => countType(frames, "speech_started") === baseline + 1);
     expect(countType(frames, "turn_cancelled")).toBe(0);
     expect(abort).not.toHaveBeenCalled();
+  });
+
+  // JARVIS-1284: the per-session start-frame `bargeInMinSpeechMs` wins over the
+  // daemon-config/option value, so the client's "interrupt sensitivity" setting
+  // takes effect.
+  test("start-frame bargeInMinSpeechMs overrides the option value (0 → instant barge-in)", async () => {
+    const { frames, session, abort, speakFirstReply } =
+      createSpeakingTurnHarness({
+        // The option (daemon config) would make barge-in effectively impossible…
+        bargeInMinSpeechMs: 5_000,
+        // …but the start-frame override disables the guard, so barge-in is
+        // instant.
+        startFrame: { ...VAD_START_FRAME, bargeInMinSpeechMs: 0 },
+      });
+    await speakFirstReply();
+
+    // A single speech chunk barges in immediately — proving the frame's 0 won.
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() =>
+      frames.some((frame) => frame.type === "turn_cancelled"),
+    );
+    expect(
+      frames.find((frame) => frame.type === "turn_cancelled"),
+    ).toMatchObject({ type: "turn_cancelled", turnId: "live-turn-1" });
+    await waitFor(() => abort.mock.calls.length === 1);
   });
 });

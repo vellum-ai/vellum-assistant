@@ -41,6 +41,11 @@ import {
 const { useLiveVoiceSessionController } = await import(
   "@/domains/chat/voice/live-voice/use-live-voice-session-controller"
 );
+const {
+  useVoicePrefsStore,
+  DEFAULT_PAUSE_BEFORE_REPLY_MS,
+  DEFAULT_INTERRUPT_SENSITIVITY,
+} = await import("@/stores/voice-prefs-store");
 const { useLiveVoiceStore } = await import(
   "@/domains/chat/voice/live-voice/live-voice-store"
 );
@@ -108,6 +113,13 @@ async function startListeningViaStarter(
 beforeEach(() => {
   useLiveVoiceStore.getState().reset();
   useLiveVoiceStore.getState().setStarter(null);
+  // The voice-prefs store is a persisted singleton shared across test files;
+  // pin the turn-taking settings to defaults so connect-args assertions are
+  // deterministic regardless of test order.
+  useVoicePrefsStore.setState({
+    pauseBeforeReplyMs: DEFAULT_PAUSE_BEFORE_REPLY_MS,
+    interruptSensitivity: DEFAULT_INTERRUPT_SENSITIVITY,
+  });
 });
 
 afterEach(() => {
@@ -139,6 +151,8 @@ describe("starter registration", () => {
       assistantId: "assistant-1",
       conversationId: "conv-1",
       turnDetection: "server_vad",
+      silenceThresholdMs: 1200,
+      bargeInMinSpeechMs: 250,
     });
     expect(useLiveVoiceStore.getState().state).toBe("listening");
     expect(useLiveVoiceStore.getState().conversationId).toBe("conv-1");
@@ -156,6 +170,8 @@ describe("starter registration", () => {
       assistantId: "assistant-1",
       conversationId: undefined,
       turnDetection: "server_vad",
+      silenceThresholdMs: 1200,
+      bargeInMinSpeechMs: 250,
     });
     expect(useLiveVoiceStore.getState().startedConversationId).toBeNull();
   });

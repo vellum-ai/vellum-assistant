@@ -264,6 +264,80 @@ describe("parseLiveVoiceClientTextFrame", () => {
     });
   });
 
+  test("parses per-session silenceThresholdMs and bargeInMinSpeechMs overrides", () => {
+    const result = parseLiveVoiceClientTextFrame(
+      JSON.stringify({
+        type: "start",
+        turnDetection: "server_vad",
+        silenceThresholdMs: 1500,
+        bargeInMinSpeechMs: 400,
+        audio: { mimeType: "audio/pcm", sampleRate: 24000, channels: 1 },
+      }),
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.frame).toMatchObject({
+      type: "start",
+      silenceThresholdMs: 1500,
+      bargeInMinSpeechMs: 400,
+    });
+  });
+
+  test("accepts bargeInMinSpeechMs of 0 (barge-in guard disabled)", () => {
+    const result = parseLiveVoiceClientTextFrame(
+      JSON.stringify({
+        type: "start",
+        bargeInMinSpeechMs: 0,
+        audio: { mimeType: "audio/pcm", sampleRate: 24000, channels: 1 },
+      }),
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.frame).toMatchObject({ bargeInMinSpeechMs: 0 });
+  });
+
+  test("omits silenceThresholdMs / bargeInMinSpeechMs when absent", () => {
+    const result = parseLiveVoiceClientTextFrame(
+      JSON.stringify({
+        type: "start",
+        audio: { mimeType: "audio/pcm", sampleRate: 24000, channels: 1 },
+      }),
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect("silenceThresholdMs" in result.frame).toBe(false);
+    expect("bargeInMinSpeechMs" in result.frame).toBe(false);
+  });
+
+  test.each([
+    ["silenceThresholdMs", 50], // below MIN_SILENCE_THRESHOLD_MS
+    ["silenceThresholdMs", 10_000], // above MAX_SILENCE_THRESHOLD_MS
+    ["silenceThresholdMs", 800.5], // non-integer
+    ["bargeInMinSpeechMs", -1], // below MIN_BARGE_IN_MIN_SPEECH_MS
+    ["bargeInMinSpeechMs", 9_000], // above MAX_BARGE_IN_MIN_SPEECH_MS
+    ["bargeInMinSpeechMs", 250.5], // non-integer
+  ])(
+    "returns a typed protocol error for out-of-range %s=%p",
+    (field, badValue) => {
+      const result = validateLiveVoiceClientFrame({
+        type: "start",
+        [field]: badValue,
+        audio: { mimeType: "audio/pcm", sampleRate: 24000, channels: 1 },
+      });
+
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.error).toMatchObject({
+        code: "invalid_field",
+        field,
+        frameType: "start",
+      });
+    },
+  );
+
   test("returns typed protocol errors for missing audio configuration fields", () => {
     const result = validateLiveVoiceClientFrame({
       type: "start",

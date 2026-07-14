@@ -1,42 +1,50 @@
 import { ArrowUpRight, Info } from "lucide-react";
 import {
-    useCallback,
-    useEffect,
-    useMemo,
-    useRef,
-    useState,
-    type KeyboardEvent as ReactKeyboardEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
 import { Link } from "react-router";
 
 import { Button } from "@vellumai/design-library/components/button";
 import { Dropdown } from "@vellumai/design-library/components/dropdown";
+import { SegmentControl } from "@vellumai/design-library/components/segment-control";
+import { Slider } from "@vellumai/design-library/components/slider";
 import { Toggle } from "@vellumai/design-library/components/toggle";
 
 import { DetailCard } from "@/components/detail-card";
+import {
+  MAX_PAUSE_BEFORE_REPLY_MS,
+  MIN_PAUSE_BEFORE_REPLY_MS,
+  useVoicePrefsStore,
+  type InterruptSensitivity,
+} from "@/stores/voice-prefs-store";
 import { VoiceTranscriptToggles } from "@/components/voice-transcript-toggles";
 import {
-    getLocalSetting,
-    removeLocalSetting,
-    setLocalSetting,
+  getLocalSetting,
+  removeLocalSetting,
+  setLocalSetting,
 } from "@/utils/local-settings";
 import {
-    CTRL_PTT_ACTIVATOR,
-    FN_PTT_ACTIVATOR,
-    LS_PTT_ACTIVATION_KEY,
-    activatorDisplayName,
-    activatorsEqual,
-    modifierLabel,
-    parseActivator,
-    serializeActivator,
-    sortModifiers,
-    type PTTActivator,
-    type PTTModifier,
+  CTRL_PTT_ACTIVATOR,
+  FN_PTT_ACTIVATOR,
+  LS_PTT_ACTIVATION_KEY,
+  activatorDisplayName,
+  activatorsEqual,
+  modifierLabel,
+  parseActivator,
+  serializeActivator,
+  sortModifiers,
+  type PTTActivator,
+  type PTTModifier,
 } from "@/utils/ptt-activator";
 import { routes } from "@/utils/routes";
 import {
-    LS_VOICE_INPUT_DEVICE,
-    getPreferredInputDeviceId,
+  LS_VOICE_INPUT_DEVICE,
+  getPreferredInputDeviceId,
 } from "@/utils/voice-input-device";
 import { canConfigureFnPushToTalk } from "@/runtime/hotkey";
 import { VOICE_TRANSCRIPT_RECOMMENDATION } from "@/utils/voice-transcript-prefs";
@@ -76,8 +84,7 @@ type ConversationTimeoutValue =
 
 const DEFAULT_CONVERSATION_TIMEOUT: ConversationTimeoutValue = "30";
 
-const labelClasses =
-  "text-body-small-default text-[var(--content-tertiary)]";
+const labelClasses = "text-body-small-default text-[var(--content-tertiary)]";
 
 export function VoicePage() {
   return (
@@ -86,6 +93,8 @@ export function VoicePage() {
       <MicrophoneCard />
       <PushToTalkCard />
       <ConversationTimeoutCard />
+      <PauseBeforeReplyCard />
+      <InterruptSensitivityCard />
       <TranscriptionCard />
     </div>
   );
@@ -458,9 +467,10 @@ function PushToTalkCard() {
               <div className="flex items-start gap-1 pt-1 text-body-small-default text-[var(--content-quiet)]">
                 <Info className="mt-0.5 h-3 w-3 shrink-0" />
                 <span>
-                  Push-to-Talk only works while this tab is focused, and browsers
-                  may intercept some shortcuts (e.g. Ctrl+T) before the page can
-                  see them. For always-on PTT, use the Vellum desktop app.
+                  Push-to-Talk only works while this tab is focused, and
+                  browsers may intercept some shortcuts (e.g. Ctrl+T) before the
+                  page can see them. For always-on PTT, use the Vellum desktop
+                  app.
                 </span>
               </div>
             )}
@@ -534,6 +544,65 @@ function ConversationTimeoutCard() {
           value={timeout}
           onChange={handleChange}
           aria-label="Conversation timeout"
+        />
+      </div>
+    </DetailCard>
+  );
+}
+
+const INTERRUPT_SENSITIVITY_ITEMS: {
+  value: InterruptSensitivity;
+  label: string;
+}[] = [
+  { value: "low", label: "Low" },
+  { value: "medium", label: "Medium" },
+  { value: "high", label: "High" },
+];
+
+function PauseBeforeReplyCard() {
+  const pauseMs = useVoicePrefsStore.use.pauseBeforeReplyMs();
+  const setPauseMs = useVoicePrefsStore.use.setPauseBeforeReplyMs();
+
+  return (
+    <DetailCard
+      title="Pause before reply"
+      subtitle="How long the assistant waits after you stop speaking before it replies. A longer pause lets you gather your thoughts mid-sentence without being cut off."
+    >
+      <div className="max-w-xs">
+        <Slider
+          value={pauseMs / 1000}
+          onValueChange={(next) => {
+            if (typeof next === "number") setPauseMs(Math.round(next * 1000));
+          }}
+          min={MIN_PAUSE_BEFORE_REPLY_MS / 1000}
+          max={MAX_PAUSE_BEFORE_REPLY_MS / 1000}
+          step={0.1}
+          showValue
+          formatValue={(value) =>
+            `${(typeof value === "number" ? value : value[0]).toFixed(1)}s`
+          }
+          aria-label="Pause before reply"
+        />
+      </div>
+    </DetailCard>
+  );
+}
+
+function InterruptSensitivityCard() {
+  const sensitivity = useVoicePrefsStore.use.interruptSensitivity();
+  const setSensitivity = useVoicePrefsStore.use.setInterruptSensitivity();
+
+  return (
+    <DetailCard
+      title="Interrupt sensitivity"
+      subtitle="How easily talking over the assistant interrupts it. Lower it if the assistant cuts itself off on background noise or filler words; raise it to interrupt more quickly."
+    >
+      <div className="max-w-xs">
+        <SegmentControl<InterruptSensitivity>
+          items={INTERRUPT_SENSITIVITY_ITEMS}
+          value={sensitivity}
+          onChange={setSensitivity}
+          ariaLabel="Interrupt sensitivity"
         />
       </div>
     </DetailCard>

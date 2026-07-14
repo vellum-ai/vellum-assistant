@@ -11,9 +11,9 @@ describe("LiveVoiceVadConfigSchema", () => {
     const parsed = LiveVoiceVadConfigSchema.parse({});
     expect(parsed).toEqual({
       speechEnergyThreshold: 800,
-      silenceThresholdMs: 800,
+      silenceThresholdMs: 1200,
       maxTurnDurationMs: 30_000,
-      bargeInMinSpeechMs: 60,
+      bargeInMinSpeechMs: 250,
     });
   });
 
@@ -64,9 +64,9 @@ describe("LiveVoiceConfigSchema", () => {
       mode: "open-mic",
       vad: {
         speechEnergyThreshold: 800,
-        silenceThresholdMs: 800,
+        silenceThresholdMs: 1200,
         maxTurnDurationMs: 30_000,
-        bargeInMinSpeechMs: 60,
+        bargeInMinSpeechMs: 250,
       },
       maxSessionDurationSeconds: 1800,
     });
@@ -75,11 +75,11 @@ describe("LiveVoiceConfigSchema", () => {
   test("accepts overrides", () => {
     const parsed = LiveVoiceConfigSchema.parse({
       mode: "ptt",
-      vad: { silenceThresholdMs: 1200 },
+      vad: { silenceThresholdMs: 900 },
       maxSessionDurationSeconds: 600,
     });
     expect(parsed.mode).toBe("ptt");
-    expect(parsed.vad.silenceThresholdMs).toBe(1200);
+    expect(parsed.vad.silenceThresholdMs).toBe(900);
     // Unspecified vad fields still get defaults
     expect(parsed.vad.speechEnergyThreshold).toBe(800);
     expect(parsed.vad.maxTurnDurationMs).toBe(30_000);
