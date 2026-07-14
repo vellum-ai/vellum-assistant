@@ -214,6 +214,12 @@ export function ConceptGraphView({
     filterRef.current = { active: Boolean(matchIds), matches: matchIds };
     view.current.dirty = true;
   }, [matchIds]);
+  // Reset the search when the active assistant changes: this component is reused
+  // across assistants (IdentityTab doesn't key it), so a stale query would
+  // otherwise filter the new assistant's graph and ghost every node.
+  useEffect(() => {
+    setSearch("");
+  }, [assistantId]);
 
   const labelFor = useCallback(
     (id: string | null): string | null => {
