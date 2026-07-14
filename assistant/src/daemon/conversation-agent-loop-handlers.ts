@@ -821,6 +821,13 @@ function resetPartialPersistAccumulator(state: EventHandlerState): void {
   state.currentThinkingTimestamps = [];
   state.lastPersistedContentSeq = undefined;
   state.pendingPartialFlushPromise = undefined;
+  // If a previous LLM call (e.g. a retried/replaced stream) held back
+  // sentinel-guarded text via `drainSentinelGuardedText`, the stale
+  // bytes would be prepended to the retry's first text_delta, potentially
+  // emitting a raw credential prefix if it no longer matches a candidate.
+  // Clear alongside the other per-row accumulators so the new LLM call
+  // starts from an empty buffer. (Codex R19 P1)
+  state.pendingSentinelGuardBuffer = "";
 }
 
 /**
