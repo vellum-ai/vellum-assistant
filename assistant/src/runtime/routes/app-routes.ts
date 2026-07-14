@@ -9,10 +9,8 @@ import JSZip from "jszip";
 import { z } from "zod";
 
 import {
-  getApp,
-  getAppDirPath,
-  isMultifileApp,
-  readAppFileBytes,
+  readAppFileBytesFromDir,
+  resolveAppSource,
 } from "../../apps/app-store.js";
 import {
   createSharedAppLink,
@@ -78,11 +76,11 @@ function servePageHeaders({
   pathParams,
 }: ResponseHeaderArgs): Record<string, string> {
   const appId = pathParams?.appId as string;
-  const app = getApp(appId);
+  const source = resolveAppSource(appId);
   // Multifile apps use external scripts — no 'unsafe-inline' for script-src.
   // Legacy apps contain inline event handlers that require 'unsafe-inline'.
   const scriptSrc =
-    app && isMultifileApp(app) ? "'self'" : "'self' 'unsafe-inline'";
+    source && source.formatVersion === 2 ? "'self'" : "'self' 'unsafe-inline'";
   return {
     "Content-Type": "text/html; charset=utf-8",
     "Content-Security-Policy": buildCsp(scriptSrc),
@@ -95,18 +93,18 @@ function servePageHeaders({
 
 function handleServePage({ pathParams }: RouteHandlerArgs): string {
   const appId = pathParams?.appId as string;
-  const app = getApp(appId);
-  if (!app) {
+  const source = resolveAppSource(appId);
+  if (!source) {
     throw new NotFoundError("App not found");
   }
 
   // Multifile apps serve the compiled dist/index.html directly.
-  if (isMultifileApp(app)) {
-    return serveMultifileApp(appId, app.name);
+  if (source.formatVersion === 2) {
+    return serveMultifileApp(source.id, source.sourceDir, source.name);
   }
 
   const css = loadDesignSystemCss();
-  const escapedName = app.name.replace(
+  const escapedName = source.name.replace(
     /[<>&"]/g,
     (c) => HTML_ESCAPE_MAP[c] ?? c,
   );
@@ -114,9 +112,13 @@ function handleServePage({ pathParams }: RouteHandlerArgs): string {
   // Per-response nonce for inline <style> and <script> tags.
   const nonce = randomBytes(16).toString("base64");
 
+  // Single-file apps serve their root index.html.
+  const indexPath = join(source.sourceDir, "index.html");
+  const rawHtml = existsSync(indexPath) ? readFileSync(indexPath, "utf-8") : "";
+
   // Inject the nonce into any inline <script> tags from the app HTML definition
   // so they are allowed by the nonce-based CSP without 'unsafe-inline'.
-  const noncedHtml = app.htmlDefinition.replace(
+  const noncedHtml = rawHtml.replace(
     /<script(?=[\s>])/gi,
     `<script nonce="${nonce}"`,
   );
@@ -139,8 +141,12 @@ ${noncedHtml}
  * Serve compiled output for multifile TSX apps.
  * Falls back to a "not compiled yet" message if dist/index.html is missing.
  */
-function serveMultifileApp(appId: string, appName: string): string {
-  const distDir = join(getAppDirPath(appId), "dist");
+function serveMultifileApp(
+  appId: string,
+  appDir: string,
+  appName: string,
+): string {
+  const distDir = join(appDir, "dist");
   const indexPath = join(distDir, "index.html");
 
   if (!existsSync(indexPath)) {
@@ -236,7 +242,12 @@ function handleServeDistFile({ pathParams }: RouteHandlerArgs): Uint8Array {
     throw new BadRequestError("Invalid filename");
   }
 
-  const filePath = join(getAppDirPath(appId), "dist", filename);
+  const source = resolveAppSource(appId);
+  if (!source) {
+    throw new NotFoundError("App not found");
+  }
+
+  const filePath = join(source.sourceDir, "dist", filename);
   if (!existsSync(filePath)) {
     throw new NotFoundError("File not found");
   }
@@ -250,7 +261,7 @@ const MAX_APP_ASSET_BYTES = 25 * 1024 * 1024;
 /**
  * Serve a bundled file from anywhere in an app's directory (e.g.
  * `assets/intro.mp4`), for binary media an app can't practically inline as a
- * data-URI. `readAppFileBytes` runs the app-store path validation
+ * data-URI. `readAppFileBytesFromDir` runs the app-store path validation
  * (rejects `..`, absolute paths, symlink escapes, and the protected
  * `records/` directory), so authors bundle assets under the app dir and load
  * them via `window.vellum.asset(path)`.
@@ -272,9 +283,14 @@ function handleServeAppAsset({ pathParams }: RouteHandlerArgs): Uint8Array {
     throw new BadRequestError("Invalid asset path");
   }
 
+  const source = resolveAppSource(appId);
+  if (!source) {
+    throw new NotFoundError("Asset not found");
+  }
+
   let bytes: Buffer;
   try {
-    bytes = readAppFileBytes(appId, assetPath);
+    bytes = readAppFileBytesFromDir(source.sourceDir, assetPath);
   } catch (err) {
     const message = err instanceof Error ? err.message : "";
     if (message.includes("not found")) {

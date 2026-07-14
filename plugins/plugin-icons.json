@@ -1,4 +1,8 @@
 {
   "version": 1,
-  "plugins": {}
+  "plugins": {
+    "coffee-aficionado": {
+      "iconVersion": "935f15a04ff24911"
+    }
+  }
 }

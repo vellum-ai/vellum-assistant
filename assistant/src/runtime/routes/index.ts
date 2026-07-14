@@ -68,6 +68,7 @@ import { ROUTES as EMAIL_ROUTES } from "./email-routes.js";
 import { ROUTES as EVENTS_ROUTES } from "./events-routes.js";
 import { ROUTES as FILING_ROUTES } from "./filing-routes.js";
 import { ROUTES as GATEWAY_LOG_ROUTES } from "./gateway-log-routes.js";
+import { ROUTES as GATEWAY_STATUS_ROUTES } from "./gateway-status-routes.js";
 import { ROUTES as GLOBAL_SEARCH_ROUTES } from "./global-search-routes.js";
 import { ROUTES as GROUP_ROUTES } from "./group-routes.js";
 import { ROUTES as GUARDIAN_ACTION_ROUTES } from "./guardian-action-routes.js";
@@ -210,6 +211,7 @@ export const ROUTES: RouteDefinition[] = [
   ...EVENTS_ROUTES,
   ...FILING_ROUTES,
   ...GATEWAY_LOG_ROUTES,
+  ...GATEWAY_STATUS_ROUTES,
   ...GLOBAL_SEARCH_ROUTES,
   ...GROUP_ROUTES,
   ...GUARDIAN_ACTION_ROUTES,

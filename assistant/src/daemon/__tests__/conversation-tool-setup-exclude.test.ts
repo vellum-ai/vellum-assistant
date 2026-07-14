@@ -16,10 +16,9 @@ import {
   registerPluginTools,
 } from "../../tools/registry.js";
 import type { Tool } from "../../tools/types.js";
+import type { Conversation } from "../conversation.js";
 import { createResolveToolsCallback } from "../conversation-tool-setup.js";
 
-type SkillProjectionContext =
-  import("../conversation-tool-setup.js").SkillProjectionContext;
 type SkillProjectionCache =
   import("../conversation-skill-tools.js").SkillProjectionCache;
 
@@ -43,15 +42,13 @@ function pluginTool(name: string): Tool {
   } as unknown as Tool;
 }
 
-function makeCtx(
-  overrides: Partial<SkillProjectionContext> = {},
-): SkillProjectionContext {
+function makeCtx(overrides: Partial<Conversation> = {}): Conversation {
   return {
     skillProjectionState: new Map(),
     skillProjectionCache: { fingerprints: new Map() } as SkillProjectionCache,
     toolsDisabledDepth: 0,
     ...overrides,
-  };
+  } as unknown as Conversation;
 }
 
 function withExclude(exclude: string[]) {

@@ -49,20 +49,15 @@ mock.module("@vellumai/design-library", () => {
 
 import { PinnedAppNavItem } from "@/domains/chat/components/pinned-app-nav-item";
 import { usePinnedAppsStore } from "@/stores/pinned-apps-store";
-import type { AppSummary } from "@/types/app-types";
-import type { PinnedAppEntry } from "@/utils/app-pin-storage";
+import type { PinnableApp, PinnedAppEntry } from "@/utils/app-pin-storage";
 
 const APP: PinnedAppEntry = { appId: "app-1", pinnedOrder: 1, name: "My App", icon: "🚀" };
 
 function seedPin(entry: PinnedAppEntry): void {
-  const app: AppSummary = {
+  const app: PinnableApp = {
     id: entry.appId,
     name: entry.name,
     icon: entry.icon,
-    createdAt: 0,
-    updatedAt: 0,
-    version: "1.0.0",
-    contentId: "content",
   };
   usePinnedAppsStore.getState().togglePin(app);
 }

@@ -79,6 +79,7 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
   broadcastMessage: () => {},
 }));
 
+import type { Conversation } from "../daemon/conversation.js";
 import { isToolActiveForContext } from "../daemon/conversation-tool-setup.js";
 import type { SubagentRecord } from "../persistence/subagent-store.js";
 import { notifyParentFromChild } from "../subagent/notify.js";
@@ -171,7 +172,7 @@ describe("notify_parent tool definition", () => {
       skillProjectionState: new Map(),
       skillProjectionCache: new Map(),
       toolsDisabledDepth: 0,
-    } as unknown as import("../daemon/conversation-tool-setup.js").SkillProjectionContext;
+    } as unknown as Conversation;
     expect(isToolActiveForContext("notify_parent", ctx)).toBe(false);
   });
 
@@ -181,7 +182,7 @@ describe("notify_parent tool definition", () => {
       skillProjectionState: new Map(),
       skillProjectionCache: new Map(),
       toolsDisabledDepth: 0,
-    } as unknown as import("../daemon/conversation-tool-setup.js").SkillProjectionContext;
+    } as unknown as Conversation;
     expect(isToolActiveForContext("notify_parent", ctx)).toBe(false);
   });
 
@@ -192,7 +193,7 @@ describe("notify_parent tool definition", () => {
       skillProjectionState: new Map(),
       skillProjectionCache: new Map(),
       toolsDisabledDepth: 0,
-    } as unknown as import("../daemon/conversation-tool-setup.js").SkillProjectionContext;
+    } as unknown as Conversation;
     expect(isToolActiveForContext("notify_parent", ctx)).toBe(true);
   });
 });
