@@ -54,7 +54,7 @@ describe("VoiceFirstRunCard", () => {
     );
 
     expect(getByText("Voice mode")).toBeTruthy();
-    expect(getByText("Start")).toBeTruthy();
+    expect(getByText("Start talking")).toBeTruthy();
     expect(onStart).not.toHaveBeenCalled();
   });
 
@@ -77,7 +77,7 @@ describe("VoiceFirstRunCard", () => {
       <VoiceFirstRunCard assistantId="asst_test" onStart={onStart} />,
     );
 
-    fireEvent.click(getByText("Start"));
+    fireEvent.click(getByText("Start talking"));
     expect(onStart).toHaveBeenCalledTimes(1);
   });
 
@@ -90,7 +90,7 @@ describe("VoiceFirstRunCard", () => {
     );
 
     expect(useVoicePrefsStore.getState().firstRunSeen).toBe(false);
-    fireEvent.click(getByText("Start"));
+    fireEvent.click(getByText("Start talking"));
     expect(useVoicePrefsStore.getState().firstRunSeen).toBe(true);
   });
 
