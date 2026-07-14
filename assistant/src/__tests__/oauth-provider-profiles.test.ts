@@ -23,7 +23,7 @@ describe("oauth provider profiles (DB-seeded)", () => {
     );
   });
 
-  test("google provider row contains bearer injection templates for 3 Google API hosts", () => {
+  test("google provider row contains bearer injection templates for 4 Google API hosts", () => {
     const provider = getProvider("google");
 
     expect(provider).toBeDefined();
