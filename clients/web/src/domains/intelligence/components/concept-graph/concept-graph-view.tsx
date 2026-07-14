@@ -378,13 +378,16 @@ export function ConceptGraphView({
         const ghost = searchActive && (!isMatch(e.fromId) || !isMatch(e.toId));
         const incident = activeId != null && (e.fromId === activeId || e.toId === activeId);
         const depth = (a.depth + b.depth) / 2;
-        // Learned edges fade with density in the resting web; authored links don't.
-        const restAlpha = (learned ? 0.34 * learnedFog : 0.28) * (0.4 + 0.6 * depth);
+        // Learned edges fade with density in the resting web; authored links
+        // don't. A focused hover neighborhood reads at full contrast, though —
+        // so lit edges use the unfogged base even in a dense graph.
+        const litAlpha = (learned ? 0.34 : 0.28) * (0.4 + 0.6 * depth);
+        const restAlpha = learned ? litAlpha * learnedFog : litAlpha;
         let alpha: number;
         if (ghost) {
           alpha = 0.03;
         } else if (activeId != null) {
-          alpha = incident ? 0.9 : isLit(e.fromId) && isLit(e.toId) ? restAlpha : 0.05;
+          alpha = incident ? 0.9 : isLit(e.fromId) && isLit(e.toId) ? litAlpha : 0.05;
         } else {
           alpha = restAlpha;
         }
