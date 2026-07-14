@@ -291,9 +291,10 @@ describe("SpeechToTextCard — macOS Native Dictation option", () => {
     ).toBeNull();
   });
 
-  test("Managed Save preserves an existing provider by writing mode only", async () => {
-    // The daemon deep-merges PATCHes, so a mode-only write keeps the stored
-    // BYOK provider as the restore value for toggling back.
+  test("Managed Save writes a daemon-mapped provider as the restore value", async () => {
+    // The stored provider is the your-own restore value for toggling back and
+    // must be a valid daemon id; effectiveSttProvider routes managed mode to
+    // Vellum at runtime.
     daemonConfigData = { services: { stt: { provider: "deepgram" } } };
     renderCard();
 
@@ -301,28 +302,29 @@ describe("SpeechToTextCard — macOS Native Dictation option", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(configPatchCalls.length).toBe(1));
-    const sttBody = configPatchCalls[0]!.body as {
-      services: { stt: Record<string, unknown> };
-    };
-    expect(sttBody.services.stt.mode).toBe("managed");
-    expect(sttBody.services.stt.provider).toBeUndefined();
+    expect(configPatchCalls[0]!.body).toMatchObject({
+      services: { stt: { mode: "managed", provider: "deepgram" } },
+    });
     expect(credentialsSetCalls).toHaveLength(0);
   });
 
-  test("Managed Save supplies a daemon fallback provider when the daemon has none", async () => {
-    // With no existing services.stt, a mode-only write would fail the schema's
-    // required `provider`, so the PATCH must carry a valid daemon provider id.
-    daemonConfigData = { services: {} };
+  test("toggling to Your Own is a saveable change on its own", async () => {
+    // A managed daemon with a stored provider has nothing else to edit —
+    // flipping the toggle must enable Save and persist mode: your-own.
+    daemonConfigData = {
+      services: { stt: { provider: "deepgram", mode: "managed" } },
+    };
     renderCard();
 
-    setMode("Managed");
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    setMode("Your Own");
+    const save = screen.getByRole("button", { name: "Save" });
+    expect(save.hasAttribute("disabled")).toBe(false);
+    fireEvent.click(save);
 
     await waitFor(() => expect(configPatchCalls.length).toBe(1));
-    const sttBody = configPatchCalls[0]!.body as {
-      services: { stt: Record<string, unknown> };
-    };
-    expect(sttBody.services.stt.mode).toBe("managed");
-    expect(sttBody.services.stt.provider).toBe("deepgram");
+    expect(configPatchCalls[0]!.body).toMatchObject({
+      services: { stt: { provider: "deepgram", mode: "your-own" } },
+    });
+    expect(credentialsSetCalls).toHaveLength(0);
   });
 });

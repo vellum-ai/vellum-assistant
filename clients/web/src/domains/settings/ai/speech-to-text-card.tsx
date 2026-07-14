@@ -159,8 +159,11 @@ export function SpeechToTextCard() {
   const hasChanges = useMemo(() => {
     const providerChanged = draftProvider !== serverProvider;
     const hasNewKey = apiKeyText.trim().length > 0;
-    return providerChanged || hasNewKey;
-  }, [draftProvider, serverProvider, apiKeyText]);
+    // Toggling off managed is itself a saveable change: a user with a BYOK
+    // provider+key already stored has nothing else to edit.
+    const modeChanged = mode !== serverMode;
+    return providerChanged || hasNewKey || modeChanged;
+  }, [draftProvider, serverProvider, apiKeyText, mode, serverMode]);
 
   const handleSave = useCallback(async () => {
     const trimmedKey = apiKeyText.trim();
@@ -267,21 +270,22 @@ export function SpeechToTextCard() {
   const handleSaveManaged = useCallback(async () => {
     setSaving(true);
     try {
-      // The daemon deep-merges config PATCHes, so a mode-only write preserves an
-      // existing BYOK `provider` (the restore value for toggling back). Only
-      // when the daemon has no stt provider yet must we supply one — the schema
-      // requires `services.stt.provider`, and it must be a daemon provider id
-      // (never the client-only native dictation choice). `effectiveSttProvider`
-      // routes managed mode to Vellum at runtime regardless of this value.
-      const sttBody = daemonHasProvider
-        ? { mode: "managed" }
-        : {
-            mode: "managed",
-            provider: STT_DAEMON_PROVIDER[draftProvider]?.provider ?? "deepgram",
-          };
+      // Persist the effective BYOK provider as the restore value for toggling
+      // back — mapped to a daemon provider id (the schema requires one and
+      // rejects the client-only native dictation choice; "deepgram" is the
+      // sane default for those). The daemon's `effectiveSttProvider` routes
+      // managed mode to Vellum at runtime regardless of this value.
       const { response: cfgRes } = await configPatch({
         path: { assistant_id: assistantId },
-        body: { services: { stt: sttBody } },
+        body: {
+          services: {
+            stt: {
+              mode: "managed",
+              provider:
+                STT_DAEMON_PROVIDER[draftProvider]?.provider ?? "deepgram",
+            },
+          },
+        },
         throwOnError: false,
       });
       if (!cfgRes?.ok) {
@@ -303,7 +307,7 @@ export function SpeechToTextCard() {
     } finally {
       setSaving(false);
     }
-  }, [assistantId, daemonHasProvider, draftProvider, queryClient]);
+  }, [assistantId, draftProvider, queryClient]);
 
   const handleReset = useCallback(() => {
     setLocalSetting(LS_STT_API_KEY_PREFIX + draftProvider, "");

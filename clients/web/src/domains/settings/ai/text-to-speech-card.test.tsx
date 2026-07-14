@@ -260,9 +260,9 @@ describe("TextToSpeechCard — daemon provisioning on Save", () => {
     ).toBeNull();
   });
 
-  test("Managed Save preserves an existing provider by writing mode only", async () => {
-    // The daemon deep-merges PATCHes, so a mode-only write keeps the stored
-    // BYOK provider as the restore value for toggling back.
+  test("Managed Save writes the effective BYOK provider as the restore value", async () => {
+    // The stored provider is the your-own restore value for toggling back;
+    // effectiveTtsProvider routes managed mode to Vellum at runtime.
     daemonConfigData = { services: { tts: { provider: "fish-audio" } } };
     renderCard();
 
@@ -270,21 +270,21 @@ describe("TextToSpeechCard — daemon provisioning on Save", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(configPatchCalls.length).toBe(1));
-    const ttsBody = configPatchCalls[0]!.body as {
-      services: { tts: Record<string, unknown> };
-    };
-    expect(ttsBody.services.tts.mode).toBe("managed");
-    expect(ttsBody.services.tts.provider).toBeUndefined();
+    expect(configPatchCalls[0]!.body).toMatchObject({
+      services: { tts: { mode: "managed", provider: "fish-audio" } },
+    });
     expect(credentialsSetCalls).toHaveLength(0);
   });
 
-  test("Managed Save supplies a fallback provider when the daemon has none", async () => {
-    // With no existing services.tts, a mode-only write would fail the schema's
-    // required `provider`, so the PATCH must carry one.
-    daemonConfigData = { services: {} };
+  test("Managed Save always carries a representable provider (never vellum)", async () => {
+    // A managed daemon may report the reserved "vellum" provider; the write
+    // must fall back to a representable id so the restore value stays usable
+    // and the schema (which forbids "vellum" only outside managed) is happy.
+    daemonConfigData = {
+      services: { tts: { provider: "vellum", mode: "managed" } },
+    };
     renderCard();
 
-    setMode("Managed");
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(configPatchCalls.length).toBe(1));
@@ -293,5 +293,26 @@ describe("TextToSpeechCard — daemon provisioning on Save", () => {
     };
     expect(ttsBody.services.tts.mode).toBe("managed");
     expect(ttsBody.services.tts.provider).toBeDefined();
+    expect(ttsBody.services.tts.provider).not.toBe("vellum");
+  });
+
+  test("toggling to Your Own is a saveable change on its own", async () => {
+    // A managed daemon with a stored provider has nothing else to edit —
+    // flipping the toggle must enable Save and persist mode: your-own.
+    daemonConfigData = {
+      services: { tts: { provider: "fish-audio", mode: "managed" } },
+    };
+    renderCard();
+
+    setMode("Your Own");
+    const save = screen.getByRole("button", { name: "Save" });
+    expect(save.hasAttribute("disabled")).toBe(false);
+    fireEvent.click(save);
+
+    await waitFor(() => expect(configPatchCalls.length).toBe(1));
+    expect(configPatchCalls[0]!.body).toMatchObject({
+      services: { tts: { provider: "fish-audio", mode: "your-own" } },
+    });
+    expect(credentialsSetCalls).toHaveLength(0);
   });
 });

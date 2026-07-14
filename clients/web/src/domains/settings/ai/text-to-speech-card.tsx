@@ -129,8 +129,19 @@ export function TextToSpeechCard() {
     const providerChanged = draftProvider !== serverProvider;
     const hasNewKey = apiKeyText.trim().length > 0;
     const voiceIdChanged = voiceIdText.trim() !== initialVoiceId;
-    return providerChanged || hasNewKey || voiceIdChanged;
-  }, [draftProvider, serverProvider, apiKeyText, voiceIdText, initialVoiceId]);
+    // Toggling off managed is itself a saveable change: a user with a BYOK
+    // provider+key already stored has nothing else to edit.
+    const modeChanged = mode !== serverMode;
+    return providerChanged || hasNewKey || voiceIdChanged || modeChanged;
+  }, [
+    draftProvider,
+    serverProvider,
+    apiKeyText,
+    voiceIdText,
+    initialVoiceId,
+    mode,
+    serverMode,
+  ]);
 
   const handleSave = useCallback(async () => {
     const trimmedKey = apiKeyText.trim();
@@ -245,17 +256,16 @@ export function TextToSpeechCard() {
   const handleSaveManaged = useCallback(async () => {
     setSaving(true);
     try {
-      // The daemon deep-merges config PATCHes, so a mode-only write preserves an
-      // existing BYOK `provider` (the restore value for toggling back). Only
-      // when the daemon has no tts provider yet must we supply one — the schema
-      // requires `services.tts.provider`. `effectiveTtsProvider` routes managed
-      // mode to Vellum at runtime regardless of this stored value.
-      const ttsBody = daemonHasProvider
-        ? { mode: "managed" }
-        : { mode: "managed", provider: draftProvider };
+      // Persist the effective BYOK provider as the restore value for toggling
+      // back — `selectedProvider.id` is always representable (never the reserved
+      // "vellum" id). The daemon's `effectiveTtsProvider` routes managed mode to
+      // Vellum at runtime regardless; the schema only forbids "vellum" outside
+      // managed mode, which this write is not.
       const { response: cfgRes } = await configPatch({
         path: { assistant_id: assistantId },
-        body: { services: { tts: ttsBody } },
+        body: {
+          services: { tts: { mode: "managed", provider: selectedProvider.id } },
+        },
         throwOnError: false,
       });
       if (!cfgRes?.ok) {
@@ -277,7 +287,7 @@ export function TextToSpeechCard() {
     } finally {
       setSaving(false);
     }
-  }, [assistantId, daemonHasProvider, draftProvider, queryClient]);
+  }, [assistantId, selectedProvider, queryClient]);
 
   const handleReset = useCallback(() => {
     setLocalSetting(LS_TTS_API_KEY_PREFIX + draftProvider, "");
