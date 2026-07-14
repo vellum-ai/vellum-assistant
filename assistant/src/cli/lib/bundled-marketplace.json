@@ -22,7 +22,7 @@
       "source": {
         "source": "github",
         "repo": "vellum-ai/agent-wrapped",
-        "ref": "9df51d5425de55574d1ecd89175df083d2dbb21c"
+        "ref": "9df51d57e239105b3c587a25292f5aaa96c41b6b"
       },
       "description": "Your agent's year in review: conversations, days together, memories formed, swear count, top topics, and your era. Works with Vellum agents and Claude Code. Ships a stats collector tool, a CLI, a Claude Code plugin, and a skill for the shareable cards experience.",
       "category": "creative",
