@@ -25,7 +25,7 @@ The authoritative constants — `MAX_ICON_BYTES = 32 * 1024`, `MAX_ICON_DIMENSIO
 
 ## The two in-repo sources
 
-A plugin's icon can come from **either** a curated emoji **or** a vendored PNG. They are independent in-repo sources; the platform combines them into one catalog value (see [Platform combination](#platform-combination-and-precedence)).
+A plugin's icon comes from **either** a curated emoji **or** a vendored PNG — curate one source per plugin, not both. They are independent in-repo sources; the platform resolves them into a single catalog `icon` value (see [Platform combination](#platform-combination-and-precedence)). A plugin that ships a vendored PNG does not also need a marketplace `icon` emoji (the PNG always wins).
 
 ### 1. Emoji — `icon` field on the marketplace entry
 
@@ -67,7 +67,7 @@ The platform serves each plugin a single `icon` value in `/v1/plugins/`, matchin
 2. **Emoji** — else if the marketplace entry has an `icon` emoji, serve that string.
 3. **`null`** — else no icon. The client then falls back to a generic 📦/🧩 glyph (per [PR #37087](https://github.com/vellum-ai/vellum-assistant/pull/37087)).
 
-A vendored PNG always wins over a curated emoji for the same plugin.
+A vendored PNG always wins over a curated emoji, so a plugin only needs one source: give it a PNG **or** an emoji, not both. The platform serves that single `icon`, and clients render it best-effort — there is no separate emoji field riding alongside a PNG URL.
 
 ## Bucket convention
 
@@ -83,10 +83,10 @@ The one-command path handles all three artifacts (curated emoji, vendored PNG,
 bundled copy) in one shot:
 
 ```bash
-# Vendor the PNG + set the curated emoji fallback in a single step:
+# Curate an emoji for a plugin that ships no bundled PNG:
 node scripts/plugins/add-plugin-icon.mjs <plugin-name> --emoji ☕
 
-# PNG only (leave any existing emoji as is):
+# Vendor a bundled PNG (the plugin publishes its own icon.png upstream):
 node scripts/plugins/add-plugin-icon.mjs <plugin-name>
 ```
 
@@ -101,8 +101,8 @@ commit whatever changed (`marketplace.json`, the vendored asset,
 
 The plugin must already exist in `plugins/marketplace.json` — an icon only
 attaches to a catalogued plugin. A plugin whose upstream `icon.png` fails
-validation simply gets no manifest entry and falls back to the emoji (or the
-generic glyph).
+validation simply gets no manifest entry, so its `icon` resolves to the curated
+emoji if one is set, otherwise null.
 
 ### Under the hood
 
