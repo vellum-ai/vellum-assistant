@@ -12,10 +12,14 @@ import {
   createManagedSkill,
   getManagedSkillDir,
 } from "../../skills/managed-store.js";
+import { recordWatchdogEvent } from "../../telemetry/watchdog-events-store.js";
 import { getLogger } from "../../util/logger.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
 
 const log = getLogger("scaffold-managed-skill");
+
+/** Watchdog check_name for the per-creation skill-authoring counter. */
+const SKILL_AUTHORED_CHECK_NAME = "skill_authored";
 
 /** Strip embedded newlines/carriage returns to prevent YAML frontmatter injection. */
 function sanitizeFrontmatterValue(value: string): string {
@@ -37,7 +41,9 @@ function normalizeOptionalStringArray(
   raw: unknown,
   field: string,
 ): { value?: string[]; error?: string } {
-  if (raw === undefined) return {};
+  if (raw === undefined) {
+    return {};
+  }
   if (!Array.isArray(raw)) {
     return { error: `${field} must be an array of strings` };
   }
@@ -51,7 +57,9 @@ function normalizeOptionalStringArray(
     if (!cleaned) {
       return { error: `each element in ${field} must be a non-empty string` };
     }
-    if (seen.has(cleaned)) continue;
+    if (seen.has(cleaned)) {
+      continue;
+    }
     seen.add(cleaned);
     normalized.push(cleaned);
   }
@@ -199,12 +207,14 @@ export async function executeScaffoldManagedSkill(
     context.requestOrigin === MEMORY_RETROSPECTIVE_ORIGIN;
   const author = fromRetrospective ? "assistant" : "user";
 
-  // Whether a managed SKILL.md already existed before this call. Resolved for
-  // retrospective calls only — it drives both the ownership backstop below and
-  // the created-vs-refined discriminant for the skill-card enqueue: only a
-  // genuine CREATE (no pre-existing skill, regardless of the `overwrite` flag)
-  // gets a card.
-  let managedSkillExistedBefore = false;
+  // Whether a managed SKILL.md already existed before this call. Drives the
+  // ownership backstop below, the created-vs-refined discriminant for the
+  // skill-card enqueue, and the `skill_authored` telemetry counter: only a
+  // genuine CREATE (no pre-existing skill, regardless of the `overwrite`
+  // flag) gets a card or a counter event.
+  const managedSkillExistedBefore = existsSync(
+    join(getManagedSkillDir(id), "SKILL.md"),
+  );
 
   // Ownership backstop (retrospective origin only): the retrospective may author
   // a skill ONLY if it owns it. Fail closed on either of two collisions.
@@ -234,11 +244,9 @@ export async function executeScaffoldManagedSkill(
     // exactly "assistant". This fails closed on user-authored, untagged, and
     // unverifiable (missing/corrupt meta) managed skills alike, matching the
     // prune side where such skills are never pruned.
-    const managedDir = getManagedSkillDir(id);
-    managedSkillExistedBefore = existsSync(join(managedDir, "SKILL.md"));
     if (
       managedSkillExistedBefore &&
-      readInstallMeta(managedDir)?.author !== "assistant"
+      readInstallMeta(getManagedSkillDir(id))?.author !== "assistant"
     ) {
       return {
         content: `Error: skill "${id}" is not verifiably assistant-authored; the retrospective may not overwrite it or write companion files into it. Author a new skill instead.`,
@@ -297,6 +305,28 @@ export async function executeScaffoldManagedSkill(
   }
 
   refreshSkillCapabilityMemories();
+
+  // Central adoption counter for skill authoring (admin analytics groups on
+  // the watchdog check_name). Genuine creates only — refinements of a
+  // pre-existing skill are not new capabilities and would double-count.
+  // `authored_by` distinguishes proactive retrospective authoring from
+  // user-directed scaffolds. Never throws: a telemetry failure must not
+  // fail a scaffold that already succeeded.
+  if (!managedSkillExistedBefore) {
+    try {
+      recordWatchdogEvent({
+        checkName: SKILL_AUTHORED_CHECK_NAME,
+        value: 1,
+        detail: {
+          authored_by: fromRetrospective ? "retrospective" : "user",
+          skill_id: id,
+        },
+      });
+    } catch {
+      // recordWatchdogEvent already no-ops on opt-out and a missing
+      // telemetry DB; anything past that is not worth surfacing here.
+    }
+  }
 
   // Surface a genuine retrospective CREATE to the user as a skill card on the
   // source conversation, via the durable `skill_card_insert` delivery job

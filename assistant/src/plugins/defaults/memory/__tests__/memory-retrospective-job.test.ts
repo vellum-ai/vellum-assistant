@@ -92,6 +92,21 @@ let messagesByConversationId: Record<string, StubMessage[]> = {};
 // the real registry's semantics for conversations not in memory.
 let loadedConversations: Record<string, { processing: boolean }> = {};
 
+const watchdogEvents: Array<{
+  checkName: string;
+  value?: number | null;
+  detail?: Record<string, unknown> | null;
+}> = [];
+mock.module("../../../../telemetry/watchdog-events-store.js", () => ({
+  recordWatchdogEvent: (record: {
+    checkName: string;
+    value?: number | null;
+    detail?: Record<string, unknown> | null;
+  }) => {
+    watchdogEvents.push(record);
+  },
+}));
+
 mock.module("../../../../daemon/conversation-registry.js", () => ({
   findConversation: (id: string | undefined) => {
     if (!id) return undefined;
@@ -360,6 +375,7 @@ function priorRetroMessage(rememberContents: string[]) {
 
 describe("memoryRetrospectiveJob", () => {
   beforeEach(() => {
+    watchdogEvents.length = 0;
     mockState = null;
     stateUpserts = [];
     lastRunAtBumps = [];
@@ -416,6 +432,16 @@ describe("memoryRetrospectiveJob", () => {
     expect(lastRunAtBumps).toHaveLength(0);
     expect(wakeCalls).toHaveLength(0);
     expect(forkCalls).toHaveLength(0);
+    // Every job run emits exactly one outcome counter for the health chart.
+    expect(
+      watchdogEvents.filter((e) => e.checkName === "memory_retrospective_run"),
+    ).toEqual([
+      {
+        checkName: "memory_retrospective_run",
+        value: 1,
+        detail: { outcome: "no_new_messages" },
+      },
+    ]);
   });
 
   test("a slice whose only row is the retrospective's own skill card is no new work", async () => {
@@ -532,6 +558,17 @@ describe("memoryRetrospectiveJob", () => {
     const outcome = await memoryRetrospectiveJob(makeJob(), stubConfig);
 
     expect(outcome.kind).toBe("wake_failed");
+    // The outcome counter carries the wake-failure reason so a fleet-wide
+    // spike is attributable (e.g. provider outage vs busy conversations).
+    expect(
+      watchdogEvents.filter((e) => e.checkName === "memory_retrospective_run"),
+    ).toEqual([
+      {
+        checkName: "memory_retrospective_run",
+        value: 1,
+        detail: { outcome: "wake_failed", reason: "timeout" },
+      },
+    ]);
     if (outcome.kind === "wake_failed") {
       expect(outcome.reason).toBe("timeout");
     }

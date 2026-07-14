@@ -77,6 +77,7 @@ import {
 import { resolveUserSlug } from "../../../prompts/persona-resolver.js";
 import type { SystemPromptPersonaOverride } from "../../../prompts/system-prompt.js";
 import { wakeAgentForOpportunity } from "../../../runtime/agent-wake.js";
+import { recordWatchdogEvent } from "../../../telemetry/watchdog-events-store.js";
 import { findMostRecentRetrospectiveFor } from "./find-most-recent-retrospective-for.js";
 import { getLogger } from "./logging.js";
 import { getRetrospectiveMessagesAfter } from "./memory-retrospective-accounting.js";
@@ -115,6 +116,9 @@ const FOLLOW_UP_JOB_TYPES: readonly MemoryJobType[] = [] as const;
  */
 export const SOURCE_PROCESSING_REQUEUE_DELAY_MS = 60_000;
 
+/** Watchdog check_name for the per-run retrospective outcome counter. */
+const MEMORY_RETROSPECTIVE_RUN_CHECK_NAME = "memory_retrospective_run";
+
 export type MemoryRetrospectiveOutcome =
   | { kind: "disabled" }
   | { kind: "no_new_messages" }
@@ -138,7 +142,28 @@ export async function memoryRetrospectiveJob(
     return { kind: "no_new_messages" };
   }
 
-  return runForkBasedRetrospective(sourceConversationId, config);
+  const outcome = await runForkBasedRetrospective(sourceConversationId, config);
+  // Central health counter (admin analytics groups on the watchdog
+  // check_name): one event per run with the outcome kind, so a fleet-wide
+  // spike in `wake_failed` (e.g. a provider outage on the retrospective's
+  // resolved model) is visible without log access. Never throws — the run's
+  // outcome must reach the jobs worker regardless.
+  try {
+    recordWatchdogEvent({
+      checkName: MEMORY_RETROSPECTIVE_RUN_CHECK_NAME,
+      value: 1,
+      detail: {
+        outcome: outcome.kind,
+        ...(outcome.kind === "wake_failed" && outcome.reason
+          ? { reason: outcome.reason }
+          : {}),
+      },
+    });
+  } catch {
+    // recordWatchdogEvent already no-ops on opt-out and a missing telemetry
+    // DB; anything past that is not worth surfacing here.
+  }
+  return outcome;
 }
 
 // ---------------------------------------------------------------------------
