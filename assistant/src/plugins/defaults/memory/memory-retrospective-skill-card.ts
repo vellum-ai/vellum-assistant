@@ -277,11 +277,19 @@ async function insertOrDeferSkillCard(
     return;
   }
   const surfaceId = `skill-card-${runConversationId}`;
+  // Copy matches the web card's row sentence (skill-created-card.tsx): the
+  // card reads as the assistant sharing what it picked up, not a technical
+  // "skill created" notice. The title covers renderers that only show the
+  // block title; the web card renders per-skill rows from `data.skills`.
+  const learnedSentence =
+    skills.length === 1
+      ? `I just learned how to do ${skills[0]!.name}`
+      : `I just learned how to do ${skills.length} new things`;
   const surfaceBlock = {
     type: "ui_surface",
     surfaceId,
     surfaceType: "skill_card",
-    title: "New skill learned",
+    title: learnedSentence,
     display: "inline",
     data: {
       skills: skills.map((s) => ({
@@ -298,7 +306,7 @@ async function insertOrDeferSkillCard(
   // rendered content blocks so the card is never double-rendered.
   const fallbackBlock = {
     type: "text",
-    text: `New skill learned: ${skills.map((s) => s.name).join(", ")}`,
+    text: `I just learned how to do ${skills.map((s) => s.name).join(", ")}`,
     _surfaceFallback: true,
   };
   const persisted = await addMessage(

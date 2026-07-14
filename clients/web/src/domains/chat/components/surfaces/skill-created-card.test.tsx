@@ -61,14 +61,17 @@ function renderCard(surface: Surface) {
 }
 
 describe("SkillCreatedCard", () => {
-  test("renders the header, subline, and a skill row", () => {
-    const { getByText, getByRole } = renderCard(makeSurface());
+  test("renders a single learned-sentence row per skill (no generic header)", () => {
+    const { getByText, getByRole, queryByText } = renderCard(makeSurface());
 
-    expect(getByText("New skill learned")).toBeTruthy();
+    // The generic header and subline are gone — the row title IS the copy.
+    expect(queryByText("New skill learned")).toBeNull();
     expect(
-      getByText("Saved to your skills from this conversation's work"),
+      queryByText("Saved to your skills from this conversation's work"),
+    ).toBeNull();
+    expect(
+      getByText("I just learned how to do Weekly report digest"),
     ).toBeTruthy();
-    expect(getByText("Weekly report digest")).toBeTruthy();
     expect(
       getByText("Compile the weekly report from the usual sources."),
     ).toBeTruthy();
@@ -90,8 +93,8 @@ describe("SkillCreatedCard", () => {
       }),
     );
 
-    expect(getByText("Skill one")).toBeTruthy();
-    expect(getByText("Skill two")).toBeTruthy();
+    expect(getByText("I just learned how to do Skill one")).toBeTruthy();
+    expect(getByText("I just learned how to do Skill two")).toBeTruthy();
     // Each row's action carries a skill-specific accessible name.
     expect(getByRole("button", { name: "View Skill one" })).toBeTruthy();
     expect(getByRole("button", { name: "View Skill two" })).toBeTruthy();
@@ -156,7 +159,7 @@ describe("SkillCreatedCard", () => {
       }),
     );
 
-    fireEvent.click(getByText("Skill two"));
+    fireEvent.click(getByText("I just learned how to do Skill two"));
 
     expect(useViewerStore.getState().mainView).toBe("skill-detail");
     expect(useViewerStore.getState().activeSkillDetailId).toBe("skill-2");
@@ -177,7 +180,7 @@ describe("SkillCreatedCard", () => {
   test("renders nothing when data.skills is missing", () => {
     const { queryByText } = renderCard(makeSurface({ data: {} }));
 
-    expect(queryByText("New skill learned")).toBeNull();
+    expect(queryByText(/I just learned how to do/)).toBeNull();
   });
 
   test("renders nothing when data.skills is malformed", () => {
@@ -185,7 +188,7 @@ describe("SkillCreatedCard", () => {
       makeSurface({ data: { skills: "not-an-array" } }),
     );
 
-    expect(queryByText("New skill learned")).toBeNull();
+    expect(queryByText(/I just learned how to do/)).toBeNull();
   });
 
   test("drops entries without a usable skillId or name but keeps valid ones", () => {
@@ -202,8 +205,8 @@ describe("SkillCreatedCard", () => {
       }),
     );
 
-    expect(getByText("Valid skill")).toBeTruthy();
-    expect(queryByText("Missing id")).toBeNull();
+    expect(getByText("I just learned how to do Valid skill")).toBeTruthy();
+    expect(queryByText(/Missing id/)).toBeNull();
     expect(getAllByRole("button", { name: /^View / })).toHaveLength(1);
   });
 });
@@ -217,6 +220,8 @@ describe("SurfaceRouter", () => {
     );
 
     expect(queryByText("Unsupported surface type: skill_card")).toBeNull();
-    expect(getByText("Weekly report digest")).toBeTruthy();
+    expect(
+      getByText("I just learned how to do Weekly report digest"),
+    ).toBeTruthy();
   });
 });
