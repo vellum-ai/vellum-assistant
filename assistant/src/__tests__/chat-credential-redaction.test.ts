@@ -154,6 +154,37 @@ describe("collectRevealRefsFromCommand", () => {
     ).toEqual([{ service: 'a"b', field: "x" }]);
   });
 
+  test("stages every reveal invocation within one segment", () => {
+    // Command substitution nests several reveals in ONE segment; each must
+    // stage its own ref — parsing only the first flag pair would leave the
+    // later identities unstaged even though the route proves them.
+    expect(
+      collectRevealRefsFromCommand(
+        'echo "$(assistant credentials reveal --service a --field token)" "$(assistant credentials reveal --service b --field token)"',
+      ),
+    ).toEqual([
+      { service: "a", field: "token" },
+      { service: "b", field: "token" },
+    ]);
+  });
+
+  test("a substitution's closing paren does not glue onto the parsed value", () => {
+    expect(
+      collectRevealRefsFromCommand(
+        'KEY="$(assistant credentials reveal --service openai --field api_key)"',
+      ),
+    ).toEqual([{ service: "openai", field: "api_key" }]);
+  });
+
+  test("stages two UUID reveals nested in one segment", () => {
+    const other = "99999999-9999-4999-8999-999999999999";
+    expect(
+      collectRevealRefsFromCommand(
+        `echo "$(assistant credentials reveal ${UUID})" "$(assistant credentials reveal ${other})"`,
+      ),
+    ).toEqual([{ id: UUID }, { id: other }]);
+  });
+
   test("ignores commands without a reveal invocation", () => {
     expect(collectRevealRefsFromCommand("echo hello")).toEqual([]);
     expect(collectRevealRefsFromCommand("assistant credentials list")).toEqual(

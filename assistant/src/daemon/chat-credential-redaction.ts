@@ -92,7 +92,13 @@ export interface ResolvedRevealCandidate {
  *  paths, …) — the two words are what identify the subcommand. */
 const REVEAL_INVOCATION_RE = /\bcredentials\s+reveal\b/;
 
-const FLAG_VALUE = String.raw`(?:"((?:\\.|[^"\\])*)"|'([^']*)'|((?:\\.|[^\s"'\\])+))`;
+// An unquoted flag value ends at whitespace, a quote, or a shell
+// metacharacter that can directly abut a word — `()`/backtick (command
+// substitution) and `<>` (redirection) — so `--field token)` inside
+// `$(… reveal --field token)` parses as `token`, the identity the route
+// records proof under. Separators (`|&;`) never reach a segment unescaped;
+// the splitter consumed them. A backslash escapes the next character.
+const FLAG_VALUE = String.raw`(?:"((?:\\.|[^"\\])*)"|'([^']*)'|((?:\\.|[^\s"'\\()<>\`])+))`;
 const SERVICE_FLAG_RE = new RegExp(String.raw`--service(?:=|\s+)${FLAG_VALUE}`);
 const FIELD_FLAG_RE = new RegExp(String.raw`--field(?:=|\s+)${FLAG_VALUE}`);
 const UUID_RE =
@@ -204,6 +210,24 @@ function splitShellSegments(command: string): string[] {
  * downstream means no candidate and a plain (non-revealable) sentinel —
  * the safe direction.
  */
+/**
+ * Slice a segment at each `credentials reveal` occurrence: one slice per
+ * invocation, running from the invocation to the start of the next.
+ * Command substitution can nest several reveals in ONE segment —
+ * `echo "$(… reveal --service a …)" "$(… reveal --service b …)"` — and
+ * parsing only the segment's first flag pair would leave every later
+ * identity unstaged even though the route proves each one, so their
+ * opaque values could stream and persist raw.
+ */
+function revealInvocationSlices(segment: string): string[] {
+  const re = new RegExp(REVEAL_INVOCATION_RE, "g");
+  const starts: number[] = [];
+  for (let m = re.exec(segment); m !== null; m = re.exec(segment)) {
+    starts.push(m.index);
+  }
+  return starts.map((start, i) => segment.slice(start, starts[i + 1]));
+}
+
 export function collectRevealRefsFromCommand(
   command: string,
 ): RevealCandidateRef[] {
@@ -212,22 +236,26 @@ export function collectRevealRefsFromCommand(
   // Split compound commands so flags from one invocation can't bleed into
   // another (`reveal --service a --field b && reveal --service c --field d`),
   // honoring quotes so a separator inside a flag value can't cut the
-  // invocation apart (see `splitShellSegments`).
+  // invocation apart (see `splitShellSegments`). Within a segment, each
+  // reveal invocation is parsed from its own slice (see
+  // `revealInvocationSlices`).
   const segments = splitShellSegments(command);
   for (const segment of segments) {
     if (!REVEAL_INVOCATION_RE.test(segment)) continue;
-    const service = flagValue(segment, SERVICE_FLAG_RE);
-    const field = flagValue(segment, FIELD_FLAG_RE);
-    if (service !== undefined && field !== undefined) {
-      refs.push({ service, field });
-      continue;
+    for (const invocation of revealInvocationSlices(segment)) {
+      const service = flagValue(invocation, SERVICE_FLAG_RE);
+      const field = flagValue(invocation, FIELD_FLAG_RE);
+      if (service !== undefined && field !== undefined) {
+        refs.push({ service, field });
+        continue;
+      }
+      const id = UUID_RE.exec(invocation)?.[0];
+      if (id) {
+        refs.push({ id });
+      }
+      // No parseable identity → no ref. The span still gets redacted at
+      // persist; it just won't be revealable.
     }
-    const id = UUID_RE.exec(segment)?.[0];
-    if (id) {
-      refs.push({ id });
-    }
-    // No parseable identity → no ref. The span still gets redacted at
-    // persist; it just won't be revealable.
   }
   return refs;
 }
