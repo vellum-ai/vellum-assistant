@@ -16,7 +16,6 @@
 import type { Command } from "commander";
 
 import { cliIpcCall, exitFromIpcResult } from "../../../ipc/cli-client.js";
-import type { GraphStats } from "../../../plugins/defaults/memory/graph/store.js";
 import { subcommand } from "../../lib/cli-command-help.js";
 import { log } from "../../logger.js";
 import { writeOutput } from "../../output.js";
@@ -249,7 +248,20 @@ const MEMORY_TYPES = [
   "shared",
 ] as const;
 
-function printStats(s: GraphStats): void {
+interface StatsData {
+  total: number;
+  byType: { [key: string]: number | undefined };
+  byFidelity: { vivid: number; clear: number; faded: number; gist: number };
+  atRisk: number;
+  edgeCount: number;
+  oldestCreated: number | null;
+  newestCreated: number | null;
+  lastReinforced: number | null;
+  avgSignificance: number;
+  topNodes: ReadonlyArray<{ content: string; significance: number }>;
+}
+
+function printStats(s: StatsData): void {
   const n = s.total;
   const e = s.edgeCount;
 

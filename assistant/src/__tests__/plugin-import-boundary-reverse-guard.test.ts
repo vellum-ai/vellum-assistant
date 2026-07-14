@@ -81,6 +81,7 @@ const BASELINE: Record<string, readonly string[]> = {
     "src/cli/commands/memory/memory-v2-compare-render.ts",
     "src/cli/commands/memory/memory-v2.ts",
     "src/cli/commands/memory/memory-v3.ts",
+    "src/cli/commands/memory/nodes.ts",
     "src/config/bundled-skills/messaging/tools/messaging-analyze-style.ts",
     "src/config/bundled-skills/playbooks/tools/playbook-create.ts",
     "src/config/bundled-skills/playbooks/tools/playbook-delete.ts",
