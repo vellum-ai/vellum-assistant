@@ -16,6 +16,7 @@
 import type { Command } from "commander";
 
 import { cliIpcCall, exitFromIpcResult } from "../../../ipc/cli-client.js";
+import type { GraphStats } from "../../../plugins/defaults/memory/graph/store.js";
 import { subcommand } from "../../lib/cli-command-help.js";
 import { log } from "../../logger.js";
 import { writeOutput } from "../../output.js";
@@ -203,4 +204,137 @@ export function registerMemoryNodesCommand(memory: Command): void {
       log.info(result.message);
     },
   );
+
+  // ── stats ─────────────────────────────────────────────────────────────
+
+  subcommand(nodes, "stats")
+    .option("--json", "Machine-readable compact JSON output")
+    .action(async (opts: { json?: boolean }, cmd: Command) => {
+      // Deferred: loads config and the graph stats handler in-process.
+      // No daemon needed — reads directly from the workspace SQLite DB.
+      const [{ handleStatsMemory }, { getConfig }] = await Promise.all([
+        import("../../../plugins/defaults/memory/graph/tool-handlers.js") as Promise<
+          typeof import("../../../plugins/defaults/memory/graph/tool-handlers.js")
+        >,
+        import("../../../config/loader.js") as Promise<
+          typeof import("../../../config/loader.js")
+        >,
+      ]);
+
+      const result = handleStatsMemory(getConfig());
+
+      if (!result.success) {
+        log.error(result.message);
+        process.exitCode = 1;
+        return;
+      }
+
+      if (opts.json) {
+        writeOutput(cmd, result.stats);
+        return;
+      }
+
+      printStats(result.stats!);
+    });
+}
+
+const MEMORY_TYPES = [
+  "episodic",
+  "semantic",
+  "procedural",
+  "emotional",
+  "prospective",
+  "behavioral",
+  "narrative",
+  "shared",
+] as const;
+
+function printStats(s: GraphStats): void {
+  const n = s.total;
+  const e = s.edgeCount;
+
+  console.log(
+    `\nMemory graph  ${n} node${n === 1 ? "" : "s"} · ${e} edge${e === 1 ? "" : "s"}\n`,
+  );
+
+  if (n === 0) {
+    console.log("  The memory graph is empty.");
+    console.log("");
+    return;
+  }
+
+  // ── by type ─────────────────────────────────────────────────────────────
+
+  console.log("BY TYPE");
+  for (const t of MEMORY_TYPES) {
+    const count = s.byType[t] ?? 0;
+    if (count > 0) {
+      console.log(`  ${t.padEnd(12)}  ${count}`);
+    }
+  }
+
+  // ── by fidelity (with ASCII bar) ─────────────────────────────────────────
+
+  console.log("\nBY FIDELITY");
+  const fidelities = ["vivid", "clear", "faded", "gist"] as const;
+  for (const f of fidelities) {
+    const count = s.byFidelity[f];
+    const barLen = n > 0 ? Math.round((count / n) * 20) : 0;
+    const bar = "█".repeat(barLen);
+    console.log(`  ${f.padEnd(6)}  ${String(count).padStart(4)}  ${bar}`);
+  }
+
+  // ── significance ─────────────────────────────────────────────────────────
+
+  console.log("\nSIGNIFICANCE");
+  console.log(`  average    ${(s.avgSignificance * 100).toFixed(1)}%`);
+  if (s.atRisk > 0) {
+    console.log(
+      `  at risk    ${s.atRisk} node${s.atRisk === 1 ? "" : "s"} fading (significance < 15%)`,
+    );
+  }
+
+  // ── timeline ─────────────────────────────────────────────────────────────
+
+  console.log("\nTIMELINE");
+  const dateOpts: Intl.DateTimeFormatOptions = {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  };
+  if (s.oldestCreated) {
+    console.log(
+      `  oldest      ${new Date(s.oldestCreated).toLocaleString("en-US", dateOpts)}`,
+    );
+  }
+  if (s.newestCreated) {
+    console.log(
+      `  newest      ${new Date(s.newestCreated).toLocaleString("en-US", dateOpts)}`,
+    );
+  }
+  if (s.lastReinforced) {
+    console.log(
+      `  reinforced  ${new Date(s.lastReinforced).toLocaleString("en-US", {
+        ...dateOpts,
+        hour: "numeric",
+        minute: "2-digit",
+      })}`,
+    );
+  }
+
+  // ── top nodes ────────────────────────────────────────────────────────────
+
+  if (s.topNodes.length > 0) {
+    console.log("\nTOP NODES BY SIGNIFICANCE");
+    const WIDTH = 60;
+    const trunc = (str: string) =>
+      str.length > WIDTH ? str.slice(0, WIDTH - 1) + "…" : str;
+    for (const node of s.topNodes) {
+      console.log(
+        `  ${(node.significance * 100).toFixed(0).padStart(3)}%  ${trunc(node.content)}`,
+      );
+    }
+  }
+
+  console.log("");
 }

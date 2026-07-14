@@ -174,6 +174,7 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "mcp remove",
   "memory",
   "memory nodes",
+  "memory nodes stats",
   "memory nodes list",
   "memory nodes delete",
   "memory nodes update",
