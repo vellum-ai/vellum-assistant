@@ -321,17 +321,22 @@ async function handleCredentialsReveal({ body, headers }: RouteHandlerArgs) {
   // recorded here is the proof the agent loop requires before promoting
   // staged reveal candidates (a shell command can "succeed" without ever
   // reaching this handler — `… || true`, or an echo of the command text).
-  // Proof is recorded ONLY for the `local` principal — the direct-IPC
-  // identity a tool shell's CLI invocation arrives with (verified by the
-  // adapters, never caller-supplied). Web reveals (the Settings row, chat
-  // chips) and gateway-proxied calls hit this same handler but are not
-  // evidence any tool ran a reveal, and recording them would let a UI
-  // click promote a staged ref in a concurrent turn whose command merely
-  // echoed the invocation. An unproven ref degrades to a plain sentinel —
-  // the safe direction. Both lookup branches populate service/field; the
-  // guard only satisfies the loose `CredentialLookup` type.
+  // Proof is recorded ONLY for the `local` principal on a DIRECT (not
+  // gateway-proxied) call — the identity a tool shell's CLI invocation
+  // arrives with over the unix-socket IPC (verified by the adapters, never
+  // caller-supplied). The principal check alone is not enough: in local
+  // mode the gateway derives `local` from the verified JWT sub and
+  // forwards it for web calls too, but it always stamps
+  // `x-vellum-proxy-server: ipc` — a header a direct CLI never sends — so
+  // proxied Settings-row/chat-chip reveals are excluded here. Recording a
+  // UI reveal would let a click promote a staged ref in a concurrent turn
+  // whose command merely echoed (or was denied) the invocation. An
+  // unproven ref degrades to a plain sentinel — the safe direction. Both
+  // lookup branches populate service/field; the guard only satisfies the
+  // loose `CredentialLookup` type.
   if (
     headers?.["x-vellum-principal-type"] === "local" &&
+    headers?.["x-vellum-proxy-server"] !== "ipc" &&
     lookup.service !== undefined &&
     lookup.field !== undefined
   ) {

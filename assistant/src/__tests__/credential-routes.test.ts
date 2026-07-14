@@ -191,6 +191,30 @@ describe("credentials routes", () => {
       ).toBeUndefined();
     });
 
+    test("a gateway-proxied local-principal reveal records no proof", async () => {
+      /**
+       * In local mode the gateway derives the `local` principal from the
+       * verified JWT for WEB calls too, but it always stamps
+       * `x-vellum-proxy-server: ipc` — only a direct (unproxied) local call
+       * is a tool shell's CLI and may become proof.
+       */
+      secureStore.set("vercel:api_token", SECRET_VALUE);
+      const watermark = currentRevealSuccessWatermark();
+
+      const result = (await revealRoute!.handler({
+        body: { service: "vercel", field: "api_token" },
+        headers: {
+          "x-vellum-principal-type": "local",
+          "x-vellum-proxy-server": "ipc",
+        },
+      })) as { value: string };
+
+      expect(result.value).toBe(SECRET_VALUE);
+      expect(
+        revealedValueSince(watermark, "vercel", "api_token"),
+      ).toBeUndefined();
+    });
+
     test("a reveal with no principal header records no proof (fails closed)", async () => {
       secureStore.set("vercel:api_token", SECRET_VALUE);
       const watermark = currentRevealSuccessWatermark();

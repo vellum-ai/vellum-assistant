@@ -19,10 +19,12 @@
  * age so it cannot grow without limit (recent records get a short grace
  * from the count cap so an active tool window cannot lose its proof).
  *
- * Only local-principal reveals record here (the direct-IPC identity a tool
- * shell's CLI invocation carries — see the route handler's gate): a web or
- * gateway-proxied reveal (Settings row, chat chips) is not evidence any
- * tool ran a reveal and must never become proof.
+ * Only DIRECT local-principal reveals record here (the unix-socket IPC
+ * identity a tool shell's CLI invocation carries — see the route handler's
+ * gate): a web or gateway-proxied reveal (Settings row, chat chips) is not
+ * evidence any tool ran a reveal and must never become proof — including
+ * local-mode web calls, where the gateway derives the `local` principal
+ * from the JWT but always stamps `x-vellum-proxy-server: ipc`.
  *
  * Known limitation (shared with the --for-chat mint registry and tracked
  * as its follow-up): records are not conversation-scoped, so a concurrent
