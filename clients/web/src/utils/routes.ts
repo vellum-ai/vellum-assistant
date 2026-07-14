@@ -222,6 +222,7 @@ export const routes = {
  */
 const ABOUT_ASSISTANT_PATHS: readonly string[] = [
   routes.identity,
+  routes.memory,
   routes.plugins,
   routes.skills.root,
   routes.workspace,
