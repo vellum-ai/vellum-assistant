@@ -5,7 +5,8 @@
  * filter, or block — and its warn payloads must carry the event type and
  * issue `{ path, code }` shapes only, never field values. `daemon_event_id`
  * is a field value too: activation-funnel ids embed the onboarding session
- * id (traces/claims can hold PII).
+ * id (traces/claims can hold PII). Issue paths are sanitized as well: dynamic
+ * record keys (e.g. `client` bag keys) are redacted to `*` before logging.
  */
 import { beforeEach, describe, expect, test } from "bun:test";
 
@@ -226,6 +227,33 @@ describe("validateWireEvents", () => {
     expect(lifecyclePaths).toContain("event_name");
 
     // The planted sentinel (a field value) must be absent from all log args.
+    expect(JSON.stringify(warnCalls)).not.toInclude(sentinel);
+  });
+
+  test("dynamic record keys in issue paths are redacted to *", () => {
+    const sentinel = "sentinel-user@example.com";
+    const invalidTurn = {
+      type: "turn",
+      daemon_event_id: "turn-key",
+      recorded_at: 1_700_000_000_012,
+      assistant_version: "1.2.3",
+      conversation_id: "conv-1",
+      turn_index: 1,
+      // The client bag's keys come from an uncontrolled JSON metadata column;
+      // the superRefine emits issues at ['client', <key>], so a key carrying
+      // user text must be redacted from the logged path. The nested object
+      // value makes the bag invalid.
+      client: { [sentinel]: { nested: true } },
+    };
+
+    const result = validateWireEvents([invalidTurn], stubLog);
+    expect(result).toEqual({ checked: 1, invalid: 1, unknownTypes: [] });
+    expect(warnCalls).toHaveLength(1);
+
+    const bag = warnCalls[0][0] as { issues: Array<{ path: string }> };
+    // The dynamic key component is replaced with a literal `*`; the
+    // schema-defined depth-0 component (`client`) is kept.
+    expect(bag.issues.map((issue) => issue.path)).toContain("client.*");
     expect(JSON.stringify(warnCalls)).not.toInclude(sentinel);
   });
 

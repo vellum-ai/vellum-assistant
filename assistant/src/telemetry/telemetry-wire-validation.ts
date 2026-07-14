@@ -46,6 +46,26 @@ export function resetUnknownTypeWarningsForTests(): void {
   warnedUnknownTypes.clear();
 }
 
+/**
+ * Render a zod issue path for logging without leaking dynamic record keys.
+ *
+ * Rule: keep numeric components (array indices — structural, never data) and
+ * keep the first (depth-0) component; redact every deeper string component to
+ * a literal `*`. Depth-0 is safe because every generated event schema is a
+ * flat `z.object`, so top-level path components are schema-defined field
+ * names. Deeper string components can be dynamic record keys — e.g. the turn
+ * schema's `client` bag superRefine emits issues at `['client', <key>]` where
+ * `<key>` comes from an uncontrolled JSON metadata column and could carry
+ * user text.
+ */
+function sanitizeIssuePath(path: ReadonlyArray<PropertyKey>): string {
+  return path
+    .map((component, depth) =>
+      typeof component === "number" || depth === 0 ? String(component) : "*",
+    )
+    .join(".");
+}
+
 export interface WireValidationResult {
   /** Events whose type had a wire schema and were parsed against it. */
   checked: number;
@@ -59,7 +79,8 @@ export interface WireValidationResult {
  * Validate a batch of outgoing telemetry events against the platform wire
  * schemas, logging a structured warning for each event the server would
  * silently drop. Warn payloads carry the event `type` and issue
- * `{ path, code }` shapes only — never field values. That includes
+ * `{ path, code }` shapes only — never field values, and never dynamic key
+ * components inside paths (see {@link sanitizeIssuePath}). That includes
  * `daemon_event_id`: traces/claims can hold PII, and activation-funnel ids
  * embed the onboarding session id.
  *
@@ -91,7 +112,7 @@ export function validateWireEvents(
     if (!result.success) {
       invalid += 1;
       const issues = result.error.issues.map((issue) => ({
-        path: issue.path.map(String).join("."),
+        path: sanitizeIssuePath(issue.path),
         code: issue.code,
       }));
       log.warn(
