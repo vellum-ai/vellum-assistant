@@ -24,7 +24,9 @@ import {
 import { VoiceAvatar } from "./voice-avatar";
 import type { VoiceAvatarVisual } from "./voice-avatar-state";
 import {
+  VoiceRespondingRings,
   VoiceRoomColorLook,
+  VoiceStateCaption,
   resolveVoiceRoomLook,
   type VoiceEyePlacement,
   type VoiceRespondingStyle,
@@ -36,11 +38,12 @@ import {
  * with the `amplitude` slider or the `oscillate` "simulated speech" toggle — no
  * live mic / STT / TTS session required.
  *
- * `listening` renders the bottom-edge waves (energy coming *in* from the user)
- * and the avatar stays at rest; `responding` is the avatar's own outward pulse
- * (energy going *out*). Wave `waveStyle` (fill / line) and `palette` (aurora /
- * accent) are the design knobs. `realAvatar` swaps the "V" fallback for a real
- * bundled character.
+ * `listening` renders the top-edge waves (energy coming *in* from the user)
+ * and the avatar stays at rest; `responding` radiates the concentric rings from
+ * behind the avatar (energy going *out*, the same treatment the color look's
+ * eyes use). Wave `waveStyle` (fill / line) and `palette` (aurora / accent) are
+ * the design knobs. `realAvatar` swaps the "V" fallback for a real bundled
+ * character.
  *
  * Nothing hits the network: the real avatar is seeded into the query cache
  * below, on the room's own deep-dark `data-theme="dark"` void.
@@ -143,8 +146,12 @@ interface RoomSceneProps {
 
 /**
  * A full room scene for one visual: the deep-dark void, ambient particles, the
- * bottom listening waves (only in `listening`), and the centered avatar — all
- * driven by one shared amplitude source so the avatar and waves move together.
+ * top-edge listening waves (only in `listening`), the responding rings behind
+ * the avatar (only in `responding`), the centered avatar, and the shared state
+ * caption below it — all driven by one shared amplitude source so the avatar,
+ * waves, and rings move together. Mirrors the app's void look, which shares the
+ * color look's foreground chrome (top waves + rings + caption) bar the
+ * full-screen color and eyes.
  */
 function RoomScene({
   visual,
@@ -157,8 +164,10 @@ function RoomScene({
   minHeight = 420,
 }: RoomSceneProps) {
   const getAmplitude = useAmplitudeDriver(amplitude, oscillate);
+  const { ref, size: box } = useBoxSize();
   return (
     <div
+      ref={ref}
       data-theme="dark"
       className="relative flex items-center justify-center overflow-hidden rounded-lg"
       style={{ background: "#05060b", minHeight, ["--avatar-accent" as string]: SAMPLE_ACCENT }}
@@ -169,7 +178,15 @@ function RoomScene({
           getAmplitude={getAmplitude}
           waveStyle={waveStyle}
           palette={palette}
+          // Same top edge as the color look — positional parity.
+          placement="top"
         />
+      ) : null}
+      {/* Responding: the same concentric rings the color look radiates from
+          behind the eyes, here behind the centered avatar. Sized against the
+          story box (not the window) so they match this frame. */}
+      {visual === "responding" && box.w > 0 ? (
+        <VoiceRespondingRings getAmplitude={getAmplitude} viewport={box} />
       ) : null}
       <div className="relative z-0 flex items-center justify-center">
         <VoiceAvatar
@@ -179,6 +196,12 @@ function RoomScene({
           size={size}
         />
       </div>
+      {/* Shared caption below the centered avatar (half its size from center,
+          plus a gap), matching the app's void look. */}
+      <VoiceStateCaption
+        visual={visual}
+        top={`calc(50% + ${size / 2}px + 1.25rem)`}
+      />
     </div>
   );
 }
@@ -510,7 +533,7 @@ const voidArgTypes = {
   replay: { table: { disable: true } },
 };
 
-/** Void-look playground — the centered avatar, ambient void, and bottom waves. */
+/** Void-look playground — the centered avatar, ambient void, and top waves. */
 export const VoidLookPlayground: VoidStory = {
   name: "Void Look — Playground",
   render: (args) => <RoomScene {...args} />,
