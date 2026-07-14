@@ -8,7 +8,8 @@ import { type SkillFilter } from "./types";
  * navigation (detail page and back, browser history, shared links).
  * Defaults are omitted so the plain `/assistant/skills` URL stays clean.
  *
- * Mirrors the usage tab's URL-state pattern (`domains/logs/usage-tab-state.ts`).
+ * Mirrors the usage tab's URL-state pattern
+ * (`domains/settings/billing/usage/usage-tab-state.ts`).
  */
 
 export const DEFAULT_SKILL_FILTER: SkillFilter = "all";

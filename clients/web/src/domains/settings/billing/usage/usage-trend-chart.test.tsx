@@ -2,9 +2,9 @@ import { afterEach, describe, expect, test } from "bun:test";
 
 import { cleanup, render } from "@testing-library/react";
 
-import { UsageTrendChart } from "@/domains/logs/components/usage-trend-chart";
-import { usageSeriesKeyForGroupValue } from "@/domains/logs/usage-series";
-import type { UsageSeriesBucket } from "@/domains/logs/usage-types";
+import { UsageTrendChart } from "@/domains/settings/billing/usage/usage-trend-chart";
+import { usageSeriesKeyForGroupValue } from "@/domains/settings/billing/usage/usage-series";
+import type { UsageSeriesBucket } from "@/domains/settings/billing/usage/usage-types";
 
 afterEach(() => {
   cleanup();

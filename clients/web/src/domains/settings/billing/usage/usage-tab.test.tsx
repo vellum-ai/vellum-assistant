@@ -10,12 +10,12 @@ import {
 import { createElement, type ReactElement } from "react";
 import { createMemoryRouter, RouterProvider } from "react-router";
 
-import { usageSeriesKeyForGroupValue } from "@/domains/logs/usage-series";
+import { usageSeriesKeyForGroupValue } from "@/domains/settings/billing/usage/usage-series";
 import type {
   UsageBreakdownResponse,
   UsageSeriesResponse,
   UsageTotals,
-} from "@/domains/logs/usage-types";
+} from "@/domains/settings/billing/usage/usage-types";
 import type { AssistantSchedule } from "@/utils/schedules";
 
 const defaultSchedules = [
@@ -209,7 +209,7 @@ function renderUsageTab(initialEntry: string) {
   const router = createMemoryRouter(
     [
       {
-        path: "/assistant/logs/usage",
+        path: "/assistant/settings/billing",
         element: createElement(UsageTab, { assistantId: "assistant-1" }),
       },
     ],
@@ -236,7 +236,7 @@ function readLegendItems(container: HTMLElement) {
 describe("UsageTab", () => {
   test("renders URL-selected schedule filters as an active legend instead of picker controls", async () => {
     const { container } = renderUsageTab(
-      "/assistant/logs/usage?range=7d&groupBy=schedule&scheduleId=schedule-123",
+      "/assistant/settings/billing?range=7d&groupBy=schedule&scheduleId=schedule-123",
     );
 
     await waitFor(() =>
@@ -279,7 +279,7 @@ describe("UsageTab", () => {
       { id: "schedule-456", name: "Evening digest" } as AssistantSchedule,
     ];
     const { container } = renderUsageTab(
-      "/assistant/logs/usage?range=7d&groupBy=schedule&scheduleId=schedule-deleted",
+      "/assistant/settings/billing?range=7d&groupBy=schedule&scheduleId=schedule-deleted",
     );
 
     await waitFor(() =>
@@ -298,7 +298,7 @@ describe("UsageTab", () => {
   });
 
   test("reveals a Turns column when the Turns toggle is enabled", async () => {
-    renderUsageTab("/assistant/logs/usage?range=7d&groupBy=schedule");
+    renderUsageTab("/assistant/settings/billing?range=7d&groupBy=schedule");
 
     await waitFor(() =>
       expect(usageBreakdownGetMock.mock.calls.length).toBeGreaterThan(0),
