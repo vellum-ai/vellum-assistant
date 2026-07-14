@@ -653,7 +653,10 @@ export function ConceptGraphView({
       <>
         <canvas ref={canvasRef} className="absolute inset-0 h-full w-full" />
 
-        {layout.nodes.length > SEARCH_MIN_NODES ? (
+        {/* Keep the box visible whenever a search is active, even if the graph
+            shrank below the threshold (e.g. a refetch) — otherwise an active
+            filter would ghost nodes with no way to clear it short of remount. */}
+        {layout.nodes.length > SEARCH_MIN_NODES || search ? (
           <div
             data-graph-control
             className={`absolute top-4 z-10 ${onToggleFullscreen ? "left-16" : "left-4"}`}
