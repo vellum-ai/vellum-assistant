@@ -33,6 +33,7 @@ let mockResponses: Array<{
   ok: boolean;
   result?: unknown;
   error?: string;
+  statusCode?: number;
 }> = [];
 
 // ---------------------------------------------------------------------------
@@ -43,6 +44,10 @@ mock.module("../../../ipc/cli-client.js", () => ({
   cliIpcCall: async (method: string, params?: Record<string, unknown>) => {
     ipcCalls.push({ method, params });
     return mockResponses.shift() ?? { ok: true, result: null };
+  },
+  exitFromIpcResult: (r: { error?: string }) => {
+    process.exitCode = 1;
+    if (r.error) process.stderr.write(r.error);
   },
 }));
 
@@ -214,6 +219,18 @@ describe("gateway status", () => {
 
     expect(exitCode).toBe(0);
     expect(JSON.parse(stdout.trim())).toEqual({});
+  });
+
+  test("exits non-zero when the gateway is not running", async () => {
+    mockResponses.push({
+      ok: false,
+      error: "Gateway is not running or is unreachable over IPC.",
+      statusCode: 503,
+    });
+
+    const { exitCode } = await runCommand(["gateway", "status"]);
+
+    expect(exitCode).not.toBe(0);
   });
 });
 

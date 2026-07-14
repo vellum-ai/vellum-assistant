@@ -11561,7 +11561,10 @@ paths:
     get:
       operationId: gateway_status_get
       summary: Get gateway status
-      description: Reports the gateway's public tunnel status. `tunnel` holds the active public URL when a tunnel is connected and is omitted otherwise. The tunnel only matters for routing inbound Twilio webhooks and live voice/audio WebSockets.
+      description:
+        Reports the gateway's public tunnel status. `tunnel` holds the active public URL when a tunnel is connected
+        and is omitted otherwise. Errors with 503 when the gateway is not running. The tunnel only matters for routing
+        inbound Twilio webhooks and live voice/audio WebSockets.
       tags:
         - gateway
       responses:
@@ -21946,7 +21949,9 @@ paths:
     get:
       operationId: platform_status_get
       summary: Get platform deployment context and connection status
-      description: Aggregates platform context, credentials, assistant ID, and webhook secret. Velay tunnel status is reported separately by gateway_status.
+      description:
+        Aggregates platform context, credentials, assistant ID, and webhook secret. Velay tunnel status is reported
+        separately by gateway_status.
       tags:
         - platform
       responses:

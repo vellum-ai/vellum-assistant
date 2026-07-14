@@ -8,14 +8,16 @@
  * IPC socket, so the assistant does not need gateway signing material.
  *
  * The response is deliberately tunnel-agnostic: a single `tunnel` field holding
- * the active public URL, omitted entirely when no tunnel is connected. This
- * keeps the contract stable if the underlying transport (currently Velay) is
- * ever swapped for another tunnel.
+ * the active public URL, omitted entirely when a tunnel is up but has no URL.
+ * This keeps the contract stable if the underlying transport (currently Velay)
+ * is ever swapped for another tunnel. If the gateway is not running (no IPC
+ * answer), the handler errors instead of returning an empty result.
  */
 import { z } from "zod";
 
 import { ipcGetVelayStatus } from "../../ipc/gateway-client.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
+import { ServiceUnavailableError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 // ── Schemas ─────────────────────────────────────────────────────────────
@@ -33,7 +35,15 @@ async function handleGatewayStatus(
   _args: RouteHandlerArgs,
 ): Promise<GatewayStatusResponse> {
   const status = await ipcGetVelayStatus().catch(() => null);
-  return status?.connected && status.publicUrl
+  // A null status means the gateway did not answer over IPC — i.e. it is not
+  // running. That is a fatal condition for this command, not a "no tunnel"
+  // state, so surface it as an error rather than an empty result.
+  if (status === null) {
+    throw new ServiceUnavailableError(
+      "Gateway is not running or is unreachable over IPC.",
+    );
+  }
+  return status.connected && status.publicUrl
     ? { tunnel: status.publicUrl }
     : {};
 }
@@ -52,7 +62,7 @@ export const ROUTES: RouteDefinition[] = [
     handler: handleGatewayStatus,
     summary: "Get gateway status",
     description:
-      "Reports the gateway's public tunnel status. `tunnel` holds the active public URL when a tunnel is connected and is omitted otherwise. The tunnel only matters for routing inbound Twilio webhooks and live voice/audio WebSockets.",
+      "Reports the gateway's public tunnel status. `tunnel` holds the active public URL when a tunnel is connected and is omitted otherwise. Errors with 503 when the gateway is not running. The tunnel only matters for routing inbound Twilio webhooks and live voice/audio WebSockets.",
     tags: ["gateway"],
     responseBody: GatewayStatusResponseSchema,
   },

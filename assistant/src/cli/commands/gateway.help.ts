@@ -37,8 +37,10 @@ Twilio voice or live audio, a "not connected" tunnel is expected and harmless.
 
 JSON output (--json):
   { "tunnel": "<public-url>" }   when a tunnel is connected
-  { }                            when no tunnel is connected (or the gateway
-                                 is not running)
+  { }                            when the gateway is running but no tunnel is up
+
+If the gateway itself is not running, the command exits non-zero with an error
+rather than reporting an empty tunnel.
 
 Examples:
   $ assistant gateway status

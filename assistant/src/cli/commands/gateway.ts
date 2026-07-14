@@ -2,12 +2,13 @@
  * `assistant gateway` CLI namespace.
  *
  * Subcommands:
+ *   status   — Show the gateway's public tunnel status via the daemon IPC proxy.
  *   logs tail — Show the last N gateway log entries via the daemon IPC proxy.
  */
 
 import type { Command } from "commander";
 
-import { cliIpcCall } from "../../ipc/cli-client.js";
+import { cliIpcCall, exitFromIpcResult } from "../../ipc/cli-client.js";
 import { applyCommandHelp, subcommand } from "../lib/cli-command-help.js";
 import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
@@ -77,11 +78,11 @@ export function registerGatewayCommand(program: Command): void {
 
       subcommand(gateway, "status").action(async (_opts, cmd: Command) => {
         const r = await cliIpcCall<GatewayStatusResult>("gateway_status", {});
-        if (!r.ok) {
-          log.error(r.error ?? "Failed to fetch gateway status");
-          process.exitCode = 1;
-          return;
-        }
+        if (!r.ok)
+          return exitFromIpcResult(
+            { ok: false, error: r.error, statusCode: r.statusCode },
+            cmd,
+          );
 
         const result = r.result!;
 

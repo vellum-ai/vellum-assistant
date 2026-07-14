@@ -4,6 +4,8 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { ServiceUnavailableError } from "../errors.js";
+
 let ipcResult: unknown = null;
 let ipcError: Error | undefined;
 let ipcCallCount = 0;
@@ -63,20 +65,20 @@ describe("gateway_status route", () => {
     expect(result).toEqual({});
   });
 
-  test("returns {} when the gateway is unreachable", async () => {
+  test("errors with 503 when the gateway is unreachable", async () => {
     ipcResult = null;
 
-    const result = await gatewayStatusRoute.handler({});
-
-    expect(result).toEqual({});
+    await expect(gatewayStatusRoute.handler({})).rejects.toBeInstanceOf(
+      ServiceUnavailableError,
+    );
   });
 
-  test("swallows gateway IPC errors and reports no tunnel", async () => {
+  test("errors when the gateway IPC call throws (gateway not running)", async () => {
     ipcError = new Error("Gateway IPC socket disconnected");
 
-    const result = await gatewayStatusRoute.handler({});
-
+    await expect(gatewayStatusRoute.handler({})).rejects.toBeInstanceOf(
+      ServiceUnavailableError,
+    );
     expect(ipcCallCount).toBe(1);
-    expect(result).toEqual({});
   });
 });
