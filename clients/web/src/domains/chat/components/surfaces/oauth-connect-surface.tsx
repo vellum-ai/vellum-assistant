@@ -1,4 +1,5 @@
 import { Tooltip } from "@vellumai/design-library";
+import { useQueryClient } from "@tanstack/react-query";
 import {
     CheckCircle2,
     ExternalLink,
@@ -16,6 +17,8 @@ import {
     type ManagedOAuthProviderSummary,
 } from "@/domains/chat/api/managed-oauth";
 import type { Surface } from "@/domains/chat/types/types";
+import { assistantsOauthConnectionsListQueryKey } from "@/generated/api/@tanstack/react-query.gen";
+import { resolveLocalAssistantPlatformIdentity } from "@/lib/local-platform-identity";
 
 interface OAuthConnectSurfaceData {
   providerKey?: string;
@@ -99,6 +102,7 @@ export function OAuthConnectSurface({
   assistantDisplayName,
   oauthClient = defaultManagedOAuthConnectClient,
 }: OAuthConnectSurfaceProps) {
+  const queryClient = useQueryClient();
   const data = surface.data as OAuthConnectSurfaceData;
   const providerKey = data.providerKey ?? "";
   const [provider, setProvider] = useState<ManagedOAuthProviderSummary | null>(
@@ -156,6 +160,20 @@ export function OAuthConnectSurface({
         accountLabel: result.connection?.account_label,
         scopesGranted: result.connection?.scopes_granted ?? [],
       });
+      // Invalidate the platform-assistant-scoped connections list so anywhere
+      // that query is mounted (e.g. the settings integrations page) refetches
+      // and reflects the just-connected account. Mirrors the settings connect
+      // hooks (use-oauth-connect). Best-effort: skip silently if the platform
+      // id can't resolve.
+      void resolveLocalAssistantPlatformIdentity(assistantId)
+        .then((platformAssistantId) => {
+          void queryClient.invalidateQueries({
+            queryKey: assistantsOauthConnectionsListQueryKey({
+              path: { assistant_id: platformAssistantId },
+            }),
+          });
+        })
+        .catch(() => {});
       return;
     }
 

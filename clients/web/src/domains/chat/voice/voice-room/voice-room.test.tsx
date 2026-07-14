@@ -30,6 +30,8 @@ import {
   useLiveVoiceStore,
   type LiveVoiceSessionState,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
+import { useChatSessionStore } from "@/domains/chat/chat-session-store";
+import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useVoicePrefsStore } from "@/stores/voice-prefs-store";
 
@@ -90,6 +92,43 @@ mock.module("@/hooks/use-assistant-avatar", () => ({
   avatarQueryKey: (id: string) => ["assistantAvatar", id],
 }));
 
+// Stub the OAuth connect surface (managed-oauth + React Query graph): the room
+// only needs to mount it with the right props and let its Connect fire the
+// shared surface-action handler, so a button that echoes those props is enough.
+mock.module("@/domains/chat/components/surfaces/oauth-connect-surface", () => ({
+  OAuthConnectSurface: ({
+    surface,
+    assistantId,
+    assistantDisplayName,
+    onAction,
+  }: {
+    surface: { surfaceId: string };
+    assistantId: string | null;
+    assistantDisplayName?: string | null;
+    onAction: (surfaceId: string, actionId: string, data?: unknown) => void;
+  }) => (
+    <button
+      type="button"
+      data-testid="room-oauth-connect"
+      data-assistant-id={assistantId ?? ""}
+      data-assistant-name={assistantDisplayName ?? ""}
+      onClick={() => onAction(surface.surfaceId, "connect", {})}
+    >
+      Connect
+    </button>
+  ),
+}));
+
+// The room routes an in-room connect through the same imperative handler the
+// transcript uses; stub it so a click is assertable without the stream/turn
+// store side effects.
+const mockHandleSurfaceAction = mock(
+  (..._args: unknown[]): Promise<void> => Promise.resolve(),
+);
+mock.module("@/domains/chat/surface-actions", () => ({
+  handleSurfaceAction: (...args: unknown[]) => mockHandleSurfaceAction(...args),
+}));
+
 /** Minimal character components: one body/eye/color of each. */
 const CHARACTER_COMPONENTS = {
   bodyShapes: [
@@ -131,6 +170,7 @@ beforeEach(() => {
   controls.stop.mockClear();
   controls.release.mockClear();
   controls.interrupt.mockClear();
+  mockHandleSurfaceAction.mockClear();
   useLiveVoiceStore.getState().reset();
   useConversationStore
     .getState()
@@ -146,7 +186,44 @@ afterEach(() => {
   cleanup();
   useLiveVoiceStore.getState().reset();
   useConversationStore.getState().reset();
+  // Clear any seeded transcript / identity so the pending-surface slot never
+  // bleeds into another test's room.
+  useChatSessionStore.setState({ snapshot: null } as never);
+  useAssistantIdentityStore.getState().clearIdentity();
 });
+
+/**
+ * Seed a single assistant message carrying one `oauth_connect` surface into the
+ * transcript snapshot the room reads from.
+ */
+function seedOAuthConnectSurface(
+  overrides: { completed?: boolean } = {},
+): void {
+  useChatSessionStore.setState({
+    snapshot: {
+      messages: [
+        {
+          id: "assistant-msg-1",
+          role: "assistant",
+          surfaces: [
+            {
+              surfaceId: "oauth-1",
+              surfaceType: "oauth_connect",
+              data: { providerKey: "google", displayName: "Google" },
+              ...(overrides.completed ? { completed: true } : {}),
+            },
+          ],
+        },
+      ],
+      seq: 1,
+      processing: false,
+      hasMore: false,
+      oldestTimestamp: null,
+      oldestMessageId: null,
+      backgroundToolCompletions: [],
+    },
+  } as never);
+}
 
 const roomDialog = () =>
   screen.queryByRole("dialog", { name: "Voice session" });
@@ -594,5 +671,49 @@ describe("VoiceRoom — no push-to-talk / manual-release affordance (hands-free)
     render(<VoiceRoom />);
     expect(screen.queryByRole("button", { name: "Speak" })).toBeNull();
     expect(screen.queryByRole("button", { name: /Send now/ })).toBeNull();
+  });
+});
+
+describe("VoiceRoom — in-room OAuth connect card", () => {
+  const connectCard = () => screen.queryByTestId("room-oauth-connect");
+
+  test("renders no connect card when no oauth_connect surface is pending", () => {
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+    expect(roomDialog()).not.toBeNull();
+    expect(connectCard()).toBeNull();
+  });
+
+  test("mounts a clickable connect card for a pending oauth_connect surface, threading assistant props", () => {
+    // A live-voice turn's connect card is otherwise stranded behind the modal;
+    // the room re-hosts it so the user can actually connect.
+    useAssistantIdentityStore.getState().setIdentity("Aria", null);
+    seedOAuthConnectSurface();
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+
+    const card = connectCard();
+    expect(card).not.toBeNull();
+    expect((card as HTMLButtonElement).disabled).toBe(false);
+    // Wired like the transcript's SurfaceRouter: the session assistant + its
+    // display name.
+    expect(card!.getAttribute("data-assistant-id")).toBe(ASSISTANT_ID);
+    expect(card!.getAttribute("data-assistant-name")).toBe("Aria");
+  });
+
+  test("an in-room connect routes through the shared surface-action handler", () => {
+    seedOAuthConnectSurface();
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+
+    fireEvent.click(connectCard()!);
+    expect(mockHandleSurfaceAction).toHaveBeenCalledWith("oauth-1", "connect", {});
+  });
+
+  test("does not render a completed oauth_connect surface", () => {
+    seedOAuthConnectSurface({ completed: true });
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+    expect(connectCard()).toBeNull();
   });
 });

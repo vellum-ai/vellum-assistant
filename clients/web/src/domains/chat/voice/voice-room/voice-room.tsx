@@ -39,7 +39,7 @@
  * is. The key handler attaches only while the room is mounted.
  */
 
-import { useEffect, type CSSProperties } from "react";
+import { useEffect, useMemo, type CSSProperties } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { Captions, CaptionsOff, Mic, MicOff, Square, X } from "lucide-react";
 
@@ -54,8 +54,13 @@ import {
   stopLiveVoiceResponse,
   useLiveVoiceStore,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
+import { OAuthConnectSurface } from "@/domains/chat/components/surfaces/oauth-connect-surface";
+import { handleSurfaceAction } from "@/domains/chat/surface-actions";
+import { useTranscriptMessages } from "@/domains/chat/transcript/use-transcript-messages";
+import type { Surface } from "@/domains/chat/types/types";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { AVATAR_ACCENT_CSS_VAR } from "@/hooks/use-avatar-accent-var";
+import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { useVoicePrefsStore } from "@/stores/voice-prefs-store";
 import { toneForBg } from "@/utils/surface-tone";
 
@@ -284,6 +289,13 @@ function VoiceRoomOverlay() {
           avatar and stays absent by default. */}
       <VoiceAmbientTranscript />
 
+      {/* A pending OAuth connect surface raised by the (voice) turn. The
+          transcript's own copy of this card is sealed behind the room's
+          `pointer-events-none blur-sm` cover (chat-layout), so a live-voice
+          turn that needs an account connected would strand the user — render a
+          live, clickable instance here inside the modal instead. */}
+      <VoiceRoomOAuthConnectSlot assistantId={assistantId} />
+
       {/* Room controls — captions toggle and the persistent exit. Rendered
           above all room chrome; ✕ is never gated behind avatar readiness, so
           ending works even mid-load / on failure. */}
@@ -436,5 +448,60 @@ function VoiceRoomOverlay() {
         {muted ? `Muted — ${stateLabel}` : stateLabel}
       </div>
     </motion.div>
+  );
+}
+
+/**
+ * The transcript surface the room re-hosts: the newest pending (not yet
+ * completed) `oauth_connect` card. Read from the same transcript state the
+ * chat body renders from, so completing it there (or from here — both go
+ * through {@link handleSurfaceAction}) drops it from both instances at once.
+ */
+function usePendingOAuthConnectSurface(): Surface | null {
+  const messages = useTranscriptMessages();
+  return useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const match = messages[i]?.surfaces?.find(
+        (s) => s.surfaceType === "oauth_connect" && !s.completed,
+      );
+      if (match) return match;
+    }
+    return null;
+  }, [messages]);
+}
+
+/**
+ * In-room mount of the active pending `oauth_connect` surface. The room is a
+ * `fixed inset-0` modal over the sealed (`pointer-events-none`) transcript, so
+ * the transcript's own card is invisible and unclickable during a session —
+ * this is the only reachable Connect button while voice is live. Wired exactly
+ * as {@link SurfaceRouter} wires it in the transcript (assistantId, the
+ * assistant display name, {@link handleSurfaceAction}), so a connect here is
+ * indistinguishable from one in the transcript. Renders nothing when no
+ * `oauth_connect` is pending.
+ */
+function VoiceRoomOAuthConnectSlot({
+  assistantId,
+}: {
+  assistantId: string | null;
+}) {
+  const surface = usePendingOAuthConnectSurface();
+  const assistantName = useAssistantIdentityStore.use.name();
+  if (!surface) return null;
+
+  return (
+    // The card floats above the room's centerpiece, clearing the bottom-corner
+    // session controls; only the card itself takes pointer events so the rest
+    // of the modal stays as it was.
+    <div className="pointer-events-none absolute inset-x-0 bottom-28 z-20 flex justify-center px-4">
+      <div className="pointer-events-auto w-full max-w-md">
+        <OAuthConnectSurface
+          surface={surface}
+          onAction={handleSurfaceAction}
+          assistantId={assistantId}
+          assistantDisplayName={assistantName?.trim() || undefined}
+        />
+      </div>
+    </div>
   );
 }
