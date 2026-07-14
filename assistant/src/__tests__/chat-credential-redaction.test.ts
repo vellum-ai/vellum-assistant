@@ -315,6 +315,38 @@ describe("live reveal swap (stream plaintext hold-back)", () => {
     ]);
   });
 
+  test("persist redacts an unclassifiable candidate value via the exact-match fallback", () => {
+    // Round-15 case: the live guard swaps a scanner-unclassifiable value,
+    // so persistence MUST redact it too — otherwise the SSE transcript
+    // hides the secret while the stored row keeps the raw plaintext and a
+    // refresh or history fetch exposes it. The persisted bytes must equal
+    // the streamed replacement exactly.
+    const candidates = [
+      { service: "svc", field: "f", value: "not a real secret shape" },
+    ];
+    const persisted = redactSecretsForChat(
+      "your token is not a real secret shape — keep it safe",
+      candidates,
+    );
+    expect(persisted).toBe(
+      "your token is \u3014redacted:Credential:svc:f\u3015 — keep it safe",
+    );
+    expect(persisted).not.toContain("not a real secret shape");
+    // Byte-identity with the live guard entry.
+    const [entry] = buildLiveRevealGuardEntries(candidates);
+    expect(entry!.replacement).toBe("\u3014redacted:Credential:svc:f\u3015");
+  });
+
+  test("the persist fallback applies the duplicate-identity degrade rule", () => {
+    const candidates = [
+      { service: "svc", field: "f", value: "shared plain value" },
+      { service: "other", field: "g", value: "shared plain value" },
+    ];
+    expect(redactSecretsForChat("echo shared plain value", candidates)).toBe(
+      "echo \u3014redacted:Credential\u3015",
+    );
+  });
+
   test("a bare-unclassifiable duplicate plaintext degrades to the plain generic sentinel", () => {
     // The unique-identity degrade rule applies to fallback entries too:
     // two identities sharing an unclassifiable value must not mint an

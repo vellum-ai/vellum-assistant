@@ -243,22 +243,16 @@ const FALLBACK_SENTINEL_TYPE = "Credential";
 /**
  * Precompute live-swap entries from resolved reveal candidates. Every
  * candidate gets an entry — the guard's job is to keep revealed plaintext
- * off the wire, whatever the surrounding text turns out to be.
- *
- * When the scanner detects the bare value, the replacement is exactly what
- * persist-time redaction produces, so the live stream and the persisted
- * row agree byte-for-byte. When it does not — several scanner patterns
- * only match WITH context (`password=<value>`, `token: "<value>"`,
- * lookbehind-anchored shapes), so "bare value undetected" does not mean
- * "persist will keep it" — a generic-typed sentinel is built directly
- * from the candidate identity. Dropping such values entirely (the old
- * behavior) let `password=<revealed value>` cross the live stream raw
- * while final persistence redacted it: the secret sat in the live
- * transcript until refresh. The residual divergence is bounded and safe
- * in both directions: a contextual persist match may carry a more
- * specific type label than the live chip (cosmetic), and a value persist
- * never redacts shows a chip live where the stored row keeps the text —
- * the stream can only ever be MORE redacted than the transcript.
+ * off the wire, whatever the surrounding text turns out to be — and each
+ * replacement is exactly what persist-time redaction produces for the
+ * bare value, so the live stream and the persisted row agree
+ * byte-for-byte. `redactSecretsForChat` guarantees a candidate value
+ * never survives: the scanner classifies what it can, and the exact-match
+ * fallback (see `swapCandidateValueFallbacks`) covers the rest — opaque
+ * manual tokens and values the scanner only matches with surrounding
+ * context. The lone residual divergence: a contextual persist match
+ * (`password=<value>`) may carry a more specific type label than the
+ * bare-value chip streamed live — cosmetic, same service:field identity.
  */
 export function buildLiveRevealGuardEntries(
   candidates: readonly ResolvedRevealCandidate[],
@@ -274,28 +268,12 @@ export function buildLiveRevealGuardEntries(
     seen.add(candidate.value);
     // Derive the replacement against the FULL candidate list, exactly as
     // the persist seam does: a value shared by two identities degrades to
-    // the plain type-only sentinel there (see `uniqueCandidateForValue`),
-    // and the live swap must emit the same bytes or the streamed text and
-    // the persisted row would disagree on reconnect.
-    const replacement = redactSecretsForChat(candidate.value, candidates);
-    if (replacement !== candidate.value) {
-      entries.push({ value: candidate.value, replacement });
-      continue;
-    }
-    // Scanner miss on the bare value: build the sentinel directly, with
-    // the same unique-identity degrade rule as the persist seam.
-    const hit = uniqueCandidateForValue(candidates, candidate.value);
+    // the plain sentinel there (see `uniqueCandidateForValue`), and the
+    // live swap must emit the same bytes or the streamed text and the
+    // persisted row would disagree on reconnect.
     entries.push({
       value: candidate.value,
-      replacement: buildRedactedSentinel(
-        hit
-          ? {
-              type: FALLBACK_SENTINEL_TYPE,
-              service: hit.service,
-              field: hit.field,
-            }
-          : { type: FALLBACK_SENTINEL_TYPE },
-      ),
+      replacement: redactSecretsForChat(candidate.value, candidates),
     });
   }
   return entries;
@@ -489,7 +467,7 @@ export function redactSecretsForChat(
   // the raw text (model output, fetched content, quoted transcripts) so the
   // only sentinels that survive persistence are the ones inserted below from
   // an actually-detected secret. See the contract module for the mechanism.
-  return redactSecretsWith(
+  const scannerPass = redactSecretsWith(
     neutralizeRedactedSentinels(text),
     (match, rawValue) => {
       const hit = uniqueCandidateForValue(candidates, rawValue);
@@ -500,6 +478,58 @@ export function redactSecretsForChat(
       );
     },
   );
+  // Exact-match fallback: a PROVEN candidate plaintext is a secret whether
+  // or not the scanner can classify it bare (opaque manual tokens carry no
+  // recognizable shape; several patterns only match with surrounding
+  // context). Any occurrence the scanner pass left raw is swapped for a
+  // generic-typed sentinel here, so the persisted row can never retain a
+  // revealed value the live guard already hides — refresh/history must not
+  // expose what the stream redacted.
+  return swapCandidateValueFallbacks(scannerPass, candidates);
+}
+
+/**
+ * Replace remaining raw occurrences of candidate plaintexts (longest value
+ * first, mirroring `swapLiveRevealValues`) with the generic-typed fallback
+ * sentinel, applying the same unique-identity degrade rule as the scanner
+ * pass. Sentinels inserted earlier contain no credential bytes, so this
+ * pass can never corrupt them.
+ */
+function swapCandidateValueFallbacks(
+  text: string,
+  candidates: readonly ResolvedRevealCandidate[],
+): string {
+  if (candidates.length === 0) {
+    return text;
+  }
+  const seen = new Set<string>();
+  const values: string[] = [];
+  for (const candidate of candidates) {
+    if (candidate.value.length === 0 || seen.has(candidate.value)) {
+      continue;
+    }
+    seen.add(candidate.value);
+    values.push(candidate.value);
+  }
+  values.sort((a, b) => b.length - a.length);
+  let out = text;
+  for (const value of values) {
+    if (!out.includes(value)) {
+      continue;
+    }
+    const hit = uniqueCandidateForValue(candidates, value);
+    const sentinel = buildRedactedSentinel(
+      hit
+        ? {
+            type: FALLBACK_SENTINEL_TYPE,
+            service: hit.service,
+            field: hit.field,
+          }
+        : { type: FALLBACK_SENTINEL_TYPE },
+    );
+    out = out.split(value).join(sentinel);
+  }
+  return out;
 }
 
 /**
