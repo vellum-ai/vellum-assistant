@@ -2,9 +2,8 @@ import { ArchiveSections } from "@/domains/settings/pages/archive-sections";
 import { Tabs } from "@vellumai/design-library/components/tabs";
 
 export function AdvancedPage() {
-  // Archive is the only Advanced section for now. The tab shell exists so
-  // future sections can slot in as sibling tabs (adding ?tab= URL sync at
-  // that point) without another layout change.
+  // Archive is the sole Advanced section, so the tab shell omits ?tab=
+  // URL sync; a controlled value with one option is dead code.
   return (
     <div className="space-y-6">
       <Tabs.Root defaultValue="archive">
