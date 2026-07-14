@@ -162,4 +162,17 @@ describe("assembleMemoryGraph", () => {
     });
     expect(nodes.map((n) => n.id).sort()).toEqual(["a", "skills/orphan"]);
   });
+
+  it("treats a real page under a reserved prefix as a concept, not a prunable skill", () => {
+    // A non-colliding user page like `skills/my-notes` survives the page index
+    // with a real mtime; it must classify as a concept (by modifiedAt, not the
+    // slug prefix) and therefore never be pruned as a disconnected skill.
+    const { nodes } = assembleMemoryGraph({
+      entries: [entry("skills/my-notes", { modifiedAt: 5 })],
+      staticAdjacency: adjacency([]),
+      pruneDisconnectedNonConcepts: true,
+    });
+    expect(nodes).toHaveLength(1);
+    expect(nodes[0]).toMatchObject({ id: "skills/my-notes", kind: "concept" });
+  });
 });

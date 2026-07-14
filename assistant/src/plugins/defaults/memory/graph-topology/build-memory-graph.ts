@@ -81,14 +81,14 @@ function humanizeSlug(slug: string): string {
   return words.replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-/** Node taxonomy tag used for coloring. Synthetic capability slugs (skills /
- * CLI commands) carry `modifiedAt: 0`; real concept pages carry a file mtime. */
+/** Node taxonomy tag used for coloring. Only synthetic rows (`modifiedAt: 0`)
+ * are functionality: skills carry the `skills/` prefix, other synthetics (CLI
+ * commands) are capabilities. A real on-disk page keeps a file mtime and is a
+ * concept even when it happens to sit under a reserved prefix (e.g. a user page
+ * `skills/my-notes` with no matching skill survives the page index). */
 function nodeKind(entry: PageIndexEntry): string {
-  if (isSkillSlug(entry.slug)) {
-    return "skill";
-  }
   if (entry.modifiedAt <= 0) {
-    return "capability";
+    return isSkillSlug(entry.slug) ? "skill" : "capability";
   }
   return "concept";
 }
@@ -244,12 +244,19 @@ export async function getMemoryGraph(
   // Functionality nodes that end up disconnected are pruned in assembleMemoryGraph.
   const entries = pageIndex.entries;
 
+  // Synthetic rows (skills / CLI commands) carry `modifiedAt: 0` and have no
+  // on-disk page. Keyed by slug (not prefix) so a real user page that happens
+  // to live under a reserved prefix is NOT mistaken for a synthetic one.
+  const syntheticSlugs = new Set(
+    entries.filter((e) => e.modifiedAt <= 0).map((e) => e.slug),
+  );
+
   // Raw (frontmatter + body) page reader, matching the v3 lane build. A read
   // that rejects drops that article's authored/wikilink edges but keeps its
-  // numeric fallbacks. Capability slugs have no on-disk page, so short-circuit
-  // to an empty body — they contribute no outbound links, only inbound ones.
+  // numeric fallbacks. Synthetic capability rows have no page, so short-circuit
+  // their guaranteed-miss read; a real page is read so its links are captured.
   const pageRaw = async (slug: Slug): Promise<string> => {
-    if (isCapabilitySlug(slug)) {
+    if (syntheticSlugs.has(slug)) {
       return "";
     }
     const page = await readPage(workspaceDir, slug);
@@ -307,18 +314,21 @@ export async function getMemoryGraphNode(
   if (!isMemoryConceptGraphEnabled(config) || !isMemoryV3Live(config) || !id) {
     return { found: false };
   }
-  // Functionality nodes have no on-disk page; their detail is the rendered
+  // A real on-disk page wins — including a user page that happens to live under
+  // a reserved prefix (its slug isn't a seeded skill/CLI slug, so the index
+  // keeps it with a real mtime). Read it before falling back to a capability.
+  const page = await readPage(getWorkspaceDir(), id).catch(() => null);
+  if (page) {
+    return { found: true, title: humanizeSlug(id), content: page.body };
+  }
+  // No page on disk — a synthetic capability slug. Its detail is the rendered
   // capability statement (`renderCapabilityContent` degrades to "" — never
   // throws — when the capability cache is cold).
   if (isCapabilitySlug(id)) {
     const content = renderCapabilityContent(id);
-    return content
-      ? { found: true, title: humanizeSlug(id), content }
-      : { found: false };
+    if (content) {
+      return { found: true, title: humanizeSlug(id), content };
+    }
   }
-  const page = await readPage(getWorkspaceDir(), id).catch(() => null);
-  if (!page) {
-    return { found: false };
-  }
-  return { found: true, title: humanizeSlug(id), content: page.body };
+  return { found: false };
 }
