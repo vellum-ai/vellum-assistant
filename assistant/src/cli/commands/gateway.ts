@@ -11,6 +11,7 @@ import { cliIpcCall } from "../../ipc/cli-client.js";
 import { applyCommandHelp, subcommand } from "../lib/cli-command-help.js";
 import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
+import { shouldOutputJson, writeOutput } from "../output.js";
 import { gatewayHelp } from "./gateway.help.js";
 
 // -- Types --------------------------------------------------------------------
@@ -21,6 +22,10 @@ interface PinoEntry {
   module?: string;
   msg?: string;
   [key: string]: unknown;
+}
+
+interface GatewayStatusResult {
+  velayTunnel: { connected: boolean; publicUrl: string | null } | null;
 }
 
 // -- Helpers ------------------------------------------------------------------
@@ -65,6 +70,44 @@ export function registerGatewayCommand(program: Command): void {
     description: gatewayHelp.description,
     build: (gateway) => {
       applyCommandHelp(gateway, gatewayHelp);
+
+      // -----------------------------------------------------------------------
+      // status
+      // -----------------------------------------------------------------------
+
+      subcommand(gateway, "status").action(async (_opts, cmd: Command) => {
+        const r = await cliIpcCall<GatewayStatusResult>("gateway_status", {});
+        if (!r.ok) {
+          log.error(r.error ?? "Failed to fetch gateway status");
+          process.exitCode = 1;
+          return;
+        }
+
+        const result = r.result!;
+
+        if (shouldOutputJson(cmd)) {
+          writeOutput(cmd, result);
+          return;
+        }
+
+        if (result.velayTunnel === null) {
+          log.info("Velay tunnel: (gateway not running)");
+        } else if (result.velayTunnel.connected) {
+          const url = result.velayTunnel.publicUrl
+            ? ` (${result.velayTunnel.publicUrl})`
+            : "";
+          log.info(`Velay tunnel: connected${url}`);
+        } else {
+          log.info("Velay tunnel: disconnected");
+        }
+        log.info(
+          "  The Velay tunnel is only used to tunnel inbound Twilio webhooks and",
+        );
+        log.info(
+          "  live voice/audio WebSockets. It is not needed for text channels or",
+        );
+        log.info("  the managed LLM proxy.");
+      });
 
       const logs = subcommand(gateway, "logs");
 

@@ -11,11 +11,36 @@ manages trust rules, routes traffic to the assistant, and records
 structured logs for all inbound activity.
 
 Examples:
+  $ assistant gateway status
   $ assistant gateway logs tail
   $ assistant gateway logs tail -n 50
   $ assistant gateway logs tail --level warn
   $ assistant gateway logs tail --module cors`,
   subcommands: [
+    {
+      name: "status",
+      description: "Show gateway status (Velay tunnel state)",
+      helpText: `
+Reports the live status of the gateway's Velay tunnel — the outbound
+public-ingress transport.
+
+The Velay tunnel is ONLY used to tunnel inbound Twilio webhooks and live
+voice/audio WebSockets through to this assistant. It has nothing to do with
+platform credentials, the managed LLM proxy, or text channels. If you are not
+using Twilio voice or live audio, a "disconnected" tunnel is expected and
+harmless.
+
+Fields (--json):
+  velayTunnel            Live tunnel status, or null when the gateway is not
+                         running.
+  velayTunnel.connected  Whether the tunnel is currently registered (boolean).
+  velayTunnel.publicUrl  The public base URL Twilio/voice traffic arrives on,
+                         or null when disconnected.
+
+Examples:
+  $ assistant gateway status
+  $ assistant gateway status --json`,
+    },
     {
       name: "logs",
       description: "Gateway log operations",

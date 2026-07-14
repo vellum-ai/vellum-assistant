@@ -16,18 +16,18 @@ First check whether this is a managed/platform assistant:
 assistant platform status --json
 ```
 
-If it reports an available platform assistant, do not install or start ngrok for Twilio. The gateway should use Velay, and `velayTunnel.connected` should become `true` after registration. If this is a local/self-hosted assistant without Velay, run the **public-ingress** skill to set up ngrok or another custom tunnel and configure `ingress.publicBaseUrl`.
+If it reports an available platform assistant, do not install or start ngrok for Twilio. The gateway should use Velay; run `assistant gateway status --json` and confirm `velayTunnel.connected` becomes `true` after registration. If this is a local/self-hosted assistant without Velay, run the **public-ingress** skill to set up ngrok or another custom tunnel and configure `ingress.publicBaseUrl`.
 
 ## Call fails immediately after initiating
 
 - Check that the phone number is in E.164 format
 - Verify Twilio credentials are correct (wrong auth token causes API errors)
 - On trial accounts, ensure the destination number is verified
-- Check that the configured tunnel is still running. For ngrok, use `curl -s http://127.0.0.1:4040/api/tunnels`. For Velay, run `assistant platform status --json` and confirm `velayTunnel.connected` is `true`, or check gateway logs for `Velay tunnel registered`.
+- Check that the configured tunnel is still running. For ngrok, use `curl -s http://127.0.0.1:4040/api/tunnels`. For Velay, run `assistant gateway status --json` and confirm `velayTunnel.connected` is `true`, or check gateway logs for `Velay tunnel registered`.
 
 ## Call connects but no audio / one-way audio
 
-- The media-stream WebSocket may not be connecting. If you are using ngrok or a custom tunnel, check that `ingress.publicBaseUrl` is correct and the tunnel is active. If you are using Velay, check `assistant platform status --json`; a 503 from `https://velay.../<assistant-id>/...` usually means the assistant tunnel is not connected or the gateway did not complete the WebSocket open, not that ngrok is required.
+- The media-stream WebSocket may not be connecting. If you are using ngrok or a custom tunnel, check that `ingress.publicBaseUrl` is correct and the tunnel is active. If you are using Velay, check `assistant gateway status --json`; a 503 from `https://velay.../<assistant-id>/...` usually means the assistant tunnel is not connected or the gateway did not complete the WebSocket open, not that ngrok is required.
 - Verify the assistant is running
 
 ## "Number not eligible for caller identity"
