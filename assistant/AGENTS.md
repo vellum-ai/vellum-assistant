@@ -81,6 +81,8 @@ The module-level dependency-injection pattern (`registerFooDeps()`) used by some
 
 Pre-flush validation (`src/telemetry/telemetry-wire-validation.ts`) checks outgoing events against the wire schemas and logs any the server would silently drop; it is observability only and never blocks or mutates the batch.
 
+**Adding a new event type starts platform-side, not here.** The ingest endpoint silently skips events whose type has no registered serializer (the batch still 2xxes and the daemon acks away its outbox rows), so an emitter shipped before its platform serializer loses every event it records — pre-flush validation logs the drop but does not prevent it. Follow "Adding a new telemetry ingest event type" in the platform repo's root AGENTS.md; the daemon emitter is the last step, after the platform serializer has merged and the wire sync PR has landed here.
+
 ## Code comments
 
 When writing or updating comments, **do not reference code that has been removed.** Comments should describe the current state of the codebase, not narrate its history. Avoid phrases like "no longer does X", "previously used Y", or "was removed in PR Z" — future readers should not need to understand past implementations to understand the current code.
