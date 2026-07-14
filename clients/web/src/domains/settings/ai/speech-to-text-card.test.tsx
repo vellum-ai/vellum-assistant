@@ -250,8 +250,17 @@ describe("SpeechToTextCard — macOS Native Dictation option", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(configPatchCalls.length).toBe(1));
-    expect(configPatchCalls[0]!.body).toMatchObject({
-      services: { stt: { provider: "deepgram", mode: "your-own" } },
+    // Provider is unchanged (Deepgram), so it's preserved via deep-merge and
+    // omitted from the PATCH; the mode flips and the key is stored.
+    const sttBody = configPatchCalls[0]!.body as {
+      services: { stt: Record<string, unknown> };
+    };
+    expect(sttBody.services.stt.mode).toBe("your-own");
+    expect(sttBody.services.stt).not.toHaveProperty("provider");
+    expect(credentialsSetCalls).toHaveLength(1);
+    expect(credentialsSetCalls[0]!.body).toMatchObject({
+      service: "deepgram",
+      value: "dg-secret",
     });
   });
 
@@ -341,9 +350,31 @@ describe("SpeechToTextCard — macOS Native Dictation option", () => {
     });
   });
 
+  test("leaving managed without a provider change preserves an unlisted provider", async () => {
+    // Daemon provider is a valid one the dropdown can't show (set via CLI).
+    // Toggling to Your Own and saving mode-only must not overwrite it with the
+    // Deepgram fallback — the PATCH omits provider so deep-merge keeps it.
+    daemonConfigData = {
+      services: { stt: { provider: "google-gemini", mode: "managed" } },
+    };
+    renderCard();
+
+    setMode("Your Own");
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(configPatchCalls.length).toBe(1));
+    const sttBody = configPatchCalls[0]!.body as {
+      services: { stt: Record<string, unknown> };
+    };
+    expect(sttBody.services.stt.mode).toBe("your-own");
+    expect(sttBody.services.stt).not.toHaveProperty("provider");
+    expect(credentialsSetCalls).toHaveLength(0);
+  });
+
   test("toggling to Your Own is a saveable change on its own", async () => {
     // A managed daemon with a stored provider has nothing else to edit —
-    // flipping the toggle must enable Save and persist mode: your-own.
+    // flipping the toggle must enable Save and persist mode: your-own. The
+    // stored provider is preserved via deep-merge (omitted from the PATCH).
     daemonConfigData = {
       services: { stt: { provider: "deepgram", mode: "managed" } },
     };
@@ -355,9 +386,11 @@ describe("SpeechToTextCard — macOS Native Dictation option", () => {
     fireEvent.click(save);
 
     await waitFor(() => expect(configPatchCalls.length).toBe(1));
-    expect(configPatchCalls[0]!.body).toMatchObject({
-      services: { stt: { provider: "deepgram", mode: "your-own" } },
-    });
+    const sttBody = configPatchCalls[0]!.body as {
+      services: { stt: Record<string, unknown> };
+    };
+    expect(sttBody.services.stt.mode).toBe("your-own");
+    expect(sttBody.services.stt).not.toHaveProperty("provider");
     expect(credentialsSetCalls).toHaveLength(0);
   });
 });

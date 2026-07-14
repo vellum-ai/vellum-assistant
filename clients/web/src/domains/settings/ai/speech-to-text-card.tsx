@@ -208,23 +208,30 @@ export function SpeechToTextCard() {
             );
           }
         }
-        // Only PATCH the provider when it truly diverges from the persisted
-        // value (or the daemon has none yet); otherwise a re-save with just a
-        // new key would silently switch a provider set elsewhere — including
-        // one the dropdown can't represent. Saving from the "Your Own" panel is
-        // explicit BYOK intent, so a managed-mode daemon is switched back to
-        // your-own even without a new key — the user reached these inputs by
-        // toggling off Managed.
+        // Saving from the "Your Own" panel is explicit BYOK intent, so a
+        // managed-mode daemon is switched back to your-own even without a new
+        // key — the user reached these inputs by toggling off Managed.
         const escapeManaged = daemonManaged;
         const shouldSetProvider =
           draftProvider !== serverProvider || !daemonHasProvider;
-        if (shouldSetProvider || escapeManaged) {
+        // Only write `provider` when the user actually changed it, or when
+        // escaping managed leaves nothing valid to keep (no stored provider, or
+        // the managed-only "vellum" sentinel the schema rejects outside managed
+        // mode). Otherwise write mode only and let the daemon's deep-merge
+        // preserve the stored BYOK provider — which may be one the dropdown
+        // can't represent (e.g. google-gemini set via CLI) and would be
+        // silently overwritten by the mapped fallback.
+        const writeProvider =
+          shouldSetProvider ||
+          (escapeManaged &&
+            (!daemonSttProvider || daemonSttProvider === "vellum"));
+        if (writeProvider || escapeManaged) {
           const { response: cfgRes } = await configPatch({
             path: { assistant_id: assistantId },
             body: {
               services: {
                 stt: {
-                  provider: daemon.provider,
+                  ...(writeProvider ? { provider: daemon.provider } : {}),
                   ...(escapeManaged ? { mode: "your-own" } : {}),
                 },
               },
@@ -264,6 +271,7 @@ export function SpeechToTextCard() {
     serverProvider,
     daemonHasProvider,
     daemonManaged,
+    daemonSttProvider,
     queryClient,
   ]);
 
