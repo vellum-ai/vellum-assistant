@@ -95,6 +95,10 @@ Examples:
         { flags: "--cc <address>", description: "CC recipient (repeatable)" },
         { flags: "--bcc <address>", description: "BCC recipient (repeatable)" },
         {
+          flags: "--attach <path>",
+          description: "File to attach (repeatable)",
+        },
+        {
           flags: "--reply-to <email_id>",
           description:
             "Reply to an email by its ID (auto-resolves threading headers and subject)",
@@ -126,6 +130,9 @@ Examples:
 
   $ assistant email send user@example.com -b "Thanks!" --reply-to 019d96e4-e5d2-7201-890e-04a21e8f95bb
   ✓ Sent to user@example.com (delivery_id: ghi789)
+
+  $ assistant email send user@example.com -s "Report" -b "Attached" --attach report.pdf --attach data.csv
+  ✓ Sent to user@example.com (delivery_id: jkl012)
 
   $ assistant email send user@example.com -s "Hello" -b "Hi" --json
   {"delivery_id":"abc123","status":"accepted"}`,
