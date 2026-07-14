@@ -130,6 +130,30 @@ describe("collectRevealRefsFromCommand", () => {
     ]);
   });
 
+  test("unescapes backslash-escaped characters in unquoted flag values", () => {
+    // The shell strips escaping before the CLI sees argv, so the reveal
+    // route records proof under the UNESCAPED identity — the parse must
+    // agree or the staged ref can never match its proof.
+    expect(
+      collectRevealRefsFromCommand(
+        "assistant credentials reveal --service foo\\ bar --field token",
+      ),
+    ).toEqual([{ service: "foo bar", field: "token" }]);
+    expect(
+      collectRevealRefsFromCommand(
+        "assistant credentials reveal --service a\\&b --field x",
+      ),
+    ).toEqual([{ service: "a&b", field: "x" }]);
+  });
+
+  test("unescapes POSIX-escapable characters inside double-quoted values", () => {
+    expect(
+      collectRevealRefsFromCommand(
+        'assistant credentials reveal --service "a\\"b" --field x',
+      ),
+    ).toEqual([{ service: 'a"b', field: "x" }]);
+  });
+
   test("ignores commands without a reveal invocation", () => {
     expect(collectRevealRefsFromCommand("echo hello")).toEqual([]);
     expect(collectRevealRefsFromCommand("assistant credentials list")).toEqual(
@@ -220,6 +244,19 @@ describe("resolveRevealCandidates", () => {
       { service: "github-app", field: "pem", value: "line1\nline2" },
       { service: "github-app", field: "pem", value: "line1\\nline2" },
     ]);
+  });
+
+  test("drops values below the exact-match length floor", async () => {
+    // The fallback global-replaces every occurrence of a candidate's bytes
+    // for the rest of the turn; a trivial value like `ok` would shred
+    // unrelated text into markers, and below the floor the value carries
+    // no meaningful entropy to protect anyway.
+    const out = await resolveRevealCandidates([
+      { service: "svc", field: "f", provenValue: "ok" },
+      { service: "svc", field: "g", provenValue: "12345" },
+      { service: "svc", field: "h", provenValue: "123456" },
+    ]);
+    expect(out).toEqual([{ service: "svc", field: "h", value: "123456" }]);
   });
 
   test("a value with no escapable bytes yields a single candidate", async () => {

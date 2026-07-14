@@ -92,16 +92,33 @@ export interface ResolvedRevealCandidate {
  *  paths, …) — the two words are what identify the subcommand. */
 const REVEAL_INVOCATION_RE = /\bcredentials\s+reveal\b/;
 
-const FLAG_VALUE = String.raw`(?:"([^"]*)"|'([^']*)'|([^\s"']+))`;
+const FLAG_VALUE = String.raw`(?:"((?:\\.|[^"\\])*)"|'([^']*)'|((?:\\.|[^\s"'\\])+))`;
 const SERVICE_FLAG_RE = new RegExp(String.raw`--service(?:=|\s+)${FLAG_VALUE}`);
 const FIELD_FLAG_RE = new RegExp(String.raw`--field(?:=|\s+)${FLAG_VALUE}`);
 const UUID_RE =
   /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/i;
 
+/**
+ * Extract a flag's value from a segment, undoing the shell quoting the
+ * value arrived with. The shell strips quoting before the CLI sees argv,
+ * so the reveal route records proof under the UNESCAPED identity —
+ * `--service foo\ bar` must parse to `foo bar` or the staged ref can never
+ * match its proof and the reveal's output would bypass the guard and the
+ * candidate fallback. Single quotes are literal; a backslash escapes the
+ * next character when unquoted, and inside double quotes it escapes only
+ * the characters POSIX lets it escape that can appear in an identifier
+ * (`"` and `\` — the rest stay literal, matching the shell).
+ */
 function flagValue(segment: string, re: RegExp): string | undefined {
   const m = re.exec(segment);
   if (!m) return undefined;
-  return m[1] ?? m[2] ?? m[3];
+  if (m[1] !== undefined) {
+    return m[1].replace(/\\(["\\])/g, "$1");
+  }
+  if (m[2] !== undefined) {
+    return m[2];
+  }
+  return m[3]?.replace(/\\(.)/g, "$1");
 }
 
 /**
@@ -308,6 +325,20 @@ export function filterRefsByRevealProof(
 // ---------------------------------------------------------------------------
 
 /**
+ * Minimum plaintext length for the exact-match candidate fallback. The
+ * fallback replaces EVERY occurrence of a candidate's bytes across the
+ * rest of the turn — assistant text, tool output, persisted rows — and
+ * the set route validates values only as non-empty, so a credential whose
+ * plaintext is `1` or `ok` would turn every unrelated occurrence of that
+ * token into a marker/chip. Below this floor the value carries too little
+ * entropy for redaction to protect anything, while the false-positive
+ * damage is guaranteed; at or above it, collisions with incidental text
+ * are rare. Scanner-recognized secrets are unaffected — every scanner
+ * pattern requires far longer tokens than this.
+ */
+const MIN_CANDIDATE_VALUE_LENGTH = 6;
+
+/**
  * Append a candidate in EVERY stdout encoding of its plaintext, deduped on
  * identity+value. `credentials reveal --json` writes the value through
  * `JSON.stringify` (see the CLI's `writeOutput`), so a value containing
@@ -328,7 +359,7 @@ function appendCandidateEncodings(
   value: string,
 ): void {
   for (const encoded of [value, JSON.stringify(value).slice(1, -1)]) {
-    if (encoded.length === 0) continue;
+    if (encoded.length < MIN_CANDIDATE_VALUE_LENGTH) continue;
     const dedupeKey = JSON.stringify([service, field, encoded]);
     if (seen.has(dedupeKey)) continue;
     seen.add(dedupeKey);
