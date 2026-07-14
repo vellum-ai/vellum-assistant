@@ -69,7 +69,25 @@ describe("LiveVoiceConfigSchema", () => {
         bargeInMinSpeechMs: 250,
       },
       maxSessionDurationSeconds: 1800,
+      // Off by default: voice turns carry only their transcript, no audio
+      // artifacts on the conversation messages (JARVIS-1283).
+      archiveAudio: false,
     });
+  });
+
+  test("archiveAudio can be enabled", () => {
+    expect(
+      LiveVoiceConfigSchema.parse({ archiveAudio: true }).archiveAudio,
+    ).toBe(true);
+  });
+
+  test("rejects a non-boolean archiveAudio", () => {
+    const result = LiveVoiceConfigSchema.safeParse({ archiveAudio: "yes" });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const msgs = result.error.issues.map((i) => i.message);
+      expect(msgs.some((m) => m.includes("liveVoice.archiveAudio"))).toBe(true);
+    }
   });
 
   test("accepts overrides", () => {
