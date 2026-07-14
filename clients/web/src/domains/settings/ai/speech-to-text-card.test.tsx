@@ -308,6 +308,24 @@ describe("SpeechToTextCard — macOS Native Dictation option", () => {
     expect(credentialsSetCalls).toHaveLength(0);
   });
 
+  test("Managed Save repoints a native-dictation choice off macos-native", async () => {
+    // prefersMacosNativeStt() keys off LS_STT_PROVIDER alone, so leaving it on
+    // "macos-native" would keep this client bypassing managed STT even after
+    // saving Managed.
+    nativeDictationSupported = true;
+    localStorage.setItem(LS_STT_PROVIDER, "macos-native");
+    renderCard();
+
+    setMode("Managed");
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(configPatchCalls.length).toBe(1));
+    expect(localStorage.getItem(LS_STT_PROVIDER)).not.toBe("macos-native");
+    expect(configPatchCalls[0]!.body).toMatchObject({
+      services: { stt: { mode: "managed", provider: "deepgram" } },
+    });
+  });
+
   test("toggling to Your Own is a saveable change on its own", async () => {
     // A managed daemon with a stored provider has nothing else to edit —
     // flipping the toggle must enable Save and persist mode: your-own.

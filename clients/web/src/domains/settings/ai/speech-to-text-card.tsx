@@ -294,6 +294,13 @@ export function SpeechToTextCard() {
         );
       }
       setLocalSetting(LS_STT_MODE, "managed");
+      // The client-only native-dictation choice makes `prefersMacosNativeStt()`
+      // keep routing transcription locally, bypassing managed STT on this
+      // client. Repoint the stored provider at a daemon-backed one so Managed
+      // actually takes effect.
+      if (draftProvider === MACOS_NATIVE_STT_PROVIDER_ID) {
+        setLocalSetting(LS_STT_PROVIDER, defaultProviderId);
+      }
       void queryClient.invalidateQueries({
         queryKey: configGetQueryKey({ path: { assistant_id: assistantId } }),
       });
@@ -307,7 +314,7 @@ export function SpeechToTextCard() {
     } finally {
       setSaving(false);
     }
-  }, [assistantId, draftProvider, queryClient]);
+  }, [assistantId, draftProvider, defaultProviderId, queryClient]);
 
   const handleReset = useCallback(() => {
     setLocalSetting(LS_STT_API_KEY_PREFIX + draftProvider, "");
