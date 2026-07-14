@@ -488,7 +488,7 @@ describe("live tool output chunk redaction", () => {
     expect(pendingStoreReads.length).toBe(0);
   });
 
-  test("a held remainder is flushed redacted at tool_result", async () => {
+  test("a held remainder is DISCARDED at tool_result, never emitted raw", async () => {
     const events: ServerMessage[] = [];
     const state = createEventHandlerState();
     const deps = createMockDeps(events);
@@ -509,11 +509,12 @@ describe("live tool output chunk redaction", () => {
       isError: false,
     } as Extract<AgentEvent, { type: "tool_result" }>);
 
-    // The flush emits the held bytes (a partial value is not the secret,
-    // but it must never be dropped silently) and the final result is
-    // redacted as before.
+    // The held bytes are a raw credential prefix that complete-value
+    // redaction cannot mask — they must never reach the wire. The redacted
+    // final result supersedes the streamed view, so nothing is lost.
     const streamedChunks = outputChunks(events).join("");
-    expect(streamedChunks).toBe(`out: ${head}`);
+    expect(streamedChunks).toBe("out: ");
+    expect(streamedChunks).not.toContain(head);
     expect(state.toolOutputGuardBuffers.size).toBe(0);
     const results = toolResults(events);
     expect(results[0]).toBe('out: <redacted type="Credential" />');

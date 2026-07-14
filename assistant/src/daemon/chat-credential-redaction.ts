@@ -834,8 +834,10 @@ export function drainSentinelGuardedText(
  * values become the legacy marker (this surface renders no chips, and the
  * final tool_result row uses the same treatment, so live and persisted
  * bytes agree); a trailing partial occurrence is held back in
- * `bufferedRemainder` for the tool's next chunk — the tool_result seam
- * flushes whatever remains.
+ * `bufferedRemainder` for the tool's next chunk. The tool_result seam
+ * DISCARDS whatever remains: a held partial is raw credential prefix
+ * bytes that complete-value redaction cannot mask, and the redacted final
+ * result supersedes the streamed view immediately.
  */
 export function drainCandidateGuardedChunk(
   buffer: string,

@@ -1855,30 +1855,22 @@ export async function handleToolResult(
   // The refs are non-empty only after the reveal route actually served an
   // identity this turn, which is precisely when redaction must fire.
   let redactedContent = event.content;
-  const heldOutput = state.toolOutputGuardBuffers.get(event.toolUseId);
+  // DISCARD (never emit) stdout the live chunk guard held back for this
+  // tool. The buffer was held precisely because it contains or ends in a
+  // PARTIAL occurrence of a candidate's plaintext, and complete-value
+  // redaction cannot mask a partial — flushing it would put up to
+  // value-length-minus-one raw credential bytes on the wire. Nothing is
+  // lost: the redacted `event.content` emitted below carries the full
+  // output and supersedes the streamed view immediately.
   state.toolOutputGuardBuffers.delete(event.toolUseId);
   if (state.revealCandidateRefs.length > 0) {
     const revealCandidatesForResult =
       await resolvedRevealCandidatesForState(state);
     if (revealCandidatesForResult.length > 0) {
-      const redactRevealStdout = (text: string): string =>
-        redactCandidateValuesLegacy(text, revealCandidatesForResult);
-      // Flush stdout the live chunk guard held back (a trailing partial
-      // candidate occurrence — see `handleToolOutputChunk`). Nothing can
-      // complete the partial now that the tool has finished, so redact and
-      // emit it before the tool_result below keeps the streamed output
-      // whole. Dropped (never emitted raw) if candidates somehow resolve
-      // empty — the redacted `event.content` still carries the full output.
-      if (heldOutput !== undefined && heldOutput.length > 0) {
-        deps.onEvent({
-          type: "tool_output_chunk",
-          chunk: redactRevealStdout(heldOutput),
-          conversationId: deps.ctx.conversationId,
-          toolUseId: event.toolUseId,
-          messageId: state.lastAssistantMessageId,
-        });
-      }
-      redactedContent = redactRevealStdout(event.content);
+      redactedContent = redactCandidateValuesLegacy(
+        event.content,
+        revealCandidatesForResult,
+      );
     }
   }
 
