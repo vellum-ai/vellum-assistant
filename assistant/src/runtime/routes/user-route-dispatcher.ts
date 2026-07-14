@@ -30,6 +30,7 @@
 import { existsSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 
+import { isPluginDisabled } from "../../plugins/disabled-state.js";
 import { getLogger } from "../../util/logger.js";
 import {
   getWorkspacePluginsDir,
@@ -143,9 +144,13 @@ const PLUGIN_ROUTE_SEGMENT = "plugins";
  * `plugins/<name>/<rest>` resolves against that plugin's own
  * `<workspaceDir>/plugins/<name>/routes/` directory (`<rest>` may be empty,
  * mapping to the namespace's `index` handler). Everything else resolves against
- * the workspace `routes/` directory. Returns `null` for a malformed plugin path
- * (`plugins` with no name segment) so the caller 404s rather than falling back
- * to a workspace route — the `plugins/` prefix is reserved for plugin routes.
+ * the workspace `routes/` directory. Returns `null` (caller 404s) when:
+ *
+ * - the path is a malformed plugin path (`plugins` with no name segment), so it
+ *   never falls back to a workspace route — the `plugins/` prefix is reserved
+ *   for plugin routes; or
+ * - the named plugin is disabled (`.disabled` sentinel present), so a disabled
+ *   plugin serves no routes even though its files remain on disk.
  */
 function resolveRouteLocation(
   routePath: string,
@@ -153,7 +158,7 @@ function resolveRouteLocation(
   const segments = routePath.split("/");
   if (segments[0] === PLUGIN_ROUTE_SEGMENT) {
     const pluginName = segments[1];
-    if (!pluginName) {
+    if (!pluginName || isPluginDisabled(pluginName)) {
       return null;
     }
     return {

@@ -611,6 +611,34 @@ describe("plugin routes", () => {
     expect(res.status).toBe(404);
   });
 
+  test("404s a disabled plugin's routes even though the files exist", async () => {
+    writePluginHandler(
+      "off-plugin",
+      "status.ts",
+      `export function GET(request) { return Response.json({ ok: true }); }`,
+    );
+    const dispatcher = makeDispatcher();
+
+    // Enabled: served.
+    const enabled = await dispatcher.dispatch(
+      "plugins/off-plugin/status",
+      makeRequest("GET"),
+    );
+    expect(enabled.status).toBe(200);
+
+    // Drop the `.disabled` sentinel — the same toggle the CLI writes.
+    writeFileSync(
+      join(getWorkspacePluginsDir(), "off-plugin", ".disabled"),
+      "",
+    );
+
+    const disabled = await dispatcher.dispatch(
+      "plugins/off-plugin/status",
+      makeRequest("GET"),
+    );
+    expect(disabled.status).toBe(404);
+  });
+
   test("one plugin cannot serve another plugin's namespace", async () => {
     writePluginHandler(
       "plugin-a",
