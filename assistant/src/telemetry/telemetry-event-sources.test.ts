@@ -176,6 +176,9 @@ describe("orphan-drain source", () => {
   beforeEach(() => {
     resetOutboxTable();
     setShareAnalytics(true);
+    // Eligible by default: an orphaned type may have been diagnostics-gated, so
+    // the source fails closed on diagnostics consent (see the ineligible case).
+    setShareDiagnostics(true);
   });
 
   function insertOutboxRow(name: string, id: string): void {
@@ -217,6 +220,21 @@ describe("orphan-drain source", () => {
     insertOutboxRow(knownName, "known-row-1");
     const batch = orphanOutboxDrainSource().collect(0, undefined, 500);
     expect(batch.events).toHaveLength(0);
+  });
+
+  test("purges orphan rows without shipping them when diagnostics consent is ineligible", () => {
+    // An orphaned type may have been diagnostics-gated PII. With diagnostics
+    // consent off, the row must NOT ship under share_analytics alone — it is
+    // purged, fail-closed, exactly like diagnosticsGatedOutboxSource.
+    const orphanName = "removed_pii_event";
+    insertOutboxRow(orphanName, "orphan-pii-1");
+    setShareDiagnostics(false);
+
+    const batch = orphanOutboxDrainSource().collect(0, undefined, 500);
+    expect(batch.events).toHaveLength(0);
+    expect(batch.rowIds ?? []).toHaveLength(0);
+    // Purged, not left pending: a later collect can't resurrect it.
+    expect(pendingOutboxRows(orphanName)).toHaveLength(0);
   });
 
   test("is registered in the monitor partition", () => {

@@ -214,19 +214,40 @@ export const ORPHAN_OUTBOX_DRAIN_SOURCE_ID = "__orphan_outbox_drain";
  * derived per-type sources ({@link OUTBOX_TELEMETRY_EVENT_NAMES}) never query
  * those names, so without this the rows would sit in the outbox forever.
  *
- * Draining is send-then-ack, so it is always SAFE: the platform skips an
- * unknown event type but still returns 2xx, after which the row is deleted. A
- * name merely missing from a stale local wire copy therefore still ships and
- * lands (rather than being purged and lost) — this deliberately never deletes a
- * pending row without first attempting to send it.
+ * When diagnostics consent IS eligible, draining is send-then-ack, so it is
+ * safe against a stale local wire copy: the platform skips an unknown event
+ * type but still returns 2xx, after which the row is deleted, and a name merely
+ * missing from a lagging wire still ships and lands rather than being lost.
+ *
+ * Diagnostics-consent fail-closed: an orphaned type may have been
+ * diagnostics-gated (like `onboarding_research`), and once it is gone from the
+ * wire we can no longer tell. So this re-checks `share_diagnostics` eligibility
+ * exactly like {@link diagnosticsGatedOutboxSource} and, when INELIGIBLE, purges
+ * the orphaned rows outright rather than shipping them under `share_analytics`
+ * alone — a revoked/never-granted diagnostics consent must never leak PII
+ * through this path. The cost is that a diagnostics-off owner's rare orphaned
+ * rows (even non-PII ones) are dropped rather than sent; acceptable for a
+ * removed type, and the only choice that cannot bypass the PII gate.
  */
 export function orphanOutboxDrainSource(): TelemetryEventSource {
   const known = new Set<string>(OUTBOX_TELEMETRY_EVENT_NAMES);
   const orphanNames = (): string[] =>
     queryDistinctOutboxEventNames().filter((name) => !known.has(name));
+  const diagnosticsEligible = (): boolean =>
+    getCachedShareDiagnostics() &&
+    isDiagnosticsConsentVersionEligible(getCachedShareDiagnosticsVersion());
+  const purgeOrphans = (): void => {
+    for (const name of orphanNames()) {
+      discardPendingTelemetryOutboxEvents(name);
+    }
+  };
   return {
     id: ORPHAN_OUTBOX_DRAIN_SOURCE_ID,
     collect(_afterCreatedAt, _afterId, limit) {
+      if (!diagnosticsEligible()) {
+        purgeOrphans();
+        return { events: [], rowIds: [], lastCursor: null, fullBatch: false };
+      }
       const acc = {
         events: [] as TelemetryEvent[],
         rowIds: [] as string[],
@@ -252,11 +273,7 @@ export function orphanOutboxDrainSource(): TelemetryEventSource {
     },
     ack: {
       acknowledge: (rowIds) => deleteTelemetryOutboxEvents(rowIds),
-      discardPending: () => {
-        for (const name of orphanNames()) {
-          discardPendingTelemetryOutboxEvents(name);
-        }
-      },
+      discardPending: purgeOrphans,
     },
   };
 }
