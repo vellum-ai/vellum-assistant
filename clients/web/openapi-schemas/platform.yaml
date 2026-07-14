@@ -6340,15 +6340,19 @@ components:
       enum:
       - credits_10
       - credits_25
+      - credits_45
       - credits_50
       - credits_100
+      - credits_115
       - credits_200
       type: string
       description: |-
         * `credits_10` - credits_10
         * `credits_25` - credits_25
+        * `credits_45` - credits_45
         * `credits_50` - credits_50
         * `credits_100` - credits_100
+        * `credits_115` - credits_115
         * `credits_200` - credits_200
     DetailResponse:
       type: object
