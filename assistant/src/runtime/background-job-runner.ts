@@ -193,6 +193,14 @@ export interface RunBackgroundJobOptions {
    * run completes successfully. See `notifications/deferred-emit.ts`.
    */
   deferNotifications?: boolean;
+  /**
+   * Persist the kickoff `prompt` without indexing it — no memory segments,
+   * no embeddings, no lexical-index entry. Opt-in for jobs whose prompt is a
+   * static machine-authored instruction manual (e.g. memory consolidation)
+   * that must not enter memory or search on every run. The run's replies and
+   * all other messages index normally. Defaults to false.
+   */
+  skipPromptIndexing?: boolean;
 }
 
 export interface RunBackgroundJobResult {
@@ -349,6 +357,7 @@ export async function runBackgroundJob(
       ...(opts.cronRunId ? { cronRunId: opts.cronRunId } : {}),
       ...(opts.allowedTools ? { allowedTools: opts.allowedTools } : {}),
       ...(opts.toolGateMode ? { toolGateMode: opts.toolGateMode } : {}),
+      ...(opts.skipPromptIndexing ? { skipUserMessageIndexing: true } : {}),
     });
     // Absorb late rejections: if the timeout wins the race, `work` keeps
     // running and may eventually reject — swallow so it doesn't surface as
