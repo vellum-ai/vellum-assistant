@@ -28,6 +28,7 @@ import {
   buildLiveRevealGuardEntries,
   collectRevealRefsFromCommand,
   drainSentinelGuardedText,
+  redactCandidateValuesLegacy,
   redactSecretsForChat,
   resolveRevealCandidates,
   swapLiveRevealValues,
@@ -335,6 +336,25 @@ describe("live reveal swap (stream plaintext hold-back)", () => {
     // Byte-identity with the live guard entry.
     const [entry] = buildLiveRevealGuardEntries(candidates);
     expect(entry!.replacement).toBe("\u3014redacted:Credential:svc:f\u3015");
+  });
+
+  test("redactCandidateValuesLegacy covers unclassifiable values on legacy-marker surfaces", () => {
+    // Round-16 case: the reveal command's own stdout persists into the
+    // tool_result row via the legacy `<redacted type/>` path (the tool
+    // detail panel renders no chips). An opaque/manual value with no
+    // scanner-recognizable shape must still be redacted there — the
+    // stored tool result must not retain a value every other surface
+    // hides.
+    const candidates = [
+      { service: "svc", field: "f", value: "hunter2-opaque" },
+    ];
+    expect(
+      redactCandidateValuesLegacy("stdout: hunter2-opaque\n", candidates),
+    ).toBe('stdout: <redacted type="Credential" />\n');
+    // No candidates → byte-identical passthrough (legacy mode unchanged).
+    expect(redactCandidateValuesLegacy("stdout: hunter2-opaque\n", [])).toBe(
+      "stdout: hunter2-opaque\n",
+    );
   });
 
   test("the persist fallback applies the duplicate-identity degrade rule", () => {

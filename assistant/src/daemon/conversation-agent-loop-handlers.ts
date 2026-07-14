@@ -97,6 +97,7 @@ import {
   collectRevealRefsFromCommand,
   drainSentinelGuardedText,
   filterRefsByRevealProof,
+  redactCandidateValuesLegacy,
   redactSecretsForChat,
   resolveRevealCandidates,
   swapLiveRevealValues,
@@ -1455,6 +1456,7 @@ export function handleInputJsonDelta(
  */
 function buildToolResultBlocks(
   pending: ReadonlyMap<string, PendingToolResult>,
+  revealCandidates: readonly ResolvedRevealCandidate[] = [],
 ) {
   // Tool results keep the legacy `<redacted type/>` marker (NOT sentinels):
   // history maps tool_result content to `toolCall.result`, which the tool
@@ -1462,9 +1464,15 @@ function buildToolResultBlocks(
   // support, where a sentinel would show as an inert glyph string. Convert
   // here only once that surface can render chips. Forged sentinel-shaped
   // strings in tool output are still neutralized so they can never reach a
-  // chip-enabled surface via quoting.
+  // chip-enabled surface via quoting. Proven reveal-candidate plaintexts
+  // the scanner cannot classify (opaque manual tokens in the reveal's own
+  // stdout) get a candidate-aware legacy-marker fallback — the tool detail
+  // panel and history must not retain a value every other surface redacts.
   const redact = (text: string): string =>
-    redactSecrets(neutralizeRedactedSentinels(text));
+    redactCandidateValuesLegacy(
+      redactSecrets(neutralizeRedactedSentinels(text)),
+      revealCandidates,
+    );
   return Array.from(pending.entries()).map(([toolUseId, result]) => ({
     type: "tool_result",
     tool_use_id: toolUseId,
@@ -1558,6 +1566,7 @@ async function persistPendingToolResultRow(
   // the in-flight delta file; the finalize seam folds the row inline.
   const batchBlocks = buildToolResultBlocks(
     state.pendingToolResults,
+    (await chatRevealCandidates(state)) ?? [],
   ) as ContentBlock[];
   const writer = state.inflightWriters.get(rowId);
   const persisted = writer
@@ -1607,7 +1616,10 @@ export async function finalizePendingToolResultRow(
   // for workspace references so the blob stays in the attachment store, out of
   // this row and the lexical index. Runs once, here at finalize (on-arrival
   // writes keep base64 for durability); the send boundary re-inflates the refs.
-  const blocks = buildToolResultBlocks(state.pendingToolResults);
+  const blocks = buildToolResultBlocks(
+    state.pendingToolResults,
+    (await chatRevealCandidates(state)) ?? [],
+  );
   const contentJson = JSON.stringify(
     conv != null
       ? referenceMediaBlocksForPersist(

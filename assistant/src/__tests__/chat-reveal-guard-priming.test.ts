@@ -166,9 +166,11 @@ describe("live reveal guard priming barrier", () => {
 
     // The reveal route records its success while the tool runs; the
     // result then promotes the proven refs and starts priming — the store
-    // read is still pending when the echo delta arrives.
+    // read is still pending when the echo delta arrives. The dispatch is
+    // deliberately NOT awaited: promotion is synchronous at its head, and
+    // the persist path inside it awaits the same held-open store read.
     recordRevealSuccess("openai", "api_key");
-    await dispatchAgentEvent(state, deps, REVEAL_TOOL_RESULT);
+    const resultDispatch = dispatchAgentEvent(state, deps, REVEAL_TOOL_RESULT);
     expect(pendingStoreReads.length).toBe(1);
 
     const delta = dispatchAgentEvent(state, deps, {
@@ -179,8 +181,9 @@ describe("live reveal guard priming barrier", () => {
     // Nothing may have been emitted yet — the barrier holds the delta.
     expect(streamedText(events)).toBe("");
 
-    // Release the slow store read, let the dispatch complete.
+    // Release the slow store read, let both dispatches complete.
     pendingStoreReads[0]!(SYNTHETIC_OPENAI_PROJECT_KEY);
+    await resultDispatch;
     await delta;
 
     const streamed = streamedText(events);
@@ -197,7 +200,9 @@ describe("live reveal guard priming barrier", () => {
 
     await dispatchAgentEvent(state, deps, REVEAL_TOOL_USE);
     recordRevealSuccess("openai", "api_key");
-    await dispatchAgentEvent(state, deps, REVEAL_TOOL_RESULT);
+    // Not awaited: the persist path inside the result dispatch awaits the
+    // held-open store read this test is about to fail.
+    const resultDispatch = dispatchAgentEvent(state, deps, REVEAL_TOOL_RESULT);
     const delta = dispatchAgentEvent(state, deps, {
       type: "text_delta",
       text: "plain text, no secret echoed",
@@ -206,6 +211,7 @@ describe("live reveal guard priming barrier", () => {
     // Store read fails (returns nothing) — the guard stays empty but the
     // stream must not deadlock.
     pendingStoreReads[0]!(null);
+    await resultDispatch;
     await delta;
 
     expect(streamedText(events)).toBe("plain text, no secret echoed");
@@ -273,7 +279,9 @@ describe("live reveal guard priming barrier", () => {
     // guard entry is protective here — the plaintext can still be echoed.
     await dispatchAgentEvent(state, deps, REVEAL_TOOL_USE);
     recordRevealSuccess("openai", "api_key");
-    await dispatchAgentEvent(state, deps, {
+    // Not awaited: the persist path inside the dispatch awaits the
+    // held-open store read released below.
+    const resultDispatch = dispatchAgentEvent(state, deps, {
       type: "tool_result",
       toolUseId: "toolu_reveal",
       content: "sk-…\ncommand not found: bogus-follow-up",
@@ -281,6 +289,7 @@ describe("live reveal guard priming barrier", () => {
     } as Extract<AgentEvent, { type: "tool_result" }>);
     expect(pendingStoreReads.length).toBe(1);
     pendingStoreReads[0]!(SYNTHETIC_OPENAI_PROJECT_KEY);
+    await resultDispatch;
   });
 
   test("steady-state deltas with no priming in flight emit synchronously", async () => {

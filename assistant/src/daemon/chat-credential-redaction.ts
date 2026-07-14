@@ -489,6 +489,45 @@ export function redactSecretsForChat(
 }
 
 /**
+ * Legacy-marker twin of the persist fallback, for surfaces that keep the
+ * `<redacted type/>` marker instead of sentinels (persisted tool_result
+ * blocks — see `buildToolResultBlocks`). A `credentials reveal` whose
+ * stdout is an opaque/manual value with no scanner-recognizable shape
+ * would otherwise persist raw in the tool-result row and surface in the
+ * tool detail panel and history, even though every other surface redacts
+ * it. Exact occurrences of proven candidate plaintexts (deduped, longest
+ * value first) become the generic legacy marker; no identity is carried —
+ * these surfaces render no chips.
+ */
+export function redactCandidateValuesLegacy(
+  text: string,
+  candidates: readonly ResolvedRevealCandidate[],
+): string {
+  if (candidates.length === 0) {
+    return text;
+  }
+  const seen = new Set<string>();
+  const values: string[] = [];
+  for (const candidate of candidates) {
+    if (candidate.value.length === 0 || seen.has(candidate.value)) {
+      continue;
+    }
+    seen.add(candidate.value);
+    values.push(candidate.value);
+  }
+  values.sort((a, b) => b.length - a.length);
+  let out = text;
+  for (const value of values) {
+    if (out.includes(value)) {
+      out = out
+        .split(value)
+        .join(`<redacted type="${FALLBACK_SENTINEL_TYPE}" />`);
+    }
+  }
+  return out;
+}
+
+/**
  * Replace remaining raw occurrences of candidate plaintexts (longest value
  * first, mirroring `swapLiveRevealValues`) with the generic-typed fallback
  * sentinel, applying the same unique-identity degrade rule as the scanner
