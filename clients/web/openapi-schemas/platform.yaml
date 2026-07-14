@@ -8615,6 +8615,9 @@ components:
           oneOf:
           - $ref: '#/components/schemas/CreditTierEnum'
           - $ref: '#/components/schemas/NullEnum'
+        include_platform_fee:
+          type: boolean
+          default: true
       required:
       - confirm
       - machine_tier
