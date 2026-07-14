@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { X } from "lucide-react";
+import { MessageCircle, Sparkles, X } from "lucide-react";
 import { useEffect } from "react";
 
 import { FileMarkdown } from "@/components/file-markdown";
@@ -16,6 +16,12 @@ interface ConceptDetailPanelProps {
   assistantId: string;
   node: ConceptDetailNode;
   onClose: () => void;
+  /**
+   * Opens a fresh chat seeded with a message about this concept. When absent,
+   * the chat-from-node actions are hidden (read-only drawer). Provided from the
+   * identity page, which navigates to a draft conversation and auto-sends.
+   */
+  onOpenThread?: (message: string) => void;
 }
 
 function formatUpdated(ms: number | undefined): string | null {
@@ -36,10 +42,12 @@ export function ConceptDetailPanel({
   assistantId,
   node,
   onClose,
+  onOpenThread,
 }: ConceptDetailPanelProps) {
   const query = useQuery(memoryGraphNodeOptions(assistantId, node.id));
   const detail = query.data;
   const updated = formatUpdated(node.updatedAtMs);
+  const title = detail?.title ?? node.label;
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -127,6 +135,40 @@ export function ConceptDetailPanel({
             </p>
           )}
         </div>
+
+        {onOpenThread ? (
+          <footer
+            className="flex shrink-0 gap-2 border-t px-5 py-3"
+            style={{ borderColor: "var(--border-base)" }}
+          >
+            <Button
+              variant="outlined"
+              size="regular"
+              className="flex-1"
+              leftIcon={<MessageCircle size={16} aria-hidden />}
+              onClick={() =>
+                onOpenThread(
+                  `Tell me what you remember about "${title}" and how it connects to the rest of what you know.`,
+                )
+              }
+            >
+              Ask about this
+            </Button>
+            <Button
+              variant="primary"
+              size="regular"
+              className="flex-1"
+              leftIcon={<Sparkles size={16} aria-hidden />}
+              onClick={() =>
+                onOpenThread(
+                  `I want to refine what you remember about "${title}". Ask me what's off and we'll correct it together.`,
+                )
+              }
+            >
+              Refine
+            </Button>
+          </footer>
+        ) : null}
       </aside>
     </div>
   );

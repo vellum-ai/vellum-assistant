@@ -310,6 +310,7 @@ export function IdentityTab({ assistantId, onOpenThread }: IdentityTabProps) {
             className="h-full w-full"
             isFullscreen={graphFullscreen}
             onToggleFullscreen={() => setGraphFullscreen((v) => !v)}
+            onOpenThread={onOpenThread}
           />
         )}
       </div>
