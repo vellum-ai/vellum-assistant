@@ -1964,7 +1964,6 @@ describe("Advisor role is tool-less", () => {
     const ctx = {
       skillProjectionState: new Map<string, string>(),
       skillProjectionCache: new Map(),
-      coreToolNames: new Set(toolDefs.map((d) => d.name)),
       toolsDisabledDepth: 0,
       // The advisor role applies `new Set(allowedTools)` — empty Set here.
       subagentAllowedTools: new Set<string>(advisorAllowed),

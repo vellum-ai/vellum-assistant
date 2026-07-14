@@ -36,7 +36,6 @@ describe("always-loaded tool count", () => {
     const minimalContext: SkillProjectionContext = {
       skillProjectionState: new Map(),
       skillProjectionCache: {},
-      coreToolNames: new Set(),
       toolsDisabledDepth: 0,
       hasNoClient: true,
       channelCapabilities: undefined,

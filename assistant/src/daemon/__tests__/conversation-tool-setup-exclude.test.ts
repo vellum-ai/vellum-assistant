@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 
 import * as configLoader from "../../config/loader.js";
 import type { AssistantConfig } from "../../config/schema.js";
+import * as disabledState from "../../plugins/disabled-state.js";
 import type { ToolDefinition } from "../../providers/types.js";
 import {
   __clearRegistryForTesting,
@@ -48,7 +49,6 @@ function makeCtx(
   return {
     skillProjectionState: new Map(),
     skillProjectionCache: { fingerprints: new Map() } as SkillProjectionCache,
-    coreToolNames: new Set<string>(),
     toolsDisabledDepth: 0,
     ...overrides,
   };
@@ -62,6 +62,15 @@ function withExclude(exclude: string[]) {
 }
 
 let getConfigSpy: ReturnType<typeof withExclude> | undefined;
+let disabledSpy: ReturnType<typeof spyOn> | undefined;
+
+/** Stub the workspace `.disabled` sentinel so the named plugins read disabled. */
+function disableWorkspacePlugins(...names: string[]) {
+  const set = new Set(names);
+  disabledSpy = spyOn(disabledState, "isPluginDisabled").mockImplementation(
+    (name: string) => set.has(name),
+  );
+}
 
 beforeEach(() => {
   __clearRegistryForTesting();
@@ -70,6 +79,8 @@ beforeEach(() => {
 afterEach(() => {
   getConfigSpy?.mockRestore();
   getConfigSpy = undefined;
+  disabledSpy?.mockRestore();
+  disabledSpy = undefined;
   __clearRegistryForTesting();
 });
 
@@ -172,6 +183,55 @@ describe("createResolveToolsCallback — config.tools.exclude", () => {
       makeCtx(),
     );
     expect(resolver!([]).map((d) => d.name)).toEqual(["file_read"]);
+  });
+
+  test("workspace-disabled plugin tool stays hidden with no per-chat scope", () => {
+    registerPluginTools("scoped-plugin", [pluginTool("scoped_plugin_tool")]);
+    disableWorkspacePlugins("scoped-plugin");
+    getConfigSpy = withExclude([]);
+
+    // enabledPlugins undefined -> null scope: the workspace `.disabled` gate
+    // hides the plugin's tools (the default, non-overridden behaviour).
+    const resolver = createResolveToolsCallback([def("file_read")], makeCtx());
+    expect(resolver!([]).map((d) => d.name)).not.toContain(
+      "scoped_plugin_tool",
+    );
+  });
+
+  test("explicit per-chat scope re-enables a workspace-disabled plugin's tool", () => {
+    // A plugin disabled at the workspace level whose tool the conversation
+    // explicitly re-enables. Rule 1 (per-conversation enable) beats rule 2
+    // (workspace disable): the tool must surface for this chat even though a
+    // scope-less chat would not see it (see getEffectiveEnabledPluginSet).
+    registerPluginTools("scoped-plugin", [pluginTool("scoped_plugin_tool")]);
+    disableWorkspacePlugins("scoped-plugin");
+    getConfigSpy = withExclude([]);
+
+    const resolver = createResolveToolsCallback(
+      [def("file_read")],
+      makeCtx({ enabledPlugins: ["scoped-plugin"] }),
+    );
+    const names = resolver!([]).map((d) => d.name);
+    expect(names).toContain("scoped_plugin_tool");
+    expect(names).toContain("file_read");
+  });
+
+  test("per-chat scope omitting a workspace-disabled plugin keeps it hidden", () => {
+    // Two workspace-disabled plugins; the chat re-enables only one. The other
+    // must stay filtered out — the explicit scope is an allowlist, so a
+    // disabled plugin it does not list is not resurrected.
+    registerPluginTools("keep-plugin", [pluginTool("keep_plugin_tool")]);
+    registerPluginTools("drop-plugin", [pluginTool("drop_plugin_tool")]);
+    disableWorkspacePlugins("keep-plugin", "drop-plugin");
+    getConfigSpy = withExclude([]);
+
+    const resolver = createResolveToolsCallback(
+      [def("file_read")],
+      makeCtx({ enabledPlugins: ["keep-plugin"] }),
+    );
+    const names = resolver!([]).map((d) => d.name);
+    expect(names).toContain("keep_plugin_tool");
+    expect(names).not.toContain("drop_plugin_tool");
   });
 
   test("excluded tool stays excluded under disk-pressure cleanup mode", () => {

@@ -100,7 +100,6 @@ function makeProjectionCtx(
   return {
     skillProjectionState: new Map(),
     skillProjectionCache: {} as SkillProjectionCache,
-    coreToolNames: new Set(["remember", "tool_b"]),
     toolsDisabledDepth: 0,
     ...overrides,
   };
@@ -241,7 +240,6 @@ describe("createResolveToolsCallback — toolContextPin", () => {
     overrides: Partial<SkillProjectionContext> = {},
   ): SkillProjectionContext {
     return makeProjectionCtx({
-      coreToolNames: new Set(CLIENT_GATED_DEFS.map((d) => d.name)),
       hasNoClient: true,
       subagentAllowedTools: new Set(["remember"]),
       subagentToolGateMode: "execution",

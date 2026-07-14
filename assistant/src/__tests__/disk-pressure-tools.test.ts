@@ -79,7 +79,6 @@ function makeProjectionCtx(
   return {
     skillProjectionState: new Map(),
     skillProjectionCache: {} as SkillProjectionCache,
-    coreToolNames: new Set(),
     toolsDisabledDepth: 0,
     ...overrides,
   };

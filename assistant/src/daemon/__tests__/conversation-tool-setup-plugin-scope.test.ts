@@ -41,7 +41,6 @@ function makeCtx(
   return {
     skillProjectionState: new Map(),
     skillProjectionCache: { fingerprints: new Map() } as SkillProjectionCache,
-    coreToolNames: new Set<string>(),
     toolsDisabledDepth: 0,
     ...overrides,
   };

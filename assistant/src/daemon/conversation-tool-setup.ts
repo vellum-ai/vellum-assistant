@@ -24,6 +24,7 @@ import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { registerConversationSender } from "../tools/browser/browser-screencast.js";
 import type { ToolExecutor } from "../tools/executor.js";
 import {
+  getAllPluginToolDefinitions,
   getMcpToolDefinitions,
   getPluginToolDefinitions,
   getTool,
@@ -487,14 +488,14 @@ export interface SkillProjectionContext {
   preactivatedSkillIds?: string[];
   readonly skillProjectionState: Map<string, string>;
   readonly skillProjectionCache: SkillProjectionCache;
-  readonly coreToolNames: Set<string>;
   allowedToolNames?: Set<string>;
   /**
-   * Durable copy of the full tool set resolved on the most recent turn, used
-   * by read-only inventory queries. Set alongside {@link allowedToolNames}
-   * but, unlike that per-turn execution gate, never cleared at turn teardown.
+   * Durable copy of the full tool definitions resolved on the most recent
+   * turn, used by read-only inventory queries. Set alongside
+   * {@link allowedToolNames} but, unlike that per-turn execution gate, never
+   * cleared at turn teardown.
    */
-  lastResolvedToolNames?: Set<string>;
+  registeredToolDefinitions?: ToolDefinition[];
   /** When > 0, the resolveTools callback returns no tools at all. */
   toolsDisabledDepth: number;
   /** Channel capabilities — read lazily per turn for conditional tool filtering. */
@@ -841,25 +842,27 @@ export function createResolveToolsCallback(
     // is picked up without recreating the conversation.
     void loadPluginTools();
 
-    // Re-read plugin tool definitions from the registry each turn. Plugin
-    // tools share core's context filter + allowlist path, so combine them
-    // with the core snapshot before filtering.
-    const currentPluginDefs = getPluginToolDefinitions();
-
-    // Scope plugin tools to the conversation's per-chat plugin set. `null`
-    // leaves the list unchanged (no per-chat restriction); otherwise keep only
-    // tools whose owning plugin id is in the set, mirroring the
-    // `subagentAllowedTools` intersection below. Ownership lives in the registry
-    // (queried via getToolOwner), not on the Tool object.
-    const scopedPluginDefs =
-      effectiveEnabledPluginSet === null
-        ? currentPluginDefs
-        : currentPluginDefs.filter((d) => {
-            const ownerId = getToolOwner(d.name)?.id;
-            return (
-              ownerId !== undefined && effectiveEnabledPluginSet.has(ownerId)
-            );
-          });
+    // Read every registered plugin tool each turn (so runtime installs/edits
+    // are picked up) and let one filter decide visibility, making the two
+    // precedence rules explicit side by side. Plugin tools share core's context
+    // filter + allowlist path, so combine them with the core snapshot before
+    // filtering. Ownership lives in the registry (getToolOwner), not on the Tool.
+    //
+    //   - No per-chat scope (null): keep tools whose plugin is not disabled at
+    //     the workspace level (the `.disabled` sentinel gate).
+    //   - Explicit per-chat scope: the scope is the sole authority (rule 1 >
+    //     rule 2, see getEffectiveEnabledPluginSet) — keep tools the scope
+    //     enables, so a chat can re-enable a workspace-disabled plugin for
+    //     itself while a plugin the scope omits stays hidden.
+    const scopedPluginDefs = getAllPluginToolDefinitions().filter((d) => {
+      const ownerId = getToolOwner(d.name)?.id;
+      if (ownerId === undefined) {
+        return false;
+      }
+      return effectiveEnabledPluginSet === null
+        ? !isPluginDisabled(ownerId)
+        : effectiveEnabledPluginSet.has(ownerId);
+    });
 
     // Filter core + plugin tools based on current conversation context so that
     // tools irrelevant to this turn (e.g. UI tools when no client is connected)
@@ -952,7 +955,31 @@ export function createResolveToolsCallback(
     // any degraded-mode narrowing below — `allowedToolNames` is the per-turn
     // execution gate (cleared at teardown and restricted under disk pressure),
     // whereas this snapshot answers "what tools does this conversation have".
-    ctx.lastResolvedToolNames = turnAllowed;
+    // Reuse the definitions already resolved this turn (base + appended skill
+    // defs); only active-skill names that carry no appended definition (the
+    // cached skill-projection path returns names without defs) fall back to a
+    // registry lookup for their metadata.
+    const resolvedDefsByName = new Map<string, ToolDefinition>();
+    for (const def of allBaseDefs) {
+      resolvedDefsByName.set(def.name, def);
+    }
+    for (const def of projection.toolDefinitions) {
+      resolvedDefsByName.set(def.name, def);
+    }
+    ctx.registeredToolDefinitions = Array.from(turnAllowed)
+      .sort((a, b) => a.localeCompare(b))
+      .map((name) => {
+        const known = resolvedDefsByName.get(name);
+        if (known !== undefined) {
+          return known;
+        }
+        const tool = getTool(name);
+        return {
+          name,
+          description: tool?.description ?? "",
+          input_schema: tool?.input_schema ?? {},
+        };
+      });
     if (ctx.diskPressureCleanupModeActive === true) {
       const cleanupDefs = allBaseDefs.filter((d) =>
         isDiskPressureCleanupToolName(d.name),

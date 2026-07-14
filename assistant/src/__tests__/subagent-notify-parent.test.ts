@@ -170,7 +170,6 @@ describe("notify_parent tool definition", () => {
       preactivatedSkillIds: [],
       skillProjectionState: new Map(),
       skillProjectionCache: new Map(),
-      coreToolNames: new Set<string>(),
       toolsDisabledDepth: 0,
     } as unknown as import("../daemon/conversation-tool-setup.js").SkillProjectionContext;
     expect(isToolActiveForContext("notify_parent", ctx)).toBe(false);
@@ -181,7 +180,6 @@ describe("notify_parent tool definition", () => {
       preactivatedSkillIds: [],
       skillProjectionState: new Map(),
       skillProjectionCache: new Map(),
-      coreToolNames: new Set<string>(),
       toolsDisabledDepth: 0,
     } as unknown as import("../daemon/conversation-tool-setup.js").SkillProjectionContext;
     expect(isToolActiveForContext("notify_parent", ctx)).toBe(false);
@@ -193,7 +191,6 @@ describe("notify_parent tool definition", () => {
       preactivatedSkillIds: [],
       skillProjectionState: new Map(),
       skillProjectionCache: new Map(),
-      coreToolNames: new Set<string>(),
       toolsDisabledDepth: 0,
     } as unknown as import("../daemon/conversation-tool-setup.js").SkillProjectionContext;
     expect(isToolActiveForContext("notify_parent", ctx)).toBe(true);
