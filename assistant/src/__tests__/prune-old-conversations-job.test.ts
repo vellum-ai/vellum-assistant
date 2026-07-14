@@ -92,4 +92,16 @@ describe("pruneOldConversationsJob", () => {
     const remaining = getDb().select().from(conversations).all();
     expect(remaining.map((c) => c.id)).toEqual([FRESH_ID]);
   });
+
+  test("retentionDays of 0 is a no-op (keep forever)", () => {
+    const ancientUpdatedAt = Date.now() - 999 * 86_400_000;
+    seedConversation(STALE_ID, ancientUpdatedAt);
+
+    pruneOldConversationsJob(JOB, {
+      memory: { cleanup: { conversationRetentionDays: 0 } },
+    } as unknown as AssistantConfig);
+
+    const remaining = getDb().select().from(conversations).all();
+    expect(remaining.map((c) => c.id)).toEqual([STALE_ID]);
+  });
 });
