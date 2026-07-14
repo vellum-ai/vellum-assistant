@@ -22,12 +22,13 @@
       "source": {
         "source": "github",
         "repo": "vellum-ai/agent-wrapped",
-        "ref": "9df51d57e239105b3c587a25292f5aaa96c41b6b"
+        "ref": "64686ed3b50997048e76e7e0abfb5d7ace23cd7e"
       },
       "description": "Your agent's year in review: conversations, days together, memories formed, swear count, top topics, and your era. Works with Vellum agents and Claude Code. Ships a stats collector tool, a CLI, a Claude Code plugin, and a skill for the shareable cards experience.",
       "category": "creative",
       "license": "MIT",
-      "submittedBy": "marina"
+      "submittedBy": "marina",
+      "homepage": "https://agent-wrapped.com"
     },
     {
       "name": "ai-hero-engineer-kit",
