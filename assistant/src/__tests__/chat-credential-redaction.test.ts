@@ -401,6 +401,43 @@ describe("live reveal swap (stream plaintext hold-back)", () => {
     expect(out.bufferedRemainder).toBe("abc");
   });
 
+  test("does not split a completed value to hold another entry's prefix", () => {
+    // Round-11 case: candidate A ends with a proper prefix of candidate B
+    // (`…-sk` / `sk-…`). A chunk ending exactly after a complete A must
+    // swap A whole — a per-entry hold computed over the raw buffer would
+    // hold B's `sk` prefix out of A's tail, splitting A so the swap
+    // misses it and `xx-` leaks raw over the live stream.
+    const entries = [
+      { value: "xx-sk", replacement: "[A]" },
+      { value: "sk-yyyy", replacement: "[B]" },
+    ];
+    const out = drainSentinelGuardedText("token xx-sk", entries);
+    expect(out.emitText).toBe("token [A]");
+    expect(out.consumedRaw).toBe("token xx-sk");
+    expect(out.bufferedRemainder).toBe("");
+  });
+
+  test("still holds another entry's prefix when it follows a completed value", () => {
+    // Bytes AFTER the consumed occurrence are fair game: `sk` following a
+    // complete A is genuinely ambiguous (B may be starting) and is held,
+    // while A itself swaps whole.
+    const entries = [
+      { value: "xx-sk", replacement: "[A]" },
+      { value: "sk-yyyy", replacement: "[B]" },
+    ];
+    const first = drainSentinelGuardedText("token xx-sk sk", entries);
+    expect(first.emitText).toBe("token [A] ");
+    expect(first.consumedRaw).toBe("token xx-sk ");
+    expect(first.bufferedRemainder).toBe("sk");
+    const second = drainSentinelGuardedText(
+      first.bufferedRemainder + "-yyyy done",
+      entries,
+    );
+    expect(second.emitText).toBe("[B] done");
+    expect(second.consumedRaw).toBe("sk-yyyy done");
+    expect(second.bufferedRemainder).toBe("");
+  });
+
   test("hold-back skips occurrences with the swap's greedy left-to-right semantics", () => {
     // `abab` with value `aba`: split/join consumes the occurrence at 0 and
     // does NOT match the overlapping occurrence at 2, so the guard must not

@@ -273,26 +273,57 @@ function trailingProperPrefixLen(text: string, target: string): number {
 }
 
 /**
- * Hold-back length for `target`: the longest suffix of `text` that is a
- * proper prefix of `target`, computed AFTER skipping complete occurrences
- * greedily left-to-right — the same non-overlapping semantics as the
- * split/join swap, so the two always agree on which bytes an occurrence
- * consumed. Without the skip, a value whose proper prefix is also its
- * suffix (`abcabc` chunked as `abc` + `abc`) matches the plain
- * trailing-prefix check on its OWN tail: the guard would split the
- * complete occurrence, emit the first half as raw plaintext, and the swap
- * would never see the full value.
+ * End offset of the last byte consumed by a complete occurrence of any
+ * target — occurrences resolved longest-target-first, greedily
+ * left-to-right, non-overlapping: exactly the semantics of
+ * `swapLiveRevealValues` (and of trigger neutralization, whose complete
+ * matches are likewise transformed, not held). Hold-back may only extend
+ * into bytes AFTER this offset.
+ *
+ * The consumed-set must span ALL targets, not just the one being
+ * hold-checked. Two prior leaks motivate this:
+ *
+ * - Self-overlap (round 8): a value whose proper prefix is also its
+ *   suffix (`abcabc` chunked as `abc` + `abc`) matches a plain
+ *   trailing-prefix check on its OWN tail — the guard would split the
+ *   complete occurrence and emit the first half raw.
+ * - Cross-entry (round 11): when candidate A's value ends with a proper
+ *   prefix of candidate B's value, a per-entry hold computed over the
+ *   whole buffer holds B's prefix out of a chunk in which those bytes
+ *   completed A — splitting A so the swap misses it and A's plaintext
+ *   (minus the held tail) goes out raw.
  */
-function trailingHoldLen(text: string, target: string): number {
-  let scanFrom = 0;
-  for (;;) {
-    const idx = text.indexOf(target, scanFrom);
-    if (idx === -1) {
-      break;
+function lastConsumedEnd(text: string, targets: readonly string[]): number {
+  const consumed: Array<{ start: number; end: number }> = [];
+  let maxEnd = 0;
+  const ordered = [...targets].sort((a, b) => b.length - a.length);
+  for (const target of ordered) {
+    if (target.length === 0) {
+      continue;
     }
-    scanFrom = idx + target.length;
+    let scanFrom = 0;
+    for (;;) {
+      const idx = text.indexOf(target, scanFrom);
+      if (idx === -1) {
+        break;
+      }
+      const end = idx + target.length;
+      // An occurrence overlapping a longer target's consumed span no
+      // longer exists in the swap's transformed text (the replacement
+      // sentinel contains no credential bytes) — skip it, but keep
+      // scanning from the next byte for a later disjoint occurrence.
+      if (consumed.some((s) => idx < s.end && end > s.start)) {
+        scanFrom = idx + 1;
+        continue;
+      }
+      consumed.push({ start: idx, end });
+      if (end > maxEnd) {
+        maxEnd = end;
+      }
+      scanFrom = end;
+    }
   }
-  return trailingProperPrefixLen(text.slice(scanFrom), target);
+  return maxEnd;
 }
 
 /**
@@ -330,9 +361,19 @@ export function drainSentinelGuardedText(
   consumedRaw: string;
   bufferedRemainder: string;
 } {
-  let holdLen = trailingHoldLen(buffer, SENTINEL_TRIGGER);
+  // Hold-back is computed only over the tail AFTER the last byte any
+  // complete occurrence consumes (see `lastConsumedEnd`): a suffix
+  // reaching into a consumed occurrence would split bytes the swap (or
+  // trigger neutralization) is about to transform whole.
+  const tail = buffer.slice(
+    lastConsumedEnd(buffer, [
+      SENTINEL_TRIGGER,
+      ...entries.map((entry) => entry.value),
+    ]),
+  );
+  let holdLen = trailingProperPrefixLen(tail, SENTINEL_TRIGGER);
   for (const entry of entries) {
-    const len = trailingHoldLen(buffer, entry.value);
+    const len = trailingProperPrefixLen(tail, entry.value);
     if (len > holdLen) {
       holdLen = len;
     }
