@@ -180,6 +180,44 @@ describe("gateway logs tail — IPC params", () => {
 });
 
 // ---------------------------------------------------------------------------
+// gateway status
+// ---------------------------------------------------------------------------
+
+describe("gateway status", () => {
+  test("--json passes through the connected tunnel payload", async () => {
+    mockResponses.push({
+      ok: true,
+      result: { tunnel: "https://abc123.vellum.ai" },
+    });
+
+    const { stdout, exitCode } = await runCommand([
+      "gateway",
+      "status",
+      "--json",
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(ipcCalls[0].method).toBe("gateway_status");
+    expect(JSON.parse(stdout.trim())).toEqual({
+      tunnel: "https://abc123.vellum.ai",
+    });
+  });
+
+  test("--json emits {} when no tunnel is connected", async () => {
+    mockResponses.push({ ok: true, result: {} });
+
+    const { stdout, exitCode } = await runCommand([
+      "gateway",
+      "status",
+      "--json",
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(JSON.parse(stdout.trim())).toEqual({});
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Pretty-print output
 // ---------------------------------------------------------------------------
 

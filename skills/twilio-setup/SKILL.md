@@ -62,7 +62,7 @@ assistant platform status --json
 assistant gateway status --json
 ```
 
-If `assistant platform status --json` reports an available platform assistant but `assistant gateway status --json` shows `velayTunnel.connected` is `false`, continue with setup and check status again before configuring webhooks. Do not treat this as an ngrok setup problem unless the assistant is local/self-hosted without Velay.
+If `assistant platform status --json` reports an available platform assistant but `assistant gateway status --json` returns `{}` (no `tunnel` URL yet), continue with setup and check status again before configuring webhooks. Do not treat this as an ngrok setup problem unless the assistant is local/self-hosted without Velay.
 
 Refer to "Checking Current Configuration" above to see the current state of the user's Twilio setup. If Twilio appears to be fully configured. Offer to show status or reconfigure. Otherwise, continue to the missing steps below.
 
@@ -169,7 +169,7 @@ assistant platform status --json
 assistant gateway status --json
 ```
 
-If `assistant platform status --json` reports an available platform assistant and `assistant gateway status --json` shows `velayTunnel.connected` is `true`, do not load `public-ingress` or install ngrok. Use the managed Velay route for the WebSocket leg. If `velayTunnel.connected` is `false`, restart or re-hatch the assistant/gateway and check gateway logs for `Velay tunnel registered`; do not treat that as an ngrok setup problem.
+If `assistant platform status --json` reports an available platform assistant and `assistant gateway status --json` reports a `tunnel` URL (a `{ "tunnel": "..." }` object), do not load `public-ingress` or install ngrok. Use the managed Velay route for the WebSocket leg. If it returns `{}`, restart or re-hatch the assistant/gateway and check gateway logs for `Velay tunnel registered`; do not treat that as an ngrok setup problem.
 
 For local/self-hosted assistants without Velay, load the `public-ingress` skill to determine whether `ingress.publicBaseUrl` is configured and walk the user through setting one up if not.
 

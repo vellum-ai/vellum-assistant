@@ -16,14 +16,14 @@ First check whether this is a managed/platform assistant:
 assistant platform status --json
 ```
 
-If it reports an available platform assistant, do not install or start ngrok for Twilio. The gateway should use Velay; run `assistant gateway status --json` and confirm `velayTunnel.connected` becomes `true` after registration. If this is a local/self-hosted assistant without Velay, run the **public-ingress** skill to set up ngrok or another custom tunnel and configure `ingress.publicBaseUrl`.
+If it reports an available platform assistant, do not install or start ngrok for Twilio. The gateway should use Velay; run `assistant gateway status --json` and confirm it reports a `tunnel` URL (a `{ "tunnel": "..." }` object, not `{}`) after registration. If this is a local/self-hosted assistant without Velay, run the **public-ingress** skill to set up ngrok or another custom tunnel and configure `ingress.publicBaseUrl`.
 
 ## Call fails immediately after initiating
 
 - Check that the phone number is in E.164 format
 - Verify Twilio credentials are correct (wrong auth token causes API errors)
 - On trial accounts, ensure the destination number is verified
-- Check that the configured tunnel is still running. For ngrok, use `curl -s http://127.0.0.1:4040/api/tunnels`. For Velay, run `assistant gateway status --json` and confirm `velayTunnel.connected` is `true`, or check gateway logs for `Velay tunnel registered`.
+- Check that the configured tunnel is still running. For ngrok, use `curl -s http://127.0.0.1:4040/api/tunnels`. For Velay, run `assistant gateway status --json` and confirm it reports a `tunnel` URL (not `{}`), or check gateway logs for `Velay tunnel registered`.
 
 ## Call connects but no audio / one-way audio
 

@@ -39,40 +39,44 @@ describe("gateway_status route", () => {
     expect(gatewayStatusRoute.endpoint).toBe("gateway/status");
   });
 
-  test("returns connected tunnel status with publicUrl", async () => {
+  test("returns the tunnel URL when a tunnel is connected", async () => {
     ipcResult = { connected: true, publicUrl: "https://abc123.vellum.ai" };
 
     const result = await gatewayStatusRoute.handler({});
 
-    expect(result).toEqual({
-      velayTunnel: { connected: true, publicUrl: "https://abc123.vellum.ai" },
-    });
+    expect(result).toEqual({ tunnel: "https://abc123.vellum.ai" });
   });
 
-  test("returns disconnected tunnel status", async () => {
+  test("returns {} when the tunnel is disconnected", async () => {
     ipcResult = { connected: false, publicUrl: null };
 
     const result = await gatewayStatusRoute.handler({});
 
-    expect(result).toEqual({
-      velayTunnel: { connected: false, publicUrl: null },
-    });
+    expect(result).toEqual({});
   });
 
-  test("returns null velayTunnel when the gateway is unreachable", async () => {
+  test("returns {} when connected but no public URL is registered yet", async () => {
+    ipcResult = { connected: true, publicUrl: null };
+
+    const result = await gatewayStatusRoute.handler({});
+
+    expect(result).toEqual({});
+  });
+
+  test("returns {} when the gateway is unreachable", async () => {
     ipcResult = null;
 
     const result = await gatewayStatusRoute.handler({});
 
-    expect(result).toEqual({ velayTunnel: null });
+    expect(result).toEqual({});
   });
 
-  test("swallows gateway IPC errors and reports the gateway as not running", async () => {
+  test("swallows gateway IPC errors and reports no tunnel", async () => {
     ipcError = new Error("Gateway IPC socket disconnected");
 
     const result = await gatewayStatusRoute.handler({});
 
     expect(ipcCallCount).toBe(1);
-    expect(result).toEqual({ velayTunnel: null });
+    expect(result).toEqual({});
   });
 });

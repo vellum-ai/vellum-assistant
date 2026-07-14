@@ -19,23 +19,26 @@ Examples:
   subcommands: [
     {
       name: "status",
-      description: "Show gateway status (Velay tunnel state)",
+      description: "Show gateway status (public tunnel state)",
+      options: [
+        {
+          flags: "--json",
+          description: "Machine-readable compact JSON output",
+        },
+      ],
       helpText: `
-Reports the live status of the gateway's Velay tunnel — the outbound
-public-ingress transport.
+Reports the live status of the gateway's public tunnel — the outbound
+public-ingress transport (currently Velay).
 
-The Velay tunnel is ONLY used to tunnel inbound Twilio webhooks and live
-voice/audio WebSockets through to this assistant. It has nothing to do with
-platform credentials, the managed LLM proxy, or text channels. If you are not
-using Twilio voice or live audio, a "disconnected" tunnel is expected and
-harmless.
+The tunnel is ONLY used to route inbound Twilio webhooks and live voice/audio
+WebSockets through to this assistant. It has nothing to do with platform
+credentials, the managed LLM proxy, or text channels. If you are not using
+Twilio voice or live audio, a "not connected" tunnel is expected and harmless.
 
-Fields (--json):
-  velayTunnel            Live tunnel status, or null when the gateway is not
-                         running.
-  velayTunnel.connected  Whether the tunnel is currently registered (boolean).
-  velayTunnel.publicUrl  The public base URL Twilio/voice traffic arrives on,
-                         or null when disconnected.
+JSON output (--json):
+  { "tunnel": "<public-url>" }   when a tunnel is connected
+  { }                            when no tunnel is connected (or the gateway
+                                 is not running)
 
 Examples:
   $ assistant gateway status

@@ -25,7 +25,7 @@ interface PinoEntry {
 }
 
 interface GatewayStatusResult {
-  velayTunnel: { connected: boolean; publicUrl: string | null } | null;
+  tunnel?: string;
 }
 
 // -- Helpers ------------------------------------------------------------------
@@ -90,18 +90,13 @@ export function registerGatewayCommand(program: Command): void {
           return;
         }
 
-        if (result.velayTunnel === null) {
-          log.info("Velay tunnel: (gateway not running)");
-        } else if (result.velayTunnel.connected) {
-          const url = result.velayTunnel.publicUrl
-            ? ` (${result.velayTunnel.publicUrl})`
-            : "";
-          log.info(`Velay tunnel: connected${url}`);
+        if (result.tunnel) {
+          log.info(`Tunnel: connected (${result.tunnel})`);
         } else {
-          log.info("Velay tunnel: disconnected");
+          log.info("Tunnel: not connected");
         }
         log.info(
-          "  The Velay tunnel is only used to tunnel inbound Twilio webhooks and",
+          "  The public tunnel is only used to route inbound Twilio webhooks and",
         );
         log.info(
           "  live voice/audio WebSockets. It is not needed for text channels or",

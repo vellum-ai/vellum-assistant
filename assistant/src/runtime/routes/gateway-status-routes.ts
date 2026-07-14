@@ -1,11 +1,16 @@
 /**
- * Gateway status route — Velay tunnel status via the gateway IPC proxy.
+ * Gateway status route — public tunnel status via the gateway IPC proxy.
  *
- * The Velay tunnel is the gateway's outbound public-ingress transport. It is
- * only used to tunnel inbound Twilio webhooks and live voice/audio WebSockets
- * to this assistant — it plays no part in platform credentials or the managed
+ * The tunnel is the gateway's outbound public-ingress transport. It is only
+ * used to tunnel inbound Twilio webhooks and live voice/audio WebSockets to
+ * this assistant — it plays no part in platform credentials or the managed
  * LLM proxy. The handler reads the live status from the gateway over the local
  * IPC socket, so the assistant does not need gateway signing material.
+ *
+ * The response is deliberately tunnel-agnostic: a single `tunnel` field holding
+ * the active public URL, omitted entirely when no tunnel is connected. This
+ * keeps the contract stable if the underlying transport (currently Velay) is
+ * ever swapped for another tunnel.
  */
 import { z } from "zod";
 
@@ -15,14 +20,10 @@ import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 // ── Schemas ─────────────────────────────────────────────────────────────
 
-const VelayTunnelStatusSchema = z.object({
-  connected: z.boolean(),
-  publicUrl: z.string().nullable(),
-});
-
 const GatewayStatusResponseSchema = z.object({
-  // null when the gateway is unreachable (i.e. not running).
-  velayTunnel: VelayTunnelStatusSchema.nullable(),
+  // Present with the public tunnel URL when a tunnel is connected; omitted
+  // (so the object is `{}`) when no tunnel is up or the gateway is not running.
+  tunnel: z.string().optional(),
 });
 type GatewayStatusResponse = z.infer<typeof GatewayStatusResponseSchema>;
 
@@ -31,8 +32,10 @@ type GatewayStatusResponse = z.infer<typeof GatewayStatusResponseSchema>;
 async function handleGatewayStatus(
   _args: RouteHandlerArgs,
 ): Promise<GatewayStatusResponse> {
-  const velayTunnel = await ipcGetVelayStatus().catch(() => null);
-  return { velayTunnel };
+  const status = await ipcGetVelayStatus().catch(() => null);
+  return status?.connected && status.publicUrl
+    ? { tunnel: status.publicUrl }
+    : {};
 }
 
 // ── Route definitions ───────────────────────────────────────────────────
@@ -49,7 +52,7 @@ export const ROUTES: RouteDefinition[] = [
     handler: handleGatewayStatus,
     summary: "Get gateway status",
     description:
-      "Reports the live Velay tunnel status from the gateway. The Velay tunnel only matters for tunnelling inbound Twilio webhooks and live voice/audio WebSockets; velayTunnel is null when the gateway is not running.",
+      "Reports the gateway's public tunnel status. `tunnel` holds the active public URL when a tunnel is connected and is omitted otherwise. The tunnel only matters for routing inbound Twilio webhooks and live voice/audio WebSockets.",
     tags: ["gateway"],
     responseBody: GatewayStatusResponseSchema,
   },
