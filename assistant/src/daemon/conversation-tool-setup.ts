@@ -8,12 +8,10 @@
 
 import {
   type HostProxyCapability,
-  type InterfaceId,
   supportsHostProxy,
 } from "../channels/types.js";
 import { getIsPlatform } from "../config/env-registry.js";
 import { getConfig } from "../config/loader.js";
-import type { LLMCallSite } from "../config/schemas/llm.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
 import { getBindingByConversation } from "../persistence/external-conversation-store.js";
@@ -58,10 +56,8 @@ import {
   type UsageAttributionSnapshot,
 } from "../usage/attribution.js";
 import { getLogger } from "../util/logger.js";
-import {
-  projectSkillTools,
-  type SkillProjectionCache,
-} from "./conversation-skill-tools.js";
+import type { Conversation } from "./conversation.js";
+import { projectSkillTools } from "./conversation-skill-tools.js";
 import { surfaceProxyResolver } from "./conversation-surfaces.js";
 import {
   isDoordashCommand,
@@ -73,11 +69,7 @@ import { FALLBACK_TURN_TRUST, resolveTrustClass } from "./trust-context.js";
 
 const log = getLogger("conversation-tool-setup");
 
-import type {
-  SubagentToolGateMode,
-  ToolSetupContext,
-  WakeToolContextPin,
-} from "./tool-setup-types.js";
+import type { ToolSetupContext } from "./tool-setup-types.js";
 export type {
   SubagentToolGateMode,
   ToolSetupContext,
@@ -480,83 +472,6 @@ export function createProxyApprovalCallback(
  */
 export const DEFAULT_PREACTIVATED_SKILL_IDS = ["notifications", "subagent"];
 
-/**
- * Subset of Conversation state that the resolveTools callback reads at each
- * agent turn. Properties are read lazily from this reference.
- */
-export interface SkillProjectionContext {
-  preactivatedSkillIds?: string[];
-  readonly skillProjectionState: Map<string, string>;
-  readonly skillProjectionCache: SkillProjectionCache;
-  allowedToolNames?: Set<string>;
-  /**
-   * Durable copy of the full tool definitions resolved on the most recent
-   * turn, used by read-only inventory queries. Set alongside
-   * {@link allowedToolNames} but, unlike that per-turn execution gate, never
-   * cleared at turn teardown.
-   */
-  registeredToolDefinitions?: ToolDefinition[];
-  /** When > 0, the resolveTools callback returns no tools at all. */
-  toolsDisabledDepth: number;
-  /** Channel capabilities — read lazily per turn for conditional tool filtering. */
-  readonly channelCapabilities?: {
-    channel: string;
-    supportsDynamicUi: boolean;
-    clientOS?: string;
-  };
-  /** True when no client is connected (HTTP-only). */
-  readonly hasNoClient?: boolean;
-  /** When set, only tools in this set are included in the resolved tool list (subagent delegation). */
-  subagentAllowedTools?: Set<string>;
-  /**
-   * How {@link subagentAllowedTools} is enforced — see
-   * {@link SubagentToolGateMode}. Absent means `"wire"`.
-   */
-  subagentToolGateMode?: SubagentToolGateMode;
-  /**
-   * When set (execution-gate-mode wakes), tool-definition resolution reads
-   * `hasNoClient` / `transportInterface` / `channelCapabilities` exclusively
-   * from this pin instead of the live conversation — see
-   * {@link WakeToolContextPin}.
-   */
-  readonly toolContextPin?: WakeToolContextPin;
-  /** True when the current turn is restricted to disk-pressure cleanup-safe tools. */
-  diskPressureCleanupModeActive?: boolean;
-  /** True when this conversation belongs to a subagent spawned by SubagentManager. */
-  readonly isSubagent?: boolean;
-  /**
-   * The interface id of the connected client driving the current turn (e.g.
-   * "macos", "chrome-extension"). Used to gate host tools by per-capability
-   * `supportsHostProxy(transport, capability)` so that interfaces which only
-   * support a subset of the host proxy set (e.g. chrome-extension supports
-   * `host_browser` but not `host_bash`/`host_file`) do not leak unsupported
-   * host tools into the LLM tool definitions.
-   */
-  readonly transportInterface?: InterfaceId;
-  /** Per-turn override profile. */
-  currentTurnOverrideProfile?: string;
-  /**
-   * The conversation's per-chat plugin scope (mirrors
-   * {@link Conversation.enabledPlugins}). `null`/absent means no per-chat
-   * restriction; otherwise plugin-owned tools and skills are intersected with
-   * the effective set (the scope unioned with the always-on first-party
-   * defaults) via {@link getEffectiveEnabledPluginSet}. Read per turn so a
-   * mid-conversation scope change is picked up.
-   */
-  readonly enabledPlugins?: string[] | null;
-  /**
-   * Conversation id for `skill_loaded` telemetry. Absent (e.g. minimal test
-   * contexts) disables telemetry recording in the skill projection.
-   */
-  readonly conversationId?: string;
-  /**
-   * The LLM call site driving the current turn (see
-   * {@link ToolSetupContext.currentCallSite}) — read per turn so skill_loaded
-   * telemetry attributes the provider/model/profile the turn actually ran on.
-   */
-  currentCallSite?: LLMCallSite;
-}
-
 // ── Conditional tool sets ────────────────────────────────────────────
 
 const UI_SURFACE_TOOL_NAMES = new Set(["ui_show", "ui_update", "ui_dismiss"]);
@@ -646,7 +561,7 @@ export const SUBAGENT_ONLY_TOOL_NAMES = new Set<string>([
  */
 export function isToolActiveForContext(
   name: string,
-  ctx: SkillProjectionContext,
+  ctx: Conversation,
 ): boolean {
   // Execution-gate-mode wakes pin the client-context inputs so the wire tool
   // surface matches the SOURCE conversation's live turns rather than the
@@ -780,7 +695,7 @@ export function isToolActiveForContext(
  */
 export function createResolveToolsCallback(
   toolDefs: ToolDefinition[],
-  ctx: SkillProjectionContext,
+  ctx: Conversation,
 ): ((history: Message[]) => ToolDefinition[]) | undefined {
   if (toolDefs.length === 0) {
     return undefined;
