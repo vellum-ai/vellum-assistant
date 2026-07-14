@@ -11,6 +11,7 @@ import {
 import { create, themes } from "storybook/theming";
 import { addons } from "storybook/preview-api";
 import { GLOBALS_UPDATED } from "storybook/internal/core-events";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router";
 import { useEffect, useState } from "react";
 import type { PropsWithChildren } from "react";
@@ -24,6 +25,13 @@ const themesAddon = themesAddonImport as unknown as () => ReturnType<
 >;
 
 import "./preview.css";
+
+// Single module-level client so stories sharing React Query hooks (e.g.
+// OAuthConnectSurface's useQueryClient) have a provider in context. Retries are
+// disabled so stories don't refetch on the backend-less Storybook environment.
+const storyQueryClient = new QueryClient({
+  defaultOptions: { queries: { retry: false } },
+});
 
 const lightTheme = create({
   base: "light",
@@ -98,6 +106,11 @@ export default definePreview({
   addons: [docsAddon(), a11yAddon(), themesAddon()],
   tags: ["autodocs"],
   decorators: [
+    (Story) => (
+      <QueryClientProvider client={storyQueryClient}>
+        <Story />
+      </QueryClientProvider>
+    ),
     withThemeByDataAttribute<ReactRenderer>({
       themes: {
         light: "light",
