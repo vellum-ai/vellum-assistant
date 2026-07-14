@@ -6,9 +6,7 @@ import { getAssistant } from "@/assistant/api";
 import { fetchAssistantIdentity } from "@/assistant/identity";
 import { AvatarManagementModal } from "@/components/avatar/avatar-management-modal";
 import { ChatAvatar } from "@/components/avatar/chat-avatar";
-import { ConceptGraphView } from "@/domains/intelligence/components/concept-graph/concept-graph-view";
 import { ConstellationView } from "@/domains/intelligence/components/constellation-view/constellation-view";
-import { memoryGraphOptions } from "@/domains/intelligence/memory-graph/get-memory-graph";
 import type { SkillInfo } from "@/domains/intelligence/skills/types";
 import { skillsGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
 import type { IdentityGetResponse } from "@/generated/daemon/types.gen";
@@ -183,19 +181,12 @@ export function IdentityTab({ assistantId, onOpenThread }: IdentityTabProps) {
   const [assistantCreatedAt, setAssistantCreatedAt] = useState<string | null>(null);
   const [loadedAssistantId, setLoadedAssistantId] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
-  const [graphFullscreen, setGraphFullscreen] = useState(false);
+  const [paneFullscreen, setPaneFullscreen] = useState(false);
 
-  // The concept graph only exists when the active backend exposes one (memory-v3)
-  // AND the memory-concept-graph flag is on; otherwise the endpoint reports
-  // `unsupported` and we fall back to the skills constellation, so this pane is
-  // never empty on backends/assistants without the graph. A failed graph fetch
-  // (daemon predating the route, transient error) falls back the same way
-  // rather than stranding the pane on the graph's error state.
-  const graphQuery = useQuery(memoryGraphOptions(assistantId));
-  const useSkillsFallback =
-    graphQuery.data?.kind === "unsupported" || graphQuery.isError;
-  // Fetched in parallel with the graph probe so the fallback constellation
-  // renders populated as soon as it is chosen, not one round-trip later.
+  // The Identity tab's companion pane is the skills constellation. The memory
+  // concept graph now lives on its own Memory tab (`/assistant/memory`, gated
+  // by the memory-concept-graph flag), so it is no longer probed or rendered
+  // here.
   const skillsQuery = useQuery({
     ...skillsGetOptions({
       path: { assistant_id: assistantId },
@@ -277,7 +268,7 @@ export function IdentityTab({ assistantId, onOpenThread }: IdentityTabProps) {
     <div className="flex h-full min-h-0 flex-col gap-6 lg:flex-row lg:items-stretch">
       <div
         className={`mx-auto w-full max-w-md lg:mx-0 lg:h-full lg:shrink-0 lg:overflow-y-auto ${
-          graphFullscreen ? "hidden" : "flex"
+          paneFullscreen ? "hidden" : "flex"
         }`}
       >
         <IdentityCard
@@ -294,25 +285,15 @@ export function IdentityTab({ assistantId, onOpenThread }: IdentityTabProps) {
       </div>
 
       <div className="min-h-[480px] min-w-0 flex-1 lg:min-h-0">
-        {useSkillsFallback ? (
-          <ConstellationView
-            skills={skillsQuery.data ?? []}
-            components={components}
-            traits={traits}
-            customImageUrl={customImageUrl}
-            className="h-full w-full"
-            isFullscreen={graphFullscreen}
-            onToggleFullscreen={() => setGraphFullscreen((v) => !v)}
-          />
-        ) : (
-          <ConceptGraphView
-            assistantId={assistantId}
-            className="h-full w-full"
-            isFullscreen={graphFullscreen}
-            onToggleFullscreen={() => setGraphFullscreen((v) => !v)}
-            onOpenThread={onOpenThread}
-          />
-        )}
+        <ConstellationView
+          skills={skillsQuery.data ?? []}
+          components={components}
+          traits={traits}
+          customImageUrl={customImageUrl}
+          className="h-full w-full"
+          isFullscreen={paneFullscreen}
+          onToggleFullscreen={() => setPaneFullscreen((v) => !v)}
+        />
       </div>
 
       <AvatarManagementModal

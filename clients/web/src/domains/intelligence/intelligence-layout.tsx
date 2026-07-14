@@ -28,6 +28,11 @@ const PLUGINS_TAB: IntelligenceTab = {
   to: routes.plugins,
 };
 
+const MEMORY_TAB: IntelligenceTab = {
+  label: "Memory",
+  to: routes.memory,
+};
+
 const CHANNELS_TAB: IntelligenceTab = {
   label: "Channels",
   to: routes.channels,
@@ -35,9 +40,10 @@ const CHANNELS_TAB: IntelligenceTab = {
 
 /**
  * Shared layout for the "About Assistant" pages (Identity, Skills,
- * Workspace, Contacts, plus Plugins on plugin-capable assistants and
- * Channels behind the `channel-trust-floors` flag). Renders a heading +
- * tab bar above an `<Outlet />` for the active tab's content.
+ * Workspace, Contacts, plus Plugins on plugin-capable assistants, Memory
+ * behind the `memory-concept-graph` flag, and Channels behind the
+ * `channel-trust-floors` flag). Renders a heading + tab bar above an
+ * `<Outlet />` for the active tab's content.
  *
  * Mounted as a pathless layout route in `routes.tsx` so the child
  * routes keep their existing URL paths (`/assistant/identity`, etc.)
@@ -49,6 +55,7 @@ export function IntelligenceLayout() {
   const assistantName = useAssistantIdentityStore.use.name();
   const supportsPlugins = useSupportsPluginsSurface();
   const showChannelsTab = useAssistantFeatureFlagStore.use.channelTrustFloors();
+  const showMemoryTab = useAssistantFeatureFlagStore.use.memoryConceptGraph();
   const { pathname } = useLocation();
   const isMobile = useIsMobile();
   const setTopBarCenter = useChatLayoutSlotsStore.use.setTopBarCenter();
@@ -66,9 +73,17 @@ export function IntelligenceLayout() {
   const withPlugins: readonly IntelligenceTab[] = supportsPlugins
     ? [BASE_INTELLIGENCE_TABS[0], PLUGINS_TAB, ...BASE_INTELLIGENCE_TABS.slice(1)]
     : BASE_INTELLIGENCE_TABS;
-  const tabs: readonly IntelligenceTab[] = showChannelsTab
-    ? [...withPlugins, CHANNELS_TAB]
+  // The Memory tab (concept graph) slots in right after Skills, gated on the
+  // memory-concept-graph flag. Registry default off, so it stays hidden until
+  // the flag store hydrates with the flag on — same discipline as Plugins.
+  const withMemory: readonly IntelligenceTab[] = showMemoryTab
+    ? withPlugins.flatMap((tab) =>
+        tab.to === routes.skills.root ? [tab, MEMORY_TAB] : [tab],
+      )
     : withPlugins;
+  const tabs: readonly IntelligenceTab[] = showChannelsTab
+    ? [...withMemory, CHANNELS_TAB]
+    : withMemory;
 
   // On mobile the title moves out of the page body and into the shared top
   // bar — centered between the hamburger menu and the search icon — so the
