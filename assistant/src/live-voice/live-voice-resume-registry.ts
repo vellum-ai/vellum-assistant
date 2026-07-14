@@ -27,6 +27,12 @@
  * path so the transcript shows the friendly label, not the raw
  * `[User action on …]` payload.
  *
+ * `activeSurfaceId` (when supplied) is the completed surface's id. The resumed
+ * turn adopts it as `conversation.currentActiveSurfaceId` so `runAgentLoop`
+ * feeds it to `buildActiveSurfaceContext` and the model sees the active
+ * `dynamic_page`/app HTML + schema it just acted on — parity with the text
+ * path, which passes `activeSurfaceId` into `processMessage`.
+ *
  * Voice trust is not carried here: a live-voice turn's trust is established
  * once on the conversation at session adoption, so a resumed turn inherits the
  * same trust context as any speech turn.
@@ -34,6 +40,7 @@
 export interface VoiceResumeOptions {
   displayContent?: string;
   requestId?: string;
+  activeSurfaceId?: string;
 }
 
 export interface VoiceResumeHandler {

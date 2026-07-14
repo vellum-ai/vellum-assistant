@@ -597,8 +597,52 @@ describe("surface action delivery to assistant", () => {
       expect(resumeCalls[0]!.opts?.displayContent).not.toContain(
         "[User action on",
       );
+      // The completed surface's id rides into the resume so the resumed turn
+      // restores its active-surface context (parity with the text path).
+      expect(resumeCalls[0]!.opts?.activeSurfaceId).toBe(surfaceId);
       // The pending-surface guard is cleared on the voice-routed path too.
       expect(ctx.pendingSurfaceActions.has(surfaceId)).toBe(false);
+    } finally {
+      unregisterVoiceResumeHandler("conv-1", handler);
+    }
+  });
+
+  test("live-voice resume: dynamic_page action forwards activeSurfaceId so the resumed turn keeps app context", async () => {
+    const sent: ServerMessage[] = [];
+    const ctx = makeContext(sent);
+
+    // Seed a dynamic_page surface directly (a real ui_show would pull from the
+    // app store; the routing under test only needs the pending + state entries).
+    const surfaceId = "surface-dynamic-page-1";
+    ctx.surfaceState.set(surfaceId, {
+      surfaceType: "dynamic_page",
+      data: { html: "<p>app</p>" } as unknown as SurfaceData,
+      title: "My App",
+    });
+    ctx.pendingSurfaceActions.set(surfaceId, { surfaceType: "dynamic_page" });
+
+    const resumeCalls: Array<{ content: string; opts?: VoiceResumeOptions }> =
+      [];
+    const handler: VoiceResumeHandler = {
+      resumeWithText: (content, opts) => resumeCalls.push({ content, opts }),
+    };
+    registerVoiceResumeHandler("conv-1", handler);
+
+    try {
+      await handleSurfaceAction(ctx, surfaceId, "submit_answer", {
+        choice: "b",
+      });
+
+      // Routed to the spoken voice resume, NOT the silent text path.
+      expect(ctx.processMessageCalls.length).toBe(0);
+      expect(resumeCalls.length).toBe(1);
+      expect(resumeCalls[0]!.content).toContain("dynamic_page");
+      // The dynamic_page id threads through so the resumed turn's
+      // `buildActiveSurfaceContext` re-injects the app the user just acted on.
+      expect(resumeCalls[0]!.opts?.activeSurfaceId).toBe(surfaceId);
+      // The accepted surface-action request id still rides along for
+      // surface-gated tools.
+      expect(resumeCalls[0]!.opts?.requestId).toBeDefined();
     } finally {
       unregisterVoiceResumeHandler("conv-1", handler);
     }

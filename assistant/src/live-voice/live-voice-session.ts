@@ -1566,14 +1566,20 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       },
       "Live voice resume requested from interactive surface completion",
     );
-    // The surface-action request id and user-facing label ride the turn down to
-    // `startVoiceTurn`: the id keeps `currentRequestId` inside the accepted
-    // `surfaceActionRequestIds` set (so surface-gated tools run), and the label
-    // is what the persisted user row / echo shows instead of the raw payload.
+    // The surface-action request id, user-facing label, and active-surface id
+    // ride the turn down to `startVoiceTurn`: the id keeps `currentRequestId`
+    // inside the accepted `surfaceActionRequestIds` set (so surface-gated tools
+    // run), the label is what the persisted user row / echo shows instead of the
+    // raw payload, and the active-surface id restores the completed
+    // `dynamic_page`/app context so the model doesn't run blind to what it acted
+    // on (parity with the text path).
     const resume: VoiceResumeOptions = {
       ...(opts?.requestId !== undefined ? { requestId: opts.requestId } : {}),
       ...(opts?.displayContent !== undefined
         ? { displayContent: opts.displayContent }
+        : {}),
+      ...(opts?.activeSurfaceId !== undefined
+        ? { activeSurfaceId: opts.activeSurfaceId }
         : {}),
     };
     this.resumeChain = this.resumeChain
@@ -1708,6 +1714,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         ...(resume?.requestId != null ? { requestId: resume.requestId } : {}),
         ...(resume?.displayContent != null
           ? { displayContent: resume.displayContent }
+          : {}),
+        ...(resume?.activeSurfaceId != null
+          ? { activeSurfaceId: resume.activeSurfaceId }
           : {}),
         callbacks: {
           assistant_text_delta: (msg) => {

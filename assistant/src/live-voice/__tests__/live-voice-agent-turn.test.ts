@@ -469,7 +469,7 @@ describe("LiveVoiceSession surface resume", () => {
     expect(getVoiceResumeHandler("conversation-123")).toBeUndefined();
   });
 
-  test("threads the surface-action requestId and displayContent into the resumed turn", async () => {
+  test("threads the surface-action requestId, displayContent, and activeSurfaceId into the resumed turn", async () => {
     const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
       options.callbacks?.assistant_text_delta?.({
         type: "assistant_text_delta",
@@ -489,22 +489,26 @@ describe("LiveVoiceSession surface resume", () => {
     session.resumeWithText("[User action on table surface: archive]", {
       displayContent: "Archive selected emails",
       requestId: "surface-request-1",
+      activeSurfaceId: "surface-1",
     });
     await waitFor(() => startVoiceTurn.mock.calls.length > 0);
 
     // The surface request id becomes the resumed turn's request id so
     // `currentRequestId` lands in `surfaceActionRequestIds` and surface-gated
-    // tools run; the display label rides along for the persisted/echoed row.
+    // tools run; the display label rides along for the persisted/echoed row;
+    // the active-surface id restores the completed surface's context for the
+    // resumed turn (parity with the text path).
     expect(startVoiceTurn.mock.calls[0]?.[0]).toMatchObject({
       content: "[User action on table surface: archive]",
       requestId: "surface-request-1",
       displayContent: "Archive selected emails",
+      activeSurfaceId: "surface-1",
     });
 
     await session.close("client_end");
   });
 
-  test("a resume without opts mints no requestId or displayContent override", async () => {
+  test("a resume without opts mints no requestId, displayContent, or activeSurfaceId override", async () => {
     const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
       options.callbacks?.message_complete?.({
         type: "message_complete",
@@ -522,6 +526,7 @@ describe("LiveVoiceSession surface resume", () => {
     const opts = startVoiceTurn.mock.calls[0]?.[0];
     expect(opts?.requestId).toBeUndefined();
     expect(opts?.displayContent).toBeUndefined();
+    expect(opts?.activeSurfaceId).toBeUndefined();
 
     await session.close("client_end");
   });
