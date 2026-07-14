@@ -21,6 +21,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 
 let nativeDictationSupported = false;
@@ -118,6 +119,11 @@ function selectOption(label: string): void {
     );
   }
   fireEvent.click(option);
+}
+
+function setMode(label: "Managed" | "Your Own"): void {
+  const group = screen.getByRole("radiogroup", { name: "Service mode" });
+  fireEvent.click(within(group).getByRole("radio", { name: label }));
 }
 
 describe("SpeechToTextCard — macOS Native Dictation option", () => {
@@ -228,15 +234,17 @@ describe("SpeechToTextCard — macOS Native Dictation option", () => {
     expect(sttBody?.services?.stt ?? {}).not.toHaveProperty("provider");
   });
 
-  test("saving a key switches a managed-mode daemon back to your-own", async () => {
-    // Managed speech was auto-defaulted on connection; saving a BYOK key from
-    // this card is explicit intent to use it, so the mode must flip too —
+  test("saving a key from the Your Own panel switches a managed-mode daemon back", async () => {
+    // Managed speech was auto-defaulted on connection; toggling to "Your Own"
+    // and saving a BYOK key is explicit intent to use it, so the mode flips —
     // otherwise the key appears to save but the daemon stays on managed.
     daemonConfigData = {
       services: { stt: { provider: "deepgram", mode: "managed" } },
     };
     renderCard();
 
+    // The card opens on the Managed panel; toggle to reach the BYOK inputs.
+    setMode("Your Own");
     const keyInput = screen.getByPlaceholderText(/Enter your Deepgram API key/);
     fireEvent.change(keyInput, { target: { value: "dg-secret" } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
@@ -247,23 +255,74 @@ describe("SpeechToTextCard — macOS Native Dictation option", () => {
     });
   });
 
-  test("a provider change with no key keeps managed mode", async () => {
-    // Switching the BYOK preference without supplying a credential must not
-    // trade a working managed setup for a credential-less provider.
+  test("a provider change with no key from the Your Own panel leaves managed mode", async () => {
+    // Reaching the provider dropdown requires toggling off Managed, so saving —
+    // even without a new key — is explicit intent to use your own provider and
+    // must flip the daemon off managed.
     daemonConfigData = {
       services: { stt: { provider: "deepgram", mode: "managed" } },
     };
     renderCard();
 
+    setMode("Your Own");
     openProviderDropdown();
     selectOption("OpenAI");
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(configPatchCalls.length).toBe(1));
+    expect(configPatchCalls[0]!.body).toMatchObject({
+      services: { stt: { provider: "openai-whisper", mode: "your-own" } },
+    });
+    expect(credentialsSetCalls).toHaveLength(0);
+  });
+
+  test("renders the Managed panel (no BYOK inputs) when the daemon is managed", () => {
+    daemonConfigData = {
+      services: { stt: { provider: "deepgram", mode: "managed" } },
+    };
+    renderCard();
+
+    expect(
+      screen.getByText(/Managed transcription is included/),
+    ).toBeDefined();
+    // The provider dropdown belongs to the Your Own panel and must be absent.
+    expect(
+      document.querySelector('button[aria-label="STT provider"]'),
+    ).toBeNull();
+  });
+
+  test("Managed Save preserves an existing provider by writing mode only", async () => {
+    // The daemon deep-merges PATCHes, so a mode-only write keeps the stored
+    // BYOK provider as the restore value for toggling back.
+    daemonConfigData = { services: { stt: { provider: "deepgram" } } };
+    renderCard();
+
+    setMode("Managed");
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(configPatchCalls.length).toBe(1));
     const sttBody = configPatchCalls[0]!.body as {
       services: { stt: Record<string, unknown> };
     };
-    expect(sttBody.services.stt.mode).toBeUndefined();
+    expect(sttBody.services.stt.mode).toBe("managed");
+    expect(sttBody.services.stt.provider).toBeUndefined();
     expect(credentialsSetCalls).toHaveLength(0);
+  });
+
+  test("Managed Save supplies a daemon fallback provider when the daemon has none", async () => {
+    // With no existing services.stt, a mode-only write would fail the schema's
+    // required `provider`, so the PATCH must carry a valid daemon provider id.
+    daemonConfigData = { services: {} };
+    renderCard();
+
+    setMode("Managed");
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(configPatchCalls.length).toBe(1));
+    const sttBody = configPatchCalls[0]!.body as {
+      services: { stt: Record<string, unknown> };
+    };
+    expect(sttBody.services.stt.mode).toBe("managed");
+    expect(sttBody.services.stt.provider).toBe("deepgram");
   });
 });

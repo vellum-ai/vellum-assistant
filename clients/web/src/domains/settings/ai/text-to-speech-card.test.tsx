@@ -17,6 +17,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 
 const ASSISTANT_ID = "asst-test";
@@ -98,6 +99,11 @@ function selectProvider(label: string): void {
   fireEvent.click(option);
 }
 
+function setMode(label: "Managed" | "Your Own"): void {
+  const group = screen.getByRole("radiogroup", { name: "Service mode" });
+  fireEvent.click(within(group).getByRole("radio", { name: label }));
+}
+
 describe("TextToSpeechCard — daemon provisioning on Save", () => {
   beforeEach(() => {
     localStorage.clear();
@@ -162,15 +168,17 @@ describe("TextToSpeechCard — daemon provisioning on Save", () => {
     expect(ttsBody?.services?.tts ?? {}).not.toHaveProperty("provider");
   });
 
-  test("saving a key switches a managed-mode daemon back to your-own", async () => {
-    // Managed speech was auto-defaulted on connection; saving a BYOK key from
-    // this card is explicit intent to use it, so the mode must flip too —
+  test("saving a key from the Your Own panel switches a managed-mode daemon back", async () => {
+    // Managed speech was auto-defaulted on connection; toggling to "Your Own"
+    // and saving a BYOK key is explicit intent to use it, so the mode flips —
     // otherwise the key appears to save but the daemon stays on managed.
     daemonConfigData = {
       services: { tts: { provider: "fish-audio", mode: "managed" } },
     };
     renderCard();
 
+    // The card opens on the Managed panel; toggle to reach the BYOK inputs.
+    setMode("Your Own");
     fireEvent.change(screen.getByPlaceholderText(/Fish Audio API key/), {
       target: { value: "fish-secret" },
     });
@@ -182,25 +190,25 @@ describe("TextToSpeechCard — daemon provisioning on Save", () => {
     });
   });
 
-  test("a voice-ID-only save with no key keeps managed mode", async () => {
-    // Editing a voice preference without supplying a credential must not
-    // trade a working managed setup for a credential-less BYOK provider.
+  test("a voice-ID-only save from the Your Own panel leaves managed mode", async () => {
+    // Reaching the voice-ID input requires toggling off Managed, so saving —
+    // even without a new key — is explicit intent to use your own provider and
+    // must flip the daemon off managed.
     daemonConfigData = {
       services: { tts: { provider: "fish-audio", mode: "managed" } },
     };
     renderCard();
 
+    setMode("Your Own");
     fireEvent.change(screen.getByPlaceholderText("Enter a voice ID"), {
       target: { value: "voice-456" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(configPatchCalls.length).toBe(1));
-    const ttsBody = configPatchCalls[0]!.body as {
-      services: { tts: Record<string, unknown> };
-    };
-    expect(ttsBody.services.tts.mode).toBeUndefined();
-    expect(ttsBody.services.tts.provider).toBeUndefined();
+    expect(configPatchCalls[0]!.body).toMatchObject({
+      services: { tts: { provider: "fish-audio", mode: "your-own" } },
+    });
     expect(credentialsSetCalls).toHaveLength(0);
   });
 
@@ -213,6 +221,7 @@ describe("TextToSpeechCard — daemon provisioning on Save", () => {
     };
     renderCard();
 
+    setMode("Your Own");
     // The dropdown falls back to the first representable provider
     // (ElevenLabs, whose key placeholder is "sk_…").
     fireEvent.change(screen.getByPlaceholderText("sk_…"), {
@@ -234,5 +243,55 @@ describe("TextToSpeechCard — daemon provisioning on Save", () => {
     expect((credentialsSetCalls[0]!.body as { service: string }).service).toBe(
       ttsBody.services.tts.provider as string,
     );
+  });
+
+  test("renders the Managed panel (no BYOK inputs) when the daemon is managed", async () => {
+    daemonConfigData = {
+      services: { tts: { provider: "fish-audio", mode: "managed" } },
+    };
+    renderCard();
+
+    expect(
+      screen.getByText(/Managed speech synthesis is included/),
+    ).toBeDefined();
+    // The provider dropdown belongs to the Your Own panel and must be absent.
+    expect(
+      document.querySelector('button[aria-label="TTS provider"]'),
+    ).toBeNull();
+  });
+
+  test("Managed Save preserves an existing provider by writing mode only", async () => {
+    // The daemon deep-merges PATCHes, so a mode-only write keeps the stored
+    // BYOK provider as the restore value for toggling back.
+    daemonConfigData = { services: { tts: { provider: "fish-audio" } } };
+    renderCard();
+
+    setMode("Managed");
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(configPatchCalls.length).toBe(1));
+    const ttsBody = configPatchCalls[0]!.body as {
+      services: { tts: Record<string, unknown> };
+    };
+    expect(ttsBody.services.tts.mode).toBe("managed");
+    expect(ttsBody.services.tts.provider).toBeUndefined();
+    expect(credentialsSetCalls).toHaveLength(0);
+  });
+
+  test("Managed Save supplies a fallback provider when the daemon has none", async () => {
+    // With no existing services.tts, a mode-only write would fail the schema's
+    // required `provider`, so the PATCH must carry one.
+    daemonConfigData = { services: {} };
+    renderCard();
+
+    setMode("Managed");
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(configPatchCalls.length).toBe(1));
+    const ttsBody = configPatchCalls[0]!.body as {
+      services: { tts: Record<string, unknown> };
+    };
+    expect(ttsBody.services.tts.mode).toBe("managed");
+    expect(ttsBody.services.tts.provider).toBeDefined();
   });
 });

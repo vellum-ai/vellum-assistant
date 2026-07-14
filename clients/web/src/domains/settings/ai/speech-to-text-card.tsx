@@ -19,19 +19,22 @@ import { Input } from "@vellumai/design-library/components/input";
 import { toast } from "@vellumai/design-library/components/toast";
 
 import {
-  ByoServiceCard,
   CredentialsGuide,
   ResetButton,
   SaveButton,
+  ServiceCard,
 } from "@/domains/settings/ai/shared-ui";
 import {
   LS_STT_API_KEY_PREFIX,
+  LS_STT_MODE,
   LS_STT_PROVIDER,
 } from "@/domains/settings/ai/local-storage-keys";
 import {
   MACOS_NATIVE_STT_PROVIDER_ID,
   STT_PROVIDERS,
 } from "@/domains/settings/ai/provider-catalogs";
+import { parseServiceMode } from "@/domains/settings/ai/utils";
+import type { ServiceMode } from "@/generated/daemon/types.gen";
 
 /**
  * How the daemon addresses each card provider: `provider` is the
@@ -87,6 +90,20 @@ export function SpeechToTextCard() {
     { provider?: string; mode?: string } | undefined;
   const daemonSttProvider = daemonStt?.provider;
   const daemonManaged = daemonStt?.mode === "managed";
+
+  // Managed vs. your-own toggle. Derived from the daemon (source of truth),
+  // falling back to localStorage so the toggle doesn't flash "your-own" before
+  // the config query resolves. `useDraftOverride` lets the user flip it locally
+  // until a save + refetch converges the server value.
+  const serverMode = useMemo<ServiceMode>(
+    () =>
+      parseServiceMode(
+        daemonStt?.mode ?? getLocalSetting(LS_STT_MODE, "your-own"),
+        "your-own",
+      ),
+    [daemonStt?.mode],
+  );
+  const [mode, setDraftMode] = useDraftOverride(serverMode);
 
   const serverProvider = useMemo(() => {
     const mapped = daemonSttProvider
@@ -148,7 +165,9 @@ export function SpeechToTextCard() {
   const handleSave = useCallback(async () => {
     const trimmedKey = apiKeyText.trim();
 
-    // Local settings back the client-side voice path; keep them in sync.
+    // Local settings back the client-side voice path; keep them in sync. This
+    // handler serves the "Your Own" panel, so the effective mode is your-own.
+    setLocalSetting(LS_STT_MODE, "your-own");
     setLocalSetting(LS_STT_PROVIDER, draftProvider);
     if (trimmedKey.length > 0) {
       setLocalSetting(LS_STT_API_KEY_PREFIX + draftProvider, trimmedKey);
@@ -189,13 +208,11 @@ export function SpeechToTextCard() {
         // Only PATCH the provider when it truly diverges from the persisted
         // value (or the daemon has none yet); otherwise a re-save with just a
         // new key would silently switch a provider set elsewhere — including
-        // one the dropdown can't represent. Saving a key from this card is
-        // explicit BYOK intent, so a managed-mode daemon is also switched
-        // back to your-own — otherwise the saved key would appear to take
-        // effect while the daemon kept using managed speech. Without an
-        // effective key the mode stays managed: flipping would trade a
-        // working managed setup for a credential-less BYOK provider.
-        const escapeManaged = daemonManaged && effectiveKey.length > 0;
+        // one the dropdown can't represent. Saving from the "Your Own" panel is
+        // explicit BYOK intent, so a managed-mode daemon is switched back to
+        // your-own even without a new key — the user reached these inputs by
+        // toggling off Managed.
+        const escapeManaged = daemonManaged;
         const shouldSetProvider =
           draftProvider !== serverProvider || !daemonHasProvider;
         if (shouldSetProvider || escapeManaged) {
@@ -247,6 +264,47 @@ export function SpeechToTextCard() {
     queryClient,
   ]);
 
+  const handleSaveManaged = useCallback(async () => {
+    setSaving(true);
+    try {
+      // The daemon deep-merges config PATCHes, so a mode-only write preserves an
+      // existing BYOK `provider` (the restore value for toggling back). Only
+      // when the daemon has no stt provider yet must we supply one — the schema
+      // requires `services.stt.provider`, and it must be a daemon provider id
+      // (never the client-only native dictation choice). `effectiveSttProvider`
+      // routes managed mode to Vellum at runtime regardless of this value.
+      const sttBody = daemonHasProvider
+        ? { mode: "managed" }
+        : {
+            mode: "managed",
+            provider: STT_DAEMON_PROVIDER[draftProvider]?.provider ?? "deepgram",
+          };
+      const { response: cfgRes } = await configPatch({
+        path: { assistant_id: assistantId },
+        body: { services: { stt: sttBody } },
+        throwOnError: false,
+      });
+      if (!cfgRes?.ok) {
+        throw new Error(
+          `Failed to save configuration (HTTP ${cfgRes?.status ?? "?"})`,
+        );
+      }
+      setLocalSetting(LS_STT_MODE, "managed");
+      void queryClient.invalidateQueries({
+        queryKey: configGetQueryKey({ path: { assistant_id: assistantId } }),
+      });
+      toast.success("Speech-to-text settings saved");
+    } catch (err) {
+      toast.error(
+        err instanceof Error
+          ? err.message
+          : "Failed to save speech-to-text settings",
+      );
+    } finally {
+      setSaving(false);
+    }
+  }, [assistantId, daemonHasProvider, draftProvider, queryClient]);
+
   const handleReset = useCallback(() => {
     setLocalSetting(LS_STT_API_KEY_PREFIX + draftProvider, "");
     setProviderHasKey(false);
@@ -258,54 +316,68 @@ export function SpeechToTextCard() {
     : selectedProvider.apiKeyPlaceholder;
 
   return (
-    <ByoServiceCard title="Speech-to-Text" subtitle={selectedProvider.subtitle}>
-      <div className="space-y-4">
-        <div className="space-y-1">
-          <label className="block text-body-small-default text-[var(--content-tertiary)]">
-            Provider
-          </label>
-          <Dropdown
-            value={draftProvider}
-            onChange={setDraftProvider}
-            options={providers.map((p) => ({
-              value: p.id,
-              label: p.displayName,
-            }))}
-            aria-label="STT provider"
-          />
+    <ServiceCard
+      title="Speech-to-Text"
+      subtitle="Configure how your assistant transcribes speech"
+      mode={mode}
+      onModeChange={(m) => setDraftMode(m)}
+    >
+      {mode === "managed" ? (
+        <div className="space-y-3">
+          <p className="text-body-medium-lighter text-[var(--content-tertiary)]">
+            Managed transcription is included with your Vellum connection.
+          </p>
+          <SaveButton onClick={handleSaveManaged} disabled={saving} />
         </div>
-
-        {requiresApiKey && (
+      ) : (
+        <div className="space-y-4">
           <div className="space-y-1">
             <label className="block text-body-small-default text-[var(--content-tertiary)]">
-              API Key
+              Provider
             </label>
-            <Input
-              type="password"
-              value={apiKeyText}
-              onChange={(e) => setApiKeyText(e.target.value)}
-              placeholder={apiKeyPlaceholder}
-              fullWidth
+            <Dropdown
+              value={draftProvider}
+              onChange={setDraftProvider}
+              options={providers.map((p) => ({
+                value: p.id,
+                label: p.displayName,
+              }))}
+              aria-label="STT provider"
             />
           </div>
-        )}
 
-        {selectedProvider.setupWarning && (
-          <div className="flex items-start gap-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-sunken)] p-3 text-body-small-default text-[var(--content-tertiary)]">
-            <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--system-mid-strong)]" />
-            <span>{selectedProvider.setupWarning}</span>
+          {requiresApiKey && (
+            <div className="space-y-1">
+              <label className="block text-body-small-default text-[var(--content-tertiary)]">
+                API Key
+              </label>
+              <Input
+                type="password"
+                value={apiKeyText}
+                onChange={(e) => setApiKeyText(e.target.value)}
+                placeholder={apiKeyPlaceholder}
+                fullWidth
+              />
+            </div>
+          )}
+
+          {selectedProvider.setupWarning && (
+            <div className="flex items-start gap-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-sunken)] p-3 text-body-small-default text-[var(--content-tertiary)]">
+              <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--system-mid-strong)]" />
+              <span>{selectedProvider.setupWarning}</span>
+            </div>
+          )}
+
+          {selectedProvider.credentialsGuide && (
+            <CredentialsGuide guide={selectedProvider.credentialsGuide} />
+          )}
+
+          <div className="flex items-center justify-end gap-2">
+            <SaveButton onClick={handleSave} disabled={!hasChanges || saving} />
+            {providerHasKey && <ResetButton onClick={handleReset} />}
           </div>
-        )}
-
-        {selectedProvider.credentialsGuide && (
-          <CredentialsGuide guide={selectedProvider.credentialsGuide} />
-        )}
-
-        <div className="flex items-center justify-end gap-2">
-          <SaveButton onClick={handleSave} disabled={!hasChanges || saving} />
-          {providerHasKey && <ResetButton onClick={handleReset} />}
         </div>
-      </div>
-    </ByoServiceCard>
+      )}
+    </ServiceCard>
   );
 }
