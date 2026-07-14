@@ -537,6 +537,16 @@ describe("memoryV2ConsolidateJob — non-empty buffer", () => {
     expect(prompt).toMatch(/\b[A-Z][a-z]{2} \d{1,2}, \d{1,2}:\d{2} (AM|PM)\b/);
   });
 
+  test("dispatches with skipPromptIndexing so the kickoff prompt is not indexed", async () => {
+    // The prompt is a static instruction manual — indexing it would write
+    // near-identical memory segments, embeddings, and a lexical entry on
+    // every scheduled run.
+    await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    expect(runnerCalls).toBe(1);
+    expect(runnerLastArgs?.skipPromptIndexing).toBe(true);
+  });
+
   test("wire-scopes the run to local memory-file tools — no network egress or host tools", async () => {
     // Security: the consolidation run is guardian-trust + non-interactive, so
     // the permission checker auto-approves any tool within the background

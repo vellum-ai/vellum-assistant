@@ -450,6 +450,10 @@ export async function memoryV2ConsolidateJob(
       // Wire-scope the guardian-trust background run to local memory-file
       // tools only — no network egress, no host proxy. See the constant.
       allowedTools: CONSOLIDATION_ALLOWED_TOOLS,
+      // The kickoff prompt is a static instruction manual; indexing it would
+      // write near-identical memory segments, embeddings, and a lexical
+      // entry on every run. The agent's replies still index normally.
+      skipPromptIndexing: true,
     });
 
     if (!runResult.ok) {
