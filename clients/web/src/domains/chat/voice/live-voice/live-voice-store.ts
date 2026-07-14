@@ -124,6 +124,16 @@ export interface LiveVoiceSessionControls {
    * published amplitude pins to 0.
    */
   setMuted: (muted: boolean) => void;
+  /**
+   * Retune the live session's turn-detection knobs ("pause before reply" /
+   * "interrupt sensitivity") without reconnecting. Each field is optional; the
+   * daemon applies the change from the next utterance. No-op unless the
+   * transport is active.
+   */
+  updateConfig: (config: {
+    silenceThresholdMs?: number;
+    bargeInMinSpeechMs?: number;
+  }) => void;
 }
 
 /**
@@ -516,6 +526,19 @@ export function stopLiveVoiceResponse(): void {
  */
 export function setLiveVoiceMuted(muted: boolean): void {
   useLiveVoiceStore.getState().controls?.setMuted(muted);
+}
+
+/**
+ * Retune the active session's "pause before reply" / "interrupt sensitivity"
+ * live through the store-registered controls (the in-session voice-room gear).
+ * No-op when no session exists or the transport isn't active. Module-level for
+ * the same stable-identity reasons as {@link endLiveVoiceSession}.
+ */
+export function updateLiveVoiceSessionConfig(config: {
+  silenceThresholdMs?: number;
+  bargeInMinSpeechMs?: number;
+}): void {
+  useLiveVoiceStore.getState().controls?.updateConfig(config);
 }
 
 /**
