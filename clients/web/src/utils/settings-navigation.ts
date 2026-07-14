@@ -16,7 +16,6 @@ import {
   Code,
   Cpu,
   CreditCard,
-  Keyboard,
   KeyRound,
   Laptop,
   Mic,
@@ -40,7 +39,6 @@ export const PANEL_IDS = [
   "credentials",
   "model",
   "notifications",
-  "keyboard-shortcuts",
   "sounds",
   "voice",
   "devices",
@@ -83,7 +81,6 @@ export const SETTINGS_SIDEBAR: SidebarItem[] = [
   { id: "integrations", label: "Integrations", href: routes.settings.integrations, icon: Puzzle },
   { id: "credentials", label: "Credentials", href: routes.settings.credentials, icon: KeyRound },
   { id: "notifications", label: "Notifications", href: routes.settings.notifications, icon: Bell },
-  { id: "keyboard-shortcuts", label: "Keyboard Shortcuts", href: routes.settings.keyboardShortcuts, icon: Keyboard },
   { id: "sounds", label: "Sounds", href: routes.settings.sounds, icon: Volume2 },
   { id: "voice", label: "Voice", href: routes.settings.voice, icon: Mic },
   { id: "devices", label: "Self-Hosted Assistants", href: routes.settings.devices, icon: Laptop },
@@ -104,6 +101,10 @@ const SETTINGS_TAB_ID_ALIASES: Record<string, PanelId> = {
   privacy: "privacy",
   // Two-factor auth moved from the retired Security tab onto General.
   security: "assistant-status",
+  // Shortcut rebinding moved from the retired Keyboard Shortcuts tab into the
+  // Preferences modal on General.
+  "keyboard-shortcuts": "assistant-status",
+  "keyboard shortcuts": "assistant-status",
 };
 
 function normalizeSettingsTabName(tab: string): string {

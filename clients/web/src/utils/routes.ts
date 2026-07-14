@@ -170,7 +170,6 @@ export const routes = {
     integrations: r("/assistant/settings/integrations"),
     credentials: r("/assistant/settings/credentials"),
     notifications: r("/assistant/settings/notifications"),
-    keyboardShortcuts: r("/assistant/settings/keyboard-shortcuts"),
     sounds: r("/assistant/settings/sounds"),
     voice: r("/assistant/settings/voice"),
     devices: r("/assistant/settings/devices"),
