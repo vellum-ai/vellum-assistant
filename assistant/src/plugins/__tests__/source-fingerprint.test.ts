@@ -81,6 +81,47 @@ describe("snapshotPluginSource", () => {
     expect(names).not.toContain("/.disabled");
   });
 
+  test("excludes generated apps/<app>/dist but tracks app src and top-level dist", () => {
+    const dir = makePluginDir();
+    // App source is tracked.
+    mkdirSync(join(dir, "apps", "dash", "src"), { recursive: true });
+    writeStamped(
+      join(dir, "apps", "dash", "src", "main.tsx"),
+      "export default 1;",
+    );
+    // Generated app build output is excluded (the watcher writes it).
+    mkdirSync(join(dir, "apps", "dash", "dist"), { recursive: true });
+    writeStamped(
+      join(dir, "apps", "dash", "dist", "main.js"),
+      "console.log(1)",
+    );
+    // A plugin's own top-level dist/ is NOT an app build dir — still tracked.
+    mkdirSync(join(dir, "dist"), { recursive: true });
+    writeStamped(join(dir, "dist", "bundle.js"), "x");
+
+    const names = snapshotPluginSource(dir).evictionPaths.map((p) =>
+      p.slice(dir.length),
+    );
+    expect(names).toContain("/apps/dash/src/main.tsx");
+    expect(names).toContain("/dist/bundle.js");
+    expect(names).not.toContain("/apps/dash/dist/main.js");
+
+    // Editing the generated dist does not move the fingerprint (no re-trigger)...
+    const base = snapshotPluginSource(dir).fingerprint;
+    writeStamped(
+      join(dir, "apps", "dash", "dist", "main.js"),
+      "console.log(2)",
+    );
+    expect(snapshotPluginSource(dir).fingerprint).toBe(base);
+
+    // ...but editing the app source does.
+    writeStamped(
+      join(dir, "apps", "dash", "src", "main.tsx"),
+      "export default 2;",
+    );
+    expect(snapshotPluginSource(dir).fingerprint).not.toBe(base);
+  });
+
   test("is stable across identical walks and moves on edit, add, delete, and rename", () => {
     const dir = makePluginDir();
     const helper = join(dir, "hooks", "helper.ts");
