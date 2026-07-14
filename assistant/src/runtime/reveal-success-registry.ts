@@ -93,32 +93,52 @@ export function hasRevealSuccessSince(
 }
 
 /**
- * The plaintext the reveal route served for `service`/`field` after
- * `watermark`, or `undefined` if no matching success was recorded. When
- * several successes match (a value re-revealed within the window), the most
- * recent wins — it reflects what the latest reveal actually printed. Callers
- * use this to redact the exact served bytes instead of re-reading the vault,
- * which a rotation/deletion between reveal and persist could make diverge.
+ * The most recent plaintext the reveal route served for `service`/`field`
+ * after `watermark`, or `undefined` if no matching success was recorded.
  */
 export function revealedValueSince(
   watermark: number,
   service: string,
   field: string,
 ): string | undefined {
+  return revealedValuesSince(watermark, service, field)[0];
+}
+
+/**
+ * ALL distinct plaintexts the reveal route served for `service`/`field`
+ * after `watermark`, most recent first. Usually a single value, but a
+ * rotate-and-re-reveal inside one window (reveal v1 → `credentials set` →
+ * reveal v2) legitimately serves two different plaintexts — both were
+ * printed to a tool's stdout, so persist redaction must treat each as a
+ * candidate; surfacing only the latest would leave the earlier bytes
+ * unprotected. Callers use these to redact the exact served bytes instead
+ * of re-reading the vault, which a rotation/deletion between reveal and
+ * persist could make diverge.
+ */
+export function revealedValuesSince(
+  watermark: number,
+  service: string,
+  field: string,
+): string[] {
   const nowMs = Date.now();
-  let best: RevealSuccessRecord | undefined;
-  for (const r of records) {
-    if (
-      r.seq > watermark &&
-      r.service === service &&
-      r.field === field &&
-      nowMs - r.recordedAtMs <= MAX_AGE_MS &&
-      (best === undefined || r.seq > best.seq)
-    ) {
-      best = r;
+  const matches = records
+    .filter(
+      (r) =>
+        r.seq > watermark &&
+        r.service === service &&
+        r.field === field &&
+        nowMs - r.recordedAtMs <= MAX_AGE_MS,
+    )
+    .sort((a, b) => b.seq - a.seq);
+  const seen = new Set<string>();
+  const values: string[] = [];
+  for (const r of matches) {
+    if (!seen.has(r.value)) {
+      seen.add(r.value);
+      values.push(r.value);
     }
   }
-  return best?.value;
+  return values;
 }
 
 /** Test-only: clear all records and reset the watermark counter. */

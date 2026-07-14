@@ -145,6 +145,37 @@ describe("resolveRevealCandidates", () => {
     ]);
     expect(out).toEqual([]);
   });
+
+  test("keeps both values when the same credential was rotated and re-revealed", async () => {
+    // reveal v1 → `credentials set` → reveal v2 inside one turn: the route
+    // served BOTH plaintexts to the tool's stdout, so both must survive as
+    // candidates. Deduping on identity alone would drop one and let it
+    // stream/persist raw whenever the scanner cannot classify it.
+    const out = await resolveRevealCandidates([
+      {
+        service: "openai",
+        field: "api_key",
+        provenValue: "hunter2-rotated-alpha",
+      },
+      {
+        service: "openai",
+        field: "api_key",
+        provenValue: "hunter2-rotated-beta",
+      },
+    ]);
+    expect(out).toEqual([
+      { service: "openai", field: "api_key", value: "hunter2-rotated-alpha" },
+      { service: "openai", field: "api_key", value: "hunter2-rotated-beta" },
+    ]);
+  });
+
+  test("still dedupes proven refs that agree on identity AND value", async () => {
+    const out = await resolveRevealCandidates([
+      { service: "openai", field: "api_key", provenValue: "hunter2-same" },
+      { service: "openai", field: "api_key", provenValue: "hunter2-same" },
+    ]);
+    expect(out).toHaveLength(1);
+  });
 });
 
 describe("redactSecretsForChat", () => {
@@ -258,6 +289,27 @@ describe("redactSecretsForChat", () => {
     ]);
     expect(out).toBe(
       "key: \u3014redacted:OpenAI Project Key:openai:api_key\u3015",
+    );
+  });
+
+  test("a candidate value equal to another's service name cannot corrupt its sentinel", () => {
+    // The enriched sentinel embeds `service:field` text, so a second proven
+    // candidate whose plaintext is literally that service name (`openai`)
+    // would — under a sequential rewrite — match INSIDE the just-emitted
+    // sentinel and nest markers. Swaps must only consume raw-text spans.
+    const out = redactSecretsForChat(
+      `key: ${SYNTHETIC_OPENAI_PROJECT_KEY} via openai`,
+      [
+        {
+          service: "openai",
+          field: "api_key",
+          value: SYNTHETIC_OPENAI_PROJECT_KEY,
+        },
+        { service: "manual", field: "token", value: "openai" },
+      ],
+    );
+    expect(out).toBe(
+      "key: \u3014redacted:OpenAI Project Key:openai:api_key\u3015 via \u3014redacted:Credential:manual:token\u3015",
     );
   });
 
@@ -429,6 +481,17 @@ describe("live reveal swap (stream plaintext hold-back)", () => {
     ]);
     expect(out).toBe('value: <redacted type="Credential" />');
     expect(out).not.toContain("\u3014");
+  });
+
+  test("redactCandidateValuesLegacy keeps emitted markers intact when a value appears inside them", () => {
+    // The legacy marker's own text contains `redacted` \u2014 a candidate whose
+    // plaintext is that word must not rewrite inside a marker just emitted
+    // for another candidate.
+    const out = redactCandidateValuesLegacy("value: hunter2-opaque-secret", [
+      { service: "svc", field: "f", value: "hunter2-opaque-secret" },
+      { service: "other", field: "g", value: "redacted" },
+    ]);
+    expect(out).toBe('value: <redacted type="Credential" />');
   });
 
   test("the persist fallback applies the duplicate-identity degrade rule", () => {
@@ -683,6 +746,32 @@ describe("live reveal swap (stream plaintext hold-back)", () => {
     const text = `a ${SYNTHETIC_OPENAI_PROJECT_KEY} b ${SYNTHETIC_OPENAI_PROJECT_KEY} c`;
     expect(swapLiveRevealValues(text, ENTRIES)).toBe(
       `a ${SENTINEL} b ${SENTINEL} c`,
+    );
+  });
+
+  test("swapLiveRevealValues never rewrites inside an earlier entry's replacement", () => {
+    // A replacement sentinel is not inert text — it embeds service/field
+    // segments. When another entry's plaintext equals one of those segments
+    // (a credential whose value is literally `openai`), a sequential
+    // split/join would corrupt the just-emitted sentinel into nested
+    // markers; the swap must only consume raw-text spans.
+    const entries = [
+      {
+        value: "sk-long-secret-0123456789",
+        replacement: "\u3014redacted:Credential:openai:api_key\u3015",
+      },
+      {
+        value: "openai",
+        replacement: "\u3014redacted:Credential:manual:token\u3015",
+      },
+    ];
+    expect(
+      swapLiveRevealValues(
+        "sk-long-secret-0123456789 spoke to openai",
+        entries,
+      ),
+    ).toBe(
+      "\u3014redacted:Credential:openai:api_key\u3015 spoke to \u3014redacted:Credential:manual:token\u3015",
     );
   });
 });

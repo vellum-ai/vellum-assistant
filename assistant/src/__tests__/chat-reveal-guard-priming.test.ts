@@ -322,6 +322,35 @@ describe("live reveal guard priming barrier", () => {
     expect(pendingStoreReads.length).toBe(0);
     expect(streamedText(events)).toBe("hello");
   });
+
+  test("a rotate-and-re-reveal in one window guards both served values", async () => {
+    const events: ServerMessage[] = [];
+    const state = createEventHandlerState();
+    const deps = createMockDeps(events);
+
+    // reveal (v1) → `credentials set` → reveal (v2) while the tool runs: the
+    // route records BOTH plaintexts, both hit the tool's stdout and the
+    // model's context, and neither is scanner-classifiable. Each must
+    // become a candidate — keeping only the latest would stream the earlier
+    // value raw on a later echo.
+    await dispatchAgentEvent(state, deps, REVEAL_TOOL_USE);
+    recordRevealSuccess("openai", "api_key", "hunter2-rotated-alpha");
+    recordRevealSuccess("openai", "api_key", "hunter2-rotated-beta");
+    await dispatchAgentEvent(state, deps, REVEAL_TOOL_RESULT);
+    expect(pendingStoreReads.length).toBe(0);
+
+    await dispatchAgentEvent(state, deps, {
+      type: "text_delta",
+      text: "old: hunter2-rotated-alpha new: hunter2-rotated-beta end",
+    } as Extract<AgentEvent, { type: "text_delta" }>);
+
+    const streamed = streamedText(events);
+    expect(streamed).not.toContain("hunter2-rotated-alpha");
+    expect(streamed).not.toContain("hunter2-rotated-beta");
+    expect(streamed).toContain(
+      "\u3014redacted:Credential:openai:api_key\u3015",
+    );
+  });
 });
 
 describe("reveal stdout redaction on the live tool_result", () => {

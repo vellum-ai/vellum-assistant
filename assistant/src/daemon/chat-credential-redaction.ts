@@ -43,7 +43,7 @@ import {
   REDACTED_SENTINEL_TAG,
 } from "@vellumai/service-contracts/redacted-credential";
 
-import { revealedValueSince } from "../runtime/reveal-success-registry.js";
+import { revealedValuesSince } from "../runtime/reveal-success-registry.js";
 import { credentialKey } from "../security/credential-key.js";
 import {
   redactSecrets,
@@ -162,6 +162,7 @@ export function filterRefsByRevealProof(
   watermark: number,
 ): RevealCandidateRef[] {
   const proven: RevealCandidateRef[] = [];
+  const seenValues = new Set<string>();
   for (const ref of refs) {
     let service = ref.service;
     let field = ref.field;
@@ -177,13 +178,20 @@ export function filterRefsByRevealProof(
       }
     }
     if (service === undefined || field === undefined) continue;
-    // Capture the plaintext the route served alongside the proof, in the same
-    // lookup. Resolving service/field here too means the returned ref is fully
-    // self-describing, so candidate resolution needs neither the metadata
-    // lookup nor the vault read again.
-    const provenValue = revealedValueSince(watermark, service, field);
-    if (provenValue === undefined) continue;
-    proven.push({ service, field, provenValue });
+    // Capture the plaintexts the route served alongside the proof, in the
+    // same lookup. Resolving service/field here too means each returned ref
+    // is fully self-describing, so candidate resolution needs neither the
+    // metadata lookup nor the vault read again. One ref PER DISTINCT VALUE:
+    // a rotate-and-re-reveal inside the window (reveal v1 → `credentials
+    // set` → reveal v2) prints two different plaintexts to stdout, and
+    // keeping only one would let the other persist raw whenever the scanner
+    // cannot classify it.
+    for (const provenValue of revealedValuesSince(watermark, service, field)) {
+      const dedupeKey = JSON.stringify([service, field, provenValue]);
+      if (seenValues.has(dedupeKey)) continue;
+      seenValues.add(dedupeKey);
+      proven.push({ service, field, provenValue });
+    }
   }
   return proven;
 }
@@ -202,8 +210,20 @@ export function filterRefsByRevealProof(
 export async function resolveRevealCandidates(
   refs: readonly RevealCandidateRef[],
 ): Promise<ResolvedRevealCandidate[]> {
-  const seen = new Set<string>();
+  // Candidates dedupe on identity AND value, not identity alone: the same
+  // credential legitimately yields two candidates when it was rotated and
+  // re-revealed within one turn — both plaintexts hit a tool's stdout, so
+  // both must stay redactable. Vault reads still dedupe per identity (one
+  // scoped read per credential, and the vault only has the current value).
+  const seenCandidates = new Set<string>();
+  const vaultReadKeys = new Set<string>();
   const candidates: ResolvedRevealCandidate[] = [];
+  const pushCandidate = (service: string, field: string, value: string) => {
+    const dedupeKey = JSON.stringify([service, field, value]);
+    if (seenCandidates.has(dedupeKey)) return;
+    seenCandidates.add(dedupeKey);
+    candidates.push({ service, field, value });
+  };
   for (const ref of refs) {
     let service = ref.service;
     let field = ref.field;
@@ -219,22 +239,22 @@ export async function resolveRevealCandidates(
       }
     }
     if (service === undefined || field === undefined) continue;
-    const key = credentialKey(service, field);
-    if (seen.has(key)) continue;
-    seen.add(key);
     // Prefer the plaintext the reveal route actually served (captured at proof
     // time). Re-reading the vault here would return a rotated or deleted
     // value, so the guard/fallback could miss the exact bytes the tool
     // printed. Only fall back to a store read when a ref carries no proven
     // value — which today means it was constructed outside the proof path.
     if (ref.provenValue !== undefined && ref.provenValue.length > 0) {
-      candidates.push({ service, field, value: ref.provenValue });
+      pushCandidate(service, field, ref.provenValue);
       continue;
     }
+    const key = credentialKey(service, field);
+    if (vaultReadKeys.has(key)) continue;
+    vaultReadKeys.add(key);
     try {
       const value = await getSecureKeyAsync(key);
       if (value != null && value.length > 0) {
-        candidates.push({ service, field, value });
+        pushCandidate(service, field, value);
       }
     } catch (err) {
       // Store unreachable → no candidate → plain sentinel. Never block or
@@ -313,6 +333,82 @@ export function buildLiveRevealGuardEntries(
   return entries;
 }
 
+/** A non-overlapping occurrence of a target in raw text. */
+interface RawSpan {
+  start: number;
+  end: number;
+  /** Index into the caller's target list — lower = higher priority. */
+  priority: number;
+}
+
+/**
+ * Resolve the non-overlapping occurrence spans of `targets` in `text`:
+ * targets in priority order (list index — callers sort longest-first so a
+ * value that is a substring of another cannot pre-empt the larger match),
+ * each target's occurrences greedy left-to-right, skipping any occurrence
+ * that overlaps a higher-priority span. This is the single definition of
+ * the transforms' occurrence semantics: every swap in this module rebuilds
+ * its output from these spans, and the streaming stability analysis
+ * (`stableEmitLen`) resolves through the same function, so the two can
+ * never drift.
+ */
+function resolveRawSpans(text: string, targets: readonly string[]): RawSpan[] {
+  const spans: RawSpan[] = [];
+  targets.forEach((target, priority) => {
+    if (target.length === 0) {
+      return;
+    }
+    let scanFrom = 0;
+    for (;;) {
+      const idx = text.indexOf(target, scanFrom);
+      if (idx === -1) {
+        break;
+      }
+      const end = idx + target.length;
+      // An occurrence overlapping a higher-priority span loses to it — the
+      // higher-priority replacement consumes those bytes — but keep
+      // scanning from the next byte for a later disjoint occurrence.
+      if (spans.some((s) => idx < s.end && end > s.start)) {
+        scanFrom = idx + 1;
+        continue;
+      }
+      spans.push({ start: idx, end, priority });
+      scanFrom = end;
+    }
+  });
+  return spans;
+}
+
+/**
+ * Replace each resolved raw span with its target's replacement, rebuilding
+ * the string in ONE pass over the original text. A sequential
+ * split/join-per-target pass would re-scan earlier replacements — and a
+ * replacement sentinel is not inert text: it embeds type/service/field
+ * segments, so a candidate whose plaintext happens to equal another's
+ * service name (e.g. `openai`) would match inside the just-emitted
+ * sentinel and corrupt it into nested, unrenderable markers. Resolving all
+ * spans against the raw text first makes replacements structurally
+ * invisible to later targets.
+ */
+function replaceRawSpans(
+  text: string,
+  targets: readonly string[],
+  replacementFor: (priority: number) => string,
+): string {
+  const spans = resolveRawSpans(text, targets);
+  if (spans.length === 0) {
+    return text;
+  }
+  spans.sort((a, b) => a.start - b.start);
+  let out = "";
+  let cursor = 0;
+  for (const span of spans) {
+    out += text.slice(cursor, span.start) + replacementFor(span.priority);
+    cursor = span.end;
+  }
+  return out + text.slice(cursor);
+}
+
 /**
  * Replace every occurrence of each entry's plaintext with its sentinel.
  * Longest value first: when one candidate's plaintext is a prefix (or
@@ -321,21 +417,20 @@ export function buildLiveRevealGuardEntries(
  * the longer credential's unmatched suffix as raw text, while persist-time
  * redaction (whose scanner prefers the longer span) redacts the whole
  * value. Descending-length ordering keeps the live swap consistent with
- * persistence; a replacement sentinel contains no credential bytes, so
- * later (shorter) entries can never match inside an earlier swap.
+ * persistence, and the span-based rebuild (`replaceRawSpans`) guarantees a
+ * later entry can never rewrite inside an earlier entry's emitted
+ * sentinel.
  */
 export function swapLiveRevealValues(
   text: string,
   entries: readonly LiveRevealGuardEntry[],
 ): string {
   const ordered = [...entries].sort((a, b) => b.value.length - a.value.length);
-  let out = text;
-  for (const entry of ordered) {
-    if (out.includes(entry.value)) {
-      out = out.split(entry.value).join(entry.replacement);
-    }
-  }
-  return out;
+  return replaceRawSpans(
+    text,
+    ordered.map((entry) => entry.value),
+    (priority) => ordered[priority].replacement,
+  );
 }
 
 /**
@@ -379,30 +474,9 @@ export function swapLiveRevealValues(
  * all spans or exactly on a span's start.
  */
 function stableEmitLen(buffer: string, targets: readonly string[]): number {
-  const consumed: Array<{ start: number; end: number; priority: number }> = [];
-  targets.forEach((target, priority) => {
-    if (target.length === 0) {
-      return;
-    }
-    let scanFrom = 0;
-    for (;;) {
-      const idx = buffer.indexOf(target, scanFrom);
-      if (idx === -1) {
-        break;
-      }
-      const end = idx + target.length;
-      // An occurrence overlapping a higher-priority consumed span no
-      // longer exists in the transformed text (replacements contain no
-      // credential bytes) — skip it, but keep scanning from the next
-      // byte for a later disjoint occurrence.
-      if (consumed.some((s) => idx < s.end && end > s.start)) {
-        scanFrom = idx + 1;
-        continue;
-      }
-      consumed.push({ start: idx, end, priority });
-      scanFrom = end;
-    }
-  });
+  // Same span resolution as the swap transforms — shared so the stability
+  // analysis can never disagree with what the transform actually consumes.
+  const consumed = resolveRawSpans(buffer, targets);
   let emitLen = buffer.length;
   targets.forEach((target, priority) => {
     const maxLen = Math.min(target.length - 1, buffer.length);
@@ -534,7 +608,9 @@ export function redactSecretsForChat(
  * a whole and its body can never survive into the streamed/persisted text.
  *
  * Longest value first (mirroring `swapLiveRevealValues`) so a value that is a
- * substring of another does not pre-empt the larger match. Each value is
+ * substring of another does not pre-empt the larger match; the span-based
+ * rebuild (`replaceRawSpans`) keeps one value's sentinel safe from another
+ * value that happens to appear inside it. Each value is
  * classified by scanning it in isolation: when a single scanner match spans
  * the ENTIRE value the precise type label is preserved (a recognizable key
  * keeps "Anthropic API Key" rather than degrading to the generic type);
@@ -558,24 +634,27 @@ function protectCandidateSpans(
     values.push(candidate.value);
   }
   values.sort((a, b) => b.length - a.length);
-  let out = text;
-  for (const value of values) {
-    if (!out.includes(value)) {
-      continue;
+  const sentinelCache = new Map<string, string>();
+  const sentinelForValue = (value: string): string => {
+    let sentinel = sentinelCache.get(value);
+    if (sentinel === undefined) {
+      const hit = uniqueCandidateForValue(candidates, value);
+      sentinel = buildRedactedSentinel(
+        hit
+          ? {
+              type: classifyCandidateType(value),
+              service: hit.service,
+              field: hit.field,
+            }
+          : { type: classifyCandidateType(value) },
+      );
+      sentinelCache.set(value, sentinel);
     }
-    const hit = uniqueCandidateForValue(candidates, value);
-    const sentinel = buildRedactedSentinel(
-      hit
-        ? {
-            type: classifyCandidateType(value),
-            service: hit.service,
-            field: hit.field,
-          }
-        : { type: classifyCandidateType(value) },
-    );
-    out = out.split(value).join(sentinel);
-  }
-  return out;
+    return sentinel;
+  };
+  return replaceRawSpans(text, values, (priority) =>
+    sentinelForValue(values[priority]),
+  );
 }
 
 /**
@@ -657,15 +736,11 @@ function protectCandidateValuesLegacy(
     values.push(candidate.value);
   }
   values.sort((a, b) => b.length - a.length);
-  let out = text;
-  for (const value of values) {
-    if (out.includes(value)) {
-      out = out
-        .split(value)
-        .join(`<redacted type="${FALLBACK_SENTINEL_TYPE}" />`);
-    }
-  }
-  return out;
+  return replaceRawSpans(
+    text,
+    values,
+    () => `<redacted type="${FALLBACK_SENTINEL_TYPE}" />`,
+  );
 }
 
 /**
