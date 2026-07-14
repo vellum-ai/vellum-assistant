@@ -402,3 +402,145 @@ describe("reveal stdout redaction on the live tool_result", () => {
     expect(pendingStoreReads.length).toBe(0);
   });
 });
+
+function outputChunks(events: ServerMessage[]): string[] {
+  return events
+    .filter(
+      (e): e is Extract<ServerMessage, { type: "tool_output_chunk" }> =>
+        (e as { type?: string }).type === "tool_output_chunk",
+    )
+    .map((e) => e.chunk);
+}
+
+describe("live tool output chunk redaction", () => {
+  test("reveal stdout chunks are redacted before forwarding", async () => {
+    const events: ServerMessage[] = [];
+    const state = createEventHandlerState();
+    const deps = createMockDeps(events);
+
+    // The chunk streams WHILE the tool runs — before any tool_result — and
+    // the drawer renders it live. The route recorded its success before the
+    // CLI could print, so the guard has the proven value synchronously.
+    await dispatchAgentEvent(state, deps, REVEAL_TOOL_USE);
+    recordRevealSuccess("openai", "api_key", SYNTHETIC_OPAQUE_CREDENTIAL);
+    await dispatchAgentEvent(state, deps, {
+      type: "tool_output_chunk",
+      toolUseId: "toolu_reveal",
+      chunk: `value: ${SYNTHETIC_OPAQUE_CREDENTIAL}\n`,
+    } as Extract<AgentEvent, { type: "tool_output_chunk" }>);
+
+    const streamedChunks = outputChunks(events).join("");
+    expect(streamedChunks).not.toContain(SYNTHETIC_OPAQUE_CREDENTIAL);
+    expect(streamedChunks).toContain('<redacted type="Credential" />');
+    // Synchronous path — the guard never touches the store.
+    expect(pendingStoreReads.length).toBe(0);
+  });
+
+  test("a value split across chunks is held back, then flushed redacted", async () => {
+    const events: ServerMessage[] = [];
+    const state = createEventHandlerState();
+    const deps = createMockDeps(events);
+
+    await dispatchAgentEvent(state, deps, REVEAL_TOOL_USE);
+    recordRevealSuccess("openai", "api_key", SYNTHETIC_OPAQUE_CREDENTIAL);
+    const head = SYNTHETIC_OPAQUE_CREDENTIAL.slice(0, 8);
+    const tail = SYNTHETIC_OPAQUE_CREDENTIAL.slice(8);
+    await dispatchAgentEvent(state, deps, {
+      type: "tool_output_chunk",
+      toolUseId: "toolu_reveal",
+      chunk: `out: ${head}`,
+    } as Extract<AgentEvent, { type: "tool_output_chunk" }>);
+    // The partial prefix is held — nothing containing it is emitted yet.
+    expect(outputChunks(events).join("")).toBe("out: ");
+    await dispatchAgentEvent(state, deps, {
+      type: "tool_output_chunk",
+      toolUseId: "toolu_reveal",
+      chunk: `${tail} done`,
+    } as Extract<AgentEvent, { type: "tool_output_chunk" }>);
+
+    const streamedChunks = outputChunks(events).join("");
+    expect(streamedChunks).toBe('out: <redacted type="Credential" /> done');
+    expect(pendingStoreReads.length).toBe(0);
+  });
+
+  test("a held remainder is flushed redacted at tool_result", async () => {
+    const events: ServerMessage[] = [];
+    const state = createEventHandlerState();
+    const deps = createMockDeps(events);
+
+    await dispatchAgentEvent(state, deps, REVEAL_TOOL_USE);
+    recordRevealSuccess("openai", "api_key", SYNTHETIC_OPAQUE_CREDENTIAL);
+    // The stream ends mid-value: the tail is held when the result arrives.
+    const head = SYNTHETIC_OPAQUE_CREDENTIAL.slice(0, 8);
+    await dispatchAgentEvent(state, deps, {
+      type: "tool_output_chunk",
+      toolUseId: "toolu_reveal",
+      chunk: `out: ${head}`,
+    } as Extract<AgentEvent, { type: "tool_output_chunk" }>);
+    await dispatchAgentEvent(state, deps, {
+      type: "tool_result",
+      toolUseId: "toolu_reveal",
+      content: `out: ${SYNTHETIC_OPAQUE_CREDENTIAL}`,
+      isError: false,
+    } as Extract<AgentEvent, { type: "tool_result" }>);
+
+    // The flush emits the held bytes (a partial value is not the secret,
+    // but it must never be dropped silently) and the final result is
+    // redacted as before.
+    const streamedChunks = outputChunks(events).join("");
+    expect(streamedChunks).toBe(`out: ${head}`);
+    expect(state.toolOutputGuardBuffers.size).toBe(0);
+    const results = toolResults(events);
+    expect(results[0]).toBe('out: <redacted type="Credential" />');
+    expect(results[0]).not.toContain(SYNTHETIC_OPAQUE_CREDENTIAL);
+  });
+
+  test("chunks from a tool with no reveal candidates pass through verbatim", async () => {
+    const events: ServerMessage[] = [];
+    const state = createEventHandlerState();
+    const deps = createMockDeps(events);
+
+    await dispatchAgentEvent(state, deps, {
+      type: "tool_use",
+      id: "toolu_ls",
+      name: "bash",
+      input: { command: "ls -la" },
+    } as Extract<AgentEvent, { type: "tool_use" }>);
+    await dispatchAgentEvent(state, deps, {
+      type: "tool_output_chunk",
+      toolUseId: "toolu_ls",
+      chunk: "total 0\n",
+    } as Extract<AgentEvent, { type: "tool_output_chunk" }>);
+
+    expect(outputChunks(events)).toEqual(["total 0\n"]);
+    expect(pendingStoreReads.length).toBe(0);
+  });
+
+  test("a later tool echoing an already-promoted value is redacted too", async () => {
+    const events: ServerMessage[] = [];
+    const state = createEventHandlerState();
+    const deps = createMockDeps(events);
+
+    // Tool 1: the reveal, promoted at its result.
+    await dispatchAgentEvent(state, deps, REVEAL_TOOL_USE);
+    recordRevealSuccess("openai", "api_key", SYNTHETIC_OPAQUE_CREDENTIAL);
+    await dispatchAgentEvent(state, deps, REVEAL_TOOL_RESULT);
+    // Tool 2: `echo <value>` — no reveal staged, but the promoted turn
+    // candidates must still guard its live stdout.
+    await dispatchAgentEvent(state, deps, {
+      type: "tool_use",
+      id: "toolu_echo",
+      name: "bash",
+      input: { command: "echo it back" },
+    } as Extract<AgentEvent, { type: "tool_use" }>);
+    await dispatchAgentEvent(state, deps, {
+      type: "tool_output_chunk",
+      toolUseId: "toolu_echo",
+      chunk: `${SYNTHETIC_OPAQUE_CREDENTIAL}\n`,
+    } as Extract<AgentEvent, { type: "tool_output_chunk" }>);
+
+    const streamedChunks = outputChunks(events).join("");
+    expect(streamedChunks).not.toContain(SYNTHETIC_OPAQUE_CREDENTIAL);
+    expect(streamedChunks).toContain('<redacted type="Credential" />');
+  });
+});

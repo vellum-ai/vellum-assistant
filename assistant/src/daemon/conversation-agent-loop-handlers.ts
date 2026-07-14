@@ -94,10 +94,13 @@ import type {
 import {
   buildLiveRevealGuardEntries,
   collectRevealRefsFromCommand,
+  drainCandidateGuardedChunk,
   drainSentinelGuardedText,
   filterRefsByRevealProof,
   redactCandidateValuesLegacy,
   redactSecretsForChat,
+  resolveProvenRevealCandidates,
+  resolveRefIdentities,
   resolveRevealCandidates,
   swapLiveRevealValues,
 } from "./chat-credential-redaction.js";
@@ -400,6 +403,15 @@ export interface EventHandlerState {
     { refs: RevealCandidateRef[]; watermark: number }
   >;
   /**
+   * Tool stdout held back from live `tool_output_chunk` emission because
+   * it ends in a partial occurrence of a reveal candidate's plaintext
+   * (keyed by toolUseId). Re-prepended to the tool's next chunk and
+   * flushed, redacted, when its tool_result arrives — nothing can complete
+   * the partial after that. Only ever populated while proven reveal
+   * candidates exist (see `handleToolOutputChunk`).
+   */
+  readonly toolOutputGuardBuffers: Map<string, string>;
+  /**
    * Live text the sentinel stream guard held back from
    * `assistant_text_delta` emission — a trailing partial `〔redacted:`
    * trigger or reveal-candidate plaintext prefix that a later chunk may
@@ -529,6 +541,7 @@ export function createEventHandlerState(): EventHandlerState {
     deferredFinalizeEffects: [],
     revealCandidateRefs: [],
     pendingRevealRefsByToolUse: new Map(),
+    toolOutputGuardBuffers: new Map(),
     revealCandidateCache: undefined,
     pendingSentinelGuardBuffer: "",
     liveRevealGuardEntries: [],
@@ -1296,7 +1309,11 @@ export function handleToolUse(
   // plaintext for a command that approval/cancellation may still block).
   const command = (event.input as { command?: unknown } | undefined)?.command;
   if (typeof command === "string" && command.length > 0) {
-    const refs = collectRevealRefsFromCommand(command);
+    // Id-form refs resolve to service/field NOW (metadata-only lookup): the
+    // same compound command may remove the credential after revealing it,
+    // and by result time the id would no longer resolve — dropping the
+    // proof for a value the tool already printed.
+    const refs = resolveRefIdentities(collectRevealRefsFromCommand(command));
     if (refs.length > 0) {
       state.pendingRevealRefsByToolUse.set(event.id, {
         refs,
@@ -1446,15 +1463,55 @@ function handleToolOutputChunk(
       subToolIsError: structured.subToolIsError,
       subToolId: structured.subToolId,
     });
-  } else {
-    deps.onEvent({
-      type: "tool_output_chunk",
-      chunk: event.chunk,
-      conversationId: deps.ctx.conversationId,
-      toolUseId: event.toolUseId,
-      messageId: state.lastAssistantMessageId,
-    });
+    return;
   }
+
+  // Redact revealed plaintext from the LIVE stdout stream. The final
+  // tool_result is redacted at its seam, but these chunks reach the client
+  // first and the web drawer renders them until the result replaces them —
+  // without this guard a `credentials reveal` value flashes raw for the
+  // whole tool run. By the time printed bytes arrive here the route has
+  // already recorded any success (the record precedes the CLI receiving
+  // the plaintext), so proven candidates are available SYNCHRONOUSLY from
+  // the registry — no vault read, and the reveal-free path stays untouched.
+  // Covers both this tool's own staged reveals and values already promoted
+  // by an earlier tool in the turn (a later `echo <value>` streams too). A
+  // trailing partial occurrence is held back for the next chunk; the
+  // tool_result seam flushes the remainder. Structured control frames
+  // above are forwarded untouched — they are parsed subtool events, not
+  // reveal stdout, and rewriting their raw JSON could corrupt them.
+  let chunk = event.chunk;
+  const staged = state.pendingRevealRefsByToolUse.get(event.toolUseId);
+  const guardRefs =
+    staged === undefined
+      ? state.revealCandidateRefs
+      : [
+          ...state.revealCandidateRefs,
+          ...filterRefsByRevealProof(staged.refs, staged.watermark),
+        ];
+  if (guardRefs.length > 0) {
+    const candidates = resolveProvenRevealCandidates(guardRefs);
+    if (candidates.length > 0) {
+      const held = state.toolOutputGuardBuffers.get(event.toolUseId) ?? "";
+      const drained = drainCandidateGuardedChunk(held + chunk, candidates);
+      state.toolOutputGuardBuffers.set(
+        event.toolUseId,
+        drained.bufferedRemainder,
+      );
+      if (drained.emitText.length === 0) {
+        return;
+      }
+      chunk = drained.emitText;
+    }
+  }
+
+  deps.onEvent({
+    type: "tool_output_chunk",
+    chunk,
+    conversationId: deps.ctx.conversationId,
+    toolUseId: event.toolUseId,
+    messageId: state.lastAssistantMessageId,
+  });
 }
 
 export function handleInputJsonDelta(
@@ -1783,12 +1840,29 @@ export async function handleToolResult(
   // identity this turn, which is precisely when redaction must fire.
   let redactedContent = event.content;
   let redactedContentBlocks = event.contentBlocks;
+  const heldOutput = state.toolOutputGuardBuffers.get(event.toolUseId);
+  state.toolOutputGuardBuffers.delete(event.toolUseId);
   if (state.revealCandidateRefs.length > 0) {
     const revealCandidatesForResult =
       await resolvedRevealCandidatesForState(state);
     if (revealCandidatesForResult.length > 0) {
       const redactRevealStdout = (text: string): string =>
         redactCandidateValuesLegacy(text, revealCandidatesForResult);
+      // Flush stdout the live chunk guard held back (a trailing partial
+      // candidate occurrence — see `handleToolOutputChunk`). Nothing can
+      // complete the partial now that the tool has finished, so redact and
+      // emit it before the tool_result below keeps the streamed output
+      // whole. Dropped (never emitted raw) if candidates somehow resolve
+      // empty — the redacted `event.content` still carries the full output.
+      if (heldOutput !== undefined && heldOutput.length > 0) {
+        deps.onEvent({
+          type: "tool_output_chunk",
+          chunk: redactRevealStdout(heldOutput),
+          conversationId: deps.ctx.conversationId,
+          toolUseId: event.toolUseId,
+          messageId: state.lastAssistantMessageId,
+        });
+      }
       redactedContent = redactRevealStdout(event.content);
       redactedContentBlocks = event.contentBlocks?.map((block) =>
         block.type === "text"

@@ -147,15 +147,50 @@ export function collectRevealRefsFromCommand(
 }
 
 /**
+ * Resolve id-form refs to service/field EAGERLY, at staging time — a
+ * metadata-only lookup, no secret access. Proof runs when the tool result
+ * arrives, which can be well after the reveal executed, and a `credentials
+ * remove` in between (even in the same compound command) makes the id
+ * unresolvable then — dropping the ref although the route recorded the
+ * success, so the printed value would persist raw. The id stays on the ref
+ * so proof time can still fall back to a lookup for a ref whose metadata
+ * only appears later.
+ */
+export function resolveRefIdentities(
+  refs: readonly RevealCandidateRef[],
+): RevealCandidateRef[] {
+  return refs.map((ref) => {
+    if (
+      ref.id === undefined ||
+      (ref.service !== undefined && ref.field !== undefined)
+    ) {
+      return ref;
+    }
+    try {
+      const meta = getCredentialMetadataById(ref.id);
+      if (!meta) return ref;
+      return { ...ref, service: meta.service, field: meta.field };
+    } catch (err) {
+      log.debug(
+        { err },
+        "eager reveal ref id lookup failed; deferring to proof time",
+      );
+      return ref;
+    }
+  });
+}
+
+/**
  * Keep only refs whose identity the reveal route ACTUALLY served after
  * `watermark` was captured (see `reveal-success-registry`). A shell tool's
  * overall success is not proof the nested reveal ran — `reveal … || true`
  * succeeds when the route failed, and an `echo` containing the command
  * text never calls the route — so candidate resolution (which reads
  * plaintext from the store) must be gated on the route's own record.
- * Identity for id-form refs comes from the metadata store: a
- * metadata-only lookup, no secret access. Unresolvable refs are dropped —
- * the safe direction.
+ * Identity for id-form refs is normally captured at staging (see
+ * `resolveRefIdentities`); the metadata lookup here is only a fallback —
+ * metadata-only, no secret access. Unresolvable refs are dropped — the
+ * safe direction.
  */
 export function filterRefsByRevealProof(
   refs: readonly RevealCandidateRef[],
@@ -166,7 +201,10 @@ export function filterRefsByRevealProof(
   for (const ref of refs) {
     let service = ref.service;
     let field = ref.field;
-    if (ref.id !== undefined) {
+    if (
+      ref.id !== undefined &&
+      (service === undefined || field === undefined)
+    ) {
       try {
         const meta = getCredentialMetadataById(ref.id);
         if (!meta) continue;
@@ -201,6 +239,63 @@ export function filterRefsByRevealProof(
 // ---------------------------------------------------------------------------
 
 /**
+ * Append a candidate in EVERY stdout encoding of its plaintext, deduped on
+ * identity+value. `credentials reveal --json` writes the value through
+ * `JSON.stringify` (see the CLI's `writeOutput`), so a value containing
+ * quotes, backslashes, or control characters — a PEM key's newlines —
+ * appears in the tool's stdout ESCAPED: bytes a raw exact-match list can
+ * never find, leaving the escaped body to the scanner (which only knows
+ * the header). Registering the escaped encoding as its own candidate
+ * covers that representation on every surface (persist byte-compare, live
+ * guard, tool_result fallback, output chunks). `JSON.stringify` is
+ * injective on the value, so an escaped-form match proves the same
+ * identity the raw form does.
+ */
+function appendCandidateEncodings(
+  candidates: ResolvedRevealCandidate[],
+  seen: Set<string>,
+  service: string,
+  field: string,
+  value: string,
+): void {
+  for (const encoded of [value, JSON.stringify(value).slice(1, -1)]) {
+    if (encoded.length === 0) continue;
+    const dedupeKey = JSON.stringify([service, field, encoded]);
+    if (seen.has(dedupeKey)) continue;
+    seen.add(dedupeKey);
+    candidates.push({ service, field, value: encoded });
+  }
+}
+
+/**
+ * Sync twin of {@link resolveRevealCandidates} for refs that already carry
+ * a proven value (the shape `filterRefsByRevealProof` returns) — used on
+ * the live tool-output path, whose handler must stay synchronous and may
+ * not touch the vault. Refs without a proven value are skipped, never
+ * vault-resolved.
+ */
+export function resolveProvenRevealCandidates(
+  refs: readonly RevealCandidateRef[],
+): ResolvedRevealCandidate[] {
+  const seen = new Set<string>();
+  const candidates: ResolvedRevealCandidate[] = [];
+  for (const ref of refs) {
+    if (ref.service === undefined || ref.field === undefined) continue;
+    if (ref.provenValue === undefined || ref.provenValue.length === 0) {
+      continue;
+    }
+    appendCandidateEncodings(
+      candidates,
+      seen,
+      ref.service,
+      ref.field,
+      ref.provenValue,
+    );
+  }
+  return candidates;
+}
+
+/**
  * Resolve parsed refs to `{service, field, value}` candidates via scoped
  * credential-store reads — one `getSecureKeyAsync` per distinct ref, only
  * for credentials a reveal command in this turn already named. Refs that
@@ -218,16 +313,15 @@ export async function resolveRevealCandidates(
   const seenCandidates = new Set<string>();
   const vaultReadKeys = new Set<string>();
   const candidates: ResolvedRevealCandidate[] = [];
-  const pushCandidate = (service: string, field: string, value: string) => {
-    const dedupeKey = JSON.stringify([service, field, value]);
-    if (seenCandidates.has(dedupeKey)) return;
-    seenCandidates.add(dedupeKey);
-    candidates.push({ service, field, value });
-  };
+  const pushCandidate = (service: string, field: string, value: string) =>
+    appendCandidateEncodings(candidates, seenCandidates, service, field, value);
   for (const ref of refs) {
     let service = ref.service;
     let field = ref.field;
-    if (ref.id !== undefined) {
+    if (
+      ref.id !== undefined &&
+      (service === undefined || field === undefined)
+    ) {
       try {
         const meta = getCredentialMetadataById(ref.id);
         if (!meta) continue;
@@ -551,6 +645,40 @@ export function drainSentinelGuardedText(
       entries,
     ),
     consumedRaw,
+    bufferedRemainder: buffer.slice(emitLen),
+  };
+}
+
+/**
+ * Streaming redaction guard for live `tool_output_chunk` emission — the
+ * tool-output twin of {@link drainSentinelGuardedText}. A foreground
+ * reveal's stdout streams to the client WHILE the tool runs, before the
+ * tool_result seam redacts the final content, so each chunk must be
+ * redacted on the way out or the plaintext shows in the tool drawer until
+ * the redacted result replaces it. Complete occurrences of candidate
+ * values become the legacy marker (this surface renders no chips, and the
+ * final tool_result row uses the same treatment, so live and persisted
+ * bytes agree); a trailing partial occurrence is held back in
+ * `bufferedRemainder` for the tool's next chunk — the tool_result seam
+ * flushes whatever remains.
+ */
+export function drainCandidateGuardedChunk(
+  buffer: string,
+  candidates: readonly ResolvedRevealCandidate[],
+): { emitText: string; bufferedRemainder: string } {
+  const seen = new Set<string>();
+  const values: string[] = [];
+  for (const candidate of candidates) {
+    if (candidate.value.length === 0 || seen.has(candidate.value)) {
+      continue;
+    }
+    seen.add(candidate.value);
+    values.push(candidate.value);
+  }
+  values.sort((a, b) => b.length - a.length);
+  const emitLen = stableEmitLen(buffer, values);
+  return {
+    emitText: redactCandidateValuesLegacy(buffer.slice(0, emitLen), candidates),
     bufferedRemainder: buffer.slice(emitLen),
   };
 }

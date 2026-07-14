@@ -27,12 +27,20 @@ mock.module("../tools/credentials/metadata-store.js", () => ({
 import {
   buildLiveRevealGuardEntries,
   collectRevealRefsFromCommand,
+  drainCandidateGuardedChunk,
   drainSentinelGuardedText,
+  filterRefsByRevealProof,
   redactCandidateValuesLegacy,
   redactSecretsForChat,
+  resolveProvenRevealCandidates,
+  resolveRefIdentities,
   resolveRevealCandidates,
   swapLiveRevealValues,
 } from "../daemon/chat-credential-redaction.js";
+import {
+  _resetRevealSuccessRegistryForTest,
+  recordRevealSuccess,
+} from "../runtime/reveal-success-registry.js";
 import { redactSecrets } from "../security/secret-scanner.js";
 import {
   OPENAI_PROJECT_KEY_REDACTION_MARKER,
@@ -175,6 +183,109 @@ describe("resolveRevealCandidates", () => {
       { service: "openai", field: "api_key", provenValue: "hunter2-same" },
     ]);
     expect(out).toHaveLength(1);
+  });
+
+  test("a value with JSON-escapable bytes also yields its escaped encoding", async () => {
+    // `credentials reveal --json` prints the value through JSON.stringify,
+    // so newlines/quotes/backslashes reach stdout ESCAPED — a representation
+    // the raw exact-match list can never find. Both encodings must be
+    // candidates.
+    const out = await resolveRevealCandidates([
+      { service: "github-app", field: "pem", provenValue: "line1\nline2" },
+    ]);
+    expect(out).toEqual([
+      { service: "github-app", field: "pem", value: "line1\nline2" },
+      { service: "github-app", field: "pem", value: "line1\\nline2" },
+    ]);
+  });
+
+  test("a value with no escapable bytes yields a single candidate", async () => {
+    const out = await resolveRevealCandidates([
+      { service: "svc", field: "f", provenValue: "hunter2-plain" },
+    ]);
+    expect(out).toHaveLength(1);
+  });
+});
+
+describe("resolveRefIdentities (eager staging lookup)", () => {
+  test("resolves a UUID ref to service/field and keeps the id", () => {
+    expect(resolveRefIdentities([{ id: UUID }])).toEqual([
+      { id: UUID, service: "openai", field: "api_key" },
+    ]);
+  });
+
+  test("passes an unknown id through for the proof-time fallback", () => {
+    const ref = { id: "99999999-9999-4999-8999-999999999999" };
+    expect(resolveRefIdentities([ref])).toEqual([ref]);
+  });
+});
+
+describe("filterRefsByRevealProof identity handling", () => {
+  test("a pre-resolved id ref stays proven after its metadata disappears", () => {
+    // Staging resolved the id to service/field while the metadata still
+    // existed; the credential was then removed before the tool result. The
+    // carried identity must satisfy the proof — a metadata re-lookup would
+    // fail and silently drop the ref for a value the tool already printed.
+    _resetRevealSuccessRegistryForTest();
+    recordRevealSuccess("gone-service", "api_key", "hunter2-removed");
+    const proven = filterRefsByRevealProof(
+      [
+        {
+          id: "99999999-9999-4999-8999-999999999999",
+          service: "gone-service",
+          field: "api_key",
+        },
+      ],
+      0,
+    );
+    expect(proven).toEqual([
+      {
+        service: "gone-service",
+        field: "api_key",
+        provenValue: "hunter2-removed",
+      },
+    ]);
+    _resetRevealSuccessRegistryForTest();
+  });
+});
+
+describe("drainCandidateGuardedChunk (live tool output guard)", () => {
+  const candidates = [{ service: "svc", field: "f", value: "hunter2-opaque" }];
+
+  test("redacts a complete occurrence within one chunk", () => {
+    const out = drainCandidateGuardedChunk(
+      "value: hunter2-opaque\n",
+      candidates,
+    );
+    expect(out.emitText).toBe('value: <redacted type="Credential" />\n');
+    expect(out.bufferedRemainder).toBe("");
+  });
+
+  test("holds a trailing partial occurrence, then redacts on completion", () => {
+    const first = drainCandidateGuardedChunk("out: hunter2-op", candidates);
+    expect(first.emitText).toBe("out: ");
+    expect(first.bufferedRemainder).toBe("hunter2-op");
+    const second = drainCandidateGuardedChunk(
+      first.bufferedRemainder + "aque done",
+      candidates,
+    );
+    expect(second.emitText).toBe('<redacted type="Credential" /> done');
+    expect(second.bufferedRemainder).toBe("");
+  });
+
+  test("passes clean chunks through whole", () => {
+    const out = drainCandidateGuardedChunk("plain output\n", candidates);
+    expect(out.emitText).toBe("plain output\n");
+    expect(out.bufferedRemainder).toBe("");
+  });
+
+  test("resolveProvenRevealCandidates skips refs without a proven value", () => {
+    expect(
+      resolveProvenRevealCandidates([
+        { service: "svc", field: "f" },
+        { service: "svc", field: "f", provenValue: "hunter2-opaque" },
+      ]),
+    ).toEqual(candidates);
   });
 });
 
@@ -481,6 +592,23 @@ describe("live reveal swap (stream plaintext hold-back)", () => {
     ]);
     expect(out).toBe('value: <redacted type="Credential" />');
     expect(out).not.toContain("\u3014");
+  });
+
+  test("redactCandidateValuesLegacy covers the JSON-escaped form printed by reveal --json", async () => {
+    // `reveal --json` stdout carries JSON.stringify({ok, value}) — a value
+    // with newlines or quotes appears escaped, bytes the raw value can
+    // never match. The resolved candidate list carries both encodings, so
+    // the escaped body must be redacted too (the scanner alone would only
+    // catch a recognizable header).
+    const value = 'multi\nline"secret\\body';
+    const candidates = await resolveRevealCandidates([
+      { service: "svc", field: "f", provenValue: value },
+    ]);
+    const stdout = JSON.stringify({ ok: true, value });
+    const out = redactCandidateValuesLegacy(stdout, candidates);
+    expect(out).toContain('<redacted type="Credential" />');
+    expect(out).not.toContain("multi");
+    expect(out).not.toContain("secret");
   });
 
   test("redactCandidateValuesLegacy keeps emitted markers intact when a value appears inside them", () => {

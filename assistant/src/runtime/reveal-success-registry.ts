@@ -16,7 +16,8 @@
  * since?" at result time — records from earlier turns or long-dead tools
  * never match. The registry is process-local (route handlers and the
  * conversation loop share the daemon process) and bounded by count and
- * age so it cannot grow without limit.
+ * age so it cannot grow without limit (recent records get a short grace
+ * from the count cap so an active tool window cannot lose its proof).
  *
  * Known limitation (shared with the --for-chat mint registry and tracked
  * as its follow-up): records are not conversation-scoped, so a concurrent
@@ -44,14 +45,32 @@ interface RevealSuccessRecord {
 
 const MAX_RECORDS = 256;
 const MAX_AGE_MS = 6 * 60 * 60 * 1000;
+/**
+ * Records younger than this are exempt from the count cap: a success may
+ * still be inside an active propose→result window (a single command with
+ * hundreds of reveal invocations, or concurrent turns), and count-evicting
+ * it would silently drop the proof — the tool's stdout then persists raw.
+ * Memory stays bounded: the age prune always applies, and the count cap
+ * resumes for anything older than the grace period.
+ */
+const COUNT_PRUNE_GRACE_MS = 15 * 60 * 1000;
 
 let seqCounter = 0;
 let records: RevealSuccessRecord[] = [];
 
 function prune(nowMs: number): void {
   records = records.filter((r) => nowMs - r.recordedAtMs <= MAX_AGE_MS);
-  if (records.length > MAX_RECORDS) {
-    records = records.slice(records.length - MAX_RECORDS);
+  let excess = records.length - MAX_RECORDS;
+  if (excess > 0) {
+    // Oldest-first eviction (records are in seq order), skipping anything
+    // still inside the grace window.
+    records = records.filter((r) => {
+      if (excess > 0 && nowMs - r.recordedAtMs > COUNT_PRUNE_GRACE_MS) {
+        excess -= 1;
+        return false;
+      }
+      return true;
+    });
   }
 }
 
