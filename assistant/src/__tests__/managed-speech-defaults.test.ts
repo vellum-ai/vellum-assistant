@@ -2,27 +2,13 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import * as actualTtsCapability from "../calls/telephony-tts-capability.js";
 import * as actualManagedSpeech from "../platform/managed-speech.js";
-import * as actualResolve from "../providers/speech-to-text/resolve.js";
 
 let mockManagedSpeechAvailable = false;
-let mockSttKeyResolves = false;
-let mockTtsSecretResolves = false;
 
 mock.module("../platform/managed-speech.js", () => ({
   ...actualManagedSpeech,
   managedSpeechAvailable: async () => mockManagedSpeechAvailable,
-}));
-
-mock.module("../providers/speech-to-text/resolve.js", () => ({
-  ...actualResolve,
-  sttProviderKeyResolves: async () => mockSttKeyResolves,
-}));
-
-mock.module("../calls/telephony-tts-capability.js", () => ({
-  ...actualTtsCapability,
-  ttsSecretResolves: async () => mockTtsSecretResolves,
 }));
 
 import { getConfig, invalidateConfigCache } from "../config/loader.js";
@@ -50,19 +36,17 @@ beforeEach(() => {
   ensureTestDir();
   writeConfig({});
   mockManagedSpeechAvailable = false;
-  mockSttKeyResolves = false;
-  mockTtsSecretResolves = false;
 });
 
 describe("maybeDefaultSpeechToManaged", () => {
-  test("no-ops when managed speech is unavailable", async () => {
+  test("logged out: no-op — the schema's BYOK default stands", async () => {
     await maybeDefaultSpeechToManaged();
 
     const config = readConfig();
     expect(config.services).toBeUndefined();
   });
 
-  test("defaults both services to managed when no BYOK credentials resolve", async () => {
+  test("logged in: defaults both services to managed", async () => {
     mockManagedSpeechAvailable = true;
 
     await maybeDefaultSpeechToManaged();
@@ -76,52 +60,29 @@ describe("maybeDefaultSpeechToManaged", () => {
     expect(getConfig().services.stt.mode).toBe("managed");
   });
 
-  test("leaves a service alone when its BYOK credential resolves", async () => {
-    mockManagedSpeechAvailable = true;
-    mockSttKeyResolves = true;
-
-    await maybeDefaultSpeechToManaged();
-
-    const config = readConfig();
-    expect((config.services as any)?.stt?.mode).toBeUndefined();
-    expect((config.services as any)?.tts?.mode).toBe("managed");
-  });
-
-  test("no-ops when both BYOK credentials resolve", async () => {
-    mockManagedSpeechAvailable = true;
-    mockSttKeyResolves = true;
-    mockTtsSecretResolves = true;
-
-    await maybeDefaultSpeechToManaged();
-
-    const config = readConfig();
-    expect(config.services).toBeUndefined();
-  });
-
-  test("no-ops when services are already managed", async () => {
+  test("logged in with BYOK providers configured but no explicit mode: still defaults to managed", async () => {
+    // Connection state drives the default — a stored provider key without
+    // an explicit mode choice does not pin BYOK.
     mockManagedSpeechAvailable = true;
     writeConfig({
       services: {
-        stt: { mode: "managed", provider: "deepgram" },
-        tts: { mode: "managed" },
+        stt: { provider: "deepgram" },
+        tts: { provider: "elevenlabs" },
       },
     });
 
     await maybeDefaultSpeechToManaged();
 
     const config = readConfig();
-    expect(config).toEqual({
-      services: {
-        stt: { mode: "managed", provider: "deepgram" },
-        tts: { mode: "managed" },
-      },
-    });
+    expect((config.services as any).stt.mode).toBe("managed");
+    expect((config.services as any).tts.mode).toBe("managed");
+    // The BYOK provider choice is preserved for a later switch back.
+    expect((config.services as any).stt.provider).toBe("deepgram");
+    expect((config.services as any).tts.provider).toBe("elevenlabs");
   });
 
-  test("never downgrades an explicit your-own mode with resolving credentials", async () => {
+  test("explicit your-own modes always win over the logged-in default", async () => {
     mockManagedSpeechAvailable = true;
-    mockSttKeyResolves = true;
-    mockTtsSecretResolves = true;
     writeConfig({
       services: {
         stt: { mode: "your-own", provider: "deepgram" },
@@ -134,5 +95,28 @@ describe("maybeDefaultSpeechToManaged", () => {
     const config = readConfig();
     expect((config.services as any).stt.mode).toBe("your-own");
     expect((config.services as any).tts.mode).toBe("your-own");
+  });
+
+  test("one explicit mode: only the unset service is defaulted", async () => {
+    mockManagedSpeechAvailable = true;
+    writeConfig({
+      services: { stt: { mode: "your-own", provider: "deepgram" } },
+    });
+
+    await maybeDefaultSpeechToManaged();
+
+    const config = readConfig();
+    expect((config.services as any).stt.mode).toBe("your-own");
+    expect((config.services as any).tts.mode).toBe("managed");
+  });
+
+  test("idempotent: a second run rewrites nothing", async () => {
+    mockManagedSpeechAvailable = true;
+    await maybeDefaultSpeechToManaged();
+    const first = readFileSync(CONFIG_PATH, "utf8");
+
+    await maybeDefaultSpeechToManaged();
+
+    expect(readFileSync(CONFIG_PATH, "utf8")).toBe(first);
   });
 });
