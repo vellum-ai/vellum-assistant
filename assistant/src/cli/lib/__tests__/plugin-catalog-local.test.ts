@@ -37,6 +37,7 @@ describe("buildBundledPluginCatalog", () => {
       category: "productivity",
       homepage: "https://github.com/JuliusBrussee/caveman",
       license: "MIT",
+      icon: "🦴",
       source: {
         kind: "github",
         repo: "JuliusBrussee/caveman",
