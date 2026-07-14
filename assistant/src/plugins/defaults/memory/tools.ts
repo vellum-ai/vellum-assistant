@@ -33,15 +33,15 @@ export const rememberTool = {
   executionTarget: "sandbox",
   defaultRiskLevel: RiskLevel.Low,
   // The [[slug]] page-hint guidance applies only under the wiki memory model
-  // (v1/PKB has no pages for hints to reference), so the schema is resolved
-  // against config when the registry finalizes the tool at startup rather
-  // than baked in statically. Read-only accessor: a definition read must
-  // never create workspace directories.
-  get input_schema() {
-    return buildRememberInputSchema({
-      pageHints: getConfigReadOnly().memory.v2.enabled,
-    });
-  },
+  // (v1/PKB has no pages for hints to reference). The thunk is re-resolved on
+  // every read of the content description — the registry's finalized tool
+  // shares this schema object by reference — so a runtime edit of
+  // `memory.v2.enabled` reaches the model on the next request, in lockstep
+  // with handleRemember re-reading config per call. Read-only accessor: a
+  // definition read must never create workspace directories.
+  input_schema: buildRememberInputSchema({
+    pageHints: () => getConfigReadOnly().memory.v2.enabled,
+  }),
 
   async execute(
     input: Record<string, unknown>,

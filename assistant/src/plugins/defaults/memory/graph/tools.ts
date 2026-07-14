@@ -79,9 +79,15 @@ export const REMEMBER_PAGE_HINT_GUIDANCE =
 /**
  * Build the `remember` input schema. `pageHints` reflects the wiki-memory
  * (`memory.v2.enabled`) state and appends
- * {@link REMEMBER_PAGE_HINT_GUIDANCE} to the `content` description.
+ * {@link REMEMBER_PAGE_HINT_GUIDANCE} to the `content` description. It is a
+ * thunk re-resolved on every read of that description: the registry's
+ * finalized tool shares the returned schema object by reference, so a
+ * runtime config edit is reflected on the next schema serialization without
+ * re-registering the tool.
  */
-export function buildRememberInputSchema(options: { pageHints: boolean }) {
+export function buildRememberInputSchema(options: {
+  pageHints: () => boolean;
+}) {
   return {
     type: "object",
     properties: {
@@ -90,9 +96,11 @@ export function buildRememberInputSchema(options: { pageHints: boolean }) {
           { type: "string" },
           { type: "array", items: { type: "string" }, minItems: 1 },
         ],
-        description: options.pageHints
-          ? `${REMEMBER_CONTENT_DESCRIPTION} ${REMEMBER_PAGE_HINT_GUIDANCE}`
-          : REMEMBER_CONTENT_DESCRIPTION,
+        get description(): string {
+          return options.pageHints()
+            ? `${REMEMBER_CONTENT_DESCRIPTION} ${REMEMBER_PAGE_HINT_GUIDANCE}`
+            : REMEMBER_CONTENT_DESCRIPTION;
+        },
       },
       finish_turn: {
         type: "boolean",
@@ -117,5 +125,5 @@ export function buildRememberInputSchema(options: { pageHints: boolean }) {
 export const graphRememberDefinition = {
   name: "remember",
   description: REMEMBER_DESCRIPTION,
-  input_schema: buildRememberInputSchema({ pageHints: false }),
+  input_schema: buildRememberInputSchema({ pageHints: () => false }),
 } satisfies ToolDefinition;

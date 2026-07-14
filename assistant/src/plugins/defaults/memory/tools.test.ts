@@ -389,5 +389,18 @@ describe("rememberTool definition — page-hint guidance gating", () => {
     expect(rememberTool.input_schema.properties.content.description).toContain(
       "[[slug]] wikilinks",
     );
+    // The gate must survive JSON serialization — that's how the schema
+    // reaches the provider wire format.
+    expect(JSON.stringify(rememberTool.input_schema)).toContain(
+      "[[slug]] wikilinks",
+    );
+  });
+
+  test("re-resolves against config on each read, without re-registration", () => {
+    const schema = rememberTool.input_schema;
+    setConfig("memory", { v2: { enabled: true } });
+    expect(schema.properties.content.description).toContain("[[slug]]");
+    setConfig("memory", { v2: { enabled: false } });
+    expect(schema.properties.content.description).not.toContain("[[slug]]");
   });
 });
