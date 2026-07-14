@@ -14,7 +14,10 @@ const { createSurfaceMutex, handleSurfaceAction, surfaceProxyResolver } =
 
 const { registerVoiceResumeHandler, unregisterVoiceResumeHandler } =
   await import("../live-voice/live-voice-resume-registry.js");
-import type { VoiceResumeHandler } from "../live-voice/live-voice-resume-registry.js";
+import type {
+  VoiceResumeHandler,
+  VoiceResumeOptions,
+} from "../live-voice/live-voice-resume-registry.js";
 
 const { LiveVoiceSession } =
   await import("../live-voice/live-voice-session.js");
@@ -545,11 +548,7 @@ describe("surface action delivery to assistant", () => {
 
     const resumeCalls: Array<{
       content: string;
-      opts?: {
-        displayContent?: string;
-        sourceActorPrincipalId?: string;
-        requestId?: string;
-      };
+      opts?: VoiceResumeOptions;
     }> = [];
     const handler: VoiceResumeHandler = {
       resumeWithText: (content, opts) => resumeCalls.push({ content, opts }),
@@ -586,9 +585,6 @@ describe("surface action delivery to assistant", () => {
       expect(ctx.processMessageCalls.length).toBe(0);
       expect(resumeCalls.length).toBe(1);
       expect(resumeCalls[0]!.content).toContain("oauth_connect");
-      expect(resumeCalls[0]!.opts?.sourceActorPrincipalId).toBe(
-        "principal-committer",
-      );
       // The accepted surface-action request id rides into the resume and is the
       // one tracked in `surfaceActionRequestIds`, so the resumed turn adopting
       // it keeps `currentRequestId` inside the surface-action set.
@@ -602,6 +598,63 @@ describe("surface action delivery to assistant", () => {
         "[User action on",
       );
       // The pending-surface guard is cleared on the voice-routed path too.
+      expect(ctx.pendingSurfaceActions.has(surfaceId)).toBe(false);
+    } finally {
+      unregisterVoiceResumeHandler("conv-1", handler);
+    }
+  });
+
+  test("live-voice resume: busy conversation routes to resumeWithText, not the text queue", async () => {
+    const sent: ServerMessage[] = [];
+    const ctx = makeContext(sent);
+    // The conversation is processing a turn: without the pre-enqueue voice
+    // dispatch, the completion would be pushed onto the silent text queue
+    // (`queued: true`) and later drained via `processMessage`, never spoken.
+    ctx.isProcessing = () => true;
+    let enqueueCalls = 0;
+    ctx.enqueueMessage = () => {
+      enqueueCalls += 1;
+      return { queued: true, requestId: "queued-req" };
+    };
+
+    const resumeCalls: Array<{ content: string; opts?: VoiceResumeOptions }> =
+      [];
+    const handler: VoiceResumeHandler = {
+      resumeWithText: (content, opts) => resumeCalls.push({ content, opts }),
+    };
+    registerVoiceResumeHandler("conv-1", handler);
+
+    try {
+      await surfaceProxyResolver(ctx, "ui_show", {
+        surface_type: "oauth_connect",
+        title: "Connect Google",
+        data: { providerKey: "google", displayName: "Google" },
+      });
+
+      const showMessage = sent.find(
+        (msg): msg is UiSurfaceShow => msg.type === "ui_surface_show",
+      ) as UiSurfaceShow;
+      const surfaceId = showMessage.surfaceId;
+      expect(ctx.pendingSurfaceActions.has(surfaceId)).toBe(true);
+
+      await handleSurfaceAction(ctx, surfaceId, "connect", {
+        status: "connected",
+        providerKey: "google",
+        providerLabel: "Google",
+        accountLabel: "user@example.com",
+      });
+
+      // Routed to the spoken resume even though the conversation is busy — and
+      // NOT pushed onto the silent text queue.
+      expect(resumeCalls.length).toBe(1);
+      expect(resumeCalls[0]!.content).toContain("oauth_connect");
+      expect(enqueueCalls).toBe(0);
+      expect(ctx.processMessageCalls.length).toBe(0);
+      // No text-queue side effects leak to the client.
+      expect(broadcastedMessages.some((m) => m.type === "message_queued")).toBe(
+        false,
+      );
+      // The pending-surface guard is still cleared on the busy voice path.
       expect(ctx.pendingSurfaceActions.has(surfaceId)).toBe(false);
     } finally {
       unregisterVoiceResumeHandler("conv-1", handler);
@@ -634,6 +687,50 @@ describe("surface action delivery to assistant", () => {
     expect(ctx.processMessageCalls.length).toBe(1);
     expect(ctx.processMessageCalls[0]!.content).toContain("oauth_connect");
     expect(ctx.pendingSurfaceActions.has(surfaceId)).toBe(false);
+  });
+
+  test("live-voice resume: surface action carrying attachments falls back to processMessage", async () => {
+    const sent: ServerMessage[] = [];
+    const ctx = makeContext(sent);
+
+    const resumeCalls: Array<{ content: string; opts?: VoiceResumeOptions }> =
+      [];
+    const handler: VoiceResumeHandler = {
+      resumeWithText: (content, opts) => resumeCalls.push({ content, opts }),
+    };
+    registerVoiceResumeHandler("conv-1", handler);
+
+    try {
+      await surfaceProxyResolver(ctx, "ui_show", {
+        surface_type: "file_upload",
+        title: "Upload",
+        data: { accept: "*" },
+      });
+
+      const showMessage = sent.find(
+        (msg): msg is UiSurfaceShow => msg.type === "ui_surface_show",
+      ) as UiSurfaceShow;
+      const surfaceId = showMessage.surfaceId;
+
+      await handleSurfaceAction(ctx, surfaceId, "submit", {
+        files: [
+          {
+            filename: "doc.pdf",
+            mimeType: "application/pdf",
+            data: "base64content",
+          },
+        ],
+      });
+
+      // Attachments never travel the voice path — the model still sees them via
+      // the text `processMessage`, and the spoken resume is skipped.
+      expect(resumeCalls.length).toBe(0);
+      expect(ctx.processMessageCalls.length).toBe(1);
+      expect(ctx.processMessageCalls[0]!.attachments.length).toBe(1);
+      expect(ctx.pendingSurfaceActions.has(surfaceId)).toBe(false);
+    } finally {
+      unregisterVoiceResumeHandler("conv-1", handler);
+    }
   });
 
   test("live-voice resume end-to-end: oauth_connect completion runs a spoken continuation turn and clears the pending guard", async () => {

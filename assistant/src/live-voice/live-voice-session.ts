@@ -58,6 +58,7 @@ import {
   registerVoiceResumeHandler,
   unregisterVoiceResumeHandler,
   type VoiceResumeHandler,
+  type VoiceResumeOptions,
 } from "./live-voice-resume-registry.js";
 import {
   type LiveVoiceSession as LiveVoiceSessionContract,
@@ -121,18 +122,6 @@ export type LiveVoiceCredentialReadinessResolver =
 export type LiveVoiceTurnStarter = (
   options: VoiceTurnOptions,
 ) => Promise<VoiceTurnHandle>;
-
-/**
- * Per-turn overrides carried from an interactive-surface completion into the
- * resumed voice turn. `requestId` is the accepted surface-action request id
- * (keeps `currentRequestId` in the conversation's `surfaceActionRequestIds`
- * set); `displayContent` is the user-facing label persisted/echoed in place of
- * the model-facing content.
- */
-interface ResumeTurnMetadata {
-  requestId?: string;
-  displayContent?: string;
-}
 
 export type LiveVoiceTtsStreamer = (
   options: LiveVoiceTtsOptions,
@@ -1494,7 +1483,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   private async startAssistantTurnForUtterance(
     utterance: UtteranceCycle,
     content: string,
-    resume?: ResumeTurnMetadata,
+    resume?: VoiceResumeOptions,
   ): Promise<void> {
     utterance.assistantTurnStarted = true;
     const token = Symbol("live-voice-assistant-turn");
@@ -1564,14 +1553,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
    * Resumes serialize on {@link resumeChain} and wait for any in-flight turn to
    * go idle rather than throwing CONVERSATION_BUSY.
    */
-  resumeWithText(
-    content: string,
-    opts?: {
-      displayContent?: string;
-      sourceActorPrincipalId?: string;
-      requestId?: string;
-    },
-  ): void {
+  resumeWithText(content: string, opts?: VoiceResumeOptions): void {
     const trimmed = content.trim();
     if (trimmed.length === 0) {
       return;
@@ -1580,7 +1562,6 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       {
         conversationId: this.conversationId,
         hasDisplayContent: opts?.displayContent != null,
-        sourceActorPrincipalId: opts?.sourceActorPrincipalId,
         requestId: opts?.requestId,
       },
       "Live voice resume requested from interactive surface completion",
@@ -1589,7 +1570,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     // `startVoiceTurn`: the id keeps `currentRequestId` inside the accepted
     // `surfaceActionRequestIds` set (so surface-gated tools run), and the label
     // is what the persisted user row / echo shows instead of the raw payload.
-    const resume: ResumeTurnMetadata = {
+    const resume: VoiceResumeOptions = {
       ...(opts?.requestId !== undefined ? { requestId: opts.requestId } : {}),
       ...(opts?.displayContent !== undefined
         ? { displayContent: opts.displayContent }
@@ -1603,7 +1584,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
 
   private async runResumeTurn(
     content: string,
-    resume?: ResumeTurnMetadata,
+    resume?: VoiceResumeOptions,
   ): Promise<void> {
     if (this.isClosedOrFailed || !this.startVoiceTurn) {
       return;
@@ -1650,7 +1631,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     // the escalated continuation leg without it: that leg persists an internal
     // `[continue]` prompt, so it must neither reuse the surface request id nor
     // show the surface's user-facing label.
-    resume?: ResumeTurnMetadata,
+    resume?: VoiceResumeOptions,
   ): Promise<void> {
     if (!this.startVoiceTurn) {
       return;
