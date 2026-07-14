@@ -19,6 +19,11 @@
  * age so it cannot grow without limit (recent records get a short grace
  * from the count cap so an active tool window cannot lose its proof).
  *
+ * Only local-principal reveals record here (the direct-IPC identity a tool
+ * shell's CLI invocation carries — see the route handler's gate): a web or
+ * gateway-proxied reveal (Settings row, chat chips) is not evidence any
+ * tool ran a reveal and must never become proof.
+ *
  * Known limitation (shared with the --for-chat mint registry and tracked
  * as its follow-up): records are not conversation-scoped, so a concurrent
  * conversation's successful reveal of the SAME identity inside the
@@ -84,9 +89,11 @@ export function currentRevealSuccessWatermark(): number {
 
 /**
  * Record a successful reveal. Call ONLY from the `credentials_reveal`
- * route handler, after the plaintext has been located — this is the
- * ground truth the promotion check trusts. `value` is the plaintext the
- * route served, retained so persist redacts the exact printed bytes.
+ * route handler, after the plaintext has been located AND the caller was
+ * verified as the `local` principal (a tool shell's direct-IPC CLI call) —
+ * this is the ground truth the promotion check trusts. `value` is the
+ * plaintext the route served, retained so persist redacts the exact
+ * printed bytes.
  */
 export function recordRevealSuccess(
   service: string,

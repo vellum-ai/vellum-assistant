@@ -108,11 +108,17 @@ mock.module("../credential-execution/managed-catalog.js", () => ({
   fetchManagedCatalog: mock(async () => ({ ok: true, descriptors: [] })),
 }));
 
+import {
+  _resetRevealSuccessRegistryForTest,
+  currentRevealSuccessWatermark,
+  revealedValueSince,
+} from "../runtime/reveal-success-registry.js";
 import { ROUTES } from "../runtime/routes/credential-routes.js";
 
 const setRoute = ROUTES.find((r) => r.operationId === "credentials_set");
 const listRoute = ROUTES.find((r) => r.operationId === "credentials_list");
 const deleteRoute = ROUTES.find((r) => r.operationId === "credentials_delete");
+const revealRoute = ROUTES.find((r) => r.operationId === "credentials_reveal");
 
 type SetResponse = { credentialId: string; service: string; field: string };
 type ListResponse = {
@@ -135,6 +141,69 @@ describe("credentials routes", () => {
     syncedServices = [];
     disconnectedProviders = [];
     credentialIdCounter = 0;
+    _resetRevealSuccessRegistryForTest();
+  });
+
+  describe("credentials_reveal", () => {
+    test("a local-principal reveal returns the value and records proof", async () => {
+      /**
+       * A tool shell's `assistant credentials reveal` reaches this route as
+       * the direct-IPC `local` principal; its success is the ground truth
+       * the chat-credential persist seams use to promote staged refs.
+       */
+      // GIVEN a stored credential and the staging watermark
+      secureStore.set("vercel:api_token", SECRET_VALUE);
+      const watermark = currentRevealSuccessWatermark();
+
+      // WHEN revealed by the local principal
+      const result = (await revealRoute!.handler({
+        body: { service: "vercel", field: "api_token" },
+        headers: { "x-vellum-principal-type": "local" },
+      })) as { value: string };
+
+      // THEN the value is returned and the proof is recorded
+      expect(result.value).toBe(SECRET_VALUE);
+      expect(revealedValueSince(watermark, "vercel", "api_token")).toBe(
+        SECRET_VALUE,
+      );
+    });
+
+    test("a web/gateway reveal returns the value but records no proof", async () => {
+      /**
+       * The Settings row and chat chips hit this same handler over HTTP or
+       * the gateway proxy. Those reveals are not evidence any tool ran a
+       * reveal — recording them would let a UI click promote a staged ref
+       * in a concurrent turn whose command merely echoed the invocation.
+       */
+      secureStore.set("vercel:api_token", SECRET_VALUE);
+      const watermark = currentRevealSuccessWatermark();
+
+      for (const principal of ["user", "svc_gateway"]) {
+        const result = (await revealRoute!.handler({
+          body: { service: "vercel", field: "api_token" },
+          headers: { "x-vellum-principal-type": principal },
+        })) as { value: string };
+        expect(result.value).toBe(SECRET_VALUE);
+      }
+
+      expect(
+        revealedValueSince(watermark, "vercel", "api_token"),
+      ).toBeUndefined();
+    });
+
+    test("a reveal with no principal header records no proof (fails closed)", async () => {
+      secureStore.set("vercel:api_token", SECRET_VALUE);
+      const watermark = currentRevealSuccessWatermark();
+
+      const result = (await revealRoute!.handler({
+        body: { service: "vercel", field: "api_token" },
+      })) as { value: string };
+
+      expect(result.value).toBe(SECRET_VALUE);
+      expect(
+        revealedValueSince(watermark, "vercel", "api_token"),
+      ).toBeUndefined();
+    });
   });
 
   describe("credentials_set", () => {

@@ -297,7 +297,7 @@ async function handleCredentialsInspect({ body }: RouteHandlerArgs) {
   return output;
 }
 
-async function handleCredentialsReveal({ body }: RouteHandlerArgs) {
+async function handleCredentialsReveal({ body, headers }: RouteHandlerArgs) {
   if (!body || typeof body !== "object") {
     throw new BadRequestError("Request body is required");
   }
@@ -321,9 +321,20 @@ async function handleCredentialsReveal({ body }: RouteHandlerArgs) {
   // recorded here is the proof the agent loop requires before promoting
   // staged reveal candidates (a shell command can "succeed" without ever
   // reaching this handler — `… || true`, or an echo of the command text).
-  // Both lookup branches populate service/field; the guard only satisfies
-  // the loose `CredentialLookup` type.
-  if (lookup.service !== undefined && lookup.field !== undefined) {
+  // Proof is recorded ONLY for the `local` principal — the direct-IPC
+  // identity a tool shell's CLI invocation arrives with (verified by the
+  // adapters, never caller-supplied). Web reveals (the Settings row, chat
+  // chips) and gateway-proxied calls hit this same handler but are not
+  // evidence any tool ran a reveal, and recording them would let a UI
+  // click promote a staged ref in a concurrent turn whose command merely
+  // echoed the invocation. An unproven ref degrades to a plain sentinel —
+  // the safe direction. Both lookup branches populate service/field; the
+  // guard only satisfies the loose `CredentialLookup` type.
+  if (
+    headers?.["x-vellum-principal-type"] === "local" &&
+    lookup.service !== undefined &&
+    lookup.field !== undefined
+  ) {
     recordRevealSuccess(lookup.service, lookup.field, secret);
   }
 
