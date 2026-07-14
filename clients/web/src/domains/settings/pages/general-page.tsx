@@ -143,9 +143,9 @@ export function GeneralPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const showPreferences = isElectron() || !isPointerCoarse();
 
-  // Deep links to the retired Keyboard Shortcuts page redirect here with
-  // `?preferences=open` so the migrated controls stay one navigation away.
-  // Consume the param so refresh/back does not reopen the modal.
+  // The keyboard-shortcuts redirect stub and tab aliases land here with
+  // `?preferences=open` to surface the Preferences modal directly. Consume
+  // the param so refresh/back does not reopen the modal.
   useEffect(() => {
     if (searchParams.get("preferences") !== "open") {
       return;
