@@ -586,6 +586,17 @@ describe("memoryRetrospectiveJob", () => {
     expect(stateUpserts).toHaveLength(0);
     expect(lastRunAtBumps).toHaveLength(1);
     expect(deletedConversationIds).toEqual(["fork-conv-1"]);
+    // A thrown run still records an outcome counter (as "error") before the
+    // rethrow — exception-flavored outages must show in the health metric.
+    expect(
+      watchdogEvents.filter((e) => e.checkName === "memory_retrospective_run"),
+    ).toEqual([
+      {
+        checkName: "memory_retrospective_run",
+        value: 1,
+        detail: { outcome: "error", reason: "LLM provider 503" },
+      },
+    ]);
   });
 
   test("missing conversationId payload: no_new_messages, no side effects", async () => {

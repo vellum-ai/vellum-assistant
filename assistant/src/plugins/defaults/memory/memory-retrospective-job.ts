@@ -142,27 +142,42 @@ export async function memoryRetrospectiveJob(
     return { kind: "no_new_messages" };
   }
 
-  const outcome = await runForkBasedRetrospective(sourceConversationId, config);
   // Central health counter (admin analytics groups on the watchdog
-  // check_name): one event per run with the outcome kind, so a fleet-wide
-  // spike in `wake_failed` (e.g. a provider outage on the retrospective's
-  // resolved model) is visible without log access. Never throws — the run's
-  // outcome must reach the jobs worker regardless.
+  // check_name): one event per run with the outcome kind — including runs
+  // that THROW (the wake's rethrow path), recorded as outcome "error"
+  // before the exception continues to the jobs worker's retry machinery.
+  // Without the catch, exception-flavored outages would be invisible in
+  // the exact metric built to surface them; a fleet-wide spike in
+  // `wake_failed`/`error` (e.g. a provider outage on the retrospective's
+  // resolved model) must show without log access. The emitter itself never
+  // throws — the run's outcome must reach the jobs worker regardless.
+  const emitRunOutcome = (outcome: string, reason?: string): void => {
+    try {
+      recordWatchdogEvent({
+        checkName: MEMORY_RETROSPECTIVE_RUN_CHECK_NAME,
+        value: 1,
+        detail: {
+          outcome,
+          ...(reason ? { reason: reason.slice(0, 200) } : {}),
+        },
+      });
+    } catch {
+      // recordWatchdogEvent already no-ops on opt-out and a missing
+      // telemetry DB; anything past that is not worth surfacing here.
+    }
+  };
+
+  let outcome: MemoryRetrospectiveOutcome;
   try {
-    recordWatchdogEvent({
-      checkName: MEMORY_RETROSPECTIVE_RUN_CHECK_NAME,
-      value: 1,
-      detail: {
-        outcome: outcome.kind,
-        ...(outcome.kind === "wake_failed" && outcome.reason
-          ? { reason: outcome.reason }
-          : {}),
-      },
-    });
-  } catch {
-    // recordWatchdogEvent already no-ops on opt-out and a missing telemetry
-    // DB; anything past that is not worth surfacing here.
+    outcome = await runForkBasedRetrospective(sourceConversationId, config);
+  } catch (err) {
+    emitRunOutcome("error", err instanceof Error ? err.message : String(err));
+    throw err;
   }
+  emitRunOutcome(
+    outcome.kind,
+    outcome.kind === "wake_failed" ? outcome.reason : undefined,
+  );
   return outcome;
 }
 
