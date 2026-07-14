@@ -303,6 +303,30 @@ export class LiveVoiceChannelClient {
   }
 
   /**
+   * Retune the running session's turn-detection knobs ("pause before reply" /
+   * "interrupt sensitivity") without reconnecting. No-op unless the session is
+   * active; each field is optional. The daemon applies changes from the next
+   * utterance.
+   */
+  updateConfig(config: {
+    silenceThresholdMs?: number;
+    bargeInMinSpeechMs?: number;
+  }): void {
+    if (this.state !== "active") return;
+    this.trySend(
+      JSON.stringify({
+        type: "update_config",
+        ...(config.silenceThresholdMs !== undefined
+          ? { silenceThresholdMs: config.silenceThresholdMs }
+          : {}),
+        ...(config.bargeInMinSpeechMs !== undefined
+          ? { bargeInMinSpeechMs: config.bargeInMinSpeechMs }
+          : {}),
+      }),
+    );
+  }
+
+  /**
    * End the session gracefully: best-effort send `end`, then always close the
    * socket. A quick-cancel while still CONNECTING simply skips the (impossible)
    * `end` send and resolves as a clean close rather than a timeout failure.

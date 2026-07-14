@@ -67,6 +67,7 @@ import type {
 } from "./live-voice-tts.js";
 import {
   type LiveVoiceClientFrame,
+  type LiveVoiceClientUpdateConfigFrame,
   LiveVoiceProtocolErrorCode,
   type LiveVoiceServerFramePayload,
 } from "./protocol.js";
@@ -308,7 +309,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // Energy gate for server-VAD speech classification; undefined defers to
   // DEFAULT_SPEECH_ENERGY_THRESHOLD.
   private readonly speechEnergyThreshold: number | undefined;
-  private readonly bargeInMinSpeechMs: number;
+  // Mutable so a mid-session `update_config` frame can retune "interrupt
+  // sensitivity" live (see applyConfigUpdate).
+  private bargeInMinSpeechMs: number;
   // Sustained-speech barge-in guard, armed at speech onset while the
   // assistant turn is audibly speaking: consecutive speech-chunk duration
   // accumulates until it reaches bargeInMinSpeechMs, then the deferred
@@ -474,6 +477,25 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         return;
       case "start":
         return;
+      case "update_config":
+        this.applyConfigUpdate(frame);
+        return;
+    }
+  }
+
+  /**
+   * Apply a mid-session `update_config` frame: retune the live turn detector's
+   * pause ("pause before reply") and/or the barge-in guard ("interrupt
+   * sensitivity") without reconnecting. Each field is optional and independent;
+   * changes take effect from the next utterance. A no-op on manual (non-
+   * server_vad) sessions, which have no turn detector.
+   */
+  private applyConfigUpdate(frame: LiveVoiceClientUpdateConfigFrame): void {
+    if (frame.silenceThresholdMs !== undefined) {
+      this.turnDetector?.setSilenceThresholdMs(frame.silenceThresholdMs);
+    }
+    if (frame.bargeInMinSpeechMs !== undefined) {
+      this.bargeInMinSpeechMs = frame.bargeInMinSpeechMs;
     }
   }
 

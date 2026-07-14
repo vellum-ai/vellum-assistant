@@ -82,11 +82,23 @@ export interface LiveVoiceClientEndFrame {
   readonly type: "end";
 }
 
+/**
+ * Mid-session tuning update — retunes "pause before reply" / "interrupt
+ * sensitivity" on the running server_vad session without reconnecting. Each
+ * field is optional; the daemon applies changes from the next utterance.
+ */
+export interface LiveVoiceClientUpdateConfigFrame {
+  readonly type: "update_config";
+  readonly silenceThresholdMs?: number;
+  readonly bargeInMinSpeechMs?: number;
+}
+
 export type LiveVoiceClientFrame =
   | LiveVoiceClientStartFrame
   | LiveVoiceClientPttReleaseFrame
   | LiveVoiceClientInterruptFrame
-  | LiveVoiceClientEndFrame;
+  | LiveVoiceClientEndFrame
+  | LiveVoiceClientUpdateConfigFrame;
 
 // ---------------------------------------------------------------------------
 // Server frames (text/JSON; every frame carries `seq`)

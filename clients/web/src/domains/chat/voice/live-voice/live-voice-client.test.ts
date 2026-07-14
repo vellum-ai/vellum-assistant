@@ -623,6 +623,35 @@ describe("control frames", () => {
       { type: "interrupt" },
     ]);
   });
+
+  test("updateConfig sends an update_config frame with only the provided fields when active", async () => {
+    const client = makeClient();
+    const ws = await connectAndGetSocket(client);
+    ws.open();
+    ws.receive({ type: "ready", seq: 1, sessionId: "s", conversationId: "c" });
+
+    client.updateConfig({ silenceThresholdMs: 1400 });
+
+    expect(ws.sentJson.slice(1)).toEqual([
+      { type: "update_config", silenceThresholdMs: 1400 },
+    ]);
+  });
+
+  test("updateConfig is a no-op before the session is active", async () => {
+    const client = makeClient();
+    const ws = await connectAndGetSocket(client);
+    ws.open(); // opened but no `ready` yet → still connecting, not active
+
+    client.updateConfig({ silenceThresholdMs: 1400 });
+
+    // Only the start frame was sent; the update was dropped.
+    expect(ws.sentJson).toEqual([
+      {
+        type: "start",
+        audio: { mimeType: "audio/pcm", sampleRate: 16000, channels: 1 },
+      },
+    ]);
+  });
 });
 
 // ---------------------------------------------------------------------------
