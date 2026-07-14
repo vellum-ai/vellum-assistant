@@ -282,6 +282,14 @@ interface SessionContext {
    * `metrics` frame always pairs with its own turn's measurement.
    */
   clientHeardLatencyMs: number | null;
+  /**
+   * Pending idle-check timer for the store's `assistantAudioActive` flag. Armed
+   * on each `tts_audio` frame and re-armed while the player is still draining;
+   * fires once audio has stopped flowing to mark the assistant silent (so a
+   * mid-turn tool run reads as `thinking`, not `speaking` — JARVIS-1279).
+   * Cleared on teardown/flush.
+   */
+  assistantAudioIdleTimer: ReturnType<typeof setTimeout> | null;
 }
 
 /** Number of bytes per Int16 PCM sample. */
@@ -413,6 +421,7 @@ export function useLiveVoice(
     const startGeneration = startGenerationRef.current;
     sessionRef.current = null;
     session.generation += 1;
+    clearAssistantAudioActive(session);
     useLiveVoiceStore.getState().setState("ending");
     for (const unsubscribe of session.unsubscribes) unsubscribe();
     session.unsubscribes = [];
@@ -561,6 +570,7 @@ export function useLiveVoice(
         speechEndedAtMs: null,
         turnHeardStampMs: null,
         clientHeardLatencyMs: null,
+        assistantAudioIdleTimer: null,
       };
 
       const capture = (opts.createCapture ?? ((o) => new LiveVoiceAudioCapture(o)))({
@@ -725,6 +735,10 @@ export function useLiveVoice(
             mimeType: frame.mimeType,
           };
           session.player.enqueue(chunk);
+          // Mark audio flowing before the phase flip so no render observes
+          // `speaking` without `assistantAudioActive` (which would blink the
+          // avatar to `thinking` at the top of every response — JARVIS-1279).
+          markAssistantAudioActive(session);
           useLiveVoiceStore.getState().setState("speaking");
         }),
         client.on("ttsDone", () => {
@@ -920,6 +934,7 @@ export function useLiveVoice(
  */
 function disposeSessionPrimitives(session: SessionContext): void {
   session.generation += 1;
+  clearAssistantAudioActive(session);
   for (const unsubscribe of session.unsubscribes) unsubscribe();
   session.unsubscribes = [];
   session.client.close();
@@ -1134,12 +1149,62 @@ function beginAssistantAudioIfNeeded(session: SessionContext): void {
 }
 
 /**
+ * Grace period after the player stops producing audio before the assistant is
+ * treated as silent within a still-open `speaking` turn. Long enough to bridge
+ * inter-frame network gaps and a short buffered tail, short enough that a real
+ * mid-turn pause (a tool call after a spoken ack) reads as `thinking` promptly.
+ */
+const ASSISTANT_AUDIO_IDLE_MS = 500;
+
+/**
+ * Mark assistant TTS audio as flowing and (re)arm the idle check. Called on
+ * every `tts_audio` frame: a continuous stream keeps re-arming the timer so the
+ * flag stays true for the whole spoken stretch; once frames stop and the queue
+ * drains, {@link scheduleAssistantAudioIdleCheck} flips it false. Drives the
+ * avatar's `speaking → responding` vs `thinking` split (JARVIS-1279).
+ */
+function markAssistantAudioActive(session: SessionContext): void {
+  useLiveVoiceStore.getState().setAssistantAudioActive(true);
+  scheduleAssistantAudioIdleCheck(session);
+}
+
+/**
+ * Arm (replacing any prior) the timer that marks the assistant silent once
+ * audio stops flowing. If the player is still draining its buffered tail when
+ * the timer fires, re-arm rather than blinking to silence over audible audio —
+ * only a genuinely idle player flips the flag false.
+ */
+function scheduleAssistantAudioIdleCheck(session: SessionContext): void {
+  if (session.assistantAudioIdleTimer !== null) {
+    clearTimeout(session.assistantAudioIdleTimer);
+  }
+  session.assistantAudioIdleTimer = setTimeout(() => {
+    session.assistantAudioIdleTimer = null;
+    if (session.player.isPlaying) {
+      scheduleAssistantAudioIdleCheck(session);
+      return;
+    }
+    useLiveVoiceStore.getState().setAssistantAudioActive(false);
+  }, ASSISTANT_AUDIO_IDLE_MS);
+}
+
+/** Cancel the idle check and clear the flag (barge-in, turn end, teardown). */
+function clearAssistantAudioActive(session: SessionContext): void {
+  if (session.assistantAudioIdleTimer !== null) {
+    clearTimeout(session.assistantAudioIdleTimer);
+    session.assistantAudioIdleTimer = null;
+  }
+  useLiveVoiceStore.getState().setAssistantAudioActive(false);
+}
+
+/**
  * Hands-free: flush local TTS playback immediately, drop expectations for the
  * in-flight response, and keep the session live in `listening`.
  */
 function flushPlaybackToListening(session: SessionContext): void {
   session.player.stop();
   session.responseAudioStarted = false;
+  clearAssistantAudioActive(session);
   useLiveVoiceStore.getState().setState("listening");
 }
 
@@ -1177,6 +1242,9 @@ async function finishResponseAfterPlayback(
 
   await session.player.waitUntilDrained();
   if (session.generation !== generation) return;
+  // Audio has fully drained — the assistant is no longer speaking regardless of
+  // where the turn goes next (a newer turn re-marks it on its own tts_audio).
+  clearAssistantAudioActive(session);
 
   const state = useLiveVoiceStore.getState().state;
   if (session.handsFree) {

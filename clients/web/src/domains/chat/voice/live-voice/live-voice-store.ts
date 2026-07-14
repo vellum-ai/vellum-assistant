@@ -167,6 +167,17 @@ export interface LiveVoiceState {
   /** Current phase of the session lifecycle. */
   state: LiveVoiceSessionState;
   /**
+   * Whether the assistant's TTS audio is actually queued/playing right now,
+   * tracked by the controller from the active {@link LiveVoiceAudioPlayer} with
+   * a short idle grace. The `speaking` phase mirrors server turn framing (set on
+   * the first `tts_audio`, cleared only on `tts_done`), so a turn that speaks an
+   * ack and then runs a tool stays `speaking` while silent; this flag lets the
+   * avatar distinguish "actively speaking" from "silent mid-turn" and read as
+   * `thinking` during the tool run (see `toVoiceAvatarVisual`, JARVIS-1279).
+   * Meaningful only while `state === "speaking"`.
+   */
+  assistantAudioActive: boolean;
+  /**
    * True while the controller is retrying a dropped connection (attempt > 0),
    * so surfaces can distinguish it from the initial-connect `connecting`.
    * Orthogonal to `state`, which stays a 1:1 mirror of the macOS enum.
@@ -254,6 +265,8 @@ export interface LiveVoiceState {
 export interface LiveVoiceActions {
   /** Replace the session phase. */
   setState: (state: LiveVoiceSessionState) => void;
+  /** Record whether assistant TTS audio is currently queued/playing. */
+  setAssistantAudioActive: (active: boolean) => void;
   /** Set whether the controller is retrying a dropped connection. */
   setReconnecting: (reconnecting: boolean) => void;
   /**
@@ -383,6 +396,7 @@ export function isLiveVoiceSessionOwnedBy(
 /** Session-scoped fields restored by `reset()`. Excludes `starter` (mount-scoped). */
 const INITIAL_SESSION_STATE: Omit<LiveVoiceState, "starter"> = {
   state: "idle",
+  assistantAudioActive: false,
   reconnecting: false,
   assistantId: null,
   conversationId: null,
@@ -405,6 +419,8 @@ const useLiveVoiceStoreBase = create<LiveVoiceStore>()((set) => ({
   starter: null,
 
   setState: (state) => set({ state }),
+  setAssistantAudioActive: (assistantAudioActive) =>
+    set({ assistantAudioActive }),
   setReconnecting: (reconnecting) => set({ reconnecting }),
   setSessionContext: (assistantId, conversationId) =>
     // A fresh session always opens with the mic live, even if the controller
