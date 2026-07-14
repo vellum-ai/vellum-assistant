@@ -2,8 +2,10 @@
  * Tests for pre-flush telemetry wire validation.
  *
  * Validation is observability only — it must count and warn, never mutate,
- * filter, or block — and its warn payloads must carry issue `{ path, code }`
- * shapes only, never field values (traces/claims can hold PII).
+ * filter, or block — and its warn payloads must carry the event type and
+ * issue `{ path, code }` shapes only, never field values. `daemon_event_id`
+ * is a field value too: activation-funnel ids embed the onboarding session
+ * id (traces/claims can hold PII).
  */
 import { beforeEach, describe, expect, test } from "bun:test";
 
@@ -185,7 +187,10 @@ describe("validateWireEvents", () => {
     };
     const invalidLifecycle = {
       type: "lifecycle",
-      daemon_event_id: "life-bad",
+      // Mirrors the activation-funnel id shape (`version:sessionId:step`),
+      // which embeds the onboarding session id and exceeds the wire schema's
+      // 36-char daemon_event_id bound — the id itself must never be logged.
+      daemon_event_id: `activation_v1_2026_06:${sentinel}:activation_moment_1_complete`,
       recorded_at: 1_700_000_000_011,
       assistant_version: sentinel,
       // event_name is missing.
@@ -200,6 +205,9 @@ describe("validateWireEvents", () => {
         eventType: string;
         issues: Array<Record<string, unknown>>;
       };
+      // The bag carries the event type and issues only — no daemon_event_id
+      // (it is a payload value; activation ids embed the session id).
+      expect(Object.keys(bag).sort()).toEqual(["eventType", "issues"]);
       expect(bag.issues.length).toBeGreaterThan(0);
       for (const issue of bag.issues) {
         // Issues carry path + code only — never messages or field values.
@@ -211,9 +219,11 @@ describe("validateWireEvents", () => {
     expect(
       (warnCalls[0][0] as { issues: Array<{ path: string }> }).issues[0].path,
     ).toStartWith("client");
-    expect(
-      (warnCalls[1][0] as { issues: Array<{ path: string }> }).issues[0].path,
-    ).toBe("event_name");
+    const lifecyclePaths = (
+      warnCalls[1][0] as { issues: Array<{ path: string }> }
+    ).issues.map((issue) => issue.path);
+    expect(lifecyclePaths).toContain("daemon_event_id");
+    expect(lifecyclePaths).toContain("event_name");
 
     // The planted sentinel (a field value) must be absent from all log args.
     expect(JSON.stringify(warnCalls)).not.toInclude(sentinel);

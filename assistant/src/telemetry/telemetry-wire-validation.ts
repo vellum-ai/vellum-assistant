@@ -58,14 +58,16 @@ export interface WireValidationResult {
 /**
  * Validate a batch of outgoing telemetry events against the platform wire
  * schemas, logging a structured warning for each event the server would
- * silently drop. Warn payloads carry issue `{ path, code }` shapes only —
- * never field values, since traces/claims can hold PII.
+ * silently drop. Warn payloads carry the event `type` and issue
+ * `{ path, code }` shapes only — never field values. That includes
+ * `daemon_event_id`: traces/claims can hold PII, and activation-funnel ids
+ * embed the onboarding session id.
  *
  * Never mutates, filters, or blocks: callers send the batch unchanged
  * regardless of the result.
  */
 export function validateWireEvents(
-  events: readonly { type: string; daemon_event_id?: string }[],
+  events: readonly { type: string }[],
   log: Logger,
 ): WireValidationResult {
   let checked = 0;
@@ -93,11 +95,7 @@ export function validateWireEvents(
         code: issue.code,
       }));
       log.warn(
-        {
-          eventType: event.type,
-          daemonEventId: event.daemon_event_id,
-          issues,
-        },
+        { eventType: event.type, issues },
         "telemetry event fails platform wire contract — server will silently drop it",
       );
     }
