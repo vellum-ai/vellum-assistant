@@ -22,17 +22,9 @@
  * a walk trips over a half-written plugin directory.
  */
 
-import {
-  existsSync,
-  mkdirSync,
-  renameSync,
-  statSync,
-  writeFileSync,
-} from "node:fs";
-import { readdirSync } from "node:fs";
-import { join } from "node:path";
+import { mkdirSync, renameSync, writeFileSync } from "node:fs";
 
-import { snapshotPluginSource } from "../plugins/source-fingerprint.js";
+import { collectSourceVersions } from "../plugins/collect-source-versions.js";
 import type {
   PluginSourceVersion,
   SourceVersionsDocument,
@@ -43,68 +35,9 @@ import {
   SOURCE_VERSIONS_FORMAT,
 } from "../plugins/source-versions.js";
 import { getLogger } from "../util/logger.js";
-import {
-  getMonitoringDataDir,
-  getWorkspaceHooksDir,
-  getWorkspacePluginsDir,
-} from "../util/platform.js";
+import { getMonitoringDataDir } from "../util/platform.js";
 
 const log = getLogger("plugin-source-watch");
-
-/**
- * Collect the current source version of every watched directory: each
- * plugin directory under `<workspace>/plugins/` (same discovery rule as the
- * daemon's plugin scan — a directory with a `package.json`), plus the
- * standalone workspace hooks directory when it exists. Disabled plugins are
- * fingerprinted too: consumers need fresh state the moment a plugin is
- * re-enabled, and the `disabled` field is how they observe the toggle
- * itself (dotfiles are excluded from the fingerprint).
- */
-export function collectSourceVersions(): Record<string, PluginSourceVersion> {
-  const out: Record<string, PluginSourceVersion> = {};
-
-  const pluginsDir = getWorkspacePluginsDir();
-  let entries: string[] = [];
-  try {
-    entries = readdirSync(pluginsDir);
-  } catch {
-    // No plugins directory yet — nothing to watch there.
-  }
-  for (const entry of entries) {
-    if (entry.startsWith(".")) {
-      continue;
-    }
-    const dir = join(pluginsDir, entry);
-    try {
-      if (!statSync(dir).isDirectory()) {
-        continue;
-      }
-    } catch {
-      continue;
-    }
-    if (!existsSync(join(dir, "package.json"))) {
-      continue;
-    }
-    const snapshot = snapshotPluginSource(dir);
-    out[dir] = {
-      fingerprint: snapshot.fingerprint,
-      evictionPaths: snapshot.evictionPaths,
-      disabled: existsSync(join(dir, ".disabled")),
-    };
-  }
-
-  const workspaceHooksDir = getWorkspaceHooksDir();
-  if (existsSync(workspaceHooksDir)) {
-    const snapshot = snapshotPluginSource(workspaceHooksDir);
-    out[workspaceHooksDir] = {
-      fingerprint: snapshot.fingerprint,
-      evictionPaths: snapshot.evictionPaths,
-      disabled: false,
-    };
-  }
-
-  return out;
-}
 
 /**
  * Whether two version maps describe the same source state. Compares key

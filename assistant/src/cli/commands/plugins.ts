@@ -10,6 +10,7 @@ import { createRequire } from "node:module";
 
 import type { Command } from "commander";
 
+import { cliIpcCall } from "../../ipc/cli-client.js";
 import { yellow } from "../lib/cli-colors.js";
 import { applyCommandHelp, subcommand } from "../lib/cli-command-help.js";
 import { confirmPrompt } from "../lib/confirm-prompt.js";
@@ -222,6 +223,20 @@ export function registerPluginsCommand(program: Command): void {
               },
               "external plugin installed",
             );
+            // Poke the running daemon to bring the freshly materialized plugin
+            // up now — register its tools and run its `init` hook — instead of
+            // leaving it for the background source watcher plus a later turn (or
+            // the next daemon boot). Best-effort: this command materializes the
+            // files in its own process and works with the daemon stopped, so a
+            // poke that can't reach the daemon is not an install failure — the
+            // plugin is picked up on the daemon's next start.
+            const reconcile = await cliIpcCall("plugins_reconcile");
+            if (!reconcile.ok) {
+              log.debug(
+                { name: result.name, error: reconcile.error },
+                "post-install plugin reconcile poke did not reach the daemon; plugin will initialize on the daemon's next start",
+              );
+            }
             const pinned = result.commit
               ? ` at ${result.commit.slice(0, 7)}`
               : "";
