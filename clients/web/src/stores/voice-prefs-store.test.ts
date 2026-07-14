@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
 import {
-  DEFAULT_INTERRUPT_SENSITIVITY,
   DEFAULT_PAUSE_BEFORE_REPLY_MS,
   MAX_PAUSE_BEFORE_REPLY_MS,
   MIN_PAUSE_BEFORE_REPLY_MS,
@@ -17,8 +16,8 @@ beforeEach(() => {
     showUserTranscript: false,
     showAssistantTranscript: false,
     firstRunSeen: false,
-    pauseBeforeReplyMs: DEFAULT_PAUSE_BEFORE_REPLY_MS,
-    interruptSensitivity: DEFAULT_INTERRUPT_SENSITIVITY,
+    pauseBeforeReplyMs: null,
+    interruptSensitivity: null,
   });
 });
 
@@ -88,13 +87,14 @@ describe("useVoicePrefsStore — voice-mode preferences", () => {
 });
 
 describe("useVoicePrefsStore — turn-taking settings (JARVIS-1284)", () => {
-  test("defaults: 1200 ms pause, medium sensitivity", () => {
-    expect(useVoicePrefsStore.getState().pauseBeforeReplyMs).toBe(1200);
-    expect(useVoicePrefsStore.getState().interruptSensitivity).toBe("medium");
+  test("defaults are unset (null) so the daemon config governs", () => {
+    expect(useVoicePrefsStore.getState().pauseBeforeReplyMs).toBeNull();
+    expect(useVoicePrefsStore.getState().interruptSensitivity).toBeNull();
+    // The default constant still exists for the UI's resting value.
     expect(DEFAULT_PAUSE_BEFORE_REPLY_MS).toBe(1200);
   });
 
-  test("setInterruptSensitivity records the level", () => {
+  test("setInterruptSensitivity records an explicit level", () => {
     useVoicePrefsStore.getState().setInterruptSensitivity("high");
     expect(useVoicePrefsStore.getState().interruptSensitivity).toBe("high");
   });

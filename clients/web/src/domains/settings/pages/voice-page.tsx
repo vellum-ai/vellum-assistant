@@ -17,6 +17,8 @@ import { Toggle } from "@vellumai/design-library/components/toggle";
 
 import { DetailCard } from "@/components/detail-card";
 import {
+  DEFAULT_INTERRUPT_SENSITIVITY,
+  DEFAULT_PAUSE_BEFORE_REPLY_MS,
   MAX_PAUSE_BEFORE_REPLY_MS,
   MIN_PAUSE_BEFORE_REPLY_MS,
   useVoicePrefsStore,
@@ -570,7 +572,9 @@ function PauseBeforeReplyCard() {
     >
       <div className="max-w-xs">
         <Slider
-          value={pauseMs / 1000}
+          // Unset (null) shows the default as the resting value; moving the
+          // slider records an explicit preference (which is then sent).
+          value={(pauseMs ?? DEFAULT_PAUSE_BEFORE_REPLY_MS) / 1000}
           onValueChange={(next) => {
             if (typeof next === "number") setPauseMs(Math.round(next * 1000));
           }}
@@ -600,7 +604,9 @@ function InterruptSensitivityCard() {
       <div className="max-w-xs">
         <SegmentControl<InterruptSensitivity>
           items={INTERRUPT_SENSITIVITY_ITEMS}
-          value={sensitivity}
+          // Unset (null) shows the default; picking a level records an explicit
+          // preference (which is then sent).
+          value={sensitivity ?? DEFAULT_INTERRUPT_SENSITIVITY}
           onChange={setSensitivity}
           ariaLabel="Interrupt sensitivity"
         />

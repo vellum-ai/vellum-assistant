@@ -960,21 +960,27 @@ export function useLiveVoice(
         }),
       );
 
+      // The pause + interrupt-sensitivity settings only apply to hands-free
+      // (server_vad) sessions — server VAD owns endpointing and barge-in. Read
+      // from the store (not the `.use.*` hook) since this is a callback, so a
+      // mid-session settings change also takes effect on the next reconnect.
+      // Each override is sent ONLY when the user has explicitly set it (non-null):
+      // otherwise it is omitted so the daemon's configured `liveVoice.vad`
+      // defaults govern, rather than a web-client default silently clobbering a
+      // self-hosted workspace's configuration.
+      const voicePrefs = useVoicePrefsStore.getState();
+      const pauseMs = voicePrefs.pauseBeforeReplyMs;
+      const sensitivity = voicePrefs.interruptSensitivity;
       await client.connect({
         assistantId,
         conversationId,
-        // The pause + interrupt-sensitivity settings only apply to hands-free
-        // (server_vad) sessions — server VAD owns endpointing and barge-in. Read
-        // from the store (not the `.use.*` hook) since this is a callback, so a
-        // mid-session settings change also takes effect on the next reconnect.
         ...(session.handsFree
           ? {
               turnDetection: "server_vad" as const,
-              silenceThresholdMs:
-                useVoicePrefsStore.getState().pauseBeforeReplyMs,
-              bargeInMinSpeechMs: interruptSensitivityToMs(
-                useVoicePrefsStore.getState().interruptSensitivity,
-              ),
+              ...(pauseMs !== null ? { silenceThresholdMs: pauseMs } : {}),
+              ...(sensitivity !== null
+                ? { bargeInMinSpeechMs: interruptSensitivityToMs(sensitivity) }
+                : {}),
             }
           : {}),
       });

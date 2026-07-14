@@ -90,10 +90,20 @@ export interface VoicePrefsState {
    * assistant replies — the "pause before reply" setting. Sent as the session's
    * `silenceThresholdMs`. A longer pause tolerates mid-thought pauses without
    * the assistant jumping in.
+   *
+   * `null` means the user hasn't set a preference — the session omits the
+   * override so the daemon's configured `liveVoice.vad.silenceThresholdMs`
+   * governs (never silently clobbering a self-hosted workspace's config). The
+   * UI still shows {@link DEFAULT_PAUSE_BEFORE_REPLY_MS} as the resting value.
    */
-  pauseBeforeReplyMs: number;
-  /** How easily the user can interrupt the assistant mid-reply. */
-  interruptSensitivity: InterruptSensitivity;
+  pauseBeforeReplyMs: number | null;
+  /**
+   * How easily the user can interrupt the assistant mid-reply. `null` means no
+   * preference set — the daemon's configured `bargeInMinSpeechMs` governs (see
+   * {@link pauseBeforeReplyMs}); the UI shows
+   * {@link DEFAULT_INTERRUPT_SENSITIVITY} as the resting value.
+   */
+  interruptSensitivity: InterruptSensitivity | null;
 }
 
 export interface VoicePrefsActions {
@@ -115,8 +125,10 @@ const INITIAL_STATE: VoicePrefsState = {
   showUserTranscript: false,
   showAssistantTranscript: false,
   firstRunSeen: false,
-  pauseBeforeReplyMs: DEFAULT_PAUSE_BEFORE_REPLY_MS,
-  interruptSensitivity: DEFAULT_INTERRUPT_SENSITIVITY,
+  // Unset until the user picks a value — see the field docs. Omitting the
+  // override lets the daemon's configured VAD defaults stand.
+  pauseBeforeReplyMs: null,
+  interruptSensitivity: null,
 };
 
 // ---------------------------------------------------------------------------

@@ -49,11 +49,7 @@ const { useLiveVoice } =
   await import("@/domains/chat/voice/live-voice/use-live-voice");
 const { useLiveVoiceStore } =
   await import("@/domains/chat/voice/live-voice/live-voice-store");
-const {
-  useVoicePrefsStore,
-  DEFAULT_PAUSE_BEFORE_REPLY_MS,
-  DEFAULT_INTERRUPT_SENSITIVITY,
-} = await import("@/stores/voice-prefs-store");
+const { useVoicePrefsStore } = await import("@/stores/voice-prefs-store");
 
 // ---------------------------------------------------------------------------
 // Harness
@@ -132,11 +128,11 @@ async function startListening(
 beforeEach(() => {
   useLiveVoiceStore.getState().reset();
   // The voice-prefs store is a persisted singleton — reset the two turn-taking
-  // settings to their defaults so a test that changes them can't leak into the
+  // settings to unset (null) so a test that sets them can't leak into the
   // connect-args assertions of the next.
   useVoicePrefsStore.setState({
-    pauseBeforeReplyMs: DEFAULT_PAUSE_BEFORE_REPLY_MS,
-    interruptSensitivity: DEFAULT_INTERRUPT_SENSITIVITY,
+    pauseBeforeReplyMs: null,
+    interruptSensitivity: null,
   });
 });
 
@@ -490,17 +486,16 @@ describe("hands-free mode", () => {
     });
   }
 
-  test("connects with server_vad turn detection and the default pause + interrupt settings", async () => {
+  test("connects with server_vad turn detection, omitting the pause + interrupt overrides when unset", async () => {
     const h = renderController();
     await startListening(h, { handsFree: true });
 
-    // Defaults: 1200 ms pause, "medium" interrupt sensitivity → 250 ms.
+    // With no user preference set, the overrides are omitted so the daemon's
+    // configured VAD defaults govern (never clobbered by a client default).
     expect(h.client.connectArgs).toEqual({
       assistantId: "assistant-1",
       conversationId: "conv-1",
       turnDetection: "server_vad",
-      silenceThresholdMs: 1200,
-      bargeInMinSpeechMs: 250,
     });
     expect(h.view.result.current.state).toBe("listening");
   });
@@ -2363,8 +2358,8 @@ describe("hands-free reconnect (retryable tunnel close)", () => {
     expect(h.view.result.current.state).toBe("connecting");
     expect(useLiveVoiceStore.getState().controls).not.toBeNull();
 
-    // Backoff elapses → a fresh connect to the SAME conversation, carrying the
-    // default turn-taking settings (1200 ms pause / 250 ms barge-in).
+    // Backoff elapses → a fresh connect to the SAME conversation (no turn-taking
+    // overrides, since none were set).
     await act(async () => {
       await sleep(80);
     });
@@ -2372,8 +2367,6 @@ describe("hands-free reconnect (retryable tunnel close)", () => {
       assistantId: "assistant-1",
       conversationId: "conv-1",
       turnDetection: "server_vad",
-      silenceThresholdMs: 1200,
-      bargeInMinSpeechMs: 250,
     });
 
     // The reconnected session's `ready` resumes listening (a torn-down session
@@ -2649,8 +2642,8 @@ describe("initial-connect resilience (JARVIS-1282)", () => {
     expect(useLiveVoiceStore.getState().reconnecting).toBe(false);
     expect(useLiveVoiceStore.getState().controls).not.toBeNull();
 
-    // Backoff elapses → a fresh connect to the same conversation, carrying the
-    // default turn-taking settings (1200 ms pause / 250 ms barge-in).
+    // Backoff elapses → a fresh connect to the same conversation (no turn-taking
+    // overrides, since none were set).
     await act(async () => {
       await sleep(30);
     });
@@ -2658,8 +2651,6 @@ describe("initial-connect resilience (JARVIS-1282)", () => {
       assistantId: "assistant-1",
       conversationId: "conv-1",
       turnDetection: "server_vad",
-      silenceThresholdMs: 1200,
-      bargeInMinSpeechMs: 250,
     });
 
     // The retry readies → listening; the error never appeared.
