@@ -26,7 +26,7 @@ type Logger = ReturnType<typeof getLogger>;
  * discriminated union (`.options` + each member's `type` literal), so a new
  * generated event type is validated with zero hand edits here.
  */
-export const wireSchemaByType: ReadonlyMap<string, z.ZodType> = new Map(
+const wireSchemaByType: ReadonlyMap<string, z.ZodType> = new Map(
   telemetryEventSchema.options.map((option) => [
     option.shape.type.value,
     option,
@@ -66,7 +66,7 @@ function sanitizeIssuePath(path: ReadonlyArray<PropertyKey>): string {
     .join(".");
 }
 
-export interface WireValidationResult {
+interface WireValidationResult {
   /** Events whose type had a wire schema and were parsed against it. */
   checked: number;
   /** Checked events that failed their wire schema. */
