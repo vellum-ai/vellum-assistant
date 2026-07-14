@@ -42,7 +42,9 @@ if [[ -z "$AUDIO_DEVICE" ]]; then
     fi
 fi
 
+EDITOR_STATUS="${GEMINI_MODEL:-gemini-3-flash-preview}"
 if [[ -z "${GEMINI_API_KEY:-}" ]]; then
+    EDITOR_STATUS="disabled"
     echo "⚠️  GEMINI_API_KEY not set — editor disabled."
     echo "   The assistant will be woken every $((${WATCH_MAX_HOLD:-240} / 60)) min with evenly spaced frames."
 fi
@@ -54,7 +56,7 @@ echo "   Session:      $SESSION_DIR"
 echo "   Conversation: ${CONVERSATION_KEY:0:40}..."
 echo "   Chunks:       ${CHUNK_SECONDS}s each"
 echo "   Audio:        $AUDIO_DEVICE"
-echo "   Editor:       ${GEMINI_API_KEY:+${GEMINI_MODEL:-gemini-3-flash-preview}}${GEMINI_API_KEY:-disabled}"
+echo "   Editor:       $EDITOR_STATUS"
 echo ""
 echo "   Press Ctrl+C to stop"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
