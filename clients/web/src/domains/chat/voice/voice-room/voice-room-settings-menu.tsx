@@ -18,6 +18,7 @@
 
 import { Settings } from "lucide-react";
 
+import { cn } from "@vellumai/design-library";
 import { Popover } from "@vellumai/design-library/components/popover";
 import { Slider } from "@vellumai/design-library/components/slider";
 import { Toggle } from "@vellumai/design-library/components/toggle";
@@ -34,6 +35,8 @@ interface VoiceRoomSettingsMenuProps {
   /** Styling for the gear trigger, so it matches the room's other controls. */
   triggerClassName: string;
 }
+
+const rowLabelClass = "text-body-medium-default text-[var(--content-default)]";
 
 export function VoiceRoomSettingsMenu({
   triggerClassName,
@@ -68,27 +71,36 @@ export function VoiceRoomSettingsMenu({
           type="button"
           aria-label="Voice settings"
           title="Voice settings"
-          className={triggerClassName}
+          className={cn(
+            triggerClassName,
+            // Show the active (open) state with the same room tokens the
+            // control's hover uses.
+            "data-[state=open]:bg-[var(--room-wash)] data-[state=open]:text-[var(--room-fg)]",
+          )}
         >
           <Settings className="size-5" />
         </button>
       </Popover.Trigger>
-      <Popover.Content side="bottom" align="end" sideOffset={8} className="w-64">
-        <div className="flex flex-col gap-4 p-1">
-          <label className="flex items-center justify-between gap-3">
-            <span className="text-body-medium-default text-[var(--content-default)]">
-              Captions
-            </span>
+      <Popover.Content
+        side="bottom"
+        align="end"
+        sideOffset={8}
+        className="w-64 p-3"
+      >
+        <div className="flex flex-col">
+          <label className="flex items-center justify-between gap-3 py-1">
+            <span className={rowLabelClass}>Captions</span>
             <Toggle
               checked={captionsOn}
               onChange={setCaptions}
               aria-label="Show captions"
             />
           </label>
-          <div className="flex flex-col gap-2">
-            <span className="text-body-medium-default text-[var(--content-default)]">
-              Pause before reply
-            </span>
+
+          <div className="my-2 border-t border-[var(--border-subtle)]" />
+
+          <div className="flex flex-col gap-2 py-1">
+            <span className={rowLabelClass}>Pause before reply</span>
             <Slider
               value={(pauseMs ?? DEFAULT_PAUSE_BEFORE_REPLY_MS) / 1000}
               onValueChange={handlePauseChange}
