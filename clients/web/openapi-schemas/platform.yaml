@@ -4287,7 +4287,8 @@ paths:
   /v1/organizations/billing/plans/:
     get:
       operationId: organizations_billing_plans_retrieve
-      description: Return the Pro plan catalog (Base + Pro). Read-only, no I/O.
+      description: Return the Pro plan catalog (Base + Pro). Read-only, no Stripe
+        I/O.
       parameters:
       - in: header
         name: Vellum-Organization-Id
@@ -4460,11 +4461,12 @@ paths:
       description: Upgrade the storage tier on the org's active Pro subscription.
         Modifies the Stripe subscription item in place and invoices immediately (always_invoice).
         Storage is upgrade-only — equal-tier requests are a no-op and smaller-tier
-        requests are rejected with HTTP 400 before any Stripe call. PVCs are never
-        grown here; the per-assistant resize card applies the new ceiling. Rejected
-        with HTTP 409 while a cancellation is pending. Requires an active Pro subscription
-        with storage_tier metadata; legacy subscriptions get HTTP 409 until they are
-        migrated.
+        requests are rejected with HTTP 400 before any Stripe call. Legacy (no-longer-offered)
+        tiers are rejected with HTTP 400 unless they equal the current tier (which
+        no-ops). PVCs are never grown here; the per-assistant resize card applies
+        the new ceiling. Rejected with HTTP 409 while a cancellation is pending. Requires
+        an active Pro subscription with storage_tier metadata; legacy subscriptions
+        get HTTP 409 until they are migrated.
       parameters:
       - in: header
         name: Vellum-Organization-Id
@@ -7672,10 +7674,15 @@ components:
         policy, AI data sharing) are intentionally excluded — the daemon only needs
         the share preferences.
 
-        Released daemons parse ``share_analytics`` as a strict boolean, so this
-        projection must stay additive: a never-chosen (null) value is coerced to
-        ``False`` (fail closed) and surfaced separately via
-        ``share_analytics_chosen``.
+        Released daemons parse the share toggles as strict booleans, so this
+        projection must stay additive: telemetry is opt-out, so a never-chosen
+        (null) value is coerced to ``True`` (enabled by default) and the
+        explicit-choice fact is surfaced separately via the ``*_chosen`` fields.
+        PII trace eligibility is unaffected by the coercion: it also requires
+        ``share_diagnostics_accepted_version``, which is reported as ``""`` until
+        an explicit diagnostics value is recorded — even if a version-only write
+        stamped one — so a never-chose owner can never pass the daemon's
+        trace-disclosure gate.
       properties:
         share_analytics:
           type: boolean
@@ -7694,6 +7701,9 @@ components:
         share_diagnostics:
           type: boolean
           readOnly: true
+        share_diagnostics_chosen:
+          type: boolean
+          readOnly: true
         share_diagnostics_accepted_version:
           type: string
           readOnly: true
@@ -7710,6 +7720,7 @@ components:
       - share_diagnostics
       - share_diagnostics_accepted_at
       - share_diagnostics_accepted_version
+      - share_diagnostics_chosen
     PaginatedAssistantDomainList:
       type: object
       required:
@@ -8353,8 +8364,13 @@ components:
           minimum: 0
         lookup_key:
           type: string
+        legacy:
+          type: boolean
+          description: 'True only for a grandfathered tier: no longer offered, present
+            in the catalog solely because it is the org''s current tier.'
       required:
       - label
+      - legacy
       - lookup_key
       - price_cents
       - storage_gib
