@@ -22,7 +22,10 @@ import { getWorkspaceDir } from "../paths.js";
 import { getPageIndex, type PageIndexEntry } from "../v2/page-index.js";
 import { readPage, renderPageContent } from "../v2/page-store.js";
 import { isSkillSlug } from "../v2/skill-store.js";
-import { isCapabilitySlug } from "../v3/capabilities.js";
+import {
+  isCapabilitySlug,
+  renderCapabilityContent,
+} from "../v3/capabilities.js";
 import { buildEdgeGraph } from "../v3/edge.js";
 import { computeLearnedEdgeGraph } from "../v3/learned-edges.js";
 import type { Slug } from "../v3/types.js";
@@ -90,12 +93,6 @@ function nodeKind(entry: PageIndexEntry): string {
   return "concept";
 }
 
-/** A real concept page: on-disk (has an mtime) and not a synthetic skill or
- * CLI-command capability slug. The graph shows concepts only. */
-function isConceptEntry(entry: PageIndexEntry): boolean {
-  return entry.modifiedAt > 0 && !isCapabilitySlug(entry.slug);
-}
-
 export interface AssembleMemoryGraphInput {
   /** Every article node in the corpus (page-index entries). */
   entries: readonly PageIndexEntry[];
@@ -105,6 +102,12 @@ export interface AssembleMemoryGraphInput {
   learnedAdjacency?: Adjacency;
   /** Node cap; defaults to {@link DEFAULT_MAX_NODES}. */
   maxNodes?: number;
+  /**
+   * When set, drop functionality nodes (kind `skill` / `capability`) that ended
+   * up with no edges — a skill nobody links to or co-selects is inert clutter.
+   * Concept nodes are always kept, even when isolated.
+   */
+  pruneDisconnectedNonConcepts?: boolean;
 }
 
 /**
@@ -199,6 +202,12 @@ export function assembleMemoryGraph(input: AssembleMemoryGraphInput): {
     return node;
   });
 
+  // Prune disconnected functionality nodes (see the option's doc). `weight` is
+  // the node's degree, so weight 0 ⇒ no incident edges ⇒ no edge cleanup needed.
+  if (input.pruneDisconnectedNonConcepts) {
+    nodes = nodes.filter((n) => n.kind === "concept" || (n.weight ?? 0) > 0);
+  }
+
   if (nodes.length <= maxNodes) {
     return { nodes, edges };
   }
@@ -228,15 +237,21 @@ export async function getMemoryGraph(
 
   const workspaceDir = getWorkspaceDir();
   const pageIndex = await getPageIndex(workspaceDir);
-  // Concepts only: exclude synthetic skill / CLI-command slugs so the graph is
-  // purely the assistant's learned/authored concept pages. Edges to excluded
-  // slugs drop out downstream because they aren't in the node set.
-  const conceptEntries = pageIndex.entries.filter(isConceptEntry);
+  // Concepts plus functionality (skills / CLI-command capabilities). Feeding the
+  // full set to the edge builders is what lets a concept's `[[skills/foo]]` link
+  // and skill↔concept co-selections resolve to real edges — buildEdgeGraph and
+  // computeLearnedEdgeGraph both drop endpoints outside the set they're given.
+  // Functionality nodes that end up disconnected are pruned in assembleMemoryGraph.
+  const entries = pageIndex.entries;
 
   // Raw (frontmatter + body) page reader, matching the v3 lane build. A read
   // that rejects drops that article's authored/wikilink edges but keeps its
-  // numeric fallbacks.
+  // numeric fallbacks. Capability slugs have no on-disk page, so short-circuit
+  // to an empty body — they contribute no outbound links, only inbound ones.
   const pageRaw = async (slug: Slug): Promise<string> => {
+    if (isCapabilitySlug(slug)) {
+      return "";
+    }
     const page = await readPage(workspaceDir, slug);
     if (!page) {
       throw new Error(`page not found: ${slug}`);
@@ -244,7 +259,7 @@ export async function getMemoryGraph(
     return renderPageContent(page);
   };
 
-  const staticGraph = await buildEdgeGraph(conceptEntries, pageRaw, {
+  const staticGraph = await buildEdgeGraph(entries, pageRaw, {
     hubDegree: config.memory.v3.edge.hubDegree,
   });
 
@@ -265,35 +280,41 @@ export async function getMemoryGraph(
       maxPerPage: Math.max(learned.maxPerPage, GRAPH_LEARNED_MIN_MAX_PER_PAGE),
       now: Date.now(),
       windowMs: LEARNED_EDGES_WINDOW_DAYS * DAY_MS,
-      knownSlugs: new Set(conceptEntries.map((e) => e.slug)),
+      knownSlugs: new Set(entries.map((e) => e.slug)),
     },
   );
 
   const assembled = assembleMemoryGraph({
-    entries: conceptEntries,
+    entries,
     staticAdjacency: staticGraph.adjacency,
     learnedAdjacency: learnedGraph.adjacency,
+    pruneDisconnectedNonConcepts: true,
   });
 
   return { backend: BACKEND_MEMORY_V3, supported: true, ...assembled };
 }
 
 /**
- * Fetch a single concept node's content (its markdown body) by id. Used when a
- * user opens a node in the graph. Concepts only — skill/capability slugs and
- * unreadable pages return `{ found: false }`.
+ * Fetch a single node's content by id. Used when a user opens a node in the
+ * graph. Concept nodes return their page's markdown body; functionality nodes
+ * (skills / CLI commands) return the rendered capability statement. Unknown or
+ * unreadable ids return `{ found: false }`.
  */
 export async function getMemoryGraphNode(
   config: AssistantConfig,
   id: string,
 ): Promise<MemoryGraphNodeDetail> {
-  if (
-    !isMemoryConceptGraphEnabled(config) ||
-    !isMemoryV3Live(config) ||
-    !id ||
-    isCapabilitySlug(id)
-  ) {
+  if (!isMemoryConceptGraphEnabled(config) || !isMemoryV3Live(config) || !id) {
     return { found: false };
+  }
+  // Functionality nodes have no on-disk page; their detail is the rendered
+  // capability statement (`renderCapabilityContent` degrades to "" — never
+  // throws — when the capability cache is cold).
+  if (isCapabilitySlug(id)) {
+    const content = renderCapabilityContent(id);
+    return content
+      ? { found: true, title: humanizeSlug(id), content }
+      : { found: false };
   }
   const page = await readPage(getWorkspaceDir(), id).catch(() => null);
   if (!page) {

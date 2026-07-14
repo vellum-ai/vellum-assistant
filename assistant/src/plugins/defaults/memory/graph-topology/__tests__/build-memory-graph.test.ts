@@ -4,7 +4,10 @@ import type { PageIndexEntry } from "../../v2/page-index.js";
 import type { Slug } from "../../v3/types.js";
 import { assembleMemoryGraph } from "../build-memory-graph.js";
 
-function entry(slug: string, over: Partial<PageIndexEntry> = {}): PageIndexEntry {
+function entry(
+  slug: string,
+  over: Partial<PageIndexEntry> = {},
+): PageIndexEntry {
   return {
     id: 0,
     slug,
@@ -40,7 +43,9 @@ describe("assembleMemoryGraph", () => {
         entry("skills/agent-mail", { modifiedAt: 0 }),
         entry("send-email", { modifiedAt: 0 }),
       ],
-      staticAdjacency: adjacency([["my-concept", "skills/agent-mail", undefined]]),
+      staticAdjacency: adjacency([
+        ["my-concept", "skills/agent-mail", undefined],
+      ]),
     });
 
     const byId = new Map(nodes.map((n) => [n.id, n]));
@@ -126,5 +131,35 @@ describe("assembleMemoryGraph", () => {
       expect(nodes.some((n) => n.id === edge.source)).toBe(true);
       expect(nodes.some((n) => n.id === edge.target)).toBe(true);
     }
+  });
+
+  it("prunes disconnected functionality nodes but keeps connected ones and all concepts", () => {
+    const { nodes } = assembleMemoryGraph({
+      entries: [
+        entry("lonely-concept"), // concept, degree 0 → kept
+        entry("linked-concept"), // concept, links to a skill
+        entry("skills/connected", { modifiedAt: 0 }), // skill, degree 1 → kept
+        entry("skills/orphan", { modifiedAt: 0 }), // skill, degree 0 → pruned
+        entry("cli-commands/orphan", { modifiedAt: 0 }), // capability, degree 0 → pruned
+      ],
+      staticAdjacency: adjacency([
+        ["linked-concept", "skills/connected", undefined],
+      ]),
+      pruneDisconnectedNonConcepts: true,
+    });
+
+    expect(nodes.map((n) => n.id).sort()).toEqual([
+      "linked-concept",
+      "lonely-concept",
+      "skills/connected",
+    ]);
+  });
+
+  it("keeps disconnected functionality nodes when pruning is off (default)", () => {
+    const { nodes } = assembleMemoryGraph({
+      entries: [entry("a"), entry("skills/orphan", { modifiedAt: 0 })],
+      staticAdjacency: adjacency([]),
+    });
+    expect(nodes.map((n) => n.id).sort()).toEqual(["a", "skills/orphan"]);
   });
 });
