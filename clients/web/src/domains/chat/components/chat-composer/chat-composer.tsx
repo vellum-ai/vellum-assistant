@@ -53,6 +53,7 @@ import { useVoicePrefsStore } from "@/stores/voice-prefs-store";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { isElectron } from "@/runtime/is-electron";
 import { useIsNativePlatform } from "@/runtime/native-auth";
+import { isNativeIOS } from "@/runtime/platform-detection";
 import { isPointerCoarse } from "@/utils/pointer";
 import { Button, Notice, Popover } from "@vellumai/design-library";
 
@@ -355,15 +356,13 @@ export function ChatComposer({
       }
       liveVoiceEntryOriginRef.current = origin ?? null;
       // First-run preferences card — shown on the first-ever voice entry on
-      // EVERY platform, the Capacitor iOS shell included. This is a deliberate
-      // product decision (web↔iOS parity for the welcome card) that knowingly
-      // deviates from `docs/CAPACITOR.md` § OS permission requests and the
-      // `voice/live-voice/pcm-capture.ts` caller contract, which ask that no
-      // dismissible pre-prompt precede the live-voice `getUserMedia` alert on
-      // iOS (Apple HIG / App Store Review 5.1.1(iv)). The card's only forward
-      // action ("Start talking") leads straight to that alert; dismissing is a
-      // plain cancel that never reaches it. If this is ever revisited, re-sync
-      // the two docs above with the choice made here.
+      // EVERY platform, the Capacitor iOS shell included (web↔iOS parity for the
+      // welcome card). On iOS the card renders locked (`nonDismissible`, see its
+      // render below), which keeps it compliant with `docs/CAPACITOR.md` § OS
+      // permission requests: the card precedes the live-voice `getUserMedia`
+      // alert, and a locked pre-prompt whose only action leads straight to that
+      // alert is the sanctioned pattern (Apple HIG / App Store Review 5.1.1(iv))
+      // — a *dismissible* pre-prompt is the disallowed one.
       if (!useVoicePrefsStore.getState().firstRunSeen) {
         setFirstRunCardOpen(true);
         return;
@@ -494,11 +493,17 @@ export function ChatComposer({
       {firstRunCardOpen && (
         // First voice-mode entry only — the card commits prefs + starts via
         // `handleFirstRunStart`; a plain dismiss cancels without consuming the
-        // first run, so it returns on the next entry.
+        // first run, so it returns on the next entry. On Capacitor iOS the card
+        // is locked (no ✕ / backdrop / Escape): it precedes the live-voice
+        // `getUserMedia` alert, so per `docs/CAPACITOR.md` § OS permission
+        // requests the pre-prompt must lead straight to that alert — its only
+        // action is "Start talking", and there is no card-level cancel (backing
+        // out means denying the OS mic prompt, or ✕ once the room opens).
         <VoiceFirstRunCard
           assistantId={assistantId}
           onStart={handleFirstRunStart}
           onDismiss={() => setFirstRunCardOpen(false)}
+          nonDismissible={isNativeIOS()}
         />
       )}
       {/* Composer-owned draft/attachment notices (self-sourced), above the

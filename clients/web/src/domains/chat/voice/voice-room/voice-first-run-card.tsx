@@ -21,6 +21,14 @@ import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
  * the card returns on the next entry. Only committing via "Start" advances the
  * first-run flag, and that lives in the caller's `onStart` handler (the
  * composer) alongside actually starting the session.
+ *
+ * `nonDismissible` locks the card to a single forward action — no ✕, backdrop,
+ * or Escape. The composer sets it on Capacitor iOS, where the card precedes the
+ * live-voice `getUserMedia` alert: per `docs/CAPACITOR.md` § OS permission
+ * requests (Apple HIG / App Store Review 5.1.1(iv)) such a pre-prompt must lead
+ * straight to the system alert, so a dismissible one is disallowed. Locked,
+ * there is no card-level cancel by design — backing out means denying the OS
+ * mic prompt (or ✕ once the room opens).
  */
 
 /** Mini idle avatar diameter — a quiet, in-context echo of the room avatar. */
@@ -33,12 +41,19 @@ export interface VoiceFirstRunCardProps {
   onStart: () => void;
   /** Cancel: dismissed without starting (does not consume the first run). */
   onDismiss?: () => void;
+  /**
+   * Lock the card: no ✕ / backdrop / Escape, only "Start talking". Set on
+   * Capacitor iOS so the pre-permission card leads straight to the mic alert
+   * (see the module docstring). Defaults to dismissible (web).
+   */
+  nonDismissible?: boolean;
 }
 
 export function VoiceFirstRunCard({
   assistantId,
   onStart,
   onDismiss,
+  nonDismissible = false,
 }: VoiceFirstRunCardProps) {
   const { components, traits, customImageUrl } =
     useAssistantAvatar(assistantId);
@@ -51,13 +66,27 @@ export function VoiceFirstRunCard({
       open
       onOpenChange={(next) => {
         // Escape / backdrop / ✕ all route through here; treat any close as a
-        // cancel so the first run stays un-consumed.
+        // cancel so the first run stays un-consumed. Inert when locked (those
+        // affordances are removed / prevented below), so `onDismiss` only fires
+        // on the dismissible (web) path.
         if (!next) {
           onDismiss?.();
         }
       }}
     >
-      <Modal.Content size="sm">
+      <Modal.Content
+        size="sm"
+        // iOS lock: strip the ✕, the backdrop-tap dismiss, and Escape so the
+        // only way forward is "Start talking" → the mic alert.
+        hideCloseButton={nonDismissible}
+        dismissOnOverlayClick={!nonDismissible}
+        onEscapeKeyDown={
+          nonDismissible ? (event) => event.preventDefault() : undefined
+        }
+        onInteractOutside={
+          nonDismissible ? (event) => event.preventDefault() : undefined
+        }
+      >
         <Modal.Header>
           <div className="flex items-center gap-3">
             <span className="shrink-0">

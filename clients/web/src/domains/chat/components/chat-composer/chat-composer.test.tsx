@@ -117,8 +117,16 @@ mock.module("@/domains/chat/components/voice-input-button", () => ({
 // irrelevant to the composer's interception wiring, which is all these tests
 // assert. Full card behavior lives in `voice-first-run-card.test.tsx`.
 mock.module("@/domains/chat/voice/voice-room/voice-first-run-card", () => ({
-  VoiceFirstRunCard: (props: { onStart: () => void; onDismiss?: () => void }) => (
-    <div data-testid="first-run-card">
+  VoiceFirstRunCard: (props: {
+    onStart: () => void;
+    onDismiss?: () => void;
+    nonDismissible?: boolean;
+  }) => (
+    <div
+      data-testid="first-run-card"
+      // Surface the lock so a test can assert the composer passes it on iOS.
+      data-non-dismissible={String(props.nonDismissible ?? false)}
+    >
       <button type="button" onClick={props.onStart}>
         first-run-start
       </button>
@@ -866,8 +874,12 @@ describe("ChatComposer — live-voice integration", () => {
     const { getByLabelText, getByTestId } = renderVoiceComposer();
     fireEvent.click(getByLabelText("Start voice mode"));
 
-    // THEN the prefs card appears and the session has NOT started yet
+    // THEN the prefs card appears (dismissible on web) and the session has NOT
+    // started yet
     expect(getByTestId("first-run-card")).toBeTruthy();
+    expect(
+      getByTestId("first-run-card").getAttribute("data-non-dismissible"),
+    ).toBe("false");
     expect(liveStarterSpy).not.toHaveBeenCalled();
   });
 
@@ -922,8 +934,12 @@ describe("ChatComposer — live-voice integration", () => {
     fireEvent.click(getByLabelText("Start voice mode"));
 
     // THEN the same prefs card appears and the session has NOT started yet —
-    // identical to the web first-run path.
+    // like web, but locked (non-dismissible) so it leads straight to the mic
+    // alert per CAPACITOR.md.
     expect(getByTestId("first-run-card")).toBeTruthy();
+    expect(
+      getByTestId("first-run-card").getAttribute("data-non-dismissible"),
+    ).toBe("true");
     expect(liveStarterSpy).not.toHaveBeenCalled();
   });
 
