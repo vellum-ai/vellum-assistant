@@ -1768,25 +1768,35 @@ export async function handleToolResult(
   // flash in the tool card until a history refetch. Apply the same
   // candidate-aware legacy redaction the persisted tool-result row uses, to
   // both the buffered content and the emitted result, so wire and storage
-  // agree from the first frame. Resolution is memoized per state; refs only
-  // exist once the reveal route actually served the identity, so this is a
-  // no-op store-touch until a genuine reveal has happened this turn.
-  const revealCandidatesForResult =
-    await resolvedRevealCandidatesForState(state);
-  const redactRevealStdout = (text: string): string =>
-    redactCandidateValuesLegacy(text, revealCandidatesForResult);
-  const redactedContent =
-    revealCandidatesForResult.length > 0
-      ? redactRevealStdout(event.content)
-      : event.content;
-  const redactedContentBlocks =
-    revealCandidatesForResult.length > 0 && event.contentBlocks
-      ? event.contentBlocks.map((block) =>
-          block.type === "text"
-            ? { ...block, text: redactRevealStdout(block.text) }
-            : block,
-        )
-      : event.contentBlocks;
+  // agree from the first frame.
+  //
+  // Guard the resolution behind the ref count: candidate resolution is async
+  // (it reads the vault), and awaiting it here would push every side effect
+  // below — the cancellation emit, the pending-result buffering, the
+  // activity/risk metadata capture, `annotatePersistedAssistantMessage`, and
+  // the live `tool_result` emit — onto a later microtask. Callers that drive
+  // this handler synchronously (the dispatcher, and the metadata/preview
+  // tests) rely on those effects landing before the returned promise's first
+  // suspension, so a reveal-free tool result must stay fully synchronous and
+  // pass its content through untouched — exactly as before this guard shipped.
+  // The refs are non-empty only after the reveal route actually served an
+  // identity this turn, which is precisely when redaction must fire.
+  let redactedContent = event.content;
+  let redactedContentBlocks = event.contentBlocks;
+  if (state.revealCandidateRefs.length > 0) {
+    const revealCandidatesForResult =
+      await resolvedRevealCandidatesForState(state);
+    if (revealCandidatesForResult.length > 0) {
+      const redactRevealStdout = (text: string): string =>
+        redactCandidateValuesLegacy(text, revealCandidatesForResult);
+      redactedContent = redactRevealStdout(event.content);
+      redactedContentBlocks = event.contentBlocks?.map((block) =>
+        block.type === "text"
+          ? { ...block, text: redactRevealStdout(block.text) }
+          : block,
+      );
+    }
+  }
 
   // A synthesized cancellation (the tool never executed) is captured for
   // persistence and forwarded to the client like any result, but skips every
