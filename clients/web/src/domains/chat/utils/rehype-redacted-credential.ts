@@ -27,6 +27,7 @@
 
 import {
   createRedactedSentinelRegex,
+  decodeRedactedSentinelMatch,
   REDACTED_SENTINEL_OPEN,
 } from "@vellumai/service-contracts/redacted-credential";
 
@@ -65,14 +66,17 @@ function splitSentinels(value: string): HastNode[] | undefined {
     if (m.index > lastIndex) {
       parts.push({ type: "text", value: value.slice(lastIndex, m.index) });
     }
-    const [, type, service, field] = m;
+    // The regex capture groups carry percent-ENCODED segments; the shared
+    // decoder yields the real vault coordinates (and degrades a malformed
+    // escape to the plain non-revealable shape).
+    const sentinel = decodeRedactedSentinelMatch(m);
     parts.push({
       type: "element",
       tagName: REDACTED_CREDENTIAL_TAG,
       properties: {
-        type,
-        ...(service !== undefined && field !== undefined
-          ? { service, field }
+        type: sentinel.type,
+        ...(sentinel.service !== undefined && sentinel.field !== undefined
+          ? { service: sentinel.service, field: sentinel.field }
           : {}),
       },
       children: [],

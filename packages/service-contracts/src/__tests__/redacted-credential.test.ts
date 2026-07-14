@@ -29,14 +29,48 @@ describe("buildRedactedSentinel", () => {
     );
   });
 
-  test("invalid service/field charset degrades to the plain shape", () => {
-    // A colon inside a segment would corrupt the format — the builder must
-    // fall back to non-revealable rather than emit a misparseable sentinel.
+  test("colon-qualified segments are percent-encoded, not rejected", () => {
+    // Real vaults contain colon-qualified service names (migration
+    // 018-rekey-compound-credential-keys produces `integration:google`).
+    // The builder must keep those revealable by encoding the delimiter.
     expect(
       buildRedactedSentinel({
         type: "Generic Secret",
-        service: "bad:service",
-        field: "api_key",
+        service: "integration:google",
+        field: "access_token",
+      }),
+    ).toBe(
+      `${REDACTED_SENTINEL_OPEN}redacted:Generic Secret:integration%3Agoogle:access_token${REDACTED_SENTINEL_CLOSE}`,
+    );
+  });
+
+  test("plain identifier segments stay literal (unencoded)", () => {
+    expect(
+      buildRedactedSentinel({
+        type: "Anthropic API Key",
+        service: "anthropic",
+        field: "api-key.v2_test",
+      }),
+    ).toBe(
+      `${REDACTED_SENTINEL_OPEN}redacted:Anthropic API Key:anthropic:api-key.v2_test${REDACTED_SENTINEL_CLOSE}`,
+    );
+  });
+
+  test("empty service or field degrades to the plain shape", () => {
+    expect(
+      buildRedactedSentinel({
+        type: "Generic Secret",
+        service: "",
+        field: "x",
+      }),
+    ).toBe(
+      `${REDACTED_SENTINEL_OPEN}redacted:Generic Secret${REDACTED_SENTINEL_CLOSE}`,
+    );
+    expect(
+      buildRedactedSentinel({
+        type: "Generic Secret",
+        service: "x",
+        field: "",
       }),
     ).toBe(
       `${REDACTED_SENTINEL_OPEN}redacted:Generic Secret${REDACTED_SENTINEL_CLOSE}`,
@@ -78,6 +112,26 @@ describe("parseRedactedSentinel", () => {
       field: "pem",
     });
     expect(parsed && isRevealableSentinel(parsed)).toBe(true);
+  });
+
+  test("round-trips encoded segments back to the original identifiers", () => {
+    const original = {
+      type: "OAuth Access Token",
+      service: "integration:google",
+      field: "access token/v2 (staging)",
+    };
+    const parsed = parseRedactedSentinel(buildRedactedSentinel(original));
+    expect(parsed).toEqual(original);
+    expect(parsed && isRevealableSentinel(parsed)).toBe(true);
+  });
+
+  test("malformed percent-escape degrades to the plain shape", () => {
+    // Daemon-encoded segments always decode; a hand-forged sentinel with a
+    // broken escape must not surface bogus vault coordinates.
+    const forged = `${REDACTED_SENTINEL_OPEN}redacted:Generic Secret:bad%zzsvc:field${REDACTED_SENTINEL_CLOSE}`;
+    const parsed = parseRedactedSentinel(forged);
+    expect(parsed).toEqual({ type: "Generic Secret" });
+    expect(parsed && isRevealableSentinel(parsed)).toBe(false);
   });
 
   test("rejects non-sentinel and partial inputs", () => {

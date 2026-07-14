@@ -22,6 +22,7 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
   credentialsRevealPost,
 }));
 
+import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
 import { RedactedCredentialChip } from "@/domains/chat/components/redacted-credential-chip";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 
@@ -89,5 +90,46 @@ describe("RedactedCredentialChip reveal scoping", () => {
     );
 
     expect(queryAllByLabelText(REVEAL_LABEL)).toHaveLength(0);
+  });
+});
+
+describe("chip identity remount (via ChatMarkdownMessage)", () => {
+  // The render site keys the chip by assistant + service + field. When a
+  // re-render places a DIFFERENT sentinel at the same tree position (e.g. a
+  // transcript snapshot replacing streamed content), the key change must
+  // remount the chip — otherwise React preserves state by position and the
+  // old credential's revealed plaintext (or an in-flight reveal) would show
+  // under the new credential's label.
+  test("revealed plaintext does not survive a sentinel identity change", async () => {
+    const SENTINEL_A =
+      "\u3014redacted:Anthropic API Key:anthropic:api_key\u3015";
+    const SENTINEL_B = "\u3014redacted:OpenAI Project Key:openai:api_key\u3015";
+
+    const { container, getAllByLabelText, rerender } = render(
+      <ChatMarkdownMessage
+        content={SENTINEL_A}
+        assistantId="assistant-1"
+        redactedCredentialChips
+      />,
+    );
+
+    fireEvent.click(getAllByLabelText(REVEAL_LABEL)[0]);
+    await waitFor(() =>
+      expect(container.textContent).toContain("revealed-secret"),
+    );
+
+    rerender(
+      <ChatMarkdownMessage
+        content={SENTINEL_B}
+        assistantId="assistant-1"
+        redactedCredentialChips
+      />,
+    );
+
+    // Fresh chip for the new identity: blurred, not revealed.
+    expect(container.textContent).not.toContain("revealed-secret");
+    expect(
+      getAllByLabelText("Reveal value for openai:api_key").length,
+    ).toBeGreaterThan(0);
   });
 });

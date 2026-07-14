@@ -45,12 +45,39 @@ export const REDACTED_SENTINEL_TAG = "redacted";
 export const SENTINEL_REDACTION_VERSION = 2;
 
 /**
- * Charset for service/field segments. Matches the daemon's credential
- * service/field naming (kebab/snake identifiers). Anything outside this set
- * is refused at build time — the producer falls back to the plain shape
- * rather than emit a sentinel the parser would misread.
+ * Service/field segments are percent-encoded into the sentinel so arbitrary
+ * credential identifiers survive the colon-delimited format. The credential
+ * routes accept service/field as arbitrary strings — colon-qualified names
+ * exist in real vaults (migration `018-rekey-compound-credential-keys`
+ * produces `service = "integration:google"`), so a delimiter-collision
+ * charset restriction would silently downgrade proven reveals for those
+ * credentials to the non-revealable shape. Encoding keeps the common
+ * kebab/snake identifiers fully legible while making every other string
+ * representable.
+ *
+ * The encoded form contains only `[A-Za-z0-9_.%-]` — `encodeURIComponent`
+ * plus the characters it leaves bare that fall outside that set — so the
+ * sentinel regex stays unambiguous around its `:` delimiters and `〕` close.
  */
-const SEGMENT_RE = /^[A-Za-z0-9_.-]+$/;
+function encodeSentinelSegment(segment: string): string {
+  return encodeURIComponent(segment).replace(
+    /[!'()*~]/g,
+    (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`,
+  );
+}
+
+/**
+ * Inverse of {@link encodeSentinelSegment}. Returns undefined for malformed
+ * percent-escapes — daemon-encoded segments always decode, and forged
+ * sentinels are neutralized at persist time, so this path is defensive.
+ */
+function decodeSentinelSegment(segment: string): string | undefined {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return undefined;
+  }
+}
 
 /**
  * Charset for the TYPE label. Pattern labels are our own
@@ -77,9 +104,12 @@ export function isRevealableSentinel(
 }
 
 /**
- * Build a sentinel string. Falls back to the plain (non-revealable) shape if
- * the service/field fail charset validation, and throws only if the type
- * label itself is unusable (which would mean a broken pattern table).
+ * Build a sentinel string. Service/field are percent-encoded (see
+ * {@link encodeSentinelSegment}), so any non-empty identifier the credential
+ * routes accept — including colon-qualified names like `integration:google`
+ * — round-trips through the enriched shape. Empty segments fall back to the
+ * plain (non-revealable) shape; the function throws only if the type label
+ * itself is unusable (which would mean a broken pattern table).
  */
 export function buildRedactedSentinel(
   sentinel: RedactedCredentialSentinel,
@@ -92,10 +122,12 @@ export function buildRedactedSentinel(
   if (
     service !== undefined &&
     field !== undefined &&
-    SEGMENT_RE.test(service) &&
-    SEGMENT_RE.test(field)
+    service !== "" &&
+    field !== ""
   ) {
-    return `${base}:${service}:${field}${REDACTED_SENTINEL_CLOSE}`;
+    const encService = encodeSentinelSegment(service);
+    const encField = encodeSentinelSegment(field);
+    return `${base}:${encService}:${encField}${REDACTED_SENTINEL_CLOSE}`;
   }
   return `${base}${REDACTED_SENTINEL_CLOSE}`;
 }
@@ -107,11 +139,35 @@ export function buildRedactedSentinel(
  */
 export function createRedactedSentinelRegex(): RegExp {
   // 〔redacted:TYPE〕 or 〔redacted:TYPE:SERVICE:FIELD〕
-  // TYPE = anything except colon/brackets; SERVICE/FIELD = identifier charset.
+  // TYPE = anything except colon/brackets; SERVICE/FIELD = the
+  // percent-encoded segment charset (see encodeSentinelSegment). Capture
+  // groups carry the ENCODED segments — decode via decodeRedactedSentinelMatch.
   return new RegExp(
-    `${REDACTED_SENTINEL_OPEN}${REDACTED_SENTINEL_TAG}:([^:\u3014\u3015]+?)(?::([A-Za-z0-9_.-]+):([A-Za-z0-9_.-]+))?${REDACTED_SENTINEL_CLOSE}`,
+    `${REDACTED_SENTINEL_OPEN}${REDACTED_SENTINEL_TAG}:([^:\u3014\u3015]+?)(?::([A-Za-z0-9_.%-]+):([A-Za-z0-9_.%-]+))?${REDACTED_SENTINEL_CLOSE}`,
     "g",
   );
+}
+
+/**
+ * Map a {@link createRedactedSentinelRegex} match to a decoded sentinel.
+ * Shared by {@link parseRedactedSentinel} and the web rehype plugin so the
+ * segment decoding never drifts between consumers. A malformed
+ * percent-escape (unreachable for daemon-minted sentinels; forged ones are
+ * neutralized at persist) degrades to the plain non-revealable shape rather
+ * than surfacing bogus vault coordinates.
+ */
+export function decodeRedactedSentinelMatch(
+  m: RegExpExecArray,
+): RedactedCredentialSentinel {
+  const [, type, encService, encField] = m;
+  if (encService !== undefined && encField !== undefined) {
+    const service = decodeSentinelSegment(encService);
+    const field = decodeSentinelSegment(encField);
+    if (service !== undefined && field !== undefined) {
+      return { type, service, field };
+    }
+  }
+  return { type };
 }
 
 /**
@@ -149,8 +205,5 @@ export function parseRedactedSentinel(
   const re = createRedactedSentinelRegex();
   const m = re.exec(text);
   if (!m || m[0] !== text) return undefined;
-  const [, type, service, field] = m;
-  return service !== undefined && field !== undefined
-    ? { type, service, field }
-    : { type };
+  return decodeRedactedSentinelMatch(m);
 }

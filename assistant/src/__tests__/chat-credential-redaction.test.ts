@@ -140,6 +140,24 @@ describe("redactSecretsForChat", () => {
     expect(out).not.toContain(SYNTHETIC_OPENAI_PROJECT_KEY);
   });
 
+  test("colon-qualified candidate service stays revealable via encoding", () => {
+    // Vault keys rewritten by migration 018-rekey-compound-credential-keys
+    // carry colon-qualified services (`integration:google`). The sentinel
+    // must encode the delimiter instead of downgrading the proven match to
+    // the non-revealable shape.
+    const out = redactSecretsForChat(`key: ${SYNTHETIC_OPENAI_PROJECT_KEY}`, [
+      {
+        service: "integration:google",
+        field: "api_key",
+        value: SYNTHETIC_OPENAI_PROJECT_KEY,
+      },
+    ]);
+    expect(out).toBe(
+      "key: \u3014redacted:OpenAI Project Key:integration%3Agoogle:api_key\u3015",
+    );
+    expect(out).not.toContain(SYNTHETIC_OPENAI_PROJECT_KEY);
+  });
+
   test("no candidate match produces the plain sentinel — never a guess", () => {
     const out = redactSecretsForChat(`key: ${SYNTHETIC_OPENAI_PROJECT_KEY}`, [
       { service: "openai", field: "api_key", value: "different-value" },

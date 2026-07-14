@@ -70,6 +70,39 @@ describe("rehypeRedactedCredential", () => {
     expect(chip!.getAttribute("data-field")).toBe("api_key");
   });
 
+  test("decodes percent-encoded segments to the real vault coordinates", () => {
+    // Colon-qualified service names are percent-encoded into the sentinel
+    // (see buildRedactedSentinel); the chip must receive the DECODED values
+    // so its reveal request hits the actual credential.
+    const encoded =
+      "\u3014redacted:OAuth Access Token:integration%3Agoogle:access_token\u3015";
+    const { container } = render(
+      <MarkdownMessage
+        content={`key is ${encoded}`}
+        extraRehypePlugins={PLUGINS}
+        extraComponents={EXTRA}
+      />,
+    );
+    const chip = container.querySelector("[data-testid=chip]");
+    expect(chip!.getAttribute("data-service")).toBe("integration:google");
+    expect(chip!.getAttribute("data-field")).toBe("access_token");
+  });
+
+  test("malformed percent-escape degrades to a non-revealable chip", () => {
+    const forged = "\u3014redacted:Generic Secret:bad%zzsvc:api_key\u3015";
+    const { container } = render(
+      <MarkdownMessage
+        content={forged}
+        extraRehypePlugins={PLUGINS}
+        extraComponents={EXTRA}
+      />,
+    );
+    const chip = container.querySelector("[data-testid=chip]");
+    expect(chip!.getAttribute("data-type")).toBe("Generic Secret");
+    expect(chip!.getAttribute("data-service")).toBeNull();
+    expect(chip!.getAttribute("data-field")).toBeNull();
+  });
+
   test("handles multiple sentinels in one text node", () => {
     const { container } = render(
       <MarkdownMessage

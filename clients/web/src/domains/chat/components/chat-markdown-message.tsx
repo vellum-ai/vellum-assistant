@@ -352,10 +352,23 @@ export const ChatMarkdownMessage = memo(function ChatMarkdownMessage({
   // the globally active assistant, which can differ from the transcript owner
   // (inspector, document view, multi-assistant surfaces) and reveal the wrong
   // assistant's credential for a colliding service:field name.
+  //
+  // The chip is keyed by its full identity (assistant + vault coordinates):
+  // when a re-render puts a DIFFERENT sentinel at the same tree position
+  // (transcript snapshot replacing streamed content, edited history), React
+  // would otherwise preserve the old instance's state by position — leaving
+  // a revealed plaintext, or an in-flight reveal response, attached to the
+  // new credential's label. The key change remounts the chip with fresh
+  // state, and any in-flight reveal resolves against the unmounted instance
+  // as a no-op.
   const extraComponents = useMemo(
     () => ({
       [REDACTED_CREDENTIAL_TAG]: (props: RedactedCredentialChipProps) => (
-        <RedactedCredentialChip {...props} assistantId={assistantId} />
+        <RedactedCredentialChip
+          key={`${assistantId ?? ""}\u0000${props.service ?? ""}\u0000${props.field ?? ""}`}
+          {...props}
+          assistantId={assistantId}
+        />
       ),
     }),
     [assistantId],
