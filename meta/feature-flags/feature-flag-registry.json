@@ -311,7 +311,7 @@
       "scope": "assistant",
       "key": "memory-concept-graph",
       "label": "Memory concept graph",
-      "description": "Gates the Obsidian-style memory concept graph on the assistant identity page and the backend-agnostic /memory-graph + /memory-graph-node routes that feed it. When off, the identity page shows the skills constellation instead. Only produces a graph on memory-v3 backends. Default off.",
+      "description": "Gates the Obsidian-style memory concept graph on its own Memory tab (/assistant/memory) and the backend-agnostic /memory-graph + /memory-graph-node routes that feed it. When off, the Memory tab is hidden; the identity page keeps the skills constellation. Only produces a graph on memory-v3 backends. Default off.",
       "defaultEnabled": false
     },
     {
