@@ -72,6 +72,7 @@ import {
 import {
   clearSurfaceImportInflight,
   evictModule,
+  getFileSignature,
   getMtime,
   importWithTimeout,
   setSurfaceImportTimeout,
@@ -204,8 +205,13 @@ const disabledPluginDirs = new Set<string>();
  */
 let lastVersions: Record<string, PluginSourceVersion> = {};
 
-/** mtime of the sentinel document as of the last look; 0 = never seen. */
-let lastSentinelMtime = 0;
+/**
+ * Change signature (`mtimeMs:size:ino`) of the sentinel document as of the last
+ * look; `""` = never seen. A composite signature rather than mtime alone so a
+ * publish is detected even when the filesystem's mtime granularity can't move
+ * the timestamp between two rewrites (see {@link getFileSignature}).
+ */
+let lastSentinelSignature = "";
 
 /** In-flight reconcile — concurrent dispatches await it rather than racing. */
 let reconcileInFlight: Promise<void> | null = null;
@@ -254,10 +260,17 @@ export async function getUserHooksFor<TCtx = unknown>(
 
 /**
  * Dispatch-path gate: one stat of the source-versions sentinel. When its
- * mtime is unchanged since the last look (the overwhelmingly common case)
- * this returns immediately, and dispatch runs entirely on memory. When the
- * watcher published a change, the document is applied before the dispatch
+ * change signature is unchanged since the last look (the overwhelmingly common
+ * case) this returns immediately, and dispatch runs entirely on memory. When
+ * the watcher published a change, the document is applied before the dispatch
  * proceeds, so the turn that follows an edit already runs the new code.
+ *
+ * The signature is `mtimeMs:size:ino`, not mtime alone: the sentinel is
+ * published via temp-file + atomic rename, which swaps in a fresh inode on
+ * every write, so a runtime install is picked up even on filesystems whose
+ * mtime granularity is too coarse to move the timestamp between two publishes
+ * (virtiofs / 9p / network mounts). With an mtime-only gate such a publish is
+ * invisible until the next daemon restart re-walks the plugins directory.
  *
  * A missing or unreadable sentinel is degraded mode, not an error: the
  * boot-time state keeps serving, and live reload resumes when the monitor
@@ -273,14 +286,14 @@ async function maybeReconcileFromSentinel(): Promise<void> {
       await reconcileInFlight;
       continue;
     }
-    const mtime = getMtime(getSourceVersionsPath());
-    if (mtime === lastSentinelMtime) {
+    const signature = getFileSignature(getSourceVersionsPath());
+    if (signature === lastSentinelSignature) {
       return;
     }
-    // Claim the mtime before any async work, so a concurrent dispatch either
-    // finds the in-flight promise above or skips on the updated mtime.
-    lastSentinelMtime = mtime;
-    if (mtime === 0) {
+    // Claim the signature before any async work, so a concurrent dispatch
+    // either finds the in-flight promise above or skips on the updated value.
+    lastSentinelSignature = signature;
+    if (signature === "") {
       return;
     }
     const doc = readSourceVersions();
@@ -544,7 +557,7 @@ function seedVersionBaseline(): void {
     };
   }
   lastVersions = seeded;
-  lastSentinelMtime = getMtime(getSourceVersionsPath());
+  lastSentinelSignature = getFileSignature(getSourceVersionsPath());
 }
 
 // ─── Tool cache ──────────────────────────────────────────────────────────────
@@ -1031,7 +1044,7 @@ export function resetPluginCacheForTests(): void {
   activatedNames.clear();
   disabledPluginDirs.clear();
   lastVersions = {};
-  lastSentinelMtime = 0;
+  lastSentinelSignature = "";
   reconcileInFlight = null;
 }
 
