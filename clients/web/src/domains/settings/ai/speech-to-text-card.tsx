@@ -270,22 +270,21 @@ export function SpeechToTextCard() {
   const handleSaveManaged = useCallback(async () => {
     setSaving(true);
     try {
-      // Persist the effective BYOK provider as the restore value for toggling
-      // back — mapped to a daemon provider id (the schema requires one and
-      // rejects the client-only native dictation choice; "deepgram" is the
-      // sane default for those). The daemon's `effectiveSttProvider` routes
-      // managed mode to Vellum at runtime regardless of this value.
+      // Persist the BYOK provider as the restore value for toggling back. Keep
+      // the daemon's existing provider when it has one — it may be a valid
+      // provider the dropdown can't represent (e.g. google-gemini set via CLI),
+      // which the fallback would silently overwrite. Only synthesize one for a
+      // sparse config or the client-only native dictation choice ("deepgram" is
+      // the sane default there); the schema requires a provider and rejects
+      // "vellum" outside managed. `effectiveSttProvider` routes managed mode to
+      // Vellum at runtime regardless of this value.
+      const restoreProvider =
+        daemonSttProvider && daemonSttProvider !== "vellum"
+          ? daemonSttProvider
+          : STT_DAEMON_PROVIDER[draftProvider]?.provider ?? "deepgram";
       const { response: cfgRes } = await configPatch({
         path: { assistant_id: assistantId },
-        body: {
-          services: {
-            stt: {
-              mode: "managed",
-              provider:
-                STT_DAEMON_PROVIDER[draftProvider]?.provider ?? "deepgram",
-            },
-          },
-        },
+        body: { services: { stt: { mode: "managed", provider: restoreProvider } } },
         throwOnError: false,
       });
       if (!cfgRes?.ok) {
@@ -314,7 +313,13 @@ export function SpeechToTextCard() {
     } finally {
       setSaving(false);
     }
-  }, [assistantId, draftProvider, defaultProviderId, queryClient]);
+  }, [
+    assistantId,
+    daemonSttProvider,
+    draftProvider,
+    defaultProviderId,
+    queryClient,
+  ]);
 
   const handleReset = useCallback(() => {
     setLocalSetting(LS_STT_API_KEY_PREFIX + draftProvider, "");

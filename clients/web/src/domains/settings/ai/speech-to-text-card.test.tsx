@@ -308,6 +308,21 @@ describe("SpeechToTextCard — macOS Native Dictation option", () => {
     expect(credentialsSetCalls).toHaveLength(0);
   });
 
+  test("Managed Save preserves an unlisted daemon provider as the restore value", async () => {
+    // A valid daemon provider the dropdown can't represent (set via CLI) must
+    // survive a managed save so toggling back restores it.
+    daemonConfigData = { services: { stt: { provider: "google-gemini" } } };
+    renderCard();
+
+    setMode("Managed");
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(configPatchCalls.length).toBe(1));
+    expect(configPatchCalls[0]!.body).toMatchObject({
+      services: { stt: { mode: "managed", provider: "google-gemini" } },
+    });
+  });
+
   test("Managed Save repoints a native-dictation choice off macos-native", async () => {
     // prefersMacosNativeStt() keys off LS_STT_PROVIDER alone, so leaving it on
     // "macos-native" would keep this client bypassing managed STT even after
