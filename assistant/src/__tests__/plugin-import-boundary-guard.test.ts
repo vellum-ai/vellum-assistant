@@ -191,6 +191,7 @@ const BASELINE: Record<string, readonly string[]> = {
     "../../../runtime/capabilities.js",
     "../../../runtime/services/auto-analysis-guard.js",
     "../../../runtime/sync/resource-sync-events.js",
+    "../../../telemetry/watchdog-events-store.js",
     "../../../tools/registry.js",
     "../../../tools/types.js",
     "../../../types.js",
