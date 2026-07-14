@@ -7,7 +7,15 @@
  * AudioContext is touched.
  */
 
-import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  spyOn,
+  test,
+} from "bun:test";
 import { act, cleanup, renderHook } from "@testing-library/react";
 
 // The default client factory in use-live-voice statically imports the real
@@ -37,12 +45,11 @@ import {
 // Import the controller + store *after* the connection mock is registered, so
 // the real connection.ts (which imports the generated SDK) never enters the
 // static import graph.
-const { useLiveVoice } = await import(
-  "@/domains/chat/voice/live-voice/use-live-voice"
-);
-const { useLiveVoiceStore } = await import(
-  "@/domains/chat/voice/live-voice/live-voice-store"
-);
+const { useLiveVoice } =
+  await import("@/domains/chat/voice/live-voice/use-live-voice");
+const { useLiveVoiceStore } =
+  await import("@/domains/chat/voice/live-voice/live-voice-store");
+const { useVoicePrefsStore } = await import("@/stores/voice-prefs-store");
 
 // ---------------------------------------------------------------------------
 // Harness
@@ -120,6 +127,13 @@ async function startListening(
 
 beforeEach(() => {
   useLiveVoiceStore.getState().reset();
+  // The voice-prefs store is a persisted singleton — reset the two turn-taking
+  // settings to unset (null) so a test that sets them can't leak into the
+  // connect-args assertions of the next.
+  useVoicePrefsStore.setState({
+    pauseBeforeReplyMs: null,
+    interruptSensitivity: null,
+  });
 });
 
 afterEach(() => {
@@ -472,7 +486,25 @@ describe("hands-free mode", () => {
     });
   }
 
-  test("connects with server_vad turn detection", async () => {
+  test("connects with server_vad turn detection, omitting the pause + interrupt overrides when unset", async () => {
+    const h = renderController();
+    await startListening(h, { handsFree: true });
+
+    // With no user preference set, the overrides are omitted so the daemon's
+    // configured VAD defaults govern (never clobbered by a client default).
+    expect(h.client.connectArgs).toEqual({
+      assistantId: "assistant-1",
+      conversationId: "conv-1",
+      turnDetection: "server_vad",
+    });
+    expect(h.view.result.current.state).toBe("listening");
+  });
+
+  test("sends the user's pause + interrupt-sensitivity settings on a hands-free connect", async () => {
+    useVoicePrefsStore.setState({
+      pauseBeforeReplyMs: 1500,
+      interruptSensitivity: "low", // low sensitivity → 600 ms guard
+    });
     const h = renderController();
     await startListening(h, { handsFree: true });
 
@@ -480,8 +512,19 @@ describe("hands-free mode", () => {
       assistantId: "assistant-1",
       conversationId: "conv-1",
       turnDetection: "server_vad",
+      silenceThresholdMs: 1500,
+      bargeInMinSpeechMs: 600,
     });
-    expect(h.view.result.current.state).toBe("listening");
+  });
+
+  test("omits turn-detection + pause + interrupt settings for a manual (non-hands-free) connect", async () => {
+    const h = renderController();
+    await startListening(h); // manual
+
+    expect(h.client.connectArgs).toEqual({
+      assistantId: "assistant-1",
+      conversationId: "conv-1",
+    });
   });
 
   test("runs two full turns on one socket without a second client or ptt_release", async () => {
@@ -773,7 +816,10 @@ describe("hands-free session controls (send now / stop response / mute)", () => 
   }
 
   /** Drive the session into `speaking` with one thinking + tts frame. */
-  function driveToSpeaking(h: ReturnType<typeof renderController>, turnId = "t1") {
+  function driveToSpeaking(
+    h: ReturnType<typeof renderController>,
+    turnId = "t1",
+  ) {
     act(() => {
       h.client.emit("thinking", { type: "thinking", seq: 2, turnId });
       h.client.emit("ttsAudio", {
@@ -2074,7 +2120,11 @@ describe("observeAudioState", () => {
     const rendersBefore = h.getRenderCount();
     act(() => {
       h.client.emit("sttPartial", { type: "stt_partial", seq: 2, text: "hel" });
-      h.client.emit("sttPartial", { type: "stt_partial", seq: 3, text: "hello" });
+      h.client.emit("sttPartial", {
+        type: "stt_partial",
+        seq: 3,
+        text: "hello",
+      });
     });
     // Transcript writes reached the store but not the consumer.
     expect(useLiveVoiceStore.getState().partialTranscript).toBe("hello");
@@ -2308,7 +2358,8 @@ describe("hands-free reconnect (retryable tunnel close)", () => {
     expect(h.view.result.current.state).toBe("connecting");
     expect(useLiveVoiceStore.getState().controls).not.toBeNull();
 
-    // Backoff elapses → a fresh connect to the SAME conversation.
+    // Backoff elapses → a fresh connect to the SAME conversation (no turn-taking
+    // overrides, since none were set).
     await act(async () => {
       await sleep(80);
     });
@@ -2457,7 +2508,8 @@ describe("hands-free reconnect (retryable tunnel close)", () => {
 
 describe("reconnecting signal", () => {
   const FAST_BACKOFF = [20, 40, 60];
-  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+  const sleep = (ms: number) =>
+    new Promise((resolve) => setTimeout(resolve, ms));
 
   test("a retryable close flips reconnecting true while connecting; ready clears it", async () => {
     const h = renderController({ reconnectBackoffMs: FAST_BACKOFF });
@@ -2540,5 +2592,183 @@ describe("reconnecting signal", () => {
     expect(h.view.result.current.state).toBe("failed");
     expect(h.view.result.current.error).toBe("kaboom");
     expect(useLiveVoiceStore.getState().reconnecting).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Initial-connect resilience (JARVIS-1282): a managed/hands-free session's
+// first connect must not flash `failed` for a transient pre-`ready` failure
+// (cold velay tunnel, token-mint blip) while the room's avatar animates in.
+// ---------------------------------------------------------------------------
+
+describe("initial-connect resilience (JARVIS-1282)", () => {
+  const FAST_BACKOFF = [20, 40, 60];
+
+  /** Start a hands-free session and stop at `connecting` (no `ready` emitted). */
+  async function startConnecting(
+    h: ReturnType<typeof renderController>,
+  ): Promise<void> {
+    await act(async () => {
+      await h.view.result.current.start("assistant-1", "conv-1", {
+        handsFree: true,
+      });
+    });
+    // Let the concurrently-started capture promise settle; state stays
+    // `connecting` until a `ready` (never emitted here).
+    await act(async () => {
+      await flushMicrotasks();
+    });
+    expect(h.view.result.current.state).toBe("connecting");
+  }
+
+  test("retries a transient pre-ready connection failure instead of flashing failed, then readies", async () => {
+    const h = renderController({ reconnectBackoffMs: FAST_BACKOFF });
+    await startConnecting(h);
+
+    // Cold velay tunnel rejects the first upgrade → a pre-`ready` connection
+    // failure surfaces via the transport's `error` event.
+    await act(async () => {
+      const err: LiveVoiceClientError = {
+        reason: "connection-failed",
+        message: "Live-voice WebSocket error",
+      };
+      h.client.emit("error", err);
+    });
+    // Held in `connecting` (avatar keeps animating), NOT `failed`; no error
+    // surfaced; a live stop control stays registered; and it reads as a first
+    // connect ("Connecting…"), not a reconnect ("Reconnecting…").
+    expect(h.view.result.current.state).toBe("connecting");
+    expect(h.view.result.current.error).toBeNull();
+    expect(useLiveVoiceStore.getState().reconnecting).toBe(false);
+    expect(useLiveVoiceStore.getState().controls).not.toBeNull();
+
+    // Backoff elapses → a fresh connect to the same conversation.
+    await act(async () => {
+      await sleep(30);
+    });
+    expect(h.client.connectArgs).toEqual({
+      assistantId: "assistant-1",
+      conversationId: "conv-1",
+      turnDetection: "server_vad",
+    });
+
+    // The retry readies → listening; the error never appeared.
+    await act(async () => {
+      h.client.emit("ready", {
+        type: "ready",
+        seq: 1,
+        sessionId: "s2",
+        conversationId: "conv-1",
+        turnDetection: "server_vad",
+      });
+      await Promise.resolve();
+    });
+    expect(h.view.result.current.state).toBe("listening");
+    expect(h.view.result.current.error).toBeNull();
+  });
+
+  test("surfaces failed once the initial-connect retry budget is exhausted", async () => {
+    // A single-attempt budget: one retry, then the next failure surfaces.
+    const h = renderController({ reconnectBackoffMs: [20] });
+    await startConnecting(h);
+
+    await act(async () => {
+      h.client.emit("error", {
+        reason: "connection-failed",
+        message: "cold tunnel",
+      });
+    });
+    expect(h.view.result.current.state).toBe("connecting");
+
+    // The one scheduled retry fires…
+    await act(async () => {
+      await sleep(30);
+    });
+    // …and also fails pre-`ready`: budget spent → surface the failure.
+    await act(async () => {
+      h.client.emit("error", {
+        reason: "connection-failed",
+        message: "still down",
+      });
+    });
+    expect(h.view.result.current.state).toBe("failed");
+    expect(h.view.result.current.error).toBe("still down");
+  });
+
+  test("does not retry the initial connect for a manual (non-hands-free) session", async () => {
+    const h = renderController({ reconnectBackoffMs: [20] });
+    await act(async () => {
+      await h.view.result.current.start("assistant-1", "conv-1"); // manual
+    });
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    await act(async () => {
+      h.client.emit("error", {
+        reason: "connection-failed",
+        message: "boom",
+      });
+    });
+    expect(h.view.result.current.state).toBe("failed");
+    expect(h.view.result.current.error).toBe("boom");
+  });
+
+  test("a non-connection pre-ready error (protocol-error) still fails immediately", async () => {
+    const h = renderController({ reconnectBackoffMs: [20] });
+    await startConnecting(h);
+
+    await act(async () => {
+      h.client.emit("error", {
+        reason: "protocol-error",
+        message: "bad frame",
+      });
+    });
+    expect(h.view.result.current.state).toBe("failed");
+    expect(h.view.result.current.error).toBe("bad frame");
+  });
+
+  test("a connection failure after ready is not retried by the initial-connect path", async () => {
+    const h = renderController({ reconnectBackoffMs: [20] });
+    await startListening(h, { handsFree: true });
+    expect(h.view.result.current.state).toBe("listening");
+
+    // Once connected, the initial-connect resilience is retired: a fatal
+    // connection error fails the session outright as before.
+    await act(async () => {
+      h.client.emit("error", {
+        reason: "connection-failed",
+        message: "socket died",
+      });
+    });
+    expect(h.view.result.current.state).toBe("failed");
+    expect(h.view.result.current.error).toBe("socket died");
+  });
+
+  test("stop() during the initial-connect backoff cancels the pending retry", async () => {
+    const h = renderController({ reconnectBackoffMs: [20] });
+    await startConnecting(h);
+
+    await act(async () => {
+      h.client.emit("error", {
+        reason: "connection-failed",
+        message: "cold tunnel",
+      });
+    });
+    expect(h.view.result.current.state).toBe("connecting");
+    const connectArgsBeforeStop = h.client.connectArgs;
+
+    await act(async () => {
+      await h.view.result.current.stop();
+    });
+    expect(h.view.result.current.state).toBe("idle");
+
+    // The backoff would have elapsed — but the timer was cancelled, so no
+    // retry connect fires.
+    await act(async () => {
+      await sleep(40);
+    });
+    expect(h.view.result.current.state).toBe("idle");
+    expect(h.client.connectArgs).toBe(connectArgsBeforeStop);
   });
 });

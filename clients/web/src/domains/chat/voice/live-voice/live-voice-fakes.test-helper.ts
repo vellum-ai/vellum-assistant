@@ -41,10 +41,16 @@ export class FakeClient {
     assistantId: string;
     conversationId?: string;
     turnDetection?: "manual" | "server_vad";
+    silenceThresholdMs?: number;
+    bargeInMinSpeechMs?: number;
   } | null = null;
   sentAudio: ArrayBuffer[] = [];
   pttReleaseCount = 0;
   interruptCount = 0;
+  updateConfigCalls: {
+    silenceThresholdMs?: number;
+    bargeInMinSpeechMs?: number;
+  }[] = [];
   ended = false;
   closed = false;
 
@@ -70,6 +76,8 @@ export class FakeClient {
     assistantId: string;
     conversationId?: string;
     turnDetection?: "manual" | "server_vad";
+    silenceThresholdMs?: number;
+    bargeInMinSpeechMs?: number;
   }): Promise<void> {
     this.connectArgs = args;
   }
@@ -82,6 +90,12 @@ export class FakeClient {
   }
   interrupt(): void {
     this.interruptCount++;
+  }
+  updateConfig(config: {
+    silenceThresholdMs?: number;
+    bargeInMinSpeechMs?: number;
+  }): void {
+    this.updateConfigCalls.push(config);
   }
   end(): void {
     this.ended = true;
@@ -214,6 +228,12 @@ export function makeControlsSpies() {
     release: mock(() => {}),
     interrupt: mock(() => {}),
     setMuted: mock((_muted: boolean) => {}),
+    updateConfig: mock(
+      (_config: {
+        silenceThresholdMs?: number;
+        bargeInMinSpeechMs?: number;
+      }) => {},
+    ),
   } satisfies LiveVoiceSessionControls;
 }
 

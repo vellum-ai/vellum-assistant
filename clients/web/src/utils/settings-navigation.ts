@@ -92,7 +92,7 @@ export const SETTINGS_SIDEBAR: SidebarItem[] = [
   { id: "security", label: "Security", href: routes.settings.security, icon: KeyRound },
   { id: "archive", label: "Archive", href: routes.settings.archive, icon: Archive },
   { id: "bookmarks", label: "Bookmarks", href: routes.settings.bookmarks, icon: Bookmark },
-  { id: "billing", label: "Billing", href: routes.settings.billing, icon: CreditCard },
+  { id: "billing", label: "Billing & Usage", href: routes.settings.billing, icon: CreditCard },
   { id: "community", label: "Community", href: routes.settings.community, icon: Users },
   { id: "assistant-debug", label: "Debug", href: routes.settings.debug, icon: Bug },
   { id: "advanced", label: "Advanced", href: routes.settings.advanced, icon: Settings },

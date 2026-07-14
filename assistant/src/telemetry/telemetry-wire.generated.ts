@@ -57,10 +57,12 @@ export const TURN_CLIENT_MAX_JSON_BYTES = 2048;
 // pre-trim a trace it would rather not lose.
 export const TURN_TRACE_MAX_JSON_BYTES = 262144;
 export const WATCHDOG_DETAIL_MAX_JSON_BYTES = 4096;
+export const ONBOARDING_RESEARCH_CLAIMS_MAX_JSON_BYTES = 8192;
+export const ONBOARDING_RESEARCH_SUGGESTIONS_MAX_JSON_BYTES = 8192;
 
 export const llmUsageTelemetryEventSchema = z.object({
   type: z.literal("llm_usage"),
-  daemon_event_id: z.string().trim().min(1).max(36),
+  daemon_event_id: z.string().trim().min(1).max(128),
   recorded_at: z.number().int(),
   assistant_version: z.string().trim().min(1).max(64).nullable().optional(),
   provider: z.string().trim().min(1).max(64),
@@ -93,7 +95,7 @@ export type LlmUsageTelemetryEvent = z.infer<
 export const turnTelemetryEventSchema = z
   .object({
     type: z.literal("turn"),
-    daemon_event_id: z.string().trim().min(1).max(36),
+    daemon_event_id: z.string().trim().min(1).max(128),
     recorded_at: z.number().int(),
     assistant_version: z.string().trim().min(1).max(64).nullable().optional(),
     conversation_type: z.string().trim().min(1).max(32).nullable().optional(),
@@ -160,7 +162,7 @@ export type TurnTelemetryEvent = z.infer<typeof turnTelemetryEventSchema>;
 
 export const lifecycleTelemetryEventSchema = z.object({
   type: z.literal("lifecycle"),
-  daemon_event_id: z.string().trim().min(1).max(36),
+  daemon_event_id: z.string().trim().min(1).max(128),
   recorded_at: z.number().int(),
   assistant_version: z.string().trim().min(1).max(64).nullable().optional(),
   event_name: z.string().trim().min(1).max(64),
@@ -172,7 +174,7 @@ export type LifecycleTelemetryEvent = z.infer<
 export const onboardingTelemetryEventSchema = z
   .object({
     type: z.literal("onboarding"),
-    daemon_event_id: z.string().trim().min(1).max(36),
+    daemon_event_id: z.string().trim().min(1).max(128),
     recorded_at: z.number().int(),
     assistant_version: z.string().trim().min(1).max(64).nullable().optional(),
     screen: z.string().trim().min(1).max(64).optional(),
@@ -218,7 +220,7 @@ export type OnboardingTelemetryEvent = z.infer<
 
 export const authFallbackTelemetryEventSchema = z.object({
   type: z.literal("auth_fallback"),
-  daemon_event_id: z.string().trim().min(1).max(36),
+  daemon_event_id: z.string().trim().min(1).max(128),
   recorded_at: z.number().int(),
   assistant_version: z.string().trim().min(1).max(64).nullable().optional(),
   guard: z.string().trim().min(1).max(64),
@@ -244,7 +246,7 @@ export const toolExecutedTelemetryEventSchema = z.object({
     .nullable()
     .optional(),
   type: z.literal("tool_executed"),
-  daemon_event_id: z.string().trim().min(1).max(36),
+  daemon_event_id: z.string().trim().min(1).max(128),
   recorded_at: z.number().int(),
   assistant_version: z.string().trim().min(1).max(64).nullable().optional(),
   tool_name: z.string().trim().min(1).max(255),
@@ -270,7 +272,7 @@ export const skillLoadedTelemetryEventSchema = z.object({
     .nullable()
     .optional(),
   type: z.literal("skill_loaded"),
-  daemon_event_id: z.string().trim().min(1).max(36),
+  daemon_event_id: z.string().trim().min(1).max(128),
   recorded_at: z.number().int(),
   assistant_version: z.string().trim().min(1).max(64).nullable().optional(),
   skill_name: z.string().trim().min(1).max(255),
@@ -284,7 +286,7 @@ export type SkillLoadedTelemetryEvent = z.infer<
 export const watchdogTelemetryEventSchema = z
   .object({
     type: z.literal("watchdog"),
-    daemon_event_id: z.string().trim().min(1).max(36),
+    daemon_event_id: z.string().trim().min(1).max(128),
     recorded_at: z.number().int(),
     assistant_version: z.string().trim().min(1).max(64).nullable().optional(),
     check_name: z.string().trim().min(1).max(128),
@@ -312,7 +314,7 @@ export type WatchdogTelemetryEvent = z.infer<
 
 export const configSettingTelemetryEventSchema = z.object({
   type: z.literal("config_setting"),
-  daemon_event_id: z.string().trim().min(1).max(36),
+  daemon_event_id: z.string().trim().min(1).max(128),
   recorded_at: z.number().int(),
   assistant_version: z.string().trim().min(1).max(64).nullable().optional(),
   config_key: z.string().trim().min(1).max(128),
@@ -320,6 +322,53 @@ export const configSettingTelemetryEventSchema = z.object({
 });
 export type ConfigSettingTelemetryEvent = z.infer<
   typeof configSettingTelemetryEventSchema
+>;
+
+export const onboardingResearchTelemetryEventSchema = z
+  .object({
+    type: z.literal("onboarding_research"),
+    daemon_event_id: z.string().trim().min(1).max(128),
+    recorded_at: z.number().int(),
+    assistant_version: z.string().trim().min(1).max(64).nullable().optional(),
+    conversation_id: z.string().trim().min(1).max(64).nullable().optional(),
+    status: z.string().trim().min(1).max(32),
+    claims: z.array(jsonValueSchema).max(20),
+    claim_count: z.number().int().min(0),
+    claims_confident: z.number().int().min(0),
+    claims_maybe: z.number().int().min(0),
+    claims_guessing: z.number().int().min(0),
+    suggestions: z.array(jsonValueSchema).max(20),
+    suggestion_count: z.number().int().min(0),
+    plugins: z.array(z.string().trim().min(1).max(128)).max(20),
+    installed_plugins: z.array(z.string().trim().min(1).max(128)).max(20),
+  })
+  .superRefine((val, ctx) => {
+    // Mirrors the server's OnboardingResearchTelemetryEventSerializer
+    // validate_claims / validate_suggestions — an oversize `claims` or
+    // `suggestions` array is rejected by ingest (the event is silently
+    // dropped, never the whole batch).
+    if (
+      jsonByteLength(val.claims) > ONBOARDING_RESEARCH_CLAIMS_MAX_JSON_BYTES
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["claims"],
+        message: `\`claims\` JSON exceeds ${ONBOARDING_RESEARCH_CLAIMS_MAX_JSON_BYTES} bytes when serialized.`,
+      });
+    }
+    if (
+      jsonByteLength(val.suggestions) >
+      ONBOARDING_RESEARCH_SUGGESTIONS_MAX_JSON_BYTES
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["suggestions"],
+        message: `\`suggestions\` JSON exceeds ${ONBOARDING_RESEARCH_SUGGESTIONS_MAX_JSON_BYTES} bytes when serialized.`,
+      });
+    }
+  });
+export type OnboardingResearchTelemetryEvent = z.infer<
+  typeof onboardingResearchTelemetryEventSchema
 >;
 
 export type WireEventMap = {
@@ -332,6 +381,7 @@ export type WireEventMap = {
   skill_loaded: SkillLoadedTelemetryEvent;
   watchdog: WatchdogTelemetryEvent;
   config_setting: ConfigSettingTelemetryEvent;
+  onboarding_research: OnboardingResearchTelemetryEvent;
 };
 
 export const telemetryEventSchema = z.discriminatedUnion("type", [
@@ -344,6 +394,7 @@ export const telemetryEventSchema = z.discriminatedUnion("type", [
   skillLoadedTelemetryEventSchema,
   watchdogTelemetryEventSchema,
   configSettingTelemetryEventSchema,
+  onboardingResearchTelemetryEventSchema,
 ]);
 export type TelemetryEvent = z.infer<typeof telemetryEventSchema>;
 

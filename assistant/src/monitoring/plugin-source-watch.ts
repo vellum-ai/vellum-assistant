@@ -158,6 +158,46 @@ export function createSourceWatchState(): SourceWatchState {
 }
 
 /**
+ * Compile every multi-file app bundled by a plugin from its `apps/<app>/src`
+ * into the sibling `apps/<app>/dist`. Single-file apps (a root `index.html`,
+ * no `src/`) need no build and are skipped.
+ *
+ * Runs here — off the daemon's hot path — because the monitor has just detected
+ * the change. The generated `dist/` is excluded from the source fingerprint
+ * ({@link isGeneratedAppBuildDir}), so writing it does not re-trigger a pass.
+ * The bundler (esbuild) is imported lazily so the monitor only pulls it in when
+ * a plugin actually ships a buildable app.
+ */
+export async function compilePluginApps(pluginDir: string): Promise<void> {
+  const appsDir = join(pluginDir, "apps");
+  let appEntries: string[];
+  try {
+    appEntries = readdirSync(appsDir);
+  } catch {
+    return; // No apps/ directory — nothing to build.
+  }
+  const buildable = appEntries.filter((app) => {
+    const appDir = join(appsDir, app);
+    try {
+      return statSync(appDir).isDirectory() && existsSync(join(appDir, "src"));
+    } catch {
+      return false;
+    }
+  });
+  if (buildable.length === 0) {
+    return;
+  }
+  const { compileApp } = await import("../bundler/app-compiler.js");
+  for (const app of buildable) {
+    const appDir = join(appsDir, app);
+    const result = await compileApp(appDir);
+    if (!result.ok) {
+      log.warn({ appDir, errors: result.errors }, "plugin app compile failed");
+    }
+  }
+}
+
+/**
  * Run one detection pass: walk, compare against the last published state,
  * and rewrite the sentinel if anything changed. Returns whether a rewrite
  * happened. Never throws — a failed pass is logged and retried on the next
@@ -202,6 +242,19 @@ export function runSourceWatchPass(state: SourceWatchState): boolean {
       { generation: state.generation, changedDirs },
       "plugin source change published",
     );
+
+    // Rebuild multi-file apps for each changed, enabled plugin. Fire-and-forget
+    // so a slow build never stalls the watch loop; the generated dist is
+    // excluded from the fingerprint, so it does not re-trigger this pass.
+    for (const dir of changedDirs) {
+      const version = current[dir];
+      if (version !== undefined && !version.disabled) {
+        void compilePluginApps(dir).catch((err) => {
+          log.error({ err, dir }, "plugin app compile pass failed");
+        });
+      }
+    }
+
     return true;
   } catch (err) {
     log.error({ err }, "plugin source watch pass failed — will retry");

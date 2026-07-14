@@ -18,7 +18,10 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 
-import { walkPluginTree } from "../../plugins/plugin-tree-walk.js";
+import {
+  isGeneratedAppBuildDir,
+  walkPluginTree,
+} from "../../plugins/plugin-tree-walk.js";
 
 /** Digest algorithm recorded alongside the file map, for forward compatibility. */
 export type FingerprintAlgorithm = "sha256";
@@ -64,9 +67,13 @@ export function computeFingerprint(
   exclude: readonly string[] = [],
 ): Fingerprint {
   const files: Record<string, string> = {};
-  walkPluginTree(root, { excludeRootEntries: exclude }, (rel, abs) => {
-    files[rel] = hashFile(abs);
-  });
+  walkPluginTree(
+    root,
+    { excludeRootEntries: exclude, excludeDir: isGeneratedAppBuildDir },
+    (rel, abs) => {
+      files[rel] = hashFile(abs);
+    },
+  );
   return { algorithm: "sha256", files };
 }
 
@@ -178,9 +185,13 @@ export function computeContentHash(
   exclude: readonly string[] = [],
 ): string {
   const entries: Array<{ rel: string; abs: string }> = [];
-  walkPluginTree(root, { excludeRootEntries: exclude }, (rel, abs) => {
-    entries.push({ rel, abs });
-  });
+  walkPluginTree(
+    root,
+    { excludeRootEntries: exclude, excludeDir: isGeneratedAppBuildDir },
+    (rel, abs) => {
+      entries.push({ rel, abs });
+    },
+  );
   entries.sort((a, b) => a.rel.localeCompare(b.rel));
 
   const hash = createHash("sha256");

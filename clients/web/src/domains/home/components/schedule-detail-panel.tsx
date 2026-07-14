@@ -506,7 +506,7 @@ export function ScheduleDetailPanel({
           <Button
             variant="outlined"
             leftIcon={<BarChart3 className="h-3.5 w-3.5" />}
-            onClick={() => navigate(routes.logs.usageForSchedule(schedule.id))}
+            onClick={() => navigate(routes.settings.usageForSchedule(schedule.id))}
           >
             View usage
           </Button>

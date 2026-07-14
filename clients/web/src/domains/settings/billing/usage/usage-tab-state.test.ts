@@ -9,7 +9,7 @@ import {
   readUsageUrlState,
   resolveRangeWindow,
   resolveUsageGranularity,
-} from "@/domains/logs/usage-tab-state";
+} from "@/domains/settings/billing/usage/usage-tab-state";
 
 const UTC = "UTC";
 

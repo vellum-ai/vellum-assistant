@@ -98,6 +98,10 @@ import {
   useLiveVoiceStore,
   type LiveVoiceSessionState,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
+import {
+  interruptSensitivityToMs,
+  useVoicePrefsStore,
+} from "@/stores/voice-prefs-store";
 
 // ---------------------------------------------------------------------------
 // Thresholds (mirror the macOS LiveVoiceChannelManager defaults)
@@ -359,6 +363,17 @@ export function useLiveVoice(
   // useCallback self-reference cycle.
   const reconnectAttemptRef = useRef(0);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Initial-connect resilience (JARVIS-1282). `hasReadyRef` records whether the
+  // current session lifecycle ever reached `ready` — false during the very
+  // first connect, so a transient pre-`ready` connection failure (cold velay
+  // tunnel, token-mint blip) is retried within the backoff budget instead of
+  // flashing `failed` while the room's avatar is still animating in.
+  // `initialConnectAttemptRef` counts those first-connect retries (distinct
+  // from `reconnectAttemptRef` so the room shows "Connecting…", not
+  // "Reconnecting…"), sharing `reconnectTimerRef` for cancellation. Both reset
+  // on a fresh `start()`, on `ready`, and on teardown/stop.
+  const hasReadyRef = useRef(false);
+  const initialConnectAttemptRef = useRef(0);
   const connectSessionRef = useRef<
     | ((
         assistantId: string,
@@ -390,6 +405,8 @@ export function useLiveVoice(
     // a queued reconnect must not resurrect the session behind idle UI.
     clearReconnectTimer();
     reconnectAttemptRef.current = 0;
+    initialConnectAttemptRef.current = 0;
+    hasReadyRef.current = false;
     const session = sessionRef.current;
     if (!session) {
       // During the reconnect backoff gap `sessionRef` is null while the store
@@ -413,6 +430,8 @@ export function useLiveVoice(
     // reconnect and its attempt budget.
     clearReconnectTimer();
     reconnectAttemptRef.current = 0;
+    initialConnectAttemptRef.current = 0;
+    hasReadyRef.current = false;
     const session = sessionRef.current;
     if (!session) {
       useLiveVoiceStore.getState().reset();
@@ -495,6 +514,19 @@ export function useLiveVoice(
     if (muted) s.setInputAmplitude(0);
   }, []);
 
+  /**
+   * Retune the running session's turn-detection knobs live (the voice-room
+   * gear). Delegates to the transport, which no-ops unless the socket is
+   * active; a no-op during the reconnect gap (no session) is fine — the fresh
+   * `connectSession` re-reads the current settings into its start frame.
+   */
+  const updateConfig = useCallback(
+    (config: { silenceThresholdMs?: number; bargeInMinSpeechMs?: number }) => {
+      sessionRef.current?.client.updateConfig(config);
+    },
+    [],
+  );
+
   // The connect flow, shared by the user-facing `start()` and the hands-free
   // reconnect path. `start()` owns the "already active" guard and resets the
   // reconnect budget; `connectSession` assumes it may run. On reconnect it is
@@ -534,11 +566,21 @@ export function useLiveVoice(
       // Registered here (not on `ready`) so a globally mounted surface can
       // drive the session from the moment it exists; cleared by the store
       // reset in teardown()/stop().
-      store.setControls({ stop: () => void stop(), release, interrupt, setMuted });
+      store.setControls({
+        stop: () => void stop(),
+        release,
+        interrupt,
+        setMuted,
+        updateConfig,
+      });
 
       const opts = optionsRef.current;
-      const client = (opts.createClient ?? (() => new LiveVoiceChannelClient()))();
-      const player = (opts.createPlayer ?? (() => new LiveVoiceAudioPlayer()))();
+      const client = (
+        opts.createClient ?? (() => new LiveVoiceChannelClient())
+      )();
+      const player = (
+        opts.createPlayer ?? (() => new LiveVoiceAudioPlayer())
+      )();
       // Resume the playback AudioContext now, while we're still in the
       // mic-button click's gesture. Deferring to the first `tts_audio` frame
       // (its lazy creation point) lands outside any gesture, so the browser
@@ -573,9 +615,12 @@ export function useLiveVoice(
         assistantAudioIdleTimer: null,
       };
 
-      const capture = (opts.createCapture ?? ((o) => new LiveVoiceAudioCapture(o)))({
+      const capture = (
+        opts.createCapture ?? ((o) => new LiveVoiceAudioCapture(o))
+      )({
         onChunk: (buf) => handleChunk(session, buf),
-        onAmplitude: (amplitude) => handleAmplitude(session, amplitude, teardown),
+        onAmplitude: (amplitude) =>
+          handleAmplitude(session, amplitude, teardown),
       });
       session.capture = capture;
       sessionRef.current = session;
@@ -604,6 +649,11 @@ export function useLiveVoice(
           // budget so a later, unrelated tunnel drop gets its full retry set,
           // and drop the reconnect label so the surface stops showing a retry.
           reconnectAttemptRef.current = 0;
+          // The session has connected at least once: retire the initial-connect
+          // resilience (a later drop reconnects via `reconnectAttemptRef`) and
+          // clear its budget.
+          hasReadyRef.current = true;
+          initialConnectAttemptRef.current = 0;
           useLiveVoiceStore.getState().setReconnecting(false);
           // When started from a new/empty conversation, `conversationId` was
           // undefined at start() and the store published `null`. The server
@@ -789,7 +839,11 @@ export function useLiveVoice(
         }),
         client.on("busy", () => {
           if (!live()) return;
-          finishWithError(session, teardown, "Another live-voice session is active.");
+          finishWithError(
+            session,
+            teardown,
+            "Another live-voice session is active.",
+          );
         }),
         client.on("error", (err: LiveVoiceClientError) => {
           if (!live()) return;
@@ -801,6 +855,58 @@ export function useLiveVoice(
             const s = useLiveVoiceStore.getState();
             if (s.state === "transcribing") s.setState("listening");
             return;
+          }
+          // Initial-connect resilience (JARVIS-1282): a hands-free session's
+          // very first connect can transiently fail before `ready` — a managed
+          // assistant's velay tunnel is briefly cold, or the token mint blips —
+          // and finishing with that error flashes the failure surface while the
+          // room's avatar is still animating in. Retry within the backoff
+          // budget instead, holding the room in `connecting` (a first connect,
+          // so NOT the "Reconnecting…" label), and only surface `failed` once
+          // the budget is spent. Scoped to connection-level failures pre-`ready`
+          // so a mid-session fatal error still fails immediately as before.
+          if (
+            session.handsFree &&
+            !hasReadyRef.current &&
+            (err.reason === "connection-failed" || err.reason === "timeout")
+          ) {
+            const backoff =
+              optionsRef.current.reconnectBackoffMs ?? RECONNECT_BACKOFF_MS;
+            if (initialConnectAttemptRef.current < backoff.length) {
+              const attempt = initialConnectAttemptRef.current;
+              initialConnectAttemptRef.current = attempt + 1;
+              const delayMs = backoff[attempt] ?? 0;
+              const assistantId = session.assistantId;
+              // The session hasn't reached `ready`, so no server-assigned id
+              // exists yet — re-attach to whatever it was started with.
+              const conversationId =
+                useLiveVoiceStore.getState().startedConversationId ?? undefined;
+              // Drop the dead primitives but hold the UI in `connecting` with a
+              // live stop control (the store still carries the session context +
+              // entry origin, which the re-entered `connectSession` preserves),
+              // so the avatar keeps animating and the user can still bail.
+              sessionRef.current = null;
+              disposeSessionPrimitives(session);
+              const s = useLiveVoiceStore.getState();
+              s.setState("connecting");
+              s.setControls({
+                stop: () => void stop(),
+                release,
+                interrupt,
+                setMuted,
+              });
+              console.warn(
+                `live-voice: initial connect failed (${err.reason}); retrying ` +
+                  `(attempt ${attempt + 1}/${backoff.length})`,
+              );
+              reconnectTimerRef.current = setTimeout(() => {
+                reconnectTimerRef.current = null;
+                void connectSessionRef.current?.(assistantId, conversationId, {
+                  handsFree: true,
+                });
+              }, delayMs);
+              return;
+            }
           }
           finishWithError(session, teardown, err.message);
         }),
@@ -845,7 +951,13 @@ export function useLiveVoice(
             // timer re-enters `connectSession`) so the surface shows a
             // reconnect, not a fresh connect. Cleared on `ready`/teardown.
             s.setReconnecting(true);
-            s.setControls({ stop: () => void stop(), release, interrupt, setMuted });
+            s.setControls({
+              stop: () => void stop(),
+              release,
+              interrupt,
+              setMuted,
+              updateConfig,
+            });
             console.warn(
               `live-voice: transport closed (code ${info.code}); reconnecting ` +
                 `(attempt ${attempt + 1}/${backoff.length})`,
@@ -863,13 +975,32 @@ export function useLiveVoice(
         }),
       );
 
+      // The pause + interrupt-sensitivity settings only apply to hands-free
+      // (server_vad) sessions — server VAD owns endpointing and barge-in. Read
+      // from the store (not the `.use.*` hook) since this is a callback, so a
+      // mid-session settings change also takes effect on the next reconnect.
+      // Each override is sent ONLY when the user has explicitly set it (non-null):
+      // otherwise it is omitted so the daemon's configured `liveVoice.vad`
+      // defaults govern, rather than a web-client default silently clobbering a
+      // self-hosted workspace's configuration.
+      const voicePrefs = useVoicePrefsStore.getState();
+      const pauseMs = voicePrefs.pauseBeforeReplyMs;
+      const sensitivity = voicePrefs.interruptSensitivity;
       await client.connect({
         assistantId,
         conversationId,
-        ...(session.handsFree ? { turnDetection: "server_vad" as const } : {}),
+        ...(session.handsFree
+          ? {
+              turnDetection: "server_vad" as const,
+              ...(pauseMs !== null ? { silenceThresholdMs: pauseMs } : {}),
+              ...(sensitivity !== null
+                ? { bargeInMinSpeechMs: interruptSensitivityToMs(sensitivity) }
+                : {}),
+            }
+          : {}),
       });
     },
-    [teardown, stop, release, interrupt, setMuted],
+    [teardown, stop, release, interrupt, setMuted, updateConfig],
   );
 
   // Let the transport `closed` handler re-enter the connect flow for a
@@ -894,9 +1025,12 @@ export function useLiveVoice(
       // also covers an in-flight reconnect, so a mic click during the backoff
       // gap doesn't spawn a second session.
       if (isLiveVoiceSessionActive(useLiveVoiceStore.getState().state)) return;
-      // Fresh user-initiated session: drop any stale reconnect budget/timer.
+      // Fresh user-initiated session: drop any stale reconnect budget/timer and
+      // the initial-connect resilience budget (a new session starts unreadied).
       clearReconnectTimer();
       reconnectAttemptRef.current = 0;
+      initialConnectAttemptRef.current = 0;
+      hasReadyRef.current = false;
       await connectSession(assistantId, conversationId, startOptions ?? {});
     },
     [connectSession, clearReconnectTimer],
@@ -1030,7 +1164,11 @@ function handleAmplitude(
   // barge-in) from a muted mic would contradict the substituted stream.
   const muted = useLiveVoiceStore.getState().muted;
   useLiveVoiceStore.getState().setInputAmplitude(muted ? 0 : amplitude);
-  if (!muted && !session.handsFree && amplitude >= BARGE_IN_AMPLITUDE_THRESHOLD) {
+  if (
+    !muted &&
+    !session.handsFree &&
+    amplitude >= BARGE_IN_AMPLITUDE_THRESHOLD
+  ) {
     interruptIfSpeaking(session, teardown);
   }
 }
@@ -1039,7 +1177,10 @@ function handleAmplitude(
  * Track speech / trailing-silence durations and auto-release push-to-talk once
  * a real utterance is followed by a long-enough silence window.
  */
-function updateAutomaticRelease(session: SessionContext, buf: ArrayBuffer): void {
+function updateAutomaticRelease(
+  session: SessionContext,
+  buf: ArrayBuffer,
+): void {
   if (useLiveVoiceStore.getState().state !== "listening") return;
   const durationMs = chunkDurationMs(buf);
   if (durationMs <= 0) return;

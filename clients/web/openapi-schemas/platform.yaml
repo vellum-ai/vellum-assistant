@@ -4486,14 +4486,16 @@ paths:
   /v1/organizations/billing/subscription/change-machine-tier/:
     post:
       operationId: organizations_billing_subscription_change_machine_tier_create
-      description: Switch the compute (machine) tier on the org's active Pro subscription.
-        Modifies the Stripe subscription item in place. Upgrades invoice immediately
-        (always_invoice) and only raise the ceiling — pods are left untouched (grow
-        later via the per-assistant resize). Downgrades net onto the next invoice
-        (create_prorations, no refund) and cap any pods above the new ceiling via
-        vembda. Rejected with HTTP 409 while a cancellation is pending. Requires an
-        active Pro subscription with the multi-item structure and machine_tier metadata;
-        legacy single-price subscriptions get HTTP 409 until they are migrated.
+      description: Add, switch, or remove the compute (machine) tier on the org's
+        active Pro subscription. A set value swaps the Stripe subscription item in
+        place (or adds one when the subscription has no machine item); a null ``machine_tier``
+        removes the item entirely (back to the small baseline). Upgrades — including
+        adding a tier — invoice immediately (always_invoice) and only raise the ceiling;
+        pods are left untouched (grow later via the per-assistant resize). Downgrades
+        and removals net onto the next invoice (create_prorations, no refund) and
+        cap any pods above the new ceiling via vembda. Rejected with HTTP 409 while
+        a cancellation is pending. Requires an active Pro subscription with the multi-item
+        structure; legacy single-price subscriptions get HTTP 409 until they are migrated.
       parameters:
       - in: header
         name: Vellum-Organization-Id
@@ -6182,7 +6184,10 @@ components:
       type: object
       properties:
         machine_tier:
-          $ref: '#/components/schemas/MachineTierEnum'
+          nullable: true
+          oneOf:
+          - $ref: '#/components/schemas/MachineTierEnum'
+          - $ref: '#/components/schemas/NullEnum'
       required:
       - machine_tier
     ComputeTierChangeResponse:
@@ -6191,7 +6196,8 @@ components:
         status:
           $ref: '#/components/schemas/TierChangeStatusEnum'
         machine_tier:
-          $ref: '#/components/schemas/MachineTierEnum'
+          type: string
+          nullable: true
       required:
       - machine_tier
       - status
@@ -8603,7 +8609,10 @@ components:
       type: object
       properties:
         machine_tier:
-          $ref: '#/components/schemas/MachineTierEnum'
+          nullable: true
+          oneOf:
+          - $ref: '#/components/schemas/MachineTierEnum'
+          - $ref: '#/components/schemas/NullEnum'
         storage_tier:
           $ref: '#/components/schemas/StorageTierEnum'
         target_plan_id:
@@ -8620,7 +8629,6 @@ components:
           default: true
       required:
       - confirm
-      - machine_tier
       - storage_tier
       - target_plan_id
     SubscriptionUpgradeResponse:

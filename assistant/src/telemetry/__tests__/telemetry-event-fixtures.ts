@@ -209,6 +209,40 @@ const configSetting: ConfigSettingTelemetryEvent = {
   config_value: "true",
 };
 
+/**
+ * `onboarding_research` sample. The daemon's type is richer than the wire
+ * (structured `claims`/`suggestions`, closed `status`), so it is an `Overrides`
+ * entry; the wire schema (opaque JSON arrays, size-bounded) still accepts it.
+ */
+export const onboardingResearch: OnboardingResearchTelemetryEvent = {
+  type: "onboarding_research",
+  daemon_event_id: "evt-onboarding-research-1",
+  recorded_at: RECORDED_AT,
+  assistant_version: "1.2.3",
+  conversation_id: "conv-xyz",
+  status: "done",
+  claims: [
+    {
+      claim: "Works on developer tooling",
+      confidence: "confident",
+      sources: ["https://example.com/profile"],
+    },
+  ],
+  claim_count: 1,
+  claims_confident: 1,
+  claims_maybe: 0,
+  claims_guessing: 0,
+  suggestions: [
+    {
+      suggestion: "Set up email triage",
+      prompt: "Help me triage my inbox",
+    },
+  ],
+  suggestion_count: 1,
+  plugins: ["gmail"],
+  installed_plugins: ["gmail", "calendar"],
+};
+
 /** One daemon-typed, wire-valid sample per generated wire event type. */
 export const wireEventSamples = [
   llmUsage,
@@ -220,41 +254,5 @@ export const wireEventSamples = [
   skillLoaded,
   watchdog,
   configSetting,
+  onboardingResearch,
 ] as const;
-
-/**
- * Daemon-only extension event — NOT in the wire contract: the platform has
- * no `onboarding_research` ingest serializer, so the server silently drops
- * it. Both suites use this builder to pin that gap (schema rejection /
- * unknown-type reporting).
- */
-export function makeOnboardingResearchEvent(): OnboardingResearchTelemetryEvent {
-  return {
-    type: "onboarding_research",
-    daemon_event_id: "evt-onboarding-research-1",
-    recorded_at: RECORDED_AT,
-    assistant_version: "1.2.3",
-    conversation_id: "conv-xyz",
-    status: "done",
-    claims: [
-      {
-        claim: "Works on developer tooling",
-        confidence: "confident",
-        sources: ["https://example.com/profile"],
-      },
-    ],
-    claim_count: 1,
-    claims_confident: 1,
-    claims_maybe: 0,
-    claims_guessing: 0,
-    suggestions: [
-      {
-        suggestion: "Set up email triage",
-        prompt: "Help me triage my inbox",
-      },
-    ],
-    suggestion_count: 1,
-    plugins: ["gmail"],
-    installed_plugins: ["gmail", "calendar"],
-  };
-}

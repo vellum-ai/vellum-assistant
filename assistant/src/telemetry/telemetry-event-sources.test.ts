@@ -17,22 +17,56 @@ import {
   DAEMON_TELEMETRY_EVENT_SOURCES,
   MONITOR_TELEMETRY_EVENT_SOURCES,
 } from "./telemetry-event-sources.js";
-import { OUTBOX_TELEMETRY_EVENT_NAMES } from "./types.js";
+import { telemetryEventSchema } from "./telemetry-wire.generated.js";
+import {
+  OUTBOX_TELEMETRY_EVENT_NAMES,
+  WATERMARK_TELEMETRY_EVENT_NAMES,
+} from "./types.js";
 
 describe("telemetry event source partition", () => {
   test("the full source list carries every event type in payload order", () => {
+    // Watermark sources first (their ids are the table names, not the wire
+    // discriminants), then outbox events in wire-contract order.
     expect(ALL_TELEMETRY_EVENT_SOURCES.map((s) => s.id)).toEqual([
       "usage",
       "turns",
+      "tool_executed",
       "lifecycle",
       "onboarding",
       "auth_fallback",
-      "tool_executed",
       "skill_loaded",
       "watchdog",
       "config_setting",
       "onboarding_research",
     ]);
+  });
+
+  test("every wire event type is partitioned to exactly one flush lane", () => {
+    // The derivation's core guarantee: a new wire event type can't silently go
+    // unflushed. Every discriminant in the generated contract is either
+    // watermark-flushed or (by default) outbox-backed, never both, never
+    // neither — and the counts line up with one source per type.
+    const wireTypes = new Set(
+      telemetryEventSchema.options.map((o) => o.shape.type.value),
+    );
+    const partitioned = [
+      ...WATERMARK_TELEMETRY_EVENT_NAMES,
+      ...OUTBOX_TELEMETRY_EVENT_NAMES,
+    ];
+    expect(new Set(partitioned)).toEqual(wireTypes);
+    expect(partitioned.length).toBe(wireTypes.size); // disjoint: no double-count
+    expect(ALL_TELEMETRY_EVENT_SOURCES.length).toBe(wireTypes.size);
+  });
+
+  test("every watermark name is a real wire discriminant", () => {
+    // Guards a stale/typo watermark name that would wrongly exclude a live type
+    // from the outbox (and thus from any flush source).
+    const wireTypes = new Set(
+      telemetryEventSchema.options.map((o) => o.shape.type.value),
+    );
+    for (const name of WATERMARK_TELEMETRY_EVENT_NAMES) {
+      expect(wireTypes.has(name)).toBe(true);
+    }
   });
 
   test("the daemon flushes turns only", () => {

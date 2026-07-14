@@ -20,7 +20,7 @@ import type {
   ToolExecutionResult,
 } from "../../../../tools/types.js";
 import { getLogger } from "../../../../util/logger.js";
-import { guessMimeType } from "./gmail-mime-helpers.js";
+import { guessMimeType } from "../../../../util/mime-type.js";
 import {
   err,
   extractEmail,

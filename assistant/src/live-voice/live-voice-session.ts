@@ -67,6 +67,7 @@ import type {
 } from "./live-voice-tts.js";
 import {
   type LiveVoiceClientFrame,
+  type LiveVoiceClientUpdateConfigFrame,
   LiveVoiceProtocolErrorCode,
   type LiveVoiceServerFramePayload,
 } from "./protocol.js";
@@ -93,10 +94,12 @@ const SERVER_VAD_PRE_ROLL_MAX_CHUNKS = 25;
 // provider keeps its own, longer, finalize fallback).
 const FINALIZE_GRACE_MS = 1_000;
 // Consecutive speech (ms) required before speech during assistant playback
-// flushes it (speech_started) and cancels the turn, so a cough or noise blip
-// cannot kill a reply mid-sentence. Mirrors the liveVoice.vad.bargeInMinSpeechMs
-// schema default; 0 disables the guard for instant barge-in.
-const DEFAULT_BARGE_IN_MIN_SPEECH_MS = 60;
+// flushes it (speech_started) and cancels the turn, so a cough, a filler word,
+// or the assistant's own TTS bleeding through imperfect browser echo
+// cancellation cannot kill a reply mid-sentence. Mirrors the
+// liveVoice.vad.bargeInMinSpeechMs schema default; 0 disables the guard for
+// instant barge-in.
+const DEFAULT_BARGE_IN_MIN_SPEECH_MS = 250;
 // At most this many TTS segment jobs are open (provider stream started,
 // frames not yet fully emitted) per turn: the emitting job plus one
 // prefetching job. The prefetch buffers its chunks in memory until promoted;
@@ -306,7 +309,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // Energy gate for server-VAD speech classification; undefined defers to
   // DEFAULT_SPEECH_ENERGY_THRESHOLD.
   private readonly speechEnergyThreshold: number | undefined;
-  private readonly bargeInMinSpeechMs: number;
+  // Mutable so a mid-session `update_config` frame can retune "interrupt
+  // sensitivity" live (see applyConfigUpdate).
+  private bargeInMinSpeechMs: number;
   // Sustained-speech barge-in guard, armed at speech onset while the
   // assistant turn is audibly speaking: consecutive speech-chunk duration
   // accumulates until it reaches bargeInMinSpeechMs, then the deferred
@@ -386,12 +391,23 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       ...(options.metricsClock ? { clock: options.metricsClock } : {}),
     });
     this.speechEnergyThreshold = options.speechEnergyThreshold;
+    // Precedence for the two sensitivity knobs: per-session start-frame
+    // override (the client's user setting) > daemon `liveVoice.vad` config
+    // (seeded into `options` by the factory) > in-code default.
     this.bargeInMinSpeechMs =
-      options.bargeInMinSpeechMs ?? DEFAULT_BARGE_IN_MIN_SPEECH_MS;
+      context.startFrame.bargeInMinSpeechMs ??
+      options.bargeInMinSpeechMs ??
+      DEFAULT_BARGE_IN_MIN_SPEECH_MS;
     this.finalizeGraceMs = options.finalizeGraceMs ?? FINALIZE_GRACE_MS;
+    const turnDetectorConfig: TurnDetectorConfig = {
+      ...(options.turnDetectorConfig ?? {}),
+      ...(context.startFrame.silenceThresholdMs !== undefined
+        ? { silenceThresholdMs: context.startFrame.silenceThresholdMs }
+        : {}),
+    };
     this.turnDetector =
       context.startFrame.turnDetection === "server_vad"
-        ? new MediaTurnDetector(options.turnDetectorConfig ?? {}, {
+        ? new MediaTurnDetector(turnDetectorConfig, {
             onTurnStart: () => this.handleVadSpeechStart(),
             onTurnEnd: (reason) => this.handleVadUtteranceEnd(reason),
           })
@@ -461,6 +477,25 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         return;
       case "start":
         return;
+      case "update_config":
+        this.applyConfigUpdate(frame);
+        return;
+    }
+  }
+
+  /**
+   * Apply a mid-session `update_config` frame: retune the live turn detector's
+   * pause ("pause before reply") and/or the barge-in guard ("interrupt
+   * sensitivity") without reconnecting. Each field is optional and independent;
+   * changes take effect from the next utterance. A no-op on manual (non-
+   * server_vad) sessions, which have no turn detector.
+   */
+  private applyConfigUpdate(frame: LiveVoiceClientUpdateConfigFrame): void {
+    if (frame.silenceThresholdMs !== undefined) {
+      this.turnDetector?.setSilenceThresholdMs(frame.silenceThresholdMs);
+    }
+    if (frame.bargeInMinSpeechMs !== undefined) {
+      this.bargeInMinSpeechMs = frame.bargeInMinSpeechMs;
     }
   }
 
@@ -2072,9 +2107,13 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     if (activeTurn?.token !== token) {
       return;
     }
-    activeTurn.assistantAudioChunks.push(
-      Buffer.from(chunk.dataBase64, "base64"),
-    );
+    // Only retain the assistant TTS audio when it will be archived (see
+    // collectUserAudio); the mime/sample-rate are cheap and left unconditional.
+    if (this.archiveAudio) {
+      activeTurn.assistantAudioChunks.push(
+        Buffer.from(chunk.dataBase64, "base64"),
+      );
+    }
     activeTurn.assistantAudioMimeType = chunk.contentType;
     activeTurn.assistantAudioSampleRate = chunk.sampleRate;
     job.frames = job.frames.then(async () => {
@@ -2114,7 +2153,12 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   }
 
   private collectUserAudio(utterance: UtteranceCycle, chunk: Buffer): void {
-    utterance.userAudioChunks.push(Buffer.from(chunk));
+    // Only retain the raw audio when it will actually be archived — otherwise
+    // buffering a whole turn's PCM is dead memory. The first-audio metric is
+    // independent of archiving, so it stays unconditional.
+    if (this.archiveAudio) {
+      utterance.userAudioChunks.push(Buffer.from(chunk));
+    }
     this.markUtteranceMetric(utterance, "firstAudioAtMs", (turnId) =>
       this.metrics.markFirstAudio(turnId),
     );
@@ -2509,7 +2553,8 @@ export function createLiveVoiceSession(
   // unchanged. Optional-chained
   // because hand-built test configs may predate the liveVoice namespace;
   // absent config falls through to the in-code defaults.
-  const vadConfig = getConfig().liveVoice?.vad;
+  const liveVoiceConfig = getConfig().liveVoice;
+  const vadConfig = liveVoiceConfig?.vad;
   return new LiveVoiceSession(context, {
     ...options,
     turnDetectorConfig:
@@ -2533,9 +2578,16 @@ export function createLiveVoiceSession(
       options.streamTtsAudio === undefined
         ? defaultStreamLiveVoiceTtsAudio
         : options.streamTtsAudio,
+    // Off by default (see the `liveVoice.archiveAudio` schema): voice turns
+    // persist only their transcribed text, so the recorded audio never lands
+    // as an attachment on the conversation messages. Enable via config for
+    // playback/debugging. An explicit option (incl. `null`) always wins — the
+    // test seam and any future caller override.
     archiveAudio:
       options.archiveAudio === undefined
-        ? defaultArchiveLiveVoiceAudio
+        ? liveVoiceConfig?.archiveAudio
+          ? defaultArchiveLiveVoiceAudio
+          : null
         : options.archiveAudio,
     emitMetrics: options.emitMetrics ?? true,
   });

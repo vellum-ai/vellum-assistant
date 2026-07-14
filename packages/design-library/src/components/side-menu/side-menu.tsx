@@ -590,7 +590,9 @@ function SideMenuItem({
   );
 
   const labelNode = collapsed ? null : (
-    <span className="min-w-0 flex-1 truncate text-left">{label}</span>
+    <span className="min-w-0 flex-1 truncate text-left text-optical-center">
+      {label}
+    </span>
   );
   const badgeNode = collapsed || !badge ? null : <ItemBadge>{badge}</ItemBadge>;
   const trailingNode =

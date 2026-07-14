@@ -25,7 +25,7 @@ The authoritative constants — `MAX_ICON_BYTES = 32 * 1024`, `MAX_ICON_DIMENSIO
 
 ## The two in-repo sources
 
-A plugin's icon can come from **either** a curated emoji **or** a vendored PNG. They are independent in-repo sources; the platform combines them into one catalog value (see [Platform combination](#platform-combination-and-precedence)).
+A plugin's icon comes from **either** a curated emoji **or** a vendored PNG — curate one source per plugin, not both. They are independent in-repo sources; the platform resolves them into a single catalog `icon` value (see [Platform combination](#platform-combination-and-precedence)). A plugin that ships a vendored PNG does not also need a marketplace `icon` emoji (the PNG always wins).
 
 ### 1. Emoji — `icon` field on the marketplace entry
 
@@ -67,7 +67,7 @@ The platform serves each plugin a single `icon` value in `/v1/plugins/`, matchin
 2. **Emoji** — else if the marketplace entry has an `icon` emoji, serve that string.
 3. **`null`** — else no icon. The client then falls back to a generic 📦/🧩 glyph (per [PR #37087](https://github.com/vellum-ai/vellum-assistant/pull/37087)).
 
-A vendored PNG always wins over a curated emoji for the same plugin.
+A vendored PNG always wins over a curated emoji, so a plugin only needs one source: give it a PNG **or** an emoji, not both. The platform serves that single `icon`, and clients render it best-effort — there is no separate emoji field riding alongside a PNG URL.
 
 ## Bucket convention
 
@@ -79,6 +79,35 @@ Vendored PNGs are uploaded to GCS and served publicly, mirroring the skill asset
 
 ## Adding or updating a plugin icon
 
+The one-command path handles all three artifacts (curated emoji, vendored PNG,
+bundled copy) in one shot:
+
+```bash
+# Curate an emoji for a plugin that ships no bundled PNG:
+node scripts/plugins/add-plugin-icon.mjs <plugin-name> --emoji ☕
+
+# Vendor a bundled PNG (the plugin publishes its own icon.png upstream):
+node scripts/plugins/add-plugin-icon.mjs <plugin-name>
+```
+
+It (1) optionally patches the plugin's `icon` field in `plugins/marketplace.json`
+— a surgical, churn-free edit that preserves the file's exact serialization —
+(2) runs the generator to vendor `plugins/assets/<name>/icon.png` and regenerate
+`plugins/plugin-icons.json`, then (3) runs `meta/sync-bundled-copies.ts` so
+`assistant/src/cli/lib/bundled-marketplace.json` stays in lockstep. Set
+`GITHUB_TOKEN` to lift the generator's unauthenticated GitHub rate limit. Then
+commit whatever changed (`marketplace.json`, the vendored asset,
+`plugin-icons.json`, and the bundled copy).
+
+The plugin must already exist in `plugins/marketplace.json` — an icon only
+attaches to a catalogued plugin. A plugin whose upstream `icon.png` fails
+validation simply gets no manifest entry, so its `icon` resolves to the curated
+emoji if one is set, otherwise null.
+
+### Under the hood
+
+If you'd rather run the steps by hand, or need only one of them:
+
 **Emoji:**
 
 1. Set (or change) the `icon` string on the plugin's entry in `plugins/marketplace.json`.
@@ -87,5 +116,5 @@ Vendored PNGs are uploaded to GCS and served publicly, mirroring the skill asset
 
 **PNG:**
 
-1. Run the generator `scripts/plugins/generate-plugin-icons.mjs` (added later in the plugin-icons plan). It fetches the plugin's `icon.png`, validates it against the rules above, vendors the valid bytes to `plugins/assets/<name>/icon.png`, and regenerates `plugins/plugin-icons.json`.
+1. Run the generator `scripts/plugins/generate-plugin-icons.mjs`. It fetches the plugin's `icon.png`, validates it against the rules above, vendors the valid bytes to `plugins/assets/<name>/icon.png`, and regenerates `plugins/plugin-icons.json`.
 2. Commit the vendored asset **and** the regenerated `plugins/plugin-icons.json` together. A plugin whose icon fails validation simply gets no manifest entry (and falls back to emoji or the generic glyph).

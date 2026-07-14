@@ -281,24 +281,17 @@ describe("VoiceRoom — no way out but ending the session", () => {
   });
 });
 
-describe("VoiceRoom — captions toggle", () => {
-  test("toggling captions on flips both persisted transcript prefs", () => {
+describe("VoiceRoom — settings gear", () => {
+  // The captions toggle + pause slider now live in the settings-gear popover
+  // (see voice-room-settings-menu.test.tsx for their behavior). The room just
+  // renders the gear in place of the old direct captions button.
+  test("renders the voice-settings gear, not a bare captions button", () => {
     startOwnedSession("listening");
     render(<VoiceRoom />);
-    fireEvent.click(screen.getByRole("button", { name: "Show captions" }));
-    const prefs = useVoicePrefsStore.getState();
-    expect(prefs.showUserTranscript).toBe(true);
-    expect(prefs.showAssistantTranscript).toBe(true);
-  });
-
-  test("with any transcript pref on, the control offers to hide and clears both", () => {
-    useVoicePrefsStore.setState({ showUserTranscript: true });
-    startOwnedSession("listening");
-    render(<VoiceRoom />);
-    fireEvent.click(screen.getByRole("button", { name: "Hide captions" }));
-    const prefs = useVoicePrefsStore.getState();
-    expect(prefs.showUserTranscript).toBe(false);
-    expect(prefs.showAssistantTranscript).toBe(false);
+    expect(
+      screen.getByRole("button", { name: "Voice settings" }),
+    ).toBeDefined();
+    expect(screen.queryByRole("button", { name: "Show captions" })).toBeNull();
   });
 });
 

@@ -1,3 +1,6 @@
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ---------------------------------------------------------------------------
@@ -109,9 +112,13 @@ mock.module("../../../../telemetry/watchdog-events-store.js", () => ({
 
 mock.module("../../../../daemon/conversation-registry.js", () => ({
   findConversation: (id: string | undefined) => {
-    if (!id) return undefined;
+    if (!id) {
+      return undefined;
+    }
     const entry = loadedConversations[id];
-    if (!entry) return undefined;
+    if (!entry) {
+      return undefined;
+    }
     return { isProcessing: () => entry.processing };
   },
 }));
@@ -148,8 +155,12 @@ mock.module("../find-most-recent-retrospective-for.js", () => ({
 mock.module("../../../../persistence/conversation-crud.js", () => ({
   getMessagesAfter: (_id: string, _afterId: string | null) => newMessages,
   getMessages: (id: string) => {
-    if (messagesByConversationId[id]) return messagesByConversationId[id];
-    if (id === priorRetroId) return priorRetroMessages;
+    if (messagesByConversationId[id]) {
+      return messagesByConversationId[id];
+    }
+    if (id === priorRetroId) {
+      return priorRetroMessages;
+    }
     return [];
   },
   // The handler calls `getConversation(sourceConversationId)` to read the
@@ -159,7 +170,9 @@ mock.module("../../../../persistence/conversation-crud.js", () => ({
   // extract-everything code path is exercised. `conversationOverrides` lets
   // per-test setup stage fork-kind priors or fork-shaped run conversations.
   getConversation: (id: string) => {
-    if (conversationOverrides[id]) return conversationOverrides[id];
+    if (conversationOverrides[id]) {
+      return conversationOverrides[id];
+    }
     if (id === priorRetroId) {
       return {
         source: "memory-retrospective",
@@ -267,7 +280,9 @@ mock.module("../../../../runtime/agent-wake.js", () => ({
       hint: opts.hint,
       opts,
     });
-    if (mockWakeThrows) throw mockWakeThrows;
+    if (mockWakeThrows) {
+      throw mockWakeThrows;
+    }
     return mockWakeResult;
   },
 }));
@@ -309,6 +324,7 @@ function makeConfig(
     detectedTimezone?: string;
     keepSupersededRuns?: boolean;
     matchConversationProfile?: boolean;
+    promptPath?: string;
   } = {},
 ): Parameters<typeof memoryRetrospectiveJob>[1] {
   return {
@@ -317,6 +333,7 @@ function makeConfig(
       retrospective: {
         keepSupersededRuns: overrides.keepSupersededRuns ?? false,
         matchConversationProfile: overrides.matchConversationProfile ?? false,
+        promptPath: overrides.promptPath ?? null,
       },
     },
     ui: {
@@ -790,6 +807,49 @@ describe("memoryRetrospectiveJob", () => {
 
     const instructionText = persistedInstructionText();
     expect(instructionText).toContain("<​/already_remembered>");
+  });
+
+  test("honors memory.retrospective.promptPath override when set", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "retro-job-prompt-override-"));
+    const overridePath = join(dir, "custom-instruction.md");
+    writeFileSync(
+      overridePath,
+      "CUSTOM RETROSPECTIVE\n\n{{WINDOW_ANCHOR}}\n\n<already_remembered>\n{{ALREADY_REMEMBERED}}\n</already_remembered>\n",
+    );
+
+    const outcome = await memoryRetrospectiveJob(
+      makeJob(),
+      makeConfig({ promptPath: overridePath }),
+    );
+
+    expect(outcome.kind).toBe("invoked");
+    const instructionText = persistedInstructionText();
+    expect(instructionText.startsWith("CUSTOM RETROSPECTIVE")).toBe(true);
+    // First run over the source ⇒ the anchor placeholder renders the
+    // full-conversation form and the dedup placeholder renders "(none)".
+    expect(instructionText).toContain(
+      "Your review window is the full conversation above",
+    );
+    expect(instructionText).toContain(
+      "<already_remembered>\n(none)\n</already_remembered>",
+    );
+    expect(instructionText).not.toContain(
+      "This is an automated background memory pass",
+    );
+    expect(instructionText).not.toContain("{{");
+  });
+
+  test("missing memory.retrospective.promptPath file falls back to the bundled instruction", async () => {
+    const outcome = await memoryRetrospectiveJob(
+      makeJob(),
+      makeConfig({ promptPath: "/nonexistent/retro-instruction.md" }),
+    );
+
+    expect(outcome.kind).toBe("invoked");
+    const instructionText = persistedInstructionText();
+    expect(
+      instructionText.startsWith("This is an automated background memory pass"),
+    ).toBe(true);
   });
 
   // -------------------------------------------------------------------------
