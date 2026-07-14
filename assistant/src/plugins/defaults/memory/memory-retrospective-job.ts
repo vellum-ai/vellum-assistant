@@ -143,14 +143,13 @@ export async function memoryRetrospectiveJob(
   }
 
   // Central health counter (admin analytics groups on the watchdog
-  // check_name): one event per run with the outcome kind — including runs
-  // that THROW (the wake's rethrow path), recorded as outcome "error"
-  // before the exception continues to the jobs worker's retry machinery.
-  // Without the catch, exception-flavored outages would be invisible in
-  // the exact metric built to surface them; a fleet-wide spike in
+  // check_name): one event per run with its outcome kind. A run that
+  // throws records outcome "error" before the exception continues to the
+  // jobs worker's retry machinery, so a fleet-wide spike in
   // `wake_failed`/`error` (e.g. a provider outage on the retrospective's
-  // resolved model) must show without log access. The emitter itself never
-  // throws — the run's outcome must reach the jobs worker regardless.
+  // resolved model) is visible without log access. The emitter itself
+  // never throws — the run's outcome must reach the jobs worker
+  // regardless.
   const emitRunOutcome = (outcome: string, reason?: string): void => {
     try {
       recordWatchdogEvent({
