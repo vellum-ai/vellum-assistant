@@ -41,7 +41,7 @@
 
 import { useEffect, type CSSProperties } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { Captions, CaptionsOff, Mic, MicOff, Square, X } from "lucide-react";
+import { Mic, MicOff, Square, X } from "lucide-react";
 
 import { Tooltip, cn } from "@vellumai/design-library";
 
@@ -63,6 +63,7 @@ import { resolveWaveAccentHex } from "./wave-accent";
 
 import { toVoiceAvatarVisual } from "./voice-avatar-state";
 import { VoiceAmbientTranscript } from "./voice-ambient-transcript";
+import { VoiceRoomSettingsMenu } from "./voice-room-settings-menu";
 import { VoiceAvatar } from "./voice-avatar";
 import { VoiceListeningWaves } from "./voice-listening-waves";
 import { AVATAR_ENTER_SPRING } from "./voice-motion";
@@ -154,18 +155,11 @@ function VoiceRoomOverlay() {
     state === "speaking" && !assistantAudioActive ? "thinking" : state;
   const stateLabel = liveVoiceStateLabel(labelState, reconnecting);
 
-  // Captions = the two persisted transcript prefs, toggled together from the
-  // room. Bound to the same `voice-prefs` store as the settings page and the
-  // first-run card, so a choice made here is the choice those surfaces show.
-  const showUserTranscript = useVoicePrefsStore.use.showUserTranscript();
+  // The state caption (e.g. "Listening…") shows only while the assistant
+  // transcript is hidden; the captions toggle itself lives in the room's
+  // settings gear ({@link VoiceRoomSettingsMenu}).
   const showAssistantTranscript =
     useVoicePrefsStore.use.showAssistantTranscript();
-  const captionsOn = showUserTranscript || showAssistantTranscript;
-  const toggleCaptions = () => {
-    const prefs = useVoicePrefsStore.getState();
-    prefs.setShowUserTranscript(!captionsOn);
-    prefs.setShowAssistantTranscript(!captionsOn);
-  };
 
   // Resolve the assistant's look: color-with-eyes for character avatars, the
   // ambient void otherwise. The accent var is still published for the
@@ -297,21 +291,7 @@ function VoiceRoomOverlay() {
         }}
         className="absolute z-10 flex items-center gap-1"
       >
-        <Tooltip content={captionsOn ? "Hide captions" : "Show captions"}>
-          <button
-            type="button"
-            onClick={toggleCaptions}
-            aria-label={captionsOn ? "Hide captions" : "Show captions"}
-            aria-pressed={captionsOn}
-            className={ROOM_CONTROL_CLASS}
-          >
-            {captionsOn ? (
-              <Captions className="size-5" />
-            ) : (
-              <CaptionsOff className="size-5" />
-            )}
-          </button>
-        </Tooltip>
+        <VoiceRoomSettingsMenu triggerClassName={ROOM_CONTROL_CLASS} />
         <Tooltip content="End voice session (Esc)">
           <button
             type="button"
