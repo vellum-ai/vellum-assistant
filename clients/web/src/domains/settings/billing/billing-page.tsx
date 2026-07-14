@@ -1,12 +1,14 @@
 import { Loader2 } from "lucide-react";
 import { Suspense, useCallback, useEffect, useState } from "react";
 
-import { Navigate, useNavigate, useSearchParams } from "react-router";
+import { useNavigate, useSearchParams } from "react-router";
 
 import { useQueryClient } from "@tanstack/react-query";
 
+import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { PlatformLoginNotice } from "@/components/platform-login-notice";
 import { BillingOnboardingModal } from "@/domains/settings/billing/pro-onboarding/billing-onboarding-modal";
+import { UsageTab } from "@/domains/settings/billing/usage/usage-tab";
 import { AdjustPlanModal } from "@/domains/settings/components/adjust-plan-modal";
 import { BillingPanel } from "@/domains/settings/components/billing-panel";
 import { BillingPortalReturnHandler } from "@/domains/settings/components/billing-portal-return-handler";
@@ -24,6 +26,7 @@ import {
 } from "@/hooks/use-platform-gate";
 import { routes } from "@/utils/routes";
 import { Notice } from "@vellumai/design-library/components/notice";
+import { Tabs } from "@vellumai/design-library/components/tabs";
 import { toast } from "@vellumai/design-library/components/toast";
 
 /**
@@ -37,7 +40,9 @@ function BillingStatusHandler() {
 
   useEffect(() => {
     const billingStatus = searchParams.get("billing_status");
-    if (!billingStatus) return;
+    if (!billingStatus) {
+      return;
+    }
 
     if (billingStatus === "success") {
       toast.success("Payment received! Your credit balance will update shortly.", {
@@ -59,7 +64,11 @@ function BillingStatusHandler() {
   return null;
 }
 
-export function BillingPage() {
+/**
+ * The plan/credits/payment management view. Platform-gated: billing only has
+ * meaning for a Vellum-hosted assistant with a platform session.
+ */
+function BillingTab() {
   const platformGate = usePlatformGate({ platformHostedOnly: true });
   const billingGate = usePlatformGate();
   const isPlatformHosted = useActiveAssistantIsPlatformHosted();
@@ -91,10 +100,6 @@ export function BillingPage() {
       return next;
     }, { replace: true });
   }, [setSearchParams]);
-
-  if (billingGate === "gated") {
-    return <Navigate replace to={routes.settings.general} />;
-  }
 
   if (billingGate === "disabled") {
     return (
@@ -155,6 +160,54 @@ export function BillingPage() {
           onClose={() => setResizeModalOpen(false)}
         />
       )}
+    </div>
+  );
+}
+
+function UsagePanel() {
+  const assistantId = useActiveAssistantId();
+
+  return <UsageTab assistantId={assistantId} />;
+}
+
+export function BillingPage() {
+  // Usage reads from the local daemon and works for every assistant, so it is
+  // never gated. Billing only has meaning when the platform API is reachable —
+  // when it is gated (local mode with the platform API disabled), hide the
+  // Billing tab entirely and let Usage stand alone.
+  const billingGate = usePlatformGate();
+  const showBillingTab = billingGate !== "gated";
+
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTab =
+    !showBillingTab || searchParams.get("tab") === "usage" ? "usage" : "billing";
+
+  const handleTabChange = (value: string) => {
+    const next = new URLSearchParams(searchParams);
+    if (value === "usage") {
+      next.set("tab", "usage");
+    } else {
+      next.delete("tab");
+    }
+    setSearchParams(next, { replace: true });
+  };
+
+  return (
+    <div className="space-y-6">
+      <Tabs.Root value={activeTab} onValueChange={handleTabChange}>
+        <Tabs.List>
+          {showBillingTab && <Tabs.Trigger value="billing">Billing</Tabs.Trigger>}
+          <Tabs.Trigger value="usage">Usage</Tabs.Trigger>
+        </Tabs.List>
+        {showBillingTab && (
+          <Tabs.Panel value="billing" className="pt-4">
+            <BillingTab />
+          </Tabs.Panel>
+        )}
+        <Tabs.Panel value="usage" className="pt-4">
+          <UsagePanel />
+        </Tabs.Panel>
+      </Tabs.Root>
     </div>
   );
 }

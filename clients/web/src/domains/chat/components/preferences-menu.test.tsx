@@ -81,10 +81,6 @@ mock.module("@/components/earn-credits-modal", () => ({
   EarnCreditsModal: () => null,
 }));
 
-mock.module("@/components/theme-toggle", () => ({
-  ThemeToggle: () => createElement("div", { "data-testid": "theme-toggle" }, "Theme"),
-}));
-
 mock.module("@/domains/chat/components/credits-card", () => ({
   CreditsCard: () => createElement("div", { "data-testid": "credits-card" }, "Credits"),
 }));

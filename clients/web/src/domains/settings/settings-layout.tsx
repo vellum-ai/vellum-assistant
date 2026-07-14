@@ -28,8 +28,10 @@ export function SettingsLayout() {
   const accountMfaEnabled = useClientFeatureFlagStore.use.accountMfa();
   const platformGate = usePlatformGate({ platformHostedOnly: true });
   // The Vellum account exists independently of the active assistant's
-  // hosting, so account-level entries (billing, security) use the default
-  // gate — hidden only when the platform API is disabled entirely.
+  // hosting, so account-level entries (security) use the default gate —
+  // hidden only when the platform API is disabled entirely. Billing & Usage
+  // is never hidden: the Usage tab reads from the local daemon and works for
+  // every assistant; the page gates its billing-specific tab internally.
   const accountGate = usePlatformGate();
   const { pathname } = useLocation();
   const navigate = useNavigate();
@@ -44,9 +46,6 @@ export function SettingsLayout() {
           item.id === "notifications" &&
           (!platformNotifications || platformGate === "gated")
         ) {
-          return false;
-        }
-        if (item.id === "billing" && accountGate !== "full") {
           return false;
         }
         if (

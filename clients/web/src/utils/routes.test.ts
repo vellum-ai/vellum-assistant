@@ -8,14 +8,14 @@ import {
 
 describe("routes", () => {
   test("builds schedule-filtered usage URLs", () => {
-    expect(routes.logs.usageForSchedule("schedule-123")).toBe(
-      "/assistant/logs/usage?range=7d&groupBy=schedule&scheduleId=schedule-123",
+    expect(routes.settings.usageForSchedule("schedule-123")).toBe(
+      "/assistant/settings/billing?tab=usage&range=7d&groupBy=schedule&scheduleId=schedule-123",
     );
   });
 
   test("encodes schedule ids in usage URLs", () => {
-    expect(routes.logs.usageForSchedule("schedule with spaces")).toBe(
-      "/assistant/logs/usage?range=7d&groupBy=schedule&scheduleId=schedule+with+spaces",
+    expect(routes.settings.usageForSchedule("schedule with spaces")).toBe(
+      "/assistant/settings/billing?tab=usage&range=7d&groupBy=schedule&scheduleId=schedule+with+spaces",
     );
   });
 
