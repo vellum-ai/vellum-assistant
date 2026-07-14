@@ -2286,8 +2286,8 @@ export class Conversation {
   }
 
   /**
-   * Implements the `transportInterface` field of `SkillProjectionContext` so
-   * that `isToolActiveForContext` can gate host tools by per-capability
+   * The `transportInterface` the tool resolver reads so
+   * `isToolActiveForContext` can gate host tools by per-capability
    * `supportsHostProxy(transport, capability)`. Derived from the live turn
    * interface context so it tracks the connected client across turns.
    */
