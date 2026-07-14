@@ -16,6 +16,10 @@ import type { GatewayConfig } from "../config.js";
 import type { LiveVoiceSocketData } from "../http/routes/live-voice-websocket.js";
 import { setVelayBridgeAuthHeader } from "../velay/bridge-auth.js";
 
+// The bound-guardian platform user id, shared by the velay mock and the velay
+// tests (their attested caller must match it to authenticate).
+const VELAY_USER_ID = "11111111-1111-1111-1111-111111111111";
+
 // The live-voice upgrade pins actor tokens to the bound guardian. Mock the
 // binding lookup (set BEFORE importing the module under test) so the actor
 // path is testable without gateway DB state; the default binding matches
@@ -27,6 +31,16 @@ let mockFindVellumGuardian = mock(
 );
 mock.module("../auth/guardian-bootstrap.js", () => ({
   findVellumGuardian: () => mockFindVellumGuardian(),
+}));
+
+// The managed/velay path cross-checks the attested caller against the stored
+// `platform_user_id`. Default the credential to `VELAY_USER_ID` so the velay
+// success cases match; negative cases override this mock.
+let mockReadCredential = mock(
+  async (_key: string): Promise<string | undefined> => VELAY_USER_ID,
+);
+mock.module("../credential-reader.js", () => ({
+  readCredential: (key: string) => mockReadCredential(key),
 }));
 
 const { createLiveVoiceWebsocketHandler, getLiveVoiceWebsocketHandlers } =
@@ -140,10 +154,11 @@ function createFakeUpstreamWs() {
   };
 }
 
-// Reset to the default binding that matches `mintEdgeToken`'s principal —
-// file-scoped so per-test overrides never leak into later describes.
+// Reset both mocks to their success defaults — file-scoped so per-test
+// overrides never leak into later describes.
 beforeEach(() => {
   mockFindVellumGuardian = mock(async () => ({ principalId: "test-user" }));
+  mockReadCredential = mock(async () => VELAY_USER_ID);
 });
 
 describe("createLiveVoiceWebsocketHandler", () => {
@@ -323,7 +338,7 @@ describe("createLiveVoiceWebsocketHandler", () => {
 
 describe("createLiveVoiceWebsocketHandler — velay-attested managed auth", () => {
   const TEST_TOKEN = mintEdgeToken();
-  const VELAY_USER_ID = "11111111-1111-1111-1111-111111111111";
+  // VELAY_USER_ID is declared at module scope (shared with the credential mock).
   const VELAY_ORG_ID = "22222222-2222-2222-2222-222222222222";
   const originalIsPlatform = process.env.IS_PLATFORM;
 
@@ -368,6 +383,48 @@ describe("createLiveVoiceWebsocketHandler — velay-attested managed auth", () =
 
     expect(res).toBeUndefined();
     expect(server.upgrade).toHaveBeenCalledTimes(1);
+  });
+
+  // Guardian pinning on the velay path: the attested caller must match the
+  // stored platform_user_id, or the daemon's guardian stamp would be unbacked.
+  test("managed mode + bridge proof but velay user is not the bound guardian is rejected", async () => {
+    setPlatform(true);
+    mockReadCredential = mock(
+      async () => "99999999-9999-9999-9999-999999999999",
+    );
+    const handler = createLiveVoiceWebsocketHandler(makeConfig());
+    const server = makeFakeServer();
+    const res = await handler(makeVelayReq(), server);
+
+    expect(res).toBeInstanceOf(Response);
+    expect(res!.status).toBe(403);
+    expect(server.upgrade).not.toHaveBeenCalled();
+  });
+
+  test("managed mode + bridge proof but no platform_user_id stored is rejected", async () => {
+    setPlatform(true);
+    mockReadCredential = mock(async () => undefined);
+    const handler = createLiveVoiceWebsocketHandler(makeConfig());
+    const server = makeFakeServer();
+    const res = await handler(makeVelayReq(), server);
+
+    expect(res).toBeInstanceOf(Response);
+    expect(res!.status).toBe(403);
+    expect(server.upgrade).not.toHaveBeenCalled();
+  });
+
+  test("managed mode + bridge proof but platform_user_id lookup fails returns 503", async () => {
+    setPlatform(true);
+    mockReadCredential = mock(async () => {
+      throw new Error("credential store unavailable");
+    });
+    const handler = createLiveVoiceWebsocketHandler(makeConfig());
+    const server = makeFakeServer();
+    const res = await handler(makeVelayReq(), server);
+
+    expect(res).toBeInstanceOf(Response);
+    expect(res!.status).toBe(503);
+    expect(server.upgrade).not.toHaveBeenCalled();
   });
 
   test("managed mode + spoofed X-Velay-* headers without bridge proof is rejected", async () => {
