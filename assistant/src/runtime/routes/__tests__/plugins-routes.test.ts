@@ -112,6 +112,24 @@ import {
   type UpgradePluginOptions,
 } from "../../../cli/lib/upgrade-plugin.js";
 
+// Spy on the route logger so tests can assert that a platform-catalog outage
+// is recorded before it is mapped to a client 503. The catalog fetcher and the
+// transport adapters swallow the failure otherwise (`RouteError` → wire error,
+// no capture), so the log line is the only trace an operator gets — assert it.
+const logErrorSpy = mock((..._args: unknown[]) => {});
+const logWarnSpy = mock((..._args: unknown[]) => {});
+
+mock.module("../../../util/logger.js", () => ({
+  getLogger: () => ({
+    info: () => {},
+    warn: logWarnSpy,
+    error: logErrorSpy,
+    debug: () => {},
+    trace: () => {},
+    fatal: () => {},
+  }),
+}));
+
 // Mutable list returned by the mocked library function. Tests reassign
 // `installedFixture` before invoking the handler.
 let installedFixture: InstalledPluginInfo[] = [];
@@ -302,6 +320,11 @@ const broadcastMessageSpy = mock((_msg: unknown): void => {});
 
 mock.module("../../assistant-event-hub.js", () => ({
   broadcastMessage: broadcastMessageSpy,
+  // Stub the hub singleton so the (now dynamically imported) plugins-routes
+  // dependency graph links — some transitive importer statically imports this
+  // binding. No tested path calls it; publishing goes through the mocked
+  // `broadcastMessage` above.
+  assistantEventHub: {},
 }));
 
 // Make the valid-slug source deterministic: the real `getLocalCategorySlugs`
@@ -335,11 +358,15 @@ import {
   NotFoundError,
   ServiceUnavailableError,
 } from "../errors.js";
-import {
+// `plugins-routes.js` is dynamically imported AFTER the logger mock above so
+// its module-level `const log = getLogger(...)` binds to the mocked logger. A
+// static import evaluates before any `mock.module` runs and would capture the
+// real logger at module init (same reason as `request-logger.test.ts`).
+const {
   loadCategoryMapBounded,
   normalizeMarketplaceCategory,
-  ROUTES as PLUGINS_ROUTES,
-} from "../plugins-routes.js";
+  ROUTES: PLUGINS_ROUTES,
+}: typeof import("../plugins-routes.js") = await import("../plugins-routes.js");
 import type { RouteDefinition, RouteHandlerArgs } from "../types.js";
 import { RouteResponse } from "../types.js";
 
@@ -1099,6 +1126,7 @@ describe("GET /v1/plugins/search", () => {
   });
 
   test("PluginCatalogUnavailableError → ServiceUnavailableError (503)", async () => {
+    logErrorSpy.mockClear();
     getCatalogSpy.mockImplementation(async () => {
       throw new PluginCatalogUnavailableError(
         "GitHub contents listing failed for plugins @ main: HTTP 403",
@@ -1111,6 +1139,14 @@ describe("GET /v1/plugins/search", () => {
     await expect(
       invokeSearch({ queryParams: { q: "memory" } }),
     ).rejects.toBeInstanceOf(ServiceUnavailableError);
+
+    // The outage must be logged before it is mapped to a 503 — otherwise the
+    // transport adapters return the RouteError with no capture and the incident
+    // is invisible. The log carries the true upstream status the 503 collapses.
+    expect(logErrorSpy).toHaveBeenCalledTimes(1);
+    const [fields, msg] = logErrorSpy.mock.calls[0]!;
+    expect(msg).toBe("Platform plugin catalog unavailable");
+    expect(fields).toMatchObject({ operation: "search", upstreamStatus: 403 });
   });
 
   test("unknown errors → InternalError with original message preserved", async () => {
@@ -1579,6 +1615,7 @@ describe("POST /v1/plugins/install", () => {
   test("a catalog outage on the no-pin path → ServiceUnavailableError (503)", async () => {
     // A rate-limited or unavailable platform catalog (no stale fallback) is
     // transient — the route surfaces it as retryable, not a misleading 500.
+    logErrorSpy.mockClear();
     getCatalogSpy.mockImplementation(async () => {
       throw new PluginCatalogUnavailableError("HTTP 403", 403);
     });
@@ -1587,6 +1624,13 @@ describe("POST /v1/plugins/install", () => {
       invokeInstall({ body: { name: "caveman" } }),
     ).rejects.toBeInstanceOf(ServiceUnavailableError);
     expect(installSpy).not.toHaveBeenCalled();
+
+    // The outage is logged (operation "install") before the 503 mapping, so
+    // an install-path catalog failure is diagnosable rather than invisible.
+    expect(logErrorSpy).toHaveBeenCalledTimes(1);
+    const [fields, msg] = logErrorSpy.mock.calls[0]!;
+    expect(msg).toBe("Platform plugin catalog unavailable");
+    expect(fields).toMatchObject({ operation: "install", upstreamStatus: 403 });
   });
 
   test("a missing name short-circuits to BadRequestError without calling the lib", async () => {
