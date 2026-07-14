@@ -191,7 +191,7 @@ describe("memory-retrospective skill card", () => {
         type: "ui_surface",
         surfaceId: "skill-card-run-conv-1",
         surfaceType: "skill_card",
-        title: "New skill learned",
+        title: "I just learned how to do 2 new things",
         display: "inline",
         data: {
           skills: [
@@ -214,7 +214,7 @@ describe("memory-retrospective skill card", () => {
       // surface-capable clients skip it via the `_surfaceFallback` flag.
       {
         type: "text",
-        text: "New skill learned: Skill A, Skill B",
+        text: "I just learned how to do Skill A, Skill B",
         _surfaceFallback: true,
       },
     ]);
@@ -359,7 +359,7 @@ describe("memory-retrospective skill card", () => {
         type: "ui_surface",
         surfaceId: "skill-card-run-conv-1",
         surfaceType: "skill_card",
-        title: "New skill learned",
+        title: "I just learned how to do Skill A",
         display: "inline",
         data: {
           skills: [
@@ -374,7 +374,7 @@ describe("memory-retrospective skill card", () => {
       },
       {
         type: "text",
-        text: "New skill learned: Skill A",
+        text: "I just learned how to do Skill A",
         _surfaceFallback: true,
       },
     ]);
@@ -448,7 +448,7 @@ describe("memory-retrospective skill card", () => {
     ]);
     expect(blocks[1]).toEqual({
       type: "text",
-      text: "New skill learned: Skill A, Skill B",
+      text: "I just learned how to do Skill A, Skill B",
       _surfaceFallback: true,
     });
     expect(publishedConversationIds).toEqual(["src-conv-9"]);
