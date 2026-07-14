@@ -378,6 +378,31 @@ describe("reveal stdout redaction on the live tool_result", () => {
     expect(pendingStoreReads.length).toBe(0);
   });
 
+  test("buffers the RAW tool result so persist redacts exactly once", async () => {
+    const events: ServerMessage[] = [];
+    const state = createEventHandlerState();
+    const deps = createMockDeps(events);
+
+    // The live emit is redacted, but the pending buffer must keep the raw
+    // bytes: every persist path redacts via buildToolResultBlocks, and
+    // buffering already-redacted content would redact twice — a candidate
+    // value overlapping the marker's own text would corrupt the persisted
+    // marker on the second pass.
+    await dispatchAgentEvent(state, deps, REVEAL_TOOL_USE);
+    recordRevealSuccess("openai", "api_key", SYNTHETIC_OPAQUE_CREDENTIAL);
+    await dispatchAgentEvent(state, deps, {
+      type: "tool_result",
+      toolUseId: "toolu_reveal",
+      content: `value: ${SYNTHETIC_OPAQUE_CREDENTIAL}`,
+      isError: false,
+    } as Extract<AgentEvent, { type: "tool_result" }>);
+
+    expect(toolResults(events)[0]).not.toContain(SYNTHETIC_OPAQUE_CREDENTIAL);
+    expect(state.pendingToolResults.get("toolu_reveal")?.content).toBe(
+      `value: ${SYNTHETIC_OPAQUE_CREDENTIAL}`,
+    );
+  });
+
   test("a tool_result that never revealed anything is forwarded unchanged", async () => {
     const events: ServerMessage[] = [];
     const state = createEventHandlerState();

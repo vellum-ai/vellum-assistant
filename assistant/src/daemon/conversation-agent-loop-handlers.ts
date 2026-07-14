@@ -1843,7 +1843,6 @@ export async function handleToolResult(
   // The refs are non-empty only after the reveal route actually served an
   // identity this turn, which is precisely when redaction must fire.
   let redactedContent = event.content;
-  let redactedContentBlocks = event.contentBlocks;
   const heldOutput = state.toolOutputGuardBuffers.get(event.toolUseId);
   state.toolOutputGuardBuffers.delete(event.toolUseId);
   if (state.revealCandidateRefs.length > 0) {
@@ -1868,11 +1867,6 @@ export async function handleToolResult(
         });
       }
       redactedContent = redactRevealStdout(event.content);
-      redactedContentBlocks = event.contentBlocks?.map((block) =>
-        block.type === "text"
-          ? { ...block, text: redactRevealStdout(block.text) }
-          : block,
-      );
     }
   }
 
@@ -1887,8 +1881,12 @@ export async function handleToolResult(
     ) {
       return;
     }
+    // Buffer the RAW content: every persist path redacts exactly once via
+    // `buildToolResultBlocks`, and buffering already-redacted bytes would
+    // redact twice — a candidate value overlapping the marker's own text
+    // would corrupt the persisted marker on the second pass.
     state.pendingToolResults.set(event.toolUseId, {
-      content: redactedContent,
+      content: event.content,
       isError: event.isError,
     });
     state.currentToolUseId = undefined;
@@ -1929,12 +1927,16 @@ export async function handleToolResult(
   // Perform state mutations before deps.onEvent() so that if onEvent throws
   // (e.g. SSE disconnection) and the error is suppressed by dispatchAgentEvent,
   // critical state like pendingToolResults and currentToolUseId is still updated.
-  // Buffer the reveal-redacted content so the message_complete drain and any
-  // retry persist the same bytes the live emit sends.
+  // Buffer the RAW content: every persist path redacts exactly once via
+  // `buildToolResultBlocks` (with the fullest candidate set at flush time),
+  // so wire and storage still agree. Buffering the already-redacted bytes
+  // would redact twice — a candidate value that overlaps the marker's own
+  // text (e.g. a manual value `redacted`) would match inside the
+  // first-pass marker and corrupt the persisted row.
   state.pendingToolResults.set(event.toolUseId, {
-    content: redactedContent,
+    content: event.content,
     isError: event.isError,
-    contentBlocks: redactedContentBlocks,
+    contentBlocks: event.contentBlocks,
   });
 
   // Record tool completion timestamp

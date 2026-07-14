@@ -554,6 +554,23 @@ describe("redactSecretsForChat", () => {
     );
   });
 
+  test("a longer scanner match outranks a candidate substring inside it", () => {
+    // A proven manual value can be a strict substring of a DIFFERENT
+    // scanner-detectable secret. Carving the candidate's bytes out of the
+    // enclosing key would leave the key's suffix raw — the scanner must
+    // redact the whole key instead.
+    const candidates = [{ service: "svc", field: "f", value: "sk-pro" }];
+    const out = redactSecretsForChat(
+      `key: ${SYNTHETIC_OPENAI_PROJECT_KEY}`,
+      candidates,
+    );
+    expect(out).toBe("key: \u3014redacted:OpenAI Project Key\u3015");
+    // A standalone occurrence still gets the exact-match fallback.
+    expect(redactSecretsForChat("v: sk-pro end", candidates)).toBe(
+      "v: \u3014redacted:Credential:svc:f\u3015 end",
+    );
+  });
+
   test("a candidate value containing the sentinel trigger is still redacted whole", () => {
     // Manual credential values are arbitrary strings — one may embed the
     // sentinel trigger itself. Neutralizing the whole text BEFORE the
@@ -732,6 +749,14 @@ describe("live reveal swap (stream plaintext hold-back)", () => {
     expect(out).toContain('<redacted type="Credential" />');
     expect(out).not.toContain("multi");
     expect(out).not.toContain("secret");
+  });
+
+  test("redactCandidateValuesLegacy lets the scanner redact an enclosing secret whole", () => {
+    const out = redactCandidateValuesLegacy(
+      `key: ${SYNTHETIC_OPENAI_PROJECT_KEY}`,
+      [{ service: "svc", field: "f", value: "sk-pro" }],
+    );
+    expect(out).toBe(`key: ${OPENAI_PROJECT_KEY_REDACTION_MARKER}`);
   });
 
   test("redactCandidateValuesLegacy covers a value containing the sentinel trigger", () => {

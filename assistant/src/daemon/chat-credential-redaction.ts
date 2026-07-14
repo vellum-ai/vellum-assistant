@@ -573,8 +573,17 @@ interface RawSpan {
  * its output from these spans, and the streaming stability analysis
  * (`stableEmitLen`) resolves through the same function, so the two can
  * never drift.
+ *
+ * `skipOccurrence` vetoes individual occurrences (the persist paths use it
+ * to let a longer scanner match outrank a candidate substring inside it —
+ * see `containedInLongerScannerMatch`); a vetoed occurrence is skipped
+ * exactly like an overlap loss, and scanning continues from the next byte.
  */
-function resolveRawSpans(text: string, targets: readonly string[]): RawSpan[] {
+function resolveRawSpans(
+  text: string,
+  targets: readonly string[],
+  skipOccurrence?: (start: number, end: number) => boolean,
+): RawSpan[] {
   const spans: RawSpan[] = [];
   targets.forEach((target, priority) => {
     if (target.length === 0) {
@@ -590,7 +599,10 @@ function resolveRawSpans(text: string, targets: readonly string[]): RawSpan[] {
       // An occurrence overlapping a higher-priority span loses to it — the
       // higher-priority replacement consumes those bytes — but keep
       // scanning from the next byte for a later disjoint occurrence.
-      if (spans.some((s) => idx < s.end && end > s.start)) {
+      if (
+        spans.some((s) => idx < s.end && end > s.start) ||
+        skipOccurrence?.(idx, end) === true
+      ) {
         scanFrom = idx + 1;
         continue;
       }
@@ -624,8 +636,9 @@ function replaceRawSpans(
   targets: readonly string[],
   replacementFor: (priority: number) => string,
   transformGap: (segment: string) => string = (segment) => segment,
+  skipOccurrence?: (start: number, end: number) => boolean,
 ): string {
-  const spans = resolveRawSpans(text, targets);
+  const spans = resolveRawSpans(text, targets, skipOccurrence);
   if (spans.length === 0) {
     return transformGap(text);
   }
@@ -959,7 +972,36 @@ function protectCandidateSpans(
     values,
     (priority) => sentinelForValue(values[priority]),
     transformGap,
+    containedInLongerScannerMatch(text),
   );
+}
+
+/**
+ * Occurrence veto that lets a LONGER scanner match outrank a candidate
+ * substring inside it. A proven value can be a strict substring of a
+ * DIFFERENT scanner-detectable secret — revealing a manual value `sk-pro`
+ * must not carve the prefix out of a full `sk-proj-…` key in the same
+ * text and leave the key's suffix raw. Vetoing the occurrence keeps the
+ * enclosing secret contiguous in a gap, where the scanner pass redacts it
+ * whole. The reverse containment keeps the candidate: a scanner match
+ * INSIDE a candidate value (a PEM key, where only the header is
+ * recognized) must not break whole-value protection, and an equal-length
+ * match is the candidate itself — the enriched sentinel wins.
+ */
+function containedInLongerScannerMatch(
+  text: string,
+): (start: number, end: number) => boolean {
+  const matches = scanText(text);
+  if (matches.length === 0) {
+    return () => false;
+  }
+  return (start, end) =>
+    matches.some(
+      (m) =>
+        m.startIndex <= start &&
+        end <= m.endIndex &&
+        m.endIndex - m.startIndex > end - start,
+    );
 }
 
 /**
@@ -1047,6 +1089,7 @@ function protectCandidateValuesLegacy(
     values,
     () => `<redacted type="${FALLBACK_SENTINEL_TYPE}" />`,
     neutralizeRedactedSentinels,
+    containedInLongerScannerMatch(text),
   );
 }
 
