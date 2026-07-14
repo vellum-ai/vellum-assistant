@@ -139,6 +139,7 @@ export const routes = {
       dyn(r("/assistant/schedules"), scheduleId),
   },
   identity: r("/assistant/identity"),
+  memory: r("/assistant/memory"),
   plugins: r("/assistant/plugins"),
   /**
    * Skills surface — the list plus a dedicated per-skill detail page.
@@ -221,6 +222,7 @@ export const routes = {
  */
 const ABOUT_ASSISTANT_PATHS: readonly string[] = [
   routes.identity,
+  routes.memory,
   routes.plugins,
   routes.skills.root,
   routes.workspace,

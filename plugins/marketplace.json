@@ -22,9 +22,9 @@
       "source": {
         "source": "github",
         "repo": "vellum-ai/agent-wrapped",
-        "ref": "64686ed3b50997048e76e7e0abfb5d7ace23cd7e"
+        "ref": "5889e3717f46f798c78c002f56c00eb0f7d88a98"
       },
-      "description": "Your agent's year in review: conversations, days together, memories formed, swear count, top topics, and your era. Works with Vellum agents and Claude Code. Ships a stats collector tool, a CLI, a Claude Code plugin, and a skill for the shareable cards experience.",
+      "description": "Your agent's year in review: conversations, days together, memories formed, swear count, top topics, and the receipt (total tokens + LLM calls). Works with Vellum agents and Claude Code. Ships a stats collector tool, a CLI, a Claude Code plugin, and a skill for the shareable cards experience.",
       "category": "creative",
       "license": "MIT",
       "submittedBy": "marina",
@@ -37,7 +37,7 @@
         "repo": "marinatrajk/ai-hero-engineer-kit",
         "ref": "18d33c62b15a3e2cc22dc070723fe3077749dcec"
       },
-      "description": "Five engineering skills adapted from Matt Pocock's '5 Agent Skills I Use Every Day' — plans, PRDs, vertical-slice issues, TDD loop, and codebase deepening in one install.",
+      "description": "Five engineering skills adapted from Matt Pocock's '5 Agent Skills I Use Every Day' \u2014 plans, PRDs, vertical-slice issues, TDD loop, and codebase deepening in one install.",
       "category": "developer",
       "homepage": "https://github.com/marinatrajk/ai-hero-engineer-kit",
       "license": "MIT"
@@ -76,19 +76,21 @@
       "description": "Ultra-compressed communication mode that strips filler words to cut token usage.",
       "category": "productivity",
       "homepage": "https://github.com/JuliusBrussee/caveman",
-      "license": "MIT"
+      "license": "MIT",
+      "icon": "\ud83e\uddb4"
     },
     {
       "name": "coffee-aficionado",
       "source": {
         "source": "github",
         "repo": "vellum-ai/coffee-aficionado",
-        "ref": "b37a0b5adc2bda5559d3b21abe38e436093c1ff3"
+        "ref": "facd5a03979605edc894ea61e9a45f7b6a53214a"
       },
       "description": "Find great coffee beans and machines matched to your taste profile, budget, and kitchen. Persistent memory learns your preferences over time.",
       "category": "lifestyle",
       "homepage": "https://github.com/vellum-ai/coffee-aficionado",
-      "license": "MIT"
+      "license": "MIT",
+      "icon": "\u2615"
     },
     {
       "name": "cofounder",

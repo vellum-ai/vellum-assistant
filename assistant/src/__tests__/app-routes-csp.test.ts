@@ -27,10 +27,19 @@ const apps = new Map<string, typeof legacyApp | typeof multifileApp>([
 ]);
 
 mock.module("../apps/app-store.js", () => ({
-  getApp: (id: string) => apps.get(id) ?? null,
-  getAppsDir: () => "/fake/apps",
-  getAppDirPath: (appId: string) => `/fake/apps/${appId}`,
-  isMultifileApp: (app: Record<string, unknown>) => app.formatVersion === 2,
+  resolveAppSource: (id: string) => {
+    const app = apps.get(id);
+    if (!app) return null;
+    return {
+      id,
+      name: app.name,
+      dirName: id,
+      sourceDir: `/fake/apps/${id}`,
+      origin: { kind: "workspace" as const },
+      formatVersion: (app as { formatVersion?: number }).formatVersion ?? 1,
+    };
+  },
+  readAppFileBytesFromDir: () => Buffer.from(""),
 }));
 
 // Mock shared-app-links-store (imported by app-routes but unused here)

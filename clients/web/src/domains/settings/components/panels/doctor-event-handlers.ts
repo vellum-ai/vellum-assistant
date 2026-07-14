@@ -9,7 +9,10 @@
  */
 
 import type { DoctorPanelContext } from "@/domains/settings/components/panels/doctor-panel-store";
-import { hasDoctorFeedbackPromptSinceLastUser } from "@/domains/settings/components/panels/doctor-history";
+import {
+  USER_OUTCOME_PROMPT_QUESTION,
+  hasDoctorFeedbackPromptSinceLastUser,
+} from "@/domains/settings/components/panels/doctor-history";
 import type { FeedbackReason } from "@/components/share-feedback-types";
 
 // ---------------------------------------------------------------------------
@@ -150,6 +153,14 @@ export function handleFeedbackPrompt(
     kind: "feedback_prompt",
     content: summary || "Share feedback",
     ...(reason ? { meta: { reason } } : {}),
+  });
+}
+
+export function handleUserOutcomePrompt(ctx: DoctorPanelContext): void {
+  ctx.setThinking(false);
+  ctx.appendEntry({
+    kind: "user_outcome_prompt",
+    content: USER_OUTCOME_PROMPT_QUESTION,
   });
 }
 

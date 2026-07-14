@@ -400,6 +400,16 @@ function invalidateDirNameCache(appId?: string): void {
  * Returns the resolved absolute path.
  */
 function validateFilePath(appId: string, path: string): string {
+  return validateFilePathInDir(getAppDirPath(appId), path);
+}
+
+/**
+ * Validate a relative file path within a known app directory (absolute path).
+ * Prevents path traversal and access to protected directories. Used when the
+ * app directory is already resolved (e.g. plugin-bundled apps addressed by
+ * path rather than by a workspace app id).
+ */
+function validateFilePathInDir(appDir: string, path: string): string {
   if (!path || path.trim() === "") {
     throw new Error(`Invalid file path: path is empty`);
   }
@@ -414,7 +424,6 @@ function validateFilePath(appId: string, path: string): string {
   if (normalized === "records" || normalized.startsWith("records/")) {
     throw new Error(`Invalid file path: 'records/' directory is protected`);
   }
-  const appDir = getAppDirPath(appId);
   const resolved = resolve(appDir, path);
   // Ensure the resolved path is still within the app directory
   if (!resolved.startsWith(appDir + "/") && resolved !== appDir) {
@@ -661,24 +670,34 @@ export type AppOrigin =
   | { readonly kind: "plugin"; readonly pluginName: string };
 
 /**
- * Id prefix marking a plugin-bundled app. A plugin app's id is its location:
- * `plugins/<pluginName>/<appDir>`, which maps directly to
+ * Id prefix marking a plugin-bundled app. A plugin app's id encodes its
+ * location: `plugins~<pluginName>~<appDir>`, which maps to
  * `<workspace>/plugins/<pluginName>/apps/<appDir>` (the `apps/` segment is
  * implied). Unlike workspace apps — whose id is an opaque UUID looked up by
  * scanning — a plugin app is resolved by a direct path build.
+ *
+ * The delimiter is `~` (a URL-unreserved character), not `/`, so the id is a
+ * single URL path segment: it survives `:id` route params and proxies without
+ * percent-encoding (`%2F` in a path is widely mishandled).
  */
-const PLUGIN_APP_ID_PREFIX = "plugins/";
+const PLUGIN_APP_ID_PREFIX = "plugins~";
+const PLUGIN_APP_ID_SEP = "~";
 
 /** Build the addressable id for a plugin-bundled app. */
 function pluginAppId(pluginName: string, appDir: string): string {
-  return `${PLUGIN_APP_ID_PREFIX}${pluginName}/${appDir}`;
+  return `${PLUGIN_APP_ID_PREFIX}${pluginName}${PLUGIN_APP_ID_SEP}${appDir}`;
+}
+
+/** True when an app id addresses a plugin-bundled app (vs a workspace app). */
+export function isPluginAppId(id: string): boolean {
+  return id.startsWith(PLUGIN_APP_ID_PREFIX);
 }
 
 /** An app paired with the absolute path to its source and its origin. */
 export interface EnumeratedApp {
   /**
    * Addressable app id: an opaque UUID for workspace apps, or
-   * `plugins/<name>/<app>` for plugin-bundled apps.
+   * `plugins~<name>~<app>` for plugin-bundled apps.
    */
   readonly id: string;
   /** Human-readable app name. */
@@ -818,21 +837,23 @@ function isSafeIdSegment(segment: string): boolean {
 /**
  * Resolve an app id to its on-disk source, for both workspace apps (opaque
  * UUID, looked up via {@link getApp}) and plugin-bundled apps
- * (`plugins/<name>/<app>`, resolved by direct path build). Returns null when
+ * (`plugins~<name>~<app>`, resolved by direct path build). Returns null when
  * the app does not exist, or when a plugin id fails the same installed-plugin
  * gates as discovery (directory, `package.json` manifest, not disabled).
  */
 export function resolveAppSource(id: string): ResolvedAppSource | null {
   if (id.startsWith(PLUGIN_APP_ID_PREFIX)) {
     const rest = id.slice(PLUGIN_APP_ID_PREFIX.length);
-    const slash = rest.indexOf("/");
-    if (slash === -1) {
+    // Split on the first delimiter: the plugin name is kebab-case (no `~`), so
+    // everything after it is the app directory (which may itself contain `~`).
+    const sep = rest.indexOf(PLUGIN_APP_ID_SEP);
+    if (sep === -1) {
       return null;
     }
-    const pluginName = rest.slice(0, slash);
-    const appDirName = rest.slice(slash + 1);
-    // Both segments must be single safe path components (rejects a deeper
-    // `plugins/<name>/<a>/<b>` since appDirName would then contain a slash).
+    const pluginName = rest.slice(0, sep);
+    const appDirName = rest.slice(sep + PLUGIN_APP_ID_SEP.length);
+    // Both must be safe single path components — the app segment, used as a
+    // directory name, must not smuggle in separators or traversal.
     if (!isSafeIdSegment(pluginName) || !isSafeIdSegment(appDirName)) {
       return null;
     }
@@ -1136,6 +1157,23 @@ export function readAppFile(appId: string, path: string): string {
 export function readAppFileBytes(appId: string, path: string): Buffer {
   validateId(appId);
   const resolved = validateFilePath(appId, path);
+  if (!existsSync(resolved)) {
+    throw new Error(`File not found: ${path}`);
+  }
+  return readFileSync(resolved);
+}
+
+/**
+ * Read a file as raw bytes from an app directory addressed by its absolute
+ * path (rather than by a workspace app id). Path is validated to prevent
+ * traversal. Used to serve assets for plugin-bundled apps, whose source dir is
+ * resolved via {@link resolveAppSource}.
+ */
+export function readAppFileBytesFromDir(
+  sourceDir: string,
+  path: string,
+): Buffer {
+  const resolved = validateFilePathInDir(sourceDir, path);
   if (!existsSync(resolved)) {
     throw new Error(`File not found: ${path}`);
   }
