@@ -392,7 +392,7 @@ body {
  * the `responding` visual rides live amplitude (the assistant's TTS output),
  * fed imperatively through the `--voice-amp` custom property by a
  * requestAnimationFrame loop — never React state. `listening` stays at rest;
- * the user's voice is expressed by the bottom waves coming in (see
+ * the user's voice is expressed by the top-edge waves coming in (see
  * voice-listening-waves.tsx). See voice-avatar.tsx.
  *
  * The sonar ripple's cyan→indigo gradient is a deliberate decorative accent
@@ -452,7 +452,7 @@ body {
 
 /* Listening — the avatar stays receptive: no outward emanation (that moved to
  * responding), just a slight constant breathing pulse. The user's voice is
- * carried by the bottom waves coming in (see voice-listening-waves.tsx), not by
+ * carried by the top-edge waves coming in (see voice-listening-waves.tsx), not by
  * the avatar reacting to mic amplitude. */
 @keyframes voice-avatar-soft-pulse {
   0%, 100% { transform: scale(1); }
@@ -775,10 +775,11 @@ body {
   transform: scaleY(-1);
 }
 
-/* Placement: top = the band sweeps in from the ceiling edge (the color look —
- * the user's voice arriving above the centered eyes, leaving them clear). The
- * wave fill hugs the bottom of its viewBox, so a vertical flip pins the crests
- * to the top edge, rippling downward; the amplitude translate recedes the band
+/* Placement: top = the band sweeps in from the ceiling edge (both room looks —
+ * the user's voice arriving above the centered eyes / avatar, leaving the
+ * centerpiece clear). The wave fill hugs the bottom of its viewBox, so a
+ * vertical flip pins the crests to the top edge, rippling downward; the
+ * amplitude translate recedes the band
  * up out of view when quiet (the mirror of the bottom placement's recede-down). */
 .voice-listening-waves--top {
   top: 0;

@@ -5,6 +5,7 @@ import { Modal } from "@vellumai/design-library/components/modal";
 
 import { ChatAvatar } from "@/components/avatar/chat-avatar";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 
 /**
  * One-time welcome card shown the first time a user enters voice mode, before
@@ -41,6 +42,9 @@ export function VoiceFirstRunCard({
 }: VoiceFirstRunCardProps) {
   const { components, traits, customImageUrl } =
     useAssistantAvatar(assistantId);
+  const assistantName = useResolvedAssistantsStore.use
+    .assistants()
+    .find((a) => a.id === assistantId)?.name;
 
   return (
     <Modal.Root
@@ -67,53 +71,46 @@ export function VoiceFirstRunCard({
             <Modal.Title>Voice mode</Modal.Title>
           </div>
           <Modal.Description>
-            A hands-free, spoken conversation with your assistant.
+            A hands-free, spoken conversation with {assistantName ?? "your assistant"}.
           </Modal.Description>
         </Modal.Header>
         <Modal.Body>
-          <div className="flex flex-col gap-3">
-            {/* Each bullet's icon matches the in-session control it describes,
-                so the card doubles as a legend for the room. */}
-            <ul className="flex flex-col gap-2.5">
-              <li className="flex items-start gap-2.5">
-                <AudioLines
-                  aria-hidden
-                  className="mt-0.5 size-4 shrink-0 text-[var(--content-secondary)]"
-                />
-                <span className="text-body-medium-default">
-                  Speak naturally — your assistant listens and replies out
-                  loud.
-                </span>
-              </li>
-              <li className="flex items-start gap-2.5">
-                <MicOff
-                  aria-hidden
-                  className="mt-0.5 size-4 shrink-0 text-[var(--content-secondary)]"
-                />
-                <span className="text-body-medium-default">
-                  Mute the mic whenever you need to, without ending the
-                  session.
-                </span>
-              </li>
-              <li className="flex items-start gap-2.5">
-                <Captions
-                  aria-hidden
-                  className="mt-0.5 size-4 shrink-0 text-[var(--content-secondary)]"
-                />
-                <span className="text-body-medium-default">
-                  Turn on live captions from the session controls.
-                </span>
-              </li>
-            </ul>
-            <p className="text-body-small-default text-[var(--content-tertiary)]">
-              You can change any of this anytime, in the session or in
-              Settings.
-            </p>
-          </div>
+          {/* Each bullet's icon matches the in-session control it describes,
+              so the card doubles as a legend for the room. */}
+          <ul className="flex flex-col gap-4">
+            <li className="flex items-start gap-2.5">
+              <AudioLines
+                aria-hidden
+                className="mt-0.5 size-4 shrink-0 text-[var(--content-secondary)]"
+              />
+              <span className="text-body-medium-default">
+                Speak naturally and {assistantName ?? "your assistant"} replies
+                out loud.
+              </span>
+            </li>
+            <li className="flex items-start gap-2.5">
+              <MicOff
+                aria-hidden
+                className="mt-0.5 size-4 shrink-0 text-[var(--content-secondary)]"
+              />
+              <span className="text-body-medium-default">
+                Mute the mic without ending the session.
+              </span>
+            </li>
+            <li className="flex items-start gap-2.5">
+              <Captions
+                aria-hidden
+                className="mt-0.5 size-4 shrink-0 text-[var(--content-secondary)]"
+              />
+              <span className="text-body-medium-default">
+                Turn on live captions anytime.
+              </span>
+            </li>
+          </ul>
         </Modal.Body>
         <Modal.Footer>
           <Button variant="primary" onClick={onStart}>
-            Start
+            Start talking
           </Button>
         </Modal.Footer>
       </Modal.Content>
