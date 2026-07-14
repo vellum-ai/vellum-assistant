@@ -1,5 +1,13 @@
 import { useQuery } from "@tanstack/react-query";
-import { Maximize2, Minimize2, RotateCcw, ZoomIn, ZoomOut } from "lucide-react";
+import {
+  Maximize2,
+  Minimize2,
+  RotateCcw,
+  Search,
+  X,
+  ZoomIn,
+  ZoomOut,
+} from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { VIRTUAL_CENTER } from "@/domains/intelligence/components/constellation-view/constants";
@@ -38,6 +46,17 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const RECENCY_GLOW_WINDOW_MS = 14 * DAY_MS; // recency fades out over ~2 weeks
 const RECENCY_GLOW_MAX = 12; // extra shadowBlur at peak freshness
 const PULSE_WINDOW_MS = 2 * DAY_MS; // newer than this → pulses (unless reduced motion)
+
+// As the graph grows, fade the resting (nothing-focused) learned-edge web so
+// dense corpora don't read as a haze. Full strength up to FOG_FULL_BELOW nodes,
+// easing to FOG_FLOOR by FOG_FLOOR_ABOVE. Only learned (associative) edges fade;
+// authored links carry structure and stay. Hover always restores full contrast.
+const FOG_FULL_BELOW = 80;
+const FOG_FLOOR_ABOVE = 340;
+const FOG_FLOOR = 0.12;
+
+// Below this node count the graph is small enough to scan by eye — no search box.
+const SEARCH_MIN_NODES = 12;
 
 interface Projected {
   id: string;
@@ -173,6 +192,35 @@ export function ConceptGraphView({
   // user dismisses it; the dismissal sticks per-assistant.
   const [introDismissed, dismissIntro] = useGraphIntroDismissed(assistantId);
 
+  // Name search: as the graph grows, typing narrows it to matching concepts —
+  // matches stay lit, everything else ghosts. The set of matching ids lives in
+  // a ref the 60fps render loop reads (so keystrokes don't re-run the effect),
+  // and `dirty` is bumped whenever it changes so reduced-motion redraws.
+  const [search, setSearch] = useState("");
+  const searchLower = search.trim().toLowerCase();
+  const matchIds = useMemo(() => {
+    if (!searchLower) {return null;}
+    const s = new Set<string>();
+    for (const n of layout.nodes) {
+      if (n.label.toLowerCase().includes(searchLower)) {s.add(n.id);}
+    }
+    return s;
+  }, [searchLower, layout.nodes]);
+  const filterRef = useRef<{ active: boolean; matches: Set<string> | null }>({
+    active: false,
+    matches: null,
+  });
+  useEffect(() => {
+    filterRef.current = { active: Boolean(matchIds), matches: matchIds };
+    view.current.dirty = true;
+  }, [matchIds]);
+  // Reset the search when the active assistant changes: this component is reused
+  // across assistants (IdentityTab doesn't key it), so a stale query would
+  // otherwise filter the new assistant's graph and ghost every node.
+  useEffect(() => {
+    setSearch("");
+  }, [assistantId]);
+
   const labelFor = useCallback(
     (id: string | null): string | null => {
       if (!id) {return null;}
@@ -277,6 +325,24 @@ export function ConceptGraphView({
       const isLit = (id: string) =>
         !activeId || id === activeId || (neighbors?.has(id) ?? false);
 
+      // Search: when active, only matching nodes/edges stay lit; the rest ghost.
+      const filter = filterRef.current;
+      const searchActive = filter.active;
+      const isMatch = (id: string) =>
+        !searchActive || (filter.matches?.has(id) ?? false);
+
+      // Density fog: fade the resting learned-edge web as the corpus grows.
+      const learnedFog =
+        nodes.length <= FOG_FULL_BELOW
+          ? 1
+          : Math.max(
+              FOG_FLOOR,
+              1 -
+                ((nodes.length - FOG_FULL_BELOW) /
+                  (FOG_FLOOR_ABOVE - FOG_FULL_BELOW)) *
+                  (1 - FOG_FLOOR),
+            );
+
       // Project every node into screen space.
       const proj = new Array<{
         node: GraphLayoutNode;
@@ -315,10 +381,22 @@ export function ConceptGraphView({
         const b = posById.get(e.toId);
         if (!a || !b) {continue;}
         const learned = e.kind === "learned";
+        const ghost = searchActive && (!isMatch(e.fromId) || !isMatch(e.toId));
         const incident = activeId != null && (e.fromId === activeId || e.toId === activeId);
         const depth = (a.depth + b.depth) / 2;
-        let alpha = (learned ? 0.34 : 0.28) * (0.4 + 0.6 * depth);
-        if (activeId != null) {alpha = incident ? 0.9 : isLit(e.fromId) && isLit(e.toId) ? alpha : 0.05;}
+        // Learned edges fade with density in the resting web; authored links
+        // don't. A focused hover neighborhood reads at full contrast, though —
+        // so lit edges use the unfogged base even in a dense graph.
+        const litAlpha = (learned ? 0.34 : 0.28) * (0.4 + 0.6 * depth);
+        const restAlpha = learned ? litAlpha * learnedFog : litAlpha;
+        let alpha: number;
+        if (ghost) {
+          alpha = 0.03;
+        } else if (activeId != null) {
+          alpha = incident ? 0.9 : isLit(e.fromId) && isLit(e.toId) ? litAlpha : 0.05;
+        } else {
+          alpha = restAlpha;
+        }
         ctx.globalAlpha = alpha;
         ctx.strokeStyle = learned ? EDGE_LEARNED_COLOR : colors.tertiary;
         ctx.lineWidth = (incident ? 2 : 1) * (0.6 + 0.6 * depth);
@@ -335,10 +413,11 @@ export function ConceptGraphView({
         const p = proj[idx];
         const node = p.node;
         const color = NODE_KIND_COLORS[node.kind];
-        const lit = isLit(node.id);
+        const ghost = searchActive && !isMatch(node.id);
+        const lit = !ghost && isLit(node.id);
         const isActive = node.id === activeId;
         const depthA = DEPTH_ALPHA_MIN + (1 - DEPTH_ALPHA_MIN) * p.depth;
-        const alpha = lit ? depthA : depthA * 0.18;
+        const alpha = ghost ? depthA * 0.08 : lit ? depthA : depthA * 0.18;
 
         let glow = (isActive ? 16 : node.degree >= HUB_LABEL_DEGREE ? 8 : 4) * p.depth;
         // Recency: fresh concepts glow brighter; the very newest pulse. Static
@@ -381,8 +460,11 @@ export function ConceptGraphView({
         const node = p.node;
         // When nothing is focused, only label front-facing hubs (depth-gated) so
         // the dense middle of the mass doesn't turn into unreadable label soup.
-        const showLabel =
-          activeId != null
+        // While searching, label the matches instead (that's what you're after).
+        if (searchActive && !isMatch(node.id)) {continue;}
+        const showLabel = searchActive
+          ? p.depth > 0.3
+          : activeId != null
             ? isLit(node.id)
             : node.degree >= HUB_LABEL_DEGREE && p.depth > 0.55;
         if (!showLabel) {continue;}
@@ -411,11 +493,15 @@ export function ConceptGraphView({
     };
   }, [ready, layout, adjacency, massRadius]);
 
-  // Nearest node under a screen point; nearest-in-front wins.
+  // Nearest node under a screen point; nearest-in-front wins. While a search is
+  // active, ghosted (non-matching) nodes are skipped so hover/click land on a
+  // result, not a faded background node.
   const hitTest = useCallback((x: number, y: number): string | null => {
+    const filter = filterRef.current;
     let best: string | null = null;
     let bestDepth = -1;
     for (const p of projectedRef.current) {
+      if (filter.active && !(filter.matches?.has(p.id) ?? false)) {continue;}
       const dx = x - p.sx;
       const dy = y - p.sy;
       if (dx * dx + dy * dy <= (p.sr + 5) * (p.sr + 5) && p.depth > bestDepth) {
@@ -576,6 +662,59 @@ export function ConceptGraphView({
       <>
         <canvas ref={canvasRef} className="absolute inset-0 h-full w-full" />
 
+        {/* Keep the box visible whenever a search is active, even if the graph
+            shrank below the threshold (e.g. a refetch) — otherwise an active
+            filter would ghost nodes with no way to clear it short of remount. */}
+        {layout.nodes.length > SEARCH_MIN_NODES || search ? (
+          <div
+            data-graph-control
+            className={`absolute top-4 z-10 ${onToggleFullscreen ? "left-16" : "left-4"}`}
+          >
+            <div
+              className="flex items-center gap-1.5 rounded-full px-2.5 py-1"
+              style={{
+                backgroundColor: "color-mix(in srgb, var(--surface-base) 82%, transparent)",
+                border: "1px solid var(--border-base)",
+              }}
+            >
+              <Search size={14} aria-hidden style={{ color: "var(--content-tertiary)" }} />
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") {
+                    setSearch("");
+                  }
+                }}
+                placeholder="Search concepts…"
+                aria-label="Search concepts"
+                className="w-36 bg-transparent text-[12px] outline-none placeholder:text-[var(--content-tertiary)]"
+                style={{ color: "var(--content-default)" }}
+              />
+              {search ? (
+                <>
+                  <span
+                    className="text-[11px] tabular-nums"
+                    style={{ color: "var(--content-tertiary)" }}
+                  >
+                    {matchIds?.size ?? 0}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setSearch("")}
+                    aria-label="Clear search"
+                    className="flex items-center"
+                    style={{ color: "var(--content-tertiary)" }}
+                  >
+                    <X size={13} />
+                  </button>
+                </>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
+
         <ConceptGraphLegend
           nodeKinds={presentKinds.length > 1 ? presentKinds : []}
           hasLinks={hasLinks}
@@ -601,6 +740,19 @@ export function ConceptGraphView({
         >
           drag to rotate · scroll to zoom
         </div>
+
+        {graph?.truncated ? (
+          <div
+            className="pointer-events-none absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full px-3 py-1 text-[11px]"
+            style={{
+              backgroundColor: "color-mix(in srgb, var(--surface-base) 82%, transparent)",
+              border: "1px solid var(--border-base)",
+              color: "var(--content-tertiary)",
+            }}
+          >
+            Showing the {layout.nodes.length} most-connected concepts
+          </div>
+        ) : null}
 
         <div data-graph-control className="absolute right-4 top-4 flex flex-col gap-1">
           <Button

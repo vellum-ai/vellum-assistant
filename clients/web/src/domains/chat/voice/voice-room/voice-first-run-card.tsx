@@ -5,6 +5,7 @@ import { Modal } from "@vellumai/design-library/components/modal";
 
 import { ChatAvatar } from "@/components/avatar/chat-avatar";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 
 /**
  * One-time welcome card shown the first time a user enters voice mode, before
@@ -20,6 +21,14 @@ import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
  * the card returns on the next entry. Only committing via "Start" advances the
  * first-run flag, and that lives in the caller's `onStart` handler (the
  * composer) alongside actually starting the session.
+ *
+ * `nonDismissible` locks the card to a single forward action — no ✕, backdrop,
+ * or Escape. The composer sets it on Capacitor iOS, where the card precedes the
+ * live-voice `getUserMedia` alert: per `docs/CAPACITOR.md` § OS permission
+ * requests (Apple HIG / App Store Review 5.1.1(iv)) such a pre-prompt must lead
+ * straight to the system alert, so a dismissible one is disallowed. Locked,
+ * there is no card-level cancel by design — backing out means denying the OS
+ * mic prompt (or ✕ once the room opens).
  */
 
 /** Mini idle avatar diameter — a quiet, in-context echo of the room avatar. */
@@ -32,28 +41,52 @@ export interface VoiceFirstRunCardProps {
   onStart: () => void;
   /** Cancel: dismissed without starting (does not consume the first run). */
   onDismiss?: () => void;
+  /**
+   * Lock the card: no ✕ / backdrop / Escape, only "Start talking". Set on
+   * Capacitor iOS so the pre-permission card leads straight to the mic alert
+   * (see the module docstring). Defaults to dismissible (web).
+   */
+  nonDismissible?: boolean;
 }
 
 export function VoiceFirstRunCard({
   assistantId,
   onStart,
   onDismiss,
+  nonDismissible = false,
 }: VoiceFirstRunCardProps) {
   const { components, traits, customImageUrl } =
     useAssistantAvatar(assistantId);
+  const assistantName = useResolvedAssistantsStore.use
+    .assistants()
+    .find((a) => a.id === assistantId)?.name;
 
   return (
     <Modal.Root
       open
       onOpenChange={(next) => {
         // Escape / backdrop / ✕ all route through here; treat any close as a
-        // cancel so the first run stays un-consumed.
+        // cancel so the first run stays un-consumed. Inert when locked (those
+        // affordances are removed / prevented below), so `onDismiss` only fires
+        // on the dismissible (web) path.
         if (!next) {
           onDismiss?.();
         }
       }}
     >
-      <Modal.Content size="sm">
+      <Modal.Content
+        size="sm"
+        // iOS lock: strip the ✕, the backdrop-tap dismiss, and Escape so the
+        // only way forward is "Start talking" → the mic alert.
+        hideCloseButton={nonDismissible}
+        dismissOnOverlayClick={!nonDismissible}
+        onEscapeKeyDown={
+          nonDismissible ? (event) => event.preventDefault() : undefined
+        }
+        onInteractOutside={
+          nonDismissible ? (event) => event.preventDefault() : undefined
+        }
+      >
         <Modal.Header>
           <div className="flex items-center gap-3">
             <span className="shrink-0">
@@ -67,53 +100,46 @@ export function VoiceFirstRunCard({
             <Modal.Title>Voice mode</Modal.Title>
           </div>
           <Modal.Description>
-            A hands-free, spoken conversation with your assistant.
+            A hands-free, spoken conversation with {assistantName ?? "your assistant"}.
           </Modal.Description>
         </Modal.Header>
         <Modal.Body>
-          <div className="flex flex-col gap-3">
-            {/* Each bullet's icon matches the in-session control it describes,
-                so the card doubles as a legend for the room. */}
-            <ul className="flex flex-col gap-2.5">
-              <li className="flex items-start gap-2.5">
-                <AudioLines
-                  aria-hidden
-                  className="mt-0.5 size-4 shrink-0 text-[var(--content-secondary)]"
-                />
-                <span className="text-body-medium-default">
-                  Speak naturally — your assistant listens and replies out
-                  loud.
-                </span>
-              </li>
-              <li className="flex items-start gap-2.5">
-                <MicOff
-                  aria-hidden
-                  className="mt-0.5 size-4 shrink-0 text-[var(--content-secondary)]"
-                />
-                <span className="text-body-medium-default">
-                  Mute the mic whenever you need to, without ending the
-                  session.
-                </span>
-              </li>
-              <li className="flex items-start gap-2.5">
-                <Captions
-                  aria-hidden
-                  className="mt-0.5 size-4 shrink-0 text-[var(--content-secondary)]"
-                />
-                <span className="text-body-medium-default">
-                  Turn on live captions from the session controls.
-                </span>
-              </li>
-            </ul>
-            <p className="text-body-small-default text-[var(--content-tertiary)]">
-              You can change any of this anytime, in the session or in
-              Settings.
-            </p>
-          </div>
+          {/* Each bullet's icon matches the in-session control it describes,
+              so the card doubles as a legend for the room. */}
+          <ul className="flex flex-col gap-4">
+            <li className="flex items-start gap-2.5">
+              <AudioLines
+                aria-hidden
+                className="mt-0.5 size-4 shrink-0 text-[var(--content-secondary)]"
+              />
+              <span className="text-body-medium-default">
+                Speak naturally and {assistantName ?? "your assistant"} replies
+                out loud.
+              </span>
+            </li>
+            <li className="flex items-start gap-2.5">
+              <MicOff
+                aria-hidden
+                className="mt-0.5 size-4 shrink-0 text-[var(--content-secondary)]"
+              />
+              <span className="text-body-medium-default">
+                Mute the mic without ending the session.
+              </span>
+            </li>
+            <li className="flex items-start gap-2.5">
+              <Captions
+                aria-hidden
+                className="mt-0.5 size-4 shrink-0 text-[var(--content-secondary)]"
+              />
+              <span className="text-body-medium-default">
+                Turn on live captions anytime.
+              </span>
+            </li>
+          </ul>
         </Modal.Body>
         <Modal.Footer>
           <Button variant="primary" onClick={onStart}>
-            Start
+            Start talking
           </Button>
         </Modal.Footer>
       </Modal.Content>

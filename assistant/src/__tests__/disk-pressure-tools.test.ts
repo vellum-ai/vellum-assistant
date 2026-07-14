@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import type { Conversation } from "../daemon/conversation.js";
 import type { SkillProjectionCache } from "../daemon/conversation-skill-tools.js";
-import type { SkillProjectionContext } from "../daemon/conversation-tool-setup.js";
 import type { Message, ToolDefinition } from "../providers/types.js";
 import type { DiskUsageInfo } from "../util/disk-usage.js";
 import * as realDiskUsage from "../util/disk-usage.js";
@@ -74,14 +74,14 @@ function makeToolDef(name: string): ToolDefinition {
 }
 
 function makeProjectionCtx(
-  overrides: Partial<SkillProjectionContext> = {},
-): SkillProjectionContext {
+  overrides: Partial<Conversation> = {},
+): Conversation {
   return {
     skillProjectionState: new Map(),
     skillProjectionCache: {} as SkillProjectionCache,
     toolsDisabledDepth: 0,
     ...overrides,
-  };
+  } as unknown as Conversation;
 }
 
 function setDiskUsage(usedMb: number, totalMb = 100): void {

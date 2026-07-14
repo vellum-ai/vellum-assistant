@@ -60,7 +60,10 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   useAssistantIdentityStore.getState().clearIdentity();
-  useAssistantFeatureFlagStore.setState({ channelTrustFloors: false });
+  useAssistantFeatureFlagStore.setState({
+    channelTrustFloors: false,
+    memoryConceptGraph: false,
+  });
 });
 
 describe("IntelligenceLayout", () => {
@@ -109,6 +112,30 @@ describe("IntelligenceLayout — Plugins tab version gate", () => {
       "Contacts",
       "Channels",
     ]);
+  });
+
+  test("shows the Memory tab (after Skills) when memory-concept-graph is on", () => {
+    useAssistantIdentityStore.getState().setIdentity("Ada", MIN_VERSION);
+    useAssistantFeatureFlagStore.setState({
+      channelTrustFloors: true,
+      memoryConceptGraph: true,
+    });
+    const { container } = renderLayout();
+    expect(tabLabels(container)).toEqual([
+      "Identity",
+      "Plugins",
+      "Skills",
+      "Memory",
+      "Workspace",
+      "Contacts",
+      "Channels",
+    ]);
+  });
+
+  test("hides the Memory tab while memory-concept-graph is off", () => {
+    useAssistantIdentityStore.getState().setIdentity("Ada", MIN_VERSION);
+    const { container } = renderLayout();
+    expect(tabLabels(container)).not.toContain("Memory");
   });
 
   test("hides the Channels tab while channel-trust-floors is off", () => {

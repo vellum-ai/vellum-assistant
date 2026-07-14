@@ -204,7 +204,7 @@ describe("VellumManagedRealtimeTranscriber", () => {
       expect.objectContaining({
         type: "error",
         category: "auth",
-        message: expect.stringContaining("platform connect"),
+        message: expect.stringContaining("VELAY_BASE_URL"),
       }),
     );
   });

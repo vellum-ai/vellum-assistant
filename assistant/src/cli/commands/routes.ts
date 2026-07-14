@@ -68,7 +68,9 @@ export function registerRoutesCommand(program: Command): void {
         }
 
         if (discovered.length === 0) {
-          log.info("No route handlers found in /workspace/routes/.");
+          log.info(
+            "No route handlers found in /workspace/routes/ or /workspace/plugins/<name>/routes/.",
+          );
           log.info(
             "Create a .ts or .js file exporting named HTTP method functions (GET, POST, etc.).",
           );
@@ -108,7 +110,7 @@ export function registerRoutesCommand(program: Command): void {
             route.routePath.padEnd(routeWidth),
             formatMethods(route.methods).padEnd(methodsWidth),
             (route.description ?? "").padEnd(descWidth),
-            `routes/${route.filePath}`,
+            route.filePath,
           ].join("    ");
           log.info(`  ${cols}`);
         }
@@ -130,7 +132,7 @@ export function registerRoutesCommand(program: Command): void {
         async (routePath: string, opts: { json?: boolean }) => {
           const r = await cliIpcCall<{ route: InspectedRoute }>(
             "user_routes_inspect",
-            { path: routePath },
+            { body: { path: routePath } },
           );
           if (!r.ok) {
             if (opts.json) {

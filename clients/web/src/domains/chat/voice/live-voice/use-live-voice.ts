@@ -282,6 +282,14 @@ interface SessionContext {
    * `metrics` frame always pairs with its own turn's measurement.
    */
   clientHeardLatencyMs: number | null;
+  /**
+   * Pending idle-check timer for the store's `assistantAudioActive` flag. Armed
+   * on each `tts_audio` frame and re-armed while the player is still draining;
+   * fires once audio has stopped flowing to mark the assistant silent (so a
+   * mid-turn tool run reads as `thinking`, not `speaking` — JARVIS-1279).
+   * Cleared on teardown/flush.
+   */
+  assistantAudioIdleTimer: ReturnType<typeof setTimeout> | null;
 }
 
 /** Number of bytes per Int16 PCM sample. */
@@ -351,6 +359,17 @@ export function useLiveVoice(
   // useCallback self-reference cycle.
   const reconnectAttemptRef = useRef(0);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Initial-connect resilience (JARVIS-1282). `hasReadyRef` records whether the
+  // current session lifecycle ever reached `ready` — false during the very
+  // first connect, so a transient pre-`ready` connection failure (cold velay
+  // tunnel, token-mint blip) is retried within the backoff budget instead of
+  // flashing `failed` while the room's avatar is still animating in.
+  // `initialConnectAttemptRef` counts those first-connect retries (distinct
+  // from `reconnectAttemptRef` so the room shows "Connecting…", not
+  // "Reconnecting…"), sharing `reconnectTimerRef` for cancellation. Both reset
+  // on a fresh `start()`, on `ready`, and on teardown/stop.
+  const hasReadyRef = useRef(false);
+  const initialConnectAttemptRef = useRef(0);
   const connectSessionRef = useRef<
     | ((
         assistantId: string,
@@ -382,6 +401,8 @@ export function useLiveVoice(
     // a queued reconnect must not resurrect the session behind idle UI.
     clearReconnectTimer();
     reconnectAttemptRef.current = 0;
+    initialConnectAttemptRef.current = 0;
+    hasReadyRef.current = false;
     const session = sessionRef.current;
     if (!session) {
       // During the reconnect backoff gap `sessionRef` is null while the store
@@ -405,6 +426,8 @@ export function useLiveVoice(
     // reconnect and its attempt budget.
     clearReconnectTimer();
     reconnectAttemptRef.current = 0;
+    initialConnectAttemptRef.current = 0;
+    hasReadyRef.current = false;
     const session = sessionRef.current;
     if (!session) {
       useLiveVoiceStore.getState().reset();
@@ -413,6 +436,7 @@ export function useLiveVoice(
     const startGeneration = startGenerationRef.current;
     sessionRef.current = null;
     session.generation += 1;
+    clearAssistantAudioActive(session);
     useLiveVoiceStore.getState().setState("ending");
     for (const unsubscribe of session.unsubscribes) unsubscribe();
     session.unsubscribes = [];
@@ -561,6 +585,7 @@ export function useLiveVoice(
         speechEndedAtMs: null,
         turnHeardStampMs: null,
         clientHeardLatencyMs: null,
+        assistantAudioIdleTimer: null,
       };
 
       const capture = (opts.createCapture ?? ((o) => new LiveVoiceAudioCapture(o)))({
@@ -594,6 +619,11 @@ export function useLiveVoice(
           // budget so a later, unrelated tunnel drop gets its full retry set,
           // and drop the reconnect label so the surface stops showing a retry.
           reconnectAttemptRef.current = 0;
+          // The session has connected at least once: retire the initial-connect
+          // resilience (a later drop reconnects via `reconnectAttemptRef`) and
+          // clear its budget.
+          hasReadyRef.current = true;
+          initialConnectAttemptRef.current = 0;
           useLiveVoiceStore.getState().setReconnecting(false);
           // When started from a new/empty conversation, `conversationId` was
           // undefined at start() and the store published `null`. The server
@@ -725,6 +755,10 @@ export function useLiveVoice(
             mimeType: frame.mimeType,
           };
           session.player.enqueue(chunk);
+          // Mark audio flowing before the phase flip so no render observes
+          // `speaking` without `assistantAudioActive` (which would blink the
+          // avatar to `thinking` at the top of every response — JARVIS-1279).
+          markAssistantAudioActive(session);
           useLiveVoiceStore.getState().setState("speaking");
         }),
         client.on("ttsDone", () => {
@@ -787,6 +821,58 @@ export function useLiveVoice(
             const s = useLiveVoiceStore.getState();
             if (s.state === "transcribing") s.setState("listening");
             return;
+          }
+          // Initial-connect resilience (JARVIS-1282): a hands-free session's
+          // very first connect can transiently fail before `ready` — a managed
+          // assistant's velay tunnel is briefly cold, or the token mint blips —
+          // and finishing with that error flashes the failure surface while the
+          // room's avatar is still animating in. Retry within the backoff
+          // budget instead, holding the room in `connecting` (a first connect,
+          // so NOT the "Reconnecting…" label), and only surface `failed` once
+          // the budget is spent. Scoped to connection-level failures pre-`ready`
+          // so a mid-session fatal error still fails immediately as before.
+          if (
+            session.handsFree &&
+            !hasReadyRef.current &&
+            (err.reason === "connection-failed" || err.reason === "timeout")
+          ) {
+            const backoff =
+              optionsRef.current.reconnectBackoffMs ?? RECONNECT_BACKOFF_MS;
+            if (initialConnectAttemptRef.current < backoff.length) {
+              const attempt = initialConnectAttemptRef.current;
+              initialConnectAttemptRef.current = attempt + 1;
+              const delayMs = backoff[attempt] ?? 0;
+              const assistantId = session.assistantId;
+              // The session hasn't reached `ready`, so no server-assigned id
+              // exists yet — re-attach to whatever it was started with.
+              const conversationId =
+                useLiveVoiceStore.getState().startedConversationId ?? undefined;
+              // Drop the dead primitives but hold the UI in `connecting` with a
+              // live stop control (the store still carries the session context +
+              // entry origin, which the re-entered `connectSession` preserves),
+              // so the avatar keeps animating and the user can still bail.
+              sessionRef.current = null;
+              disposeSessionPrimitives(session);
+              const s = useLiveVoiceStore.getState();
+              s.setState("connecting");
+              s.setControls({
+                stop: () => void stop(),
+                release,
+                interrupt,
+                setMuted,
+              });
+              console.warn(
+                `live-voice: initial connect failed (${err.reason}); retrying ` +
+                  `(attempt ${attempt + 1}/${backoff.length})`,
+              );
+              reconnectTimerRef.current = setTimeout(() => {
+                reconnectTimerRef.current = null;
+                void connectSessionRef.current?.(assistantId, conversationId, {
+                  handsFree: true,
+                });
+              }, delayMs);
+              return;
+            }
           }
           finishWithError(session, teardown, err.message);
         }),
@@ -880,9 +966,12 @@ export function useLiveVoice(
       // also covers an in-flight reconnect, so a mic click during the backoff
       // gap doesn't spawn a second session.
       if (isLiveVoiceSessionActive(useLiveVoiceStore.getState().state)) return;
-      // Fresh user-initiated session: drop any stale reconnect budget/timer.
+      // Fresh user-initiated session: drop any stale reconnect budget/timer and
+      // the initial-connect resilience budget (a new session starts unreadied).
       clearReconnectTimer();
       reconnectAttemptRef.current = 0;
+      initialConnectAttemptRef.current = 0;
+      hasReadyRef.current = false;
       await connectSession(assistantId, conversationId, startOptions ?? {});
     },
     [connectSession, clearReconnectTimer],
@@ -920,6 +1009,7 @@ export function useLiveVoice(
  */
 function disposeSessionPrimitives(session: SessionContext): void {
   session.generation += 1;
+  clearAssistantAudioActive(session);
   for (const unsubscribe of session.unsubscribes) unsubscribe();
   session.unsubscribes = [];
   session.client.close();
@@ -1134,12 +1224,62 @@ function beginAssistantAudioIfNeeded(session: SessionContext): void {
 }
 
 /**
+ * Grace period after the player stops producing audio before the assistant is
+ * treated as silent within a still-open `speaking` turn. Long enough to bridge
+ * inter-frame network gaps and a short buffered tail, short enough that a real
+ * mid-turn pause (a tool call after a spoken ack) reads as `thinking` promptly.
+ */
+const ASSISTANT_AUDIO_IDLE_MS = 500;
+
+/**
+ * Mark assistant TTS audio as flowing and (re)arm the idle check. Called on
+ * every `tts_audio` frame: a continuous stream keeps re-arming the timer so the
+ * flag stays true for the whole spoken stretch; once frames stop and the queue
+ * drains, {@link scheduleAssistantAudioIdleCheck} flips it false. Drives the
+ * avatar's `speaking → responding` vs `thinking` split (JARVIS-1279).
+ */
+function markAssistantAudioActive(session: SessionContext): void {
+  useLiveVoiceStore.getState().setAssistantAudioActive(true);
+  scheduleAssistantAudioIdleCheck(session);
+}
+
+/**
+ * Arm (replacing any prior) the timer that marks the assistant silent once
+ * audio stops flowing. If the player is still draining its buffered tail when
+ * the timer fires, re-arm rather than blinking to silence over audible audio —
+ * only a genuinely idle player flips the flag false.
+ */
+function scheduleAssistantAudioIdleCheck(session: SessionContext): void {
+  if (session.assistantAudioIdleTimer !== null) {
+    clearTimeout(session.assistantAudioIdleTimer);
+  }
+  session.assistantAudioIdleTimer = setTimeout(() => {
+    session.assistantAudioIdleTimer = null;
+    if (session.player.isPlaying) {
+      scheduleAssistantAudioIdleCheck(session);
+      return;
+    }
+    useLiveVoiceStore.getState().setAssistantAudioActive(false);
+  }, ASSISTANT_AUDIO_IDLE_MS);
+}
+
+/** Cancel the idle check and clear the flag (barge-in, turn end, teardown). */
+function clearAssistantAudioActive(session: SessionContext): void {
+  if (session.assistantAudioIdleTimer !== null) {
+    clearTimeout(session.assistantAudioIdleTimer);
+    session.assistantAudioIdleTimer = null;
+  }
+  useLiveVoiceStore.getState().setAssistantAudioActive(false);
+}
+
+/**
  * Hands-free: flush local TTS playback immediately, drop expectations for the
  * in-flight response, and keep the session live in `listening`.
  */
 function flushPlaybackToListening(session: SessionContext): void {
   session.player.stop();
   session.responseAudioStarted = false;
+  clearAssistantAudioActive(session);
   useLiveVoiceStore.getState().setState("listening");
 }
 
@@ -1177,6 +1317,9 @@ async function finishResponseAfterPlayback(
 
   await session.player.waitUntilDrained();
   if (session.generation !== generation) return;
+  // Audio has fully drained — the assistant is no longer speaking regardless of
+  // where the turn goes next (a newer turn re-marks it on its own tts_audio).
+  clearAssistantAudioActive(session);
 
   const state = useLiveVoiceStore.getState().state;
   if (session.handsFree) {

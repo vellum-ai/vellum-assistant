@@ -40,12 +40,39 @@ export const PRESERVED_ENTRIES = [
   ".disabled",
 ] as const;
 
+/**
+ * A generated app build directory: `apps/<app>/dist`. This is compiled output
+ * (the plugin source watcher builds each multi-file app's `src/` into its
+ * sibling `dist/`), never tracked source, so every fingerprint walk excludes
+ * it:
+ *
+ * - the **live-reload** change detector (`./source-fingerprint.ts`), so the
+ *   watcher's own compile does not read as a source change and re-trigger
+ *   itself in a loop, and
+ * - the **install/drift** fingerprint (`../cli/lib/plugin-fingerprint.ts`), so
+ *   generated output is not reported as drift/added against the pinned commit.
+ *
+ * Scoped to `apps/<app>/dist` specifically — a plugin's own top-level `dist/`
+ * (if it ships built code its hooks import) is still tracked.
+ */
+export function isGeneratedAppBuildDir(relDir: string): boolean {
+  const parts = relDir.split("/");
+  return parts.length === 3 && parts[0] === "apps" && parts[2] === "dist";
+}
+
 /** Options controlling which entries a {@link walkPluginTree} visits. */
 export interface PluginTreeWalkOptions {
   /** Top-level entry names to skip (e.g. {@link PRESERVED_ENTRIES}). */
   readonly excludeRootEntries?: Iterable<string>;
   /** Directory names skipped at any depth (e.g. `node_modules`). */
   readonly excludeDirsAnywhere?: ReadonlySet<string>;
+  /**
+   * Skip a directory (and its whole subtree) by its POSIX path relative to the
+   * walk root. Called for each directory before descending — use for
+   * path-scoped exclusions a bare directory name can't express (e.g. generated
+   * `apps/<app>/dist`, via {@link isGeneratedAppBuildDir}).
+   */
+  readonly excludeDir?: (relDir: string) => boolean;
   /** Skip entries whose name starts with `.`, at any depth. */
   readonly excludeDotEntries?: boolean;
   /**
@@ -94,6 +121,9 @@ export function walkPluginTree(
       const rel = relDir ? `${relDir}/${name}` : name;
       if (entry.isDirectory()) {
         if (options.excludeDirsAnywhere?.has(name) === true) {
+          continue;
+        }
+        if (options.excludeDir?.(rel) === true) {
           continue;
         }
         walk(rel);

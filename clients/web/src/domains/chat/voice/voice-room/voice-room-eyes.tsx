@@ -421,16 +421,18 @@ export function VoiceRoomColorLook({
  * negative space below the eyes, in the room's foreground tone. Cross-fades on
  * state change and simply isn't there for states without a caption
  * ({@link EYE_STATE_CAPTION}) — idle and the connecting-side states, which the
- * room's own connect label already covers. `top` is a stable px anchor from the
- * eyes' full-size bottom edge (the per-state resize is centered, so it doesn't
- * shift this).
+ * room's own connect label already covers. `top` is a stable anchor from the
+ * centerpiece's bottom edge — a px number off the eyes' full-size bottom (color
+ * look; the per-state resize is centered, so it doesn't shift this), or a CSS
+ * length off the fixed avatar size (the void look). Shared by both looks so the
+ * caption reads in the same place regardless of avatar type.
  */
-function VoiceStateCaption({
+export function VoiceStateCaption({
   visual,
   top,
 }: {
   visual: VoiceAvatarVisual;
-  top: number;
+  top: number | string;
 }) {
   const reduce = useReducedMotion();
   const label = EYE_STATE_CAPTION[visual];
@@ -619,12 +621,13 @@ function VoiceRespondingTreatment({
         className="pointer-events-none absolute inset-0 z-0 flex items-center justify-center"
       >
         <div
+          // Tint (with iOS-15 rgba fallback) lives in `.voice-responding-halo`;
+          // the amplitude-driven size/scale/opacity stay inline.
+          className="voice-responding-halo"
           style={{
             width: Math.round(0.9 * M),
             height: Math.round(0.9 * M),
             borderRadius: "9999px",
-            background:
-              "radial-gradient(circle, color-mix(in srgb, var(--room-fg, #ffffff) 24%, transparent) 0%, transparent 66%)",
             transform: "scale(calc(0.8 + var(--resp-amp, 0) * 0.5))",
             opacity: "calc(0.35 + var(--resp-amp, 0) * 0.65)",
             transformOrigin: "center",
@@ -640,18 +643,19 @@ function VoiceRespondingTreatment({
     <div
       ref={ampRef}
       aria-hidden="true"
+      data-testid="voice-responding-rings"
       className="pointer-events-none absolute inset-0 z-0 flex items-center justify-center"
       style={{ opacity: "calc(0.25 + var(--resp-amp, 0) * 0.75)" }}
     >
       {[0, 1, 2].map((i) => (
         <motion.span
           key={i}
-          className="absolute rounded-full border-2"
+          // Border tint (with iOS-15 rgba fallback) lives in
+          // `.voice-responding-ring`; the amplitude-driven size stays inline.
+          className="voice-responding-ring absolute rounded-full border-2"
           style={{
             width: Math.round(0.5 * M),
             height: Math.round(0.5 * M),
-            borderColor:
-              "color-mix(in srgb, var(--room-fg, #ffffff) 55%, transparent)",
           }}
           initial={reduce ? false : { scale: 0.4, opacity: 0.55 }}
           animate={
@@ -665,6 +669,35 @@ function VoiceRespondingTreatment({
         />
       ))}
     </div>
+  );
+}
+
+/**
+ * The `rings` responding treatment as a self-contained layer: the concentric
+ * rings radiating outward from screen center on the TTS-output amplitude, sized
+ * against the live window (pass `viewport` to size against a box instead —
+ * Storybook). Exported for the void look, which renders it behind the centered
+ * avatar so a custom avatar emits the same rings the eyes do in the color look.
+ */
+export function VoiceRespondingRings({
+  getAmplitude,
+  viewport,
+}: {
+  /** TTS (output) amplitude source (0–1) — drives the rings' presence. */
+  getAmplitude?: () => number;
+  /** Override the room box (Storybook renders in a box, not the full window). */
+  viewport?: { w: number; h: number };
+}) {
+  const measured = useViewportSize();
+  return (
+    <VoiceRespondingTreatment
+      style="rings"
+      getAmplitude={getAmplitude}
+      // waveStyle/wavePlacement are only read by the `waveform` style; inert here.
+      waveStyle="fill"
+      wavePlacement="top"
+      viewport={viewport ?? measured}
+    />
   );
 }
 

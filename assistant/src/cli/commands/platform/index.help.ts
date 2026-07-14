@@ -58,8 +58,9 @@ Fields:
   available           Whether callback registration prerequisites are satisfied
   organizationId      The platform organization ID (from stored credentials)
   userId              The platform user ID (from stored credentials)
-  velayTunnel         Live Velay tunnel status from the gateway IPC socket
-                      (null when the gateway is not running)
+
+For the Velay tunnel state (only relevant for Twilio webhooks and live
+voice/audio), use 'assistant gateway status' instead.
 
 Examples:
   $ assistant platform status

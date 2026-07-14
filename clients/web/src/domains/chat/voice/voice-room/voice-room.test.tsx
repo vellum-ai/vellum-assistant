@@ -198,7 +198,7 @@ describe("VoiceRoom — visibility", () => {
 describe("VoiceRoom — listening waves", () => {
   const waves = () => screen.queryByTestId("listening-waves");
 
-  test("mounts the bottom waves while listening (energy coming in)", () => {
+  test("mounts the listening waves while listening (energy coming in)", () => {
     startOwnedSession("listening");
     render(<VoiceRoom />);
     expect(roomDialog()).not.toBeNull();
@@ -375,6 +375,26 @@ describe("VoiceRoom — connect feedback", () => {
   });
 });
 
+describe("VoiceRoom — audio-aware status label (JARVIS-1279)", () => {
+  // The sr-only aria-live region uses the "…"-suffixed state labels, distinct
+  // from the caption's un-suffixed text (e.g. "Thinking" vs "Thinking…").
+  test("announces Thinking… (not Speaking…) during a silent mid-turn speaking phase", () => {
+    startOwnedSession("speaking");
+    // A mid-turn tool run: still `speaking`, but audio has stopped flowing.
+    useLiveVoiceStore.setState({ assistantAudioActive: false });
+    render(<VoiceRoom />);
+    expect(screen.getByText("Thinking…")).toBeTruthy();
+    expect(screen.queryByText("Speaking…")).toBeNull();
+  });
+
+  test("announces Speaking… while audio is actually flowing", () => {
+    // seedLiveVoiceSession marks a `speaking` session audio-active.
+    startOwnedSession("speaking");
+    render(<VoiceRoom />);
+    expect(screen.getByText("Speaking…")).toBeTruthy();
+  });
+});
+
 describe("VoiceRoom — full-app takeover", () => {
   test("the room is a modal full-viewport overlay", () => {
     startOwnedSession("listening");
@@ -449,7 +469,7 @@ describe("VoiceRoom — looks (color-with-eyes vs ambient void)", () => {
   });
 });
 
-describe("VoiceRoom — color-look state caption", () => {
+describe("VoiceRoom — state caption (shared across looks)", () => {
   const caption = () => screen.queryByTestId("voice-state-caption");
 
   function renderCharacterLook(state: LiveVoiceSessionState) {
@@ -457,6 +477,18 @@ describe("VoiceRoom — color-look state caption", () => {
       components: CHARACTER_COMPONENTS,
       traits: { bodyShape: "sprout", eyeStyle: "curious", color: "green" },
       customImageUrl: null,
+    };
+    startOwnedSession(state);
+    render(<VoiceRoom />);
+  }
+
+  // The void look (custom-image / unresolved avatar) carries the centered
+  // avatar, not the eyes, but shares the same caption in the same beat.
+  function renderVoidLook(state: LiveVoiceSessionState) {
+    mockAvatarData = {
+      components: CHARACTER_COMPONENTS,
+      traits: null,
+      customImageUrl: "blob:custom-avatar",
     };
     startOwnedSession(state);
     render(<VoiceRoom />);
@@ -479,6 +511,48 @@ describe("VoiceRoom — color-look state caption", () => {
     useVoicePrefsStore.setState({ showUserTranscript: true });
     renderCharacterLook("listening");
     expect(caption()?.textContent).toBe("Listening");
+  });
+
+  test("the void look shows the same caption below the custom avatar (parity)", () => {
+    renderVoidLook("speaking");
+    // Void look — the centered avatar, not the eyes — still names the beat.
+    expect(screen.getByTestId("voice-avatar")).toBeTruthy();
+    expect(screen.queryByTestId("voice-room-eyes")).toBeNull();
+    expect(caption()?.textContent).toBe("Speaking");
+  });
+
+  test("the void look stands its caption down for the assistant transcript too", () => {
+    useVoicePrefsStore.setState({ showAssistantTranscript: true });
+    renderVoidLook("speaking");
+    expect(caption()).toBeNull();
+  });
+});
+
+describe("VoiceRoom — void-look responding rings", () => {
+  const rings = () => screen.queryByTestId("voice-responding-rings");
+
+  function renderVoidLook(state: LiveVoiceSessionState) {
+    mockAvatarData = {
+      components: CHARACTER_COMPONENTS,
+      traits: null,
+      customImageUrl: "blob:custom-avatar",
+    };
+    startOwnedSession(state);
+    render(<VoiceRoom />);
+  }
+
+  test("emits the same concentric rings behind the custom avatar while responding", () => {
+    renderVoidLook("speaking");
+    // The custom avatar (not the eyes) is the centerpiece, but it radiates the
+    // color look's rings — parity with the eyes' responding treatment.
+    expect(screen.getByTestId("voice-avatar")).toBeTruthy();
+    expect(screen.queryByTestId("voice-room-eyes")).toBeNull();
+    expect(rings()).toBeTruthy();
+  });
+
+  test("shows no rings outside responding (energy going out only while speaking)", () => {
+    renderVoidLook("listening");
+    expect(rings()).toBeNull();
   });
 });
 

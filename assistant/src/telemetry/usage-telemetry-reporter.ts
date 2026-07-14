@@ -46,6 +46,7 @@ import {
   watermarkKeysForSource,
 } from "./telemetry-event-sources.js";
 import { useReadOnlyMainDbForTelemetry } from "./telemetry-main-db.js";
+import { validateWireEvents } from "./telemetry-wire-validation.js";
 
 const log = getLogger("usage-telemetry");
 
@@ -404,6 +405,10 @@ export class UsageTelemetryReporter {
       // Build payload — sources in construction order, each source's events
       // in cursor order.
       const typedEvents = batches.flatMap(({ batch }) => batch.events);
+
+      // Pre-flush wire validation — observability only: warns about events
+      // the server would silently drop; the batch is POSTed unchanged.
+      validateWireEvents(typedEvents, log);
 
       const organizationId = getPlatformOrganizationId() || undefined;
       const userId = getPlatformUserId() || undefined;
