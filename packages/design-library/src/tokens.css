@@ -642,6 +642,32 @@
   line-height: var(--text-chat-line-height);
 }
 
+/*
+ * Optically center a single-line text label inside a flex-centered row.
+ *
+ * Centering the label's line box does not center the visible glyphs: the
+ * line box reserves descender space below the baseline, and engines round
+ * font ascent/descent when placing the baseline. With DM Sans this leaves
+ * cap-height text riding visibly high next to box-centered siblings such
+ * as icons (worst where the line height is below the font's natural
+ * content height, e.g. `text-body-large-default` at 16px/20px).
+ *
+ * `text-box: trim-both cap alphabetic` trims the box to the cap-height
+ * and baseline, so flex centering aligns the ink itself — self-correcting
+ * for any font metrics or engine rounding. The symmetric padding keeps
+ * ascender/descender ink (which paints outside the trimmed content box)
+ * inside the padding box, so `overflow: hidden` truncation cannot clip
+ * it: DM Sans descenders reach 0.31em below the baseline and diacritics
+ * reach 0.292em above the caps, both within the 0.35em pad. Engines
+ * without `text-box` support keep the existing rendering unchanged.
+ */
+@utility text-optical-center {
+  @supports (text-box: trim-both cap alphabetic) {
+    text-box: trim-both cap alphabetic;
+    padding-block: 0.35em;
+  }
+}
+
 /* ---------------------------------------------------------------------------
  * Overlay animation keyframes.
  * --------------------------------------------------------------------------- */
