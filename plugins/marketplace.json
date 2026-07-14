@@ -15,7 +15,8 @@
       "description": "Proactive chief-of-staff: a morning digest, propose-then-confirm inbox triage, calendar prep, and a weekly competitor brief.",
       "category": "productivity",
       "homepage": "https://github.com/vellum-ai/admin-copilot",
-      "license": "MIT"
+      "license": "MIT",
+      "icon": "🧑‍💼"
     },
     {
       "name": "agent-wrapped",
@@ -28,7 +29,8 @@
       "category": "creative",
       "license": "MIT",
       "submittedBy": "marina",
-      "homepage": "https://agent-wrapped.com"
+      "homepage": "https://agent-wrapped.com",
+      "icon": "🎁"
     },
     {
       "name": "ai-hero-engineer-kit",
@@ -37,10 +39,11 @@
         "repo": "marinatrajk/ai-hero-engineer-kit",
         "ref": "18d33c62b15a3e2cc22dc070723fe3077749dcec"
       },
-      "description": "Five engineering skills adapted from Matt Pocock's '5 Agent Skills I Use Every Day' \u2014 plans, PRDs, vertical-slice issues, TDD loop, and codebase deepening in one install.",
+      "description": "Five engineering skills adapted from Matt Pocock's '5 Agent Skills I Use Every Day' — plans, PRDs, vertical-slice issues, TDD loop, and codebase deepening in one install.",
       "category": "developer",
       "homepage": "https://github.com/marinatrajk/ai-hero-engineer-kit",
-      "license": "MIT"
+      "license": "MIT",
+      "icon": "🧰"
     },
     {
       "name": "amex-perk-reminder",
@@ -52,7 +55,8 @@
       "description": "Track every credit on the Amex cards you hold (Platinum, Gold, Business Platinum, Delta Gold/Platinum/Reserve) with status-aware reminders before any window closes.",
       "category": "lifestyle",
       "homepage": "https://github.com/AnitaKirkovska/amex-perk-reminder",
-      "license": "MIT"
+      "license": "MIT",
+      "icon": "💳"
     },
     {
       "name": "astrology-horoscope",
@@ -64,7 +68,8 @@
       "description": "Western tropical natal chart and transit computation. Local ephemeris (astronomy-engine, no API keys) for planet positions, ascendant/midheaven, whole-sign houses, and aspects, plus a natal-reading skill that interprets the raw chart into a readable report.",
       "category": "hobby",
       "homepage": "https://github.com/vellum-ai/astrology-horoscope",
-      "license": "MIT"
+      "license": "MIT",
+      "icon": "🔮"
     },
     {
       "name": "caveman",
@@ -77,7 +82,7 @@
       "category": "productivity",
       "homepage": "https://github.com/JuliusBrussee/caveman",
       "license": "MIT",
-      "icon": "\ud83e\uddb4"
+      "icon": "🦴"
     },
     {
       "name": "coffee-aficionado",
@@ -90,7 +95,7 @@
       "category": "lifestyle",
       "homepage": "https://github.com/vellum-ai/coffee-aficionado",
       "license": "MIT",
-      "icon": "\u2615"
+      "icon": "☕"
     },
     {
       "name": "cofounder",
@@ -102,7 +107,8 @@
       "description": "AI co-founder that remembers your company context, challenges your thinking, and tracks your decisions.",
       "category": "productivity",
       "homepage": "https://github.com/vellum-ai/cofounder",
-      "license": "MIT"
+      "license": "MIT",
+      "icon": "🤝"
     },
     {
       "name": "cognee",
@@ -114,7 +120,8 @@
       },
       "description": "Cognee knowledge graph memory for Vellum Assistant: session-aware storage, auto-routing recall, and persistent learning across sessions. Supports local mode and Cognee Cloud.",
       "category": "memory",
-      "homepage": "https://github.com/topoteretes/cognee-integrations/tree/main/integrations/vellum-assistant"
+      "homepage": "https://github.com/topoteretes/cognee-integrations/tree/main/integrations/vellum-assistant",
+      "icon": "🕸️"
     },
     {
       "name": "dynamic-notch",
@@ -126,7 +133,8 @@
       "description": "Put your Vellum assistant inside your MacBook's notch: click to chat, hold Ctrl+Option to talk, and get a floating task bulb while it works, with live-streamed replies and per-sentence voice.",
       "category": "interface",
       "homepage": "https://github.com/AnitaKirkovska/dynamic-notch",
-      "license": "MIT"
+      "license": "MIT",
+      "icon": "💻"
     },
     {
       "name": "family-briefing",
@@ -138,7 +146,8 @@
       "description": "Daily morning briefing for parents: merges family calendars, triages school emails, and detects scheduling conflicts.",
       "category": "productivity",
       "homepage": "https://github.com/AnitaKirkovska/family-briefing",
-      "license": "MIT"
+      "license": "MIT",
+      "icon": "👨‍👩‍👧‍👦"
     },
     {
       "name": "fitness-companion",
@@ -150,7 +159,8 @@
       "description": "Fitness and nutrition companion. Logs meals, workouts, and weight; looks up nutrition data from OpenFoodFacts; calculates macro targets; and injects daily fitness context into every conversation.",
       "category": "health",
       "homepage": "https://github.com/vellum-ai/fitness-companion",
-      "license": "MIT"
+      "license": "MIT",
+      "icon": "💪"
     },
     {
       "name": "git-workflow",
@@ -162,7 +172,8 @@
       "description": "Git workflow tools and multi-perspective code review: branch management, push, stash, PR creation/review/merge/checkout, diffs, logs, changelog generation, and parallel subagent code review with confidence scoring.",
       "category": "developer",
       "homepage": "https://github.com/vellum-ai/git-workflow",
-      "license": "MIT"
+      "license": "MIT",
+      "icon": "🔀"
     },
     {
       "name": "google-drive-search",
@@ -174,7 +185,8 @@
       "description": "Local full-text search across your Google Drive. Indexes file metadata and document content into SQLite FTS5 for instant, private search.",
       "category": "productivity",
       "homepage": "https://github.com/ZeebBoyBlue/google-drive-search",
-      "license": "Apache-2.0"
+      "license": "Apache-2.0",
+      "icon": "🔍"
     },
     {
       "name": "influencer-marketing",
@@ -186,7 +198,8 @@
       "description": "Find and research influencers on Instagram, TikTok, and X/Twitter. Includes a strategy builder that walks from campaign brief to research criteria, a research skill that discovers real profiles via browser automation, scores candidates, and exports ranked shortlists, and a dashboard skill that turns the shortlist into an interactive outreach tracker.",
       "category": "marketing",
       "homepage": "https://github.com/ZeebBoyBlue/influencer",
-      "license": "MIT"
+      "license": "MIT",
+      "icon": "📣"
     },
     {
       "name": "kitchen-companion",
@@ -198,7 +211,8 @@
       "description": "Full kitchen companion. Scan your fridge with a photo to stock a pantry inventory and get 3 makeable-now recipes, get alerts before food expires, clip recipes from any URL into a clean format, and generate meal plans with grocery lists from what you actually have.",
       "category": "lifestyle",
       "homepage": "https://github.com/vellum-ai/kitchen-companion",
-      "license": "MIT"
+      "license": "MIT",
+      "icon": "🍳"
     },
     {
       "name": "level-up",
@@ -210,7 +224,8 @@
       "description": "Surfaces a first-class \"Level Up\" diff card whenever the assistant edits its own skills or plugins, so you can see how it improved itself after the fact.",
       "category": "developer",
       "homepage": "https://github.com/vellum-ai/level-up",
-      "license": "MIT"
+      "license": "MIT",
+      "icon": "🆙"
     },
     {
       "name": "marketing-expert",
@@ -222,7 +237,8 @@
       "description": "Acts as a full-stack marketing expert for any business (B2B or B2C): an on-demand persona plus playbook skills (positioning, demand planning, launches, content & copywriting, brand voice, email sequences, SEO & GEO, competitive teardown, board reporting) and deterministic funnel/positioning/GTM/competitive tools.",
       "category": "marketing",
       "homepage": "https://github.com/vellum-ai/marketing-expert",
-      "license": "MIT"
+      "license": "MIT",
+      "icon": "📈"
     },
     {
       "name": "model-router",
@@ -234,7 +250,8 @@
       "description": "Routes each user-facing message to one of your workspace's inference profiles, so model selection can vary per call instead of staying pinned to a single profile.",
       "category": "productivity",
       "homepage": "https://github.com/AnitaKirkovska/model-router",
-      "license": "MIT"
+      "license": "MIT",
+      "icon": "🚦"
     },
     {
       "name": "motion-design",
@@ -246,7 +263,8 @@
       "description": "Teaches the assistant to build polished UI animations with Motion (motion.dev) for React: animated product mockups, chat replays, typing effects, and staggered reveals, with a complete animated chat example included.",
       "category": "creative",
       "homepage": "https://github.com/vellum-ai/motion-design",
-      "license": "MIT"
+      "license": "MIT",
+      "icon": "🎬"
     },
     {
       "name": "originkit",
@@ -258,7 +276,8 @@
       "description": "Browse and import animated UI components from Originkit, a free library of 50 animated components. Browse by category or search term without an API key; fetch component source code (React, Next.js, Vite, Framer) with a free key from originkit.dev.",
       "category": "productivity",
       "homepage": "https://github.com/vellum-ai/originkit",
-      "license": "MIT"
+      "license": "MIT",
+      "icon": "🧱"
     },
     {
       "name": "personal-finance",
@@ -270,7 +289,8 @@
       "description": "Track expenses, income, recurring bills, and savings funds from your assistant. Multi-currency, receipt OCR, Plaid bank sync, and financial summaries. All data stored locally in SQLite.",
       "category": "productivity",
       "homepage": "https://github.com/AnitaKirkovska/personal-finance",
-      "license": "MIT"
+      "license": "MIT",
+      "icon": "💰"
     },
     {
       "name": "plant-doctor",
@@ -282,7 +302,8 @@
       "description": "Diagnose plants from photos. Identifies the species, assesses health with visible evidence, and returns a care plan. Named plants get a persistent checkup history so you can track whether they are improving.",
       "category": "lifestyle",
       "homepage": "https://github.com/vellum-ai/plant-doctor",
-      "license": "MIT"
+      "license": "MIT",
+      "icon": "🪴"
     },
     {
       "name": "polyglot",
@@ -294,7 +315,8 @@
       "description": "Ambient language acquisition through your assistant. Three graduated modes (practice, ambient, immersive) weave a target language into your real conversations, with SM-2 spaced repetition, error-pattern tracking, and CEFR level history.",
       "category": "education",
       "homepage": "https://github.com/vellum-ai/polyglot",
-      "license": "MIT"
+      "license": "MIT",
+      "icon": "🗣️"
     },
     {
       "name": "proactive-slacks",
@@ -306,7 +328,8 @@
       "description": "Let your assistant reach you on Slack on purpose. Route notifications by topic to the right channel at the right volume, with heartbeat-based change detection so it only pings when something actually changed.",
       "category": "productivity",
       "homepage": "https://github.com/AnitaKirkovska/proactive-slacks",
-      "license": "MIT"
+      "license": "MIT",
+      "icon": "💬"
     },
     {
       "name": "reading-pal",
@@ -318,7 +341,8 @@
       "description": "Your reading life in one plugin. Track your TBR pile, get guilt-tripped about your backlog, find your next read, and sync from Goodreads.",
       "category": "hobby",
       "homepage": "https://github.com/vellum-ai/reading-pal",
-      "license": "MIT"
+      "license": "MIT",
+      "icon": "📚"
     },
     {
       "name": "simple-memory",
@@ -330,7 +354,8 @@
       "description": "Reference memory plugin that exercises the full plugin API with low-cost variants of Vellum's memory defaults.",
       "category": "memory",
       "homepage": "https://github.com/vellum-ai/simple-memory",
-      "license": "MIT"
+      "license": "MIT",
+      "icon": "🧠"
     },
     {
       "name": "smb-inbox-brief",
@@ -342,7 +367,8 @@
       "description": "Find urgent replies, overdue invoices, quotes, and customer follow-ups before they slip. Scans email, logs business items, delivers urgency-ranked daily briefs.",
       "category": "productivity",
       "homepage": "https://github.com/AnitaKirkovska/smb-inbox-brief",
-      "license": "MIT"
+      "license": "MIT",
+      "icon": "📧"
     },
     {
       "name": "tennis-companion",
@@ -354,7 +380,8 @@
       "description": "Tennis journal, drill sessions, court finder, and progress tracking. Log matches with opponent tendencies, generate 30-minute practice sessions with progressions, find nearby courts via OpenStreetMap, and track win rate by surface and conditions.",
       "category": "health",
       "homepage": "https://github.com/vellum-ai/tennis-companion",
-      "license": "MIT"
+      "license": "MIT",
+      "icon": "🎾"
     },
     {
       "name": "travel-planner",
@@ -366,7 +393,8 @@
       "description": "A travel EA for your assistant. Remembers how you travel (carrier, miles, hotel budget, card benefits), keeps per-trip records, watches Gmail for booking changes, syncs your calendar, and emails an EA-style trip brief 48 hours before departure.",
       "category": "lifestyle",
       "homepage": "https://github.com/AnitaKirkovska/travel-planner",
-      "license": "MIT"
+      "license": "MIT",
+      "icon": "✈️"
     },
     {
       "name": "vellum-client-qa",
@@ -378,7 +406,8 @@
       "description": "Cross-platform QA rig for vellum-assistant clients: mock the platform backend, boot the real chat UI, and verify feature branches in headless Chromium (web), an iOS simulator, or Electron with screenshot and video proof.",
       "category": "developer",
       "homepage": "https://github.com/vellum-ai/vellum-client-qa",
-      "license": "MIT"
+      "license": "MIT",
+      "icon": "🧪"
     },
     {
       "name": "writing-coach",
@@ -390,7 +419,8 @@
       "description": "A writing coach in your pocket. Daily prompts that escalate with your streak, savage-but-constructive draft roasts, query letter critiques, and a word count enforcer that guilt-trips you when you skip.",
       "category": "hobby",
       "homepage": "https://github.com/vellum-ai/writing-coach",
-      "license": "MIT"
+      "license": "MIT",
+      "icon": "✍️"
     }
   ]
 }

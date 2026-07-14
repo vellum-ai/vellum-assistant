@@ -61,20 +61,20 @@ afterEach(() => {
 });
 
 describe("serializeMarketplace", () => {
-  test("escapes non-ASCII (emoji, punctuation) and ends with a newline", () => {
+  test("emits raw human-readable UTF-8 (no \\uXXXX escaping) and a trailing newline", () => {
     const out = serializeMarketplace({ plugins: [entry("coffee", { icon: COFFEE })] });
     expect(out.endsWith("\n")).toBe(true);
-    // Emoji + em-dash are ASCII-escaped, never emitted raw.
-    expect(out).toContain("\\u2615");
-    expect(out).toContain("\\u2014");
-    expect(out.includes(COFFEE)).toBe(false);
-    expect(out.includes(EM_DASH)).toBe(false);
+    // Emoji + em-dash are kept raw, never escaped.
+    expect(out.includes(COFFEE)).toBe(true);
+    expect(out.includes(EM_DASH)).toBe(true);
+    expect(out).not.toContain("\\u2615");
+    expect(out).not.toContain("\\u2014");
   });
 
-  test("escapes astral emoji as a surrogate pair", () => {
+  test("emits astral emoji raw, not as a surrogate-pair escape", () => {
     const out = serializeMarketplace({ plugins: [entry("caveman", { icon: BONE })] });
-    expect(out).toContain("\\ud83e\\uddb4");
-    expect(out.includes(BONE)).toBe(false);
+    expect(out.includes(BONE)).toBe(true);
+    expect(out).not.toContain("\\ud83e\\uddb4");
   });
 
   test("is a stable round-trip of its own output", () => {
@@ -137,8 +137,8 @@ describe("addPluginIcon", () => {
     // Exactly the change of setting coffee.icon = ☕, nothing else.
     data.plugins[1].icon = COFFEE;
     expect(after).toBe(serializeMarketplace(data));
-    // The emoji is escaped, and the only textual delta is the added icon line.
-    expect(after).toContain("\\u2615");
+    // The emoji is written raw, and the only textual delta is the added icon line.
+    expect(after).toContain(COFFEE);
     const removedUnchanged = before
       .split("\n")
       .filter((l) => !after.split("\n").includes(l));
