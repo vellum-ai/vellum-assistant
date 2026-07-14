@@ -824,8 +824,8 @@ export function VoiceRoomEyes({
       {/* Per-state size: the eyes stay put and resize, on the same motion tween
           system as the entrance. `sizeScale` retargets `scale`; a mid-flight
           state change continues smoothly from wherever the eyes are. Reduced
-          motion still targets `sizeScale` (it's the state cue now the sink is
-          gone) — just snaps to it instantly rather than tweening. */}
+          motion still targets `sizeScale` (size carries the state) — it just
+          snaps there instantly rather than tweening. */}
       <motion.div
         style={{ transformOrigin: "center" }}
         animate={{ scale: sizeScale }}
