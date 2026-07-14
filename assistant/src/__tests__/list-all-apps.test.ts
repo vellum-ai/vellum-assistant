@@ -93,7 +93,7 @@ describe("listAllApps", () => {
     const plugin = listPluginApps();
     expect(plugin).toHaveLength(1);
     expect(plugin[0].origin).toEqual({ kind: "plugin", pluginName: "acme" });
-    expect(plugin[0].id).toBe("plugins/acme/acme-dashboard");
+    expect(plugin[0].id).toBe("plugins~acme~acme-dashboard");
     expect(plugin[0].name).toBe("acme-dashboard");
     expect(plugin[0].sourcePath).toBe(
       join(pluginDir, "apps", "acme-dashboard"),
@@ -157,11 +157,11 @@ describe("resolveAppSource", () => {
     expect(source!.formatVersion).toBe(1);
   });
 
-  test("resolves a plugin app by its plugins/<name>/<app> id", () => {
+  test("resolves a plugin app by its plugins~<name>~<app> id", () => {
     const pluginDir = installPlugin("acme");
     bundleApp(pluginDir, "acme-dashboard");
 
-    const source = resolveAppSource("plugins/acme/acme-dashboard");
+    const source = resolveAppSource("plugins~acme~acme-dashboard");
     expect(source).not.toBeNull();
     expect(source!.origin).toEqual({ kind: "plugin", pluginName: "acme" });
     expect(source!.name).toBe("acme-dashboard");
@@ -178,7 +178,7 @@ describe("resolveAppSource", () => {
     const pluginDir = installPlugin("acme", { disabled: true });
     bundleApp(pluginDir, "acme-dashboard");
 
-    expect(resolveAppSource("plugins/acme/acme-dashboard")).toBeNull();
+    expect(resolveAppSource("plugins~acme~acme-dashboard")).toBeNull();
   });
 
   test("returns null for a plugin dir without a package.json manifest", () => {
@@ -191,14 +191,14 @@ describe("resolveAppSource", () => {
     );
     mkdirSync(strayApp, { recursive: true });
 
-    expect(resolveAppSource("plugins/not-a-plugin/x")).toBeNull();
+    expect(resolveAppSource("plugins~not-a-plugin~x")).toBeNull();
   });
 
   test("returns null for traversal and malformed plugin ids", () => {
     installPlugin("acme");
-    expect(resolveAppSource("plugins/../secrets")).toBeNull();
-    expect(resolveAppSource("plugins/acme/../..")).toBeNull();
-    expect(resolveAppSource("plugins/acme")).toBeNull(); // missing app segment
-    expect(resolveAppSource("plugins/acme/a/b")).toBeNull(); // too deep
+    expect(resolveAppSource("plugins~..~secrets")).toBeNull(); // traversal name
+    expect(resolveAppSource("plugins~acme~..")).toBeNull(); // traversal app
+    expect(resolveAppSource("plugins~acme")).toBeNull(); // missing app segment
+    expect(resolveAppSource("plugins~acme~sub/dir")).toBeNull(); // slash in app
   });
 });
