@@ -314,21 +314,23 @@ export async function getMemoryGraphNode(
   if (!isMemoryConceptGraphEnabled(config) || !isMemoryV3Live(config) || !id) {
     return { found: false };
   }
-  // A real on-disk page wins — including a user page that happens to live under
-  // a reserved prefix (its slug isn't a seeded skill/CLI slug, so the index
-  // keeps it with a real mtime). Read it before falling back to a capability.
-  const page = await readPage(getWorkspaceDir(), id).catch(() => null);
-  if (page) {
-    return { found: true, title: humanizeSlug(id), content: page.body };
-  }
-  // No page on disk — a synthetic capability slug. Its detail is the rendered
-  // capability statement (`renderCapabilityContent` degrades to "" — never
-  // throws — when the capability cache is cold).
+  // Seeded skill/CLI capabilities take precedence over any on-disk page at the
+  // same slug: the page index drops a colliding page and lets the synthetic win
+  // (v2/page-index.ts), so a `skills/foo` node built as the capability must not
+  // surface a stale disk page. renderCapabilityContent returns the rendered
+  // statement for a seeded capability, "" for an unseeded reserved-prefix slug
+  // (a real user page), and null for a normal concept slug.
   if (isCapabilitySlug(id)) {
     const content = renderCapabilityContent(id);
     if (content) {
       return { found: true, title: humanizeSlug(id), content };
     }
+  }
+  // A real on-disk page: a concept, or a user page under a reserved prefix that
+  // isn't a seeded capability (kept in the index with a real mtime).
+  const page = await readPage(getWorkspaceDir(), id).catch(() => null);
+  if (page) {
+    return { found: true, title: humanizeSlug(id), content: page.body };
   }
   return { found: false };
 }
