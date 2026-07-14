@@ -42,7 +42,7 @@ function ComposerSendSection() {
   );
 }
 
-/** Electron-only startup toggle, mirroring the retired Launch at Login card. */
+/** Electron-only toggle for launching the app when the user logs in. */
 function LaunchAtLoginSection() {
   const [enabled, setEnabled] = useState(false);
 
