@@ -1,6 +1,7 @@
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import type { UsageAttributionProfileSource } from "../usage/types.js";
 import type * as wire from "./telemetry-wire.generated.js";
+import { telemetryEventSchema } from "./telemetry-wire.generated.js";
 import type { TurnOutcome } from "./turn-outcome.js";
 
 /** Base fields present on every telemetry event. */
@@ -664,18 +665,42 @@ type _extensionsDontCollide = AssertNoWireCollision<
  * change once shipped. The watermark-flushed types (`llm_usage`, `turn`,
  * `tool_executed`) live on their own tables and are deliberately excluded.
  */
-export const OUTBOX_TELEMETRY_EVENT_NAMES = [
-  "lifecycle",
-  "onboarding",
-  "auth_fallback",
-  "skill_loaded",
-  "watchdog",
-  "config_setting",
-  "onboarding_research",
+/**
+ * Types NOT on the generic `telemetry_events` outbox — the high-volume events
+ * flushed from their own SQLite tables by a watermark source
+ * (`telemetry-event-sources.ts`). This is the ONLY hand-maintained partition
+ * fact; every other wire event type is outbox-backed by default. Add a name
+ * here only when a new type gets its own dedicated table.
+ */
+export const WATERMARK_TELEMETRY_EVENT_NAMES = [
+  "llm_usage",
+  "turn",
+  "tool_executed",
 ] as const;
 
-export type OutboxTelemetryEventName =
-  (typeof OUTBOX_TELEMETRY_EVENT_NAMES)[number];
+export type WatermarkTelemetryEventName =
+  (typeof WATERMARK_TELEMETRY_EVENT_NAMES)[number];
+
+/**
+ * Event names backed by the `telemetry_events` outbox: every wire event type
+ * that is not watermark-flushed. Derived from the generated wire contract, so a
+ * new event type added on the platform side flows onto the outbox — and gets a
+ * flush source (`telemetry-event-sources.ts`) and a fully-typed
+ * `recordTelemetryEvent` call — with NO edit here. Each name doubles as the
+ * wire `type` discriminant and the flush-group key.
+ */
+export type OutboxTelemetryEventName = Exclude<
+  keyof wire.WireEventMap,
+  WatermarkTelemetryEventName
+>;
+
+export const OUTBOX_TELEMETRY_EVENT_NAMES: readonly OutboxTelemetryEventName[] =
+  telemetryEventSchema.options
+    .map((option) => option.shape.type.value)
+    .filter(
+      (name): name is OutboxTelemetryEventName =>
+        !(WATERMARK_TELEMETRY_EVENT_NAMES as readonly string[]).includes(name),
+    );
 
 /** Wire event type for one outbox event name. */
 export type OutboxTelemetryEventOf<N extends OutboxTelemetryEventName> =
