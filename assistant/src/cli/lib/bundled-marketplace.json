@@ -22,7 +22,7 @@
       "source": {
         "source": "github",
         "repo": "vellum-ai/agent-wrapped",
-        "ref": "ca82f02425de55574d1ecd89175df083d2dbb21c"
+        "ref": "9df51d5425de55574d1ecd89175df083d2dbb21c"
       },
       "description": "Your agent's year in review: conversations, days together, memories formed, swear count, top topics, and your era. Works with Vellum agents and Claude Code. Ships a stats collector tool, a CLI, a Claude Code plugin, and a skill for the shareable cards experience.",
       "category": "creative",
@@ -36,7 +36,7 @@
         "repo": "marinatrajk/ai-hero-engineer-kit",
         "ref": "18d33c62b15a3e2cc22dc070723fe3077749dcec"
       },
-      "description": "Five engineering skills adapted from Matt Pocock's '5 Agent Skills I Use Every Day' \u2014 plans, PRDs, vertical-slice issues, TDD loop, and codebase deepening in one install.",
+      "description": "Five engineering skills adapted from Matt Pocock's '5 Agent Skills I Use Every Day' — plans, PRDs, vertical-slice issues, TDD loop, and codebase deepening in one install.",
       "category": "developer",
       "homepage": "https://github.com/marinatrajk/ai-hero-engineer-kit",
       "license": "MIT"
