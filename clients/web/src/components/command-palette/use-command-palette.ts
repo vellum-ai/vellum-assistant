@@ -138,7 +138,9 @@ export function useCommandPalette({
         const controller = new AbortController();
         abortControllerRef.current = controller;
 
-        searchGlobal(assistantId, trimmed, { signal: controller.signal })
+        searchGlobal(assistantId, trimmed, {
+          signal: controller.signal,
+        })
           .then((results) => {
             if (abortControllerRef.current === controller) {
               setSearchResults(results);

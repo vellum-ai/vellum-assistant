@@ -51,4 +51,5 @@ describe("CommandPalette", () => {
     expect(selected.className).toContain("h-10");
     expect(selected.className).toContain("text-sm");
   });
+
 });

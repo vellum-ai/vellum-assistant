@@ -32,7 +32,10 @@ const EMPTY_RESULTS: GlobalSearchResponse = {
 export async function searchGlobal(
   assistantId: string,
   query: string,
-  options?: { limit?: number; signal?: AbortSignal },
+  options?: {
+    limit?: number;
+    signal?: AbortSignal;
+  },
 ): Promise<GlobalSearchResponse> {
   const limit = options?.limit ?? 20;
 
