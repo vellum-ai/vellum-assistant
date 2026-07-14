@@ -400,6 +400,16 @@ function invalidateDirNameCache(appId?: string): void {
  * Returns the resolved absolute path.
  */
 function validateFilePath(appId: string, path: string): string {
+  return validateFilePathInDir(getAppDirPath(appId), path);
+}
+
+/**
+ * Validate a relative file path within a known app directory (absolute path).
+ * Prevents path traversal and access to protected directories. Used when the
+ * app directory is already resolved (e.g. plugin-bundled apps addressed by
+ * path rather than by a workspace app id).
+ */
+function validateFilePathInDir(appDir: string, path: string): string {
   if (!path || path.trim() === "") {
     throw new Error(`Invalid file path: path is empty`);
   }
@@ -414,7 +424,6 @@ function validateFilePath(appId: string, path: string): string {
   if (normalized === "records" || normalized.startsWith("records/")) {
     throw new Error(`Invalid file path: 'records/' directory is protected`);
   }
-  const appDir = getAppDirPath(appId);
   const resolved = resolve(appDir, path);
   // Ensure the resolved path is still within the app directory
   if (!resolved.startsWith(appDir + "/") && resolved !== appDir) {
@@ -677,6 +686,11 @@ const PLUGIN_APP_ID_SEP = "~";
 /** Build the addressable id for a plugin-bundled app. */
 function pluginAppId(pluginName: string, appDir: string): string {
   return `${PLUGIN_APP_ID_PREFIX}${pluginName}${PLUGIN_APP_ID_SEP}${appDir}`;
+}
+
+/** True when an app id addresses a plugin-bundled app (vs a workspace app). */
+export function isPluginAppId(id: string): boolean {
+  return id.startsWith(PLUGIN_APP_ID_PREFIX);
 }
 
 /** An app paired with the absolute path to its source and its origin. */
@@ -1143,6 +1157,23 @@ export function readAppFile(appId: string, path: string): string {
 export function readAppFileBytes(appId: string, path: string): Buffer {
   validateId(appId);
   const resolved = validateFilePath(appId, path);
+  if (!existsSync(resolved)) {
+    throw new Error(`File not found: ${path}`);
+  }
+  return readFileSync(resolved);
+}
+
+/**
+ * Read a file as raw bytes from an app directory addressed by its absolute
+ * path (rather than by a workspace app id). Path is validated to prevent
+ * traversal. Used to serve assets for plugin-bundled apps, whose source dir is
+ * resolved via {@link resolveAppSource}.
+ */
+export function readAppFileBytesFromDir(
+  sourceDir: string,
+  path: string,
+): Buffer {
+  const resolved = validateFilePathInDir(sourceDir, path);
   if (!existsSync(resolved)) {
     throw new Error(`File not found: ${path}`);
   }

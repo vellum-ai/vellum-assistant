@@ -26,6 +26,7 @@ import {
   type EnumeratedApp,
   getAppDirPath,
   getAppPreview,
+  isPluginAppId,
   listApps,
   listAppsByConversation,
   listPluginApps,
@@ -639,6 +640,7 @@ function handleQueryAppData({ pathParams, queryParams }: RouteHandlerArgs) {
 
 function handleMutateAppData({ pathParams, body }: RouteHandlerArgs) {
   const appId = pathParams?.id as string;
+  assertNotPluginApp(appId, "modify a plugin app's data");
   const method = (body?.method as string) ?? "create";
   const result = getAppDataResult(
     method,
@@ -685,8 +687,23 @@ async function handleOpenApp({ pathParams }: RouteHandlerArgs) {
   };
 }
 
+/**
+ * Reject a mutation targeting a plugin-bundled app. Plugin apps are owned by
+ * their plugin and are read-only over this surface — their source is not
+ * user-editable and their lifecycle is the plugin's.
+ */
+function assertNotPluginApp(appId: string, action: string): void {
+  if (isPluginAppId(appId)) {
+    throw new BadRequestError(
+      `Plugin-bundled apps are read-only; cannot ${action}. This app is owned by its plugin.`,
+    );
+  }
+}
+
 function handleDeleteApp({ pathParams, headers }: RouteHandlerArgs) {
-  deleteApp(pathParams?.id as string);
+  const appId = pathParams?.id as string;
+  assertNotPluginApp(appId, "delete a plugin app");
+  deleteApp(appId);
   publishAppsChanged(getOriginClientId(headers));
   return { success: true };
 }
@@ -699,6 +716,7 @@ function handleGetPreview({ pathParams }: RouteHandlerArgs) {
 
 function handleUpdatePreview({ pathParams, body }: RouteHandlerArgs) {
   const appId = pathParams?.id as string;
+  assertNotPluginApp(appId, "update a plugin app's preview");
   if (!body?.preview) {
     throw new BadRequestError("preview is required");
   }
@@ -708,6 +726,7 @@ function handleUpdatePreview({ pathParams, body }: RouteHandlerArgs) {
 
 async function handleBundle({ pathParams }: RouteHandlerArgs) {
   const appId = pathParams?.id as string;
+  assertNotPluginApp(appId, "bundle a plugin app");
   const result = await packageApp(appId);
   return {
     type: "bundle_app_response",
@@ -719,6 +738,7 @@ async function handleBundle({ pathParams }: RouteHandlerArgs) {
 
 async function handleShareCloud({ pathParams }: RouteHandlerArgs) {
   const appId = pathParams?.id as string;
+  assertNotPluginApp(appId, "share a plugin app");
   const result = await packageApp(appId);
   const bundleData = readFileSync(result.bundlePath);
   const { shareToken } = createSharedAppLink(bundleData, result.manifest);
