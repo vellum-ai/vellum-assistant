@@ -185,41 +185,120 @@ export async function resolveRevealCandidates(
 
 const SENTINEL_TRIGGER = `${REDACTED_SENTINEL_OPEN}${REDACTED_SENTINEL_TAG}:`;
 
-/** Longest suffix of `text` that is a proper prefix of the sentinel trigger. */
-function trailingTriggerPrefix(text: string): string {
-  const maxLen = Math.min(SENTINEL_TRIGGER.length - 1, text.length);
-  for (let len = maxLen; len > 0; len--) {
-    if (text.endsWith(SENTINEL_TRIGGER.slice(0, len))) {
-      return SENTINEL_TRIGGER.slice(0, len);
-    }
-  }
-  return "";
+/**
+ * A reveal candidate prepared for live-stream substitution: when the model
+ * echoes `value` into its reply, the stream guard swaps it for `replacement`
+ * (the same enriched sentinel persist-time redaction produces) before the
+ * bytes reach the wire — so the plaintext never flashes in the live
+ * transcript and never leaves the daemon.
+ */
+export interface LiveRevealGuardEntry {
+  /** Credential plaintext exactly as it would appear in model output. */
+  value: string;
+  /** The sentinel `redactSecretsForChat` produces for those bytes. */
+  replacement: string;
 }
 
 /**
- * Streaming counterpart of `neutralizeRedactedSentinels` for live
- * `assistant_text_delta` emission (mirrors `drainDirectiveDisplayBuffer`'s
- * hold-back pattern).
- *
- * Genuine sentinels are created at PERSIST time, never in raw model output —
- * so any sentinel-shaped string in the live stream is by definition forged,
- * and neutralizing all of them is lossless. Complete trigger prefixes in the
- * buffer are neutralized; a trailing PARTIAL trigger (a sentinel split
- * across streaming chunks) is held back in `bufferedRemainder` (at most
- * `trigger.length - 1` characters) so the next chunk decides whether it
- * completes into a trigger. Callers must re-prepend the remainder to the
- * next chunk and flush it raw at end-of-message — an incomplete prefix can
- * never match the chip regex.
+ * Precompute live-swap entries from resolved reveal candidates. Each entry's
+ * replacement is what persist-time redaction produces for the bare value, so
+ * the live stream and the persisted row agree byte-for-byte on redacted
+ * spans. A value the secret scanner does not detect is dropped: persist
+ * would leave it untouched, so swapping it live would make the stream and
+ * the stored transcript disagree.
  */
-export function drainSentinelGuardedText(buffer: string): {
+export function buildLiveRevealGuardEntries(
+  candidates: readonly ResolvedRevealCandidate[],
+): LiveRevealGuardEntry[] {
+  const entries: LiveRevealGuardEntry[] = [];
+  for (const candidate of candidates) {
+    const replacement = redactSecretsForChat(candidate.value, [candidate]);
+    if (replacement !== candidate.value) {
+      entries.push({ value: candidate.value, replacement });
+    }
+  }
+  return entries;
+}
+
+/** Replace every occurrence of each entry's plaintext with its sentinel. */
+export function swapLiveRevealValues(
+  text: string,
+  entries: readonly LiveRevealGuardEntry[],
+): string {
+  let out = text;
+  for (const entry of entries) {
+    if (out.includes(entry.value)) {
+      out = out.split(entry.value).join(entry.replacement);
+    }
+  }
+  return out;
+}
+
+/**
+ * Length of the longest suffix of `text` that is a PROPER prefix of
+ * `target` (a complete occurrence is not a hold-back case — the caller's
+ * transform consumes it).
+ */
+function trailingProperPrefixLen(text: string, target: string): number {
+  const maxLen = Math.min(target.length - 1, text.length);
+  for (let len = maxLen; len > 0; len--) {
+    if (text.endsWith(target.slice(0, len))) {
+      return len;
+    }
+  }
+  return 0;
+}
+
+/**
+ * Streaming redaction guard for live `assistant_text_delta` emission
+ * (mirrors `drainDirectiveDisplayBuffer`'s hold-back pattern). Two jobs:
+ *
+ * 1. **Forgery neutralization** — genuine sentinels are created by the
+ *    daemon, never in raw model output, so any sentinel-shaped string the
+ *    model streams is forged; neutralizing all of them is lossless.
+ * 2. **Live reveal swap** — a complete occurrence of a reveal candidate's
+ *    plaintext is replaced with its enriched sentinel (`entries`), so the
+ *    secret never flashes in the live stream: the client renders the chip
+ *    immediately and the persisted row (which redacts the same bytes at
+ *    persist time) matches what was streamed.
+ *
+ * A trailing PARTIAL trigger or candidate-value prefix (split across
+ * streaming chunks) is held back in `bufferedRemainder` — at most
+ * `max(trigger, longest candidate) - 1` characters — so the next chunk
+ * decides whether it completes. Callers must re-prepend the remainder to
+ * the next chunk and, at end-of-message, flush it through
+ * `swapLiveRevealValues(neutralizeRedactedSentinels(...))` — nothing can
+ * complete a partial prefix after the message ends.
+ *
+ * `consumedRaw` is the untransformed input the emit covers. Callers that
+ * mirror streamed text for partial persistence must mirror `consumedRaw`,
+ * not `emitText`: persist-time redaction re-derives the sentinel from the
+ * raw bytes, whereas a mirrored already-swapped sentinel would be
+ * indistinguishable from a forgery and get neutralized.
+ */
+export function drainSentinelGuardedText(
+  buffer: string,
+  entries: readonly LiveRevealGuardEntry[] = [],
+): {
   emitText: string;
+  consumedRaw: string;
   bufferedRemainder: string;
 } {
-  const neutralized = neutralizeRedactedSentinels(buffer);
-  const trailing = trailingTriggerPrefix(neutralized);
+  let holdLen = trailingProperPrefixLen(buffer, SENTINEL_TRIGGER);
+  for (const entry of entries) {
+    const len = trailingProperPrefixLen(buffer, entry.value);
+    if (len > holdLen) {
+      holdLen = len;
+    }
+  }
+  const consumedRaw = buffer.slice(0, buffer.length - holdLen);
   return {
-    emitText: neutralized.slice(0, neutralized.length - trailing.length),
-    bufferedRemainder: trailing,
+    emitText: swapLiveRevealValues(
+      neutralizeRedactedSentinels(consumedRaw),
+      entries,
+    ),
+    consumedRaw,
+    bufferedRemainder: buffer.slice(buffer.length - holdLen),
   };
 }
 

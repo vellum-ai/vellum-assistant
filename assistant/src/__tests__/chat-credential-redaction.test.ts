@@ -25,10 +25,12 @@ mock.module("../tools/credentials/metadata-store.js", () => ({
 
 // ── Imports (after mocks) ────────────────────────────────────────────────
 import {
+  buildLiveRevealGuardEntries,
   collectRevealRefsFromCommand,
   drainSentinelGuardedText,
   redactSecretsForChat,
   resolveRevealCandidates,
+  swapLiveRevealValues,
 } from "../daemon/chat-credential-redaction.js";
 import { redactSecrets } from "../security/secret-scanner.js";
 import {
@@ -229,7 +231,88 @@ describe("drainSentinelGuardedText (live-stream forgery guard)", () => {
   test("plain text passes through whole", () => {
     const out = drainSentinelGuardedText("nothing suspicious here");
     expect(out.emitText).toBe("nothing suspicious here");
+    expect(out.consumedRaw).toBe("nothing suspicious here");
     expect(out.bufferedRemainder).toBe("");
+  });
+});
+
+describe("live reveal swap (stream plaintext hold-back)", () => {
+  const CANDIDATE = {
+    service: "openai",
+    field: "api_key",
+    value: SYNTHETIC_OPENAI_PROJECT_KEY,
+  };
+  const ENTRIES = buildLiveRevealGuardEntries([CANDIDATE]);
+  const SENTINEL = redactSecretsForChat(SYNTHETIC_OPENAI_PROJECT_KEY, [
+    CANDIDATE,
+  ]);
+
+  test("buildLiveRevealGuardEntries pairs a detectable value with its enriched sentinel", () => {
+    expect(ENTRIES).toEqual([
+      { value: SYNTHETIC_OPENAI_PROJECT_KEY, replacement: SENTINEL },
+    ]);
+    expect(SENTINEL).toContain(":openai:api_key\u3015");
+  });
+
+  test("buildLiveRevealGuardEntries drops a value the scanner does not detect", () => {
+    expect(
+      buildLiveRevealGuardEntries([
+        { service: "svc", field: "f", value: "not a real secret shape" },
+      ]),
+    ).toEqual([]);
+  });
+
+  test("swaps a complete echoed value within one chunk", () => {
+    const raw = `Here it is: ${SYNTHETIC_OPENAI_PROJECT_KEY} — rotate it.`;
+    const out = drainSentinelGuardedText(raw, ENTRIES);
+    expect(out.emitText).toBe(`Here it is: ${SENTINEL} — rotate it.`);
+    expect(out.emitText).not.toContain(SYNTHETIC_OPENAI_PROJECT_KEY);
+    expect(out.consumedRaw).toBe(raw);
+    expect(out.bufferedRemainder).toBe("");
+  });
+
+  test("holds back a value split across chunks, then swaps on completion", () => {
+    const head = SYNTHETIC_OPENAI_PROJECT_KEY.slice(0, 12);
+    const tail = SYNTHETIC_OPENAI_PROJECT_KEY.slice(12);
+    const first = drainSentinelGuardedText(`token: ${head}`, ENTRIES);
+    expect(first.emitText).toBe("token: ");
+    expect(first.bufferedRemainder).toBe(head);
+    const second = drainSentinelGuardedText(
+      first.bufferedRemainder + tail + " end",
+      ENTRIES,
+    );
+    expect(second.emitText).toBe(`${SENTINEL} end`);
+    expect(second.emitText).not.toContain(SYNTHETIC_OPENAI_PROJECT_KEY);
+    expect(second.bufferedRemainder).toBe("");
+  });
+
+  test("releases a held value prefix that never completes", () => {
+    const head = SYNTHETIC_OPENAI_PROJECT_KEY.slice(0, 12);
+    const first = drainSentinelGuardedText(`prefix ${head}`, ENTRIES);
+    expect(first.bufferedRemainder).toBe(head);
+    const second = drainSentinelGuardedText(
+      first.bufferedRemainder + "-not-the-secret",
+      ENTRIES,
+    );
+    expect(second.emitText).toBe(`${head}-not-the-secret`);
+    expect(second.bufferedRemainder).toBe("");
+  });
+
+  test("consumedRaw carries the plaintext for persist-side re-redaction", () => {
+    const raw = `value ${SYNTHETIC_OPENAI_PROJECT_KEY}.`;
+    const out = drainSentinelGuardedText(raw, ENTRIES);
+    // The mirror path re-redacts consumedRaw at persist; verify the round
+    // trip lands on the same sentinel the live stream emitted.
+    expect(redactSecretsForChat(out.consumedRaw, [CANDIDATE])).toBe(
+      out.emitText,
+    );
+  });
+
+  test("swapLiveRevealValues replaces multiple occurrences", () => {
+    const text = `a ${SYNTHETIC_OPENAI_PROJECT_KEY} b ${SYNTHETIC_OPENAI_PROJECT_KEY} c`;
+    expect(swapLiveRevealValues(text, ENTRIES)).toBe(
+      `a ${SENTINEL} b ${SENTINEL} c`,
+    );
   });
 });
 

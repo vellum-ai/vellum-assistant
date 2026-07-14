@@ -87,14 +87,17 @@ import {
   drainDirectiveDisplayBuffer,
 } from "./assistant-attachments.js";
 import type {
+  LiveRevealGuardEntry,
   ResolvedRevealCandidate,
   RevealCandidateRef,
 } from "./chat-credential-redaction.js";
 import {
+  buildLiveRevealGuardEntries,
   collectRevealRefsFromCommand,
   drainSentinelGuardedText,
   redactSecretsForChat,
   resolveRevealCandidates,
+  swapLiveRevealValues,
 } from "./chat-credential-redaction.js";
 import type { Conversation } from "./conversation.js";
 import type { AssistantSurface } from "./conversation-agent-loop.js";
@@ -375,13 +378,24 @@ export interface EventHandlerState {
    */
   readonly revealCandidateRefs: RevealCandidateRef[];
   /**
-   * Live text a sentinel forgery guard held back from `assistant_text_delta`
-   * emission — a trailing partial `〔redacted:` trigger (≤9 chars) that a
-   * later chunk may complete into a forged sentinel. Re-prepended to the
-   * next delta and flushed (neutralized) at message_complete. See
+   * Live text the sentinel stream guard held back from
+   * `assistant_text_delta` emission — a trailing partial `〔redacted:`
+   * trigger or reveal-candidate plaintext prefix that a later chunk may
+   * complete. Re-prepended to the next delta and flushed
+   * (neutralized + candidate-swapped) at message_complete. See
    * `drainSentinelGuardedText`.
    */
   pendingSentinelGuardBuffer: string;
+  /**
+   * Precomputed live-swap entries for this turn's reveal candidates: when
+   * the model echoes a candidate's plaintext, the stream guard replaces it
+   * with its enriched sentinel before emission so the secret never reaches
+   * the wire. Primed asynchronously when `handleToolUse` records a reveal
+   * invocation — the store read settles while the tool itself is still
+   * running, long before its stdout can flow back into model output.
+   * Empty when the `chat-credential-reveal` flag is off.
+   */
+  liveRevealGuardEntries: readonly LiveRevealGuardEntry[];
   /**
    * Memoized resolution of {@link revealCandidateRefs} so a turn with many
    * persist flushes fetches each candidate's plaintext once. Invalidated by
@@ -484,6 +498,7 @@ export function createEventHandlerState(): EventHandlerState {
     revealCandidateRefs: [],
     revealCandidateCache: undefined,
     pendingSentinelGuardBuffer: "",
+    liveRevealGuardEntries: [],
   };
 }
 
@@ -517,6 +532,30 @@ async function chatRevealCandidates(
     };
   }
   return state.revealCandidateCache.candidates;
+}
+
+/**
+ * Kick off (or refresh) the live stream guard's swap entries from the
+ * memoized candidate resolution. Fire-and-forget by design: `handleToolUse`
+ * is synchronous, and the store read settles while the reveal tool call is
+ * still executing — before its stdout can flow back into model output. If
+ * resolution loses that race or fails, the guard simply stays on its
+ * previous entries and the persist seams still redact; the stream guard is
+ * a wire-level improvement, not the redaction boundary.
+ */
+function primeLiveRevealGuard(state: EventHandlerState): void {
+  void chatRevealCandidates(state)
+    .then((candidates) => {
+      if (candidates !== undefined && candidates.length > 0) {
+        state.liveRevealGuardEntries = buildLiveRevealGuardEntries(candidates);
+      }
+    })
+    .catch((err: unknown) => {
+      log.debug(
+        { err },
+        "live reveal guard priming failed; stream swap stays inactive",
+      );
+    });
 }
 
 // ── Partial-persistence helpers ──────────────────────────────────────
@@ -1060,13 +1099,15 @@ function handleTextDelta(
         statusText: "Thinking",
       });
     }
-    // Live forgery guard: a genuine redaction sentinel is created at persist
-    // time and never appears in raw model output, so any sentinel-shaped
-    // string in the live stream is forged — neutralize it before it reaches
-    // a chip-enabled client. A trigger split across chunks is held back in
-    // `pendingSentinelGuardBuffer` (≤9 chars) and flushed at message end.
+    // Live stream guard: neutralize forged sentinels (a genuine sentinel is
+    // created at persist time, never in raw model output) and swap a reveal
+    // candidate's echoed plaintext for its enriched sentinel so the secret
+    // never flashes in the live transcript or crosses the wire. A trigger or
+    // candidate prefix split across chunks is held back in
+    // `pendingSentinelGuardBuffer` and flushed at message end.
     const guarded = drainSentinelGuardedText(
       state.pendingSentinelGuardBuffer + drained.emitText,
+      state.liveRevealGuardEntries,
     );
     state.pendingSentinelGuardBuffer = guarded.bufferedRemainder;
     if (guarded.emitText.length > 0) {
@@ -1076,11 +1117,14 @@ function handleTextDelta(
         conversationId: deps.ctx.conversationId,
         messageId: state.lastAssistantMessageId,
       });
-      // Mirror only the guarded (emitted) text into currentMessageContent
-      // so partial flushes persist exactly what the client received.
-      // Buffered bytes (partial sentinel triggers) are excluded until they
-      // are flushed and emitted in a later chunk.
-      appendTextToCurrentMessage(state, guarded.emitText);
+      // Mirror the RAW consumed bytes (not the emitted swap) into
+      // currentMessageContent: the partial flush re-redacts them through
+      // `redactSecretsForChat`, which derives the same enriched sentinel
+      // from the plaintext — whereas a mirrored, already-swapped sentinel
+      // would be indistinguishable from a forgery there and get
+      // neutralized. Buffered bytes (partial triggers / candidate
+      // prefixes) stay excluded until a later chunk emits them.
+      appendTextToCurrentMessage(state, guarded.consumedRaw);
       // The hub stamps `seq` synchronously on the delta emitted above, so
       // `getCurrentSeq()` here is that delta's seq -- the position the
       // mirrored content now reflects. A partial flush snapshots this to
@@ -1153,7 +1197,11 @@ export function handleToolUse(
   // access happens here.
   const command = (event.input as { command?: unknown } | undefined)?.command;
   if (typeof command === "string" && command.length > 0) {
-    state.revealCandidateRefs.push(...collectRevealRefsFromCommand(command));
+    const refs = collectRevealRefsFromCommand(command);
+    if (refs.length > 0) {
+      state.revealCandidateRefs.push(...refs);
+      primeLiveRevealGuard(state);
+    }
   }
   const startedAt = Date.now();
   state.toolCallTimestamps.set(event.id, { startedAt });
@@ -2176,15 +2224,20 @@ export async function handleMessageComplete(
   }
 
   // Flush any remaining directive display buffer, prepending live text the
-  // sentinel guard held back (a split trigger tail). The concatenation is
-  // neutralized as a whole: at end-of-message nothing can complete a partial
-  // trigger, and a completed one here would be a forged sentinel.
+  // sentinel guard held back (a split trigger or candidate-prefix tail).
+  // The concatenation is neutralized and candidate-swapped as a whole: at
+  // end-of-message nothing can complete a partial trigger (a completed one
+  // here would be a forged sentinel), and a reveal-candidate plaintext that
+  // completes across the two buffers still swaps to its sentinel.
   const trailingLiveText =
     state.pendingSentinelGuardBuffer + state.pendingDirectiveDisplayBuffer;
   if (trailingLiveText.length > 0) {
     deps.onEvent({
       type: "assistant_text_delta",
-      text: neutralizeRedactedSentinels(trailingLiveText),
+      text: swapLiveRevealValues(
+        neutralizeRedactedSentinels(trailingLiveText),
+        state.liveRevealGuardEntries,
+      ),
       conversationId: deps.ctx.conversationId,
       messageId: state.lastAssistantMessageId,
     });
