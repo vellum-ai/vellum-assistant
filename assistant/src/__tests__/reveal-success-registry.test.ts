@@ -74,14 +74,30 @@ describe("reveal success registry retention", () => {
     expect(_recordCountForTest()).toBe(0);
     expect(revealedValueSince(0, "svc", "f")).toBeUndefined();
 
-    // With a window open the same reveal records, and closing the window
-    // stops further recording without dropping the consumed-by-proof read.
+    // With a window open the same reveal records; closing the last window
+    // both stops further recording and drops the retained plaintext.
     const token = openRevealProofWindow();
     recordRevealSuccess("svc", "f", "hunter2-windowed");
     expect(revealedValueSince(0, "svc", "f")).toBe("hunter2-windowed");
     closeRevealProofWindow(token);
     recordRevealSuccess("svc", "f", "hunter2-after-close");
-    expect(revealedValueSince(0, "svc", "f")).toBe("hunter2-windowed");
+    expect(revealedValueSince(0, "svc", "f")).toBeUndefined();
+    expect(_recordCountForTest()).toBe(0);
+  });
+
+  test("closing the last proof window drops retained plaintext immediately", () => {
+    // Proof consumption reads happen BEFORE a window closes, so once the
+    // last window is gone nothing can ever read the records again — they
+    // must not sit in memory until the age bound.
+    _resetRevealSuccessRegistryForTest();
+    const first = openRevealProofWindow();
+    const second = openRevealProofWindow();
+    recordRevealSuccess("svc", "f", "hunter2-windowed");
+    closeRevealProofWindow(first);
+    // A concurrent staging (second window) may still consume the record.
+    expect(_recordCountForTest()).toBe(1);
+    closeRevealProofWindow(second);
+    expect(_recordCountForTest()).toBe(0);
   });
 
   test("an expired record is EVICTED on read, not merely filtered", () => {

@@ -136,6 +136,28 @@ let openWindows: RevealProofWindow[] = [];
 
 function expireWindows(nowMs: number): void {
   openWindows = openWindows.filter((w) => nowMs - w.openedAtMs <= MAX_AGE_MS);
+  clearRecordsIfNoWindows();
+}
+
+/**
+ * Drop every retained record the moment no proof window remains open.
+ * Proof consumption is the records' only purpose, and once the last
+ * window closes nothing can ever read them again: the consuming
+ * `filterRefsByRevealProof` runs BEFORE its window is closed, promoted
+ * refs carry the plaintext themselves, and any future staging captures a
+ * watermark at the current sequence counter — above every existing
+ * record's seq. Waiting for the age bound would keep credential plaintext
+ * in memory long after the proof was needed.
+ */
+function clearRecordsIfNoWindows(): void {
+  if (openWindows.length > 0 || records.length === 0) {
+    return;
+  }
+  records = [];
+  if (pruneTimer !== undefined) {
+    clearTimeout(pruneTimer);
+    pruneTimer = undefined;
+  }
 }
 
 /**
@@ -154,6 +176,7 @@ export function openRevealProofWindow(): number {
 /** Close a proof window once its staged refs have been consumed. */
 export function closeRevealProofWindow(token: number): void {
   openWindows = openWindows.filter((w) => w.token !== token);
+  clearRecordsIfNoWindows();
 }
 
 /**
