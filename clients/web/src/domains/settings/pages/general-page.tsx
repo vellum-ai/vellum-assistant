@@ -1,5 +1,5 @@
 import { Heart, Monitor, Moon, Sun } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 
 import { useDiskPressureMonitor } from "@/assistant/use-disk-pressure-monitor";
@@ -9,34 +9,32 @@ import { PlatformLoginNotice } from "@/components/platform-login-notice";
 import { ProfileCard } from "@/components/profile-card";
 import { AssistantPicker } from "@/domains/settings/components/assistant-picker";
 import { AssistantSleepPolicy } from "@/domains/settings/components/assistant-sleep-policy";
-import {
-    AssistantStatusPanel,
-    useAssistantWithHealthz,
-} from "@/domains/settings/components/assistant-status-panel";
+import { useAssistantWithHealthz } from "@/domains/settings/components/assistant-status-panel";
 import {
     AssistantUpgrades,
     LocalAssistantUpgrades,
 } from "@/domains/settings/components/assistant-upgrades";
 import { ComposerSendCard } from "@/domains/settings/components/composer-send-card";
 import { DeleteAccountSection } from "@/domains/settings/components/delete-account-section";
+import { DevModeVersionUnlock } from "@/domains/settings/components/dev-mode-version-unlock";
 import { IOSAppCard } from "@/domains/settings/components/ios-app-card";
 import { LaunchAtLoginCard } from "@/domains/settings/components/launch-at-login-card";
-import { MediaEmbedsCard } from "@/domains/settings/components/media-embeds-card";
 import { PreviewReleaseChannel } from "@/domains/settings/components/preview-release-channel";
 import { ResizeCard } from "@/domains/settings/components/resize-card";
 import { RetireAssistant } from "@/domains/settings/components/retire-assistant";
-import { TimezonePicker } from "@/domains/settings/components/timezone-picker";
+import { TimezoneSection } from "@/domains/settings/components/timezone-section";
+import { UpdateWindowModal } from "@/domains/settings/components/update-window-modal";
+import { TwoFactorSection } from "@/domains/settings/security/two-factor-section";
 import { TeleportCard } from "@/domains/settings/teleport/teleport-card";
+import { Button } from "@vellumai/design-library/components/button";
 import { SegmentControl } from "@vellumai/design-library/components/segment-control";
 
-import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import {
     applyThemePreference,
     readStoredThemePreference,
     type ThemePreference,
     writeStoredThemePreference,
 } from "@/domains/settings/utils/theme-preferences";
-import { client } from "@/generated/api/client.gen";
 import { useActiveAssistantIsPlatformHosted, usePlatformGate } from "@/hooks/use-platform-gate";
 import {
     getSelectedAssistant,
@@ -45,18 +43,13 @@ import {
     isRemoteGatewayMode,
 } from "@/lib/local-mode";
 import { isElectron } from "@/runtime/is-electron";
-import { captureError } from "@/lib/sentry/capture-error";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useIsAuthenticated } from "@/stores/auth-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
-import {
-    getDeviceSetting,
-    setDeviceSetting,
-    watchDeviceSetting,
-} from "@/utils/device-settings";
+import { watchDeviceSetting } from "@/utils/device-settings";
 import { routes } from "@/utils/routes";
 
-function ThemeCard() {
+function AppearanceCard() {
   const velvet = useClientFeatureFlagStore.use.velvet();
   const [theme, setTheme] = useState<ThemePreference>(() =>
     readStoredThemePreference({ velvetEnabled: velvet }),
@@ -110,7 +103,7 @@ function ThemeCard() {
   ];
 
   return (
-    <DetailCard title="Theme">
+    <DetailCard title="Appearance">
       <div className="max-w-[360px]">
         <SegmentControl<ThemePreference>
           ariaLabel="Theme"
@@ -123,102 +116,9 @@ function ThemeCard() {
   );
 }
 
-export function TimezoneCard() {
-  const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
-  const [timezone, setTimezone] = useState<string>(() =>
-    getDeviceSetting("timezone", ""),
-  );
-
-  // Hold the live assistant id so a PATCH that fires (or drains) after the
-  // user switches assistants always targets the *current* one. Assigned in an
-  // effect (never during render) to avoid mutating a ref while rendering.
-  const assistantIdRef = useRef(assistantId);
-  useEffect(() => {
-    assistantIdRef.current = assistantId;
-  }, [assistantId]);
-
-  // Serialize the `ui.userTimezone` override PATCH (last-writer-wins): at most
-  // one in flight. A change while one is in flight only records the latest
-  // desired value; the in-flight PATCH drains to it on settle, so overlapping
-  // rapid changes can never land out of order and leave a stale override.
-  const inFlightRef = useRef(false);
-  const pendingValueRef = useRef<string | null>(null);
-
-  // Stable indirection so the `.finally` drain can call the latest
-  // `syncOverride` without referencing `const syncOverride` inside its own
-  // initializer (which would be a temporal-dead-zone access).
-  const syncOverrideRef = useRef<(value: string) => void>(() => {});
-
-  const syncOverride = (value: string) => {
-    if (inFlightRef.current) {
-      pendingValueRef.current = value;
-      return;
-    }
-    // Re-read the current active assistant at fire time so a queued write after
-    // an assistant switch targets whatever assistant is selected now, not the
-    // one active when the change was first requested.
-    const currentAssistantId = assistantIdRef.current;
-    if (!currentAssistantId) {
-      // No assistant to target: drop this write and clear queued state so the
-      // serializer can't deadlock.
-      pendingValueRef.current = null;
-      return;
-    }
-    inFlightRef.current = true;
-    pendingValueRef.current = null;
-    // `value` is the chosen IANA zone, or "" when auto is selected (the schema
-    // documents "" clears the setting). Silent on error.
-    client
-      .patch<Record<string, unknown>, unknown, true>({
-        url: `/v1/assistants/{assistant_id}/config`,
-        path: { assistant_id: currentAssistantId },
-        body: { ui: { userTimezone: value } },
-        throwOnError: true,
-      })
-      .catch((error) => {
-        captureError(error, { context: "settings-timezone-override" });
-      })
-      .finally(() => {
-        inFlightRef.current = false;
-        const pending = pendingValueRef.current;
-        pendingValueRef.current = null;
-        if (pending !== null) syncOverrideRef.current(pending);
-      });
-  };
-
-  // Keep the drain indirection pointed at the latest `syncOverride`. Assigned
-  // in an effect (never during render) for the same "no refs during render"
-  // reason as `assistantIdRef`.
-  useEffect(() => {
-    syncOverrideRef.current = syncOverride;
-  });
-
-  const handleChange = (value: string) => {
-    // Local source of truth for the reactive `useEffectiveTimezone` hook.
-    setTimezone(value);
-    setDeviceSetting("timezone", value);
-
-    // Explicit user action: write the manual override to the authoritative
-    // `ui.userTimezone` cascade tier. Fire-and-forget; never block the local
-    // setting on the network write, and never throw out of handleChange.
-    // `syncOverride` self-guards on a missing assistant id.
-    syncOverride(value);
-  };
-
-  return (
-    <DetailCard
-      title="Timezone"
-      subtitle="Used when displaying times and scheduling reminders."
-    >
-      <TimezonePicker value={timezone} onChange={handleChange} />
-    </DetailCard>
-  );
-}
-
 export function GeneralPage() {
   const {
     assistant,
-    assistantLoading,
     healthz,
     healthzLoading,
     healthzPolling,
@@ -227,6 +127,7 @@ export function GeneralPage() {
   } = useAssistantWithHealthz();
   const multiPlatformAssistant = useClientFeatureFlagStore.use.multiPlatformAssistant();
   const teleportEnabled = useClientFeatureFlagStore.use.teleport();
+  const accountMfaEnabled = useClientFeatureFlagStore.use.accountMfa();
   const settingsSleepPolicy = useAssistantFeatureFlagStore.use.settingsSleepPolicy();
   const isAuthenticated = useIsAuthenticated();
   const navigate = useNavigate();
@@ -237,6 +138,7 @@ export function GeneralPage() {
     assistantId: assistant?.id ?? null,
     enabled: infraGate === "full" && isPlatformHosted,
   });
+  const [updateWindowOpen, setUpdateWindowOpen] = useState(false);
 
   const platformAssistant = assistant?.is_local && !isLocalMode() ? null : assistant;
   const selected = getSelectedAssistant();
@@ -258,6 +160,16 @@ export function GeneralPage() {
     });
   }, [assistant]);
 
+  const versionValue =
+    healthz?.version ?? assistant?.current_release_version ?? null;
+
+  const showRetire =
+    ((platformGate === "full" || canRetireLocally) && !!platformAssistant) ||
+    (platformGate === "disabled" && !canRetireLocally);
+  // Mirrors DeleteAccountSection's internal platformHostedOnly gate — it
+  // returns null when gated, so the card must not render an empty shell.
+  const showDeleteAccount = infraGate !== "gated";
+
   return (
     <div className="space-y-4">
       {diskPressure.status && diskPressure.mode !== "inactive" && (
@@ -275,19 +187,85 @@ export function GeneralPage() {
           }
         />
       )}
-      <DetailCard title="General">
-        <AssistantStatusPanel
-          assistant={platformAssistant}
-          assistantLoading={assistantLoading}
-          healthz={healthz}
-          healthzLoading={healthzLoading}
-        />
-      </DetailCard>
 
-      {isAuthenticated && platformGate === "full" && (
+      <ProfileCard
         // Handles are platform-only — withhold the prop for self-hosted assistants.
-        <ProfileCard assistant={isPlatformHosted ? platformAssistant : null} />
+        assistant={isPlatformHosted ? platformAssistant : null}
+        showHandles={isAuthenticated && platformGate === "full"}
+      >
+        <TimezoneSection />
+      </ProfileCard>
+
+      <DetailCard
+        title="Version"
+        subtitle="Manage your assistant's software version and updates."
+        accessory={
+          infraGate === "full" && platformAssistant ? (
+            <Button
+              variant="outlined"
+              onClick={() => setUpdateWindowOpen(true)}
+            >
+              Update Window
+            </Button>
+          ) : undefined
+        }
+      >
+        <div className="flex flex-col gap-4">
+          {assistant && (
+            <div className="grid grid-cols-[140px_minmax(0,1fr)] gap-y-3">
+              <span className="text-body-medium-default text-[var(--content-tertiary)]">
+                Version
+              </span>
+              <DevModeVersionUnlock
+                version={versionValue}
+                loading={healthzLoading && !assistant.current_release_version}
+                assistantId={assistant.id ?? null}
+              />
+            </div>
+          )}
+          {infraGate === "full" && platformAssistant && (
+            <>
+              <AssistantUpgrades
+                assistantId={platformAssistant.id}
+                currentVersion={versionValue}
+                releaseChannel={platformAssistant.release_channel}
+                onUpgradeComplete={() => {
+                  void refetch();
+                }}
+              />
+              <PreviewReleaseChannel
+                assistantId={platformAssistant.id}
+                onComplete={() => {
+                  void refetch();
+                }}
+              />
+            </>
+          )}
+          {canUpgradeLocally && assistant && (
+            <LocalAssistantUpgrades
+              assistantId={assistant.id}
+              currentVersion={versionValue}
+              onUpgradeComplete={() => {
+                void refetch();
+              }}
+            />
+          )}
+          {infraGate === "disabled" && !canUpgradeLocally && (
+            <PlatformLoginNotice>
+              Log in to the Vellum platform to manage software updates.
+            </PlatformLoginNotice>
+          )}
+        </div>
+      </DetailCard>
+      {infraGate === "full" && platformAssistant && (
+        <UpdateWindowModal
+          assistantId={platformAssistant.id}
+          open={updateWindowOpen}
+          onClose={() => setUpdateWindowOpen(false)}
+        />
       )}
+
+      <AppearanceCard />
 
       {infraGate === "full" && assistant && (
         <ResizeCard
@@ -311,58 +289,11 @@ export function GeneralPage() {
         </DetailCard>
       )}
 
-      <ThemeCard />
-
       <ComposerSendCard />
 
       {isElectron() && <LaunchAtLoginCard />}
 
       {teleportEnabled && isElectron() && <TeleportCard />}
-
-      {infraGate === "full" && platformAssistant && (
-        <DetailCard title="Software Updates">
-          <AssistantUpgrades
-            assistantId={platformAssistant.id}
-            currentVersion={
-              healthz?.version ??
-              platformAssistant.current_release_version ??
-              null
-            }
-            releaseChannel={platformAssistant.release_channel}
-            onUpgradeComplete={() => {
-              void refetch();
-            }}
-          />
-          <PreviewReleaseChannel
-            assistantId={platformAssistant.id}
-            onComplete={() => {
-              void refetch();
-            }}
-          />
-        </DetailCard>
-      )}
-      {canUpgradeLocally && assistant && (
-        <DetailCard title="Software Updates">
-          <LocalAssistantUpgrades
-            assistantId={assistant.id}
-            currentVersion={
-              healthz?.version ??
-              assistant.current_release_version ??
-              null
-            }
-            onUpgradeComplete={() => {
-              void refetch();
-            }}
-          />
-        </DetailCard>
-      )}
-      {infraGate === "disabled" && !canUpgradeLocally && (
-        <DetailCard title="Software Updates">
-          <PlatformLoginNotice>
-            Log in to the Vellum platform to manage software updates.
-          </PlatformLoginNotice>
-        </DetailCard>
-      )}
 
       <IOSAppCard />
 
@@ -385,34 +316,55 @@ export function GeneralPage() {
         </DetailCard>
       )}
 
-      <TimezoneCard />
-
-      <MediaEmbedsCard />
+      {accountMfaEnabled && platformGate !== "gated" && (
+        <DetailCard
+          title="Two-Factor Authentication"
+          subtitle="Require a code from an authenticator app when you sign in."
+        >
+          {platformGate === "disabled" ? (
+            <PlatformLoginNotice>
+              Log in to the Vellum platform to manage two-factor
+              authentication.
+            </PlatformLoginNotice>
+          ) : (
+            <TwoFactorSection />
+          )}
+        </DetailCard>
+      )}
 
       {multiPlatformAssistant && <AssistantPicker />}
 
-      {(platformGate === "full" || canRetireLocally) && platformAssistant && (
-        <DetailCard
-          variant="danger"
-          title="Retire Assistant"
-          subtitle="Permanently retire this assistant and delete all associated data."
-        >
-          <RetireAssistant assistantId={platformAssistant.id} />
+      {(showRetire || showDeleteAccount) && (
+        <DetailCard variant="danger" title="Danger Zone">
+          <div className="flex flex-col gap-6">
+            {showRetire && (
+              <section className="flex flex-col gap-2">
+                <h3 className="text-title-small text-[var(--content-emphasised)]">
+                  Retire Assistant
+                </h3>
+                <p className="text-body-medium-default text-[var(--content-tertiary)]">
+                  Permanently retire this assistant and delete all associated
+                  data.
+                </p>
+                <div className="mt-1">
+                  {(platformGate === "full" || canRetireLocally) &&
+                  platformAssistant ? (
+                    <RetireAssistant assistantId={platformAssistant.id} />
+                  ) : (
+                    <PlatformLoginNotice>
+                      Log in to the Vellum platform to retire this assistant.
+                    </PlatformLoginNotice>
+                  )}
+                </div>
+              </section>
+            )}
+            {showRetire && showDeleteAccount && (
+              <div className="border-t border-[var(--border-subtle)]" />
+            )}
+            <DeleteAccountSection />
+          </div>
         </DetailCard>
       )}
-      {platformGate === "disabled" && !canRetireLocally && (
-        <DetailCard
-          variant="danger"
-          title="Retire Assistant"
-          subtitle="Permanently retire this assistant and delete all associated data."
-        >
-          <PlatformLoginNotice>
-            Log in to the Vellum platform to retire this assistant.
-          </PlatformLoginNotice>
-        </DetailCard>
-      )}
-
-      <DeleteAccountSection />
     </div>
   );
 }

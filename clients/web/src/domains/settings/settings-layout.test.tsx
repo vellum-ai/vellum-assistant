@@ -89,17 +89,7 @@ describe("SettingsLayout", () => {
     expect(screen.getByRole("link", { name: "Integrations" })).not.toBeNull();
   });
 
-  test("hides the Security entry when the account-mfa flag is off", () => {
-    render(
-      <MemoryRouter initialEntries={["/assistant/settings"]}>
-        <SettingsLayout />
-      </MemoryRouter>,
-    );
-
-    expect(screen.queryByRole("link", { name: "Security" })).toBeNull();
-  });
-
-  test("shows the Security entry when the account-mfa flag is on", () => {
+  test("never renders a Security entry — two-factor auth lives on General", () => {
     clientFlags = { accountMfa: true };
     render(
       <MemoryRouter initialEntries={["/assistant/settings"]}>
@@ -107,7 +97,7 @@ describe("SettingsLayout", () => {
       </MemoryRouter>,
     );
 
-    expect(screen.getByRole("link", { name: "Security" })).not.toBeNull();
+    expect(screen.queryByRole("link", { name: "Security" })).toBeNull();
   });
 
   test("renders Credentials only when the credentials-settings flag is on", () => {
