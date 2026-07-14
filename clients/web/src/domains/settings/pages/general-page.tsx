@@ -1,6 +1,6 @@
 import { Heart, Monitor, Moon, Sun } from "lucide-react";
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router";
+import { useNavigate, useSearchParams } from "react-router";
 
 import { useDiskPressureMonitor } from "@/assistant/use-disk-pressure-monitor";
 import { DetailCard } from "@/components/detail-card";
@@ -140,6 +140,23 @@ export function GeneralPage() {
   });
   const [updateWindowOpen, setUpdateWindowOpen] = useState(false);
   const [preferencesOpen, setPreferencesOpen] = useState(false);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const showPreferences = isElectron() || !isPointerCoarse();
+
+  // Deep links to the retired Keyboard Shortcuts page redirect here with
+  // `?preferences=open` so the migrated controls stay one navigation away.
+  // Consume the param so refresh/back does not reopen the modal.
+  useEffect(() => {
+    if (searchParams.get("preferences") !== "open") {
+      return;
+    }
+    const next = new URLSearchParams(searchParams);
+    next.delete("preferences");
+    setSearchParams(next, { replace: true });
+    if (showPreferences) {
+      setPreferencesOpen(true);
+    }
+  }, [searchParams, setSearchParams, showPreferences]);
 
   const platformAssistant = assistant?.is_local && !isLocalMode() ? null : assistant;
   const selected = getSelectedAssistant();
@@ -293,7 +310,7 @@ export function GeneralPage() {
       {/* Composer behavior is pointless on touch (Enter never sends) and
           shortcuts/launch-at-login are Electron-only, so hide the card when
           the modal would be empty. */}
-      {(isElectron() || !isPointerCoarse()) && (
+      {showPreferences && (
         <>
           <DetailCard
             title="Preferences"

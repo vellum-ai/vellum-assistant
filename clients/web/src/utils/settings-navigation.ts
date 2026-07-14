@@ -101,10 +101,17 @@ const SETTINGS_TAB_ID_ALIASES: Record<string, PanelId> = {
   privacy: "privacy",
   // Two-factor auth moved from the retired Security tab onto General.
   security: "assistant-status",
-  // Shortcut rebinding moved from the retired Keyboard Shortcuts tab into the
-  // Preferences modal on General.
-  "keyboard-shortcuts": "assistant-status",
-  "keyboard shortcuts": "assistant-status",
+};
+
+/**
+ * Tab names that resolve to a specific view of a sidebar destination. These
+ * need a query param that a sidebar item's bare `href` cannot carry, so they
+ * map straight to a full route and take precedence over the panel-id aliases.
+ */
+const SETTINGS_TAB_ROUTE_ALIASES: Record<string, string> = {
+  // Shortcut rebinding lives in the Preferences modal on General.
+  "keyboard-shortcuts": `${routes.settings.general}?preferences=open`,
+  "keyboard shortcuts": `${routes.settings.general}?preferences=open`,
 };
 
 function normalizeSettingsTabName(tab: string): string {
@@ -116,6 +123,11 @@ export function getSettingsRouteForClientTab(tab: string): string | null {
 
   // Check aliases first so legacy native-client tab names (e.g. "Developer" → debug)
   // are not shadowed by newer sidebar items with the same label.
+  const aliasedRoute = SETTINGS_TAB_ROUTE_ALIASES[normalizedTab];
+  if (aliasedRoute) {
+    return aliasedRoute;
+  }
+
   const aliasedId = SETTINGS_TAB_ID_ALIASES[normalizedTab];
   if (aliasedId) {
     const aliasedItem = SETTINGS_SIDEBAR.find((item) => item.id === aliasedId);
