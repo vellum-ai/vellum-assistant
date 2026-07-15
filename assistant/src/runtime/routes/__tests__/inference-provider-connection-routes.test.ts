@@ -411,6 +411,21 @@ describe("PATCH inference/provider-connections/:name (update)", () => {
     expect(result.label).toBe("Renamed");
   });
 
+  test("throws 400 on credential-only PATCH of an oauth_subscription connection", async () => {
+    seedConnection({
+      name: "chatgpt-subscription",
+      provider: "openai",
+      auth: { type: "oauth_subscription", credential: "vault/chatgpt/token" },
+    });
+
+    await expect(
+      call(findHandler("inference_provider_connections_update"), {
+        pathParams: { name: "chatgpt-subscription" },
+        body: { credential: "vault/other" },
+      }),
+    ).rejects.toBeInstanceOf(BadRequestError);
+  });
+
   test("rotates to derived api_key auth when only credential is passed", async () => {
     seedConnection({
       name: "rotate-cred",

@@ -293,6 +293,18 @@ async function handleUpdateConnection({
   // the key by re-deriving from the provider; omitting both leaves the stored
   // auth untouched (so label-only edits never disturb e.g. an
   // oauth_subscription connection).
+  if (
+    body.auth === undefined &&
+    body.credential !== undefined &&
+    existing.auth.type === "oauth_subscription"
+  ) {
+    // Derivation would silently flip the auth type to api_key. Rotating a
+    // subscription token goes through the ChatGPT sign-in routes; switching
+    // to key auth requires an explicit `auth` object.
+    throw new BadRequestError(
+      `Connection "${name}" uses subscription auth, which "credential" cannot rotate. Re-run the ChatGPT sign-in flow, or pass an explicit "auth" object to switch auth types.`,
+    );
+  }
   const auth =
     body.auth ??
     (body.credential !== undefined
