@@ -1,5 +1,4 @@
 import {
-  useEffect,
   useLayoutEffect,
   useRef,
   useState,
@@ -275,12 +274,13 @@ export function ChatBody({
   // Mirror the mounted banner — not the candidate slot — into the shared
   // store so tip surfaces stay mutually exclusive with nudge banners.
   // Register/unregister (a count) tolerates concurrent instances (main +
-  // side panel) without a last-write-wins race.
+  // side panel) without a last-write-wins race. Layout effect so consumers
+  // see the update before paint and never render a frame over the banner.
   const registerVisibleBanner =
     useBannerVisibilityStore.use.registerVisibleBanner();
   const unregisterVisibleBanner =
     useBannerVisibilityStore.use.unregisterVisibleBanner();
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!bannerRendered) return;
     registerVisibleBanner();
     return unregisterVisibleBanner;
