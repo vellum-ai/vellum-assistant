@@ -28,3 +28,24 @@ describe("Notice — error tone icon", () => {
     expect(html).not.toContain("lucide-triangle-alert");
   });
 });
+
+describe("Notice — hint tone", () => {
+  test("renders the Lightbulb icon and hint container classes", () => {
+    const html = renderToStaticMarkup(
+      <Notice tone="hint">Try keyboard shortcuts.</Notice>,
+    );
+
+    expect(html).toContain("lucide-lightbulb");
+    expect(html).toContain("var(--system-info-weak)");
+  });
+
+  test("icon={null} suppresses the default hint Lightbulb", () => {
+    const html = renderToStaticMarkup(
+      <Notice tone="hint" icon={null}>
+        Try keyboard shortcuts.
+      </Notice>,
+    );
+
+    expect(html).not.toContain("lucide-lightbulb");
+  });
+});
