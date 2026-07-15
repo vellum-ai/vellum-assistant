@@ -52,7 +52,7 @@ The `claude-agent-acp` adapter requires a Claude **OAuth token** (`sk-ant-oat…
 
 **Primary: the in-app Connect Claude Code flow.** When a spawn fails because the token is missing, the UI **automatically renders an inline "Connect Claude Code" card** directly below the failed step — one click on desktop (loopback), one paste on cloud. It mints and stores the OAuth token so it never enters the conversation or the workspace config.
 
-**When a spawn fails for a missing token, do NOT prompt the user yourself.** The inline card already handles it, so do not emit an options question, a "connect via Settings vs paste a token" choice, or CLI instructions — a second prompt on top of the card is redundant and confusing. At most, add one short sentence pointing at it ("Click **Connect Claude Code** above to sign in, then ask me again"), then stop and wait for the user to connect. (Settings → Models & Services → Connect Claude Code starts the same flow if the user would rather begin there.)
+**When a spawn fails for a missing token, do NOT prompt the user yourself.** The inline card already handles it, so do not emit an options question, a "connect via Settings vs paste a token" choice, or CLI instructions — a second prompt on top of the card is redundant and confusing. At most, add one short sentence pointing at it ("Click **Connect Claude Code** above to sign in, then ask me again"), then stop and wait for the user to connect.
 
 **Fallback (headless environments where no inline card can appear):** the user runs `claude setup-token` on a machine where they are logged in to Claude, then stores the result via the secure prompt:
 

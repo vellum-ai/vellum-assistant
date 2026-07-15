@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { openUrl, openUrlInNewTab } from "@/runtime/browser";
+import { openUrlInNewTab } from "@/runtime/browser";
 import {
   exchangeConnectClaude,
   pollConnectClaudeStatus,
@@ -130,9 +130,12 @@ export function useConnectClaude(assistantId: string): UseConnectClaudeResult {
     setMode(start.mode);
 
     if (start.mode === "loopback") {
-      // Loopback/desktop: the daemon captures the token on its own callback, so
-      // a same-tab open is fine.
-      await openUrl(start.authorize_url);
+      // Loopback/desktop: the daemon captures the token on its own callback, but
+      // this tab still has to survive to poll for the connected state. Open a new
+      // tab/window (like the manual path): in a plain browser `openUrl` would
+      // navigate the SPA away via `window.location.href`, unloading the poll and
+      // stranding the flow on the standalone completion page.
+      await openUrlInNewTab(start.authorize_url);
       if (isStale(flowId)) {
         return;
       }

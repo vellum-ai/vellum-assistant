@@ -23,10 +23,6 @@ mock.module("@/runtime/browser", () => ({
   openUrlFinishedListener: () => () => {},
 }));
 
-mock.module("@/assistant/use-active-assistant-id", () => ({
-  useActiveAssistantId: () => "assistant-123",
-}));
-
 mock.module("@/lib/backwards-compat/use-supports-acp-connect", () => ({
   useSupportsAcpConnect: () => supported,
 }));
@@ -84,7 +80,7 @@ describe("AcpConnectAffordance", () => {
   test("renders the Connect Claude Code button when the daemon supports Connect", () => {
     supported = true;
 
-    render(<AcpConnectAffordance />);
+    render(<AcpConnectAffordance assistantId="assistant-123" />);
 
     expect(
       screen.getByRole("button", { name: "Connect" }),
@@ -94,7 +90,7 @@ describe("AcpConnectAffordance", () => {
   test("renders nothing when the daemon is too old to support Connect", () => {
     supported = false;
 
-    render(<AcpConnectAffordance />);
+    render(<AcpConnectAffordance assistantId="assistant-123" />);
 
     expect(
       screen.queryByRole("button", { name: "Connect" }),
@@ -102,10 +98,20 @@ describe("AcpConnectAffordance", () => {
     expect(screen.queryByTestId("acp-connect-affordance")).toBeNull();
   });
 
+  test("renders nothing when there is no active assistant id", () => {
+    supported = true;
+
+    render(<AcpConnectAffordance assistantId={null} />);
+
+    // No active assistant → nothing to connect against, and never calls the
+    // active-assistant hook that throws outside ActiveAssistantGate.
+    expect(screen.queryByTestId("acp-connect-affordance")).toBeNull();
+  });
+
   test("self-heals: retires the prompt when Claude is already connected", async () => {
     alreadyConnected = true;
 
-    render(<AcpConnectAffordance />);
+    render(<AcpConnectAffordance assistantId="assistant-123" />);
 
     // The self-heal check is async; once it resolves as connected the affordance
     // unmounts rather than showing a stale Connect CTA.

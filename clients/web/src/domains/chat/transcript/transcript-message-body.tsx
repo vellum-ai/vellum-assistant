@@ -591,14 +591,16 @@ export function TranscriptMessageBody({
   };
 
   // A missing-token ACP spawn renders its plain error card plus this inline
-  // Connect affordance (flag-gated inside the component). Rendered under the
+  // Connect affordance (version-gated inside the component). Rendered under the
   // group whose failed `acp_spawn` raised the store-held Connect prompt, so
   // unrelated failures are unaffected and the affordance persists across the
-  // reseed that would strip the tool-call `errorCode` marker.
+  // reseed that would strip the tool-call `errorCode` marker. Pass the
+  // transcript's `assistantId` down so the affordance never calls the
+  // active-assistant hook that throws outside `ActiveAssistantGate`.
   const renderAcpConnectAffordance = (toolCalls: ChatMessageToolCall[]) =>
     acpConnectToolUseId !== null &&
     toolCalls.some((tc) => tc.id === acpConnectToolUseId) ? (
-      <AcpConnectAffordance />
+      <AcpConnectAffordance assistantId={assistantId} />
     ) : null;
 
   const renderInlineBackgroundTaskCards = (

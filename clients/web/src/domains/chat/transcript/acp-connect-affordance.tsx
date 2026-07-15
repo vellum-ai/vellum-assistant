@@ -1,7 +1,6 @@
 import { X } from "lucide-react";
 import { useEffect, useState } from "react";
 
-import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { ConnectClaudePanel } from "@/components/connect-claude-panel";
 import { AcpAgentIcon } from "@/domains/chat/components/acp-run-inline-card/acp-agent-icon";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
@@ -24,18 +23,28 @@ import { useSupportsAcpConnect } from "@/lib/backwards-compat/use-supports-acp-c
 // vanishing mid-turn. Gated on the daemon being new enough to serve the Connect
 // auth routes (see `useSupportsAcpConnect`); against an older daemon the
 // component renders nothing and the tool call keeps its plain error rendering.
+//
+// The transcript's own `assistantId` is passed in (rather than read via
+// `useActiveAssistantId()`, which throws outside `ActiveAssistantGate` — and
+// `ChatPage` renders outside it): a transcript row can render during a
+// self-hosted/transition state before the active id resolves, so we take the
+// (nullable) prop and render nothing when it's absent.
 
-export function AcpConnectAffordance() {
+export function AcpConnectAffordance({
+  assistantId,
+}: {
+  assistantId: string | null | undefined;
+}) {
   const supported = useSupportsAcpConnect();
-  if (!supported) {
-    // Daemon too old to serve the Connect routes → plain error rendering.
+  if (!supported || !assistantId) {
+    // Daemon too old to serve the Connect routes, or no active assistant yet →
+    // plain error rendering.
     return null;
   }
-  return <AcpConnectAffordanceInner />;
+  return <AcpConnectAffordanceInner assistantId={assistantId} />;
 }
 
-function AcpConnectAffordanceInner() {
-  const assistantId = useActiveAssistantId();
+function AcpConnectAffordanceInner({ assistantId }: { assistantId: string }) {
   const connection = useConnectClaude(assistantId);
   const [pastedCode, setPastedCode] = useState("");
   const [alreadyConnected, setAlreadyConnected] = useState(false);
