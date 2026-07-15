@@ -1,4 +1,3 @@
-import { Heart, Monitor, Moon, Sun } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
@@ -26,14 +25,7 @@ import { UpdateWindowModal } from "@/domains/settings/components/update-window-m
 import { TwoFactorSection } from "@/domains/settings/security/two-factor-section";
 import { TeleportCard } from "@/domains/settings/teleport/teleport-card";
 import { Button } from "@vellumai/design-library/components/button";
-import { SegmentControl } from "@vellumai/design-library/components/segment-control";
 
-import {
-    applyThemePreference,
-    readStoredThemePreference,
-    type ThemePreference,
-    writeStoredThemePreference,
-} from "@/domains/settings/utils/theme-preferences";
 import { useActiveAssistantIsPlatformHosted, usePlatformGate } from "@/hooks/use-platform-gate";
 import {
     getSelectedAssistant,
@@ -45,76 +37,7 @@ import { isElectron } from "@/runtime/is-electron";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useIsAuthenticated } from "@/stores/auth-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
-import { watchDeviceSetting } from "@/utils/device-settings";
-import { isPointerCoarse } from "@/utils/pointer";
 import { routes } from "@/utils/routes";
-
-function AppearanceCard() {
-  const velvet = useClientFeatureFlagStore.use.velvet();
-  const [theme, setTheme] = useState<ThemePreference>(() =>
-    readStoredThemePreference({ velvetEnabled: velvet }),
-  );
-
-  useEffect(() => {
-    setTheme(readStoredThemePreference({ velvetEnabled: velvet }));
-  }, [velvet]);
-
-  useEffect(() => {
-    return watchDeviceSetting("theme", () => {
-      setTheme(readStoredThemePreference({ velvetEnabled: velvet }));
-    });
-  }, [velvet]);
-
-  useEffect(() => {
-    applyThemePreference(theme);
-  }, [theme]);
-
-  const handleThemeChange = (newTheme: ThemePreference) => {
-    setTheme(newTheme);
-    writeStoredThemePreference(newTheme);
-    applyThemePreference(newTheme);
-  };
-
-  const themeItems = [
-    {
-      value: "system" as const,
-      label: "System",
-      icon: <Monitor className="h-4 w-4" />,
-    },
-    {
-      value: "light" as const,
-      label: "Light",
-      icon: <Sun className="h-4 w-4" />,
-    },
-    {
-      value: "dark" as const,
-      label: "Dark",
-      icon: <Moon className="h-4 w-4" />,
-    },
-    ...(velvet
-      ? [
-          {
-            value: "velvet" as const,
-            label: "Velvet",
-            icon: <Heart className="h-4 w-4" />,
-          },
-        ]
-      : []),
-  ];
-
-  return (
-    <DetailCard title="Appearance">
-      <div className="max-w-[360px]">
-        <SegmentControl<ThemePreference>
-          ariaLabel="Theme"
-          value={theme}
-          onChange={handleThemeChange}
-          items={themeItems}
-        />
-      </div>
-    </DetailCard>
-  );
-}
 
 export function GeneralPage() {
   const {
@@ -141,7 +64,6 @@ export function GeneralPage() {
   const [updateWindowOpen, setUpdateWindowOpen] = useState(false);
   const [preferencesOpen, setPreferencesOpen] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
-  const showPreferences = isElectron() || !isPointerCoarse();
 
   // The keyboard-shortcuts redirect stub and tab aliases land here with
   // `?preferences=open` to surface the Preferences modal directly. Consume
@@ -153,10 +75,8 @@ export function GeneralPage() {
     const next = new URLSearchParams(searchParams);
     next.delete("preferences");
     setSearchParams(next, { replace: true });
-    if (showPreferences) {
-      setPreferencesOpen(true);
-    }
-  }, [searchParams, setSearchParams, showPreferences]);
+    setPreferencesOpen(true);
+  }, [searchParams, setSearchParams]);
 
   const platformAssistant = assistant?.is_local && !isLocalMode() ? null : assistant;
   const selected = getSelectedAssistant();
@@ -165,6 +85,15 @@ export function GeneralPage() {
   const canRetireLocally = hasSelectedLocalAssistant;
   const canUpgradeLocally =
     hasSelectedLocalAssistant && !isRemoteGatewayMode();
+  // Whether an upgrade panel (platform or local) is on screen. Both panels
+  // render the "Current" version line that carries the 7-tap developer-mode
+  // unlock, so when neither shows we must render a standalone version line to
+  // avoid dropping both the version display and the only unlock affordance
+  // (e.g. logged out of the platform, or a self-hosted/remote-gateway runtime
+  // that can't upgrade locally).
+  const showsUpgradePanel =
+    (infraGate === "full" && !!platformAssistant) ||
+    (canUpgradeLocally && !!assistant);
 
   useEffect(() => {
     if (!assistant || window.location.hash !== "#storage-resources") {
@@ -212,6 +141,29 @@ export function GeneralPage() {
         showHandles={isAuthenticated && platformGate === "full"}
       >
         <TimezoneSection />
+        {accountMfaEnabled && platformGate !== "gated" && (
+          <>
+            <div className="border-t border-[var(--border-subtle)]" />
+            <section className="flex flex-col gap-2">
+              <h3 className="text-title-small text-[var(--content-emphasised)]">
+                Two-Factor Authentication
+              </h3>
+              <p className="text-body-medium-default text-[var(--content-tertiary)]">
+                Require a code from an authenticator app when you sign in.
+              </p>
+              <div className="mt-1">
+                {platformGate === "disabled" ? (
+                  <PlatformLoginNotice>
+                    Log in to the Vellum platform to manage two-factor
+                    authentication.
+                  </PlatformLoginNotice>
+                ) : (
+                  <TwoFactorSection />
+                )}
+              </div>
+            </section>
+          </>
+        )}
       </ProfileCard>
 
       <DetailCard
@@ -229,18 +181,6 @@ export function GeneralPage() {
         }
       >
         <div className="flex flex-col gap-4">
-          {assistant && (
-            <div className="grid grid-cols-[140px_minmax(0,1fr)] gap-y-3">
-              <span className="text-body-medium-default text-[var(--content-tertiary)]">
-                Version
-              </span>
-              <DevModeVersionUnlock
-                version={versionValue}
-                loading={healthzLoading && !assistant.current_release_version}
-                assistantId={assistant.id ?? null}
-              />
-            </div>
-          )}
           {infraGate === "full" && platformAssistant && (
             <>
               <AssistantUpgrades
@@ -268,6 +208,18 @@ export function GeneralPage() {
               }}
             />
           )}
+          {!showsUpgradePanel && assistant && (
+            <div className="grid grid-cols-[140px_minmax(0,1fr)] gap-y-3">
+              <span className="text-body-medium-default text-[var(--content-tertiary)]">
+                Current
+              </span>
+              <DevModeVersionUnlock
+                version={versionValue}
+                loading={healthzLoading && !assistant.current_release_version}
+                assistantId={assistant.id ?? null}
+              />
+            </div>
+          )}
           {infraGate === "disabled" && !canUpgradeLocally && (
             <PlatformLoginNotice>
               Log in to the Vellum platform to manage software updates.
@@ -282,8 +234,6 @@ export function GeneralPage() {
           onClose={() => setUpdateWindowOpen(false)}
         />
       )}
-
-      <AppearanceCard />
 
       {infraGate === "full" && assistant && (
         <ResizeCard
@@ -307,29 +257,19 @@ export function GeneralPage() {
         </DetailCard>
       )}
 
-      {/* Composer behavior is pointless on touch (Enter never sends) and
-          shortcuts/launch-at-login are Electron-only, so hide the card when
-          the modal would be empty. */}
-      {showPreferences && (
-        <>
-          <DetailCard
-            title="Preferences"
-            subtitle="Customize shortcuts and how Vellum behaves on this device."
-            accessory={
-              <Button
-                variant="outlined"
-                onClick={() => setPreferencesOpen(true)}
-              >
-                Customize
-              </Button>
-            }
-          />
-          <PreferencesModal
-            open={preferencesOpen}
-            onClose={() => setPreferencesOpen(false)}
-          />
-        </>
-      )}
+      <DetailCard
+        title="Preferences"
+        subtitle="Customize appearance, shortcuts, and how Vellum behaves on this device."
+        accessory={
+          <Button variant="outlined" onClick={() => setPreferencesOpen(true)}>
+            Customize
+          </Button>
+        }
+      />
+      <PreferencesModal
+        open={preferencesOpen}
+        onClose={() => setPreferencesOpen(false)}
+      />
 
       {teleportEnabled && isElectron() && <TeleportCard />}
 
@@ -351,22 +291,6 @@ export function GeneralPage() {
           <PlatformLoginNotice>
             Log in to the Vellum platform to manage sleep policy.
           </PlatformLoginNotice>
-        </DetailCard>
-      )}
-
-      {accountMfaEnabled && platformGate !== "gated" && (
-        <DetailCard
-          title="Two-Factor Authentication"
-          subtitle="Require a code from an authenticator app when you sign in."
-        >
-          {platformGate === "disabled" ? (
-            <PlatformLoginNotice>
-              Log in to the Vellum platform to manage two-factor
-              authentication.
-            </PlatformLoginNotice>
-          ) : (
-            <TwoFactorSection />
-          )}
         </DetailCard>
       )}
 
