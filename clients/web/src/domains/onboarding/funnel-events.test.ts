@@ -1,6 +1,22 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import {
+import { useOnboardingStore } from "@/domains/onboarding/onboarding-store";
+
+// The emitter posts through the generated client (so the session credentials
+// the ingest endpoint authenticates are attached); mock the sdk function and
+// assert on the typed request body.
+const ingestMock = mock(
+  async (_options: { body: unknown; keepalive?: boolean }) => ({
+    data: { accepted: 1, persisted: 1, dropped: {} },
+    error: undefined,
+    response: { ok: true, status: 200 } as Response,
+  }),
+);
+mock.module("@/generated/api/sdk.gen", () => ({
+  telemetryIngestCreate: ingestMock,
+}));
+
+const {
   __resetOnboardingFunnelEventsForTests,
   buildOnboardingFunnelEvent,
   emitOnboardingFunnelStepCompleted,
@@ -14,26 +30,35 @@ import {
   resolveOnboardingFunnelVariant,
   RESEARCH_ONBOARDING_FUNNEL_STEPS,
   RESEARCH_ONBOARDING_FUNNEL_VERSION,
-} from "@/domains/onboarding/funnel-events";
-import { useOnboardingStore } from "@/domains/onboarding/onboarding-store";
+} = await import("@/domains/onboarding/funnel-events");
 
-const originalFetch = globalThis.fetch;
+interface IngestPayload {
+  device_id: string;
+  assistant_version: string;
+  events: Array<Record<string, unknown>>;
+}
+
+function ingestPayload(callIndex: number): IngestPayload {
+  const options = ingestMock.mock.calls[callIndex]?.[0] as
+    { body: IngestPayload } | undefined;
+  if (!options) throw new Error(`No ingest call at index ${callIndex}`);
+  return options.body;
+}
 
 beforeEach(() => {
   sessionStorage.clear();
   localStorage.clear();
   useOnboardingStore.setState({ shareAnalytics: true });
   __resetOnboardingFunnelEventsForTests();
-});
-
-afterEach(() => {
-  globalThis.fetch = originalFetch;
+  ingestMock.mockClear();
 });
 
 describe("onboarding funnel events", () => {
   test("maps experiment arms to funnel variants", () => {
     expect(onboardingFunnelVariantFromExperiment("control")).toBe("control");
-    expect(onboardingFunnelVariantFromExperiment("variant-a")).toBe("pared_down");
+    expect(onboardingFunnelVariantFromExperiment("variant-a")).toBe(
+      "pared_down",
+    );
   });
 
   test("builds the expected event shape with a stable session id", () => {
@@ -108,11 +133,6 @@ describe("onboarding funnel events", () => {
 
   test("emits fire-and-forget telemetry payloads with the same session id", () => {
     localStorage.setItem("device:share_analytics", "true");
-    const fetchMock = mock(
-      async (_input: RequestInfo | URL, _init?: RequestInit) =>
-        new Response("{}", { status: 200 }),
-    );
-    globalThis.fetch = fetchMock as unknown as typeof fetch;
 
     emitOnboardingFunnelStepCompleted(ONBOARDING_FUNNEL_STEPS.privacyTos, {
       userId: "user-123",
@@ -123,20 +143,11 @@ describe("onboarding funnel events", () => {
       variant: ONBOARDING_FUNNEL_VARIANTS.paredDown,
     });
 
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    const calls = fetchMock.mock.calls as Array<
-      [RequestInfo | URL, RequestInit | undefined]
-    >;
-    const firstPayload = JSON.parse(
-      calls[0]?.[1]?.body as string,
-    ) as { events: Array<Record<string, unknown>> };
-    const secondPayload = JSON.parse(
-      calls[1]?.[1]?.body as string,
-    ) as { events: Array<Record<string, unknown>> };
-    const firstEvent = firstPayload.events[0];
-    const secondEvent = secondPayload.events[0];
+    expect(ingestMock).toHaveBeenCalledTimes(2);
+    const firstEvent = ingestPayload(0).events[0];
+    const secondEvent = ingestPayload(1).events[0];
 
-    expect(calls[0]?.[0]).toBe("/v1/telemetry/ingest/");
+    expect(ingestPayload(0).device_id).toBeTruthy();
     expect(firstEvent?.session_id).toBeTruthy();
     expect(secondEvent?.session_id).toBe(firstEvent?.session_id);
     expect(secondEvent).toMatchObject({
@@ -151,11 +162,6 @@ describe("onboarding funnel events", () => {
 
   test("stamps research-onboarding steps with the research funnel version", () => {
     localStorage.setItem("device:share_analytics", "true");
-    const fetchMock = mock(
-      async (_input: RequestInfo | URL, _init?: RequestInit) =>
-        new Response("{}", { status: 200 }),
-    );
-    globalThis.fetch = fetchMock as unknown as typeof fetch;
 
     emitResearchOnboardingStepCompleted(RESEARCH_ONBOARDING_FUNNEL_STEPS.form, {
       userId: "user-123",
@@ -166,22 +172,10 @@ describe("onboarding funnel events", () => {
       { userId: "user-123", outcome: "skipped" },
     );
 
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    const calls = fetchMock.mock.calls as Array<
-      [RequestInfo | URL, RequestInit | undefined]
-    >;
-    const firstEvent = (
-      JSON.parse(calls[0]?.[1]?.body as string) as {
-        events: Array<Record<string, unknown>>;
-      }
-    ).events[0];
-    const secondEvent = (
-      JSON.parse(calls[1]?.[1]?.body as string) as {
-        events: Array<Record<string, unknown>>;
-      }
-    ).events[0];
+    expect(ingestMock).toHaveBeenCalledTimes(2);
+    const firstEvent = ingestPayload(0).events[0];
+    const secondEvent = ingestPayload(1).events[0];
 
-    expect(calls[0]?.[0]).toBe("/v1/telemetry/ingest/");
     expect(firstEvent).toMatchObject({
       type: "onboarding",
       screen: "research_form",
@@ -205,24 +199,11 @@ describe("onboarding funnel events", () => {
 
   test("emits the check-in calendar click on the research funnel", () => {
     localStorage.setItem("device:share_analytics", "true");
-    const fetchMock = mock(
-      async (_input: RequestInfo | URL, _init?: RequestInit) =>
-        new Response("{}", { status: 200 }),
-    );
-    globalThis.fetch = fetchMock as unknown as typeof fetch;
 
     emitResearchOnboardingCheckinCalendarOpened({ userId: "user-123" });
 
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    const calls = fetchMock.mock.calls as Array<
-      [RequestInfo | URL, RequestInit | undefined]
-    >;
-    expect(calls[0]?.[0]).toBe("/v1/telemetry/ingest/");
-    const event = (
-      JSON.parse(calls[0]?.[1]?.body as string) as {
-        events: Array<Record<string, unknown>>;
-      }
-    ).events[0];
+    expect(ingestMock).toHaveBeenCalledTimes(1);
+    const event = ingestPayload(0).events[0];
     expect(event).toMatchObject({
       type: "onboarding",
       step_name: "research_checkin_open",
@@ -236,33 +217,22 @@ describe("onboarding funnel events", () => {
 
   test("does not emit research telemetry until analytics sharing is opted in", () => {
     useOnboardingStore.setState({ shareAnalytics: false });
-    const fetchMock = mock(
-      async (_input: RequestInfo | URL, _init?: RequestInit) =>
-        new Response("{}", { status: 200 }),
-    );
-    globalThis.fetch = fetchMock as unknown as typeof fetch;
 
     emitResearchOnboardingStepCompleted(RESEARCH_ONBOARDING_FUNNEL_STEPS.form, {
       userId: "user-123",
     });
 
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(ingestMock).not.toHaveBeenCalled();
   });
 
   test("emits by default (opt-out) but honors an explicit analytics opt-out", () => {
-    const fetchMock = mock(
-      async (_input: RequestInfo | URL, _init?: RequestInit) =>
-        new Response("{}", { status: 200 }),
-    );
-    globalThis.fetch = fetchMock as unknown as typeof fetch;
-
     // Never-asked: no device preference on record — analytics is opt-out, so
     // the event emits.
     emitOnboardingFunnelStepCompleted(ONBOARDING_FUNNEL_STEPS.privacyTos, {
       userId: "user-123",
       variant: ONBOARDING_FUNNEL_VARIANTS.paredDown,
     });
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(ingestMock).toHaveBeenCalledTimes(1);
 
     // An explicit device opt-out stops uploads.
     localStorage.setItem("device:share_analytics", "false");
@@ -270,7 +240,7 @@ describe("onboarding funnel events", () => {
       userId: "user-123",
       variant: ONBOARDING_FUNNEL_VARIANTS.paredDown,
     });
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(ingestMock).toHaveBeenCalledTimes(1);
 
     // The in-memory store must agree: a failed opt-out write cannot leave an
     // older stored opt-in authorizing a new event.
@@ -280,6 +250,6 @@ describe("onboarding funnel events", () => {
       userId: "user-123",
       variant: ONBOARDING_FUNNEL_VARIANTS.paredDown,
     });
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(ingestMock).toHaveBeenCalledTimes(1);
   });
 });

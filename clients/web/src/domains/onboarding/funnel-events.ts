@@ -1,5 +1,6 @@
 import { readShareAnalytics } from "@/domains/onboarding/prefs";
 import { getClientId } from "@/lib/telemetry/client-identity";
+import { telemetryIngestCreate } from "@/generated/api/sdk.gen";
 import type { ResearchStep } from "@/domains/onboarding/research-onboarding-persistence";
 
 export const ONBOARDING_FUNNEL_VERSION = "onboarding_v3_2026_05";
@@ -54,7 +55,8 @@ export interface OnboardingFunnelStepDescriptor {
  * and ingest path. The backend stores step_name/funnel_version as open strings, so
  * these new values need no backend/terraform change.
  */
-export const RESEARCH_ONBOARDING_FUNNEL_VERSION = "research_onboarding_v1_2026_06";
+export const RESEARCH_ONBOARDING_FUNNEL_VERSION =
+  "research_onboarding_v1_2026_06";
 
 export const RESEARCH_ONBOARDING_FUNNEL_STEPS = {
   form: { stepName: "research_form", stepIndex: 0 },
@@ -234,18 +236,27 @@ export function emitOnboardingFunnelStepCompleted(
 
   const event = stripUndefined(buildOnboardingFunnelEvent(screen, options));
 
-  const payload = JSON.stringify({
-    device_id: getClientId(),
-    assistant_version: import.meta.env.VITE_APP_VERSION ?? "web-dev",
-    events: [event],
-  });
-
-  void fetch("/v1/telemetry/ingest/", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: payload,
+  // The generated client (not a raw fetch): its interceptors attach the
+  // session credentials the ingest endpoint authenticates — an
+  // unauthenticated POST is acknowledged with 200 but silently dropped
+  // server-side.
+  void telemetryIngestCreate({
+    body: {
+      device_id: getClientId(),
+      assistant_version: import.meta.env.VITE_APP_VERSION ?? "web-dev",
+      events: [event],
+    },
     keepalive: true,
-  }).catch(() => {});
+  })
+    .then(({ data, response }) => {
+      if (!import.meta.env.DEV) return;
+      if (!response?.ok) {
+        console.warn("onboarding funnel event rejected", response?.status);
+      } else if (data && data.persisted < data.accepted) {
+        console.warn("onboarding funnel event dropped by server", data.dropped);
+      }
+    })
+    .catch(() => {});
 }
 
 /**
@@ -262,7 +273,10 @@ export function emitOnboardingFunnelStepCompleted(
  */
 export function emitResearchOnboardingStepCompleted(
   step: ResearchOnboardingFunnelStep,
-  options: { userId?: string | null; outcome?: OnboardingFunnelStepOutcome } = {},
+  options: {
+    userId?: string | null;
+    outcome?: OnboardingFunnelStepOutcome;
+  } = {},
 ): void {
   emitOnboardingFunnelStepCompleted(step, {
     userId: options.userId,
