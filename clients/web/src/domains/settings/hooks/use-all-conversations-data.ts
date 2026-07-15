@@ -20,6 +20,7 @@ import {
   type ConversationFilter,
   filterBySearch,
   filterByState,
+  isFatalError,
   mergeConversations,
 } from "@/domains/settings/hooks/use-all-conversations-data.helpers";
 import {
@@ -86,10 +87,7 @@ export function useAllConversationsData(
 
   const loading =
     activeLoading || backgroundLoading || scheduledLoading || archivedLoading;
-  // Surface the error state only when both lists fail, matching the
-  // library view's "both sources down" gate — a single healthy list still
-  // renders useful content.
-  const error = activeError && archivedError;
+  const error = isFatalError(filter, { activeError, archivedError });
 
   const refetch = () => {
     refetchActive();

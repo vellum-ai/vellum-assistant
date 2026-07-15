@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   filterBySearch,
   filterByState,
+  isFatalError,
   mergeConversations,
 } from "@/domains/settings/hooks/use-all-conversations-data.helpers";
 import type { Conversation } from "@/types/conversation-types";
@@ -137,6 +138,101 @@ describe("filterByState", () => {
     const result = filterByState(rows, "archived");
     expect(result).toHaveLength(1);
     expect(result[0]?.conversation.conversationId).toBe("archived");
+  });
+
+  test("'archived' orders by archive time, not by last message", () => {
+    // GIVEN a stale thread archived just now, and a chatty one archived long ago
+    const archivedRows = [
+      {
+        conversation: conv("chatty-old-archive", {
+          lastMessageAt: 900,
+          archivedAt: 10,
+        }),
+        archived: true,
+      },
+      {
+        conversation: conv("stale-fresh-archive", {
+          lastMessageAt: 100,
+          archivedAt: 900,
+        }),
+        archived: true,
+      },
+    ];
+
+    // THEN the just-archived one leads, even though its last message is older
+    expect(
+      filterByState(archivedRows, "archived").map(
+        (row) => row.conversation.conversationId,
+      ),
+    ).toEqual(["stale-fresh-archive", "chatty-old-archive"]);
+  });
+
+  test("'archived' falls back to recency for rows with no archivedAt", () => {
+    // Archived rows can predate the daemon stamping `archivedAt`.
+    const legacyRows = [
+      { conversation: conv("older", { lastMessageAt: 100 }), archived: true },
+      { conversation: conv("newer", { lastMessageAt: 900 }), archived: true },
+    ];
+
+    expect(
+      filterByState(legacyRows, "archived").map(
+        (row) => row.conversation.conversationId,
+      ),
+    ).toEqual(["newer", "older"]);
+  });
+
+  test("'all' keeps the merge's recency order", () => {
+    const mixed = [
+      { conversation: conv("recent", { lastMessageAt: 900 }), archived: false },
+      {
+        conversation: conv("archived-just-now", {
+          lastMessageAt: 100,
+          archivedAt: 999,
+        }),
+        archived: true,
+      },
+    ];
+
+    expect(
+      filterByState(mixed, "all").map((row) => row.conversation.conversationId),
+    ).toEqual(["recent", "archived-just-now"]);
+  });
+});
+
+describe("isFatalError", () => {
+  test("'archived' is fatal when the archived list fails, even if active loaded", () => {
+    // Otherwise the filter renders empty and claims there are no archived
+    // conversations, with no retry.
+    expect(
+      isFatalError("archived", { activeError: false, archivedError: true }),
+    ).toBe(true);
+  });
+
+  test("'active' is fatal when the active lists fail, even if archived loaded", () => {
+    expect(
+      isFatalError("active", { activeError: true, archivedError: false }),
+    ).toBe(true);
+  });
+
+  test("a bucket ignores the other source's failure", () => {
+    expect(
+      isFatalError("archived", { activeError: true, archivedError: false }),
+    ).toBe(false);
+    expect(
+      isFatalError("active", { activeError: false, archivedError: true }),
+    ).toBe(false);
+  });
+
+  test("'all' needs both sources down", () => {
+    expect(isFatalError("all", { activeError: true, archivedError: false })).toBe(
+      false,
+    );
+    expect(isFatalError("all", { activeError: false, archivedError: true })).toBe(
+      false,
+    );
+    expect(isFatalError("all", { activeError: true, archivedError: true })).toBe(
+      true,
+    );
   });
 });
 

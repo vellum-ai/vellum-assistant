@@ -36,6 +36,18 @@ function byMostRecent(a: Conversation, b: Conversation): number {
 }
 
 /**
+ * Most-recently-archived first. The archived view is a management surface —
+ * what you just archived belongs on top, even when its last message is old.
+ * Rows the daemon never stamped fall back to recency so the order stays
+ * total and deterministic.
+ */
+function byMostRecentlyArchived(a: Conversation, b: Conversation): number {
+  const aTime = a.archivedAt ?? 0;
+  const bTime = b.archivedAt ?? 0;
+  return bTime - aTime || byMostRecent(a, b);
+}
+
+/**
  * Merge the active and archived lists into a single deduped set of rows.
  *
  * "Active" spans every non-archived source the sidebar can surface —
@@ -80,7 +92,33 @@ export function mergeConversations(
   );
 }
 
-/** Apply the All/Active/Archived filter to the merged rows. */
+/**
+ * Whether the selected bucket's source failed.
+ *
+ * Filtering a list that never loaded yields an empty one, which the view
+ * renders as "you have none" instead of offering a retry — so a bucket is
+ * fatal on its own source's failure. `all` still needs both sources down: one
+ * healthy list renders useful content there.
+ */
+export function isFatalError(
+  filter: ConversationFilter,
+  { activeError, archivedError }: { activeError: boolean; archivedError: boolean },
+): boolean {
+  if (filter === "active") {
+    return activeError;
+  }
+  if (filter === "archived") {
+    return archivedError;
+  }
+  return activeError && archivedError;
+}
+
+/**
+ * Apply the All/Active/Archived filter to the merged rows.
+ *
+ * `archived` re-sorts by archive time rather than inheriting the merge's
+ * recency order; the other buckets keep it.
+ */
 export function filterByState(
   rows: AllConversationsRow[],
   filter: ConversationFilter,
@@ -89,7 +127,9 @@ export function filterByState(
     return rows.filter((row) => !row.archived);
   }
   if (filter === "archived") {
-    return rows.filter((row) => row.archived);
+    return rows
+      .filter((row) => row.archived)
+      .sort((a, b) => byMostRecentlyArchived(a.conversation, b.conversation));
   }
   return rows;
 }
