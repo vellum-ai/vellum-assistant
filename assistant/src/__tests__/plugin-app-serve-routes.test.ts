@@ -1,4 +1,4 @@
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
@@ -167,6 +167,36 @@ describe("apps_open reports app origin", () => {
 
     expect(result.origin).toBe("workspace");
     expect(result.html).toContain("Workspace Home");
+  });
+});
+
+describe("multi-file plugin apps compile on open", () => {
+  test("apps_open renders a plugin app with no dist without writing into the plugin tree", async () => {
+    installPluginApp("acme", "board", {
+      "src/index.html":
+        `<!DOCTYPE html><html><head></head><body>` +
+        `<div id="root"></div>` +
+        `<script type="module" src="/src/main.tsx"></script></body></html>`,
+      "src/main.tsx":
+        `import { render } from "preact";\n` +
+        `render(<div>Compiled Board</div>, document.getElementById("root")!);\n`,
+    });
+    const appDir = join(getWorkspacePluginsDir(), "acme", "apps", "board");
+    // Precondition: a multi-file app (src/, no root index.html) with no dist yet.
+    expect(existsSync(join(appDir, "dist"))).toBe(false);
+
+    const handler = findRoute(APP_MGMT_ROUTES, "apps_open").handler;
+    const result = (await handler({
+      pathParams: { id: "plugins~acme~board" },
+    } as RouteHandlerArgs)) as { html: string; origin: string };
+
+    // Rendered the compiled output, not the "not compiled yet" fallback.
+    expect(result.html).toContain("Compiled Board");
+    expect(result.html).not.toContain("not been compiled");
+    expect(result.origin).toBe("plugin:acme");
+    // The daemon must not write dist/ into the read-only plugin tree — that is
+    // the monitor's job. The on-open build happened in a throwaway temp dir.
+    expect(existsSync(join(appDir, "dist"))).toBe(false);
   });
 });
 

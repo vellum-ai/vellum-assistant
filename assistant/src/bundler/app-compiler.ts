@@ -307,10 +307,11 @@ const compileSlots = new Map<string, CompileSlot>();
  * fresh compile.
  */
 export function compileApp(appDir: string): Promise<CompileResult> {
+  const distDir = join(appDir, "dist");
   const slot = compileSlots.get(appDir);
 
   if (!slot) {
-    const current = runCompile(appDir);
+    const current = runCompile(appDir, distDir);
     const onSettled = () => slotCompileSettled(appDir, current);
     current.then(onSettled, onSettled);
     compileSlots.set(appDir, { current });
@@ -328,13 +329,31 @@ export function compileApp(appDir: string): Promise<CompileResult> {
     } catch {
       // Ignore: we want to rerun regardless of the prior compile's outcome.
     }
-    return runCompile(appDir);
+    return runCompile(appDir, distDir);
   };
   const pending = rerun();
   const onSettled = () => slotCompileSettled(appDir, pending);
   pending.then(onSettled, onSettled);
   slot.pending = pending;
   return pending;
+}
+
+/**
+ * Compile a TSX app from `appDir/src/` into an arbitrary `outDir`, laid out
+ * exactly like a normal `dist/` (`outDir/main.js`, `outDir/index.html`, …).
+ *
+ * Unlike {@link compileApp}, this does not touch `appDir/dist` and is not
+ * routed through the per-`appDir` compile queue: each caller supplies its own
+ * private `outDir`, so builds never share a mutable target and cannot race.
+ * Used to render a plugin-bundled app on open without writing into the plugin
+ * tree (which the daemon treats as read-only) or racing the monitor process,
+ * which is the sole writer of a plugin app's real `dist/`.
+ */
+export function compileAppToDir(
+  appDir: string,
+  outDir: string,
+): Promise<CompileResult> {
+  return runCompile(appDir, outDir);
 }
 
 function slotCompileSettled(
@@ -358,10 +377,12 @@ function slotCompileSettled(
   }
 }
 
-async function runCompile(appDir: string): Promise<CompileResult> {
+async function runCompile(
+  appDir: string,
+  distDir: string,
+): Promise<CompileResult> {
   const start = performance.now();
   const srcDir = join(appDir, "src");
-  const distDir = join(appDir, "dist");
   const entryPoint = join(srcDir, "main.tsx");
 
   // Clear stale dist/ output so removed assets (e.g. CSS) don't persist

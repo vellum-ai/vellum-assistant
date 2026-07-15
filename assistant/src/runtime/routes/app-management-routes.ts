@@ -6,8 +6,10 @@ import { randomBytes } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
+  mkdtempSync,
   readdirSync,
   readFileSync,
+  rmSync,
   statSync,
   writeFileSync,
 } from "node:fs";
@@ -19,6 +21,7 @@ import { z } from "zod";
 
 import {
   type AppDefinition,
+  type AppOrigin,
   createApp,
   createAppRecord,
   deleteApp,
@@ -38,7 +41,7 @@ import {
 } from "../../apps/app-store.js";
 import { createSharedAppLink } from "../../apps/shared-app-links-store.js";
 import { packageApp } from "../../bundler/app-bundler.js";
-import { compileApp } from "../../bundler/app-compiler.js";
+import { compileApp, compileAppToDir } from "../../bundler/app-compiler.js";
 import { scanBundle } from "../../bundler/bundle-scanner.js";
 import type { SignatureJson } from "../../bundler/bundle-signer.js";
 import { verifyBundleSignature } from "../../bundler/signature-verifier.js";
@@ -651,6 +654,51 @@ function handleMutateAppData({ pathParams, body }: RouteHandlerArgs) {
   return { success: true, result };
 }
 
+/**
+ * Wire-format provenance tag for an app, matching what `apps_list` reports:
+ * `"workspace"` for user-created apps, `"plugin:<name>"` for plugin-bundled
+ * ones. Clients read it to hide the mutation actions (delete, share, deploy)
+ * the daemon rejects for plugin apps.
+ */
+function appOriginWire(origin: AppOrigin): string {
+  return origin.kind === "plugin" ? `plugin:${origin.pluginName}` : "workspace";
+}
+
+/**
+ * Compile a multi-file plugin app on open, without touching its `dist/`.
+ *
+ * A plugin app's real `dist/` is owned by the monitor process
+ * (`plugin-source-watch`), which builds it on install and on every source
+ * change. But a just-installed app can be opened before the monitor's first
+ * pass lands, which would otherwise render the "not compiled yet" fallback.
+ * Building in place here would both write into the read-only plugin tree and
+ * race the monitor's `rm -rf dist` + write. Instead we compile into a private
+ * temp dir and return the self-contained HTML from there, leaving `dist/`
+ * ownership solely with the monitor. Returns `null` if the build fails, so the
+ * caller falls back to the standard fallback HTML.
+ */
+async function compilePluginAppHtmlEphemeral(
+  appId: string,
+  sourceDir: string,
+): Promise<string | null> {
+  const tmpRoot = mkdtempSync(join(tmpdir(), "vellum-plugin-app-"));
+  try {
+    const result = await compileAppToDir(sourceDir, join(tmpRoot, "dist"));
+    if (!result.ok) {
+      log.warn(
+        { appId, errors: result.errors },
+        "Ephemeral compile failed on plugin app open",
+      );
+      return null;
+    }
+    // resolveEffectiveAppHtmlFromDir reads `<tmpRoot>/dist/index.html` and
+    // inlines its JS/CSS, yielding a self-contained page.
+    return resolveEffectiveAppHtmlFromDir(tmpRoot, 2);
+  } finally {
+    rmSync(tmpRoot, { recursive: true, force: true });
+  }
+}
+
 async function handleOpenApp({ pathParams }: RouteHandlerArgs) {
   const appId = pathParams?.id as string;
   const source = resolveAppSource(appId);
@@ -658,20 +706,38 @@ async function handleOpenApp({ pathParams }: RouteHandlerArgs) {
     throw new NotFoundError(`App not found: ${appId}`);
   }
 
-  // Multifile workspace apps auto-compile on open when their dist is missing.
-  // Plugin apps are not compiled here — a compile cache for plugin sources is a
-  // follow-up — so a multifile plugin app without a prebuilt dist/ renders its
-  // fallback message.
-  if (source.formatVersion === 2 && source.origin.kind === "workspace") {
-    const distIndex = join(source.sourceDir, "dist", "index.html");
-    if (!existsSync(distIndex)) {
-      const result = await compileApp(source.sourceDir);
-      if (!result.ok) {
+  const result = {
+    appId: source.id,
+    dirName: source.dirName,
+    name: source.name,
+    origin: appOriginWire(source.origin),
+  };
+
+  // Multi-file apps auto-compile on open when their dist/ is missing so a
+  // freshly installed app renders immediately instead of the "not compiled
+  // yet" fallback.
+  if (
+    source.formatVersion === 2 &&
+    !existsSync(join(source.sourceDir, "dist", "index.html"))
+  ) {
+    if (source.origin.kind === "workspace") {
+      // Workspace apps own their dist/ and are only compiled in this (daemon)
+      // process, so building in place is safe.
+      const compiled = await compileApp(source.sourceDir);
+      if (!compiled.ok) {
         log.warn(
-          { appId, errors: result.errors },
+          { appId, errors: compiled.errors },
           "Auto-compile failed on app open",
         );
       }
+    } else {
+      // Plugin apps: compile off to the side (see helper) rather than write
+      // into the plugin tree or race the monitor.
+      const html = await compilePluginAppHtmlEphemeral(appId, source.sourceDir);
+      if (html !== null) {
+        return { ...result, html };
+      }
+      // Build failed — fall through to the standard fallback HTML.
     }
   }
 
@@ -679,19 +745,7 @@ async function handleOpenApp({ pathParams }: RouteHandlerArgs) {
     source.sourceDir,
     source.formatVersion,
   );
-  return {
-    appId: source.id,
-    dirName: source.dirName,
-    name: source.name,
-    html,
-    // Same "workspace" / "plugin:<name>" tagging as apps_list, so an opened
-    // app knows its provenance — clients hide the mutation actions (delete,
-    // share, deploy) that the daemon rejects for plugin-bundled apps.
-    origin:
-      source.origin.kind === "plugin"
-        ? `plugin:${source.origin.pluginName}`
-        : "workspace",
-  };
+  return { ...result, html };
 }
 
 /**
