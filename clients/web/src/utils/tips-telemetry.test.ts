@@ -72,8 +72,11 @@ describe("emitTipEvent", () => {
     emitTipEvent("voice-mode", "learn_more", "control");
     emitTipEvent("voice-mode", "dismiss", "control");
     emitTipEvent("voice-mode", "dont_show_again", "control");
+    // Reserved action-tip vocabulary, unused by v1 info tips.
+    emitTipEvent("voice-mode", "click", "control");
+    emitTipEvent("voice-mode", "completion", "control");
 
-    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(fetchMock).toHaveBeenCalledTimes(6);
     expect(eventFromCall(fetchMock, 0)).toMatchObject({
       step_name: "impression",
       step_index: 0,
@@ -89,6 +92,14 @@ describe("emitTipEvent", () => {
     expect(eventFromCall(fetchMock, 3)).toMatchObject({
       step_name: "dont_show_again",
       step_index: 3,
+    });
+    expect(eventFromCall(fetchMock, 4)).toMatchObject({
+      step_name: "click",
+      step_index: 4,
+    });
+    expect(eventFromCall(fetchMock, 5)).toMatchObject({
+      step_name: "completion",
+      step_index: 5,
     });
   });
 

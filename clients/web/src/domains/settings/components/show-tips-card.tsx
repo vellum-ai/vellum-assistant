@@ -1,14 +1,16 @@
 import { DetailCard } from "@/components/detail-card";
-import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
+import {
+  isProactiveTipsOn,
+  useProactiveTipsVariant,
+} from "@/hooks/use-proactive-tips-flag";
 import { tipsEnabledStorage } from "@/utils/tips-storage";
 import { Toggle } from "@vellumai/design-library/components/toggle";
 
 export function ShowTipsCard() {
-  const proactiveTips =
-    useClientFeatureFlagStore.use.stringFlags().proactiveTips;
+  const variant = useProactiveTipsVariant();
   const enabled = tipsEnabledStorage.useValue();
 
-  if (proactiveTips !== "on") {
+  if (!isProactiveTipsOn(variant)) {
     return null;
   }
 

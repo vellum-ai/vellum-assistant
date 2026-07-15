@@ -6,10 +6,7 @@
  * `step_name` = the action taken.
  */
 
-import {
-  emitOnboardingFunnelStepCompleted,
-  type OnboardingFunnelVariant,
-} from "@/domains/onboarding/funnel-events";
+import { emitOnboardingFunnelStepCompleted } from "@/domains/onboarding/funnel-events";
 
 export const TIPS_FUNNEL_VERSION = "proactive-tips-v1";
 
@@ -17,13 +14,18 @@ export type TipTelemetryAction =
   | "impression"
   | "dismiss"
   | "learn_more"
-  | "dont_show_again";
+  | "dont_show_again"
+  // Reserved for action tips, so funnels stay comparable across phases.
+  | "click"
+  | "completion";
 
 const ACTION_STEP_INDICES: Record<TipTelemetryAction, number> = {
   impression: 0,
   learn_more: 1,
   dismiss: 2,
   dont_show_again: 3,
+  click: 4,
+  completion: 5,
 };
 
 export function emitTipEvent(
@@ -36,9 +38,7 @@ export function emitTipEvent(
     {
       funnelVersion: TIPS_FUNNEL_VERSION,
       screen: tipId,
-      // The ingest stores ab_variant as an open string; the union type on the
-      // base emitter documents the pre-chat A/B arms.
-      variant: variant as OnboardingFunnelVariant,
+      variant,
     },
   );
 }
