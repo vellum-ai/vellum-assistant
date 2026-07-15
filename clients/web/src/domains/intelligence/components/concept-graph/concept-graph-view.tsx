@@ -20,6 +20,7 @@ import { ConceptGraphIntroBanner } from "./concept-graph-intro-banner";
 import { ConceptGraphLegend } from "./concept-graph-legend";
 import { CLUSTER_PALETTE, EDGE_LEARNED_COLOR, NODE_KIND_COLORS } from "./constants";
 import { detectClusters } from "./detect-clusters";
+import { RecencyLens, type RecencyWindow } from "./recency-lens";
 import type { ConceptNodeKind, GraphLayoutNode } from "./types";
 import { useGraphIntroDismissed } from "./use-graph-intro-dismissed";
 
@@ -65,6 +66,7 @@ interface Projected {
   sy: number;
   sr: number;
   depth: number; // 0 (far) .. 1 (near)
+  updatedAtMs?: number; // for recency hit-test skipping; undefined = stale/older
 }
 
 interface Colors {
@@ -229,6 +231,24 @@ export function ConceptGraphView({
     setSearch("");
   }, [assistantId]);
 
+  // Recency time-lens: "All · Month · Week" narrows the graph to concepts
+  // updated within the window — older ones ghost like non-search-matches, so
+  // "what did it learn recently?" pops. The window (in ms, or null for "all")
+  // lives in a ref the 60fps loop reads (so segment clicks don't re-run it), and
+  // `dirty` is bumped whenever it changes so reduced-motion redraws.
+  const [recency, setRecency] = useState<RecencyWindow>("all");
+  const recencyRef = useRef<{ windowMs: number | null }>({ windowMs: null });
+  useEffect(() => {
+    recencyRef.current.windowMs =
+      recency === "week" ? 7 * DAY_MS : recency === "month" ? 30 * DAY_MS : null;
+    view.current.dirty = true;
+  }, [recency]);
+  // Reset the window on assistant switch (mirrors the search reset above), so a
+  // stale window doesn't ghost the new assistant's freshly-loaded concepts.
+  useEffect(() => {
+    setRecency("all");
+  }, [assistantId]);
+
   const labelFor = useCallback(
     (id: string | null): string | null => {
       if (!id) {return null;}
@@ -340,6 +360,13 @@ export function ConceptGraphView({
       const isMatch = (id: string) =>
         !searchActive || (filter.matches?.has(id) ?? false);
 
+      // Recency lens: when a window is set, concepts not updated within it ghost
+      // (like non-search-matches). A missing timestamp counts as stale/older.
+      const recencyWindowMs = recencyRef.current.windowMs;
+      const isRecencyGhost = (n: GraphLayoutNode) =>
+        recencyWindowMs != null &&
+        (!n.updatedAtMs || nowMs - n.updatedAtMs > recencyWindowMs);
+
       // Density fog: fade the resting learned-edge web as the corpus grows.
       const learnedFog =
         nodes.length <= FOG_FULL_BELOW
@@ -390,7 +417,11 @@ export function ConceptGraphView({
         const b = posById.get(e.toId);
         if (!a || !b) {continue;}
         const learned = e.kind === "learned";
-        const ghost = searchActive && (!isMatch(e.fromId) || !isMatch(e.toId));
+        // An edge ghosts if either endpoint is ghosted by search or recency.
+        const ghost =
+          (searchActive && (!isMatch(e.fromId) || !isMatch(e.toId))) ||
+          isRecencyGhost(a.node) ||
+          isRecencyGhost(b.node);
         const incident = activeId != null && (e.fromId === activeId || e.toId === activeId);
         const depth = (a.depth + b.depth) / 2;
         // Learned edges fade with density in the resting web; authored links
@@ -427,7 +458,8 @@ export function ConceptGraphView({
           node.kind === "concept"
             ? CLUSTER_PALETTE[(nodeClusters.get(node.id) ?? 0) % CLUSTER_PALETTE.length]
             : NODE_KIND_COLORS[node.kind];
-        const ghost = searchActive && !isMatch(node.id);
+        const searchGhost = searchActive && !isMatch(node.id);
+        const ghost = searchGhost || isRecencyGhost(node);
         const lit = !ghost && isLit(node.id);
         const isActive = node.id === activeId;
         const depthA = DEPTH_ALPHA_MIN + (1 - DEPTH_ALPHA_MIN) * p.depth;
@@ -475,7 +507,8 @@ export function ConceptGraphView({
         // When nothing is focused, only label front-facing hubs (depth-gated) so
         // the dense middle of the mass doesn't turn into unreadable label soup.
         // While searching, label the matches instead (that's what you're after).
-        if (searchActive && !isMatch(node.id)) {continue;}
+        // Ghosted nodes (search or recency) never get labels.
+        if ((searchActive && !isMatch(node.id)) || isRecencyGhost(node)) {continue;}
         const showLabel = searchActive
           ? p.depth > 0.3
           : activeId != null
@@ -495,6 +528,7 @@ export function ConceptGraphView({
         sy: p.sy,
         sr: p.sr,
         depth: p.depth,
+        updatedAtMs: p.node.updatedAtMs,
       }));
 
       raf = requestAnimationFrame(render);
@@ -507,15 +541,24 @@ export function ConceptGraphView({
     };
   }, [ready, layout, adjacency, massRadius, clusters]);
 
-  // Nearest node under a screen point; nearest-in-front wins. While a search is
-  // active, ghosted (non-matching) nodes are skipped so hover/click land on a
-  // result, not a faded background node.
+  // Nearest node under a screen point; nearest-in-front wins. Ghosted nodes are
+  // skipped so hover/click land on a live node, not a faded background one: both
+  // search non-matches and, when a recency window is set, concepts older than it
+  // (a missing timestamp counts as stale). Mirrors the render-loop ghosting.
   const hitTest = useCallback((x: number, y: number): string | null => {
     const filter = filterRef.current;
+    const recencyWindowMs = recencyRef.current.windowMs;
+    const now = Date.now();
     let best: string | null = null;
     let bestDepth = -1;
     for (const p of projectedRef.current) {
       if (filter.active && !(filter.matches?.has(p.id) ?? false)) {continue;}
+      if (
+        recencyWindowMs != null &&
+        (!p.updatedAtMs || now - p.updatedAtMs > recencyWindowMs)
+      ) {
+        continue;
+      }
       const dx = x - p.sx;
       const dy = y - p.sy;
       if (dx * dx + dy * dy <= (p.sr + 5) * (p.sr + 5) && p.depth > bestDepth) {
@@ -726,6 +769,16 @@ export function ConceptGraphView({
                 </>
               ) : null}
             </div>
+          </div>
+        ) : null}
+
+        {/* Recency time-lens, tucked just under the search pill. Kept visible
+            while a non-"all" window is active even if the graph shrank below the
+            threshold (e.g. a refetch), so an active window is always resettable
+            — mirrors the search box's own guard. */}
+        {layout.nodes.length > SEARCH_MIN_NODES || recency !== "all" ? (
+          <div className={`absolute top-14 z-10 ${onToggleFullscreen ? "left-16" : "left-4"}`}>
+            <RecencyLens value={recency} onChange={setRecency} />
           </div>
         ) : null}
 
