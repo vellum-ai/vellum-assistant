@@ -85,6 +85,57 @@ describe("AcpSessionManager — latestUsage tracking", () => {
     });
   });
 
+  test("records the reported model onto latestUsage from a usage_update", async () => {
+    handlerFactories.length = 0;
+    const manager = new AcpSessionManager(5);
+
+    const { acpSessionId } = await manager.spawn(
+      "agent-usage-model",
+      { command: "echo", args: ["hi"] },
+      "task",
+      "/tmp",
+      "conv-parent",
+      noopSend,
+    );
+
+    const handler = handlerFactories[handlerFactories.length - 1]?.(undefined);
+
+    // A config_option_update reports the current model; the subsequent
+    // usage gauge should carry it onto latestUsage.
+    await handler?.sessionUpdate({
+      sessionId: acpSessionId,
+      update: {
+        sessionUpdate: "config_option_update",
+        configOptions: [
+          {
+            type: "select",
+            category: "model",
+            id: "model",
+            name: "Model",
+            currentValue: "opus",
+            options: [
+              { value: "opus", name: "Claude Opus" },
+              { value: "sonnet", name: "Claude Sonnet" },
+            ],
+          },
+        ],
+      },
+    });
+
+    await handler?.sessionUpdate({
+      sessionId: acpSessionId,
+      update: {
+        sessionUpdate: "usage_update",
+        used: 10,
+        size: 100,
+      },
+    });
+
+    const state = manager.getStatus(acpSessionId) as AcpSessionState;
+    expect(state.latestUsage?.model).toBe("Claude Opus");
+    expect(state.latestUsage?.usedTokens).toBe(10);
+  });
+
   test("latestUsage omits cost fields when usage_update carries no cost", async () => {
     handlerFactories.length = 0;
     const manager = new AcpSessionManager(5);

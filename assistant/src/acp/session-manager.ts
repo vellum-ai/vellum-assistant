@@ -302,6 +302,11 @@ export class AcpSessionManager {
             costCurrency: msg.costCurrency,
             inputTokens: msg.inputTokens ?? state.latestUsage?.inputTokens,
             outputTokens: msg.outputTokens ?? state.latestUsage?.outputTokens,
+            model: msg.model ?? state.latestUsage?.model,
+            cacheReadTokens:
+              msg.cacheReadTokens ?? state.latestUsage?.cacheReadTokens,
+            cacheWriteTokens:
+              msg.cacheWriteTokens ?? state.latestUsage?.cacheWriteTokens,
           };
         }
       }
@@ -1010,6 +1015,9 @@ export class AcpSessionManager {
           const usage = response.usage;
           if (usage) {
             const prior = current.state.latestUsage;
+            const model = current.clientHandler.model ?? prior?.model;
+            const cacheReadTokens = usage.cachedReadTokens ?? undefined;
+            const cacheWriteTokens = usage.cachedWriteTokens ?? undefined;
             current.state.latestUsage = {
               usedTokens: prior?.usedTokens ?? 0,
               contextSize: prior?.contextSize ?? 0,
@@ -1017,6 +1025,9 @@ export class AcpSessionManager {
               costCurrency: prior?.costCurrency,
               inputTokens: usage.inputTokens,
               outputTokens: usage.outputTokens,
+              model,
+              cacheReadTokens,
+              cacheWriteTokens,
             };
             current.sendToVellum({
               type: "acp_session_usage",
@@ -1027,6 +1038,9 @@ export class AcpSessionManager {
               costCurrency: current.state.latestUsage.costCurrency,
               inputTokens: usage.inputTokens,
               outputTokens: usage.outputTokens,
+              model,
+              cacheReadTokens,
+              cacheWriteTokens,
             });
           }
           log.info(
