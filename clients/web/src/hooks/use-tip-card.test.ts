@@ -22,7 +22,9 @@ const { useClientFeatureFlagStore } = await import(
   "@/stores/client-feature-flag-store"
 );
 const { TIPS_CATALOG } = await import("@/utils/tips-catalog");
-const { TIPS_MIN_ACCOUNT_AGE_MS } = await import("@/utils/tips-selection");
+const { TIP_ROTATION_INTERVAL_MS, TIPS_MIN_ACCOUNT_AGE_MS } = await import(
+  "@/utils/tips-selection"
+);
 const {
   recordTipDismissed,
   tipRecordsStorage,
@@ -31,6 +33,9 @@ const {
 } = await import("@/utils/tips-storage");
 
 const FIRST_TIP_ID = TIPS_CATALOG[0].id;
+// Successor on web once the first tip is dismissed: next tip that passes
+// gates in this environment (no Electron, no flags, no plugins surface).
+const SECOND_UNGATED_TIP_ID = TIPS_CATALOG.filter((tip) => !tip.gates)[1].id;
 
 function setFlag(value: "on" | "off") {
   useClientFeatureFlagStore.getState().setStringFlags({ proactiveTips: value });
@@ -150,6 +155,47 @@ describe("useTipCard selection and impressions", () => {
       useAssistantFeatureFlagStore.getState().setFlags({ voiceMode: true });
     });
     expect(result.current.tip?.id).toBe("voice-mode");
+  });
+});
+
+describe("useTipCard rotation", () => {
+  test("shows a dismissed tip's successor when the window elapses while mounted", async () => {
+    openAllGates();
+    const { result } = renderHook(() => useTipCard());
+    expect(result.current.tip?.id).toBe(FIRST_TIP_ID);
+
+    act(() => {
+      result.current.onDismiss();
+    });
+    expect(result.current.tip).toBeNull();
+
+    // Rewind the stamped record so the rotation boundary (lastShownAt +
+    // window) lands ~40ms of real time from now; the hook reschedules its
+    // boundary timer off the records change. Bun's setSystemTime doesn't
+    // advance setTimeout, so the test rides a short real timer instead.
+    act(() => {
+      const record = tipRecordsStorage.load()[FIRST_TIP_ID];
+      tipRecordsStorage.save({
+        [FIRST_TIP_ID]: {
+          ...record,
+          shownCount: record?.shownCount ?? 1,
+          lastShownAt: Date.now() - TIP_ROTATION_INTERVAL_MS + 40,
+        },
+      });
+    });
+    // Still within the window: the slot stays blank until the boundary.
+    expect(result.current.tip).toBeNull();
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 120));
+    });
+
+    // No remount: the boundary timer refreshed the clock and the successor
+    // took the slot (and stamped its own impression).
+    expect(result.current.tip?.id).toBe(SECOND_UNGATED_TIP_ID);
+    expect(
+      tipRecordsStorage.load()[SECOND_UNGATED_TIP_ID]?.lastShownAt,
+    ).toBeGreaterThan(0);
   });
 });
 

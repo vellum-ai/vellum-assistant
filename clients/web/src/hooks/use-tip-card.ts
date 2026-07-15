@@ -86,10 +86,10 @@ export function useTipCard(): UseTipCardResult {
 
   const variant = clientFlagState.stringFlags.proactiveTips ?? "off";
 
-  // Mount-time clock snapshot: reading Date.now() during render is impure
-  // (react-hooks/purity). Selection precision within a mount doesn't matter
-  // for a 24h rotation window; the effects below read the live clock.
-  const [now] = useState(() => Date.now());
+  // Clock state for selection: reading Date.now() during render is impure
+  // (react-hooks/purity), so renders see a snapshot that the rotation-boundary
+  // timer below refreshes whenever the selection outcome can change.
+  const [now, setNow] = useState(() => Date.now());
   const [ageEligible, setAgeEligible] = useState(false);
 
   useEffect(() => {
@@ -113,6 +113,35 @@ export function useTipCard(): UseTipCardResult {
     const timer = setTimeout(() => setAgeEligible(true), remaining);
     return () => clearTimeout(timer);
   }, [firstSeenAt]);
+
+  // Refresh the clock when a rotation window elapses mid-session, so a pinned
+  // tip rotates (or a dismissed tip's successor appears) without a remount.
+  // Selection keys rotation on lastShownAt only, so the next boundary is the
+  // earliest future lastShownAt + window. `now` is a dependency so an
+  // early-firing timer reschedules itself for the remaining delay.
+  useEffect(() => {
+    let nextBoundary = Infinity;
+    for (const record of Object.values(records)) {
+      if (record.lastShownAt === undefined) {
+        continue;
+      }
+      const boundary = record.lastShownAt + TIP_ROTATION_INTERVAL_MS;
+      if (boundary > now && boundary < nextBoundary) {
+        nextBoundary = boundary;
+      }
+    }
+    if (nextBoundary === Infinity) {
+      return;
+    }
+    // Clamp: a skewed lastShownAt could push the delay past setTimeout's
+    // ~24.8-day ceiling; an early fire simply reschedules.
+    const delay = Math.min(
+      Math.max(nextBoundary - Date.now(), 0),
+      TIP_ROTATION_INTERVAL_MS,
+    );
+    const timer = setTimeout(() => setNow(Date.now()), delay);
+    return () => clearTimeout(timer);
+  }, [records, now]);
 
   const gatesOpen =
     variant === "on" && tipsEnabled && !bannerVisible && ageEligible;
