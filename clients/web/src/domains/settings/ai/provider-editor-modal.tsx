@@ -232,17 +232,20 @@ export function ProviderEditorContent({
             : null,
         }),
       };
-      const { data: updated, response: updateRes } =
-        await inferenceProviderconnectionsByNamePatch({
-          path: {
-            assistant_id: assistantId,
-            name: connection?.name ?? name.trim(),
-          },
-          body: input,
-        });
+      const {
+        data: updated,
+        error: updateErr,
+        response: updateRes,
+      } = await inferenceProviderconnectionsByNamePatch({
+        path: {
+          assistant_id: assistantId,
+          name: connection?.name ?? name.trim(),
+        },
+        body: input,
+      });
       if (!updateRes?.ok) {
         setError(
-          (await validationErrorMessage(updateRes)) ??
+          validationErrorMessage(updateRes?.status, updateErr) ??
             connectionSaveErrorMessage(updateRes?.status),
         );
         return;

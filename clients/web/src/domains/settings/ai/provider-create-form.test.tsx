@@ -75,11 +75,10 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
     createConnectionCalls.push(opts);
     return Promise.resolve({
       data: createResponseOk ? createdConnection : undefined,
-      response: {
-        ok: createResponseOk,
-        status: createResponseStatus,
-        json: () => Promise.resolve(createResponseJson),
-      },
+      // Mirrors the generated client: the error body arrives pre-parsed on
+      // `error`; the Response body is consumed and cannot be re-read.
+      error: createResponseOk ? undefined : createResponseJson,
+      response: { ok: createResponseOk, status: createResponseStatus },
     });
   },
 }));

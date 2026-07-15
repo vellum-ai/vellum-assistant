@@ -254,14 +254,17 @@ export function ProviderCreateForm({
             : null,
         }),
       };
-      const { data: created, response: createRes } =
-        await inferenceProviderconnectionsPost({
-          path: { assistant_id: assistantId },
-          body: input,
-        });
+      const {
+        data: created,
+        error: createErr,
+        response: createRes,
+      } = await inferenceProviderconnectionsPost({
+        path: { assistant_id: assistantId },
+        body: input,
+      });
       if (!createRes?.ok) {
         setError(
-          (await validationErrorMessage(createRes)) ??
+          validationErrorMessage(createRes?.status, createErr) ??
             connectionSaveErrorMessage(createRes?.status),
         );
         return;

@@ -65,27 +65,24 @@ export function connectionSaveErrorMessage(status: number | undefined): string {
 
 /**
  * Extract the daemon's error-envelope message for 400 validation responses,
- * which are field-specific and actionable ("Invalid base_url: …"). Other
- * statuses intentionally fall back to the generic status-mapped copy so
- * internal identifiers never leak into the provider-first UI.
+ * which are field-specific and actionable ("Invalid base_url: …"). Reads the
+ * generated SDK's already-parsed `error` field — the client consumes the
+ * response body, so re-reading `response.json()` would throw. Other statuses
+ * intentionally fall back to the generic status-mapped copy so internal
+ * identifiers never leak into the provider-first UI.
  */
-export async function validationErrorMessage(
-  response: { status?: number; json: () => Promise<unknown> } | undefined,
-): Promise<string | undefined> {
-  if (!response || response.status !== 400) {
+export function validationErrorMessage(
+  status: number | undefined,
+  sdkError: unknown,
+): string | undefined {
+  if (status !== 400) {
     return undefined;
   }
-  try {
-    const body = (await response.json()) as {
-      error?: { message?: unknown };
-    } | null;
-    const message = body?.error?.message;
-    return typeof message === "string" && message.length > 0
-      ? message
-      : undefined;
-  } catch {
-    return undefined;
-  }
+  const inner = (sdkError as { error?: { message?: unknown } } | null)?.error;
+  const message = inner?.message;
+  return typeof message === "string" && message.length > 0
+    ? message
+    : undefined;
 }
 
 export function providerConnectionDisplayName(
