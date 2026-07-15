@@ -32,6 +32,10 @@ const { ACTIVATION_LOGS_RELOCATION } =
   await import("../../../../persistence/migrations/336-move-memory-v2-activation-logs-to-memory-db.js");
 const { RECALL_LOGS_RELOCATION } =
   await import("../../../../persistence/migrations/337-move-memory-recall-logs-to-memory-db.js");
+const { MEMORY_V3_SELECTIONS_RELOCATION } =
+  await import("../../../../persistence/migrations/338-move-memory-v3-selections-to-memory-db.js");
+const { ACTIVATION_SESSIONS_RELOCATION } =
+  await import("../../../../persistence/migrations/339-move-activation-sessions-to-memory-db.js");
 
 await initializeDb();
 
@@ -178,6 +182,162 @@ describe("memory_v2_injection_events drain", () => {
     expect(kept).toEqual([
       { id: 1, slug: "fresh-a" },
       { id: 2, slug: "fresh-b" },
+    ]);
+  });
+});
+
+describe("memory_v3_selections drain", () => {
+  test("copies every row (full copy) and drops staging", async () => {
+    const sqlite = getSqlite();
+    const memory = getMemorySqlite()!;
+
+    // Clean slate: empty live table, fresh populated staging table with the
+    // full post-283 column set.
+    memory.exec(`DELETE FROM memory_v3_selections`);
+    sqlite.exec(`DROP TABLE IF EXISTS main."memory_v3_selections__relocating"`);
+    sqlite.exec(/*sql*/ `
+      CREATE TABLE main."memory_v3_selections__relocating" (
+        conversation_id TEXT NOT NULL,
+        turn INTEGER NOT NULL,
+        slug TEXT NOT NULL,
+        source TEXT NOT NULL,
+        pinned INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL,
+        message_id TEXT,
+        section_ordinal INTEGER,
+        section_title TEXT,
+        PRIMARY KEY (conversation_id, turn, slug)
+      )
+    `);
+
+    const insert = sqlite.prepare(
+      `INSERT INTO main."memory_v3_selections__relocating"
+         (conversation_id, turn, slug, source, pinned, created_at,
+          message_id, section_ordinal, section_title)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    );
+    insert.run("conv-1", 1, "page-a", "needle", 0, 1_000, "msg-1", 2, "Head");
+    insert.run("conv-1", 2, "page-b", "core", 1, 2_000, null, null, null);
+
+    await drainStagedTable(sqlite, MEMORY_V3_SELECTIONS_RELOCATION);
+
+    expect(existsInMain("memory_v3_selections__relocating")).toBe(false);
+
+    // Both rows landed intact, secondary attributes included.
+    const kept = memory
+      .query(
+        `SELECT conversation_id, turn, slug, source, pinned, created_at,
+                message_id, section_ordinal, section_title
+           FROM memory_v3_selections WHERE conversation_id = 'conv-1'
+           ORDER BY turn`,
+      )
+      .all();
+    expect(kept).toEqual([
+      {
+        conversation_id: "conv-1",
+        turn: 1,
+        slug: "page-a",
+        source: "needle",
+        pinned: 0,
+        created_at: 1_000,
+        message_id: "msg-1",
+        section_ordinal: 2,
+        section_title: "Head",
+      },
+      {
+        conversation_id: "conv-1",
+        turn: 2,
+        slug: "page-b",
+        source: "core",
+        pinned: 1,
+        created_at: 2_000,
+        message_id: null,
+        section_ordinal: null,
+        section_title: null,
+      },
+    ]);
+  });
+
+  test("a pre-283 legacy source NULL-fills the missing columns", async () => {
+    const sqlite = getSqlite();
+    const memory = getMemorySqlite()!;
+
+    // Staging table shaped like migration 268's original schema — no
+    // message_id / section_ordinal / section_title columns.
+    memory.exec(`DELETE FROM memory_v3_selections`);
+    sqlite.exec(`DROP TABLE IF EXISTS main."memory_v3_selections__relocating"`);
+    sqlite.exec(/*sql*/ `
+      CREATE TABLE main."memory_v3_selections__relocating" (
+        conversation_id TEXT NOT NULL,
+        turn INTEGER NOT NULL,
+        slug TEXT NOT NULL,
+        source TEXT NOT NULL,
+        pinned INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL,
+        PRIMARY KEY (conversation_id, turn, slug)
+      )
+    `);
+    sqlite
+      .prepare(
+        `INSERT INTO main."memory_v3_selections__relocating"
+           (conversation_id, turn, slug, source, pinned, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+      .run("conv-legacy", 7, "page-old", "needle", 0, 5_000);
+
+    await drainStagedTable(sqlite, MEMORY_V3_SELECTIONS_RELOCATION);
+
+    expect(existsInMain("memory_v3_selections__relocating")).toBe(false);
+
+    const row = memory
+      .query(
+        `SELECT slug, created_at, message_id, section_ordinal, section_title
+           FROM memory_v3_selections WHERE conversation_id = 'conv-legacy'`,
+      )
+      .get();
+    expect(row).toEqual({
+      slug: "page-old",
+      created_at: 5_000,
+      message_id: null,
+      section_ordinal: null,
+      section_title: null,
+    });
+  });
+});
+
+describe("activation_sessions drain", () => {
+  test("copies every row and drops staging", async () => {
+    const sqlite = getSqlite();
+    const memory = getMemorySqlite()!;
+
+    memory.exec(`DELETE FROM activation_sessions`);
+    sqlite.exec(`DROP TABLE IF EXISTS main."activation_sessions__relocating"`);
+    sqlite.exec(/*sql*/ `
+      CREATE TABLE main."activation_sessions__relocating" (
+        conversation_id TEXT PRIMARY KEY,
+        created_at INTEGER NOT NULL
+      )
+    `);
+    const insert = sqlite.prepare(
+      `INSERT INTO main."activation_sessions__relocating"
+         (conversation_id, created_at) VALUES (?, ?)`,
+    );
+    insert.run("conv-a", 1_000);
+    insert.run("conv-b", 2_000);
+
+    await drainStagedTable(sqlite, ACTIVATION_SESSIONS_RELOCATION);
+
+    expect(existsInMain("activation_sessions__relocating")).toBe(false);
+
+    const kept = memory
+      .query(
+        `SELECT conversation_id, created_at FROM activation_sessions
+           ORDER BY conversation_id`,
+      )
+      .all();
+    expect(kept).toEqual([
+      { conversation_id: "conv-a", created_at: 1_000 },
+      { conversation_id: "conv-b", created_at: 2_000 },
     ]);
   });
 });

@@ -30,9 +30,9 @@ import {
 
 import { getConfig } from "../../../../config/loader.js";
 import type { AssistantConfig } from "../../../../config/schema.js";
-import { getDb, getSqliteFrom } from "../../../../persistence/db-connection.js";
 import { stripCommentLines } from "../host-utils.js";
 import { getLogger } from "../logging.js";
+import { memorySqliteOrNull } from "../memory-db.js";
 import { getWorkspaceDir, getWorkspacePromptPath } from "../paths.js";
 import { getPageIndex } from "../v2/page-index.js";
 import { readPage, renderPageContent } from "../v2/page-store.js";
@@ -229,15 +229,12 @@ async function initLanes(config: AssistantConfig): Promise<ShadowLanes> {
   const coreSlugs = loadCoreSet(getWorkspaceDir()).filter((slug) =>
     sectionIndex.byArticle.has(slug),
   );
-  const hotSlugs = computeHotSet(
-    { db: getDb() },
-    {
-      k: tuning.hotSetK,
-      halfLifeMs: config.memory.v3.hotSet.halfLifeDays * DAY_MS,
-      now: Date.now(),
-      excludeSlugs: new Set(coreSlugs),
-    },
-  )
+  const hotSlugs = computeHotSet({
+    k: tuning.hotSetK,
+    halfLifeMs: config.memory.v3.hotSet.halfLifeDays * DAY_MS,
+    now: Date.now(),
+    excludeSlugs: new Set(coreSlugs),
+  })
     .map((entry) => entry.slug)
     .filter((slug) => sectionIndex.byArticle.has(slug));
 
@@ -320,18 +317,15 @@ async function initLanes(config: AssistantConfig): Promise<ShadowLanes> {
   const learned = config.memory.v3.learnedEdges;
   const learnedGraph =
     tuning.learnedEdgesCap > 0 && learned.maxPerPage > 0
-      ? computeLearnedEdgeGraph(
-          { db: getDb() },
-          {
-            halfLifeMs: learned.halfLifeDays * DAY_MS,
-            minCount: learned.minCount,
-            npmiFloor: learned.npmiFloor,
-            maxPerPage: learned.maxPerPage,
-            now: Date.now(),
-            windowMs: LEARNED_EDGES_WINDOW_DAYS * DAY_MS,
-            knownSlugs: new Set(sectionIndex.byArticle.keys()),
-          },
-        )
+      ? computeLearnedEdgeGraph({
+          halfLifeMs: learned.halfLifeDays * DAY_MS,
+          minCount: learned.minCount,
+          npmiFloor: learned.npmiFloor,
+          maxPerPage: learned.maxPerPage,
+          now: Date.now(),
+          windowMs: LEARNED_EDGES_WINDOW_DAYS * DAY_MS,
+          knownSlugs: new Set(sectionIndex.byArticle.keys()),
+        })
       : undefined;
   // Ensuring the dense collection is best-effort: the needle + edge lanes and
   // the core/hot prefix are in-memory and independent of Qdrant, so a Qdrant outage
@@ -530,7 +524,11 @@ export function attributeSelections(result: OrchestrateResult): SelectionRow[] {
   });
 }
 
-/** Write the attributed selection rows to `memory_v3_selections`. */
+/**
+ * Write the attributed selection rows to `memory_v3_selections` over the
+ * dedicated memory connection. Best-effort: an unavailable memory database
+ * drops the turn's log rows rather than affecting the turn.
+ */
 export function writeSelections(
   conversationId: string,
   turn: number,
@@ -539,7 +537,10 @@ export function writeSelections(
   if (rows.length === 0) {
     return;
   }
-  const raw = getSqliteFrom(getDb());
+  const raw = memorySqliteOrNull("writeSelections");
+  if (!raw) {
+    return;
+  }
   // PK is (conversation_id, turn, slug); OR REPLACE keeps the write
   // idempotent if the same turn is observed twice (e.g. a retried turn).
   // `message_id` is written NULL here (the assistant message does not exist at
@@ -579,7 +580,11 @@ export function backfillMemoryV3SelectionMessageId(
   conversationId: string,
   assistantMessageId: string,
 ): void {
-  getSqliteFrom(getDb())
+  const raw = memorySqliteOrNull("backfillMemoryV3SelectionMessageId");
+  if (!raw) {
+    return;
+  }
+  raw
     .query(
       /*sql*/ `UPDATE memory_v3_selections SET message_id = ?
                WHERE conversation_id = ? AND message_id IS NULL`,
