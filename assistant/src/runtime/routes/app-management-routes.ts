@@ -684,6 +684,13 @@ async function handleOpenApp({ pathParams }: RouteHandlerArgs) {
     dirName: source.dirName,
     name: source.name,
     html,
+    // Same "workspace" / "plugin:<name>" tagging as apps_list, so an opened
+    // app knows its provenance — clients hide the mutation actions (delete,
+    // share, deploy) that the daemon rejects for plugin-bundled apps.
+    origin:
+      source.origin.kind === "plugin"
+        ? `plugin:${source.origin.pluginName}`
+        : "workspace",
   };
 }
 
@@ -1015,6 +1022,7 @@ export const ROUTES: RouteDefinition[] = [
       dirName: z.string(),
       name: z.string(),
       html: z.string(),
+      origin: z.string(),
     }),
   },
   {

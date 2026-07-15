@@ -834,11 +834,14 @@ paths:
                     type: string
                   html:
                     type: string
+                  origin:
+                    type: string
                 required:
                   - appId
                   - dirName
                   - name
                   - html
+                  - origin
                 additionalProperties: false
   /v1/apps/{id}/preview:
     get:
