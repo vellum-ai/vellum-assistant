@@ -60,6 +60,27 @@ export async function pollConnectClaudeStatus(
   return data as unknown as ConnectClaudeStatusResponse;
 }
 
+/**
+ * Whether a Claude OAuth token is already stored for this workspace. Best-effort
+ * self-heal signal for the inline Connect affordance; callers should treat a
+ * thrown error (e.g. an older daemon without this route) as "unknown" and leave
+ * the prompt in place rather than hiding it.
+ */
+export async function isClaudeConnected(
+  assistantId: string,
+): Promise<boolean> {
+  const { data, response } = await client.get({
+    url: "/v1/assistants/{assistant_id}/acp/claude/auth/connected" as KnownDaemonUrl,
+    path: { assistant_id: assistantId },
+  });
+  if (!response?.ok) {
+    throw new Error(
+      `Failed to check Claude connection: ${response?.status}`,
+    );
+  }
+  return (data as unknown as { connected?: boolean }).connected === true;
+}
+
 /** Complete a manual/cloud flow with the pasted `code#state` (or a raw code). */
 export async function exchangeConnectClaude(
   assistantId: string,

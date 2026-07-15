@@ -409,14 +409,6 @@
       "label": "Chat Credential Reveal",
       "description": "Persist chat secret redactions as sentinel markers instead of the legacy HTML marker, enriched with the vault identity when the value byte-matches a credential revealed this turn. Render support in clients is unconditional; this flag gates only the daemon persist format.",
       "defaultEnabled": false
-    },
-    {
-      "id": "acp-claude-oauth-connect",
-      "scope": "assistant",
-      "key": "acp-claude-oauth-connect",
-      "label": "ACP Claude OAuth Connect",
-      "description": "In-app Connect Claude Code OAuth flow for ACP (gates the connect UI; cloud paste path is additionally host-gated)",
-      "defaultEnabled": false
     }
   ]
 }

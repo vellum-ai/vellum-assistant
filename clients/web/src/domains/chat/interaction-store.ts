@@ -19,6 +19,7 @@ import type {
   PendingConfirmationState,
   PendingContactRequestState,
   PendingQuestionState,
+  PendingAcpConnectState,
 } from "@/types/interaction-ui-types";
 
 // ---------------------------------------------------------------------------
@@ -44,6 +45,16 @@ export interface InteractionState {
   isQuestionCardDismissed: boolean;
 
   inlineConfirmationToolCallId: string | null;
+
+  /**
+   * A missing-token `acp_spawn` failure raised an inline "Connect Claude Code"
+   * prompt, anchored to the failed tool call. Unlike the other prompts this is
+   * NOT a turn-blocking interaction — the turn already ended in error; it is an
+   * ephemeral remediation CTA held here (not on the reseed-able tool-call
+   * `errorCode` field) so it survives a `/messages` reseed and self-clears on
+   * connect / send / conversation switch rather than nagging from history.
+   */
+  pendingAcpConnect: PendingAcpConnectState | null;
 
   /** Tool call IDs whose risk level was "unknown" when the user approved
    *  them — triggers the "command not recognized" nudge below their chip. */
@@ -85,6 +96,10 @@ export interface InteractionActions {
   dismissQuestion: () => void;
   dismissQuestionCard: () => void;
 
+  // ACP Connect Claude prompt
+  showAcpConnect: (payload: PendingAcpConnectState) => void;
+  dismissAcpConnect: () => void;
+
   // Nudge tracking
   addUnknownNudgeToolCallId: (toolCallId: string) => void;
   removeUnknownNudgeToolCallId: (toolCallId: string) => void;
@@ -117,6 +132,8 @@ const INITIAL_STATE: InteractionState = {
   isQuestionCardDismissed: false,
 
   inlineConfirmationToolCallId: null,
+
+  pendingAcpConnect: null,
 
   unknownNudgeToolCallIds: new Set<string>(),
 };
@@ -254,6 +271,11 @@ const useInteractionStoreBase = create<InteractionStore>()((set, get) => ({
       // the question would hide the card while the daemon blocks on
       // /question-response/.
     }),
+
+  // ----- ACP Connect Claude prompt -----
+  showAcpConnect: (payload) => set({ pendingAcpConnect: payload }),
+
+  dismissAcpConnect: () => set({ pendingAcpConnect: null }),
 
   // ----- Nudge tracking -----
   addUnknownNudgeToolCallId: (toolCallId) => {

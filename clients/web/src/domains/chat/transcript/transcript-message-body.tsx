@@ -34,10 +34,7 @@ import {
   groupContentBlocks,
   isSubagentSpawnCall,
 } from "@/domains/chat/transcript/message-content";
-import {
-  AcpConnectAffordance,
-  toolCallNeedsClaudeConnect,
-} from "@/domains/chat/transcript/acp-connect-affordance";
+import { AcpConnectAffordance } from "@/domains/chat/transcript/acp-connect-affordance";
 import { parseInlineSurfaces } from "@/domains/chat/utils/parse-inline-surfaces";
 import { useSmoothStreamText } from "@/domains/chat/hooks/use-smooth-stream-text";
 import { useSupportsRedactedCredentialChips } from "@/lib/backwards-compat/use-supports-redacted-credential-chips";
@@ -52,6 +49,7 @@ import { useSubagentStore } from "@/domains/chat/subagent-store";
 import { useWorkflowStore } from "@/domains/chat/workflow-store";
 import { useAcpRunStore } from "@/domains/chat/acp-run-store";
 import { useBackgroundTaskStore } from "@/domains/chat/background-task-store";
+import { useInteractionStore } from "@/domains/chat/interaction-store";
 import { useViewerStore } from "@/stores/viewer-store";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { ConversationMessageSurface } from "@vellumai/assistant-api";
@@ -269,6 +267,13 @@ export function TranscriptMessageBody({
   );
   const byToolUseId = useSubagentStore.use.byToolUseId();
   const byToolUseIdWf = useWorkflowStore.use.byToolUseId();
+  // The failed `acp_spawn` (if any) that raised the ephemeral "Connect Claude
+  // Code" prompt. Read from the interaction store — not the tool-call
+  // `errorCode` field — so the affordance survives a `/messages` reseed that
+  // strips the marker; matched to a tool call by id below so it renders under
+  // the right activity group.
+  const acpConnectToolUseId =
+    useInteractionStore.use.pendingAcpConnect()?.toolUseId ?? null;
   // The runIds in THIS message whose `run_workflow` chip is suppressed in favor
   // of an inline card ("card-backed"). Subscribed via a narrowed selector that
   // returns a stable key, so the message re-renders only when a card's
@@ -586,10 +591,15 @@ export function TranscriptMessageBody({
   };
 
   // A missing-token ACP spawn renders its plain error card plus this inline
-  // Connect affordance (flag-gated inside the component). Null when no tool call
-  // in the group carries the marker, so unrelated failures are unaffected.
+  // Connect affordance (flag-gated inside the component). Rendered under the
+  // group whose failed `acp_spawn` raised the store-held Connect prompt, so
+  // unrelated failures are unaffected and the affordance persists across the
+  // reseed that would strip the tool-call `errorCode` marker.
   const renderAcpConnectAffordance = (toolCalls: ChatMessageToolCall[]) =>
-    toolCalls.some(toolCallNeedsClaudeConnect) ? <AcpConnectAffordance /> : null;
+    acpConnectToolUseId !== null &&
+    toolCalls.some((tc) => tc.id === acpConnectToolUseId) ? (
+      <AcpConnectAffordance />
+    ) : null;
 
   const renderInlineBackgroundTaskCards = (
     toolCalls: ChatMessageToolCall[],

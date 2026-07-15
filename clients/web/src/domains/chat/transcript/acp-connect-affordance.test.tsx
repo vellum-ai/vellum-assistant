@@ -2,18 +2,20 @@
  * Tests for the inline "Connect Claude Code" affordance rendered when an
  * `acp_spawn` fails for a missing OAuth token.
  *
- * Covers the marker predicate and the flag gate: the affordance renders its
- * Connect button when the `acp-claude-oauth-connect` flag is on, and nothing
- * (falling back to the plain error rendering) when it is off.
+ * Covers the version gate and the live-status self-heal: the affordance renders
+ * its Connect button when the daemon supports Connect, renders nothing (falling
+ * back to the plain error rendering) against a daemon too old to serve the
+ * routes, and retires itself when Claude is already connected. Which failed tool
+ * call raises the prompt — and its reseed survival — is covered in
+ * `acp-connect-prompt.test.ts`.
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 
-import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
-
-let flagEnabled = true;
+let supported = true;
+let alreadyConnected = false;
 
 mock.module("@/runtime/browser", () => ({
   openUrl: async (_url: string) => {},
@@ -25,13 +27,9 @@ mock.module("@/assistant/use-active-assistant-id", () => ({
   useActiveAssistantId: () => "assistant-123",
 }));
 
-mock.module("@/stores/assistant-feature-flag-store", () => {
-  const store = () => null;
-  store.use = {
-    acpClaudeOauthConnect: () => flagEnabled,
-  };
-  return { useAssistantFeatureFlagStore: store };
-});
+mock.module("@/lib/backwards-compat/use-supports-acp-connect", () => ({
+  useSupportsAcpConnect: () => supported,
+}));
 
 mock.module("@/hooks/connect-claude-api", () => ({
   startConnectClaude: async () => ({
@@ -41,6 +39,7 @@ mock.module("@/hooks/connect-claude-api", () => ({
   }),
   pollConnectClaudeStatus: async () => ({ status: "pending" }),
   exchangeConnectClaude: async () => {},
+  isClaudeConnected: async () => alreadyConnected,
 }));
 
 mock.module("@vellumai/design-library/components/button", () => ({
@@ -70,75 +69,48 @@ mock.module("@vellumai/design-library/components/typography", () => ({
   ),
 }));
 
-const { AcpConnectAffordance, toolCallNeedsClaudeConnect } = await import(
-  "./acp-connect-affordance"
-);
-
-function makeToolCall(overrides: Partial<ChatMessageToolCall>): ChatMessageToolCall {
-  return {
-    id: "tc-1",
-    name: "skill_execute",
-    input: { tool: "acp_spawn" },
-    ...overrides,
-  } as ChatMessageToolCall;
-}
+const { AcpConnectAffordance } = await import("./acp-connect-affordance");
 
 beforeEach(() => {
-  flagEnabled = true;
+  supported = true;
+  alreadyConnected = false;
 });
 
 afterEach(() => {
   cleanup();
 });
 
-describe("toolCallNeedsClaudeConnect", () => {
-  test("true for a failed acp_spawn carrying the missing-token marker", () => {
-    expect(
-      toolCallNeedsClaudeConnect(
-        makeToolCall({ isError: true, errorCode: "acp_claude_oauth_missing" }),
-      ),
-    ).toBe(true);
-  });
-
-  test("false when the marker is absent", () => {
-    expect(
-      toolCallNeedsClaudeConnect(
-        makeToolCall({ isError: true, errorCode: "some_other_error" }),
-      ),
-    ).toBe(false);
-    expect(
-      toolCallNeedsClaudeConnect(makeToolCall({ isError: true })),
-    ).toBe(false);
-  });
-
-  test("false when the tool call is not an error", () => {
-    expect(
-      toolCallNeedsClaudeConnect(
-        makeToolCall({ isError: false, errorCode: "acp_claude_oauth_missing" }),
-      ),
-    ).toBe(false);
-  });
-});
-
 describe("AcpConnectAffordance", () => {
-  test("renders the Connect Claude Code button when the flag is on", () => {
-    flagEnabled = true;
+  test("renders the Connect Claude Code button when the daemon supports Connect", () => {
+    supported = true;
 
     render(<AcpConnectAffordance />);
 
     expect(
-      screen.getByRole("button", { name: "Connect Claude Code" }),
+      screen.getByRole("button", { name: "Connect" }),
     ).not.toBeNull();
   });
 
-  test("renders nothing when the flag is off", () => {
-    flagEnabled = false;
+  test("renders nothing when the daemon is too old to support Connect", () => {
+    supported = false;
 
     render(<AcpConnectAffordance />);
 
     expect(
-      screen.queryByRole("button", { name: "Connect Claude Code" }),
+      screen.queryByRole("button", { name: "Connect" }),
     ).toBeNull();
     expect(screen.queryByTestId("acp-connect-affordance")).toBeNull();
+  });
+
+  test("self-heals: retires the prompt when Claude is already connected", async () => {
+    alreadyConnected = true;
+
+    render(<AcpConnectAffordance />);
+
+    // The self-heal check is async; once it resolves as connected the affordance
+    // unmounts rather than showing a stale Connect CTA.
+    await waitFor(() => {
+      expect(screen.queryByTestId("acp-connect-affordance")).toBeNull();
+    });
   });
 });

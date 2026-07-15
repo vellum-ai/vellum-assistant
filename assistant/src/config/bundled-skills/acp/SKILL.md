@@ -50,9 +50,11 @@ bun add -g @zed-industries/codex-acp               # codex
 
 The `claude-agent-acp` adapter requires a Claude **OAuth token** (`sk-ant-oat…`), NOT an API key (`sk-ant-api…`). Every spawn injects the stored token as `CLAUDE_CODE_OAUTH_TOKEN` automatically. The write path rejects an API key in this field, so never direct a user to paste an `sk-ant-api…` key here.
 
-**Primary: the in-app Connect Claude Code flow.** Point the user to Settings → Models & Services → Connect Claude Code, or the inline Connect affordance shown when a spawn is missing the token. It mints and stores the OAuth token for them — one click on desktop (loopback), one paste on cloud — so the token never enters the conversation or the workspace config.
+**Primary: the in-app Connect Claude Code flow.** When a spawn fails because the token is missing, the UI **automatically renders an inline "Connect Claude Code" card** directly below the failed step — one click on desktop (loopback), one paste on cloud. It mints and stores the OAuth token so it never enters the conversation or the workspace config.
 
-**Fallback (environments without the UI):** the user runs `claude setup-token` on a machine where they are logged in to Claude, then stores the result via the secure prompt:
+**When a spawn fails for a missing token, do NOT prompt the user yourself.** The inline card already handles it, so do not emit an options question, a "connect via Settings vs paste a token" choice, or CLI instructions — a second prompt on top of the card is redundant and confusing. At most, add one short sentence pointing at it ("Click **Connect Claude Code** above to sign in, then ask me again"), then stop and wait for the user to connect. (Settings → Models & Services → Connect Claude Code starts the same flow if the user would rather begin there.)
+
+**Fallback (headless environments where no inline card can appear):** the user runs `claude setup-token` on a machine where they are logged in to Claude, then stores the result via the secure prompt:
 
 ```bash
 assistant credentials prompt --service acp --field claude_oauth_token --label "Claude OAuth Token"

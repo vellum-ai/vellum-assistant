@@ -49,9 +49,13 @@ mock.module("../../../security/oauth2.js", () => ({
 const actualClaudeOauth = await import("../../../acp/acp-claude-oauth.js");
 const { CLAUDE_MANUAL_REDIRECT_URI } = actualClaudeOauth;
 const storeAcpClaudeTokenMock = mock(async (_token: string) => {});
+// The connect-status route reads token presence; mock it so the route test
+// doesn't reach real secure storage.
+const hasAcpClaudeTokenMock = mock(async () => false);
 mock.module("../../../acp/acp-claude-oauth.js", () => ({
   ...actualClaudeOauth,
   storeAcpClaudeToken: storeAcpClaudeTokenMock,
+  hasAcpClaudeToken: hasAcpClaudeTokenMock,
 }));
 
 // Host detection: default false (local/loopback) so the PR-5 tests are
@@ -61,22 +65,6 @@ const getIsContainerizedMock = mock(() => false);
 mock.module("../../../config/env-registry.js", () => ({
   ...actualEnvRegistry,
   getIsContainerized: getIsContainerizedMock,
-}));
-
-// `loadConfig` is only read to feed the flag gate (mocked below), so return a
-// trivial object rather than touching the real on-disk loader.
-const actualLoader = await import("../../../config/loader.js");
-mock.module("../../../config/loader.js", () => ({
-  ...actualLoader,
-  loadConfig: mock(() => ({})),
-}));
-
-// The connect flag gate; default on. Cloud fail-closed tests flip it off.
-const actualFlag = await import("../../../acp/acp-oauth-connect-flag.js");
-const isConnectEnabledMock = mock(() => true);
-mock.module("../../../acp/acp-oauth-connect-flag.js", () => ({
-  ...actualFlag,
-  isAcpClaudeOauthConnectEnabled: isConnectEnabledMock,
 }));
 
 const { ROUTES } = await import("../acp-claude-auth-routes.js");
@@ -89,6 +77,9 @@ const statusHandler = ROUTES.find(
 )!.handler;
 const exchangeHandler = ROUTES.find(
   (r) => r.operationId === "acp_claude_auth_exchange",
+)!.handler;
+const connectedHandler = ROUTES.find(
+  (r) => r.operationId === "acp_claude_auth_connected",
 )!.handler;
 
 const CLAUDE_CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
@@ -145,9 +136,10 @@ beforeEach(() => {
   prepareOAuth2FlowMock.mockClear();
   exchangeCodeForTokensMock.mockClear();
   storeAcpClaudeTokenMock.mockClear();
-  // Reset host + flag to their defaults (local host, flag on).
+  // Reset host to its default (local/loopback); cloud tests flip it on.
   getIsContainerizedMock.mockReturnValue(false);
-  isConnectEnabledMock.mockReturnValue(true);
+  hasAcpClaudeTokenMock.mockClear();
+  hasAcpClaudeTokenMock.mockResolvedValue(false);
 });
 
 // ---------------------------------------------------------------------------
@@ -174,24 +166,6 @@ describe("acp_claude_auth_start", () => {
 
     // The flow is now tracked as pending.
     expect(getStatus(result.state)).toEqual({ status: "pending" });
-  });
-
-  test("flag OFF + local (non-containerized) also fails closed (403, no loopback bind)", async () => {
-    // The flag is the feature kill switch: a direct API call on a local host
-    // must not bind the loopback server or mint a token while the feature is off.
-    isConnectEnabledMock.mockReturnValue(false);
-
-    let thrown: { statusCode?: number; message?: string } | undefined;
-    try {
-      await startHandler({});
-    } catch (err) {
-      thrown = err as { statusCode?: number; message?: string };
-    }
-
-    expect(thrown).toBeDefined();
-    expect(thrown!.statusCode).toBe(403);
-    expect(thrown!.message).toMatch(/not enabled/i);
-    expect(prepareOAuth2FlowMock).not.toHaveBeenCalled();
   });
 });
 
@@ -245,6 +219,18 @@ describe("loopback capture", () => {
 // status
 // ---------------------------------------------------------------------------
 
+describe("acp_claude_auth_connected", () => {
+  test("reports connected:true when a token is present", async () => {
+    hasAcpClaudeTokenMock.mockResolvedValue(true);
+    expect(await connectedHandler({})).toEqual({ connected: true });
+  });
+
+  test("reports connected:false when no token is stored", async () => {
+    hasAcpClaudeTokenMock.mockResolvedValue(false);
+    expect(await connectedHandler({})).toEqual({ connected: false });
+  });
+});
+
 describe("acp_claude_auth_status", () => {
   test("unknown state yields a 404 error, not a 500", () => {
     let thrown: { statusCode?: number } | undefined;
@@ -263,9 +249,8 @@ describe("acp_claude_auth_status", () => {
 // ---------------------------------------------------------------------------
 
 describe("acp_claude_auth_start (cloud/manual)", () => {
-  test("flag ON + containerized returns mode:manual with the manual redirect URI", async () => {
+  test("containerized host returns mode:manual with the manual redirect URI", async () => {
     getIsContainerizedMock.mockReturnValue(true);
-    isConnectEnabledMock.mockReturnValue(true);
 
     const result = (await startHandler({})) as StartResult;
 
@@ -286,24 +271,6 @@ describe("acp_claude_auth_start (cloud/manual)", () => {
     // Tracked as pending so a subsequent status poll doesn't 404.
     expect(getStatus(result.state).status).toBe("pending");
   });
-
-  test("flag OFF + containerized fails closed with a clear message (403, no loopback)", async () => {
-    getIsContainerizedMock.mockReturnValue(true);
-    isConnectEnabledMock.mockReturnValue(false);
-
-    let thrown: { statusCode?: number; message?: string } | undefined;
-    try {
-      await startHandler({});
-    } catch (err) {
-      thrown = err as { statusCode?: number; message?: string };
-    }
-
-    expect(thrown).toBeDefined();
-    expect(thrown!.statusCode).toBe(403);
-    expect(thrown!.message).toMatch(/not enabled/i);
-    // Fail-closed: never attempts a (broken) loopback bind.
-    expect(prepareOAuth2FlowMock).not.toHaveBeenCalled();
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -314,7 +281,6 @@ describe("acp_claude_auth_exchange", () => {
   /** Start a manual flow and return its state. */
   async function startManual(): Promise<string> {
     getIsContainerizedMock.mockReturnValue(true);
-    isConnectEnabledMock.mockReturnValue(true);
     const result = (await startHandler({})) as StartResult;
     return result.state;
   }

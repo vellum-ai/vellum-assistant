@@ -238,6 +238,28 @@ paths:
                   - acpSessionId
                   - steered
                 additionalProperties: false
+  /v1/acp/claude/auth/connected:
+    get:
+      operationId: acp_claude_auth_connected_get
+      summary: Report whether Claude is connected
+      description:
+        Returns whether a Claude OAuth token is present in the workspace vault so the web client can self-heal the
+        inline Connect Claude affordance when the account is already connected. Never returns the token value.
+      tags:
+        - acp
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  connected:
+                    type: boolean
+                required:
+                  - connected
+                additionalProperties: false
   /v1/acp/claude/auth/exchange:
     post:
       operationId: acp_claude_auth_exchange_post

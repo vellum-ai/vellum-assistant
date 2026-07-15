@@ -14,14 +14,19 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 // ---------------------------------------------------------------------------
 
 let storeReturn = true;
+let getReturn: string | undefined = undefined;
 const setSecureKeyAsync = mock(
   async (_account: string, _value: string) => storeReturn,
 );
+const getSecureKeyAsync = mock(async (_account: string) => getReturn);
 const ensureAcpCredentialPolicy = mock(
   (_field: string, _usageDescription: string) => {},
 );
 
-mock.module("../../security/secure-keys.js", () => ({ setSecureKeyAsync }));
+mock.module("../../security/secure-keys.js", () => ({
+  setSecureKeyAsync,
+  getSecureKeyAsync,
+}));
 mock.module("../prepare-agent-env.js", () => ({ ensureAcpCredentialPolicy }));
 
 const {
@@ -30,11 +35,14 @@ const {
   buildClaudeAuthorizeUrl,
   parseManualClaudeCode,
   storeAcpClaudeToken,
+  hasAcpClaudeToken,
 } = await import("../acp-claude-oauth.js");
 
 beforeEach(() => {
   storeReturn = true;
+  getReturn = undefined;
   setSecureKeyAsync.mockClear();
+  getSecureKeyAsync.mockClear();
   ensureAcpCredentialPolicy.mockClear();
 });
 
@@ -147,5 +155,30 @@ describe("storeAcpClaudeToken", () => {
       /Failed to store/,
     );
     expect(ensureAcpCredentialPolicy).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// hasAcpClaudeToken
+// ---------------------------------------------------------------------------
+
+describe("hasAcpClaudeToken", () => {
+  test("reads credential/acp/claude_oauth_token and reports true when present", async () => {
+    getReturn = "sk-ant-oat-token";
+
+    expect(await hasAcpClaudeToken()).toBe(true);
+    expect(getSecureKeyAsync).toHaveBeenCalledWith(
+      "credential/acp/claude_oauth_token",
+    );
+  });
+
+  test("reports false when the vault field is absent", async () => {
+    getReturn = undefined;
+    expect(await hasAcpClaudeToken()).toBe(false);
+  });
+
+  test("reports false for an empty stored value", async () => {
+    getReturn = "";
+    expect(await hasAcpClaudeToken()).toBe(false);
   });
 });

@@ -14,7 +14,7 @@
 
 import { credentialKey } from "../security/credential-key.js";
 import type { OAuth2Config } from "../security/oauth2.js";
-import { setSecureKeyAsync } from "../security/secure-keys.js";
+import { getSecureKeyAsync, setSecureKeyAsync } from "../security/secure-keys.js";
 import { ACP_OAUTH_TOKEN_FIELD, ACP_SERVICE } from "./acp-credentials.js";
 import { ensureAcpCredentialPolicy } from "./prepare-agent-env.js";
 
@@ -29,6 +29,12 @@ export const CLAUDE_OAUTH_CONFIG: OAuth2Config = {
   clientId: "9d1c250a-e61b-44d9-88ed-5944d1962f5e",
   scopes: ["user:inference"],
   scopeSeparator: " ",
+  // Anthropic's token endpoint diverges from the OAuth2 defaults: it expects a
+  // JSON body and validates the `state` echoed back at exchange (which is why
+  // the manual redirect renders a `code#state` pair). Without both, the exchange
+  // fails with HTTP 400.
+  tokenExchangeBodyFormat: "json",
+  sendStateInTokenExchange: true,
 };
 
 /**
@@ -92,4 +98,17 @@ export async function storeAcpClaudeToken(token: string): Promise<void> {
     ACP_OAUTH_TOKEN_FIELD,
     "Claude OAuth token for ACP agent authentication",
   );
+}
+
+/**
+ * Whether a Claude OAuth token is present in the `acp/claude_oauth_token` vault
+ * field for this workspace. A read-only presence check — never returns the
+ * token value — used by the connect-status route so the web client can
+ * self-heal the inline Connect Claude affordance once the account is connected.
+ */
+export async function hasAcpClaudeToken(): Promise<boolean> {
+  const token = await getSecureKeyAsync(
+    credentialKey(ACP_SERVICE, ACP_OAUTH_TOKEN_FIELD),
+  );
+  return token != null && token.length > 0;
 }

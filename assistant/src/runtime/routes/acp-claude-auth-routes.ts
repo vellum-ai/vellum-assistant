@@ -29,12 +29,11 @@ import {
   buildClaudeAuthorizeUrl,
   CLAUDE_MANUAL_REDIRECT_URI,
   CLAUDE_OAUTH_CONFIG,
+  hasAcpClaudeToken,
   parseManualClaudeCode,
   storeAcpClaudeToken,
 } from "../../acp/acp-claude-oauth.js";
-import { isAcpClaudeOauthConnectEnabled } from "../../acp/acp-oauth-connect-flag.js";
 import { getIsContainerized } from "../../config/env-registry.js";
-import { loadConfig } from "../../config/loader.js";
 import {
   exchangeCodeForTokens,
   generateCodeChallenge,
@@ -44,7 +43,7 @@ import {
 } from "../../security/oauth2.js";
 import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
-import { BadRequestError, ForbiddenError, NotFoundError } from "./errors.js";
+import { BadRequestError, NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("acp-claude-auth");
@@ -110,27 +109,16 @@ function markFlow(state: string, status: FlowStatus, error?: string): void {
 // ---------------------------------------------------------------------------
 
 /**
- * Route entry point. The whole feature is gated behind
- * `acp-claude-oauth-connect` and fails closed when the flag is off, so the flag
- * is a true kill switch: a direct API call can't bind the loopback server or
- * mint a token while the feature is dark (the UI already hides both surfaces).
- *
- * Locally the daemon captures the redirect on a loopback; on a containerized
- * (cloud) host it can't bind a loopback the user's browser reaches, so it falls
- * back to the manual `code#state` paste path. The manual path performs Claude
- * subscription inference OFF the user's device, the ToS-sensitive pattern
- * documented in `.private/acp-claude-code-tos-memo.md`.
+ * Route entry point. Locally the daemon captures the redirect on a loopback; on
+ * a containerized (cloud) host it can't bind a loopback the user's browser
+ * reaches, so it falls back to the manual `code#state` paste path. The web
+ * surfaces are gated on the daemon version (`useSupportsAcpConnect`), so an
+ * older daemon that lacks these routes is never asked to serve them.
  */
 async function handleStartAuth(
   _args: RouteHandlerArgs,
 ): Promise<StartResponse> {
   cleanupExpiredFlows();
-
-  if (!isAcpClaudeOauthConnectEnabled(loadConfig())) {
-    throw new ForbiddenError(
-      "Connect Claude is not enabled for this workspace.",
-    );
-  }
 
   return getIsContainerized()
     ? handleStartManualAuth()
@@ -244,6 +232,7 @@ async function handleExchange(args: RouteHandlerArgs): Promise<{ ok: true }> {
       code,
       pending.redirectUri ?? CLAUDE_MANUAL_REDIRECT_URI,
       pending.codeVerifier,
+      state,
     );
     await storeAcpClaudeToken(result.tokens.accessToken);
   } catch (err) {
@@ -258,6 +247,16 @@ async function handleExchange(args: RouteHandlerArgs): Promise<{ ok: true }> {
   pendingFlows.delete(state);
   log.info("ACP Claude manual OAuth flow connected");
   return { ok: true };
+}
+
+/**
+ * Report whether a Claude OAuth token is already stored for this workspace.
+ * Read-only (no flow state, no minting) — the web client uses it to self-heal
+ * the inline Connect Claude affordance when the account is connected out of
+ * band (e.g. from Settings). Never returns the token value.
+ */
+async function handleAuthConnected(): Promise<{ connected: boolean }> {
+  return { connected: await hasAcpClaudeToken() };
 }
 
 function handleAuthStatus({ pathParams }: RouteHandlerArgs): {
@@ -329,6 +328,25 @@ export const ROUTES: RouteDefinition[] = [
       error: z.string().optional(),
     }),
     handler: handleAuthStatus,
+  },
+  {
+    operationId: "acp_claude_auth_connected",
+    endpoint: "acp/claude/auth/connected",
+    method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Report whether Claude is connected",
+    description:
+      "Returns whether a Claude OAuth token is present in the workspace vault " +
+      "so the web client can self-heal the inline Connect Claude affordance " +
+      "when the account is already connected. Never returns the token value.",
+    tags: ["acp"],
+    responseBody: z.object({
+      connected: z.boolean(),
+    }),
+    handler: handleAuthConnected,
   },
   {
     operationId: "acp_claude_auth_exchange",

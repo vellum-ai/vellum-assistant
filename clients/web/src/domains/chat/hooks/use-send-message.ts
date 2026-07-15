@@ -728,6 +728,10 @@ export function useSendMessage({
       // A real send supersedes any ephemeral meta-command cards.
       useChatSessionStore.getState().clearEphemeralMetaResults();
       useInteractionStore.getState().resetSecretAndConfirmation();
+      // Retire a lingering "Connect Claude Code" prompt: the user re-asking is
+      // the retry signal, so the stale prompt (anchored to the prior failed
+      // spawn) should clear whether or not the retry spawns again.
+      useInteractionStore.getState().dismissAcpConnect();
       useChatSessionStore.getState().clearConfirmationToolCallMap();
       // Clear pending confirmations and dismiss interactive surfaces in a
       // single functional updater so the two transforms compose correctly

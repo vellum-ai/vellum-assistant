@@ -33,12 +33,8 @@ export function ConnectClaudePanel({
   return (
     <>
       {phase === "idle" || phase === "error" ? (
-        <Button
-          variant="outlined"
-          size="compact"
-          onClick={() => void connect()}
-        >
-          Connect Claude Code
+        <Button variant="primary" onClick={() => void connect()}>
+          Connect
         </Button>
       ) : null}
 
