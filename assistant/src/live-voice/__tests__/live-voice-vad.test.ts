@@ -505,6 +505,101 @@ describe("LiveVoiceSession server VAD", () => {
     expect(countType(frames, "utterance_end")).toBe(2);
   });
 
+  test("a late assistant_text_delta after a thinking barge-in never reaches the client", async () => {
+    let callbacks: VoiceTurnCallbacks | undefined;
+    const abort = mock();
+    const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
+      callbacks ??= options.callbacks;
+      return { turnId: "bridge-turn", abort };
+    });
+    let releaseTurnCancelled: (() => void) | undefined;
+    const { frames, session } = createHarness({
+      finals: ["first question", "second question"],
+      startVoiceTurn,
+      // Suspend the async barge-in teardown at the turn_cancelled send so the
+      // aborted turn stays non-finalized — the exact window a late model delta
+      // could race into before cancelAssistantTurn finishes.
+      holdSendFrame: (payload) => {
+        if (payload.type !== "turn_cancelled" || releaseTurnCancelled) {
+          return null;
+        }
+        return new Promise<void>((resolve) => {
+          releaseTurnCancelled = resolve;
+        });
+      },
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => callbacks !== undefined);
+
+    // Barge in while thinking; teardown blocks on the held turn_cancelled, so
+    // the turn is aborted but not yet finalized.
+    await session.handleBinaryAudio(SUSTAINED_LOUD_CHUNK);
+    await waitFor(() => releaseTurnCancelled !== undefined);
+
+    // A first assistant_text_delta lands in that window — fenced on the abort
+    // signal, it must not be forwarded to the client.
+    callbacks?.assistant_text_delta?.(makeTextDelta("stale thinking reply"));
+    await flushAsyncCallbacks();
+    expect(countType(frames, "assistant_text_delta")).toBe(0);
+
+    releaseTurnCancelled?.();
+    await waitFor(() =>
+      frames.some((frame) => frame.type === "turn_cancelled"),
+    );
+    expect(countType(frames, "assistant_text_delta")).toBe(0);
+  });
+
+  test("a thinking barge-in that rejects the pending turn start emits no error frame", async () => {
+    // startVoiceTurn hangs like a real turn waiting for the conversation lock
+    // and rejects when the turn's signal aborts (the waitForIdle behavior), so
+    // the turn is still "thinking" with no handle when barge-in hits.
+    const startVoiceTurn: LiveVoiceTurnStarter = async (options) => {
+      await new Promise<void>((_resolve, reject) => {
+        const fail = () =>
+          reject(new Error("turn aborted while waiting for the lock"));
+        if (options.signal?.aborted) {
+          fail();
+          return;
+        }
+        options.signal?.addEventListener("abort", fail, { once: true });
+      });
+      return { turnId: "bridge-turn", abort: mock() };
+    };
+    let releaseTurnCancelled: (() => void) | undefined;
+    const { frames, session } = createHarness({
+      finals: ["first question", "second question"],
+      startVoiceTurn,
+      holdSendFrame: (payload) => {
+        if (payload.type !== "turn_cancelled" || releaseTurnCancelled) {
+          return null;
+        }
+        return new Promise<void>((resolve) => {
+          releaseTurnCancelled = resolve;
+        });
+      },
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => frames.some((frame) => frame.type === "thinking"));
+
+    // Barge in while the turn's start is still pending on the lock: the abort
+    // rejects startVoiceTurn, whose catch must treat the aborted turn as dead
+    // rather than surface a stray error frame while teardown is in flight.
+    await session.handleBinaryAudio(SUSTAINED_LOUD_CHUNK);
+    await waitFor(() => releaseTurnCancelled !== undefined);
+    await flushAsyncCallbacks();
+    expect(countType(frames, "error")).toBe(0);
+
+    releaseTurnCancelled?.();
+    await waitFor(() =>
+      frames.some((frame) => frame.type === "turn_cancelled"),
+    );
+    expect(countType(frames, "error")).toBe(0);
+  });
+
   test("a brief blip while thinking arms the guard but does not cancel", async () => {
     let callbacks: VoiceTurnCallbacks | undefined;
     const abort = mock();
