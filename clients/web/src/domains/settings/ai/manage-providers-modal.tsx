@@ -80,19 +80,6 @@ function providerCardTitle(conn: ProviderConnection): string {
   return PROVIDER_DISPLAY_NAMES[conn.provider] ?? conn.provider;
 }
 
-/**
- * Card subtitle: the internal key and provider name, omitting parts that
- * would just repeat the title.
- */
-function providerCardSubtitle(conn: ProviderConnection): string {
-  const title = providerCardTitle(conn);
-  const parts = [
-    conn.name,
-    PROVIDER_DISPLAY_NAMES[conn.provider] ?? conn.provider,
-  ];
-  return [...new Set(parts)].filter((p) => p !== title).join(" · ");
-}
-
 // ---------------------------------------------------------------------------
 // ManageProvidersModal
 // ---------------------------------------------------------------------------
@@ -392,7 +379,6 @@ function ManageProvidersModalInner({
             {connections.map((conn) => {
               const isDeleting = deleting[conn.name] ?? false;
               const rowError = rowErrors[conn.name];
-              const subtitle = providerCardSubtitle(conn);
               const isManaged = conn.isManaged ?? false;
               const isDefault = conn.name === defaultConnectionName;
               const eligibleForDefault = isDefaultProviderId(conn.provider);
@@ -430,15 +416,6 @@ function ManageProvidersModalInner({
                           </Tag>
                         )}
                       </div>
-                      {subtitle ? (
-                        <Typography
-                          variant="body-medium-lighter"
-                          as="p"
-                          className="mt-0.5 text-(--content-tertiary)"
-                        >
-                          {subtitle}
-                        </Typography>
-                      ) : null}
                     </div>
 
                     {/* Actions */}

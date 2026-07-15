@@ -132,13 +132,25 @@ function renderModal() {
   );
 }
 
-function rowFor(result: ReturnType<typeof render>, label: string) {
-  const spans = [...result.baseElement.querySelectorAll("span, p")];
-  const labelEl = spans.find((el) => el.textContent === label);
-  if (!labelEl) {
-    throw new Error(`Row "${label}" not found`);
+function rowFor(result: ReturnType<typeof render>, connectionName: string) {
+  const deleteButton = result.baseElement.querySelector(
+    `button[aria-label="Delete ${connectionName}"]`,
+  );
+  if (!deleteButton) {
+    throw new Error(`Row "${connectionName}" not found`);
   }
-  return labelEl.closest("div.flex.items-center.gap-3")?.parentElement ?? null;
+  return (
+    deleteButton.closest("div.flex.items-center.gap-3")?.parentElement ?? null
+  );
+}
+
+async function waitForRow(
+  result: ReturnType<typeof render>,
+  connectionName: string,
+) {
+  await waitFor(() => {
+    expect(rowFor(result, connectionName)).not.toBeNull();
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -212,9 +224,7 @@ describe("default marker", () => {
     };
 
     const result = renderModal();
-    await waitFor(() => {
-      expect(result.baseElement.textContent).toContain("work-openai");
-    });
+    await waitForRow(result, "work-openai");
 
     const otherRow = rowFor(result, "work-openai");
     const setDefaultButton = [
@@ -243,9 +253,7 @@ describe("default marker", () => {
     ];
 
     const result = renderModal();
-    await waitFor(() => {
-      expect(result.baseElement.textContent).toContain("local-ollama");
-    });
+    await waitForRow(result, "local-ollama");
 
     const row = rowFor(result, "local-ollama");
     const setDefaultButton = [...(row?.querySelectorAll("button") ?? [])].find(
@@ -265,9 +273,7 @@ describe("default marker", () => {
     ];
 
     const result = renderModal();
-    await waitFor(() => {
-      expect(result.baseElement.textContent).toContain("openai-personal");
-    });
+    await waitForRow(result, "openai-personal");
 
     expect(result.baseElement.textContent).not.toContain("Set as default");
     expect(result.baseElement.textContent).not.toContain("Default");
@@ -281,9 +287,7 @@ describe("default marker", () => {
     putShouldFail = true;
 
     const result = renderModal();
-    await waitFor(() => {
-      expect(result.baseElement.textContent).toContain("openai-personal");
-    });
+    await waitForRow(result, "openai-personal");
 
     const row = rowFor(result, "openai-personal");
     const setDefaultButton = [...(row?.querySelectorAll("button") ?? [])].find(
@@ -301,6 +305,7 @@ describe("default marker", () => {
 
 describe("card titles", () => {
   test("titles a ChatGPT subscription row distinctly from OpenAI API-key rows", async () => {
+    // GIVEN unlabeled ChatGPT subscription and OpenAI API-key providers
     connectionsState = [
       makeConnection({
         name: "chatgpt-subscription",
@@ -313,14 +318,20 @@ describe("card titles", () => {
       makeConnection({ name: "openai-personal", provider: "openai" }),
     ];
 
+    // WHEN the provider list renders
     const result = renderModal();
     await waitFor(() => {
       expect(result.baseElement.textContent).toContain("ChatGPT Subscription");
     });
-    // The API-key row still titles by the provider display name.
+
+    // THEN each provider has a distinct title without internal-key subtitles
     const apiKeyRow = rowFor(result, "openai-personal");
     expect(apiKeyRow?.textContent).toContain("OpenAI");
     expect(apiKeyRow?.textContent).not.toContain("ChatGPT");
+    expect(result.baseElement.textContent).not.toContain(
+      "chatgpt-subscription",
+    );
+    expect(result.baseElement.textContent).not.toContain("openai-personal");
   });
 });
 
@@ -328,9 +339,7 @@ describe("delete-guard errors", () => {
   async function clickDelete(name: string) {
     connectionsState = [makeConnection({ name, provider: "openai" })];
     const result = renderModal();
-    await waitFor(() => {
-      expect(result.baseElement.textContent).toContain(name);
-    });
+    await waitForRow(result, name);
     const deleteButton = result.baseElement.querySelector<HTMLButtonElement>(
       `button[aria-label="Delete ${name}"]`,
     );
@@ -387,9 +396,7 @@ describe("delete-guard errors", () => {
     ];
 
     const result = renderModal();
-    await waitFor(() => {
-      expect(result.baseElement.textContent).toContain("openai-personal");
-    });
+    await waitForRow(result, "openai-personal");
     const setDefaultButton = [
       ...result.baseElement.querySelectorAll("button"),
     ].find((b) => b.textContent === "Set as default");
@@ -421,9 +428,7 @@ describe("editability", () => {
 
     // WHEN the modal renders
     const result = renderModal();
-    await waitFor(() => {
-      expect(result.baseElement.textContent).toContain("anthropic-personal");
-    });
+    await waitForRow(result, "anthropic-personal");
 
     // THEN the managed row has no Edit button, but the user-owned one does
     expect(editButtonFor(result, "vellum")).toBeUndefined();
