@@ -43,6 +43,7 @@ function renderCard(
     onDismiss: () => void;
     onLearnMore: () => void;
     onDontShowAgain: () => void;
+    onNextTip: () => void;
   }>,
 ) {
   return render(
@@ -52,6 +53,7 @@ function renderCard(
         onDismiss={handlers?.onDismiss ?? (() => {})}
         onLearnMore={handlers?.onLearnMore ?? (() => {})}
         onDontShowAgain={handlers?.onDontShowAgain ?? (() => {})}
+        onNextTip={handlers?.onNextTip}
       />
       <LocationProbe />
     </MemoryRouter>,
@@ -97,6 +99,24 @@ describe("TipCard", () => {
     fireEvent.click(getByLabelText("Dismiss"));
 
     expect(onDismiss).toHaveBeenCalledTimes(1);
+  });
+
+  test("renders the next-tip chevron and fires the callback when provided", () => {
+    const onNextTip = mock(() => {});
+    const { container, getByLabelText } = renderCard(LINKED_TIP, { onNextTip });
+
+    expect(
+      container.querySelector('[data-slot="tip-card-next"]'),
+    ).not.toBeNull();
+    fireEvent.click(getByLabelText("Next tip"));
+
+    expect(onNextTip).toHaveBeenCalledTimes(1);
+  });
+
+  test("omits the next-tip chevron when the prop is absent", () => {
+    const { container } = renderCard(LINKED_TIP);
+
+    expect(container.querySelector('[data-slot="tip-card-next"]')).toBeNull();
   });
 
   test("don't show again fires the callback and navigates to Settings General", () => {

@@ -72,6 +72,18 @@ export const tipsEnabledStorage = createStorageAccessor<boolean>({
   fallback: true,
 });
 
+/**
+ * Dev/demo-only cycler chevron on the tip card. No UI writes this — enable
+ * via console: `localStorage.setItem("device:tips:demo_cycler", "true")`.
+ */
+export const tipsDemoCyclerStorage = createStorageAccessor<boolean>({
+  key: "device:tips:demo_cycler",
+  scope: "device",
+  parse: parseBool,
+  serialize: String,
+  fallback: false,
+});
+
 /** Epoch ms of the first time the tips feature observed this user. 0 = not yet. */
 export const tipsFirstSeenAtStorage = createStorageAccessor<number>({
   key: "device:tips:first_seen_at",

@@ -33,6 +33,7 @@ import {
   recordTipDismissed,
   recordTipShown,
   tipRecordsStorage,
+  tipsDemoCyclerStorage,
   tipsEnabledStorage,
   tipsFirstSeenAtStorage,
 } from "@/utils/tips-storage";
@@ -80,6 +81,8 @@ export interface UseTipCardResult {
   onDismiss: () => void;
   onLearnMore: () => void;
   onDontShowAgain: () => void;
+  /** Dev/demo cycler — defined only when `tipsDemoCyclerStorage` is on. */
+  onNextTip: (() => void) | undefined;
 }
 
 export function useTipCard(): UseTipCardResult {
@@ -90,6 +93,7 @@ export function useTipCard(): UseTipCardResult {
   const bannerVisible = useBannerVisible();
   const supportsPluginsSurface = useSupportsPluginsSurface();
   const tipsEnabled = tipsEnabledStorage.useValue();
+  const demoCyclerEnabled = tipsDemoCyclerStorage.useValue();
   const records = tipRecordsStorage.useValue();
   const firstSeenAt = tipsFirstSeenAtStorage.useValue();
 
@@ -100,6 +104,7 @@ export function useTipCard(): UseTipCardResult {
   // timer below refreshes whenever the selection outcome can change.
   const [now, setNow] = useState(() => Date.now());
   const [ageEligible, setAgeEligible] = useState(false);
+  const [demoIndex, setDemoIndex] = useState<number | null>(null);
 
   useEffect(() => {
     ensureTipsFirstSeenAt();
@@ -164,8 +169,17 @@ export function useTipCard(): UseTipCardResult {
     }),
   );
 
+  // Demo override: cycle the raw catalog, deliberately ignoring per-tip gates
+  // and dismissal records — a demo should show every card. The global gates
+  // above still apply.
+  const demoTip =
+    demoCyclerEnabled && demoIndex !== null
+      ? TIPS_CATALOG[demoIndex % TIPS_CATALOG.length]
+      : null;
+  const demoActive = demoTip !== null;
+
   const tip = gatesOpen
-    ? selectCurrentTip(eligibleCatalog, records, now)
+    ? (demoTip ?? selectCurrentTip(eligibleCatalog, records, now))
     : null;
   const tipId = tip?.id ?? null;
 
@@ -174,6 +188,10 @@ export function useTipCard(): UseTipCardResult {
   // double-count: a tip already shown within the window is skipped.
   useEffect(() => {
     if (tipId === null) {
+      return;
+    }
+    // Demo cycling must not consume the real rotation state.
+    if (demoActive) {
       return;
     }
     // Layout effects flush before passive effects, so this read sees a banner
@@ -191,7 +209,18 @@ export function useTipCard(): UseTipCardResult {
     }
     recordTipShown(tipId, shownAt);
     emitTipEvent(tipId, "impression", variant);
-  }, [tipId, variant]);
+  }, [tipId, variant, demoActive]);
+
+  const cycleToNextTip = useCallback(() => {
+    setDemoIndex((current) => {
+      if (current !== null) {
+        return current + 1;
+      }
+      // First click: start from the shown tip's successor (0 if none shown).
+      const shownIndex = TIPS_CATALOG.findIndex((entry) => entry.id === tipId);
+      return shownIndex === -1 ? 0 : (shownIndex + 1) % TIPS_CATALOG.length;
+    });
+  }, [tipId]);
 
   const onDismiss = useCallback(() => {
     if (tipId === null) {
@@ -216,5 +245,11 @@ export function useTipCard(): UseTipCardResult {
     emitTipEvent(tipId, "dont_show_again", variant);
   }, [tipId, variant]);
 
-  return { tip, onDismiss, onLearnMore, onDontShowAgain };
+  return {
+    tip,
+    onDismiss,
+    onLearnMore,
+    onDontShowAgain,
+    onNextTip: demoCyclerEnabled ? cycleToNextTip : undefined,
+  };
 }

@@ -5,6 +5,7 @@ import {
   recordTipDismissed,
   recordTipShown,
   tipRecordsStorage,
+  tipsDemoCyclerStorage,
   tipsEnabledStorage,
   tipsFirstSeenAtStorage,
 } from "@/utils/tips-storage";
@@ -61,6 +62,19 @@ describe("tipsEnabledStorage", () => {
   it("falls back to enabled on malformed values", () => {
     localStorage.setItem(tipsEnabledStorage.key, "yes");
     expect(tipsEnabledStorage.load()).toBe(true);
+  });
+});
+
+describe("tipsDemoCyclerStorage", () => {
+  it("defaults to off and round-trips", () => {
+    expect(tipsDemoCyclerStorage.load()).toBe(false);
+    tipsDemoCyclerStorage.save(true);
+    expect(tipsDemoCyclerStorage.load()).toBe(true);
+  });
+
+  it("falls back to off on malformed values", () => {
+    localStorage.setItem(tipsDemoCyclerStorage.key, "yes");
+    expect(tipsDemoCyclerStorage.load()).toBe(false);
   });
 });
 

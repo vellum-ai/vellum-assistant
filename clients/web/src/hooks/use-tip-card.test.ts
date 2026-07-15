@@ -34,6 +34,7 @@ const { TIP_ROTATION_INTERVAL_MS } = await import("@/utils/tips-selection");
 const {
   recordTipDismissed,
   tipRecordsStorage,
+  tipsDemoCyclerStorage,
   tipsEnabledStorage,
   tipsFirstSeenAtStorage,
 } = await import("@/utils/tips-storage");
@@ -292,5 +293,76 @@ describe("useTipCard actions", () => {
       "dont_show_again",
       "on",
     );
+  });
+});
+
+describe("useTipCard demo cycler", () => {
+  test("onNextTip is undefined while the cycler storage is off", () => {
+    openAllGates();
+
+    const { result } = renderHook(() => useTipCard());
+
+    expect(result.current.tip?.id).toBe(FIRST_TIP_ID);
+    expect(result.current.onNextTip).toBeUndefined();
+  });
+
+  test("cycles the full catalog — including gated and dismissed tips — and wraps", () => {
+    openAllGates();
+    tipsDemoCyclerStorage.save(true);
+    // A dismissed tip must still appear in the demo walk.
+    recordTipDismissed(TIPS_CATALOG[2].id, Date.now());
+
+    const { result } = renderHook(() => useTipCard());
+    expect(result.current.tip?.id).toBe(FIRST_TIP_ID);
+    expect(result.current.onNextTip).toBeDefined();
+
+    // First click jumps to the shown tip's successor; each later click
+    // advances one slot. Walking length clicks covers every catalog entry
+    // (gated ones included — none pass gates on web) and lands back on the
+    // first tip, proving the wrap.
+    for (let click = 1; click <= TIPS_CATALOG.length; click++) {
+      act(() => {
+        result.current.onNextTip?.();
+      });
+      expect(result.current.tip?.id).toBe(
+        TIPS_CATALOG[click % TIPS_CATALOG.length].id,
+      );
+    }
+  });
+
+  test("demo-shown tips stamp no records and emit no telemetry", () => {
+    openAllGates();
+    tipsDemoCyclerStorage.save(true);
+
+    const { result } = renderHook(() => useTipCard());
+    // The initial real tip still records its impression as usual.
+    expect(tipRecordsStorage.load()[FIRST_TIP_ID]?.shownCount).toBe(1);
+    const recordsAfterRealImpression = tipRecordsStorage.load();
+    emitTipEvent.mockClear();
+
+    for (let click = 1; click <= TIPS_CATALOG.length; click++) {
+      act(() => {
+        result.current.onNextTip?.();
+      });
+    }
+
+    expect(tipRecordsStorage.load()).toEqual(recordsAfterRealImpression);
+    expect(emitTipEvent).not.toHaveBeenCalled();
+  });
+
+  test("global gates still blank the slot while demo cycling", () => {
+    openAllGates();
+    tipsDemoCyclerStorage.save(true);
+
+    const { result } = renderHook(() => useTipCard());
+    act(() => {
+      result.current.onNextTip?.();
+    });
+    expect(result.current.tip?.id).toBe(TIPS_CATALOG[1].id);
+
+    act(() => {
+      useBannerVisibilityStore.getState().registerVisibleBanner();
+    });
+    expect(result.current.tip).toBeNull();
   });
 });

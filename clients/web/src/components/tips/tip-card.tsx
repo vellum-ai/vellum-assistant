@@ -8,18 +8,27 @@
  * the learn-more CTA left and "Don't show again" right.
  */
 
-import { Lightbulb, X } from "lucide-react";
+import { ChevronRight, Lightbulb, X } from "lucide-react";
 import { Link, useNavigate } from "react-router";
 
 import { cn } from "@/utils/misc";
 import { routes } from "@/utils/routes";
 import type { Tip } from "@/utils/tips-catalog";
 
+const headerButtonClassName = cn(
+  "-my-1 shrink-0 cursor-pointer rounded bg-transparent p-1",
+  "text-[color:var(--content-tertiary)] transition-colors",
+  "hover:text-[color:var(--content-secondary)]",
+  "keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)] keyboard-focus:outline-none",
+);
+
 export interface TipCardProps {
   tip: Tip;
   onDismiss: () => void;
   onLearnMore: () => void;
   onDontShowAgain: () => void;
+  /** Dev/demo-only cycler — omitted in production, so no button renders. */
+  onNextTip?: () => void;
 }
 
 export function TipCard({
@@ -27,6 +36,7 @@ export function TipCard({
   onDismiss,
   onLearnMore,
   onDontShowAgain,
+  onNextTip,
 }: TipCardProps) {
   const navigate = useNavigate();
 
@@ -44,16 +54,26 @@ export function TipCard({
           {tip.eyebrow}
         </span>
         <span className="flex-1" />
+        {onNextTip ? (
+          <button
+            type="button"
+            onClick={onNextTip}
+            aria-label="Next tip"
+            data-slot="tip-card-next"
+            className={headerButtonClassName}
+          >
+            <ChevronRight
+              className="h-3.5 w-3.5"
+              strokeWidth={2}
+              aria-hidden="true"
+            />
+          </button>
+        ) : null}
         <button
           type="button"
           onClick={onDismiss}
           aria-label="Dismiss"
-          className={cn(
-            "-my-1 -mr-1 shrink-0 cursor-pointer rounded bg-transparent p-1",
-            "text-[color:var(--content-tertiary)] transition-colors",
-            "hover:text-[color:var(--content-secondary)]",
-            "keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)] keyboard-focus:outline-none",
-          )}
+          className={cn(headerButtonClassName, "-mr-1")}
         >
           <X className="h-3.5 w-3.5" strokeWidth={2} aria-hidden="true" />
         </button>
