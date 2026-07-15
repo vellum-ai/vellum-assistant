@@ -69,6 +69,18 @@ interface Projected {
   updatedAtMs?: number; // for recency hit-test skipping; undefined = stale/older
 }
 
+// A drawn edge in screen space: the two endpoints (a → b), its kind, its
+// authored description (link edges only), and mid-segment depth for tie-breaks.
+interface ProjectedEdge {
+  ax: number;
+  ay: number;
+  bx: number;
+  by: number;
+  kind: string;
+  description?: string;
+  depth: number;
+}
+
 interface Colors {
   content: string;
   tertiary: string;
@@ -80,6 +92,15 @@ function resolveColors(el: HTMLElement): Colors {
     content: s.getPropertyValue("--content-default").trim() || "#e5e7eb",
     tertiary: s.getPropertyValue("--content-tertiary").trim() || "#8792a0",
   };
+}
+
+// Tooltip text for a hovered edge: a learned edge is a behavioral association;
+// a link edge carries an authored description (falling back to a generic label).
+function labelForEdge(edge: { kind: string; description?: string }): string {
+  if (edge.kind === "learned") {
+    return "Learned association";
+  }
+  return edge.description ?? "Linked concepts";
 }
 
 export interface ConceptGraphViewProps {
@@ -190,11 +211,17 @@ export function ConceptGraphView({
     dirty: true,
   });
   const projectedRef = useRef<Projected[]>([]);
+  // Screen-space segments of the edges drawn this frame (ghosted ones skipped),
+  // so a pointer can hit-test edges for the "why are these connected?" tooltip.
+  const projectedEdgesRef = useRef<ProjectedEdge[]>([]);
   const colorsRef = useRef<Colors>({ content: "#e5e7eb", tertiary: "#8792a0" });
 
   // Bumped only when the focused node changes, so the DOM tooltip re-renders.
   // The canvas itself never needs React state.
   const [focusLabel, setFocusLabel] = useState<string | null>(null);
+  // Set while the pointer is over an EDGE (and no node) — the tooltip then
+  // explains why two concepts connect. Node hover always wins (onPointerMove).
+  const [edgeLabel, setEdgeLabel] = useState<string | null>(null);
   // The concept opened into the detail drawer (null = graph only).
   const [openNode, setOpenNode] = useState<ConceptDetailNode | null>(null);
 
@@ -410,7 +437,9 @@ export function ConceptGraphView({
       const posById = new Map<string, (typeof proj)[number]>();
       for (const p of proj) {posById.set(p.node.id, p);}
 
-      // Edges (behind nodes).
+      // Edges (behind nodes). Each drawn, non-ghosted segment is also collected
+      // (screen-space endpoints) so the pointer can hit-test edges for hover.
+      const projEdges: ProjectedEdge[] = [];
       ctx.lineCap = "round";
       for (const e of edges) {
         const a = posById.get(e.fromId);
@@ -424,6 +453,18 @@ export function ConceptGraphView({
           isRecencyGhost(b.node);
         const incident = activeId != null && (e.fromId === activeId || e.toId === activeId);
         const depth = (a.depth + b.depth) / 2;
+        // Only offer hover on edges that read as present — skip faded ones.
+        if (!ghost) {
+          projEdges.push({
+            ax: a.sx,
+            ay: a.sy,
+            bx: b.sx,
+            by: b.sy,
+            kind: e.kind,
+            description: e.description,
+            depth,
+          });
+        }
         // Learned edges fade with density in the resting web; authored links
         // don't. A focused hover neighborhood reads at full contrast, though —
         // so lit edges use the unfogged base even in a dense graph.
@@ -530,6 +571,7 @@ export function ConceptGraphView({
         depth: p.depth,
         updatedAtMs: p.node.updatedAtMs,
       }));
+      projectedEdgesRef.current = projEdges;
 
       raf = requestAnimationFrame(render);
     };
@@ -568,6 +610,40 @@ export function ConceptGraphView({
     }
     return best;
   }, []);
+
+  // Nearest EDGE segment under a screen point, within ~5px (point-to-segment
+  // distance); on ties the one nearer the front (higher depth) wins. Only the
+  // non-ghosted edges the render loop collected are considered.
+  const edgeHitTest = useCallback(
+    (x: number, y: number): { kind: string; description?: string } | null => {
+      let best: { kind: string; description?: string } | null = null;
+      let bestDist = Infinity;
+      let bestDepth = -1;
+      for (const e of projectedEdgesRef.current) {
+        const vx = e.bx - e.ax;
+        const vy = e.by - e.ay;
+        const len2 = vx * vx + vy * vy;
+        let t = 0;
+        if (len2 > 0) {
+          t = ((x - e.ax) * vx + (y - e.ay) * vy) / len2;
+          t = Math.max(0, Math.min(1, t));
+        }
+        const dx = x - (e.ax + t * vx);
+        const dy = y - (e.ay + t * vy);
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist > 5) {
+          continue;
+        }
+        if (dist < bestDist || (dist === bestDist && e.depth > bestDepth)) {
+          best = { kind: e.kind, description: e.description };
+          bestDist = dist;
+          bestDepth = e.depth;
+        }
+      }
+      return best;
+    },
+    [],
+  );
 
   const localPoint = (e: React.PointerEvent) => {
     const rect = containerRef.current!.getBoundingClientRect();
@@ -610,8 +686,15 @@ export function ConceptGraphView({
         v.dirty = true;
         setFocusLabel(labelFor(hit));
       }
+      // Node hover wins: only probe edges when no node is under the cursor.
+      if (hit) {
+        setEdgeLabel(null);
+      } else {
+        const edge = edgeHitTest(x, y);
+        setEdgeLabel(edge ? labelForEdge(edge) : null);
+      }
     },
-    [hitTest, labelFor],
+    [hitTest, labelFor, edgeHitTest],
   );
 
   const onPointerUp = useCallback(
@@ -648,6 +731,7 @@ export function ConceptGraphView({
   // this the highlight + tooltip would stay pinned after the pointer leaves.
   const onPointerLeave = useCallback(() => {
     const v = view.current;
+    setEdgeLabel(null);
     if (v.dragging || v.hoveredId == null) {
       return;
     }
@@ -789,7 +873,10 @@ export function ConceptGraphView({
           hasLearned={hasLearned}
         />
 
-        {focusLabel && !showIntro ? (
+        {/* One pill for both hovers. Node hover and edge hover are mutually
+            exclusive (a node hit clears edgeLabel; an edge hit means no node,
+            so focusLabel is null), and focusLabel wins when both are present. */}
+        {(focusLabel ?? edgeLabel) && !showIntro ? (
           <div
             className="pointer-events-none absolute left-1/2 top-4 max-w-[80%] -translate-x-1/2 truncate rounded-full px-3 py-1 text-[12px]"
             style={{
@@ -798,7 +885,7 @@ export function ConceptGraphView({
               color: "var(--content-default)",
             }}
           >
-            {focusLabel}
+            {focusLabel ?? edgeLabel}
           </div>
         ) : null}
 
