@@ -93,6 +93,22 @@ describe("consent-cache", () => {
     expect(getCachedShareAnalytics()).toBe(false);
   });
 
+  test("platform features disabled → confirmed false, not unknown", async () => {
+    // A config-level platform opt-out is permanent, not a cold cache: no
+    // flush will ever drain the outbox, so record-time gates must stay
+    // closed (confirmed false) instead of accumulating rows forever.
+    __setCachedShareAnalyticsForTest(true);
+    process.env.VELLUM_DISABLE_PLATFORM = "1";
+    try {
+      await refreshConsentCache();
+    } finally {
+      delete process.env.VELLUM_DISABLE_PLATFORM;
+    }
+    expect(getRawShareAnalytics()).toBe(false);
+    expect(getRawShareDiagnostics()).toBe(false);
+    expect(getCachedShareDiagnosticsVersion()).toBe("");
+  });
+
   test("becomes true after a successful fetch reporting shareAnalytics: true", async () => {
     mockClient = makeClient(makeConsent({ shareAnalytics: true }));
     await refreshConsentCache();
@@ -145,6 +161,16 @@ describe("consent-cache", () => {
     mockClient = makeClient(makeConsent({ shareAnalytics: true }), "");
     await refreshConsentCache();
     expect(getRawShareAnalytics()).toBe("unknown");
+    expect(getCachedShareAnalytics()).toBe(false);
+  });
+
+  test("legacy opt-out marker is honored at boot, before any refresh", () => {
+    // The marker is read live from config: a workspace carrying
+    // legacyTelemetryOptOut=true must gate recording in the window between
+    // daemon start and the first consent refresh (unknown-consent recording
+    // would otherwise leak events in that window).
+    setConfig("legacyTelemetryOptOut", true);
+    expect(getRawShareAnalytics()).toBe(false);
     expect(getCachedShareAnalytics()).toBe(false);
   });
 

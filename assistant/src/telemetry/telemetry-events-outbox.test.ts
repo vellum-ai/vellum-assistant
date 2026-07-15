@@ -290,7 +290,7 @@ describe("telemetry-events-outbox", () => {
     );
   });
 
-  test("recordTelemetryEvent honors the share_analytics opt-out", () => {
+  test("recordTelemetryEvent honors a confirmed share_analytics opt-out", () => {
     setShareAnalytics(false);
     expect(
       recordTelemetryEvent("watchdog", {
@@ -300,6 +300,19 @@ describe("telemetry-events-outbox", () => {
       }),
     ).toBeNull();
     expect(queryTelemetryOutboxBatch("watchdog", 10)).toEqual([]);
+  });
+
+  test("recordTelemetryEvent records while consent is unknown (cold cache)", () => {
+    setShareAnalytics("unknown");
+    const recorded = recordTelemetryEvent("watchdog", {
+      check_name: "c",
+      value: null,
+      detail: null,
+    });
+    expect(recorded).not.toBeNull();
+    expect(queryTelemetryOutboxBatch("watchdog", 10).map((r) => r.id)).toEqual([
+      recorded!.id,
+    ]);
   });
 
   test("recordTelemetryEvent returns null when the telemetry DB is unavailable", () => {

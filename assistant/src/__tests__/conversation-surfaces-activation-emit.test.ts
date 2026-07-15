@@ -7,6 +7,7 @@ let shareAnalytics = true;
 
 mock.module("../platform/consent-cache.js", () => ({
   getCachedShareAnalytics: () => shareAnalytics,
+  getRawShareAnalytics: () => shareAnalytics,
 }));
 
 let broadcastedMessages: ServerMessage[] = [];
