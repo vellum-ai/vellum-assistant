@@ -7,6 +7,8 @@
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import type { ConsentState } from "../platform/consent-cache.js";
+
 // ---------------------------------------------------------------------------
 // Module mocks (must precede production imports)
 // ---------------------------------------------------------------------------
@@ -91,7 +93,10 @@ mock.module("../version.js", () => ({
   APP_VERSION: "1.2.3-test",
 }));
 
-const mockGetCachedShareAnalytics = mock(() => true);
+// Tri-state `share_analytics` consent (the reporter's flush gate). The
+// boolean accessor used by record-time gates derives from the same knob so a
+// test toggling consent flips both views consistently.
+const mockGetRawShareAnalytics = mock<() => ConsentState>(() => true);
 // Owner's `share_diagnostics` consent — one part of the trace-collection gate.
 const mockGetCachedShareDiagnostics = mock(() => false);
 // Owner's accepted diagnostics-consent version — the disclosing-version part of
@@ -101,7 +106,8 @@ const mockGetCachedShareDiagnostics = mock(() => false);
 const mockGetCachedShareDiagnosticsVersion = mock(() => "2999-01-01");
 
 mock.module("../platform/consent-cache.js", () => ({
-  getCachedShareAnalytics: mockGetCachedShareAnalytics,
+  getRawShareAnalytics: mockGetRawShareAnalytics,
+  getCachedShareAnalytics: () => mockGetRawShareAnalytics() === true,
   getCachedShareDiagnostics: mockGetCachedShareDiagnostics,
   getCachedShareDiagnosticsVersion: mockGetCachedShareDiagnosticsVersion,
 }));
@@ -324,8 +330,8 @@ let mockFetch: ReturnType<typeof mock>;
 beforeEach(() => {
   eventIdCounter = 0;
   // Default consent ON so the happy-path send tests exercise the flush.
-  mockGetCachedShareAnalytics.mockReset();
-  mockGetCachedShareAnalytics.mockReturnValue(true);
+  mockGetRawShareAnalytics.mockReset();
+  mockGetRawShareAnalytics.mockReturnValue(true);
   // Default `share_diagnostics` consent OFF — most tests don't expect a trace;
   // the trace-specific tests opt in explicitly.
   mockGetCachedShareDiagnostics.mockReset();
@@ -1164,7 +1170,7 @@ describe("UsageTelemetryReporter", () => {
     // The analytics gate short-circuits the entire flush; trace assembly must
     // never run (and nothing is sent) even when the trace gate is fully on
     // (share_diagnostics true at an eligible version).
-    mockGetCachedShareAnalytics.mockReturnValue(false);
+    mockGetRawShareAnalytics.mockReturnValue(false);
     mockGetCachedShareDiagnostics.mockReturnValue(true);
     mockQueryUnreportedTurnEvents.mockReturnValue(singleTurnEvent());
 
@@ -1565,7 +1571,7 @@ describe("UsageTelemetryReporter", () => {
   });
 
   test("flush is skipped and watermarks advanced when share_analytics consent is off", async () => {
-    mockGetCachedShareAnalytics.mockReturnValue(false);
+    mockGetRawShareAnalytics.mockReturnValue(false);
     const events = [makeUsageEvent()];
     mockQueryUnreportedUsageEvents.mockReturnValue(events);
     mockFetch.mockImplementation(() =>
@@ -1608,6 +1614,37 @@ describe("UsageTelemetryReporter", () => {
     expect(keys).not.toContain("telemetry:onboarding:last_reported_id");
   });
 
+  test("warm-up: unknown-consent flushes defer the backlog until consent resolves to true", async () => {
+    // An unresolved consent cache (boot before the first refresh, no platform
+    // session) is not an opt-out: unlike the confirmed-false branch, nothing
+    // is sent, nothing is purged, and no watermark moves, so the backlog
+    // survives the cold-cache window.
+    mockGetRawShareAnalytics.mockReturnValue("unknown");
+    const events = [makeUsageEvent({ id: "evt-warmup-backlog" })];
+    mockQueryUnreportedUsageEvents.mockReturnValue(events);
+
+    const reporter = makeReporter();
+    // Construction initializes the absent tool_executed watermark; clear that
+    // call so the assertions below cover only the flushes.
+    mockSetFlushCheckpoint.mockClear();
+    await reporter.flush();
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(mockSetFlushCheckpoint).not.toHaveBeenCalled();
+
+    // The refresh loop resolves the cache to a confirmed opt-in: the same
+    // backlog now ships.
+    mockGetRawShareAnalytics.mockReturnValue(true);
+    await reporter.flush();
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    expect(
+      body.events.map((e: { daemon_event_id: string }) => e.daemon_event_id),
+    ).toEqual(["evt-warmup-backlog"]);
+  });
+
   test("platform disabled takes precedence over consent off — watermarks NOT advanced", async () => {
     // VELLUM_DISABLE_PLATFORM keeps the consent cache false (the consent
     // refresh can't create a platform client), so both gates would fire. The
@@ -1615,7 +1652,7 @@ describe("UsageTelemetryReporter", () => {
     // watermarks, preserving the backlog until the flag is cleared — a
     // deployment toggle must not be treated as a privacy opt-out.
     process.env.VELLUM_DISABLE_PLATFORM = "true";
-    mockGetCachedShareAnalytics.mockReturnValue(false);
+    mockGetRawShareAnalytics.mockReturnValue(false);
     const events = [makeUsageEvent()];
     mockQueryUnreportedUsageEvents.mockReturnValue(events);
 
@@ -1652,14 +1689,14 @@ describe("UsageTelemetryReporter", () => {
 
   test("events sent normally after re-granting share_analytics consent", async () => {
     // First flush with opt-out — watermarks advance, nothing sent
-    mockGetCachedShareAnalytics.mockReturnValue(false);
+    mockGetRawShareAnalytics.mockReturnValue(false);
     const reporter = makeReporter();
     await reporter.flush();
     expect(mockFetch).not.toHaveBeenCalled();
     mockSetFlushCheckpoint.mockReset();
 
     // Re-grant consent and flush with new events
-    mockGetCachedShareAnalytics.mockReturnValue(true);
+    mockGetRawShareAnalytics.mockReturnValue(true);
     const events = [makeUsageEvent({ id: "evt-after-reenable" })];
     mockQueryUnreportedUsageEvents.mockReturnValue(events);
     mockFetch.mockImplementation(() =>
@@ -2280,7 +2317,7 @@ describe("UsageTelemetryReporter", () => {
     // constructs and runs the reporter; the always-on audit listener keeps
     // writing rows. Every opted-out flush (5-minute cycle plus the final
     // flush in stop()) advances the watermark past them without sending.
-    mockGetCachedShareAnalytics.mockReturnValue(false);
+    mockGetRawShareAnalytics.mockReturnValue(false);
     const optOutRowCreatedAt = Date.now() - 5_000;
     seedToolInvocation({
       id: "ti-opt-out-window",
@@ -2296,7 +2333,7 @@ describe("UsageTelemetryReporter", () => {
 
     // Session 2: the user opts back in and restarts. Only rows recorded
     // after the opt-out epoch ship — the opt-out-window row never does.
-    mockGetCachedShareAnalytics.mockReturnValue(true);
+    mockGetRawShareAnalytics.mockReturnValue(true);
     seedToolInvocation({ id: "ti-after-opt-in", createdAt: advanced + 1000 });
     const reporter = makeReporter();
     await reporter.flush();
@@ -2321,7 +2358,7 @@ describe("UsageTelemetryReporter", () => {
 
     // Opted-out flush: advances the timestamp watermark to Date.now() and
     // must also pin the ID watermark to the high-sorting sentinel.
-    mockGetCachedShareAnalytics.mockReturnValue(false);
+    mockGetRawShareAnalytics.mockReturnValue(false);
     const optedOutReporter = makeReporter();
     await optedOutReporter.flush();
     expect(mockFetch).not.toHaveBeenCalled();
@@ -2339,7 +2376,7 @@ describe("UsageTelemetryReporter", () => {
     });
 
     // Re-opt-in: only rows strictly after the opt-out epoch ship.
-    mockGetCachedShareAnalytics.mockReturnValue(true);
+    mockGetRawShareAnalytics.mockReturnValue(true);
     seedToolInvocation({ id: "ti-after-opt-in", createdAt: watermark + 1000 });
     const reporter = makeReporter();
     await reporter.flush();
@@ -2779,7 +2816,7 @@ describe("UsageTelemetryReporter", () => {
   });
 
   test("opt-out: discardPending drops ack-mode rows while watermark sources get the sentinel pin", async () => {
-    mockGetCachedShareAnalytics.mockReturnValue(false);
+    mockGetRawShareAnalytics.mockReturnValue(false);
     const {
       source: ackSource,
       discardPending,
@@ -2803,6 +2840,28 @@ describe("UsageTelemetryReporter", () => {
     );
     expect(wmIdCall?.[1]).toBe("ffffffff-ffff-ffff-ffff-ffffffffffff");
     expect(keys.some((k) => k.includes("fake_ack"))).toBe(false);
+  });
+
+  test("unknown consent: nothing is discarded, acked, or advanced — rows wait for a confirmed state", async () => {
+    mockGetRawShareAnalytics.mockReturnValue("unknown");
+    const {
+      source: ackSource,
+      acknowledge,
+      discardPending,
+      pending,
+    } = makeAckSource("fake_ack", ["row-1"]);
+    const wmSource = makeWatermarkSource("fake_wm", ["wm-1"]);
+    const reporter = new UsageTelemetryReporter(
+      [wmSource, ackSource],
+      fakeFlushCheckpointStore,
+    );
+    await reporter.flush();
+
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(discardPending).not.toHaveBeenCalled();
+    expect(acknowledge).not.toHaveBeenCalled();
+    expect(pending()).toBe(1);
+    expect(mockSetFlushCheckpoint).not.toHaveBeenCalled();
   });
 
   test("mixed watermark+ack sources flush in construction order, each acknowledged in its own mode", async () => {
@@ -2987,7 +3046,7 @@ describe("UsageTelemetryReporter", () => {
   });
 
   test("outboxSource opt-out discards all pending rows for the name", async () => {
-    mockGetCachedShareAnalytics.mockReturnValue(false);
+    mockGetRawShareAnalytics.mockReturnValue(false);
     seedOutboxRow("ob-1", 1700000001000);
     seedOutboxRow("ob-2", 1700000002000);
     const reporter = new UsageTelemetryReporter(
@@ -2998,6 +3057,21 @@ describe("UsageTelemetryReporter", () => {
 
     expect(mockFetch).not.toHaveBeenCalled();
     expect(pendingOutboxIds()).toEqual([]);
+    expect(mockSetFlushCheckpoint).not.toHaveBeenCalled();
+  });
+
+  test("outboxSource unknown consent retains all pending rows", async () => {
+    mockGetRawShareAnalytics.mockReturnValue("unknown");
+    seedOutboxRow("ob-1", 1700000001000);
+    seedOutboxRow("ob-2", 1700000002000);
+    const reporter = new UsageTelemetryReporter(
+      [outboxSource(OUTBOX_NAME)],
+      fakeFlushCheckpointStore,
+    );
+    await reporter.flush();
+
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(pendingOutboxIds()).toEqual(["ob-1", "ob-2"]);
     expect(mockSetFlushCheckpoint).not.toHaveBeenCalled();
   });
 
