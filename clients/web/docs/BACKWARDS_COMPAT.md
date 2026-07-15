@@ -151,7 +151,7 @@ Each module owns one feature's old/new split. Current registry:
 | `vision-attachment-gate.ts`         | `0.10.0-dev.202606211252.5cf8576` | Client filters images out for non-vision models                                                          | Allow any file type; the image-fallback plugin filters/captions server-side                |
 | `default-provider-settings.ts`      | `0.10.8`                          | No default-provider marker UI in the Providers modal; status query never fires                           | "Default" tag + "Set as default" via `GET/PUT /v1/config/llm/default-provider`             |
 | `complete-profile-snapshots.ts`     | `0.10.8`                          | Blank profile fields live-inherit (deep merge); no snapshot copy in the editor                            | Blanks are baked at save time; editor shows the snapshot helper line                        |
-| `use-supports-redacted-credential-chips.ts` | `0.11.0`                  | Sentinel-shaped transcript text renders as plain text (daemon neither mints nor neutralizes sentinels)   | Assistant-message sentinels upgrade to redacted-credential reveal chips                     |
+| `use-supports-redacted-credential-chips.ts` | `0.10.10`                 | Sentinel-shaped transcript text renders as plain text (daemon neither mints nor neutralizes sentinels)   | Assistant-message sentinels upgrade to redacted-credential reveal chips                     |
 
 When you delete a row here, also delete its module, its test, and the now-dead
 legacy branch at the call site.
