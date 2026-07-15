@@ -585,6 +585,72 @@ describe("ProviderCreateForm submit sequence", () => {
     );
   });
 
+  test("a Display Name edit does not drag the hidden key off the -personal convention", async () => {
+    render(
+      <ModalWrapper>
+        <ProviderCreateForm
+          assistantId={ASSISTANT_ID}
+          existingNames={[]}
+          defaultProviderType="anthropic"
+          onCreated={() => {}}
+          onCancel={() => {}}
+        />
+      </ModalWrapper>,
+    );
+
+    openAdvancedFields();
+    fireEvent.change(getInputByPlaceholder("e.g. My Anthropic Key"), {
+      target: { value: "Work Anthropic" },
+    });
+    fireEvent.change(getInputByPlaceholder("Enter your API key"), {
+      target: { value: "sk-test-123" },
+    });
+    fireEvent.click(getButton("Add"));
+
+    await waitFor(() => {
+      expect(createConnectionCalls.length).toBe(1);
+    });
+    expect(createConnectionCalls[0].body).toMatchObject({
+      name: "anthropic-personal",
+      label: "Work Anthropic",
+    });
+  });
+
+  test("a provider switch re-seeds the hidden key even after a Display Name edit", async () => {
+    render(
+      <ModalWrapper>
+        <ProviderCreateForm
+          assistantId={ASSISTANT_ID}
+          existingNames={[]}
+          defaultProviderType="anthropic"
+          onCreated={() => {}}
+          onCancel={() => {}}
+        />
+      </ModalWrapper>,
+    );
+
+    openAdvancedFields();
+    fireEvent.change(getInputByPlaceholder("e.g. My Anthropic Key"), {
+      target: { value: "My Custom Name" },
+    });
+    selectDropdownOption("Provider", "OpenAI");
+
+    fireEvent.change(getInputByPlaceholder("Enter your API key"), {
+      target: { value: "sk-test-123" },
+    });
+    fireEvent.click(getButton("Add"));
+
+    await waitFor(() => {
+      expect(createConnectionCalls.length).toBe(1);
+    });
+    // Label edit preserved; key follows the provider's convention seed.
+    expect(createConnectionCalls[0].body).toMatchObject({
+      name: "openai-personal",
+      provider: "openai",
+      label: "My Custom Name",
+    });
+  });
+
   test("the key input only exists for openai-compatible", () => {
     render(
       <ModalWrapper>

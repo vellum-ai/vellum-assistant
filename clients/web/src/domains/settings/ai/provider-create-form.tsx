@@ -130,11 +130,19 @@ export function ProviderCreateForm({
     return base;
   }, [isChatgpt, provider, selectableConnectionProviders]);
 
+  // Key-follows-label sync only while the key field is visible
+  // (openai-compatible). For catalog providers the key has no editor and must
+  // stay on the `${provider}-personal` convention seed, so label edits pass
+  // through in the hook's non-syncing mode (still marking the form dirty).
   const {
     handleLabelChange,
     handleKeyChange: handleNameChange,
     getDirty,
-  } = useLabelKeySync("create", setLabel, setName);
+  } = useLabelKeySync(
+    isOpenAICompatible ? "create" : "edit",
+    setLabel,
+    setName,
+  );
 
   const [apiKeyValue, setApiKeyValue] = useState("");
   const [isSavingKey, setIsSavingKey] = useState(false);
@@ -397,16 +405,21 @@ export function ProviderCreateForm({
             if (newSelected === "chatgpt") {
               return;
             }
-            // Re-seed Name + Key from the newly selected provider type, but
-            // only while the user hasn't manually edited either field (dirty
-            // tracking lives in useLabelKeySync). Seeding writes state
+            // Re-seed Name + Key from the newly selected provider type.
+            // A user-edited Display Name is preserved (dirty tracking lives
+            // in useLabelKeySync), but the key ALWAYS follows the provider
+            // for catalog providers — it has no editor there, so a stale
+            // seed from a previous selection would silently violate the
+            // `${provider}-personal` convention. Seeding writes state
             // directly so it doesn't itself flip the dirty flag.
+            const { name: seedName, key: seedKey } = deriveProviderDefaults(
+              newSelected,
+              existingNames,
+            );
             if (!getDirty()) {
-              const { name: seedName, key: seedKey } = deriveProviderDefaults(
-                newSelected,
-                existingNames,
-              );
               setLabel(seedName);
+              setName(seedKey);
+            } else if (newSelected !== "openai-compatible") {
               setName(seedKey);
             }
             setCredential(
