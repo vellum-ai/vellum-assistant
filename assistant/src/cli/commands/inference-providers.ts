@@ -68,40 +68,23 @@ function formatAuth(auth: AuthInfo): string {
 // ---------------------------------------------------------------------------
 
 /**
- * Derive the auth object a provider implies: keyless catalog providers
- * (`setupMode: "keyless"`, e.g. ollama) need none, the Vellum sentinel routes
- * via the platform proxy, everything else authenticates by API key. Mirrors
- * the daemon's mapping so the CLI can send full auth objects regardless of
- * daemon version. Returns the auth object, or an error message string when a
- * keyed provider has no credential.
+ * Derive the auth object a provider implies via the daemon's shared
+ * `deriveAuthForProvider` (one source of truth for the keyless / vellum /
+ * openai-compatible rules), mapping its credential-required null to a
+ * CLI-flavored error message string.
  */
-async function deriveAuthForProvider(
+async function deriveAuthInput(
   provider: string,
   credential?: string,
 ): Promise<Record<string, unknown> | string> {
-  // Deferred: pure catalog modules, imported lazily per cli/no-daemon-internals.
-  const [{ PROVIDER_CATALOG }, { VELLUM_MANAGED_PROVIDER }] = await Promise.all(
-    [
-      import("../../providers/model-catalog.js"),
-      import("../../providers/vellum-model-routing.js"),
-    ],
-  );
-  if (provider === VELLUM_MANAGED_PROVIDER) {
-    return { type: "platform" };
-  }
-  const entry = PROVIDER_CATALOG.find((p) => p.id === provider);
-  if (entry?.setupMode === "keyless") {
-    return { type: "none" };
-  }
-  if (provider === "openai-compatible") {
-    // Custom endpoints have no fixed auth story: local servers are usually
-    // keyless, hosted ones keyed. Credential presence decides.
-    return credential ? { type: "api_key", credential } : { type: "none" };
-  }
-  if (!credential) {
+  // Deferred: pure module, imported lazily per cli/no-daemon-internals.
+  const { deriveAuthForProvider } =
+    await import("../../providers/inference/auth.js");
+  const derived = deriveAuthForProvider(provider, credential);
+  if (!derived) {
     return `Provider "${provider}" authenticates by API key — pass --credential <vault-key> (or an explicit --auth override)`;
   }
-  return { type: "api_key", credential };
+  return derived as unknown as Record<string, unknown>;
 }
 
 /**
@@ -276,7 +259,7 @@ function attachCreateSubcommand(parent: Command): void {
       ) => {
         const authInput = opts.auth
           ? buildAuthInput(opts.auth, opts.credential)
-          : await deriveAuthForProvider(opts.provider, opts.credential);
+          : await deriveAuthInput(opts.provider, opts.credential);
         if (typeof authInput === "string") {
           writeCliError(authInput, opts.json);
           return;
