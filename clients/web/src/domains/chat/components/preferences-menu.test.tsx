@@ -169,6 +169,23 @@ describe("PreferencesMenu", () => {
     ).toContain("Preferences");
   });
 
+  test("shows the generic label for the synthetic local gateway user", () => {
+    // Mirrors GATEWAY_LOCAL_USER: name fields are populated but identify no
+    // real account, so they must not surface as a profile.
+    authRef.user = {
+      kind: "local",
+      id: "gateway-local",
+      email: null,
+      isStaff: false,
+      username: "local",
+      firstName: "Local",
+      lastName: "User",
+    };
+    const html = renderToStaticMarkup(createElement(PreferencesMenu));
+    expect(html).toContain("Preferences");
+    expect(html).not.toContain("Local User");
+  });
+
   test("desktop renders trigger (Popover surface)", () => {
     isMobileRef.value = false;
     const html = renderToStaticMarkup(createElement(PreferencesMenu));

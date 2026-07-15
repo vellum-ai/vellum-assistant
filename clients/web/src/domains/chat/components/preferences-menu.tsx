@@ -71,13 +71,17 @@ export function PreferencesMenu({
 
   const closeMenu = () => setIsOpen(false);
 
-  // Prefer the account's real name; fall back to username, then email, then
-  // the generic label so the trigger is never blank. Matches the display-name
-  // derivation used elsewhere (see session-replay-control.ts).
+  // Only a platform account carries a real identity; the local gateway user is
+  // a synthetic placeholder whose "Local"/"User" name fields would otherwise
+  // render as a profile.
+  const account = user?.kind === "platform" ? user : null;
+
+  // Prefer the account's real name; fall back to username, then email, then the
+  // generic label so the trigger is never blank.
   const displayName =
-    [user?.firstName, user?.lastName].filter(Boolean).join(" ").trim() ||
-    user?.username ||
-    user?.email ||
+    [account?.firstName, account?.lastName].filter(Boolean).join(" ").trim() ||
+    account?.username ||
+    account?.email ||
     "Preferences";
 
   const trigger =
