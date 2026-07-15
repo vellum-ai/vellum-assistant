@@ -701,6 +701,31 @@ describe("auth store onboarding flag reconciliation", () => {
     expect(setShareDiagnosticsMock).not.toHaveBeenCalled();
   });
 
+  test("a no-record response never adopts its default share values over a local opt-out", async () => {
+    // Older/default consent shapes materialize share_analytics: true on a
+    // record-less response; adopting it would clobber the device opt-out the
+    // backfill is about to seed the server with.
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    localStorage.setItem("device:share_analytics", "false");
+    resolveServerConsentMock.mockReturnValueOnce({
+      tos: false,
+      privacy: false,
+      shareAnalytics: true,
+      shareDiagnostics: true,
+      analyticsEffective: true,
+      diagnosticsEffective: true,
+      analyticsCurrent: true,
+      diagnosticsCurrent: true,
+      analyticsVersionCurrent: false,
+      diagnosticsVersionCurrent: false,
+      hasServerRecord: false,
+    });
+
+    await useAuthStore.getState().initSession();
+
+    expect(setShareAnalyticsMock).not.toHaveBeenCalled();
+  });
+
   test("no-record fallback without any device acks stays current and backfills neither toggle", async () => {
     sessionUser = { id: "user-1", email: "user@example.com" };
     restoreConsentForUserMock.mockReturnValueOnce({
@@ -797,9 +822,11 @@ describe("auth store onboarding flag reconciliation", () => {
     const backfillBody = patchConsentMock.mock.calls[0][0] as Record<string, unknown>;
     expect("share_analytics" in backfillBody).toBe(false);
     expect("share_analytics_accepted_version" in backfillBody).toBe(false);
-    // Never-asked propagates to the store (null adoption); the diagnostics
-    // preference is left untouched by the chokepoint on an unknown input.
-    expect(setShareAnalyticsMock).toHaveBeenCalledWith(null);
+    // A no-record response adopts nothing — its share values are API
+    // defaults, not a stored row, and adopting one would clobber the device
+    // state the backfill is seeding from. The diagnostics preference is
+    // likewise left untouched by the chokepoint on an unknown input.
+    expect(setShareAnalyticsMock).not.toHaveBeenCalled();
     expect(setShareDiagnosticsMock).not.toHaveBeenCalled();
   });
 

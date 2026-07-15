@@ -336,11 +336,17 @@ async function syncUserScopedState(nextUserId: string | null): Promise<void> {
       // Adopt the server's tri-state share-analytics verbatim: an explicit
       // choice is authoritative even when its legal consent versions are stale
       // (the nav layer routes to review-terms), and null (never asked)
-      // propagates so the store reflects chosen-ness. One exception: null
-      // never overwrites a local explicit opt-out — its server write may still
-      // be in flight (or have failed), and clearing it would resume uploads
-      // the user declined.
-      if (resolved.shareAnalytics !== null || localShareAnalytics !== false) {
+      // propagates so the store reflects chosen-ness. Two exceptions:
+      // a no-record response adopts nothing — its values are API defaults
+      // (older shapes materialize `true` there), and adopting one would
+      // clobber the device opt-out the backfill below is about to seed the
+      // server with. And null never overwrites a local explicit opt-out —
+      // its server write may still be in flight (or have failed), and
+      // clearing it would resume uploads the user declined.
+      if (
+        resolved.hasServerRecord &&
+        (resolved.shareAnalytics !== null || localShareAnalytics !== false)
+      ) {
         store.setShareAnalytics(resolved.shareAnalytics);
       }
 
