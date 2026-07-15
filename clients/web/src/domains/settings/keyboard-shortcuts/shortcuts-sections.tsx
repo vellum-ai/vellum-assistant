@@ -1,6 +1,5 @@
 import { RotateCcw, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Navigate } from "react-router";
 
 import {
   getHotkeys,
@@ -8,8 +7,6 @@ import {
   setHotkey,
   type ResolvedHotkey,
 } from "@/runtime/hotkeys";
-import { isElectron } from "@/runtime/is-electron";
-import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
 import { Card } from "@vellumai/design-library/components/card";
 import { Notice } from "@vellumai/design-library/components/notice";
@@ -126,14 +123,14 @@ function ShortcutRow({
 }
 
 /**
- * Electron-only settings page for rebinding global and menu shortcuts, at
- * parity with the native app's Keyboard Shortcuts card. Reads the resolved
- * catalog over the typed `hotkeys` bridge, records new bindings from live
- * keypresses, blocks conflicting saves, and stays in sync with changes made
- * in other windows. Off Electron the route redirects, so the bridge calls
- * here always have a host.
+ * Electron-only sections for rebinding global and menu shortcuts, at parity
+ * with the native app's Keyboard Shortcuts card. Reads the resolved catalog
+ * over the typed `hotkeys` bridge, records new bindings from live keypresses,
+ * blocks conflicting saves, and stays in sync with changes made in other
+ * windows. The caller (the Preferences modal on Settings → General) only
+ * renders this on Electron, so the bridge calls here always have a host.
  */
-export function KeyboardShortcutsPage() {
+export function ShortcutsSections() {
   const [catalog, setCatalog] = useState<ResolvedHotkey[]>([]);
   const [recordingKey, setRecordingKey] = useState<string | null>(null);
   const [conflict, setConflict] = useState<{ key: string; label: string } | null>(
@@ -229,24 +226,8 @@ export function KeyboardShortcutsPage() {
     [catalog],
   );
 
-  // Off Electron the bridge yields an empty catalog; hotkeys are a desktop-only
-  // concern, so redirect rather than render an empty page (defense in depth —
-  // the sidebar entry is already gated in settings-layout.tsx).
-  if (!isElectron()) {
-    return <Navigate replace to={routes.settings.general} />;
-  }
-
   return (
     <div className="space-y-4">
-      <div>
-        <h2 className="text-title-medium text-[var(--content-default)]">
-          Keyboard Shortcuts
-        </h2>
-        <p className="text-body-medium-lighter text-[var(--content-secondary)]">
-          Customize the shortcuts for Vellum&apos;s commands.
-        </p>
-      </div>
-
       {conflict !== null && (
         <Notice tone="warning">
           That shortcut is already used by {conflict.label}.{" "}

@@ -9,7 +9,7 @@ import {
     TriangleAlert,
     X,
 } from "lucide-react";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 
 import { PluginDetail } from "@/domains/intelligence/components/plugins/plugin-detail";
@@ -78,6 +78,31 @@ export function PluginsTab({ assistantId }: PluginsTabProps) {
   const isMobile = useIsMobile();
   const [searchParams, setSearchParams] = useSearchParams();
   const selectedPluginName = searchParams.get("plugin");
+
+  // `?success=true` is set when another surface (e.g. the marketing plugin
+  // page's "Install in your assistant" button) installs a plugin and then
+  // deep-links here. Confirm it with a toast once, then strip the flag so a
+  // refresh or back/forward doesn't re-fire it. The `?plugin=` param stays, so
+  // the just-installed plugin's detail opens as usual.
+  const successFlag = searchParams.get("success");
+  const successToastedRef = useRef(false);
+  useEffect(() => {
+    if (successFlag !== "true" || successToastedRef.current) {
+      return;
+    }
+    successToastedRef.current = true;
+    if (selectedPluginName) {
+      toast.success(`Installed ${selectedPluginName}`);
+    }
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete("success");
+        return next;
+      },
+      { replace: true },
+    );
+  }, [successFlag, selectedPluginName, setSearchParams]);
 
   const [searchValue, setSearchValue] = useState("");
   const [filter, setFilter] = useState<PluginFilter>("all");

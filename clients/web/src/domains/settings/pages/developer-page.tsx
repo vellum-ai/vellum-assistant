@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { Navigate, useNavigate, useSearchParams } from "react-router";
 
+import { MemoryCard } from "@/domains/settings/components/memory-card";
 import { AssistantLifecyclePanel } from "@/domains/settings/components/panels/assistant-lifecycle-panel";
 import { EnvironmentConfigPanel } from "@/domains/settings/components/panels/environment-config-panel";
 import { FeatureFlagsPanel } from "@/domains/settings/components/panels/feature-flags-panel";
@@ -15,6 +16,7 @@ const ALL_TABS = [
   { id: "feature-flags", label: "Feature Flags" },
   { id: "lifecycle", label: "Assistant Lifecycle" },
   { id: "sentry", label: "Sentry Testing" },
+  { id: "memory", label: "Memory" },
 ] as const;
 
 type DeveloperTabId = (typeof ALL_TABS)[number]["id"];
@@ -101,6 +103,11 @@ export function DeveloperPage() {
         )}
         {activeTab === "lifecycle" && <AssistantLifecyclePanel />}
         {activeTab === "sentry" && <SentryTestingPanel />}
+        {activeTab === "memory" && (
+          <div className="space-y-4">
+            <MemoryCard />
+          </div>
+        )}
       </div>
     </div>
   );

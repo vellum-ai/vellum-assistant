@@ -184,3 +184,21 @@ export function discardPendingTelemetryOutboxEvents(name: string): void {
   }
   db.delete(telemetryEvents).where(eq(telemetryEvents.name, name)).run();
 }
+
+/**
+ * Distinct event names with at least one pending row in the outbox. Used by the
+ * orphan-drain source to find rows whose type is no longer in the wire contract
+ * (e.g. recorded before the platform removed/renamed a type) so they can be
+ * flushed instead of stranded. Empty when the telemetry DB is unavailable.
+ */
+export function queryDistinctOutboxEventNames(): string[] {
+  const db = getTelemetryDb();
+  if (!db) {
+    return [];
+  }
+  return db
+    .selectDistinct({ name: telemetryEvents.name })
+    .from(telemetryEvents)
+    .all()
+    .map((row) => row.name);
+}

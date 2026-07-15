@@ -20,6 +20,7 @@ import { APP_VERSION } from "../version.js";
 import {
   deleteTelemetryOutboxEvents,
   discardPendingTelemetryOutboxEvents,
+  queryDistinctOutboxEventNames,
   queryTelemetryOutboxBatch,
 } from "./telemetry-events-outbox.js";
 import { queryUnreportedToolExecutedEvents } from "./tool-executed-events-store.js";
@@ -132,12 +133,47 @@ function simpleSource<Row extends { id: string; createdAt: number }>(
 }
 
 /**
+ * Query one outbox event name and parse each stored payload into its wire
+ * event, accumulating into `events`/`rowIds`. A row whose payload does not
+ * parse to an object is collected into `corruptIds` for immediate purge: an
+ * early empty-batch return in the reporter would otherwise strand it at the
+ * head of the queue forever. Shared by {@link outboxSource} and the
+ * orphan-drain source.
+ */
+function collectOutboxName(
+  name: string,
+  limit: number,
+  into: { events: TelemetryEvent[]; rowIds: string[]; corruptIds: string[] },
+): { queried: number } {
+  const rows = queryTelemetryOutboxBatch(name, limit);
+  for (const row of rows) {
+    let event: TelemetryEvent | null = null;
+    try {
+      const parsed = JSON.parse(row.payload) as unknown;
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        event = parsed as TelemetryEvent;
+      }
+    } catch {
+      // Fall through to the purge below.
+    }
+    if (event) {
+      into.events.push(event);
+      into.rowIds.push(row.id);
+    } else {
+      into.corruptIds.push(row.id);
+      log.warn(
+        { name, rowId: row.id, payloadLength: row.payload.length },
+        "Telemetry outbox: unparseable payload — purging row",
+      );
+    }
+  }
+  return { queried: rows.length };
+}
+
+/**
  * Build an ack-mode source over the generic `telemetry_events` outbox for one
  * event name. `collect` ignores the cursor args — acknowledged rows are
- * deleted, so the head of the queue is always the next batch — and parses
- * each stored payload into its wire event. A row whose payload does not parse
- * to an object is purged immediately with a warn: an early empty-batch return
- * in the reporter would otherwise strand it at the head of the queue forever.
+ * deleted, so the head of the queue is always the next batch.
  */
 export function outboxSource(
   name: OutboxTelemetryEventName,
@@ -145,39 +181,20 @@ export function outboxSource(
   return {
     id: name,
     collect(_afterCreatedAt, _afterId, limit) {
-      const rows = queryTelemetryOutboxBatch(name, limit);
-      const events: TelemetryEvent[] = [];
-      const rowIds: string[] = [];
-      const corruptIds: string[] = [];
-      for (const row of rows) {
-        let event: TelemetryEvent | null = null;
-        try {
-          const parsed = JSON.parse(row.payload) as unknown;
-          if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-            event = parsed as TelemetryEvent;
-          }
-        } catch {
-          // Fall through to the purge below.
-        }
-        if (event) {
-          events.push(event);
-          rowIds.push(row.id);
-        } else {
-          corruptIds.push(row.id);
-          log.warn(
-            { name, rowId: row.id, payloadLength: row.payload.length },
-            "Telemetry outbox: unparseable payload — purging row",
-          );
-        }
-      }
-      if (corruptIds.length > 0) {
-        deleteTelemetryOutboxEvents(corruptIds);
+      const acc = {
+        events: [] as TelemetryEvent[],
+        rowIds: [] as string[],
+        corruptIds: [] as string[],
+      };
+      const { queried } = collectOutboxName(name, limit, acc);
+      if (acc.corruptIds.length > 0) {
+        deleteTelemetryOutboxEvents(acc.corruptIds);
       }
       return {
-        events,
-        rowIds,
+        events: acc.events,
+        rowIds: acc.rowIds,
         lastCursor: null,
-        fullBatch: rows.length === limit,
+        fullBatch: queried === limit,
       };
     },
     ack: {
@@ -187,44 +204,60 @@ export function outboxSource(
   };
 }
 
+/** Source id of the synthetic orphan-drain source (not a wire event type). */
+export const ORPHAN_OUTBOX_DRAIN_SOURCE_ID = "__orphan_outbox_drain";
+
 /**
- * Build an ack-mode source like {@link outboxSource}, but additionally
- * re-checks `share_diagnostics` eligibility (at an eligible accepted
- * version) on every collect, not just at record time. A writer's record-
- * time gate only covers the moment the row is recorded — if the owner
- * revokes diagnostics consent after that but before the next flush, a
- * still-pending row must not ship anyway (unlike `turnSource`'s trace,
- * which is assembled fresh at flush time and so re-evaluates consent for
- * free, a pre-built outbox payload has no such natural re-check point).
- * Ineligible pending rows are purged outright rather than held for a later
- * re-check, mirroring the corrupt-payload purge above — consent revocation
- * calls for dropping the backlog, not retrying it.
+ * Synthetic ack-mode source that drains outbox rows whose `name` is no longer a
+ * current outbox event type — e.g. rows recorded before the platform removed or
+ * renamed a type, still pending on a client that has since upgraded. The
+ * derived per-type sources ({@link OUTBOX_TELEMETRY_EVENT_NAMES}) never query
+ * those names, so without this the rows would sit in the outbox forever.
+ *
+ * Draining is send-then-ack: the platform skips an unknown event type but still
+ * returns 2xx, after which the row is deleted. This is safe against a stale
+ * local wire copy — a name merely missing from a lagging wire still ships and
+ * lands rather than being purged and lost — and rides `share_analytics` like
+ * every other outbox event (no outbox type is diagnostics-gated at flush).
  */
-function diagnosticsGatedOutboxSource(
-  name: OutboxTelemetryEventName,
-): TelemetryEventSource {
-  const base = outboxSource(name);
+export function orphanOutboxDrainSource(): TelemetryEventSource {
+  const known = new Set<string>(OUTBOX_TELEMETRY_EVENT_NAMES);
+  const orphanNames = (): string[] =>
+    queryDistinctOutboxEventNames().filter((name) => !known.has(name));
   return {
-    id: base.id,
-    collect(afterCreatedAt, afterId, limit) {
-      if (
-        !getCachedShareDiagnostics() ||
-        !isDiagnosticsConsentVersionEligible(getCachedShareDiagnosticsVersion())
-      ) {
-        const rows = queryTelemetryOutboxBatch(name, limit);
-        if (rows.length > 0) {
-          deleteTelemetryOutboxEvents(rows.map((row) => row.id));
+    id: ORPHAN_OUTBOX_DRAIN_SOURCE_ID,
+    collect(_afterCreatedAt, _afterId, limit) {
+      const acc = {
+        events: [] as TelemetryEvent[],
+        rowIds: [] as string[],
+        corruptIds: [] as string[],
+      };
+      for (const name of orphanNames()) {
+        if (acc.events.length >= limit) {
+          break;
         }
-        return {
-          events: [],
-          rowIds: [],
-          lastCursor: null,
-          fullBatch: rows.length === limit,
-        };
+        collectOutboxName(name, limit - acc.events.length, acc);
       }
-      return base.collect(afterCreatedAt, afterId, limit);
+      if (acc.corruptIds.length > 0) {
+        deleteTelemetryOutboxEvents(acc.corruptIds);
+      }
+      return {
+        events: acc.events,
+        rowIds: acc.rowIds,
+        lastCursor: null,
+        // Conservative: never signals more-behind, so orphan draining spreads
+        // across flush cycles instead of monopolizing one. Rare by nature.
+        fullBatch: false,
+      };
     },
-    ack: base.ack,
+    ack: {
+      acknowledge: (rowIds) => deleteTelemetryOutboxEvents(rowIds),
+      discardPending: () => {
+        for (const name of orphanNames()) {
+          discardPendingTelemetryOutboxEvents(name);
+        }
+      },
+    },
   };
 }
 
@@ -495,17 +528,16 @@ const WATERMARK_TELEMETRY_EVENT_SOURCES: readonly TelemetryEventSource[] = [
  * Per-outbox-event flush-source override. The default for every outbox event is
  * the plain {@link outboxSource}; list only the exceptions here. A new outbox
  * event type therefore needs no edit — it flushes through `outboxSource`
- * automatically. `onboarding_research` is diagnostics-gated at flush time (not
- * just record time) because its payload carries raw inferred claims.
+ * automatically. There are currently no exceptions: every outbox event,
+ * including `onboarding_research`, flushes through the default source and is
+ * gated only by the `share_analytics` consent enforced at record time.
  */
 const OUTBOX_SOURCE_FACTORY: Partial<
   Record<
     OutboxTelemetryEventName,
     (name: OutboxTelemetryEventName) => TelemetryEventSource
   >
-> = {
-  onboarding_research: diagnosticsGatedOutboxSource,
-};
+> = {};
 
 /**
  * Every telemetry event source, in payload order (watermark sources first, then
@@ -521,6 +553,8 @@ export const ALL_TELEMETRY_EVENT_SOURCES: readonly TelemetryEventSource[] = [
   ...OUTBOX_TELEMETRY_EVENT_NAMES.map((name) =>
     (OUTBOX_SOURCE_FACTORY[name] ?? outboxSource)(name),
   ),
+  // Not a wire event type — drains rows for types the wire no longer declares.
+  orphanOutboxDrainSource(),
 ];
 
 /**

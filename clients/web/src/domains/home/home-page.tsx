@@ -8,6 +8,7 @@ import { SystemTasksSection } from "@/domains/settings/components/system-tasks-s
 import { useSystemTasks } from "@/domains/settings/hooks/use-system-tasks";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useSupportsBulkFeedStatus } from "@/lib/backwards-compat/bulk-feed-status";
+import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useEffectiveTimezone } from "@/utils/use-effective-timezone";
 import type { FeedItem, FeedItemStatus } from "@vellumai/assistant-api";
 import { Button, ResizablePanel, Tabs } from "@vellumai/design-library";
@@ -85,7 +86,7 @@ export function HomePage({
 
   // Gates the consolidation/retrospective "Memory settings" link the same way
   // the schedules surface always has.
-  const { data: canOpenMemorySettings = false } = useQuery({
+  const { data: hasMemoryOptOutCapability = false } = useQuery({
     queryKey: ["assistant-memory-opt-out-capability", assistantId],
     queryFn: async () => {
       const result = await getAssistantHealthz(assistantId);
@@ -94,6 +95,12 @@ export function HomePage({
     retry: false,
     staleTime: 10_000,
   });
+  // The memory toggle lives on the Memory tab of the flag-gated Developer
+  // page, so the link is only offered when that destination is reachable.
+  const settingsDeveloperNav =
+    useAssistantFeatureFlagStore.use.settingsDeveloperNav();
+  const canOpenMemorySettings =
+    hasMemoryOptOutCapability && settingsDeveloperNav === true;
 
   const [createScheduleOpen, setCreateScheduleOpen] = useState(false);
   // `activeTab` and the focused schedule are URL-owned (see HomePageRoute);

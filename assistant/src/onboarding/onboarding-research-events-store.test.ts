@@ -70,8 +70,13 @@ describe("onboarding-research-events-store", () => {
     expect(pendingRows()).toHaveLength(0);
   });
 
-  test("honors the share_diagnostics opt-out (records nothing) even with analytics consent", () => {
-    setShareDiagnostics(false);
+  test("records regardless of share_diagnostics consent (rides analytics only, like every other outbox event)", () => {
+    // No diagnostics consent, and even a stale accepted version — neither
+    // gates this event anymore. The platform re-checks the owner's consent
+    // server-side at ingest; the daemon no longer layers a diagnostics gate
+    // that silently dropped the event when a freshly-claimed pod's consent
+    // cache was still cold during first-run onboarding.
+    setShareDiagnostics(false, "2000-01-01");
     recordOnboardingResearchEvent({
       conversationId: "conv-xyz",
       status: "done",
@@ -80,20 +85,7 @@ describe("onboarding-research-events-store", () => {
       plugins: [],
       installedPlugins: [],
     });
-    expect(pendingRows()).toHaveLength(0);
-  });
-
-  test("honors a stale accepted diagnostics-consent version (records nothing)", () => {
-    setShareDiagnostics(true, "2000-01-01");
-    recordOnboardingResearchEvent({
-      conversationId: "conv-xyz",
-      status: "done",
-      claims: SAMPLE_CLAIMS,
-      suggestions: [],
-      plugins: [],
-      installedPlugins: [],
-    });
-    expect(pendingRows()).toHaveLength(0);
+    expect(pendingRows()).toHaveLength(1);
   });
 
   test("record writes the full wire payload into the outbox, with confidence-tier counts", () => {

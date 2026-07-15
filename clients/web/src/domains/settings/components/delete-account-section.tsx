@@ -1,7 +1,6 @@
 import { Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 
-import { DetailCard } from "@/components/detail-card";
 import { PlatformLoginNotice } from "@/components/platform-login-notice";
 import { useUserDeletionRequestCreateMutation } from "@/generated/api/@tanstack/react-query.gen";
 import {
@@ -71,35 +70,41 @@ export function DeleteAccountSection() {
   // a self-hosted assistant. Early return must follow every hook above so
   // gate transitions (e.g. lifecycle flipping to `self_hosted` after the
   // API resolves) never skip a hook and trigger a hook-order violation.
-  if (platformGate === "gated") return null;
+  if (platformGate === "gated") {
+    return null;
+  }
 
   return (
     <>
-      <DetailCard
-        title="Delete Account"
-        subtitle="Permanently delete your account and all associated data."
-        variant="danger"
-      >
-        {platformGate === "disabled" ? (
-          <PlatformLoginNotice>
-            Log in to the Vellum platform to delete your account.
-          </PlatformLoginNotice>
-        ) : (
-          <div className="flex items-center gap-2">
-            <Button
-              variant="dangerOutline"
-              onClick={() => setConfirmOpen(true)}
-              disabled={deleteMutation.isPending || isResolving}
-              className="self-start"
-            >
-              Delete My Account
-            </Button>
-            {isResolving && (
-              <Loader2 className="h-4 w-4 animate-spin text-[var(--content-tertiary)]" />
-            )}
-          </div>
-        )}
-      </DetailCard>
+      <section className="flex flex-col gap-2">
+        <h3 className="text-title-small text-[var(--content-emphasised)]">
+          Delete Account
+        </h3>
+        <p className="text-body-medium-default text-[var(--content-tertiary)]">
+          Permanently delete your account and all associated data.
+        </p>
+        <div className="mt-1">
+          {platformGate === "disabled" ? (
+            <PlatformLoginNotice>
+              Log in to the Vellum platform to delete your account.
+            </PlatformLoginNotice>
+          ) : (
+            <div className="flex items-center gap-2">
+              <Button
+                variant="dangerOutline"
+                onClick={() => setConfirmOpen(true)}
+                disabled={deleteMutation.isPending || isResolving}
+                className="self-start"
+              >
+                Delete My Account
+              </Button>
+              {isResolving && (
+                <Loader2 className="h-4 w-4 animate-spin text-[var(--content-tertiary)]" />
+              )}
+            </div>
+          )}
+        </div>
+      </section>
       <ConfirmDialog
         open={confirmOpen}
         title="Delete Account"

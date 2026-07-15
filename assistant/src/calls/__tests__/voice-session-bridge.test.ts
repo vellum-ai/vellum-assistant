@@ -70,6 +70,8 @@ interface FakeConversation {
   updateClient: (cb: unknown, reset?: boolean) => void;
   runAgentLoop: (...args: unknown[]) => Promise<void>;
   abort: (reason?: unknown) => void;
+  currentActiveSurfaceId?: string;
+  currentPage?: string;
 }
 
 function makeFakeConversation(opts: {
@@ -969,5 +971,54 @@ describe("startVoiceTurn race-loss state restore", () => {
     expect(waited.channelCapabilities).toBe(winnerState.channelCapabilities);
     expect(waited.callSessionId).toBe(winnerState.callSessionId);
     expect(waited.assistantId).toBe(winnerState.assistantId);
+  });
+});
+
+describe("startVoiceTurn active-surface context (voice surface resume)", () => {
+  // Captured via an object property (not a bare `let`) so the closure write is
+  // visible to the assertion without control-flow narrowing to `null`.
+  const captureSurfaceStateAtLoop = () => {
+    const captured: {
+      value: { activeSurfaceId?: string; currentPage?: string } | null;
+    } = { value: null };
+    const fake = makeFakeConversation({
+      processing: false,
+      runAgentLoop: async () => {
+        captured.value = {
+          activeSurfaceId: fake.conversation.currentActiveSurfaceId,
+          currentPage: fake.conversation.currentPage,
+        };
+      },
+    });
+    return { fake, captured };
+  };
+
+  test("installs activeSurfaceId and clears currentPage before the agent loop runs", async () => {
+    const { fake, captured } = captureSurfaceStateAtLoop();
+    fakeConversation = fake.conversation;
+    // A prior turn's stale page must not survive into the resumed surface turn.
+    fake.conversation.currentPage = "stale-page";
+
+    await startVoiceTurn({ ...makeTurnOptions(), activeSurfaceId: "surf-1" });
+    await flushMicrotasks();
+
+    expect(captured.value).toEqual({
+      activeSurfaceId: "surf-1",
+      currentPage: undefined,
+    });
+  });
+
+  test("leaves currentPage untouched on an ordinary STT turn (no activeSurfaceId)", async () => {
+    const { fake, captured } = captureSurfaceStateAtLoop();
+    fakeConversation = fake.conversation;
+    fake.conversation.currentPage = "keep-me";
+
+    await startVoiceTurn(makeTurnOptions()); // no activeSurfaceId
+    await flushMicrotasks();
+
+    expect(captured.value).toEqual({
+      activeSurfaceId: undefined,
+      currentPage: "keep-me",
+    });
   });
 });

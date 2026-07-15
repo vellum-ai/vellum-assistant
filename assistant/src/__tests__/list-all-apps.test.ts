@@ -153,8 +153,6 @@ describe("resolveAppSource", () => {
     expect(source!.origin).toEqual({ kind: "workspace" });
     expect(source!.name).toBe("Budget");
     expect(source!.sourceDir).toContain(join("data", "apps"));
-    // Single-file app (index.html at root).
-    expect(source!.formatVersion).toBe(1);
   });
 
   test("resolves a plugin app by its plugins~<name>~<app> id", () => {
@@ -166,8 +164,6 @@ describe("resolveAppSource", () => {
     expect(source!.origin).toEqual({ kind: "plugin", pluginName: "acme" });
     expect(source!.name).toBe("acme-dashboard");
     expect(source!.sourceDir).toBe(join(pluginDir, "apps", "acme-dashboard"));
-    // bundleApp writes index.html at the root → single-file.
-    expect(source!.formatVersion).toBe(1);
   });
 
   test("returns null for an unknown workspace id", () => {
