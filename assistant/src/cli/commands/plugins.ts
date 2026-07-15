@@ -679,14 +679,42 @@ export function registerPluginsCommand(program: Command): void {
             return;
           }
           try {
-            const result = await libs.upgrade.upgradePlugin(
+            // Prefer the daemon: when the upgrade re-materializes files it runs
+            // the plugin's `shutdown` + `init` hooks in the main process —
+            // symmetric to how install/uninstall run their lifecycle there.
+            // Fall back to a local upgrade only when the daemon is unreachable
+            // (a transport error carries no `statusCode`); an operator can still
+            // upgrade while it's stopped, and the new code is picked up on the
+            // daemon's next start. A daemon-side decision (not installed, not
+            // upgradable, …) is surfaced rather than silently retried locally.
+            const daemon = await cliIpcCall<PluginUpgradeResult>(
+              "plugins_upgrade",
               {
-                name,
-                dryRun: opts.dryRun,
-                strategy: strategy as PluginUpgradeStrategy | undefined,
+                pathParams: { name },
+                body: { dryRun: opts.dryRun, strategy },
               },
-              { fetch: globalThis.fetch.bind(globalThis) },
             );
+            let result: PluginUpgradeResult;
+            if (daemon.ok && daemon.result) {
+              result = daemon.result;
+            } else if (daemon.statusCode === undefined) {
+              log.debug(
+                { name, error: daemon.error },
+                "upgrade could not reach the daemon; upgrading locally",
+              );
+              result = await libs.upgrade.upgradePlugin(
+                {
+                  name,
+                  dryRun: opts.dryRun,
+                  strategy: strategy as PluginUpgradeStrategy | undefined,
+                },
+                { fetch: globalThis.fetch.bind(globalThis) },
+              );
+            } else {
+              console.error(daemon.error ?? "Plugin upgrade failed.");
+              process.exitCode = 1;
+              return;
+            }
 
             if (opts.json) {
               process.stdout.write(JSON.stringify(result, null, 2) + "\n");
@@ -1174,7 +1202,7 @@ function formatUpgrade(result: PluginUpgradeResult): string[] {
         `Upgraded "${name}" ${move}`,
         "",
         `${count}→ ${result.target}`,
-        "Restart the assistant to pick up the upgrade.",
+        "The upgrade is picked up live (no restart required).",
       ];
       if (mergeNote) {
         lines.push(mergeNote);
