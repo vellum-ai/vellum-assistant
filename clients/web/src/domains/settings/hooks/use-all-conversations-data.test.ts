@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   filterBySearch,
   filterByState,
+  isBucketLoading,
   isFatalError,
   mergeConversations,
 } from "@/domains/settings/hooks/use-all-conversations-data.helpers";
@@ -196,6 +197,42 @@ describe("filterByState", () => {
     expect(
       filterByState(mixed, "all").map((row) => row.conversation.conversationId),
     ).toEqual(["recent", "archived-just-now"]);
+  });
+});
+
+describe("isBucketLoading", () => {
+  test("'archived' doesn't wait on the active lists", () => {
+    // The active backlog can be large; archived rows are already renderable.
+    expect(
+      isBucketLoading("archived", { activeLoading: true, archivedLoading: false }),
+    ).toBe(false);
+  });
+
+  test("'active' doesn't wait on the archived list", () => {
+    expect(
+      isBucketLoading("active", { activeLoading: false, archivedLoading: true }),
+    ).toBe(false);
+  });
+
+  test("a bucket waits on its own source", () => {
+    expect(
+      isBucketLoading("archived", { activeLoading: false, archivedLoading: true }),
+    ).toBe(true);
+    expect(
+      isBucketLoading("active", { activeLoading: true, archivedLoading: false }),
+    ).toBe(true);
+  });
+
+  test("'all' waits on either source", () => {
+    expect(
+      isBucketLoading("all", { activeLoading: true, archivedLoading: false }),
+    ).toBe(true);
+    expect(
+      isBucketLoading("all", { activeLoading: false, archivedLoading: true }),
+    ).toBe(true);
+    expect(
+      isBucketLoading("all", { activeLoading: false, archivedLoading: false }),
+    ).toBe(false);
   });
 });
 

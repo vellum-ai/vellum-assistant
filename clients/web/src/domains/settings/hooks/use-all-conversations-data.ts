@@ -20,6 +20,7 @@ import {
   type ConversationFilter,
   filterBySearch,
   filterByState,
+  isBucketLoading,
   isFatalError,
   mergeConversations,
 } from "@/domains/settings/hooks/use-all-conversations-data.helpers";
@@ -42,23 +43,31 @@ export function useAllConversationsData(
   assistantId: string,
   initialFilter: ConversationFilter = "all",
 ) {
+  const [searchText, setSearchText] = useState("");
+  const [filter, setFilter] = useState<ConversationFilter>(initialFilter);
+
+  // The archived bucket renders from the archived list alone, so the active
+  // lists stay unfetched until a filter needs them — they can drain a large
+  // backlog, and the archived deep link (`?tab=archive`) must not wait on it.
+  const needsActive = filter !== "archived";
+
   const {
     conversations: active,
-    isLoading: activeLoading,
+    isLoading: activeListLoading,
     isError: activeError,
     refetch: refetchActive,
-  } = useConversationListQuery(assistantId);
+  } = useConversationListQuery(assistantId, needsActive);
 
-  // Background and scheduled rows also count as "active" conversations but
-  // are cached separately, so the page fetches them explicitly (default
-  // `enabled: true`) rather than lazily like the sidebar sections. They only
-  // report loading state — a failure falls back to an empty list, matching
-  // the sidebar's tolerance for a missing background/scheduled section.
+  // Background and scheduled rows also count as "active" conversations but are
+  // cached separately, so the page fetches them explicitly rather than lazily
+  // like the sidebar sections. They only report loading state — a failure
+  // falls back to an empty list, matching the sidebar's tolerance for a
+  // missing background/scheduled section.
   const { conversations: background, isLoading: backgroundLoading } =
-    useBackgroundConversationListQuery(assistantId);
+    useBackgroundConversationListQuery(assistantId, needsActive);
 
   const { conversations: scheduled, isLoading: scheduledLoading } =
-    useScheduledConversationListQuery(assistantId);
+    useScheduledConversationListQuery(assistantId, needsActive);
 
   const {
     conversations: archived,
@@ -67,8 +76,8 @@ export function useAllConversationsData(
     refetch: refetchArchived,
   } = useArchivedConversationListQuery(assistantId);
 
-  const [searchText, setSearchText] = useState("");
-  const [filter, setFilter] = useState<ConversationFilter>(initialFilter);
+  const activeLoading =
+    activeListLoading || backgroundLoading || scheduledLoading;
 
   const merged = useMemo(
     () => mergeConversations([active, background, scheduled], archived),
@@ -85,8 +94,7 @@ export function useAllConversationsData(
     [stateFiltered, searchText],
   );
 
-  const loading =
-    activeLoading || backgroundLoading || scheduledLoading || archivedLoading;
+  const loading = isBucketLoading(filter, { activeLoading, archivedLoading });
   const error = isFatalError(filter, { activeError, archivedError });
 
   const refetch = () => {

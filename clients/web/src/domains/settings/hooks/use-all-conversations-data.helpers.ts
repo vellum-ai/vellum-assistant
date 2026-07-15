@@ -93,6 +93,29 @@ export function mergeConversations(
 }
 
 /**
+ * Whether the selected bucket is still waiting on a source it renders from.
+ *
+ * A bucket blocks only on its own source: making the archived view wait on the
+ * active lists reads as hung once those drain a large backlog, even though the
+ * archived rows are ready.
+ */
+export function isBucketLoading(
+  filter: ConversationFilter,
+  {
+    activeLoading,
+    archivedLoading,
+  }: { activeLoading: boolean; archivedLoading: boolean },
+): boolean {
+  if (filter === "active") {
+    return activeLoading;
+  }
+  if (filter === "archived") {
+    return archivedLoading;
+  }
+  return activeLoading || archivedLoading;
+}
+
+/**
  * Whether the selected bucket's source failed.
  *
  * Filtering a list that never loaded yields an empty one, which the view
