@@ -21,6 +21,7 @@ import type {
   ReleaseTerminalResponse,
   RequestPermissionRequest,
   RequestPermissionResponse,
+  SessionConfigOption,
   SessionNotification,
   TerminalOutputRequest,
   TerminalOutputResponse,
@@ -73,6 +74,8 @@ interface TerminalState {
 export class VellumAcpClientHandler implements Client {
   private terminals = new Map<string, TerminalState>();
   private accumulatedText = "";
+  /** Latest model the adapter reported via `config_option_update`, if any. */
+  private latestModel: string | undefined;
   private suppressForwarding = false;
   /** Monotonic ordering counter; advanced only on forwarded updates. */
   private lastSeq = 0;
@@ -82,6 +85,11 @@ export class VellumAcpClientHandler implements Client {
   /** Returns the full agent response text accumulated from agent_message_chunk events. */
   get responseText(): string {
     return this.accumulatedText;
+  }
+
+  /** Latest model name reported by the adapter, if any has been seen. */
+  get model(): string | undefined {
+    return this.latestModel;
   }
 
   /**
@@ -262,9 +270,18 @@ export class VellumAcpClientHandler implements Client {
         break;
       }
 
+      case "config_option_update": {
+        // Track the current model so subsequent usage gauges can attribute
+        // cost to it. Not forwarded to Vellum as its own event.
+        const model = extractModelName(update.configOptions);
+        if (model !== undefined) this.latestModel = model;
+        break;
+      }
+
       case "usage_update": {
         // Side gauge of context-window usage; no seq (not part of the
-        // ordered timeline). UNSTABLE: cost may be absent.
+        // ordered timeline). UNSTABLE: cost may be absent. Stamp the latest
+        // known model so cost can be attributed to it.
         this.sendToVellum({
           type: "acp_session_usage",
           acpSessionId: this.acpSessionId,
@@ -272,14 +289,14 @@ export class VellumAcpClientHandler implements Client {
           contextSize: update.size,
           costAmount: update.cost?.amount,
           costCurrency: update.cost?.currency,
+          model: this.latestModel,
         });
         break;
       }
 
       default: {
         // Other update types (available_commands_update, current_mode_update,
-        // config_option_update, session_info_update) are not forwarded to
-        // Vellum.
+        // session_info_update) are not forwarded to Vellum.
         log.debug(
           {
             acpSessionId: this.acpSessionId,
@@ -479,6 +496,29 @@ function mapLocations(
   if (locations === undefined) return undefined;
   if (locations === null) return [];
   return locations.map((l) => ({ path: l.path, line: l.line ?? undefined }));
+}
+
+/**
+ * Resolve the human-readable model name from a `config_option_update`: find
+ * the `model`-category select option and map its `currentValue` to the
+ * matching label, handling both flat and grouped option lists. Falls back to
+ * the raw value id when no label matches.
+ */
+function extractModelName(
+  configOptions: SessionConfigOption[],
+): string | undefined {
+  const modelOption = configOptions.find((o) => o.category === "model");
+  if (!modelOption || modelOption.type !== "select") return undefined;
+  const { currentValue, options } = modelOption;
+  for (const opt of options) {
+    if ("value" in opt) {
+      if (opt.value === currentValue) return opt.name;
+    } else {
+      const found = opt.options.find((g) => g.value === currentValue);
+      if (found) return found.name;
+    }
+  }
+  return currentValue || undefined;
 }
 
 function findAllowOptionId(

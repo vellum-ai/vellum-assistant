@@ -46,4 +46,10 @@ export interface AcpUsageSnapshot {
   inputTokens?: number;
   /** Cumulative output tokens across all turns, from `PromptResponse.usage`. */
   outputTokens?: number;
+  /** Model the adapter reported for the session, if known. */
+  model?: string;
+  /** Cumulative cache-read tokens, from `PromptResponse.usage`. */
+  cacheReadTokens?: number;
+  /** Cumulative cache-write tokens, from `PromptResponse.usage`. */
+  cacheWriteTokens?: number;
 }
