@@ -9,11 +9,19 @@
  * both reference this module, and neither imports the other — avoiding a require
  * cycle between the live-voice session and the daemon surface handler.
  */
+export interface VoiceResumeOptions {
+  displayContent?: string;
+  sourceActorPrincipalId?: string;
+  /**
+   * The interactive surface being resumed. Threaded into the resumed turn so
+   * `buildActiveSurfaceContext` re-injects the active `dynamic_page`/app
+   * HTML+schema, matching the text path's `activeSurfaceId` (JARVIS-1287).
+   */
+  activeSurfaceId?: string;
+}
+
 export interface VoiceResumeHandler {
-  resumeWithText(
-    content: string,
-    opts?: { displayContent?: string; sourceActorPrincipalId?: string },
-  ): void;
+  resumeWithText(content: string, opts?: VoiceResumeOptions): void;
 }
 
 const handlers = new Map<string, VoiceResumeHandler>();

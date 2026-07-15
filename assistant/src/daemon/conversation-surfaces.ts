@@ -2410,13 +2410,9 @@ export async function handleSurfaceAction(
     if (accumulatedState && Object.keys(accumulatedState).length > 0) {
       ctx.accumulatedSurfaceState.delete(surfaceId);
     }
-    if (shouldRelayPrompt && prompt) {
-      broadcastMessage({
-        type: "user_message_echo",
-        text: prompt,
-        conversationId: ctx.conversationId,
-      });
-    }
+    // The resumed turn's own turn-start (startVoiceTurn) broadcasts the
+    // user_message_echo for the resume content, so this path does not pre-echo
+    // — otherwise a relayed-prompt click would render two user bubbles.
     if (!retainPending) {
       ctx.pendingSurfaceActions.delete(surfaceId);
     }
@@ -2428,6 +2424,7 @@ export async function handleSurfaceAction(
       "Surface action follow-up: resuming as spoken live-voice turn",
     );
     voiceResumeHandler.resumeWithText(content, {
+      activeSurfaceId: surfaceId,
       ...(displayContent ? { displayContent } : {}),
       ...(sourceActorPrincipalId ? { sourceActorPrincipalId } : {}),
     });

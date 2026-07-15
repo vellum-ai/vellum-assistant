@@ -58,6 +58,7 @@ import {
   registerVoiceResumeHandler,
   unregisterVoiceResumeHandler,
   type VoiceResumeHandler,
+  type VoiceResumeOptions,
 } from "./live-voice-resume-registry.js";
 import {
   type LiveVoiceSession as LiveVoiceSessionContract,
@@ -379,7 +380,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // once the active turn settles (see flushPendingResume).
   private pendingResume: {
     content: string;
-    opts?: { displayContent?: string; sourceActorPrincipalId?: string };
+    opts?: VoiceResumeOptions;
   } | null = null;
 
   constructor(
@@ -1523,6 +1524,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   private async launchAssistantTurn(
     utterance: UtteranceCycle,
     content: string,
+    // Only set on the surface-resume path; the STT path leaves it undefined so
+    // no active-surface context is injected into an ordinary spoken turn.
+    activeSurfaceId?: string,
   ): Promise<void> {
     utterance.assistantTurnStarted = true;
     const token = Symbol("live-voice-assistant-turn");
@@ -1575,8 +1579,12 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
             overrideProfile: FRONT_DOOR_PROFILE,
             routingLeg: "front-door",
             frontDoor: true,
+            ...(activeSurfaceId !== undefined ? { activeSurfaceId } : {}),
           }
-        : { content },
+        : {
+            content,
+            ...(activeSurfaceId !== undefined ? { activeSurfaceId } : {}),
+          },
     );
   }
 
@@ -1590,10 +1598,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
    * If a turn is still in flight the resume is deferred (pendingResume) and
    * dispatched once that turn settles — never rejected with CONVERSATION_BUSY.
    */
-  resumeWithText(
-    content: string,
-    opts?: { displayContent?: string; sourceActorPrincipalId?: string },
-  ): void {
+  resumeWithText(content: string, opts?: VoiceResumeOptions): void {
     const trimmed = content.trim();
     if (
       this.isClosed ||
@@ -1617,13 +1622,13 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
 
   private async startResumeTurn(
     content: string,
-    _opts?: { displayContent?: string; sourceActorPrincipalId?: string },
+    opts?: VoiceResumeOptions,
   ): Promise<void> {
     if (this.isClosed || this.state === "failed" || !this.startVoiceTurn) {
       return;
     }
     if (this.activeAssistantTurn) {
-      this.pendingResume = { content, opts: _opts };
+      this.pendingResume = { content, opts };
       return;
     }
     // A synthetic utterance carrying only the resume text: it is not
@@ -1653,7 +1658,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         finalTranscriptAtMs: null,
       },
     };
-    await this.launchAssistantTurn(utterance, content);
+    await this.launchAssistantTurn(utterance, content, opts?.activeSurfaceId);
   }
 
   // Dispatch a resume deferred behind an in-flight turn, once that turn has
@@ -1703,6 +1708,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       overrideProfile?: string;
       routingLeg?: VoiceRoutingLeg;
       frontDoor?: boolean;
+      // Present only on the primary surface-resume leg — never on the escalated
+      // continuation leg, so the active-surface context stays turn-scoped.
+      activeSurfaceId?: string;
     },
   ): Promise<void> {
     if (!this.startVoiceTurn) {
@@ -1777,6 +1785,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
           ? { overrideProfile: leg.overrideProfile }
           : {}),
         ...(leg.routingLeg != null ? { routingLeg: leg.routingLeg } : {}),
+        ...(leg.activeSurfaceId != null
+          ? { activeSurfaceId: leg.activeSurfaceId }
+          : {}),
         callbacks: {
           assistant_text_delta: (msg) => {
             if (!this.isForwardingAssistantText(token)) {
