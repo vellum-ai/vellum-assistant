@@ -57,6 +57,7 @@ import {
 import { OAuthConnectSurface } from "@/domains/chat/components/surfaces/oauth-connect-surface";
 import { handleSurfaceAction } from "@/domains/chat/surface-actions";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
+import { useSupportsNoninteractiveVoiceTurns } from "@/lib/backwards-compat/use-supports-noninteractive-voice-turns";
 import { AVATAR_ACCENT_CSS_VAR } from "@/hooks/use-avatar-accent-var";
 import { useVoicePrefsStore } from "@/stores/voice-prefs-store";
 import { toneForBg } from "@/utils/surface-tone";
@@ -166,10 +167,19 @@ function VoiceRoomOverlay() {
   const showAssistantTranscript =
     useVoicePrefsStore.use.showAssistantTranscript();
 
-  // A live `oauth_connect` card the assistant raised this turn. The transcript's
-  // copy is buried behind this modal, so the room renders its own reachable
-  // instance; completing it resumes the turn as a spoken reply (JARVIS-1287).
-  const connectSurface = useActiveConnectSurface();
+  // Backwards-compat fallback (delete with the gate): assistants below the
+  // gate's MIN_VERSION can still raise `oauth_connect` surfaces mid-call,
+  // and the transcript's copy is buried behind this modal — so the room
+  // renders its own reachable instance; completing it resumes the turn as a
+  // spoken reply (JARVIS-1287). Assistants at or above MIN_VERSION force
+  // `supportsDynamicUi: false` on voice turns and can never raise one, so
+  // the card stays hidden. Unknown version reads as "not supported", which
+  // conservatively keeps the fallback card available.
+  const voiceTurnsAreNoninteractive = useSupportsNoninteractiveVoiceTurns();
+  const activeConnectSurface = useActiveConnectSurface();
+  const connectSurface = voiceTurnsAreNoninteractive
+    ? null
+    : activeConnectSurface;
 
   // Resolve the assistant's look: color-with-eyes for character avatars, the
   // ambient void otherwise. The accent var is still published for the
@@ -289,12 +299,15 @@ function VoiceRoomOverlay() {
           avatar and stays absent by default. */}
       <VoiceAmbientTranscript />
 
-      {/* Reachable OAuth connect card. The room takes over the whole app, so the
-          transcript's copy of this surface is invisible/unclickable underneath —
-          render our own, anchored in the lower center above the session
-          controls, with pointer events re-enabled just for the card. Completing
-          it submits the same surface action the transcript would, which the
-          daemon resumes as a spoken turn (JARVIS-1287). */}
+      {/* Backwards-compat fallback: a reachable OAuth connect card, rendered
+          only against assistants old enough to still raise `oauth_connect`
+          mid-call (`connectSurface` is pre-nulled by the version gate above).
+          The room takes over the whole app, so the transcript's copy of this
+          surface is invisible/unclickable underneath — render our own,
+          anchored in the lower center above the session controls, with pointer
+          events re-enabled just for the card. Completing it submits the same
+          surface action the transcript would, which the daemon resumes as a
+          spoken turn (JARVIS-1287). Delete this slot with the gate. */}
       <AnimatePresence>
         {connectSurface ? (
           <motion.div
