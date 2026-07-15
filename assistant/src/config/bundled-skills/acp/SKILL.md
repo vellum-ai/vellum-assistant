@@ -48,13 +48,17 @@ bun add -g @zed-industries/codex-acp               # codex
 
 ## Claude setup
 
-The `claude-agent-acp` adapter requires a Claude OAuth token. Store it once in the credential store and every spawn injects it as `CLAUDE_CODE_OAUTH_TOKEN` automatically:
+The `claude-agent-acp` adapter needs a credential. The preferred one is an Anthropic API key at `acp/anthropic_api_key`; a Claude subscription OAuth token at `acp/claude_oauth_token` is the fallback. Every spawn injects whichever is set, so store it once.
 
-```bash
-assistant credentials set --service acp --field claude_oauth_token <token>
-```
+On the first ACP use, establish auth as a first-run moment - do it up front, not as a mid-task auth wall. First run `assistant credentials list` to detect an existing `anthropic/api_key`, then ask the user to choose:
 
-When the token is missing, do NOT ask the user to paste it into chat. Collect it via the secure prompt instead: `assistant credentials prompt --service acp --field claude_oauth_token --label "Claude OAuth Token"`. That prompts the user through a secure UI so the token never enters the conversation or the workspace config. Users generate the token by running `claude setup-token` on a machine where they are logged in to Claude.
+- **(a) Reuse the existing Anthropic API key** - offer this only when `anthropic/api_key` exists. Name it by its scrubbed suffix (e.g. "…NgAA"). On yes, grant `acp_spawn` read access to it - no pasting, no reveal.
+- **(b) Paste a new API key** - `assistant credentials prompt --service acp --field anthropic_api_key --label "Anthropic API Key"`.
+- **(c) Use their Claude subscription** - run `claude setup-token`, then `assistant credentials prompt --service acp --field claude_oauth_token --label "Claude OAuth Token"`. Heads-up: using a subscription OAuth token in a third-party tool is something Anthropic restricts; the API key is the supported path.
+
+Collect any pasted secret through the secure prompt so it never enters the conversation or the workspace config - never ask the user to paste into chat, and never `reveal` a key to move it between fields.
+
+Format guard: an `sk-ant-api…` value belongs in `anthropic_api_key`, an `sk-ant-oat…` value in `claude_oauth_token`. The store rejects a mismatch.
 
 ## Codex setup
 
