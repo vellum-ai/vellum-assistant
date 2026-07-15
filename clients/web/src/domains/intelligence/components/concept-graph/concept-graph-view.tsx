@@ -66,6 +66,7 @@ interface Projected {
   sy: number;
   sr: number;
   depth: number; // 0 (far) .. 1 (near)
+  updatedAtMs?: number; // for recency hit-test skipping; undefined = stale/older
 }
 
 interface Colors {
@@ -527,6 +528,7 @@ export function ConceptGraphView({
         sy: p.sy,
         sr: p.sr,
         depth: p.depth,
+        updatedAtMs: p.node.updatedAtMs,
       }));
 
       raf = requestAnimationFrame(render);
@@ -539,15 +541,24 @@ export function ConceptGraphView({
     };
   }, [ready, layout, adjacency, massRadius, clusters]);
 
-  // Nearest node under a screen point; nearest-in-front wins. While a search is
-  // active, ghosted (non-matching) nodes are skipped so hover/click land on a
-  // result, not a faded background node.
+  // Nearest node under a screen point; nearest-in-front wins. Ghosted nodes are
+  // skipped so hover/click land on a live node, not a faded background one: both
+  // search non-matches and, when a recency window is set, concepts older than it
+  // (a missing timestamp counts as stale). Mirrors the render-loop ghosting.
   const hitTest = useCallback((x: number, y: number): string | null => {
     const filter = filterRef.current;
+    const recencyWindowMs = recencyRef.current.windowMs;
+    const now = Date.now();
     let best: string | null = null;
     let bestDepth = -1;
     for (const p of projectedRef.current) {
       if (filter.active && !(filter.matches?.has(p.id) ?? false)) {continue;}
+      if (
+        recencyWindowMs != null &&
+        (!p.updatedAtMs || now - p.updatedAtMs > recencyWindowMs)
+      ) {
+        continue;
+      }
       const dx = x - p.sx;
       const dy = y - p.sy;
       if (dx * dx + dy * dy <= (p.sr + 5) * (p.sr + 5) && p.depth > bestDepth) {
