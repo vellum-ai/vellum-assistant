@@ -63,7 +63,7 @@ The assistant's own database is internal — `@vellumai/plugin-api` exposes no h
 
 Each surface can also be dropped straight into the workspace at `/workspace/<surface>/<name>/` without wrapping it in a plugin. A plugin is what lets you ship several surfaces together as one installable unit.
 
-The per-surface contracts live in their own references: [hooks.md](hooks.md), [tools.md](tools.md), [skills.md](skills.md), [routes.md](routes.md), and [apps.md](apps.md).
+Each surface's contract lives in its own reference file next to this one, linked from the surfaces table in `SKILL.md`.
 
 ## The manifest
 

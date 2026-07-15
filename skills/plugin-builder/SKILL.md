@@ -1,6 +1,6 @@
 ---
 name: plugin-builder
-description: "Use when the user wants to build, scaffold, ship, or edit a Vellum plugin that bundles hooks, tools, skills, and routes into one installable package."
+description: "Use when the user wants to build, scaffold, ship, or edit a Vellum plugin that bundles multiple surfaces (hooks, tools, skills, and more) into one installable package."
 compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "🧩"
@@ -22,7 +22,7 @@ metadata:
 
 # Plugin Builder
 
-Build on top of Vellum with plugins. A plugin bundles hooks, tools, skills, and routes into a single installable package that extends what an assistant can do.
+Build on top of Vellum with plugins. A plugin bundles multiple surfaces into a single installable package that extends what an assistant can do.
 
 Plugins are in beta. The peer-dep range you declare is what gets you load. Treat everything you write as something that can break between Vellum releases until 1.0 ships, and pin a real range.
 
@@ -40,12 +40,12 @@ Plugins can also be discovered and managed from the Plugins tab in the app, or s
 
 A single plugin can contribute several different kinds of behavior. Each surface is discovered by convention from a named subdirectory. Missing directories are simply skipped, so a plugin contributes only what it ships.
 
-| Surface                                    | Lives in           | What it does                                                                                                                     |
-| ------------------------------------------ | ------------------ | -------------------------------------------------------------------------------------------------------------------------------- |
-| [Lifecycle hooks](references/hooks.md)     | `hooks/<name>.ts`  | Run code at fixed points in the Assistant's lifecycle to read or transform what flows through, and broadcast progress to the UI. |
-| [Skills](references/skills.md)             | `skills/<name>/`   | Directories of instructions and associated assets, scripts, and resources that the Assistant loads dynamically when relevant.    |
-| [Model-visible tools](references/tools.md) | `tools/<name>.ts`  | Add new tools the model can call. Plugin tools land in the same catalog as built-in tools.                                       |
-| [HTTP routes](references/routes.md)        | `routes/<path>.ts` | Serve HTTP endpoints (webhooks, integrations, callbacks) in the plugin's own `/x/plugins/<name>/` namespace.                     |
+| Surface                                    | Lives in           | What it does                                                                                                                                     |
+| ------------------------------------------ | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| [Lifecycle hooks](references/hooks.md)     | `hooks/<name>.ts`  | Run code at fixed points in the Assistant's lifecycle to read or transform what flows through, and broadcast progress to the UI.                 |
+| [Skills](references/skills.md)             | `skills/<name>/`   | Directories of instructions and associated assets, scripts, and resources that the Assistant loads dynamically when relevant.                    |
+| [Model-visible tools](references/tools.md) | `tools/<name>.ts`  | Add new tools the model can call. Plugin tools land in the same catalog as built-in tools.                                                       |
+| [HTTP routes](references/routes.md)        | `routes/<path>.ts` | Serve HTTP endpoints (webhooks, integrations, callbacks) in the plugin's own `/x/plugins/<name>/` namespace.                                     |
 | [Apps](references/apps.md)                 | `apps/<name>/`     | Ship persistent interactive apps (dashboards, trackers, visualizations) compiled from a Preact + TSX bundle and rendered in the workspace panel. |
 
 The two extensibility patterns serve different goals. **Plugins are for distribution**: you intend to share the capability, publish to the marketplace, or install it across multiple assistants. The plugin manifest (`package.json`), the `@vellumai/plugin-api` peer dependency, and the install flow exist to make a capability portable, versioned, and discoverable by others.

@@ -41,7 +41,7 @@ Once resolved, a plugin app is opened and served exactly like a workspace app: o
 
 ## Discovery and lifecycle
 
-App discovery mirrors the plugin loader's own scan, so an app is visible on exactly the same terms as the plugin's tools, hooks, and routes:
+App discovery mirrors the plugin loader's own scan, so an app is visible on exactly the same terms as the plugin's other surfaces:
 
 - **Installed plugins only.** A directory contributes apps only if it carries a `package.json` manifest. Stray directories without a manifest are ignored.
 - **Disabled plugins contribute nothing.** A plugin with a `.disabled` sentinel serves no apps, matching how its other surfaces are gated.
@@ -49,7 +49,7 @@ App discovery mirrors the plugin loader's own scan, so an app is visible on exac
 
 ## The frontend contract
 
-This reference covers how an app is packaged, compiled, and served as a plugin surface. The *authoring* contract for the app itself — the design system and `--v-*` tokens, the widget library, responsive rules, the `window.vellum` bridge (`fetch`, `asset`, `subscribe`, `sendAction`), and how an app reaches backend data through routes — is owned by the **app-builder** skill, with design quality delegated to **frontend-design**. Build the app's UI by those skills, then drop the resulting `src/` under your plugin's `apps/`. A plugin that also ships `routes/` can back its app's data with its own namespaced HTTP routes (see [routes.md](routes.md)).
+This reference covers how an app is packaged, compiled, and served as a plugin surface. The _authoring_ contract for the app itself — the design system and `--v-*` tokens, the widget library, responsive rules, the `window.vellum` bridge (`fetch`, `asset`, `subscribe`, `sendAction`), and how an app reaches backend data through routes — is owned by the **app-builder** skill, with design quality delegated to **frontend-design**. Build the app's UI by those skills, then drop the resulting `src/` under your plugin's `apps/`. A plugin that also ships `routes/` can back its app's data with its own namespaced HTTP routes (see [routes.md](routes.md)).
 
 ## Anatomy of an app
 
