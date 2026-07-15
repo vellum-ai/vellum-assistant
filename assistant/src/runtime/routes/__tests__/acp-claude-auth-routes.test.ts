@@ -1,16 +1,26 @@
 /**
- * Tests for the local (loopback) Connect Claude OAuth routes.
+ * Tests for the Connect Claude OAuth routes.
  *
- * `start` binds a real loopback via the oauth2 layer (default, un-mocked) so we
- * assert it produces a genuine Claude authorize URL with a localhost `/callback`
- * redirect and registers pending state. The capture/exchange/store path is
- * driven by overriding `prepareOAuth2Flow` with a controllable completion so we
- * can flip it to resolved (connected) or rejected (error) without real network.
+ * The local (loopback) path: `start` binds a real loopback via the oauth2 layer
+ * (default, un-mocked) so we assert it produces a genuine Claude authorize URL
+ * with a localhost `/callback` redirect and registers pending state. The
+ * capture/exchange/store path is driven by overriding `prepareOAuth2Flow` with a
+ * controllable completion so we can flip it to resolved (connected) or rejected
+ * (error) without real network.
+ *
+ * The cloud (manual) path: with `getIsContainerized()` mocked true + the flag on,
+ * `start` returns `mode: "manual"` with the manual redirect URI, and `exchange`
+ * stores the token from a pasted `code#state` (or a raw code + state). With the
+ * flag off it fails closed. `exchangeCodeForTokens` is mocked so no real network
+ * is hit.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { OAuth2FlowResult } from "../../../security/oauth2.js";
+
+const CLAUDE_MANUAL_REDIRECT_URI =
+  "https://platform.claude.com/oauth/code/callback";
 
 // ---------------------------------------------------------------------------
 // Mocks — wired BEFORE importing the module under test.
@@ -20,9 +30,23 @@ const actualOauth2 = await import("../../../security/oauth2.js");
 // Default implementation delegates to the real loopback flow; individual tests
 // override it with `mockImplementationOnce` to inject a controllable completion.
 const prepareOAuth2FlowMock = mock(actualOauth2.prepareOAuth2Flow);
+// The manual path exchanges the pasted code directly; mock it so no network is
+// hit and assert the args the handler passes.
+const exchangeCodeForTokensMock = mock(
+  async (): Promise<OAuth2FlowResult> => ({
+    tokens: {
+      accessToken: "sk-ant-oat-manual",
+      refreshToken: "refresh-manual",
+      expiresIn: 3600,
+    },
+    grantedScopes: ["user:inference"],
+    rawTokenResponse: {},
+  }),
+);
 mock.module("../../../security/oauth2.js", () => ({
   ...actualOauth2,
   prepareOAuth2Flow: prepareOAuth2FlowMock,
+  exchangeCodeForTokens: exchangeCodeForTokensMock,
 }));
 
 const actualClaudeOauth = await import("../../../acp/acp-claude-oauth.js");
@@ -41,6 +65,31 @@ mock.module("../../../security/secure-keys.js", () => ({
   setSecureKeyAsync: setSecureKeyAsyncMock,
 }));
 
+// Host detection: default false (local/loopback) so the PR-5 tests are
+// unaffected; the cloud tests flip it to true.
+const actualEnvRegistry = await import("../../../config/env-registry.js");
+const getIsContainerizedMock = mock(() => false);
+mock.module("../../../config/env-registry.js", () => ({
+  ...actualEnvRegistry,
+  getIsContainerized: getIsContainerizedMock,
+}));
+
+// `loadConfig` is only read to feed the flag gate (mocked below), so return a
+// trivial object rather than touching the real on-disk loader.
+const actualLoader = await import("../../../config/loader.js");
+mock.module("../../../config/loader.js", () => ({
+  ...actualLoader,
+  loadConfig: mock(() => ({})),
+}));
+
+// The connect flag gate; default on. Cloud fail-closed tests flip it off.
+const actualFlag = await import("../../../acp/acp-oauth-connect-flag.js");
+const isConnectEnabledMock = mock(() => true);
+mock.module("../../../acp/acp-oauth-connect-flag.js", () => ({
+  ...actualFlag,
+  isAcpClaudeOauthConnectEnabled: isConnectEnabledMock,
+}));
+
 const { ROUTES } = await import("../acp-claude-auth-routes.js");
 
 const startHandler = ROUTES.find(
@@ -49,10 +98,14 @@ const startHandler = ROUTES.find(
 const statusHandler = ROUTES.find(
   (r) => r.operationId === "acp_claude_auth_status",
 )!.handler;
+const exchangeHandler = ROUTES.find(
+  (r) => r.operationId === "acp_claude_auth_exchange",
+)!.handler;
 
 const CLAUDE_CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
 
 interface StartResult {
+  mode: "loopback" | "manual";
   authorize_url: string;
   state: string;
 }
@@ -101,8 +154,12 @@ function deferredFlow(state: string): {
 
 beforeEach(() => {
   prepareOAuth2FlowMock.mockClear();
+  exchangeCodeForTokensMock.mockClear();
   storeAcpClaudeTokenMock.mockClear();
   setSecureKeyAsyncMock.mockClear();
+  // Reset host + flag to their defaults (local host, flag on).
+  getIsContainerizedMock.mockReturnValue(false);
+  isConnectEnabledMock.mockReturnValue(true);
 });
 
 // ---------------------------------------------------------------------------
@@ -202,5 +259,141 @@ describe("acp_claude_auth_status", () => {
     }
     expect(thrown).toBeDefined();
     expect(thrown!.statusCode).toBe(404);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// start — cloud/manual branch
+// ---------------------------------------------------------------------------
+
+describe("acp_claude_auth_start (cloud/manual)", () => {
+  test("flag ON + containerized returns mode:manual with the manual redirect URI", async () => {
+    getIsContainerizedMock.mockReturnValue(true);
+    isConnectEnabledMock.mockReturnValue(true);
+
+    const result = (await startHandler({})) as StartResult;
+
+    expect(result.mode).toBe("manual");
+    const url = new URL(result.authorize_url);
+    expect(`${url.origin}${url.pathname}`).toBe(
+      "https://claude.ai/oauth/authorize",
+    );
+    expect(url.searchParams.get("redirect_uri")).toBe(
+      CLAUDE_MANUAL_REDIRECT_URI,
+    );
+    expect(url.searchParams.get("client_id")).toBe(CLAUDE_CLIENT_ID);
+    expect(url.searchParams.get("code_challenge_method")).toBe("S256");
+    expect(url.searchParams.get("state")).toBe(result.state);
+
+    // The manual path must not bind a loopback.
+    expect(prepareOAuth2FlowMock).not.toHaveBeenCalled();
+    // Tracked as pending so a subsequent status poll doesn't 404.
+    expect(getStatus(result.state).status).toBe("pending");
+  });
+
+  test("flag OFF + containerized fails closed with a clear message (403, no loopback)", async () => {
+    getIsContainerizedMock.mockReturnValue(true);
+    isConnectEnabledMock.mockReturnValue(false);
+
+    let thrown: { statusCode?: number; message?: string } | undefined;
+    try {
+      await startHandler({});
+    } catch (err) {
+      thrown = err as { statusCode?: number; message?: string };
+    }
+
+    expect(thrown).toBeDefined();
+    expect(thrown!.statusCode).toBe(403);
+    expect(thrown!.message).toMatch(/not enabled/i);
+    // Fail-closed: never attempts a (broken) loopback bind.
+    expect(prepareOAuth2FlowMock).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// exchange — cloud/manual branch
+// ---------------------------------------------------------------------------
+
+describe("acp_claude_auth_exchange", () => {
+  /** Start a manual flow and return its state. */
+  async function startManual(): Promise<string> {
+    getIsContainerizedMock.mockReturnValue(true);
+    isConnectEnabledMock.mockReturnValue(true);
+    const result = (await startHandler({})) as StartResult;
+    return result.state;
+  }
+
+  test("valid `code#state` paste stores the token and returns ok", async () => {
+    const state = await startManual();
+
+    const res = (await exchangeHandler({
+      body: { code: `auth-code-123#${state}`, state: "" },
+    })) as { ok: boolean };
+
+    expect(res.ok).toBe(true);
+    expect(exchangeCodeForTokensMock).toHaveBeenCalledTimes(1);
+    const call = exchangeCodeForTokensMock.mock.calls[0] as unknown as [
+      unknown,
+      string,
+      string,
+      string,
+    ];
+    // Exchanged with the code portion + the manual redirect URI.
+    expect(call[1]).toBe("auth-code-123");
+    expect(call[2]).toBe(CLAUDE_MANUAL_REDIRECT_URI);
+    expect(call[3]).toBeTruthy(); // PKCE verifier from the start call
+    expect(storeAcpClaudeTokenMock).toHaveBeenCalledWith("sk-ant-oat-manual");
+
+    // The pending entry is consumed — a second exchange fails.
+    await expect(
+      exchangeHandler({ body: { code: `x#${state}`, state: "" } }),
+    ).rejects.toThrow(/invalid or expired/i);
+  });
+
+  test("raw code + separate state stores the token and returns ok", async () => {
+    const state = await startManual();
+
+    const res = (await exchangeHandler({
+      body: { code: "raw-code-xyz", state },
+    })) as { ok: boolean };
+
+    expect(res.ok).toBe(true);
+    const call = exchangeCodeForTokensMock.mock.calls[0] as unknown as [
+      unknown,
+      string,
+    ];
+    expect(call[1]).toBe("raw-code-xyz");
+    expect(storeAcpClaudeTokenMock).toHaveBeenCalledWith("sk-ant-oat-manual");
+  });
+
+  test("malformed paste (no `#`, no state) is rejected", async () => {
+    await startManual();
+
+    await expect(
+      exchangeHandler({ body: { code: "no-hash-no-state", state: "" } }),
+    ).rejects.toThrow(/code#state|malformed/i);
+    expect(exchangeCodeForTokensMock).not.toHaveBeenCalled();
+  });
+
+  test("unknown state is rejected cleanly", async () => {
+    await expect(
+      exchangeHandler({ body: { code: "some-code#never-started", state: "" } }),
+    ).rejects.toThrow(/invalid or expired/i);
+    expect(exchangeCodeForTokensMock).not.toHaveBeenCalled();
+  });
+
+  test("expired state is rejected cleanly", async () => {
+    const state = await startManual();
+
+    const realNow = Date.now;
+    Date.now = () => realNow() + 11 * 60 * 1000; // past the 10-minute TTL
+    try {
+      await expect(
+        exchangeHandler({ body: { code: `c#${state}`, state: "" } }),
+      ).rejects.toThrow(/expired/i);
+    } finally {
+      Date.now = realNow;
+    }
+    expect(exchangeCodeForTokensMock).not.toHaveBeenCalled();
   });
 });
