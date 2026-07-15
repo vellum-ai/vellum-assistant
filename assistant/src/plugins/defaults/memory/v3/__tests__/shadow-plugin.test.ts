@@ -174,6 +174,9 @@ let capturedPageBody: ((slug: string) => Promise<string>) | null = null;
 // the stubbed `getMemorySqlite`); the everInjected store stays in main.
 let testSqlite: Database;
 let memorySqlite: Database;
+// When false, the stubbed `getMemorySqlite` resolves to null — the contract
+// the plugin sees when the dedicated memory database cannot be opened.
+let memoryDbAvailable = true;
 let testDb = makeDb();
 function makeDb() {
   testSqlite = new Database(":memory:");
@@ -275,7 +278,7 @@ mock.module("../../../../../persistence/conversation-crud.js", () => ({
 mock.module("../../../../../persistence/db-connection.js", () => ({
   getDb: () => testDb,
   getSqliteFrom: () => testSqlite,
-  getMemorySqlite: () => memorySqlite,
+  getMemorySqlite: () => (memoryDbAvailable ? memorySqlite : null),
 }));
 
 mock.module("../../v2/page-index.js", () => ({
@@ -449,6 +452,8 @@ const {
   resetShadowLanesForTests,
   invalidateLanes,
   attributeSelections,
+  writeSelections,
+  backfillMemoryV3SelectionMessageId,
 } = await import("../shadow-plugin.js");
 const { memoryV3Injector, resetMemoryV3InjectorStateForTests } =
   await import("../injector.js");
@@ -478,6 +483,7 @@ beforeEach(() => {
   shadowMockActive = true;
   liveEnabled = false;
   memoryEnabled = true;
+  memoryDbAvailable = true;
   learnedEdgesCap = 0;
   extraRealConceptPages = 0;
   selectorEnabledCfg = false;
@@ -532,6 +538,28 @@ describe("memory-v3 engine", () => {
 
     expect(orchestrateSpy).not.toHaveBeenCalled();
     expect(sectionBuilds).toBe(0);
+    expect(readRows()).toHaveLength(0);
+  });
+
+  test("selection writes and the message-id backfill no-op when the memory database is unavailable", () => {
+    memoryDbAvailable = false;
+    expect(() =>
+      writeSelections("conv-1", 1, [
+        {
+          slug: "page-1",
+          source: "needle",
+          pinned: 0,
+          sectionOrdinal: null,
+          sectionTitle: null,
+        },
+      ]),
+    ).not.toThrow();
+    expect(() =>
+      backfillMemoryV3SelectionMessageId("conv-1", "m-1"),
+    ).not.toThrow();
+
+    // Nothing landed while the connection was down.
+    memoryDbAvailable = true;
     expect(readRows()).toHaveLength(0);
   });
 
