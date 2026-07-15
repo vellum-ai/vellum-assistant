@@ -52,7 +52,7 @@ The `claude-agent-acp` adapter needs a credential. The preferred one is an Anthr
 
 On the first ACP use, establish auth as a first-run moment - do it up front, not as a mid-task auth wall. First run `assistant credentials list` to detect an existing `anthropic/api_key`, then ask the user to choose:
 
-- **(a) Reuse the existing Anthropic API key** - offer this only when `anthropic/api_key` exists. Name it by its scrubbed suffix (e.g. "…NgAA"). On yes, grant `acp_spawn` read access to it - no pasting, no reveal.
+- **(a) Reuse the existing Anthropic API key** - offer this only when `anthropic/api_key` exists. Name it by its scrubbed suffix (e.g. "…NgAA"). On yes, grant ACP read-access to the existing key - no pasting, no reveal: `assistant credentials grant --service anthropic --field api_key --tool acp_spawn`.
 - **(b) Paste a new API key** - `assistant credentials prompt --service acp --field anthropic_api_key --label "Anthropic API Key"`.
 - **(c) Use their Claude subscription** - run `claude setup-token`, then `assistant credentials prompt --service acp --field claude_oauth_token --label "Claude OAuth Token"`. Heads-up: using a subscription OAuth token in a third-party tool is something Anthropic restricts; the API key is the supported path.
 

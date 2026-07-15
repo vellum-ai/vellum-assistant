@@ -118,6 +118,7 @@ import { ROUTES } from "../runtime/routes/credential-routes.js";
 
 const setRoute = ROUTES.find((r) => r.operationId === "credentials_set");
 const listRoute = ROUTES.find((r) => r.operationId === "credentials_list");
+const grantRoute = ROUTES.find((r) => r.operationId === "credentials_grant");
 const deleteRoute = ROUTES.find((r) => r.operationId === "credentials_delete");
 const revealRoute = ROUTES.find((r) => r.operationId === "credentials_reveal");
 
@@ -132,6 +133,11 @@ type ListResponse = {
   managedCredentials: unknown[];
 };
 type DeleteResponse = { service: string; field: string };
+type GrantResponse = {
+  service: string;
+  field: string;
+  allowedTools: string[];
+};
 
 const SECRET_VALUE = "super-secret-token-value";
 
@@ -398,6 +404,86 @@ describe("credentials routes", () => {
         expect(result.service).toBe("github");
         expect(secureStore.get("github:api_token")).toBe("sk-ant-oat01-abc123");
       });
+    });
+  });
+
+  describe("credentials_grant", () => {
+    test("adds the tool to allowedTools without touching the stored value", async () => {
+      /**
+       * Granting a tool merges it into the credential's allowedTools policy so
+       * the broker permits that tool to read it — a metadata-only change that
+       * never reads or rewrites the secret.
+       */
+      // GIVEN a stored credential with an unrelated tool policy
+      await setRoute!.handler({
+        body: {
+          service: "anthropic",
+          field: "api_key",
+          value: SECRET_VALUE,
+          allowedTools: ["some_tool"],
+        },
+      });
+
+      // WHEN acp_spawn is granted read access
+      const result = (await grantRoute!.handler({
+        body: { service: "anthropic", field: "api_key", tool: "acp_spawn" },
+      })) as GrantResponse;
+
+      // THEN the existing tool is preserved and acp_spawn is added
+      expect(result.service).toBe("anthropic");
+      expect(result.field).toBe("api_key");
+      expect(result.allowedTools).toContain("some_tool");
+      expect(result.allowedTools).toContain("acp_spawn");
+
+      // AND the secret value is untouched
+      expect(secureStore.get("anthropic:api_key")).toBe(SECRET_VALUE);
+    });
+
+    test("is idempotent when the tool is already allowed", async () => {
+      // GIVEN a credential that already allows the tool
+      await setRoute!.handler({
+        body: {
+          service: "anthropic",
+          field: "api_key",
+          value: SECRET_VALUE,
+          allowedTools: ["acp_spawn", "keep"],
+        },
+      });
+
+      // WHEN the same tool is granted again
+      const result = (await grantRoute!.handler({
+        body: { service: "anthropic", field: "api_key", tool: "acp_spawn" },
+      })) as GrantResponse;
+
+      // THEN allowedTools is unchanged (no duplicate)
+      expect(result.allowedTools).toEqual(["acp_spawn", "keep"]);
+    });
+
+    test("creates metadata carrying just the tool when none exists yet", async () => {
+      /**
+       * A credential with a stored secret but no metadata record still gets a
+       * policy created that allows the granted tool.
+       */
+      // GIVEN a secret with no metadata record
+      secureStore.set("anthropic:api_key", SECRET_VALUE);
+
+      // WHEN a tool is granted
+      const result = (await grantRoute!.handler({
+        body: { service: "anthropic", field: "api_key", tool: "acp_spawn" },
+      })) as GrantResponse;
+
+      // THEN metadata is created carrying only that tool
+      expect(result.allowedTools).toEqual(["acp_spawn"]);
+      expect(metadataStore.get("anthropic:api_key")?.allowedTools).toEqual([
+        "acp_spawn",
+      ]);
+    });
+
+    test("rejects a request missing the tool", async () => {
+      const call = grantRoute!.handler({
+        body: { service: "anthropic", field: "api_key" },
+      });
+      await expect(call).rejects.toBeInstanceOf(BadRequestError);
     });
   });
 

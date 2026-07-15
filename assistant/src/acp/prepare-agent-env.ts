@@ -32,6 +32,7 @@ import { getLogger } from "../util/logger.js";
 import {
   ACP_ANTHROPIC_API_KEY_FIELD,
   ACP_OAUTH_TOKEN_FIELD,
+  ACP_SERVICE,
 } from "./acp-credentials.js";
 import { resolveAcpGatewayAuth } from "./gateway-auth.js";
 import type { AcpAgentConfig } from "./types.js";
@@ -39,13 +40,12 @@ import type { AcpAgentConfig } from "./types.js";
 const log = getLogger("acp:prepare-agent-env");
 
 const ACP_SPAWN_TOOL = "acp_spawn";
-const ACP_SERVICE = "acp";
 
 // The SHARED Anthropic API key (service "anthropic", field "api_key") that
-// other tools already use. ACP reuses it only after explicit consent — see
-// `grantAcpAccessToSharedAnthropicKey`. The field name is bound through an
-// intermediate so its literal never shares a line with an `*_KEY = "…"` shape
-// the repo's secret-scan hook false-positives.
+// other tools already use. ACP reuses it only after explicit consent — the
+// user grants `acp_spawn` read-access via `assistant credentials grant`. The
+// field name is bound through an intermediate so its literal never shares a
+// line with an `*_KEY = "…"` shape the repo's secret-scan hook false-positives.
 const SHARED_ANTHROPIC_SERVICE = "anthropic";
 const sharedAnthropicApiField = "api_key";
 
@@ -110,10 +110,10 @@ async function injectCredential(
  * Read the SHARED `anthropic/api_key` credential through the broker and inject
  * it as `ANTHROPIC_API_KEY`. Unlike `injectCredential`, this provisions no
  * policy: the broker denies the read unless the user opted the shared key into
- * ACP by adding `acp_spawn` to its `allowedTools` (see
- * `grantAcpAccessToSharedAnthropicKey`), so an unconsented key is never reused.
- * A miss (absent, unconsented, or valueless) is non-fatal — the caller falls
- * through to the next credential tier.
+ * ACP by adding `acp_spawn` to its `allowedTools` (via `assistant credentials
+ * grant`), so an unconsented key is never reused. A miss (absent, unconsented,
+ * or valueless) is non-fatal — the caller falls through to the next credential
+ * tier.
  */
 async function injectSharedAnthropicApiKey(
   env: Record<string, string>,
@@ -132,26 +132,6 @@ async function injectSharedAnthropicApiKey(
       "shared anthropic/api_key not available for ACP reuse; trying next tier",
     );
   }
-}
-
-/**
- * Opt the shared `anthropic/api_key` credential into ACP reuse by merging
- * `acp_spawn` into its existing `allowedTools` — the auditable consent the
- * reuse tier in `prepareAgentEnv` gates on. Metadata-only: the secret value is
- * never read or rewritten. No-op when the credential has no metadata (nothing
- * to grant) or already allows `acp_spawn` (idempotent).
- */
-export function grantAcpAccessToSharedAnthropicKey(): void {
-  const meta = getCredentialMetadata(
-    SHARED_ANTHROPIC_SERVICE,
-    sharedAnthropicApiField,
-  );
-  if (!meta) return;
-  const tools = meta.allowedTools ?? [];
-  if (tools.includes(ACP_SPAWN_TOOL)) return;
-  upsertCredentialMetadata(SHARED_ANTHROPIC_SERVICE, sharedAnthropicApiField, {
-    allowedTools: [...tools, ACP_SPAWN_TOOL],
-  });
 }
 
 /**
@@ -227,6 +207,12 @@ export async function prepareAgentEnv(
     // authenticates the child against the Vellum runtime proxy, so no Anthropic
     // credential is needed — skip injection and the throw. Off → PR-2 path below.
     if (await resolveAcpGatewayAuth()) {
+      // The proxy supplies auth and is authoritative; strip any
+      // config.json-supplied key so it can't bypass per-assistant proxy
+      // billing. The version-skew (adapter-without-gateway) case is validated
+      // during the dev-platform live test before un-flagging.
+      delete env.ANTHROPIC_API_KEY;
+      delete env.CLAUDE_CODE_OAUTH_TOKEN;
       return { ...agentConfig, env };
     }
 

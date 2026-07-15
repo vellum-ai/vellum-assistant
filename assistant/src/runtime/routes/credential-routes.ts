@@ -10,6 +10,7 @@
  * POST   /v1/credentials/inspect — inspect a single credential (masked)
  * POST   /v1/credentials/reveal  — reveal a credential's plaintext value
  * POST   /v1/credentials/set     — store a credential with metadata
+ * POST   /v1/credentials/grant   — grant a tool read access (metadata-only)
  * POST   /v1/credentials/delete  — delete a credential, metadata, and OAuth
  * GET    /v1/credentials/status  — show active credential backend info
  */
@@ -427,6 +428,43 @@ async function handleCredentialsSet({ body }: RouteHandlerArgs) {
   };
 }
 
+async function handleCredentialsGrant({ body }: RouteHandlerArgs) {
+  if (!body || typeof body !== "object") {
+    throw new BadRequestError("Request body is required");
+  }
+
+  const { service, field, tool } = body as {
+    service?: string;
+    field?: string;
+    tool?: string;
+  };
+
+  if (!service || typeof service !== "string") {
+    throw new BadRequestError("service is required");
+  }
+  if (!field || typeof field !== "string") {
+    throw new BadRequestError("field is required");
+  }
+  if (!tool || typeof tool !== "string") {
+    throw new BadRequestError("tool is required");
+  }
+
+  assertMetadataWritable();
+
+  // Metadata-only: merge the tool into allowedTools without reading or
+  // rewriting the secret value. Idempotent (a tool already present is a no-op);
+  // a credential with no metadata yet gets one created carrying just this tool.
+  const existing = getCredentialMetadata(service, field);
+  const allowedTools = [...new Set([...(existing?.allowedTools ?? []), tool])];
+  const metadata = upsertCredentialMetadata(service, field, { allowedTools });
+
+  return {
+    service,
+    field,
+    allowedTools: metadata.allowedTools,
+  };
+}
+
 async function handleCredentialsDelete({ body }: RouteHandlerArgs) {
   if (!body || typeof body !== "object") {
     throw new BadRequestError("Request body is required");
@@ -618,6 +656,32 @@ export const ROUTES: RouteDefinition[] = [
       field: z.string(),
     }),
     handler: handleCredentialsSet,
+  },
+  {
+    operationId: "credentials_grant",
+    endpoint: "credentials/grant",
+    method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Grant a tool read access to a credential",
+    description:
+      "Add a tool name to a credential's allowedTools policy so the broker permits that tool to read it. Metadata-only — never reads or rewrites the secret value.",
+    tags: ["credentials"],
+    requestBody: z.object({
+      service: z.string().describe("Service namespace"),
+      field: z.string().describe("Field name"),
+      tool: z.string().describe("Tool name to grant read access"),
+    }),
+    responseBody: z.object({
+      service: z.string(),
+      field: z.string(),
+      allowedTools: z
+        .array(z.string())
+        .describe("The credential's allowedTools after the grant"),
+    }),
+    handler: handleCredentialsGrant,
   },
   {
     operationId: "credentials_delete",

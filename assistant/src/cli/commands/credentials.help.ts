@@ -124,6 +124,35 @@ Examples:
   $ assistant credentials set --service github --field token ghp_abc --allowed-tools "bash,host_bash"`,
     },
     {
+      name: "grant",
+      description:
+        "Grant a tool read access to an existing credential (metadata-only)",
+      options: [
+        {
+          flags: "--service <service>",
+          description: "Service namespace",
+          required: true,
+        },
+        {
+          flags: "--field <field>",
+          description: "Field name",
+          required: true,
+        },
+        {
+          flags: "--tool <tool>",
+          description: "Tool name to grant read access",
+          required: true,
+        },
+      ],
+      helpText: `
+Adds a tool to the credential's allowedTools policy so the broker permits that
+tool to read it. Metadata-only — the secret value is never read or rewritten,
+and the grant is idempotent.
+
+Examples:
+  $ assistant credentials grant --service anthropic --field api_key --tool acp_spawn`,
+    },
+    {
       name: "delete",
       description: "Remove a secret and its metadata from the vault",
       options: [
