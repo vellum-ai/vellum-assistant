@@ -106,6 +106,21 @@ function readRaw(key: string): string | null {
 }
 
 // ---------------------------------------------------------------------------
+// Shared parsers
+// ---------------------------------------------------------------------------
+
+/** Strict `parse` for boolean accessors: only "true"/"false" are valid. */
+export function parseBool(raw: string): boolean | null {
+  if (raw === "true") {
+    return true;
+  }
+  if (raw === "false") {
+    return false;
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
 // Static-key accessor
 // ---------------------------------------------------------------------------
 

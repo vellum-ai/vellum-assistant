@@ -6,7 +6,7 @@
  * tips describe what this browser has already been told, not account state.
  */
 
-import { createStorageAccessor } from "@/utils/typed-storage";
+import { createStorageAccessor, parseBool } from "@/utils/typed-storage";
 
 export interface TipRecord {
   dismissedAt?: number;
@@ -45,16 +45,6 @@ function parseTipRecords(raw: string): Record<string, TipRecord> | null {
     }
   }
   return result;
-}
-
-function parseBool(raw: string): boolean | null {
-  if (raw === "true") {
-    return true;
-  }
-  if (raw === "false") {
-    return false;
-  }
-  return null;
 }
 
 function parseTimestamp(raw: string): number | null {

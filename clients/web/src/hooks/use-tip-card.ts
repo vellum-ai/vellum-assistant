@@ -11,6 +11,10 @@
 
 import { useCallback, useEffect, useState } from "react";
 
+import {
+  isProactiveTipsOn,
+  useProactiveTipsVariant,
+} from "@/hooks/use-proactive-tips-flag";
 import { useSupportsPluginsSurface } from "@/lib/backwards-compat/plugins-surface";
 import { isElectron } from "@/runtime/is-electron";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
@@ -20,7 +24,6 @@ import { TIPS_CATALOG, type Tip } from "@/utils/tips-catalog";
 import {
   selectCurrentTip,
   TIP_ROTATION_INTERVAL_MS,
-  TIPS_MIN_ACCOUNT_AGE_MS,
 } from "@/utils/tips-selection";
 import {
   ensureTipsFirstSeenAt,
@@ -31,6 +34,9 @@ import {
   tipsFirstSeenAtStorage,
 } from "@/utils/tips-storage";
 import { emitTipEvent } from "@/utils/tips-telemetry";
+
+/** New-user grace: no tips until the account is at least this old. */
+export const TIPS_MIN_ACCOUNT_AGE_MS = 24 * 60 * 60 * 1000;
 
 interface TipGateContext {
   electron: boolean;
@@ -84,7 +90,7 @@ export function useTipCard(): UseTipCardResult {
   const records = tipRecordsStorage.useValue();
   const firstSeenAt = tipsFirstSeenAtStorage.useValue();
 
-  const variant = clientFlagState.stringFlags.proactiveTips ?? "off";
+  const variant = useProactiveTipsVariant();
 
   // Clock state for selection: reading Date.now() during render is impure
   // (react-hooks/purity), so renders see a snapshot that the rotation-boundary
@@ -144,7 +150,7 @@ export function useTipCard(): UseTipCardResult {
   }, [records, now]);
 
   const gatesOpen =
-    variant === "on" && tipsEnabled && !bannerVisible && ageEligible;
+    isProactiveTipsOn(variant) && tipsEnabled && !bannerVisible && ageEligible;
 
   const eligibleCatalog = TIPS_CATALOG.filter((tip) =>
     tipPassesGates(tip, {

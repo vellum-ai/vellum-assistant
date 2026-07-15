@@ -11,7 +11,9 @@ import { act, cleanup, renderHook } from "@testing-library/react";
 const emitTipEvent = mock(() => {});
 mock.module("@/utils/tips-telemetry", () => ({ emitTipEvent }));
 
-const { useTipCard } = await import("@/hooks/use-tip-card");
+const { useTipCard, TIPS_MIN_ACCOUNT_AGE_MS } = await import(
+  "@/hooks/use-tip-card"
+);
 const { useAssistantFeatureFlagStore } = await import(
   "@/stores/assistant-feature-flag-store"
 );
@@ -22,9 +24,7 @@ const { useClientFeatureFlagStore } = await import(
   "@/stores/client-feature-flag-store"
 );
 const { TIPS_CATALOG } = await import("@/utils/tips-catalog");
-const { TIP_ROTATION_INTERVAL_MS, TIPS_MIN_ACCOUNT_AGE_MS } = await import(
-  "@/utils/tips-selection"
-);
+const { TIP_ROTATION_INTERVAL_MS } = await import("@/utils/tips-selection");
 const {
   recordTipDismissed,
   tipRecordsStorage,

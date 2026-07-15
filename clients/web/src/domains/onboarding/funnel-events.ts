@@ -117,9 +117,16 @@ export const RESEARCH_ONBOARDING_CHECKIN_STEP = {
  */
 export type OnboardingFunnelStepOutcome = "completed" | "skipped";
 
+/**
+ * A/B arm stamped on the event. The ingest stores `ab_variant` as an open
+ * CharField; the `OnboardingFunnelVariant` union documents the pre-chat arms
+ * while `(string & {})` admits other funnels' arms (e.g. tips flag variants).
+ */
+export type OnboardingFunnelAbVariant = OnboardingFunnelVariant | (string & {});
+
 export interface OnboardingFunnelStepCompletedOptions {
   userId?: string | null;
-  variant?: OnboardingFunnelVariant;
+  variant?: OnboardingFunnelAbVariant;
   /** Funnel this step belongs to; defaults to the pre-chat funnel version. */
   funnelVersion?: string;
   /** Completed vs skipped; omitted when the funnel doesn't distinguish. */
@@ -142,7 +149,7 @@ export interface OnboardingFunnelEvent {
   completed_at: string;
   user_id: string | null;
   funnel_version: string;
-  ab_variant: OnboardingFunnelVariant;
+  ab_variant: OnboardingFunnelAbVariant;
   /** Completed vs skipped; absent when the funnel doesn't distinguish. */
   outcome?: OnboardingFunnelStepOutcome;
 }

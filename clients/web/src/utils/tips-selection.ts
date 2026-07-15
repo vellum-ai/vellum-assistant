@@ -12,9 +12,6 @@
 import type { Tip } from "@/utils/tips-catalog";
 import type { TipRecord } from "@/utils/tips-storage";
 
-/** New-user grace: no tips until the account is at least this old. */
-export const TIPS_MIN_ACCOUNT_AGE_MS = 24 * 60 * 60 * 1000;
-
 /** A shown tip holds the slot this long; the next tip waits it out. */
 export const TIP_ROTATION_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
