@@ -9,6 +9,9 @@ import type { ConceptNodeKind } from "./types";
 interface ConceptGraphLegendProps {
   /** Node kinds actually present in the graph, in display order. */
   nodeKinds: ConceptNodeKind[];
+  /** When true (concept-only graph), nodes are colored by cluster/theme, so a
+   * lone kind swatch would be meaningless — show a caption instead. */
+  coloredByTheme?: boolean;
   hasLinks: boolean;
   hasLearned: boolean;
 }
@@ -16,6 +19,7 @@ interface ConceptGraphLegendProps {
 /** Compact legend for node kinds and edge kinds present in the graph. */
 export function ConceptGraphLegend({
   nodeKinds,
+  coloredByTheme,
   hasLinks,
   hasLearned,
 }: ConceptGraphLegendProps) {
@@ -41,7 +45,12 @@ export function ConceptGraphLegend({
           </span>
         </div>
       ))}
-      {nodeKinds.length > 0 && (hasLinks || hasLearned) && (
+      {coloredByTheme && (
+        <span className="text-[11px]" style={{ color: "var(--content-tertiary)" }}>
+          Colored by theme
+        </span>
+      )}
+      {(nodeKinds.length > 0 || coloredByTheme) && (hasLinks || hasLearned) && (
         <div
           className="mt-0.5 border-t pt-1.5"
           style={{ borderColor: "var(--border-base)" }}
