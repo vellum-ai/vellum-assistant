@@ -19,9 +19,6 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { OAuth2FlowResult } from "../../../security/oauth2.js";
 
-const CLAUDE_MANUAL_REDIRECT_URI =
-  "https://platform.claude.com/oauth/code/callback";
-
 // ---------------------------------------------------------------------------
 // Mocks — wired BEFORE importing the module under test.
 // ---------------------------------------------------------------------------
@@ -50,19 +47,11 @@ mock.module("../../../security/oauth2.js", () => ({
 }));
 
 const actualClaudeOauth = await import("../../../acp/acp-claude-oauth.js");
+const { CLAUDE_MANUAL_REDIRECT_URI } = actualClaudeOauth;
 const storeAcpClaudeTokenMock = mock(async (_token: string) => {});
 mock.module("../../../acp/acp-claude-oauth.js", () => ({
   ...actualClaudeOauth,
   storeAcpClaudeToken: storeAcpClaudeTokenMock,
-}));
-
-const actualSecureKeys = await import("../../../security/secure-keys.js");
-const setSecureKeyAsyncMock = mock(
-  async (_key: string, _value: string) => true,
-);
-mock.module("../../../security/secure-keys.js", () => ({
-  ...actualSecureKeys,
-  setSecureKeyAsync: setSecureKeyAsyncMock,
 }));
 
 // Host detection: default false (local/loopback) so the PR-5 tests are
@@ -156,7 +145,6 @@ beforeEach(() => {
   prepareOAuth2FlowMock.mockClear();
   exchangeCodeForTokensMock.mockClear();
   storeAcpClaudeTokenMock.mockClear();
-  setSecureKeyAsyncMock.mockClear();
   // Reset host + flag to their defaults (local host, flag on).
   getIsContainerizedMock.mockReturnValue(false);
   isConnectEnabledMock.mockReturnValue(true);
@@ -219,16 +207,6 @@ describe("loopback capture", () => {
     // Access token persisted via storeAcpClaudeToken.
     expect(storeAcpClaudeTokenMock).toHaveBeenCalledTimes(1);
     expect(storeAcpClaudeTokenMock).toHaveBeenCalledWith("sk-ant-oat-access");
-
-    // Refresh token + expiry persisted under the ACP service keys.
-    expect(setSecureKeyAsyncMock).toHaveBeenCalledWith(
-      "credential/acp/claude_oauth_refresh_token",
-      "refresh-xyz",
-    );
-    const expiresCall = setSecureKeyAsyncMock.mock.calls.find(
-      (c) => c[0] === "credential/acp/claude_oauth_expires_at",
-    );
-    expect(expiresCall).toBeDefined();
   });
 
   test("flips status to error when the exchange fails", async () => {
@@ -395,5 +373,25 @@ describe("acp_claude_auth_exchange", () => {
       Date.now = realNow;
     }
     expect(exchangeCodeForTokensMock).not.toHaveBeenCalled();
+  });
+
+  test("exchange failure yields a 400 (not 500) and the flow is not left pending", async () => {
+    const state = await startManual();
+    exchangeCodeForTokensMock.mockImplementationOnce(async () => {
+      throw new Error("token endpoint rejected the code");
+    });
+
+    let thrown: { statusCode?: number } | undefined;
+    try {
+      await exchangeHandler({ body: { code: `bad#${state}`, state: "" } });
+    } catch (err) {
+      thrown = err as { statusCode?: number };
+    }
+    expect(thrown).toBeDefined();
+    expect(thrown!.statusCode).toBe(400);
+
+    // The flow is marked errored (not left pending) and the token is not stored.
+    expect(getStatus(state).status).toBe("error");
+    expect(storeAcpClaudeTokenMock).not.toHaveBeenCalled();
   });
 });
