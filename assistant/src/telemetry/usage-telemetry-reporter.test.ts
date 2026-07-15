@@ -221,6 +221,7 @@ import {
 } from "./telemetry-event-sources.js";
 import {
   insertTelemetryOutboxEvent,
+  OUTBOX_MAX_ROW_AGE_MS,
   queryTelemetryOutboxBatch,
 } from "./telemetry-events-outbox.js";
 import type { OutboxTelemetryEventName, TelemetryEvent } from "./types.js";
@@ -2006,7 +2007,8 @@ describe("UsageTelemetryReporter", () => {
     insertTelemetryOutboxEvent({
       id: "row-activation-old",
       name: "onboarding",
-      createdAt: 1700000100000,
+      // Row age drives the flush-cycle prune; only the payload is frozen-old.
+      createdAt: Date.now(),
       event: frozen,
     });
     mockFetch.mockImplementation(() =>
@@ -2996,6 +2998,10 @@ describe("UsageTelemetryReporter", () => {
   // shipped event type.
   const OUTBOX_NAME = "test_outbox" as OutboxTelemetryEventName;
 
+  // Recent base for row timestamps: the flush cycle prunes outbox rows older
+  // than OUTBOX_MAX_ROW_AGE_MS, so rows that must ship are seeded fresh.
+  const OUTBOX_BASE = Date.now() - 60_000;
+
   function seedOutboxRow(id: string, createdAt: number): void {
     insertTelemetryOutboxEvent({
       id,
@@ -3010,8 +3016,8 @@ describe("UsageTelemetryReporter", () => {
   }
 
   test("outboxSource ships pending rows and deletes them after a 2xx", async () => {
-    seedOutboxRow("ob-1", 1700000001000);
-    seedOutboxRow("ob-2", 1700000002000);
+    seedOutboxRow("ob-1", OUTBOX_BASE + 1000);
+    seedOutboxRow("ob-2", OUTBOX_BASE + 2000);
     const reporter = new UsageTelemetryReporter(
       [outboxSource(OUTBOX_NAME)],
       fakeFlushCheckpointStore,
@@ -3034,7 +3040,7 @@ describe("UsageTelemetryReporter", () => {
     mockFetch.mockImplementation(() =>
       Promise.resolve(new Response("error", { status: 500 })),
     );
-    seedOutboxRow("ob-1", 1700000001000);
+    seedOutboxRow("ob-1", OUTBOX_BASE + 1000);
     const reporter = new UsageTelemetryReporter(
       [outboxSource(OUTBOX_NAME)],
       fakeFlushCheckpointStore,
@@ -3047,8 +3053,8 @@ describe("UsageTelemetryReporter", () => {
 
   test("outboxSource opt-out discards all pending rows for the name", async () => {
     mockGetRawShareAnalytics.mockReturnValue(false);
-    seedOutboxRow("ob-1", 1700000001000);
-    seedOutboxRow("ob-2", 1700000002000);
+    seedOutboxRow("ob-1", OUTBOX_BASE + 1000);
+    seedOutboxRow("ob-2", OUTBOX_BASE + 2000);
     const reporter = new UsageTelemetryReporter(
       [outboxSource(OUTBOX_NAME)],
       fakeFlushCheckpointStore,
@@ -3062,8 +3068,8 @@ describe("UsageTelemetryReporter", () => {
 
   test("outboxSource unknown consent retains all pending rows", async () => {
     mockGetRawShareAnalytics.mockReturnValue("unknown");
-    seedOutboxRow("ob-1", 1700000001000);
-    seedOutboxRow("ob-2", 1700000002000);
+    seedOutboxRow("ob-1", OUTBOX_BASE + 1000);
+    seedOutboxRow("ob-2", OUTBOX_BASE + 2000);
     const reporter = new UsageTelemetryReporter(
       [outboxSource(OUTBOX_NAME)],
       fakeFlushCheckpointStore,
@@ -3075,6 +3081,76 @@ describe("UsageTelemetryReporter", () => {
     expect(mockSetFlushCheckpoint).not.toHaveBeenCalled();
   });
 
+  // -------------------------------------------------------------------------
+  // Flush-cycle age prune (bounds unknown-consent buffering)
+  // -------------------------------------------------------------------------
+
+  function seedExpiredAndFreshRows(): void {
+    seedOutboxRow("ob-expired", Date.now() - OUTBOX_MAX_ROW_AGE_MS - 60_000);
+    seedOutboxRow("ob-fresh", OUTBOX_BASE);
+  }
+
+  test("opted in: expired rows are pruned rather than shipped; fresh rows ship", async () => {
+    seedExpiredAndFreshRows();
+    const reporter = new UsageTelemetryReporter(
+      [outboxSource(OUTBOX_NAME)],
+      fakeFlushCheckpointStore,
+    );
+    await reporter.flush();
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    expect(
+      body.events.map((e: { daemon_event_id: string }) => e.daemon_event_id),
+    ).toEqual(["wire-ob-fresh"]);
+    expect(pendingOutboxIds()).toEqual([]);
+  });
+
+  test("unknown consent: expired rows are pruned before the deferral; fresh rows are retained", async () => {
+    mockGetRawShareAnalytics.mockReturnValue("unknown");
+    seedExpiredAndFreshRows();
+    const reporter = new UsageTelemetryReporter(
+      [outboxSource(OUTBOX_NAME)],
+      fakeFlushCheckpointStore,
+    );
+    await reporter.flush();
+
+    // The unknown-defer branch still sends and acks nothing, but the age
+    // prune has already bounded the backlog — a permanently-unknown state
+    // cannot accumulate rows forever.
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(pendingOutboxIds()).toEqual(["ob-fresh"]);
+    expect(mockSetFlushCheckpoint).not.toHaveBeenCalled();
+  });
+
+  test("expired rows are pruned even when the flush skips for platform-disabled", async () => {
+    process.env.VELLUM_DISABLE_PLATFORM = "true";
+    seedExpiredAndFreshRows();
+    const reporter = new UsageTelemetryReporter(
+      [outboxSource(OUTBOX_NAME)],
+      fakeFlushCheckpointStore,
+    );
+    await reporter.flush();
+
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(pendingOutboxIds()).toEqual(["ob-fresh"]);
+  });
+
+  test("a reporter without ack-mode sources never prunes the outbox", async () => {
+    // The daemon partition (watermark-only) does not own the outbox; the
+    // prune belongs to the reporter instance that flushes ack-mode sources.
+    seedExpiredAndFreshRows();
+    const reporter = new UsageTelemetryReporter(
+      [makeWatermarkSource("fake_wm")],
+      fakeFlushCheckpointStore,
+    );
+    await reporter.flush();
+
+    expect(pendingOutboxIds()).toEqual(["ob-expired", "ob-fresh"]);
+  });
+
   test("outboxSource purges corrupt-payload rows at collect while valid siblings ship", async () => {
     // Raw inserts: the store API only writes JSON.stringify-ed events, so
     // corrupt payloads (invalid JSON, non-object JSON) go in directly.
@@ -3084,20 +3160,20 @@ describe("UsageTelemetryReporter", () => {
         {
           id: "ob-corrupt-json",
           name: OUTBOX_NAME,
-          createdAt: 1700000001000,
+          createdAt: OUTBOX_BASE + 1000,
           conversationId: null,
           payload: "{not json",
         },
         {
           id: "ob-non-object",
           name: OUTBOX_NAME,
-          createdAt: 1700000002000,
+          createdAt: OUTBOX_BASE + 2000,
           conversationId: null,
           payload: "42",
         },
       ])
       .run();
-    seedOutboxRow("ob-valid", 1700000003000);
+    seedOutboxRow("ob-valid", OUTBOX_BASE + 3000);
     const reporter = new UsageTelemetryReporter(
       [outboxSource(OUTBOX_NAME)],
       fakeFlushCheckpointStore,
@@ -3119,7 +3195,7 @@ describe("UsageTelemetryReporter", () => {
     // 501 rows: the first collect fills BATCH_SIZE (500) and the fullBatch
     // recursion ships the remaining row.
     for (let i = 0; i < 501; i++) {
-      seedOutboxRow(`ob-${String(i).padStart(3, "0")}`, 1700000000000 + i);
+      seedOutboxRow(`ob-${String(i).padStart(3, "0")}`, OUTBOX_BASE + i);
     }
     const reporter = new UsageTelemetryReporter(
       [outboxSource(OUTBOX_NAME)],
