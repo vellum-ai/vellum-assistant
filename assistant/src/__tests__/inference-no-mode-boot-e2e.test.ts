@@ -14,7 +14,42 @@
  * This is the gate test mandated by the cc-cutover-proof rule for Phase 1.2.
  */
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+
+// ---------------------------------------------------------------------------
+// Mock hygiene — `mock.module` patches loaded modules in place, and those
+// patches outlive this file in the shared bun test process. Capture the
+// pre-mock implementations up front so `afterAll` can restore them for test
+// files that run later in the same invocation (e.g. suites that need the real
+// db-connection / connections store).
+// ---------------------------------------------------------------------------
+
+const preMockModules: ReadonlyArray<[string, Record<string, unknown>]> = [
+  ["../util/logger.js", { ...(await import("../util/logger.js")) }],
+  [
+    "../security/secure-keys.js",
+    { ...(await import("../security/secure-keys.js")) },
+  ],
+  [
+    "../providers/platform-proxy/context.js",
+    { ...(await import("../providers/platform-proxy/context.js")) },
+  ],
+  [
+    "../providers/inference/connections.js",
+    { ...(await import("../providers/inference/connections.js")) },
+  ],
+  [
+    "../persistence/db-connection.js",
+    { ...(await import("../persistence/db-connection.js")) },
+  ],
+  ["@anthropic-ai/sdk", { ...(await import("@anthropic-ai/sdk")) }],
+];
+
+afterAll(() => {
+  for (const [specifier, exports] of preMockModules) {
+    mock.module(specifier, () => exports);
+  }
+});
 
 // ---------------------------------------------------------------------------
 // Mocks — declared before imports that pull in transitive deps
@@ -129,11 +164,12 @@ function makeConfig(overrides?: Record<string, unknown>) {
     },
     llm: {
       ...baseLlm,
-      default: {
-        ...baseLlm.default,
-        provider: "anthropic" as const,
-        model: "claude-opus-4-7",
-        provider_connection: "anthropic-personal",
+      callSites: {
+        ...baseLlm.callSites,
+        mainAgent: {
+          provider: "anthropic" as const,
+          model: "claude-opus-4-7",
+        },
       },
     },
     ...overrides,
@@ -160,7 +196,11 @@ describe("inference-no-mode-boot-e2e: config without services.inference.mode", (
   test("Zod schema parses config with no services.inference.mode without error", () => {
     const raw = {
       services: { inference: {} },
-      llm: { default: { provider: "anthropic", model: "claude-opus-4-7" } },
+      llm: {
+        callSites: {
+          mainAgent: { provider: "anthropic", model: "claude-opus-4-7" },
+        },
+      },
     };
     const result = AssistantConfigSchema.safeParse(raw);
     expect(result.success).toBe(true);
@@ -172,7 +212,11 @@ describe("inference-no-mode-boot-e2e: config without services.inference.mode", (
 
   test("Zod schema also parses config with services.inference absent entirely", () => {
     const raw = {
-      llm: { default: { provider: "anthropic", model: "claude-opus-4-7" } },
+      llm: {
+        callSites: {
+          mainAgent: { provider: "anthropic", model: "claude-opus-4-7" },
+        },
+      },
     };
     const result = AssistantConfigSchema.safeParse(raw);
     expect(result.success).toBe(true);
