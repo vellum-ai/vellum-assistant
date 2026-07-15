@@ -387,23 +387,27 @@ function SectionCard({
     );
   }
 
+  // The feature cards (Personality, Schedules) wear a stronger wash of the
+  // avatar color — lighter than the avatar itself, darker than the page
+  // tint (Figma: New-App 6944-89250). `--card-feature-bg` collapses to the
+  // plain card surface when there's no character color (custom image), so
+  // they flow with the regular theme. A class (not inline style) so the
+  // hover fill can still win.
+  const isFeatureCard =
+    section.key === "personality" || section.key === "schedules";
+
   return (
     <Card.Root
       asChild
       elevated
-      className={`${SECTION_RADII[section.key] ?? ""} bg-[var(--card-bg)]`}
+      className={`${SECTION_RADII[section.key] ?? ""} ${
+        isFeatureCard
+          ? "bg-[var(--card-feature-bg,var(--card-bg))]"
+          : "bg-[var(--card-bg)]"
+      }`}
       style={{
         ...(gridArea ? { gridArea } : {}),
         ...cardStyle,
-        // The feature cards (Personality, Schedules) wear a stronger wash
-        // of the avatar color — lighter than the avatar itself, darker
-        // than the page tint (Figma: New-App 6944-89250).
-        ...(section.key === "personality" || section.key === "schedules"
-          ? {
-              backgroundColor:
-                "color-mix(in srgb, var(--card-accent) 28%, var(--card-surface, var(--surface-lift)))",
-            }
-          : {}),
       }}
     >
       {/* Corner-anchored tile: identity cluster pinned top-left, the stat
@@ -440,7 +444,7 @@ function SectionCard({
             <PersonalityRadar values={stat.radar} className="h-auto w-full" />
           </span>
         )}
-        {section.key === "personality" || section.key === "schedules" ? (
+        {isFeatureCard ? (
           // Compact header (Figma 6944-89250): icon beside the title, no
           // description — the content is the card's whole story.
           <span className="relative flex items-center gap-2">
@@ -574,13 +578,25 @@ function CenterCell({
         onClick={onEdit}
         className="avatar-edit-cursor outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]"
       >
-        <ChatAvatar
-          components={components}
-          traits={traits}
-          customImageUrl={customImageUrl}
-          size={avatarSize}
-          interactive
-        />
+        {customImageUrl && !traits ? (
+          // Custom image: a plain static circle — no entrance or bounce.
+          <img
+            src={customImageUrl}
+            alt=""
+            width={avatarSize}
+            height={avatarSize}
+            className="rounded-full object-cover"
+            style={{ width: avatarSize, height: avatarSize }}
+          />
+        ) : (
+          <ChatAvatar
+            components={components}
+            traits={traits}
+            customImageUrl={customImageUrl}
+            size={avatarSize}
+            interactive
+          />
+        )}
       </button>
     </div>
   );
@@ -628,10 +644,14 @@ function OverviewBento({
     ),
   );
 
+  // Character avatars get the theatrics — the giant bottom-anchored hero,
+  // the color tints, the amoeba hover act. A custom image (or no avatar)
+  // stays calm: a static circle under the greeting on regular theme colors.
+  const hasCharacter = Boolean(avatarHex && components && traits);
+
   // The amoeba avatar needs a color + eye art to morph with; custom-image
   // and reduced-motion users keep the static avatar and card hover fills.
-  const morphing =
-    useBento && !reduce && Boolean(avatarHex && components && traits);
+  const morphing = useBento && !reduce && hasCharacter;
 
   const containerEl = useRef<HTMLDivElement | null>(null);
   const cardEls = useRef<Record<string, HTMLElement | null>>({});
@@ -710,10 +730,16 @@ function OverviewBento({
     ? (CARD_HOVER_LINES[activeHug.key] ?? null)
     : null;
 
+  // Without a character color (custom image / not loaded) every surface
+  // falls back to the regular theme tokens — no forced white/black card
+  // faces, no accent wash — so the page reads like the rest of the app.
   const tintStyle = {
     "--card-bg": avatarHex
       ? `color-mix(in srgb, ${avatarHex} var(--card-tint-pct, ${CARD_TINT_PERCENT}%), var(--card-surface, var(--surface-lift)))`
-      : "var(--card-surface, var(--surface-lift))",
+      : "var(--surface-lift)",
+    "--card-feature-bg": avatarHex
+      ? "color-mix(in srgb, var(--card-accent) 28%, var(--card-surface, var(--surface-lift)))"
+      : "var(--surface-lift)",
     "--card-hover": avatarHex
       ? `color-mix(in srgb, ${avatarHex} ${HOVER_TINT_PERCENT}%, var(--card-surface, var(--surface-lift)))`
       : "var(--surface-hover)",
@@ -789,12 +815,23 @@ function OverviewBento({
     BENTO_ROWS.reduce((a, b) => a + b, 0);
   const personalityRowHeight = Math.round(rowUnit * BENTO_ROWS[0]!);
 
-  const gridTemplateAreas = [
-    `"personality greeting greeting greeting schedules"`,
-    `". . . . schedules"`,
-    `". . . . ."`,
-    `"smalls smalls smalls smalls smalls"`,
-  ].join(" ");
+  // Character avatars float behind the open middle rows; a custom image
+  // gets its own centered cell right under the greeting instead.
+  const gridTemplateAreas = (
+    hasCharacter
+      ? [
+          `"personality greeting greeting greeting schedules"`,
+          `". . . . schedules"`,
+          `". . . . ."`,
+          `"smalls smalls smalls smalls smalls"`,
+        ]
+      : [
+          `"personality greeting greeting greeting schedules"`,
+          `". avatar avatar avatar schedules"`,
+          `". avatar avatar avatar ."`,
+          `"smalls smalls smalls smalls smalls"`,
+        ]
+  ).join(" ");
 
   const cardProps = (section: IdentitySection) => ({
     section,
@@ -820,50 +857,86 @@ function OverviewBento({
         gridTemplateAreas,
       }}
     >
-      {/* Hero avatar: very large, bottom-anchored so its chin dips just
-          past the page edge, sitting behind the cards (rendered before
-          them, same z-plane). */}
-      <motion.div
-        className="pointer-events-none absolute left-1/2 z-0"
-        style={{
-          width: heroAvatarSize,
-          height: heroAvatarSize,
-          bottom: -heroCutPx,
-          x: "-50%",
-        }}
-        initial={false}
-        animate={
-          activeHug ? { scale: 0.4, opacity: 0 } : { scale: 1, opacity: 1 }
-        }
-        transition={
-          activeHug
-            ? { duration: 0.15 }
-            : { delay: 0.25, type: "spring", stiffness: 210, damping: 18 }
-        }
-      >
-        <div
-          role="button"
-          tabIndex={0}
-          aria-label="Update avatar and name"
-          title="Update avatar and name"
-          onClick={onOpenAvatarModal}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" || e.key === " ") {
-              e.preventDefault();
-              onOpenAvatarModal();
-            }
+      {hasCharacter ? (
+        /* Hero avatar: very large, bottom-anchored so its chin dips just
+           past the page edge, sitting behind the cards (rendered before
+           them, same z-plane). */
+        <motion.div
+          className="pointer-events-none absolute left-1/2 z-0"
+          style={{
+            width: heroAvatarSize,
+            height: heroAvatarSize,
+            bottom: -heroCutPx,
+            x: "-50%",
           }}
-          className="avatar-edit-cursor pointer-events-auto relative h-full w-full outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]"
+          initial={false}
+          animate={
+            activeHug ? { scale: 0.4, opacity: 0 } : { scale: 1, opacity: 1 }
+          }
+          transition={
+            activeHug
+              ? { duration: 0.15 }
+              : { delay: 0.25, type: "spring", stiffness: 210, damping: 18 }
+          }
         >
-          <ChatAvatar
-            components={components}
-            traits={traits}
-            customImageUrl={customImageUrl}
-            size={heroAvatarSize}
-            interactive
-          />
+          <div
+            role="button"
+            tabIndex={0}
+            aria-label="Update avatar and name"
+            title="Update avatar and name"
+            onClick={onOpenAvatarModal}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onOpenAvatarModal();
+              }
+            }}
+            className="avatar-edit-cursor pointer-events-auto relative h-full w-full outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]"
+          >
+            <ChatAvatar
+              components={components}
+              traits={traits}
+              customImageUrl={customImageUrl}
+              size={heroAvatarSize}
+              interactive
+            />
+          </div>
+        </motion.div>
+      ) : (
+        /* Custom image (or no avatar): a calm, static circle centered
+           under the greeting — no entrance, no hover act. Still the edit
+           trigger. */
+        <div
+          className="relative z-[1] flex items-start justify-center"
+          style={{ gridArea: "avatar" }}
+        >
+          <button
+            type="button"
+            aria-label="Update avatar and name"
+            title="Update avatar and name"
+            onClick={onOpenAvatarModal}
+            className="avatar-edit-cursor rounded-full outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]"
+          >
+            {customImageUrl ? (
+              <img
+                src={customImageUrl}
+                alt=""
+                width={avatarSize}
+                height={avatarSize}
+                className="rounded-full object-cover"
+                style={{ width: avatarSize, height: avatarSize }}
+              />
+            ) : (
+              <ChatAvatar
+                components={components}
+                traits={traits}
+                customImageUrl={null}
+                size={avatarSize}
+              />
+            )}
+          </button>
         </div>
-      </motion.div>
+      )}
       {/* Greeting: the middle of the top-row trio, center-aligned with the
           two feature cards. Its own layer (not inside the fading hero) so
           the name never blinks out while the avatar dives into a card —
