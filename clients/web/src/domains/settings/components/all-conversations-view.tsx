@@ -144,7 +144,6 @@ export function AllConversationsView({
 }: AllConversationsViewProps) {
   const queryClient = useQueryClient();
   const {
-    merged,
     rows,
     searchText,
     setSearchText,
@@ -269,7 +268,6 @@ export function AllConversationsView({
       <div className="flex-1 overflow-y-auto">
         <ConversationsBody
           rows={rows}
-          hasAnyConversations={merged.length > 0}
           filter={filter}
           searchText={searchText}
           pendingId={pendingId}
@@ -288,7 +286,6 @@ export function AllConversationsView({
  */
 function ConversationsBody({
   rows,
-  hasAnyConversations,
   filter,
   searchText,
   pendingId,
@@ -297,7 +294,6 @@ function ConversationsBody({
   onUnarchive,
 }: {
   rows: AllConversationsRow[];
-  hasAnyConversations: boolean;
   filter: ConversationFilter;
   searchText: string;
   pendingId: string | null;
@@ -319,13 +315,15 @@ function ConversationsBody({
       );
     }
 
-    // The Archived filter keeps the Settings archive tab's copy so the
-    // wording carries over when that surface is retired.
+    // Each filter speaks only for the source it fetched: a bucket whose
+    // counterpart went unfetched can't tell whether the assistant has any
+    // conversations at all. The Archived copy also carries over the Settings
+    // archive tab's wording, since this retires that surface.
     const emptyCopy =
       filter === "archived"
         ? "No archived conversations"
-        : hasAnyConversations
-          ? "No conversations match this filter"
+        : filter === "active"
+          ? "No active conversations"
           : "No conversations yet";
 
     return (
