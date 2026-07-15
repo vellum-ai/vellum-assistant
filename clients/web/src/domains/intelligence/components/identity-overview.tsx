@@ -265,6 +265,7 @@ function SectionCard({
   section,
   stat,
   gridArea,
+  cardStyle,
   hoverFill,
   mini,
   flooded = false,
@@ -276,6 +277,8 @@ function SectionCard({
   stat: IdentitySectionStat | undefined;
   /** Named bento cell; omitted in the stacked layout's plain grid. */
   gridArea?: string;
+  /** Extra card-root styles (e.g. self-sizing within a taller area). */
+  cardStyle?: CSSProperties;
   /** Tint the card itself on hover — off when the amoeba avatar reacts instead. */
   hoverFill: boolean;
   /** Compact one-row variant for the bottom-strip sections. */
@@ -391,6 +394,7 @@ function SectionCard({
       className={`${SECTION_RADII[section.key] ?? ""} bg-[var(--card-bg)]`}
       style={{
         ...(gridArea ? { gridArea } : {}),
+        ...cardStyle,
         // The feature cards (Personality, Schedules) wear a stronger wash
         // of the avatar color — lighter than the avatar itself, darker
         // than the page tint (Figma: New-App 6944-89250).
@@ -775,8 +779,16 @@ function OverviewBento({
   // Top row is a centered trio — Personality, the greeting, Schedules —
   // and the rows below stay open so the page-anchored avatar shows
   // through behind everything.
-  // Schedules runs a row deeper than Personality so its three schedule
-  // tiles + active count always fit.
+  // Schedules' AREA runs a row deeper than Personality, but the card
+  // self-sizes from the top with Personality's row height as its minimum
+  // — so the two match until the schedule tiles (3 max) need more room.
+  const BENTO_ROWS = [1.15, 1, 0.45, 0.3];
+  const BENTO_GAP_PX = 12;
+  const rowUnit =
+    (size.h - (BENTO_ROWS.length - 1) * BENTO_GAP_PX) /
+    BENTO_ROWS.reduce((a, b) => a + b, 0);
+  const personalityRowHeight = Math.round(rowUnit * BENTO_ROWS[0]!);
+
   const gridTemplateAreas = [
     `"personality greeting greeting greeting schedules"`,
     `". . . . schedules"`,
@@ -804,7 +816,7 @@ function OverviewBento({
       style={{
         ...tintStyle,
         gridTemplateColumns: "1.55fr 1fr 1fr 1fr 1.55fr",
-        gridTemplateRows: "1.15fr 1fr 0.45fr 0.3fr",
+        gridTemplateRows: BENTO_ROWS.map((r) => `${r}fr`).join(" "),
         gridTemplateAreas,
       }}
     >
@@ -879,6 +891,11 @@ function OverviewBento({
           key={section.key}
           {...cardProps(section)}
           gridArea={section.key}
+          cardStyle={
+            section.key === "schedules"
+              ? { alignSelf: "start", minHeight: personalityRowHeight }
+              : undefined
+          }
         />
       ))}
       <div
