@@ -939,6 +939,14 @@ describe("assistant subcommand classification", () => {
     expect(result.riskLevel).toBe("high");
   });
 
+  test("assistant credentials grant → high", async () => {
+    const result = await classifier.classify({
+      command: "assistant credentials grant",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("high");
+  });
+
   test("assistant keys → low", async () => {
     const result = await classifier.classify({
       command: "assistant keys",

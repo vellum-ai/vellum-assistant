@@ -116,6 +116,7 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "credentials prompt",
   "credentials set",
   "credentials delete",
+  "credentials grant",
   "credentials inspect",
   "credentials reveal",
   "credentials status",
@@ -394,6 +395,12 @@ const riskOverrides: AssistantRiskOverride[] = [
     path: "credentials delete",
     risk: "high",
     reason: "Deletes stored credential value",
+  },
+  {
+    path: "credentials grant",
+    risk: "high",
+    reason:
+      "Grants a tool read access to a stored credential — mutates credential access-control policy",
   },
   {
     path: "keys set",

@@ -448,6 +448,10 @@ describe("command-registry", () => {
       test("assistant credentials delete is high risk", () => {
         expect(credSpec.subcommands!.delete.baseRisk).toBe("high");
       });
+
+      test("assistant credentials grant is high risk", () => {
+        expect(credSpec.subcommands!.grant.baseRisk).toBe("high");
+      });
     });
 
     // ── keys subcommand ───────────────────────────────────────────────────
