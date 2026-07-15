@@ -19,10 +19,12 @@ import { getIsPlatform } from "../../config/env-registry.js";
 import { getConfigReadOnly } from "../../config/loader.js";
 import { getDb } from "../../persistence/db-connection.js";
 import {
+  type Auth,
   AuthSchema,
   type ConnectionModel,
   ConnectionModelSchema,
   ConnectionProviderSchema,
+  deriveAuthForProvider,
   ProviderConnectionSchema,
   PROVIDERS_REQUIRING_BASE_URL_AND_MODELS,
   VALID_CONNECTION_PROVIDERS,
@@ -159,6 +161,28 @@ async function parseCustomProviderFields(
   return out;
 }
 
+/**
+ * Derive the auth object for a body that omits `auth`, from the provider and
+ * the optional top-level `credential` field. Throws the 400s for the cases
+ * the derivation can't express: a malformed credential, or a provider that
+ * needs an API key when none was supplied.
+ */
+function deriveConnectionAuth(provider: string, credential: unknown): Auth {
+  if (
+    credential !== undefined &&
+    (typeof credential !== "string" || credential.length === 0)
+  ) {
+    throw new BadRequestError("credential must be a non-empty string");
+  }
+  const derived = deriveAuthForProvider(provider, credential);
+  if (!derived) {
+    throw new BadRequestError(
+      `Provider "${provider}" requires an API key. Pass "credential" (a vault credential key) or an explicit "auth" object.`,
+    );
+  }
+  return derived;
+}
+
 // ---------------------------------------------------------------------------
 // Handlers
 // ---------------------------------------------------------------------------
@@ -197,7 +221,9 @@ async function handleCreateConnection({ body = {} }: RouteHandlerArgs) {
       `Invalid provider "${String(provider)}". Valid: ${VALID_CONNECTION_PROVIDERS.join(", ")}`,
     );
   }
-  const authResult = AuthSchema.safeParse(auth);
+  const authResult = AuthSchema.safeParse(
+    auth ?? deriveConnectionAuth(providerResult.data, body.credential),
+  );
   if (!authResult.success) {
     throw new BadRequestError(`Invalid auth: ${authResult.error.message}`);
   }
@@ -263,7 +289,15 @@ async function handleUpdateConnection({
   const existing = getConnection(getDb(), name);
   if (!existing) throw new NotFoundError(`Connection "${name}" not found.`);
 
-  const auth = body.auth;
+  // `auth` is optional: an explicit object wins; a bare `credential` rotates
+  // the key by re-deriving from the provider; omitting both leaves the stored
+  // auth untouched (so label-only edits never disturb e.g. an
+  // oauth_subscription connection).
+  const auth =
+    body.auth ??
+    (body.credential !== undefined
+      ? deriveConnectionAuth(existing.provider, body.credential)
+      : existing.auth);
   const authResult = AuthSchema.safeParse(auth);
   if (!authResult.success) {
     throw new BadRequestError(`Invalid auth: ${authResult.error.message}`);
@@ -471,12 +505,13 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "Create a provider connection",
     description:
-      "Create a new named provider connection. Fails with 409 if a connection with this name already exists.",
+      "Create a new named provider connection. When auth is omitted it is derived from the provider (keyless providers get none, vellum gets platform, everything else needs credential for api_key auth). Fails with 409 if a connection with this name already exists.",
     tags: ["inference"],
     requestBody: z.object({
       name: z.string().min(1),
       provider: ConnectionProviderSchema,
-      auth: AuthSchema,
+      auth: AuthSchema.optional(),
+      credential: z.string().min(1).optional(),
       label: z.string().min(1).optional(),
       base_url: z.string().url().nullable().optional(),
       models: z.array(ConnectionModelSchema).nullable().optional(),
@@ -499,11 +534,12 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "Update a provider connection",
     description:
-      "Update an existing connection. Cannot rename or change the provider. For the Vellum-managed connection (vellum) the auth is locked to platform; label remains editable.",
+      "Update an existing connection. Cannot rename or change the provider. Omitting auth keeps the stored auth; passing credential alone rotates the key via provider-derived api_key auth. For the Vellum-managed connection (vellum) the auth is locked to platform; label remains editable.",
     tags: ["inference"],
     pathParams: [{ name: "name", description: "Connection name" }],
     requestBody: z.object({
-      auth: AuthSchema,
+      auth: AuthSchema.optional(),
+      credential: z.string().min(1).optional(),
       label: z.string().min(1).nullable().optional(),
       base_url: z.string().url().nullable().optional(),
       models: z.array(ConnectionModelSchema).nullable().optional(),
