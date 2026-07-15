@@ -348,6 +348,14 @@ export function ConceptGraphView({
     () => layout.nodes.some((n) => n.updatedAtMs != null),
     [layout.nodes],
   );
+  // If a refetch (or same-assistant data change) drops all timestamps while a
+  // Week/Month window is active, clear it. Otherwise the lens hides (no data)
+  // but the still-active window would ghost every node with no way to reset.
+  useEffect(() => {
+    if (!hasRecencyData && recency !== "all") {
+      setRecency("all");
+    }
+  }, [hasRecencyData, recency]);
 
   // Edge-kind filter: toggle authored (link) vs behavioral (learned) edges to
   // declutter. The active flags live in a ref the 60fps loop reads (so a toggle
