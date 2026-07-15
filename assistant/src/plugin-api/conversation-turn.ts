@@ -71,7 +71,9 @@ export interface RunConversationTurnResult {
  */
 function extractContentAndAttachments(
   blocks: ContentBlock[],
-  resolveMedia: (source: MediaSource) => { data: string; media_type: string } | null,
+  resolveMedia: (
+    source: MediaSource,
+  ) => { data: string; media_type: string } | null,
 ): { text: string; attachments: UserMessageAttachment[] } {
   const textParts: string[] = [];
   const attachments: UserMessageAttachment[] = [];
@@ -126,21 +128,35 @@ export async function runConversationTurn(
   options: RunConversationTurnOptions,
 ): Promise<RunConversationTurnResult> {
   const { v7: uuidv7 } = await import("uuid");
-  const { getOrCreateConversation } = await import(
-    "../daemon/conversation-store.js"
-  );
-  const { broadcastMessage } = await import(
-    "../runtime/assistant-event-hub.js"
-  );
-  const { resolveMediaSourceData } = await import(
-    "../providers/media-resolve.js"
-  );
-  const { getMessageById, getMessages } = await import(
-    "../persistence/conversation-crud.js"
-  );
+  const { getOrCreateConversation } =
+    await import("../daemon/conversation-store.js");
+  const { broadcastMessage } =
+    await import("../runtime/assistant-event-hub.js");
+  const { resolveMediaSourceData } =
+    await import("../providers/media-resolve.js");
+  const { ensureConversationExists, getMessageById, getMessages } =
+    await import("../persistence/conversation-crud.js");
+  const { publishConversationListAndMetadataChanged } =
+    await import("../runtime/sync/resource-sync-events.js");
 
   const conversationId = options.conversationId ?? uuidv7();
   const conversation = await getOrCreateConversation(conversationId);
+
+  // `getOrCreateConversation` only builds the in-memory conversation (provider,
+  // system prompt, history hydration) — it never writes a `conversations` row.
+  // On the first turn of a brand-new chat (a minted id, or a caller-supplied id
+  // with no persisted row), the user-message persist inside `processMessage`
+  // would insert into `messages` against a nonexistent FK target. Ensure the
+  // row exists (idempotent) before persisting, mirroring the live-voice ingress
+  // which faces the same adopted-id-without-row gap.
+  const createdConversation = ensureConversationExists(conversationId);
+  if (createdConversation) {
+    // The row was created outside the normal send-message route, which is where
+    // sibling clients/sidebars learn about a new conversation. Emit the same
+    // "created" list invalidation that route does so they see it without
+    // waiting for a reload.
+    publishConversationListAndMetadataChanged("created", conversationId);
+  }
 
   // Wire the external abort signal to the conversation's internal abort
   // controller so aborting the signal terminates the in-flight agent loop.

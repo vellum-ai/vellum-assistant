@@ -156,8 +156,8 @@ export async function runDaemon(): Promise<void> {
   // so a fast-reconnecting client could otherwise resolve a turn against a
   // partial profile in the window between readiness and the post-overlay
   // ensure call below. Sync, DB-free, and idempotent. Skipped when an
-  // unconsumed onboarding overlay is pending: the overlay can rewrite
-  // llm.default later this boot, and baking against the pre-overlay default
+  // unconsumed onboarding overlay is pending: the overlay can rewrite the
+  // llm config later this boot, and baking against the pre-overlay default
   // would pin the wrong baseline — on that single boot (a fresh hatch, with
   // no established clients to race the window) the post-overlay pass owns
   // materialization; the overlay file is consumed on merge, so every

@@ -492,8 +492,8 @@ export function applyContextDefaultsToRawConfig(raw: unknown): unknown {
 
 /**
  * Backwards-compat wire field for `GET /v1/config`. PR removed
- * `services.inference.mode` from the typed schema (routing is now governed
- * by `provider_connections` rows + `llm.default.provider_connection`), but
+ * `services.inference.mode` from the typed schema (routing is governed by
+ * `provider_connections` rows + per-profile `provider_connection`), but
  * the macOS settings client (`SettingsStore.swift:loadServiceModes`) still
  * reads this field and falls back to its `@Published` default of "your-own"
  * when absent. On a platform-managed assistant served by a newer daemon and
@@ -1241,8 +1241,8 @@ function mergePreservingUnknownKeys(
 
 /**
  * Custom profiles persist as complete overrides: any user-source, non-mix
- * profile entry this write creates or changes is completed against
- * `llm.default` (`completeCustomProfile`) before it lands on disk, so no
+ * profile entry this write creates or changes is completed against the
+ * workspace default base (`completeCustomProfile`) before it lands on disk, so no
  * write path can persist a new partial profile. Entries the write did not
  * touch are left byte-identical — an unrelated config write must not rewrite
  * profile entries. Entries that do not parse as a `ProfileEntry` are also
