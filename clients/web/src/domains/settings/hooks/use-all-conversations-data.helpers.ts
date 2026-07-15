@@ -98,6 +98,10 @@ export function mergeConversations(
  * Drives query enablement and retry from one place: a bucket must never fetch
  * a source it doesn't show, and `refetch()` starts a query even when it's
  * disabled, so the two would otherwise drift.
+ *
+ * Skipping a source is safe because the daemon serves active and archived as
+ * separate buckets — neither list carries the other's rows, so an unfetched
+ * source can't cost a row in the view.
  */
 export function bucketSources(filter: ConversationFilter): {
   needsActive: boolean;

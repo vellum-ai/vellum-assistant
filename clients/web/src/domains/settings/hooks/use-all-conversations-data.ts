@@ -70,12 +70,15 @@ export function useAllConversationsData(
   const { conversations: scheduled, isLoading: scheduledLoading } =
     useScheduledConversationListQuery(assistantId, needsActive);
 
+  // The daemon serves active and archived as separate buckets, so the active
+  // lists never carry an archived row — the Active filter can skip this list
+  // outright rather than drain a large archive to discard every row.
   const {
     conversations: archived,
     isLoading: archivedLoading,
     isError: archivedError,
     refetch: refetchArchived,
-  } = useArchivedConversationListQuery(assistantId);
+  } = useArchivedConversationListQuery(assistantId, needsArchived);
 
   const activeLoading =
     activeListLoading || backgroundLoading || scheduledLoading;
