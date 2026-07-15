@@ -940,18 +940,31 @@ const VELLUM_MODELS: readonly LlmCatalogModel[] = (() => {
  * at profile-save time to derive the wire-shape provider for
  * provider_connection: "vellum" profiles.
  */
+/**
+ * Decode a `<provider>/<model>` Vellum routing string (mirrors the daemon's
+ * parseVellumModel): the prefix names the upstream, the remainder is the
+ * upstream's native model id. Null for anything else.
+ */
+export function parseVellumRoutedModel(modelId: string): {
+  provider: (typeof VELLUM_SERVED_PROVIDERS)[number];
+  model: string;
+} | null {
+  const slash = modelId.indexOf("/");
+  if (slash <= 0) {
+    return null;
+  }
+  const prefix = modelId.slice(0, slash);
+  const provider = VELLUM_SERVED_PROVIDERS.find((p) => p === prefix);
+  const model = modelId.slice(slash + 1);
+  return provider && model ? { provider, model } : null;
+}
+
 export function getManagedUpstreamForModel(
   modelId: string,
 ): (typeof VELLUM_SERVED_PROVIDERS)[number] | undefined {
-  // `<provider>/<model>` Vellum routing strings name their upstream directly
-  // (mirrors the daemon's parseVellumModel).
-  const slash = modelId.indexOf("/");
-  if (slash > 0) {
-    const prefix = modelId.slice(0, slash);
-    const match = VELLUM_SERVED_PROVIDERS.find((p) => p === prefix);
-    if (match) {
-      return match;
-    }
+  const routed = parseVellumRoutedModel(modelId);
+  if (routed) {
+    return routed.provider;
   }
   return VELLUM_SERVED_PROVIDERS.find((provider) =>
     MODELS_BY_PROVIDER[provider].some((m) => m.id === modelId),

@@ -553,6 +553,101 @@ describe("ProfileEditorModal create mode — provider-first", () => {
     expect(saveCalls[0].entry.provider_connection).toBe("vellum");
   });
 
+  test("a user-owned connection merely named 'vellum' does not trigger Vellum mode", async () => {
+    // The daemon's seeder preserves a user row named "vellum" whose provider
+    // is not the sentinel; editing a profile bound to it must keep the real
+    // provider and not corrupt the binding.
+    const saveCalls: { name: string; entry: Record<string, unknown> }[] = [];
+    const onSave = (name: string, entry: unknown) => {
+      saveCalls.push({ name, entry: entry as Record<string, unknown> });
+      return Promise.resolve();
+    };
+    render(
+      <Wrapper>
+        <ProfileEditorModal
+          isOpen
+          mode="edit"
+          profileName="my-local"
+          initialValues={
+            {
+              name: "my-local",
+              provider: "openai-compatible",
+              model: "my-model",
+              provider_connection: "vellum",
+            } as never
+          }
+          existingNames={["my-local"]}
+          connections={[
+            {
+              ...makeConnection("vellum", "openai-compatible"),
+              models: [{ id: "my-model" }],
+            },
+          ]}
+          assistantId={ASSISTANT_ID}
+          onSave={onSave}
+          onCancel={() => {}}
+        />
+      </Wrapper>,
+    );
+
+    await waitFor(() => {
+      expect(providerTrigger().textContent?.trim()).toBe("OpenAI-compatible");
+    });
+
+    await waitFor(() => {
+      expect(getSaveBtn().disabled).toBe(false);
+    });
+    fireEvent.click(getSaveBtn());
+    await waitFor(() => {
+      expect(saveCalls.length).toBe(1);
+    });
+    expect(saveCalls[0].entry.provider).toBe("openai-compatible");
+    expect(saveCalls[0].entry.provider_connection).toBe("vellum");
+  });
+
+  test("a routed model string is stripped to the upstream's native id on save", async () => {
+    const saveCalls: { name: string; entry: Record<string, unknown> }[] = [];
+    const onSave = (name: string, entry: unknown) => {
+      saveCalls.push({ name, entry: entry as Record<string, unknown> });
+      return Promise.resolve();
+    };
+    render(
+      <Wrapper>
+        <ProfileEditorModal
+          isOpen
+          mode="edit"
+          profileName="my-managed"
+          initialValues={
+            {
+              name: "my-managed",
+              provider: "fireworks",
+              model: "fireworks/accounts/fireworks/models/kimi-k2p5",
+              provider_connection: "vellum",
+            } as never
+          }
+          existingNames={["my-managed"]}
+          connections={[makeConnection("vellum", "vellum")]}
+          assistantId={ASSISTANT_ID}
+          onSave={onSave}
+          onCancel={() => {}}
+        />
+      </Wrapper>,
+    );
+
+    await waitFor(() => {
+      expect(getSaveBtn().disabled).toBe(false);
+    });
+    fireEvent.click(getSaveBtn());
+    await waitFor(() => {
+      expect(saveCalls.length).toBe(1);
+    });
+    expect(saveCalls[0].entry.provider).toBe("fireworks");
+    expect(saveCalls[0].entry.model).toBe(
+      "accounts/fireworks/models/kimi-k2p5",
+    );
+    expect(saveCalls[0].entry.provider_connection).toBe("vellum");
+  });
+
   test("Vellum hides the Connection sub-dropdown", () => {
     renderCreate([makeConnection("vellum-managed", "vellum")]);
     selectProvider("Vellum");
