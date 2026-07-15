@@ -109,7 +109,6 @@ export type OnboardingFunnelStepOutcome = "completed" | "skipped";
 
 export interface OnboardingFunnelStepCompletedOptions {
   userId?: string | null;
-  variant?: OnboardingFunnelVariant;
   /** Funnel this step belongs to; defaults to the pre-chat funnel version. */
   funnelVersion?: string;
   /** Completed vs skipped; omitted when the funnel doesn't distinguish. */
@@ -161,7 +160,6 @@ export function buildOnboardingFunnelEvent(
   options: OnboardingFunnelStepCompletedOptions = {},
 ): OnboardingFunnelEvent {
   const now = Date.now();
-  const variant = options.variant ?? ONBOARDING_FUNNEL_VARIANTS.control;
   return {
     type: "onboarding",
     daemon_event_id: crypto.randomUUID(),
@@ -173,7 +171,7 @@ export function buildOnboardingFunnelEvent(
     completed_at: new Date(now).toISOString(),
     user_id: options.userId ?? null,
     funnel_version: options.funnelVersion ?? ONBOARDING_FUNNEL_VERSION,
-    ab_variant: variant,
+    ab_variant: ONBOARDING_FUNNEL_VARIANTS.control,
     // Omitted (→ stripped before send) unless the caller distinguishes the two.
     outcome: options.outcome,
   };
@@ -219,7 +217,6 @@ export function emitResearchOnboardingStepCompleted(
 ): void {
   emitOnboardingFunnelStepCompleted(step, {
     userId: options.userId,
-    variant: ONBOARDING_FUNNEL_VARIANTS.control,
     funnelVersion: RESEARCH_ONBOARDING_FUNNEL_VERSION,
     outcome: options.outcome ?? "completed",
   });
@@ -237,7 +234,6 @@ export function emitResearchOnboardingCheckinCalendarOpened(
 ): void {
   emitOnboardingFunnelStepCompleted(RESEARCH_ONBOARDING_CHECKIN_STEP, {
     userId: options.userId,
-    variant: ONBOARDING_FUNNEL_VARIANTS.control,
     funnelVersion: RESEARCH_ONBOARDING_FUNNEL_VERSION,
     outcome: "completed",
   });
