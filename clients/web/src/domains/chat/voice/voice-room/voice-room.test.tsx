@@ -36,6 +36,8 @@ import {
   useLiveVoiceStore,
   type LiveVoiceSessionState,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
+import { MIN_VERSION as NONINTERACTIVE_VOICE_MIN_VERSION } from "@/lib/backwards-compat/use-supports-noninteractive-voice-turns";
+import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useVoicePrefsStore } from "@/stores/voice-prefs-store";
 
@@ -114,9 +116,77 @@ const CHARACTER_COMPONENTS = {
   colors: [{ id: "green", hex: "#4C9B50" }],
 };
 
+// Stub the OAuth connect surface (pulls the managed-oauth + generated-SDK
+// graph) so the room-slot tests assert only the wiring: that the room renders
+// the pending card and routes its action to `handleSurfaceAction`.
+mock.module("@/domains/chat/components/surfaces/oauth-connect-surface", () => ({
+  OAuthConnectSurface: ({
+    surface,
+    assistantId,
+    onAction,
+  }: {
+    surface: { surfaceId: string; data?: { providerKey?: string } };
+    assistantId?: string | null;
+    onAction: (surfaceId: string, actionId: string, data?: unknown) => void;
+  }) => (
+    <button
+      type="button"
+      data-testid="room-connect-card"
+      data-assistant={assistantId ?? ""}
+      data-provider={surface.data?.providerKey ?? ""}
+      onClick={() => onAction(surface.surfaceId, "connect", { ok: true })}
+    >
+      connect
+    </button>
+  ),
+}));
+
+const handleSurfaceActionSpy = mock(async () => {});
+mock.module("@/domains/chat/surface-actions", () => ({
+  handleSurfaceAction: handleSurfaceActionSpy,
+}));
+
 // Imported after the mocks so the room picks up the mocked modules.
 const { VoiceRoom } =
   await import("@/domains/chat/voice/voice-room/voice-room");
+const { useChatSessionStore } =
+  await import("@/domains/chat/chat-session-store");
+const { attachSurface } =
+  await import("@/domains/chat/utils/stream-updaters/surface-updaters");
+const { completeSurface } =
+  await import("@/domains/chat/utils/stream-updaters/surface-updaters");
+
+type TestSurface = Parameters<typeof attachSurface>[1];
+
+/** Build an `oauth_connect` surface for the transcript snapshot. */
+function connectSurface(
+  surfaceId = "surface-oauth-1",
+  providerKey = "google",
+): TestSurface {
+  return {
+    surfaceId,
+    surfaceType: "oauth_connect",
+    title: "Connect Gmail",
+    data: { providerKey },
+  } as TestSurface;
+}
+
+/** Seed the transcript snapshot with a single assistant message + surface. */
+function seedTranscriptSurface(surface: TestSurface, completed = false): void {
+  let messages = attachSurface([], surface, "assistant-msg-1");
+  if (completed) {
+    messages = completeSurface(messages, surface.surfaceId);
+  }
+  useChatSessionStore.setState({
+    snapshot: {
+      messages,
+      seq: null,
+      hasMore: false,
+      oldestTimestamp: null,
+      oldestMessageId: null,
+    },
+  });
+}
 
 const controls = makeControlsSpies();
 
@@ -147,12 +217,101 @@ beforeEach(() => {
     showUserTranscript: false,
     showAssistantTranscript: false,
   });
+  handleSurfaceActionSpy.mockClear();
+  useChatSessionStore.setState({
+    snapshot: null,
+    dismissedSurfaceIds: new Set(),
+  });
+  // Version unknown by default — the backwards-compat gate reads that as
+  // "may still raise oauth_connect mid-call", keeping the fallback card
+  // reachable (the conservative legacy path).
+  useAssistantIdentityStore.getState().clearIdentity();
 });
 
 afterEach(() => {
   cleanup();
   useLiveVoiceStore.getState().reset();
   useConversationStore.getState().reset();
+  useAssistantIdentityStore.getState().clearIdentity();
+});
+
+const connectCard = () => screen.queryByTestId("room-connect-card");
+
+// The card is a backwards-compat fallback: only assistants below the
+// non-interactive-voice gate's MIN_VERSION can still raise `oauth_connect`
+// surfaces mid-call. The suite runs with the version unknown (cleared in
+// `beforeEach`), which the gate conservatively reads as "legacy" — the card
+// stays reachable exactly as it would against an old assistant.
+describe("VoiceRoom — OAuth connect card (backwards-compat fallback)", () => {
+  test("renders a reachable connect card when a pending oauth_connect surface exists (version unknown)", () => {
+    startOwnedSession("listening");
+    seedTranscriptSurface(connectSurface("surface-oauth-1", "google"));
+    render(<VoiceRoom />);
+
+    const card = connectCard();
+    expect(card).not.toBeNull();
+    // The room's live-voice assistant id threads through to the card.
+    expect(card?.getAttribute("data-assistant")).toBe(ASSISTANT_ID);
+    expect(card?.getAttribute("data-provider")).toBe("google");
+  });
+
+  test("renders the card for a legacy assistant below the non-interactive gate", () => {
+    useAssistantIdentityStore.getState().setIdentity("test-asst", "0.10.8");
+    startOwnedSession("listening");
+    seedTranscriptSurface(connectSurface("surface-oauth-1", "google"));
+    render(<VoiceRoom />);
+    expect(connectCard()).not.toBeNull();
+  });
+
+  test("renders no card once the assistant enforces non-interactive voice turns", () => {
+    // At MIN_VERSION+ the assistant forces supportsDynamicUi: false on voice
+    // turns — it can never raise oauth_connect mid-call, so the fallback slot
+    // stays hidden even if a stale pending surface lingers in the snapshot.
+    useAssistantIdentityStore
+      .getState()
+      .setIdentity("test-asst", NONINTERACTIVE_VOICE_MIN_VERSION);
+    startOwnedSession("listening");
+    seedTranscriptSurface(connectSurface("surface-oauth-1", "google"));
+    render(<VoiceRoom />);
+    expect(connectCard()).toBeNull();
+  });
+
+  test("routes the card action to handleSurfaceAction", () => {
+    startOwnedSession("listening");
+    seedTranscriptSurface(connectSurface("surface-oauth-1", "google"));
+    render(<VoiceRoom />);
+
+    fireEvent.click(connectCard()!);
+    expect(handleSurfaceActionSpy).toHaveBeenCalledTimes(1);
+    expect(handleSurfaceActionSpy).toHaveBeenCalledWith(
+      "surface-oauth-1",
+      "connect",
+      { ok: true },
+    );
+  });
+
+  test("renders no card when the surface is already completed", () => {
+    startOwnedSession("listening");
+    seedTranscriptSurface(connectSurface(), true);
+    render(<VoiceRoom />);
+    expect(connectCard()).toBeNull();
+  });
+
+  test("renders no card when there is no pending surface", () => {
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+    expect(connectCard()).toBeNull();
+  });
+
+  test("renders no card for a dismissed surface", () => {
+    startOwnedSession("listening");
+    seedTranscriptSurface(connectSurface("surface-oauth-1"));
+    useChatSessionStore.setState({
+      dismissedSurfaceIds: new Set(["surface-oauth-1"]),
+    });
+    render(<VoiceRoom />);
+    expect(connectCard()).toBeNull();
+  });
 });
 
 const roomDialog = () =>
