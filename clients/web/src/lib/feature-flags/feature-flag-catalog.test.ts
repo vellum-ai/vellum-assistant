@@ -97,8 +97,8 @@ describe("getEnvFlagOverridesForScope", () => {
         "home-tab": true,
         // assistant-only flag (boolean) — should be excluded from client scope
         "settings-developer-nav": true,
-        // client-only flag (string)
-        "pre-chat-onboarding-experiment-2026-06-06": "variant-a",
+        // client-visible flag (string)
+        "experiment-activation-flow-2026-06-03": "variant-a",
       },
     };
     resetEnvOverridesCache();
@@ -106,7 +106,7 @@ describe("getEnvFlagOverridesForScope", () => {
     const result = getEnvFlagOverridesForScope("client");
     expect(result.bool).toEqual({ homeTab: true });
     expect(result.str).toEqual({
-      preChatOnboardingExperiment20260606: "variant-a",
+      experimentActivationFlow20260603: "variant-a",
     });
     expect(result.bool).not.toHaveProperty("settingsDeveloperNav");
   });
