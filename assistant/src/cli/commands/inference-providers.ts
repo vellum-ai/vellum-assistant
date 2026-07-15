@@ -93,6 +93,11 @@ async function deriveAuthForProvider(
   if (entry?.setupMode === "keyless") {
     return { type: "none" };
   }
+  if (provider === "openai-compatible") {
+    // Custom endpoints have no fixed auth story: local servers are usually
+    // keyless, hosted ones keyed. Credential presence decides.
+    return credential ? { type: "api_key", credential } : { type: "none" };
+  }
   if (!credential) {
     return `Provider "${provider}" authenticates by API key — pass --credential <vault-key> (or an explicit --auth override)`;
   }
@@ -349,8 +354,6 @@ function attachUpdateSubcommand(parent: Command): void {
         let authInput: Record<string, unknown> | string;
         if (opts.auth) {
           authInput = buildAuthInput(opts.auth, opts.credential);
-        } else if (opts.credential) {
-          authInput = { type: "api_key", credential: opts.credential };
         } else {
           const existing = await cliIpcCall<ProviderConnection>(
             "inference_provider_connections_get",
@@ -360,10 +363,21 @@ function attachUpdateSubcommand(parent: Command): void {
             writeCliError(existing.error ?? "Unknown error", opts.json);
             return;
           }
-          authInput = existing.result!.auth as unknown as Record<
-            string,
-            unknown
-          >;
+          const storedAuth = existing.result!.auth;
+          if (opts.credential) {
+            // A bare --credential must never silently flip subscription auth
+            // to api_key — subscription tokens rotate via login-chatgpt.
+            if (storedAuth.type === "oauth_subscription") {
+              writeCliError(
+                `Provider "${name}" uses subscription auth, which --credential cannot rotate. Re-run: assistant inference providers login-chatgpt (or pass an explicit --auth to switch auth types)`,
+                opts.json,
+              );
+              return;
+            }
+            authInput = { type: "api_key", credential: opts.credential };
+          } else {
+            authInput = storedAuth as unknown as Record<string, unknown>;
+          }
         }
         if (typeof authInput === "string") {
           writeCliError(authInput, opts.json);

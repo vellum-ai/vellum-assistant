@@ -177,6 +177,46 @@ describe("providers create — openai-compatible", () => {
     });
   });
 
+  test("openai-compatible without --credential derives none auth (local endpoints)", async () => {
+    await run([
+      "providers",
+      "create",
+      "local-llm",
+      "--provider",
+      "openai-compatible",
+      "--base-url",
+      "http://localhost:1234/v1",
+      "--model",
+      "model-a",
+    ]);
+    expect(lastIpcCall()?.params?.body).toEqual({
+      name: "local-llm",
+      provider: "openai-compatible",
+      auth: { type: "none" },
+      base_url: "http://localhost:1234/v1",
+      models: [{ id: "model-a" }],
+    });
+  });
+
+  test("openai-compatible with --credential derives api_key auth", async () => {
+    await run([
+      "providers",
+      "create",
+      "hosted-llm",
+      "--provider",
+      "openai-compatible",
+      "--credential",
+      "credential/hosted/key",
+      "--base-url",
+      "https://api.example.com/v1",
+      "--model",
+      "model-a",
+    ]);
+    expect(lastIpcCall()?.params?.body).toMatchObject({
+      auth: { type: "api_key", credential: "credential/hosted/key" },
+    });
+  });
+
   test("rejects openai-compatible without --base-url before calling the daemon", async () => {
     const { exitCode } = await run([
       "providers",
@@ -196,6 +236,15 @@ describe("providers create — openai-compatible", () => {
 
 describe("providers update", () => {
   test("a bare --credential rotates via derived api_key auth", async () => {
+    mockIpcResult = {
+      ok: true,
+      result: {
+        ...CONNECTION_RESULT,
+        name: "anthropic-personal",
+        provider: "anthropic",
+        auth: { type: "api_key", credential: "credential/anthropic/old_key" },
+      },
+    };
     await run([
       "providers",
       "update",
@@ -203,13 +252,42 @@ describe("providers update", () => {
       "--credential",
       "credential/anthropic/new_key",
     ]);
-    expect(lastIpcCall()?.method).toBe("inference_provider_connections_update");
+    expect(ipcCalls.map((c) => c.method)).toEqual([
+      "inference_provider_connections_get",
+      "inference_provider_connections_update",
+    ]);
     expect(lastIpcCall()?.params).toEqual({
       pathParams: { name: "anthropic-personal" },
       body: {
         auth: { type: "api_key", credential: "credential/anthropic/new_key" },
       },
     });
+  });
+
+  test("a bare --credential refuses to rotate subscription auth", async () => {
+    mockIpcResult = {
+      ok: true,
+      result: {
+        ...CONNECTION_RESULT,
+        name: "chatgpt-subscription",
+        provider: "openai",
+        auth: {
+          type: "oauth_subscription",
+          credential: "credential/chatgpt/access_token",
+        },
+      },
+    };
+    const { exitCode } = await run([
+      "providers",
+      "update",
+      "chatgpt-subscription",
+      "--credential",
+      "credential/other",
+    ]);
+    expect(exitCode).toBe(1);
+    expect(ipcCalls.map((c) => c.method)).toEqual([
+      "inference_provider_connections_get",
+    ]);
   });
 
   test("with no auth flags, re-sends the stored auth (GET first)", async () => {

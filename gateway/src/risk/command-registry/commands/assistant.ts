@@ -154,6 +154,7 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "inference providers connections list",
   "inference providers connections update",
   "inference providers default",
+  "inference providers login-chatgpt",
   "inference send",
   "inference session",
   "inference session open",
@@ -512,6 +513,12 @@ const riskOverrides: AssistantRiskOverride[] = [
     path: "inference callsites get",
     risk: "low",
     reason: "Read-only resolution detail for one call site",
+  },
+  {
+    path: "inference providers login-chatgpt",
+    risk: "medium",
+    reason:
+      "Runs a browser OAuth flow and writes ChatGPT subscription credentials to CES",
   },
   {
     path: "inference providers default",
