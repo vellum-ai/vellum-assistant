@@ -1,0 +1,79 @@
+/**
+ * Thin API layer for the "Connect Claude" ACP OAuth flow.
+ *
+ * The daemon's `/v1/acp/*` routes are excluded from the generated web SDK
+ * (see `scripts/transform-daemon-spec.ts`), so these call the daemon client
+ * directly. The gateway proxies them via `/v1/assistants/{id}/acp/claude/auth/*`.
+ */
+
+import { client } from "@/generated/daemon/client.gen";
+
+// The generated client types `url` against known daemon paths; ACP routes are
+// excluded from codegen, so cast to a sibling path to satisfy the type.
+type KnownDaemonUrl = "/v1/assistants/{assistant_id}/config";
+
+export type ConnectClaudeMode = "loopback" | "manual";
+export type ConnectClaudeStatus = "pending" | "connected" | "error";
+
+export interface ConnectClaudeStartResponse {
+  /** `loopback` on a local host (daemon captures the redirect); `manual` in the
+   *  cloud (the user pastes the `code#state` the redirect page renders). */
+  mode: ConnectClaudeMode;
+  authorize_url: string;
+  state: string;
+}
+
+export interface ConnectClaudeStatusResponse {
+  status: ConnectClaudeStatus;
+  error?: string;
+}
+
+/** Begin the flow. Returns the authorize URL to open plus the flow `mode`. */
+export async function startConnectClaude(
+  assistantId: string,
+): Promise<ConnectClaudeStartResponse> {
+  const { data, response } = await client.post({
+    url: "/v1/assistants/{assistant_id}/acp/claude/auth/start" as KnownDaemonUrl,
+    path: { assistant_id: assistantId },
+    body: {} as Record<string, unknown>,
+  });
+  if (!response?.ok) {
+    throw new Error(`Failed to start Connect Claude flow: ${response?.status}`);
+  }
+  return data as unknown as ConnectClaudeStartResponse;
+}
+
+/** Poll a loopback flow until the daemon captures the token (or errors). */
+export async function pollConnectClaudeStatus(
+  assistantId: string,
+  state: string,
+): Promise<ConnectClaudeStatusResponse> {
+  const { data, response } = await client.get({
+    url: `/v1/assistants/{assistant_id}/acp/claude/auth/status/${encodeURIComponent(state)}` as KnownDaemonUrl,
+    path: { assistant_id: assistantId },
+  });
+  if (!response?.ok) {
+    throw new Error(
+      `Failed to poll Connect Claude status: ${response?.status}`,
+    );
+  }
+  return data as unknown as ConnectClaudeStatusResponse;
+}
+
+/** Complete a manual/cloud flow with the pasted `code#state` (or a raw code). */
+export async function exchangeConnectClaude(
+  assistantId: string,
+  code: string,
+  state: string,
+): Promise<void> {
+  const { response } = await client.post({
+    url: "/v1/assistants/{assistant_id}/acp/claude/auth/exchange" as KnownDaemonUrl,
+    path: { assistant_id: assistantId },
+    body: { code, state } as Record<string, unknown>,
+  });
+  if (!response?.ok) {
+    throw new Error(
+      `Failed to complete Connect Claude flow: ${response?.status}`,
+    );
+  }
+}
