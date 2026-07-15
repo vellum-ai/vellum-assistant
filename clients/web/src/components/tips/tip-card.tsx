@@ -33,9 +33,9 @@ export function TipCard({
   return (
     <div
       data-slot="tip-card"
-      className="flex flex-col gap-1 rounded-xl bg-[var(--system-info-weak)] p-3"
+      className="flex flex-col rounded-xl bg-[var(--system-info-weak)] px-3.5 py-3"
     >
-      <div className="flex items-center gap-1.5">
+      <div className="mb-1.5 flex items-center gap-1.5">
         <Lightbulb
           className="h-3.5 w-3.5 text-[color:var(--system-info-strong)]"
           aria-hidden="true"
@@ -49,7 +49,7 @@ export function TipCard({
           onClick={onDismiss}
           aria-label="Dismiss"
           className={cn(
-            "shrink-0 cursor-pointer rounded bg-transparent p-0.5",
+            "-my-1 -mr-1 shrink-0 cursor-pointer rounded bg-transparent p-1",
             "text-[color:var(--content-tertiary)] transition-colors",
             "hover:text-[color:var(--content-secondary)]",
             "keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)] keyboard-focus:outline-none",
@@ -59,17 +59,17 @@ export function TipCard({
         </button>
       </div>
 
-      <div className="text-body-small-emphasised text-[color:var(--content-emphasised)]">
+      <div className="mb-0.5 text-body-small-emphasised text-[color:var(--content-emphasised)]">
         {tip.title}
       </div>
 
-      <div className="text-body-small-default leading-4 text-[color:var(--content-secondary)]">
+      <div className="text-body-small-default leading-[1.45] text-[color:var(--content-secondary)]">
         {tip.body}
       </div>
 
       <div
         className={cn(
-          "flex items-center pt-0.5",
+          "mt-2.5 flex flex-wrap items-baseline gap-x-4 gap-y-1",
           tip.learnMore ? "justify-between" : "justify-end",
         )}
       >
