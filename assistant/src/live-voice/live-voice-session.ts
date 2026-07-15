@@ -1734,7 +1734,14 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         return;
       }
       this.markFirstAssistantDelta(utterance, turnId);
-      void this.sendFrame({ type: "assistant_text_delta", text: chunk });
+      // Same send-time abort gate as the default-leg delta path: a front-door
+      // delta queued behind a backed-up outbound frame must not be written
+      // once barge-in aborts the turn. Escalation aborts the front-door handle,
+      // not this turn's controller, so legitimate front-door text still sends.
+      void this.sendFrame(
+        { type: "assistant_text_delta", text: chunk },
+        () => !activeTurn.abortController.signal.aborted && !this.isClosed,
+      );
       this.bufferAssistantTextForTts(token, chunk);
     };
 
