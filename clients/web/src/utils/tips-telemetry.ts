@@ -8,7 +8,7 @@
 
 import { emitOnboardingFunnelStepCompleted } from "@/domains/onboarding/funnel-events";
 
-export const TIPS_FUNNEL_VERSION = "proactive-tips-v1";
+const TIPS_FUNNEL_VERSION = "proactive-tips-v1";
 
 export type TipTelemetryAction =
   | "impression"

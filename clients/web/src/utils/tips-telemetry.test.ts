@@ -7,7 +7,7 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 
 import { useOnboardingStore } from "@/domains/onboarding/onboarding-store";
-import { emitTipEvent, TIPS_FUNNEL_VERSION } from "@/utils/tips-telemetry";
+import { emitTipEvent } from "@/utils/tips-telemetry";
 
 const originalFetch = globalThis.fetch;
 
@@ -60,7 +60,7 @@ describe("emitTipEvent", () => {
       screen: "what-are-skills",
       step_name: "impression",
       step_index: 0,
-      funnel_version: TIPS_FUNNEL_VERSION,
+      funnel_version: "proactive-tips-v1",
       ab_variant: "control",
     });
   });
