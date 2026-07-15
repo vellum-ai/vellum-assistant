@@ -102,7 +102,7 @@ describe("telemetry event source partition", () => {
   });
 });
 
-describe("onboarding_research source: flush-time diagnostics gate", () => {
+describe("onboarding_research source: flushes via the default outbox source", () => {
   beforeEach(() => {
     setShareAnalytics(true);
     setShareDiagnostics(true);
@@ -130,33 +130,15 @@ describe("onboarding_research source: flush-time diagnostics gate", () => {
     });
   }
 
-  test("ships normally when diagnostics consent is eligible", () => {
+  test("ships pending rows regardless of diagnostics consent, like every other outbox event", () => {
+    // No flush-time diagnostics gate: the daemon rides `share_analytics`
+    // only and leaves the diagnostics decision to the platform's
+    // authoritative server-side ingest gate. Diagnostics off (and even a
+    // stale accepted version) must not hold the row back.
+    setShareDiagnostics(false, "2000-01-01");
     recordSample();
+
     const batch = onboardingResearchSource().collect(0, undefined, 100);
     expect(batch.events).toHaveLength(1);
-  });
-
-  test("purges pending rows outright once diagnostics consent is revoked before flush, rather than shipping them", () => {
-    recordSample();
-    // Consent was on at record time — the row is already pending — then
-    // revoked before the reporter gets to flush it.
-    setShareDiagnostics(false);
-
-    const batch = onboardingResearchSource().collect(0, undefined, 100);
-    expect(batch.events).toHaveLength(0);
-
-    // Purged, not merely skipped: a later collect (e.g. consent flips back
-    // on) must never resurrect the stale pre-revocation row.
-    setShareDiagnostics(true);
-    const secondBatch = onboardingResearchSource().collect(0, undefined, 100);
-    expect(secondBatch.events).toHaveLength(0);
-  });
-
-  test("purges pending rows when the accepted diagnostics-consent version becomes stale before flush", () => {
-    recordSample();
-    setShareDiagnostics(true, "2000-01-01");
-
-    const batch = onboardingResearchSource().collect(0, undefined, 100);
-    expect(batch.events).toHaveLength(0);
   });
 });

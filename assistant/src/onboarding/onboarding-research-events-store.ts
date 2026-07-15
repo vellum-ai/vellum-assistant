@@ -1,9 +1,4 @@
-import {
-  getCachedShareDiagnostics,
-  getCachedShareDiagnosticsVersion,
-} from "../platform/consent-cache.js";
 import { recordTelemetryOutboxEvent } from "../telemetry/telemetry-events-outbox.js";
-import { isDiagnosticsConsentVersionEligible } from "../telemetry/trace-collection-policy.js";
 import type {
   OnboardingResearchClaim,
   OnboardingResearchSuggestion,
@@ -58,25 +53,18 @@ function countByConfidence(
  * all). The outbox row id stays `id` either way, so flush acks are
  * unaffected.
  *
- * Gated on `share_diagnostics` (at an eligible accepted version), on top of
- * `recordTelemetryOutboxEvent`'s own `share_analytics` gate: the payload
- * carries the model's raw inferred claims about the user (role, location,
- * employer, hobbies — verbatim text, not just metadata), the same class of
- * conversation-content PII `turnSource` requires `share_diagnostics` for
- * before attaching a trace. Fail-closed, mirroring that gate exactly.
+ * Gated solely by `recordTelemetryOutboxEvent`'s own `share_analytics`
+ * consent, like every other outbox-backed event. It carries the model's
+ * inferred claims about the user, but the platform re-checks the owner's
+ * consent server-side at ingest before persisting, so the daemon does not
+ * layer an extra diagnostics gate on top.
  *
- * Returns null when usage data collection is disabled, diagnostics consent
- * isn't (yet) eligible, or the telemetry database is unavailable.
+ * Returns null when usage data collection is disabled or the telemetry
+ * database is unavailable.
  */
 export function recordOnboardingResearchEvent(
   params: RecordOnboardingResearchEventParams,
 ): OnboardingResearchEvent | null {
-  if (
-    !getCachedShareDiagnostics() ||
-    !isDiagnosticsConsentVersionEligible(getCachedShareDiagnosticsVersion())
-  ) {
-    return null;
-  }
   return recordTelemetryOutboxEvent(
     "onboarding_research",
     (id, createdAt): OnboardingResearchTelemetryEvent => ({
