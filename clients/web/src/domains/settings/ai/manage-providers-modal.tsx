@@ -135,10 +135,9 @@ export function ManageProvidersModal({
   };
 
   // Single Modal.Root for both views (list + editor). Body content swaps
-  // based on `editorOpen` — this is the master/detail pattern, matching the
-  // macOS `ProvidersSheet` flow. View-aware `onOpenChange`: a close
-  // intent (X / ESC / backdrop) returns to the list when in editor view,
-  // and closes the whole modal when in list view.
+  // based on `editorOpen` — the master/detail pattern. View-aware
+  // `onOpenChange`: a close intent (X / ESC / backdrop) returns to the list
+  // when in editor view, and closes the whole modal when in list view.
   return (
     <Modal.Root
       open={isOpen}
