@@ -23,8 +23,12 @@ export type AnthropicTokenKind = "oauth" | "api_key" | "unknown";
  */
 export function classifyAnthropicToken(value: string): AnthropicTokenKind {
   const trimmed = value.trim();
-  if (trimmed.startsWith("sk-ant-oat")) return "oauth";
-  if (trimmed.startsWith("sk-ant-api")) return "api_key";
+  if (trimmed.startsWith("sk-ant-oat")) {
+    return "oauth";
+  }
+  if (trimmed.startsWith("sk-ant-api")) {
+    return "api_key";
+  }
   return "unknown";
 }
 
