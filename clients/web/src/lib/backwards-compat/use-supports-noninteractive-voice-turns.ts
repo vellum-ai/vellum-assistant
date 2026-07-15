@@ -37,13 +37,10 @@
  * from assistants that can still raise surfaces mid-call — the exact
  * stall the card exists to prevent.
  *
- * The gate is scoped to the assistant that owns the live voice session:
- * the identity store records which assistant its version was fetched for
- * (written atomically with the version in the same store update), and
- * the gate reads `true` only when that owner is the session's assistant.
- * A mismatch — e.g. the identity store re-hydrating for a different
- * assistant mid-call — conservatively reads as "not supported", keeping
- * the fallback card available.
+ * The gate is scoped to the assistant that owns the live voice session
+ * via `useAssistantScopedSupports` — see its JSDoc in `./utils.ts` for
+ * the atomic version+owner snapshot and conservative-on-mismatch
+ * semantics.
  *
  * Accepted edge: an assistant at or above MIN_VERSION can still raise an
  * `oauth_connect` surface in a TEXT turn just before the call starts,
@@ -57,9 +54,7 @@
  * `voice-room.tsx`) — once the minimum supported assistant is
  * >= MIN_VERSION.
  */
-import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
-
-import { useAssistantSupports } from "./utils";
+import { useAssistantScopedSupports } from "./utils";
 
 export const MIN_VERSION = "0.11.0";
 
@@ -67,26 +62,15 @@ export const MIN_VERSION = "0.11.0";
  * Returns `true` when the assistant that owns the live voice session
  * (`sessionAssistantId`) enforces non-interactive voice turns (it can no
  * longer raise `oauth_connect` or other UI surfaces mid-call), so the
- * voice room's fallback connect card can stay hidden. Both the version
- * and its owner are read from the identity store — a single atomic
- * snapshot — so the version can never be checked against a different
- * assistant's session, even transiently during an assistant switch.
+ * voice room's fallback connect card can stay hidden.
  *
- * Returns `false` when the session's assistant is null/undefined, when
- * the identity store's version was fetched for a different assistant,
- * while no version has hydrated yet, when the version is unparseable, or
- * when it falls below `MIN_VERSION` — on the `false` branch the room
- * keeps rendering the reachable connect card, which any assistant
- * understands (it self-hides with no pending surface).
+ * On the `false` branch — below `MIN_VERSION`, or any of
+ * `useAssistantScopedSupports`'s conservative unknown/mismatch cases —
+ * the room keeps rendering the reachable connect card, which any
+ * assistant understands (it self-hides with no pending surface).
  */
 export function useSupportsNoninteractiveVoiceTurns(
   sessionAssistantId: string | null | undefined,
 ): boolean {
-  const identityAssistantId = useAssistantIdentityStore.use.assistantId();
-  const versionSupported = useAssistantSupports(MIN_VERSION);
-  return (
-    versionSupported &&
-    sessionAssistantId != null &&
-    sessionAssistantId === identityAssistantId
-  );
+  return useAssistantScopedSupports(MIN_VERSION, sessionAssistantId);
 }

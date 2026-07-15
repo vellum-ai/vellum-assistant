@@ -53,6 +53,41 @@ export function useAssistantSupports(minVersion: string): boolean {
 }
 
 /**
+ * Assistant-scoped variant of `useAssistantSupports`: returns `true` only
+ * when the active assistant's version meets `minVersion` AND the identity
+ * store's version was fetched for `ownerAssistantId` — the assistant that
+ * owns whatever the caller is gating (a transcript, a live voice session).
+ *
+ * Both the version and its owner are read from the identity store — a
+ * single atomic snapshot (`setIdentity` writes them in the same store
+ * update) — so the version can never be checked against a different
+ * assistant's feature surface, even transiently during an assistant
+ * switch. Comparing against the identity store's own `assistantId` —
+ * rather than `activeAssistantId` from the resolved-assistants store —
+ * keeps the check race-free: the two stores update at different times, so
+ * a cross-store pairing could briefly validate against the previous
+ * assistant's version.
+ *
+ * Conservative on mismatch or unknown: returns `false` when
+ * `ownerAssistantId` is null/undefined, when the identity store's version
+ * was fetched for a different assistant (or has no owner recorded), while
+ * no version has hydrated yet, when the version is unparseable, or when
+ * it falls below `minVersion`.
+ */
+export function useAssistantScopedSupports(
+  minVersion: string,
+  ownerAssistantId: string | null | undefined,
+): boolean {
+  const identityAssistantId = useAssistantIdentityStore.use.assistantId();
+  const versionSupported = useAssistantSupports(minVersion);
+  return (
+    versionSupported &&
+    ownerAssistantId != null &&
+    ownerAssistantId === identityAssistantId
+  );
+}
+
+/**
  * Non-hook variant of `useAssistantSupports`: reads the version
  * snapshot via `useAssistantIdentityStore.getState()` so it's safe to
  * call from non-hook contexts (event handlers, async ops, request
