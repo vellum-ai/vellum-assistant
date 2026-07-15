@@ -238,6 +238,110 @@ paths:
                   - acpSessionId
                   - steered
                 additionalProperties: false
+  /v1/acp/claude/auth/exchange:
+    post:
+      operationId: acp_claude_auth_exchange_post
+      summary: Exchange a manual Connect Claude authorization code
+      description:
+        "Complete a containerized/manual Connect Claude flow: accept the pasted `code#state` (or a raw code plus
+        state), exchange it against Claude's manual redirect URI, and store the Claude OAuth token."
+      tags:
+        - acp
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                code:
+                  type: string
+                state:
+                  type: string
+              required:
+                - code
+                - state
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                required:
+                  - ok
+                additionalProperties: false
+  /v1/acp/claude/auth/start:
+    post:
+      operationId: acp_claude_auth_start_post
+      summary: Start Connect Claude OAuth flow
+      description:
+        "Return a PKCE authorize URL plus a state token. On a local host (`mode: loopback`) the daemon binds a
+        loopback callback and captures the redirect itself; on a containerized host (`mode: manual`) it targets Claude's
+        manual redirect page and the web client posts the pasted `code#state` back to `.../auth/exchange`."
+      tags:
+        - acp
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  mode:
+                    type: string
+                    enum:
+                      - loopback
+                      - manual
+                  authorize_url:
+                    type: string
+                  state:
+                    type: string
+                required:
+                  - mode
+                  - authorize_url
+                  - state
+                additionalProperties: false
+  /v1/acp/claude/auth/status/{state}:
+    get:
+      operationId: acp_claude_auth_status_by_state_get
+      summary: Poll Connect Claude OAuth flow status
+      description:
+        Returns the current status of an in-flight Connect Claude OAuth flow (pending/connected/error) so the web
+        client can react once the token has landed.
+      tags:
+        - acp
+      parameters:
+        - name: state
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum:
+                      - pending
+                      - connected
+                      - error
+                  error:
+                    type: string
+                required:
+                  - status
+                additionalProperties: false
+        "404":
+          description: No active OAuth flow for the given state
   /v1/acp/sessions:
     delete:
       operationId: acp_sessions_delete
@@ -17878,6 +17982,8 @@ paths:
                                 type: string
                               isError:
                                 type: boolean
+                              errorCode:
+                                type: string
                               imageData:
                                 type: string
                               imageDataList:
@@ -18314,6 +18420,8 @@ paths:
                                         type: string
                                       isError:
                                         type: boolean
+                                      errorCode:
+                                        type: string
                                       imageData:
                                         type: string
                                       imageDataList:

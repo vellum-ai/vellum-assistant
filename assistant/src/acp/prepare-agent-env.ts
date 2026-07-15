@@ -29,12 +29,12 @@ import {
   upsertCredentialMetadata,
 } from "../tools/credentials/metadata-store.js";
 import { getLogger } from "../util/logger.js";
+import { ACP_OAUTH_TOKEN_FIELD, ACP_SERVICE } from "./acp-credentials.js";
 import type { AcpAgentConfig } from "./types.js";
 
 const log = getLogger("acp:prepare-agent-env");
 
 const ACP_SPAWN_TOOL = "acp_spawn";
-const ACP_SERVICE = "acp";
 
 /**
  * Stable, machine-readable marker carried on the `FailedDependencyError.details`
@@ -175,7 +175,7 @@ export async function prepareAgentEnv(
     if (!env.CLAUDE_CODE_OAUTH_TOKEN) {
       await injectCredential(
         env,
-        "claude_oauth_token",
+        ACP_OAUTH_TOKEN_FIELD,
         "CLAUDE_CODE_OAUTH_TOKEN",
         "Claude OAuth token for ACP agent authentication",
       );
