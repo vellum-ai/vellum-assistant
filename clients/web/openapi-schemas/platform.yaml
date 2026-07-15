@@ -9067,6 +9067,12 @@ components:
         share_diagnostics:
           type: boolean
           nullable: true
+        share_analytics_effective:
+          type: boolean
+          readOnly: true
+        share_diagnostics_effective:
+          type: boolean
+          readOnly: true
         share_analytics_accepted_version:
           type: string
           maxLength: 32
@@ -9087,7 +9093,9 @@ components:
       - ai_data_sharing_accepted_at
       - privacy_policy_accepted_at
       - share_analytics_accepted_at
+      - share_analytics_effective
       - share_diagnostics_accepted_at
+      - share_diagnostics_effective
       - tos_accepted_at
     UserConsentRequest:
       type: object
