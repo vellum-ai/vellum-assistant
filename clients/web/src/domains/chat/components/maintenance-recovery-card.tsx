@@ -26,10 +26,10 @@ export function MaintenanceRecoveryCard() {
         Chat is unavailable while maintenance is active.
       </p>
       <Link
-        to={`${routes.settings.debug}?tab=terminal`}
+        to={`${routes.settings.advanced}?tab=terminal`}
         className="mt-4 inline-flex items-center gap-1.5 rounded-md border border-[var(--system-mid-strong)] bg-[var(--surface-lift)] px-3 py-1.5 text-body-small-default text-[var(--system-mid-strong)] transition-colors hover:bg-[var(--system-mid-weak)]"
       >
-        Go to Debug Settings
+        Go to Advanced Settings
       </Link>
     </div>
   );

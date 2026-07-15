@@ -443,7 +443,7 @@ function localHealthBannerConfig(
 function doctorAction(): ReactNode {
   return (
     <Button asChild variant="outlined" size="compact">
-      <Link to={`${routes.settings.debug}?tab=doctor`}>Go to Doctor</Link>
+      <Link to={`${routes.settings.advanced}?tab=doctor`}>Go to Doctor</Link>
     </Button>
   );
 }
