@@ -53,13 +53,16 @@ mock.module("../../../persistence/embeddings/embedding-backend.js", () => ({
 import { loadRawConfig } from "../../../config/loader.js";
 import { LLMConfigBase } from "../../../config/schemas/llm.js";
 import type { ConversationCreateType } from "../../../persistence/conversation-types.js";
-import { getDb, getLogsDb } from "../../../persistence/db-connection.js";
+import {
+  getDb,
+  getLogsDb,
+  getMemorySqlite,
+} from "../../../persistence/db-connection.js";
 import { initializeDb } from "../../../persistence/db-init.js";
 import {
   conversationKeys,
   conversations,
   llmRequestLogs,
-  memoryV2ActivationLogs,
   messages,
   providerConnections,
 } from "../../../persistence/schema/index.js";
@@ -106,7 +109,7 @@ function dispatchConversationLlmContext(queryParams: Record<string, string>) {
 function clearTables(): void {
   const db = getDb();
   getLogsDb()!.delete(llmRequestLogs).run();
-  db.delete(memoryV2ActivationLogs).run();
+  getMemorySqlite()!.exec(`DELETE FROM memory_v2_activation_logs`);
   db.delete(messages).run();
   db.delete(conversationKeys).run();
   db.delete(conversations).run();
