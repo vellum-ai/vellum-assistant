@@ -265,12 +265,12 @@ async function handleCreateConnection({ body = {} }: RouteHandlerArgs) {
     }
     if (result.error.code === "base_url_required") {
       throw new BadRequestError(
-        "base_url is required for openai-compatible connections.",
+        "base_url is required for openai-compatible providers.",
       );
     }
     if (result.error.code === "models_required") {
       throw new BadRequestError(
-        "At least one model is required for openai-compatible connections.",
+        "At least one model is required for openai-compatible providers.",
       );
     }
     throw new BadRequestError("Invalid auth configuration.");
@@ -353,12 +353,12 @@ async function handleUpdateConnection({
     }
     if (result.error.code === "base_url_required") {
       throw new BadRequestError(
-        "base_url is required for openai-compatible connections.",
+        "base_url is required for openai-compatible providers.",
       );
     }
     if (result.error.code === "models_required") {
       throw new BadRequestError(
-        "At least one model is required for openai-compatible connections.",
+        "At least one model is required for openai-compatible providers.",
       );
     }
     throw new BadRequestError("Invalid auth configuration.");

@@ -32,6 +32,7 @@ import { ProviderEditorApiKeySection } from "@/domains/settings/ai/provider-edit
 import {
   connectionSaveErrorMessage,
   parseCredentialRef,
+  validationErrorMessage,
 } from "@/domains/settings/ai/provider-editor-constants";
 import { useSelectableConnectionProviders } from "@/domains/settings/ai/provider-availability";
 import { secretPlaceholder } from "@/domains/settings/ai/secret-placeholder";
@@ -259,7 +260,10 @@ export function ProviderCreateForm({
           body: input,
         });
       if (!createRes?.ok) {
-        setError(connectionSaveErrorMessage(createRes?.status));
+        setError(
+          (await validationErrorMessage(createRes)) ??
+            connectionSaveErrorMessage(createRes?.status),
+        );
         return;
       }
       if (!created) {
@@ -325,7 +329,6 @@ export function ProviderCreateForm({
               fullWidth
             />
           </div>
-
         </div>
       )}
     </div>

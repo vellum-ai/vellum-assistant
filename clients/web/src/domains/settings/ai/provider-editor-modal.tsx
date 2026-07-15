@@ -27,6 +27,7 @@ import { ProviderCreateForm } from "@/domains/settings/ai/provider-create-form";
 import { ProviderEditorApiKeySection } from "@/domains/settings/ai/provider-editor-api-key-section";
 import {
   connectionSaveErrorMessage,
+  validationErrorMessage,
   parseCredentialRef,
   providerConnectionDisplayName,
 } from "@/domains/settings/ai/provider-editor-constants";
@@ -240,7 +241,10 @@ export function ProviderEditorContent({
           body: input,
         });
       if (!updateRes?.ok) {
-        setError(connectionSaveErrorMessage(updateRes?.status));
+        setError(
+          (await validationErrorMessage(updateRes)) ??
+            connectionSaveErrorMessage(updateRes?.status),
+        );
         return;
       }
       if (!updated) {
