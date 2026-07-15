@@ -32,12 +32,9 @@ import {
   parseManualClaudeCode,
   storeAcpClaudeToken,
 } from "../../acp/acp-claude-oauth.js";
-import { ACP_SERVICE } from "../../acp/acp-credentials.js";
 import { isAcpClaudeOauthConnectEnabled } from "../../acp/acp-oauth-connect-flag.js";
 import { getIsContainerized } from "../../config/env-registry.js";
 import { loadConfig } from "../../config/loader.js";
-import { credentialKey } from "../../security/credential-key.js";
-import type { OAuth2FlowResult } from "../../security/oauth2.js";
 import {
   exchangeCodeForTokens,
   generateCodeChallenge,
@@ -45,7 +42,6 @@ import {
   generateState,
   prepareOAuth2Flow,
 } from "../../security/oauth2.js";
-import { setSecureKeyAsync } from "../../security/secure-keys.js";
 import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError, ForbiddenError, NotFoundError } from "./errors.js";
@@ -56,11 +52,6 @@ const log = getLogger("acp-claude-auth");
 // Claude's OAuth client requires the loopback redirect path to be exactly
 // `/callback`, not oauth2.ts's default `/oauth/callback`.
 const CLAUDE_LOOPBACK_CALLBACK_PATH = "/callback";
-
-// ACP vault fields for the captured OAuth token's companion metadata. The
-// access token itself is written by `storeAcpClaudeToken`.
-const CLAUDE_REFRESH_TOKEN_FIELD = "claude_oauth_refresh_token";
-const CLAUDE_EXPIRES_AT_FIELD = "claude_oauth_expires_at";
 
 // ---------------------------------------------------------------------------
 // Pending-flow tracking (shared by the loopback + manual/cloud branches)
@@ -114,29 +105,6 @@ function markFlow(state: string, status: FlowStatus, error?: string): void {
   }
 }
 
-/**
- * Persist a captured Claude OAuth token (+ refresh token / expiry when
- * present) into the ACP vault so the broker can inject it at agent spawn.
- */
-async function persistClaudeTokens(result: OAuth2FlowResult): Promise<void> {
-  await storeAcpClaudeToken(result.tokens.accessToken);
-
-  if (result.tokens.refreshToken) {
-    await setSecureKeyAsync(
-      credentialKey(ACP_SERVICE, CLAUDE_REFRESH_TOKEN_FIELD),
-      result.tokens.refreshToken,
-    );
-  }
-
-  if (result.tokens.expiresIn) {
-    const expiresAt = Math.floor(Date.now() / 1000 + result.tokens.expiresIn);
-    await setSecureKeyAsync(
-      credentialKey(ACP_SERVICE, CLAUDE_EXPIRES_AT_FIELD),
-      String(expiresAt),
-    );
-  }
-}
-
 // ---------------------------------------------------------------------------
 // Handlers
 // ---------------------------------------------------------------------------
@@ -185,7 +153,7 @@ async function handleStartLocalAuth(): Promise<StartResponse> {
   // can react. Runs in the background — the web client opens `authorize_url`.
   void flow.completion
     .then(async (result) => {
-      await persistClaudeTokens(result);
+      await storeAcpClaudeToken(result.tokens.accessToken);
       markFlow(flow.state, "connected");
       log.info("ACP Claude local OAuth flow connected");
     })
@@ -267,15 +235,26 @@ async function handleExchange(args: RouteHandlerArgs): Promise<{ ok: true }> {
     );
   }
 
-  const result = await exchangeCodeForTokens(
-    CLAUDE_OAUTH_CONFIG,
-    code,
-    pending.redirectUri ?? CLAUDE_MANUAL_REDIRECT_URI,
-    pending.codeVerifier,
-  );
-  await persistClaudeTokens(result);
-  pendingFlows.delete(state);
+  // Surface a bad code / token-endpoint failure as a client-actionable 400 and
+  // mark the flow errored (mirroring the loopback path) so it isn't left pending.
+  try {
+    const result = await exchangeCodeForTokens(
+      CLAUDE_OAUTH_CONFIG,
+      code,
+      pending.redirectUri ?? CLAUDE_MANUAL_REDIRECT_URI,
+      pending.codeVerifier,
+    );
+    await storeAcpClaudeToken(result.tokens.accessToken);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    markFlow(state, "error", message);
+    log.error({ err: message }, "ACP Claude manual OAuth flow failed");
+    throw new BadRequestError(
+      `Failed to exchange Claude authorization code: ${message}`,
+    );
+  }
 
+  pendingFlows.delete(state);
   log.info("ACP Claude manual OAuth flow connected");
   return { ok: true };
 }

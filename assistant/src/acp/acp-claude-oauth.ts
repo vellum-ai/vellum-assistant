@@ -32,13 +32,6 @@ export const CLAUDE_OAUTH_CONFIG: OAuth2Config = {
 };
 
 /**
- * Fixed loopback port for the local connect path (PR 5). The redirect URI is
- * `http://localhost:<port>/callback`; a fixed port keeps it stable for the
- * pre-registered client.
- */
-export const CLAUDE_LOOPBACK_CALLBACK_PORT = 54545;
-
-/**
  * Manual redirect target for the cloud paste path (PR 6): Claude renders the
  * `code#state` string on this page for the user to copy back.
  */

@@ -26,7 +26,6 @@ mock.module("../prepare-agent-env.js", () => ({ ensureAcpCredentialPolicy }));
 
 const {
   CLAUDE_OAUTH_CONFIG,
-  CLAUDE_LOOPBACK_CALLBACK_PORT,
   CLAUDE_MANUAL_REDIRECT_URI,
   buildClaudeAuthorizeUrl,
   parseManualClaudeCode,
@@ -58,12 +57,10 @@ describe("CLAUDE_OAUTH_CONFIG", () => {
     expect(CLAUDE_OAUTH_CONFIG.scopeSeparator).toBe(" ");
   });
 
-  test("exposes the manual redirect URI and a fixed loopback port", () => {
+  test("exposes the manual redirect URI", () => {
     expect(CLAUDE_MANUAL_REDIRECT_URI).toBe(
       "https://platform.claude.com/oauth/code/callback",
     );
-    expect(typeof CLAUDE_LOOPBACK_CALLBACK_PORT).toBe("number");
-    expect(Number.isInteger(CLAUDE_LOOPBACK_CALLBACK_PORT)).toBe(true);
   });
 });
 
@@ -73,7 +70,7 @@ describe("CLAUDE_OAUTH_CONFIG", () => {
 
 describe("buildClaudeAuthorizeUrl", () => {
   test("produces a URL that parses back to the expected query params", () => {
-    const redirectUri = `http://localhost:${CLAUDE_LOOPBACK_CALLBACK_PORT}/callback`;
+    const redirectUri = "http://localhost:54545/callback";
     const url = buildClaudeAuthorizeUrl(redirectUri, {
       codeChallenge: "challenge-123",
       state: "state-abc",
