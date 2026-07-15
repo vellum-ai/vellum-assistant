@@ -1,5 +1,8 @@
+import { useEffect, useRef } from "react";
+
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { ConceptGraphView } from "@/domains/intelligence/components/concept-graph/concept-graph-view";
+import { emitMemoryEvent } from "@/domains/intelligence/memory-telemetry";
 
 interface MemoryPageProps {
   onOpenThread?: (message: string) => void;
@@ -15,6 +18,17 @@ interface MemoryPageProps {
  */
 export function MemoryPage({ onOpenThread }: MemoryPageProps) {
   const assistantId = useActiveAssistantId();
+
+  // Report the tab open exactly once per mount. The ref guard keeps React
+  // strict-mode's double-invoke (dev) from emitting a duplicate.
+  const openedEmitted = useRef(false);
+  useEffect(() => {
+    if (openedEmitted.current) {
+      return;
+    }
+    openedEmitted.current = true;
+    emitMemoryEvent("opened");
+  }, []);
 
   return (
     <div className="flex h-full min-h-0 flex-col">

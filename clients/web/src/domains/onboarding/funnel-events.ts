@@ -1,5 +1,5 @@
 import { readShareAnalytics } from "@/domains/onboarding/prefs";
-import { getClientId } from "@/lib/telemetry/client-identity";
+import { postTelemetryEvents } from "@/lib/telemetry/ingest";
 import type { ResearchStep } from "@/domains/onboarding/research-onboarding-persistence";
 
 export const ONBOARDING_FUNNEL_VERSION = "onboarding_v3_2026_05";
@@ -142,12 +142,6 @@ export interface OnboardingFunnelEvent {
   outcome?: OnboardingFunnelStepOutcome;
 }
 
-function stripUndefined(value: object): Record<string, unknown> {
-  return Object.fromEntries(
-    Object.entries(value).filter(([, entry]) => entry !== undefined),
-  );
-}
-
 export function getOnboardingFunnelSessionId(): string {
   if (typeof window === "undefined") return crypto.randomUUID();
   let existing = "";
@@ -232,20 +226,7 @@ export function emitOnboardingFunnelStepCompleted(
   if (typeof window === "undefined") return;
   if (!readShareAnalytics()) return;
 
-  const event = stripUndefined(buildOnboardingFunnelEvent(screen, options));
-
-  const payload = JSON.stringify({
-    device_id: getClientId(),
-    assistant_version: import.meta.env.VITE_APP_VERSION ?? "web-dev",
-    events: [event],
-  });
-
-  void fetch("/v1/telemetry/ingest/", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: payload,
-    keepalive: true,
-  }).catch(() => {});
+  postTelemetryEvents([buildOnboardingFunnelEvent(screen, options)]);
 }
 
 /**
