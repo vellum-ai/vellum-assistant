@@ -1479,6 +1479,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     this.assistantPlaybackTailUntilMs = 0;
     this.takeVadPreRoll();
     this.vadPendingTurnEnd = null;
+    // A client interrupt is a hard reset: any barge-in merge context waiting for
+    // the next turn is now stale (the interrupted utterance may be discarded
+    // without ever reaching finalizePendingUtterance).
+    this.pendingInterruptedRequest = null;
     const utterance = this.currentUtterance;
     this.stopSessionTranscriber();
     if (utterance) {
@@ -1539,10 +1543,6 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     const content = utterance.finalTranscriptSegments.join(" ").trim();
     if (content.length === 0) {
       utterance.assistantTurnStarted = true;
-      // A discarded (empty) barge-in utterance carries no new request, so any
-      // pending merge context is stale — drop it rather than let it attach to a
-      // later, unrelated turn.
-      this.pendingInterruptedRequest = null;
       if (this.turnDetector) {
         // Hands-free clients moved to "transcribing" on utterance_end; tell
         // them the utterance was dropped so they return to listening. Sent
@@ -2516,6 +2516,13 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     utterance: UtteranceCycle,
     reason: string,
   ): Promise<void> {
+    // An utterance that finalizes here never became a turn (empty transcript,
+    // client interrupt, transcriber close, error), so it ends the window a
+    // barge-in's merge context was waiting to attach to. Drop that context so
+    // it can't leak into a later, unrelated turn. The barged turn itself
+    // finalizes through finalizeAssistantTurn, not here, so this never clears a
+    // request that the barge-in follow-up turn is still about to consume.
+    this.pendingInterruptedRequest = null;
     utterance.completed = true;
     const turnId = utterance.turnId;
     if (!turnId) {
