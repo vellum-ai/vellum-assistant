@@ -30,6 +30,9 @@ export interface HistoryRow {
   cost_currency: string | null;
   input_tokens: number | null;
   output_tokens: number | null;
+  model: string | null;
+  cache_read_tokens: number | null;
+  cache_write_tokens: number | null;
 }
 
 export function clearHistory(): void {
@@ -62,6 +65,9 @@ export function insertHistoryRow(row: {
   costCurrency?: string | null;
   inputTokens?: number | null;
   outputTokens?: number | null;
+  model?: string | null;
+  cacheReadTokens?: number | null;
+  cacheWriteTokens?: number | null;
 }): void {
   getSqlite()
     .query(
@@ -70,8 +76,9 @@ export function insertHistoryRow(row: {
          started_at, completed_at, status, stop_reason, error,
          event_log_json, cwd, task, parent_tool_use_id,
          used_tokens, context_size, cost_amount, cost_currency,
-         input_tokens, output_tokens
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         input_tokens, output_tokens,
+         model, cache_read_tokens, cache_write_tokens
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       row.id,
@@ -93,6 +100,9 @@ export function insertHistoryRow(row: {
       row.costCurrency ?? null,
       row.inputTokens ?? null,
       row.outputTokens ?? null,
+      row.model ?? null,
+      row.cacheReadTokens ?? null,
+      row.cacheWriteTokens ?? null,
     );
 }
 
@@ -103,7 +113,8 @@ export function readHistoryRow(id: string): HistoryRow | null {
               started_at, completed_at, status, stop_reason, error,
               event_log_json, cwd, task, parent_tool_use_id,
               used_tokens, context_size, cost_amount, cost_currency,
-              input_tokens, output_tokens
+              input_tokens, output_tokens,
+              model, cache_read_tokens, cache_write_tokens
        FROM acp_session_history WHERE id = ?`,
     )
     .get(id) as HistoryRow | null;

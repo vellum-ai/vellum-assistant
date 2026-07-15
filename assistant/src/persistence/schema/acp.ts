@@ -41,6 +41,11 @@ export const acpSessionHistory = sqliteTable(
     // before these columns existed.
     inputTokens: integer("input_tokens"),
     outputTokens: integer("output_tokens"),
+    // Model + cumulative cache tokens for inference-cost attribution. Null
+    // for rows written before these columns existed.
+    model: text("model"),
+    cacheReadTokens: integer("cache_read_tokens"),
+    cacheWriteTokens: integer("cache_write_tokens"),
   },
   (table) => [
     index("idx_acp_session_history_started_at").on(table.startedAt),
