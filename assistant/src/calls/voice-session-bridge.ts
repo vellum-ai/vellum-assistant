@@ -630,10 +630,21 @@ export async function startVoiceTurn(
     trustContext: opts.trustContext ?? null,
     turnChannelContext,
     turnInterfaceContext,
-    channelCapabilities: resolveChannelCapabilities(
-      turnChannelContext.userMessageChannel,
-      turnInterfaceContext.userMessageInterface,
-    ),
+    channelCapabilities: {
+      ...resolveChannelCapabilities(
+        turnChannelContext.userMessageChannel,
+        turnInterfaceContext.userMessageInterface,
+      ),
+      // Voice calls are non-interactive: no surface can be shown, read, or
+      // clicked mid-call, so `ui_show`/`ui_update`/`ui_dismiss` (and thus
+      // `oauth_connect`, a ui_show surface_type) must never reach the model.
+      // Phone already resolves to false via its channel; live-voice resolves
+      // vellum/macos → true, so force it off here for every voice turn. This
+      // also flips the runtime-context `supports_dynamic_ui` line the prompt
+      // advertises, the secret-prompter's dynamic-UI branch, and the
+      // task-progress-nudge hook — all correctly non-UI during a call.
+      supportsDynamicUi: false,
+    },
     voiceCallControlPrompt,
   };
   const installVoiceTurnState = () => {

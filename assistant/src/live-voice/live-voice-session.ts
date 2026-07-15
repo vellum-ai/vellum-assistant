@@ -1776,7 +1776,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         userMessageInterface: "macos",
         assistantMessageInterface: "macos",
         voiceControlPrompt:
-          "You are speaking in a local live voice session. Keep replies brief and conversational.",
+          "You are speaking in a local live voice session. Keep replies brief and conversational. You cannot display cards, forms, or any on-screen UI during the call — convey everything in speech.",
         approvalMode: "local-live-voice",
         content: leg.content,
         isInbound: true,
