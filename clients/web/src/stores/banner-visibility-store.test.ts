@@ -2,13 +2,12 @@ import { describe, it, expect, beforeEach } from "bun:test";
 import { act, renderHook } from "@testing-library/react";
 
 import {
-  isBannerVisible,
   useBannerVisibilityStore,
   useBannerVisible,
 } from "@/stores/banner-visibility-store";
 
 const visible = () =>
-  isBannerVisible(useBannerVisibilityStore.getState().visibleBannerCount);
+  useBannerVisibilityStore.getState().visibleBannerCount > 0;
 
 beforeEach(() => {
   useBannerVisibilityStore.setState({ visibleBannerCount: 0 });

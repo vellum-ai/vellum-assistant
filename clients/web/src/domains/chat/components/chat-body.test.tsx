@@ -18,10 +18,7 @@ import { type ButtonHTMLAttributes, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import type { ChatBodyProps } from "@/domains/chat/components/chat-body";
-import {
-  isBannerVisible,
-  useBannerVisibilityStore,
-} from "@/stores/banner-visibility-store";
+import { useBannerVisibilityStore } from "@/stores/banner-visibility-store";
 
 // Stub child components that require browser APIs or complex hooks.
 // NOTE: Do NOT mock chat-scroll-area itself — that leaks across test
@@ -309,7 +306,7 @@ describe("ChatBody — banner-visibility store mirroring", () => {
   // clobbering each other.
   const bannerSlot = <div data-testid="banner">BANNER_CONTENT</div>;
   const visible = () =>
-    isBannerVisible(useBannerVisibilityStore.getState().visibleBannerCount);
+    useBannerVisibilityStore.getState().visibleBannerCount > 0;
 
   beforeEach(() => {
     useBannerVisibilityStore.setState({ visibleBannerCount: 0 });
