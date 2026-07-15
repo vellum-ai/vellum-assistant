@@ -76,9 +76,24 @@ export async function up(): Promise<MigrationResult> {
     return "done";
   }
 
-  // Terminal, not transient: checkpoint rather than retry on every boot.
+  // Terminal, not transient: post-assistant-ready runs data migrations only
+  // after the assistant's own migrations, so once 305 ships the columns are
+  // always already gone here and no retry can ever see them. Checkpointing an
+  // empty gateway is real ACL loss, so say so rather than checkpointing quietly.
   if (!(await assistantHasContactAclColumns())) {
-    log.info("Assistant DB has no contact ACL columns — nothing to reconcile");
+    const gwContacts = (
+      gwDb.prepare("SELECT count(*) AS n FROM contacts").get() as { n: number }
+    ).n;
+    if (gwContacts === 0) {
+      log.warn(
+        "Assistant DB has no contact ACL columns and the gateway has no contacts — " +
+          "ACL was never reconciled and the source is gone; re-pair to recover",
+      );
+    } else {
+      log.info(
+        "Assistant DB has no contact ACL columns — nothing to reconcile",
+      );
+    }
     return "done";
   }
 

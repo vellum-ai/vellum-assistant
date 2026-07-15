@@ -236,6 +236,18 @@ describe("m0006-reconcile-contacts-from-assistant", () => {
     expect(gatewayContactIds()).toEqual([]);
   });
 
+  test("checkpointing an already-seeded gateway leaves its contacts intact", async () => {
+    // The benign half of the branch above: the ACL landed before 305 ran, so
+    // the missing columns cost nothing.
+    fakeAssistantDb.hasAclColumns = false;
+    seedGatewayContact({ id: "already-seeded", role: "guardian" });
+
+    const result = await m0006Up();
+
+    expect(result).toBe("done");
+    expect(gatewayContactIds()).toEqual(["already-seeded"]);
+  });
+
   test("seeds contacts missing from gateway", async () => {
     seedGatewayContact({ id: "existing-gw" });
     seedAssistantContact({ id: "existing-gw" });

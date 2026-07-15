@@ -88,9 +88,26 @@ export async function up(): Promise<MigrationResult> {
       return "skip";
     }
 
-    // Terminal, unlike the absent table above: checkpoint, don't retry.
+    // Terminal, unlike the absent table above: data migrations run only after
+    // the assistant's own, so once 305 ships the columns are always already
+    // gone here and no retry can ever see them. Checkpointing an empty gateway
+    // is real ACL loss, so say so rather than checkpointing quietly.
     if (!(await assistantHasContactAclColumns())) {
-      log.info("Assistant DB has no contact ACL columns — nothing to backfill");
+      const gwContacts = (
+        gwDb.prepare("SELECT count(*) AS n FROM contacts").get() as {
+          n: number;
+        }
+      ).n;
+      if (gwContacts === 0) {
+        log.warn(
+          "Assistant DB has no contact ACL columns and the gateway has no contacts — " +
+            "ACL was never backfilled and the source is gone; re-pair to recover",
+        );
+      } else {
+        log.info(
+          "Assistant DB has no contact ACL columns — nothing to backfill",
+        );
+      }
       return "done";
     }
 
