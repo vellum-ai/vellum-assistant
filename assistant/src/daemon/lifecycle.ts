@@ -235,7 +235,7 @@ export async function runDaemon(): Promise<void> {
     } else {
       setDbMigrationFailed();
       log.error(
-        "Daemon startup: DB opened but one or more migrations failed — /readyz will remain unready",
+        "Daemon startup: DB opened but one or more migrations failed or were deferred — /readyz will remain unready",
       );
     }
     // Migrations have settled (successfully or in the failed degraded mode),
