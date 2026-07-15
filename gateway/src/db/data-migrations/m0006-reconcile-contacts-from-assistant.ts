@@ -17,6 +17,7 @@ import { Database } from "bun:sqlite";
 import { getGatewayDb } from "../connection.js";
 import { getLogger } from "../../logger.js";
 import { assistantDbQuery } from "../assistant-db-proxy.js";
+import { assistantHasContactAclColumns } from "./assistant-contact-acl-columns.js";
 import { assistantInviteIdSelect } from "./assistant-invite-id-column.js";
 
 import type { MigrationResult } from "./index.js";
@@ -72,6 +73,12 @@ export async function up(): Promise<MigrationResult> {
   );
   if (hasContactsTable.length === 0) {
     log.info("Assistant DB has no contacts table — nothing to reconcile");
+    return "done";
+  }
+
+  // Terminal, not transient: checkpoint rather than retry on every boot.
+  if (!(await assistantHasContactAclColumns())) {
+    log.info("Assistant DB has no contact ACL columns — nothing to reconcile");
     return "done";
   }
 

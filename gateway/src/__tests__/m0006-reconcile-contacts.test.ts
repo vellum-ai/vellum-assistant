@@ -56,12 +56,14 @@ const fakeAssistantDb = {
   hasContactsTable: true,
   hasChannelsTable: true,
   hasInviteIdColumn: true,
+  hasAclColumns: true,
   reset(): void {
     this.contacts.clear();
     this.channels.clear();
     this.hasContactsTable = true;
     this.hasChannelsTable = true;
     this.hasInviteIdColumn = true;
+    this.hasAclColumns = true;
   },
 };
 
@@ -71,20 +73,37 @@ mock.module("../db/assistant-db-proxy.js", () => ({
     if (lower.includes("pragma_table_info('contact_channels')")) {
       return fakeAssistantDb.hasInviteIdColumn ? [{ "1": 1 }] : [];
     }
+    if (lower.includes("pragma_table_info('contacts')")) {
+      return fakeAssistantDb.hasAclColumns
+        ? [{ name: "role" }, { name: "principal_id" }]
+        : [];
+    }
     if (lower.includes("sqlite_master") && lower.includes("'contacts'")) {
       return fakeAssistantDb.hasContactsTable ? [{ "1": 1 }] : [];
     }
-    if (lower.includes("sqlite_master") && lower.includes("'contact_channels'")) {
+    if (
+      lower.includes("sqlite_master") &&
+      lower.includes("'contact_channels'")
+    ) {
       return fakeAssistantDb.hasChannelsTable ? [{ "1": 1 }] : [];
     }
-    if (lower.includes("from contacts") && !lower.includes("contact_channels")) {
+    if (
+      lower.includes("from contacts") &&
+      !lower.includes("contact_channels")
+    ) {
+      if (!fakeAssistantDb.hasAclColumns && lower.includes("role")) {
+        throw new Error("no such column: role");
+      }
       return Array.from(fakeAssistantDb.contacts.values());
     }
     if (lower.includes("from contact_channels")) {
       // Mirror SQLite: referencing the dropped column errors; the NULL alias
       // is not a column reference.
       const columnRefs = lower.replaceAll("null as invite_id", "");
-      if (!fakeAssistantDb.hasInviteIdColumn && columnRefs.includes("invite_id")) {
+      if (
+        !fakeAssistantDb.hasInviteIdColumn &&
+        columnRefs.includes("invite_id")
+      ) {
         throw new Error("no such column: invite_id");
       }
       const rows = Array.from(fakeAssistantDb.channels.values());
@@ -104,7 +123,10 @@ import {
   resetGatewayDb,
 } from "../db/connection.js";
 import { contacts, contactChannels } from "../db/schema.js";
-import { up as m0006Up, down as m0006Down } from "../db/data-migrations/m0006-reconcile-contacts-from-assistant.js";
+import {
+  up as m0006Up,
+  down as m0006Down,
+} from "../db/data-migrations/m0006-reconcile-contacts-from-assistant.js";
 
 beforeAll(async () => {
   await initGatewayDb();
@@ -186,15 +208,15 @@ function seedAssistantChannel(opts: {
 }
 
 function gatewayContactIds(): string[] {
-  const rows = getGatewayDb().$client
-    .prepare("SELECT id FROM contacts")
+  const rows = getGatewayDb()
+    .$client.prepare("SELECT id FROM contacts")
     .all() as { id: string }[];
   return rows.map((r) => r.id).sort();
 }
 
 function gatewayChannelIds(): string[] {
-  const rows = getGatewayDb().$client
-    .prepare("SELECT id FROM contact_channels")
+  const rows = getGatewayDb()
+    .$client.prepare("SELECT id FROM contact_channels")
     .all() as { id: string }[];
   return rows.map((r) => r.id).sort();
 }
@@ -202,10 +224,26 @@ function gatewayChannelIds(): string[] {
 // ── Tests ───────────────────────────────────────────────────────────────────
 
 describe("m0006-reconcile-contacts-from-assistant", () => {
+  test("checkpoints instead of throwing when the assistant ACL columns are gone", async () => {
+    // Assistant persistence migration 305 dropped contacts.role/principal_id.
+    // A gateway first running m0006 afterwards has no source to read.
+    fakeAssistantDb.hasAclColumns = false;
+    seedAssistantContact({ id: "unreachable", role: "guardian" });
+
+    const result = await m0006Up();
+
+    expect(result).toBe("done");
+    expect(gatewayContactIds()).toEqual([]);
+  });
+
   test("seeds contacts missing from gateway", async () => {
     seedGatewayContact({ id: "existing-gw" });
     seedAssistantContact({ id: "existing-gw" });
-    seedAssistantContact({ id: "missing-1", role: "guardian", principalId: "prin-1" });
+    seedAssistantContact({
+      id: "missing-1",
+      role: "guardian",
+      principalId: "prin-1",
+    });
     seedAssistantContact({ id: "missing-2" });
 
     const result = await m0006Up();
@@ -216,8 +254,8 @@ describe("m0006-reconcile-contacts-from-assistant", () => {
     );
 
     // Verify the reconciled contact has the right ACL fields.
-    const row = getGatewayDb().$client
-    .prepare("SELECT role, principal_id FROM contacts WHERE id = ?")
+    const row = getGatewayDb()
+      .$client.prepare("SELECT role, principal_id FROM contacts WHERE id = ?")
       .get("missing-1") as { role: string; principal_id: string };
     expect(row.role).toBe("guardian");
     expect(row.principal_id).toBe("prin-1");
@@ -234,8 +272,10 @@ describe("m0006-reconcile-contacts-from-assistant", () => {
     expect(gatewayChannelIds()).toEqual(["ch1", "ch2"].sort());
 
     // Verify channel has correct fields.
-    const ch = getGatewayDb().$client
-    .prepare("SELECT type, address, status FROM contact_channels WHERE id = ?")
+    const ch = getGatewayDb()
+      .$client.prepare(
+        "SELECT type, address, status FROM contact_channels WHERE id = ?",
+      )
       .get("ch1") as { type: string; address: string; status: string };
     expect(ch.type).toBe("telegram");
     expect(ch.address).toBe("addr-ch1");
@@ -244,13 +284,17 @@ describe("m0006-reconcile-contacts-from-assistant", () => {
 
   test("coerces an assistant escalate policy to deny on import", async () => {
     seedAssistantContact({ id: "c-esc" });
-    seedAssistantChannel({ id: "ch-esc", contactId: "c-esc", policy: "escalate" });
+    seedAssistantChannel({
+      id: "ch-esc",
+      contactId: "c-esc",
+      policy: "escalate",
+    });
 
     const result = await m0006Up();
 
     expect(result).toBe("done");
-    const ch = getGatewayDb().$client
-      .prepare("SELECT policy FROM contact_channels WHERE id = ?")
+    const ch = getGatewayDb()
+      .$client.prepare("SELECT policy FROM contact_channels WHERE id = ?")
       .get("ch-esc") as { policy: string };
     expect(ch.policy).toBe("deny");
   });
@@ -273,8 +317,8 @@ describe("m0006-reconcile-contacts-from-assistant", () => {
 
     await m0006Up();
 
-    const row = getGatewayDb().$client
-    .prepare("SELECT display_name FROM contacts WHERE id = ?")
+    const row = getGatewayDb()
+      .$client.prepare("SELECT display_name FROM contacts WHERE id = ?")
       .get("c1") as { display_name: string };
     // Gateway's version is preserved, not overwritten.
     expect(row.display_name).toBe("gateway-name");
@@ -322,8 +366,8 @@ describe("m0006-reconcile-contacts-from-assistant", () => {
     expect(result).toBe("done");
     expect(gatewayContactIds()).toEqual(["c1"]);
     expect(gatewayChannelIds()).toEqual(["ch1"]);
-    const ch = getGatewayDb().$client
-      .prepare("SELECT invite_id FROM contact_channels WHERE id = ?")
+    const ch = getGatewayDb()
+      .$client.prepare("SELECT invite_id FROM contact_channels WHERE id = ?")
       .get("ch1") as { invite_id: string | null };
     expect(ch.invite_id).toBeNull();
   });
@@ -345,8 +389,8 @@ describe("m0006-reconcile-contacts-from-assistant", () => {
   test("skips channels that conflict by (type, address) COLLATE NOCASE", async () => {
     // Gateway has contact c1 + a channel with address "Addr-1" (mixed case).
     seedGatewayContact({ id: "c1" });
-    getGatewayDb().$client
-      .prepare(
+    getGatewayDb()
+      .$client.prepare(
         `INSERT INTO contact_channels
            (id, contact_id, type, address, is_primary, external_chat_id,
             status, policy, verified_at, verified_via, invite_id,

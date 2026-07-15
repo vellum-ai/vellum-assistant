@@ -23,6 +23,7 @@ import { Database } from "bun:sqlite";
 import { getGatewayDb } from "../connection.js";
 import { getLogger } from "../../logger.js";
 import { assistantDbQuery } from "../assistant-db-proxy.js";
+import { assistantHasContactAclColumns } from "./assistant-contact-acl-columns.js";
 import { assistantInviteIdSelect } from "./assistant-invite-id-column.js";
 
 import type { MigrationResult } from "./index.js";
@@ -85,6 +86,12 @@ export async function up(): Promise<MigrationResult> {
         "Assistant DB missing contacts/contact_channels — retrying next boot",
       );
       return "skip";
+    }
+
+    // Terminal, unlike the absent table above: checkpoint, don't retry.
+    if (!(await assistantHasContactAclColumns())) {
+      log.info("Assistant DB has no contact ACL columns — nothing to backfill");
+      return "done";
     }
 
     // ── 2. Read the assistant ACL source rows ──────────────────────────────
