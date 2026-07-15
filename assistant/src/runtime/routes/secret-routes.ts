@@ -10,6 +10,11 @@
 import { z } from "zod";
 
 import {
+  ACP_SERVICE,
+  AcpCredentialFormatError,
+  assertAcpCredentialFormat,
+} from "../../acp/acp-credentials.js";
+import {
   getPlatformAssistantId,
   setPlatformAssistantId,
   setPlatformBaseUrl,
@@ -242,6 +247,20 @@ async function handleAddSecret({ body }: RouteHandlerArgs) {
       assertMetadataWritable();
       const service = name.slice(0, colonIdx);
       const field = name.slice(colonIdx + 1);
+
+      // Reject an Anthropic API key pasted into the ACP OAuth-token field (a 401
+      // footgun) as a 400 rather than letting it persist and fail at runtime.
+      if (service === ACP_SERVICE) {
+        try {
+          assertAcpCredentialFormat(field, value);
+        } catch (err) {
+          if (err instanceof AcpCredentialFormatError) {
+            throw new BadRequestError(err.message);
+          }
+          throw err;
+        }
+      }
+
       const key = credentialKey(service, field);
 
       const TRIMMED_IDENTITY_FIELDS = new Set([
