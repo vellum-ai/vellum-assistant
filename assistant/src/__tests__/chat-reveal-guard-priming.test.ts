@@ -716,6 +716,39 @@ describe("for-chat re-mint authority (two legs: staged AND executed)", () => {
     expect(streamedText(events)).toContain("\u3014\u2060redacted:");
   });
 
+  test("a concurrent conversation's later same-credential mint does not clobber this run's own", async () => {
+    // Both conversations legitimately reveal the SAME credential; the
+    // other conversation's mint lands later. This run's own mint must
+    // still re-mint its echoed sentinel — an identity-only dedupe in the
+    // registry would have dropped it in favor of the foreign-nonce record.
+    const events: ServerMessage[] = [];
+    const state = createEventHandlerState();
+    const deps = createMockDeps(events);
+
+    await dispatchAgentEvent(state, deps, FOR_CHAT_TOOL_USE);
+    recordForChatMint({
+      service: "openai",
+      field: "api_key",
+      sentinel: FOR_CHAT_SENTINEL,
+      nonce: conversationRevealNonce("test-conversation"),
+    });
+    recordForChatMint({
+      service: "openai",
+      field: "api_key",
+      sentinel: FOR_CHAT_SENTINEL,
+      nonce: conversationRevealNonce("some-other-conversation"),
+    });
+    await dispatchAgentEvent(state, deps, FOR_CHAT_TOOL_RESULT);
+
+    await dispatchAgentEvent(state, deps, {
+      type: "text_delta",
+      text: `Here it is: ${FOR_CHAT_SENTINEL}`,
+    } as Extract<AgentEvent, { type: "text_delta" }>);
+
+    expect(streamedText(events)).toContain(FOR_CHAT_SENTINEL);
+    expect(streamedText(events)).not.toContain("\u2060");
+  });
+
   test("a mint alone — identity never staged by this run — neutralizes", async () => {
     const events: ServerMessage[] = [];
     const state = createEventHandlerState();

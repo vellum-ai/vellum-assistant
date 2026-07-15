@@ -86,16 +86,21 @@ export function recordForChatMint(mint: ForChatMint): void {
 }
 
 /**
- * Mints recorded after `watermark`, deduplicated by identity (latest wins —
- * re-revealing the same credential re-mints the same canonical sentinel).
- * Callers MUST intersect the result with their own trusted staging context
- * before treating a mint as re-mint authority — see the module doc.
+ * Mints recorded after `watermark`, deduplicated per nonce+identity (latest
+ * wins — one conversation re-revealing the same credential re-mints the
+ * same canonical sentinel). The nonce is part of the dedupe key on purpose:
+ * consumers filter the result by THEIR nonce afterwards, so an
+ * identity-only dedupe would let a concurrent conversation's later reveal
+ * of the same credential clobber this conversation's legitimate mint and
+ * neutralize its echoed sentinel. Callers MUST intersect the result with
+ * their own trusted staging context before treating a mint as re-mint
+ * authority — see the module doc.
  */
 export function forChatMintsSince(watermark: number): ForChatMint[] {
-  const byIdentity = new Map<string, ForChatMint>();
+  const byNonceAndIdentity = new Map<string, ForChatMint>();
   for (const r of records) {
     if (r.seq > watermark) {
-      byIdentity.set(`${r.service}\u0000${r.field}`, {
+      byNonceAndIdentity.set(`${r.nonce}\u0000${r.service}\u0000${r.field}`, {
         service: r.service,
         field: r.field,
         sentinel: r.sentinel,
@@ -103,7 +108,7 @@ export function forChatMintsSince(watermark: number): ForChatMint[] {
       });
     }
   }
-  return [...byIdentity.values()];
+  return [...byNonceAndIdentity.values()];
 }
 
 /** Test-only: drop all records and reset the watermark counter. */

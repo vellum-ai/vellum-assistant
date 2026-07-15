@@ -1348,7 +1348,7 @@ describe("for-chat mint registry", () => {
     resetForChatMintRegistryForTest();
   });
 
-  test("dedupes by identity with the latest sentinel winning", () => {
+  test("dedupes per nonce+identity with the latest sentinel winning", () => {
     resetForChatMintRegistryForTest();
     recordForChatMint({
       service: "svc",
@@ -1365,6 +1365,31 @@ describe("for-chat mint registry", () => {
     expect(forChatMintsSince(0)).toEqual([
       { service: "svc", field: "f", sentinel: "second", nonce: "n1" },
     ]);
+    resetForChatMintRegistryForTest();
+  });
+
+  test("concurrent same-credential reveals from different conversations both survive", () => {
+    // The dedupe key includes the nonce: consumers filter by THEIR nonce
+    // after this call, so an identity-only dedupe would let conversation
+    // B's later reveal of the same credential clobber conversation A's
+    // legitimate mint and neutralize A's echoed sentinel.
+    resetForChatMintRegistryForTest();
+    recordForChatMint({
+      service: "svc",
+      field: "f",
+      sentinel: "s-a",
+      nonce: "nonce-a",
+    });
+    recordForChatMint({
+      service: "svc",
+      field: "f",
+      sentinel: "s-b",
+      nonce: "nonce-b",
+    });
+    const mints = forChatMintsSince(0);
+    expect(mints).toHaveLength(2);
+    expect(mints.find((m) => m.nonce === "nonce-a")?.sentinel).toBe("s-a");
+    expect(mints.find((m) => m.nonce === "nonce-b")?.sentinel).toBe("s-b");
     resetForChatMintRegistryForTest();
   });
 });
