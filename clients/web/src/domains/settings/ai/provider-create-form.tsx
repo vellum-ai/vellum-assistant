@@ -235,12 +235,17 @@ export function ProviderCreateForm({
           } finally {
             setIsSavingKey(false);
           }
-        } else if (!hasStoredCredential) {
+          auth = { type: "api_key", credential: effectiveCredential };
+        } else if (hasStoredCredential) {
+          auth = { type: "api_key", credential: effectiveCredential };
+        } else if (isOpenAICompatible) {
+          // Custom endpoints have no fixed auth story: local servers are
+          // usually keyless. No key entered → keyless auth.
+          auth = { type: "none" };
+        } else {
           setError("Enter an API key or select an existing credential.");
           return;
         }
-
-        auth = { type: "api_key", credential: effectiveCredential };
       } else if (authType === "oauth_subscription") {
         // OAuth subscription connections are created by the OAuth flow
         // (ChatgptOAuthSection), not through Save.

@@ -651,6 +651,38 @@ describe("ProviderCreateForm submit sequence", () => {
     });
   });
 
+  test("openai-compatible with no API key creates a keyless provider", async () => {
+    render(
+      <ModalWrapper>
+        <ProviderCreateForm
+          assistantId={ASSISTANT_ID}
+          existingNames={[]}
+          defaultProviderType="openai-compatible"
+          onCreated={() => {}}
+          onCancel={() => {}}
+        />
+      </ModalWrapper>,
+    );
+
+    fireEvent.change(getInputByPlaceholder("https://api.example.com/v1"), {
+      target: { value: "http://localhost:1234/v1" },
+    });
+    fireEvent.change(getInputByPlaceholder("model-1, model-2"), {
+      target: { value: "my-model" },
+    });
+    fireEvent.click(getButton("Add"));
+
+    await waitFor(() => {
+      expect(createConnectionCalls.length).toBe(1);
+    });
+    expect(secretsPostCalls).toEqual([]);
+    expect(createConnectionCalls[0].body).toMatchObject({
+      provider: "openai-compatible",
+      auth: { type: "none" },
+      base_url: "http://localhost:1234/v1",
+    });
+  });
+
   test("the key input only exists for openai-compatible", () => {
     render(
       <ModalWrapper>
