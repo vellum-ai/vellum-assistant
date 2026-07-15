@@ -193,7 +193,7 @@ export const routes = {
     community: r("/assistant/settings/community"),
     developer: r("/assistant/settings/developer"),
     mcp: r("/assistant/settings/mcp"),
-    advanced: r("/assistant/settings/advanced"),
+    debug: r("/assistant/settings/debug"),
     dangerZone: r("/assistant/settings/danger-zone"),
     systemEvents: r("/assistant/settings/system-events"),
     upgradeCancel: r("/assistant/settings/billing/upgrade/cancel"),

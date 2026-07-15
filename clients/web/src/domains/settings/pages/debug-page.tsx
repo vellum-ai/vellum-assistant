@@ -16,11 +16,11 @@ const ALL_TABS = [
   { id: "archive", label: "Archive" },
 ] as const;
 
-type AdvancedTabId = (typeof ALL_TABS)[number]["id"];
+type DebugTabId = (typeof ALL_TABS)[number]["id"];
 
-const DEFAULT_TAB: AdvancedTabId = "general";
+const DEFAULT_TAB: DebugTabId = "general";
 
-export function AdvancedPage() {
+export function DebugPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   // Terminal and Doctor are platform-routed and must be hidden when the active
   // assistant is self-hosted — `platformHostedOnly: true` is the correct
@@ -46,7 +46,7 @@ export function AdvancedPage() {
   // A gated deep-link (e.g. ?tab=doctor on a self-hosted assistant) has no
   // matching visible tab, so fall back to General rather than rendering a
   // panel with no trigger.
-  const activeTab: AdvancedTabId = useMemo(() => {
+  const activeTab: DebugTabId = useMemo(() => {
     const tabParam = searchParams.get("tab");
     const match = tabs.find((tab) => tab.id === tabParam);
     return match?.id ?? DEFAULT_TAB;
