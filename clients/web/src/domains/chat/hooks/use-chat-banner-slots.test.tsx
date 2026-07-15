@@ -1,13 +1,14 @@
 /**
- * Tests that `useChatBannerSlots` mirrors "a nudge banner is currently
- * visible" into the shared banner-visibility store — the mutual-exclusivity
- * contract the sidebar tip reads to avoid rendering alongside a banner.
+ * Tests that `useChatBannerSlots` builds the main banner slot from the nudge
+ * flags. Banner *visibility* is mirrored into the shared store by `ChatBody`
+ * (which owns the actual mount conditions), not by this hook — see
+ * `chat-body.test.tsx`.
  *
  * The banner components and queued drawer are stubbed via `mock.module` so
- * the test stays focused on the slot/visibility logic.
+ * the test stays focused on the slot construction logic.
  */
 
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, renderHook } from "@testing-library/react";
 
 // --- Mocks ----------------------------------------------------------------
@@ -30,7 +31,6 @@ mock.module("@/domains/chat/components/queued-messages-drawer", () => ({
 
 import { useChatBannerSlots } from "@/domains/chat/hooks/use-chat-banner-slots";
 import type { UseChatBannerSlotsParams } from "@/domains/chat/hooks/use-chat-banner-slots";
-import { useBannerVisibilityStore } from "@/stores/banner-visibility-store";
 
 // --- Fixtures ---------------------------------------------------------------
 
@@ -77,56 +77,37 @@ function makeParams(nudges: Nudges): UseChatBannerSlotsParams {
   };
 }
 
-const bannerVisible = () =>
-  useBannerVisibilityStore.getState().bannerVisible;
-
-beforeEach(() => {
-  useBannerVisibilityStore.setState({ bannerVisible: false });
-});
-
 afterEach(() => {
   cleanup();
 });
 
 // --- Tests ------------------------------------------------------------------
 
-describe("useChatBannerSlots — banner-visibility mirroring", () => {
-  test("no banner showing → slot null, store stays false", () => {
+describe("useChatBannerSlots — banner slot construction", () => {
+  test("no nudge flag set → mainBannerSlot is null", () => {
     const { result } = renderHook(useChatBannerSlots, {
       initialProps: makeParams(makeNudges()),
     });
     expect(result.current.mainBannerSlot).toBeNull();
-    expect(bannerVisible()).toBe(false);
   });
 
   const flags = ["showBanner", "showGitHubBanner", "showDiscordBanner"] as const;
   for (const flag of flags) {
-    test(`${flag} → slot renders, store flips true`, () => {
+    test(`${flag} → mainBannerSlot renders`, () => {
       const { result } = renderHook(useChatBannerSlots, {
         initialProps: makeParams(makeNudges({ [flag]: true })),
       });
       expect(result.current.mainBannerSlot).not.toBeNull();
-      expect(bannerVisible()).toBe(true);
     });
   }
 
-  test("banner hiding flips the store back to false", () => {
-    const { rerender } = renderHook(useChatBannerSlots, {
+  test("clearing the flag drops the slot back to null", () => {
+    const { result, rerender } = renderHook(useChatBannerSlots, {
       initialProps: makeParams(makeNudges({ showBanner: true })),
     });
-    expect(bannerVisible()).toBe(true);
+    expect(result.current.mainBannerSlot).not.toBeNull();
 
     rerender(makeParams(makeNudges()));
-    expect(bannerVisible()).toBe(false);
-  });
-
-  test("unmount resets the store to false", () => {
-    const { unmount } = renderHook(useChatBannerSlots, {
-      initialProps: makeParams(makeNudges({ showGitHubBanner: true })),
-    });
-    expect(bannerVisible()).toBe(true);
-
-    unmount();
-    expect(bannerVisible()).toBe(false);
+    expect(result.current.mainBannerSlot).toBeNull();
   });
 });

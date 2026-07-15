@@ -1,4 +1,5 @@
 import {
+  useEffect,
   useLayoutEffect,
   useRef,
   useState,
@@ -8,6 +9,7 @@ import {
 
 import { Paperclip, X } from "lucide-react";
 
+import { useBannerVisibilityStore } from "@/stores/banner-visibility-store";
 import { QuestionPromptSlot } from "@/domains/chat/components/question-prompt-slot";
 import { StagedQuotesStrip } from "@/domains/chat/components/staged-quotes-strip";
 import {
@@ -44,10 +46,11 @@ import { Button, Notice, type NoticeTone } from "@vellumai/design-library";
  * as optional slot props or a `variant` enum, so the composer itself is
  * a single mounted instance across both paths (LUM-1516).
  *
- * The component is purely presentational: all state, handlers, and
- * derived flags are owned by the parent page. This keeps the chat-body
- * surface framework-agnostic and free of routing or page-level
- * concerns.
+ * The component is presentational: all state, handlers, and derived
+ * flags are owned by the parent page (its one side effect reports
+ * mounted-banner visibility to the shared banner-visibility store).
+ * This keeps the chat-body surface framework-agnostic and free of
+ * routing or page-level concerns.
  */
 export interface ChatBodyDragHandlers {
   onDragEnter: DragEventHandler<HTMLDivElement>;
@@ -121,6 +124,8 @@ export interface ChatBodyProps {
    * Optional pre-rendered banner stack (mobile-app nudge / GitHub / Discord)
    * rendered alongside the scroll-to-latest button in the absolute-positioned
    * overlay above the composer. Omitted by the app-editing side panel.
+   * While mounted (non-empty state), visibility is mirrored into the shared
+   * banner-visibility store so tip surfaces can stay mutually exclusive.
    */
   bannerSlot?: ReactNode;
 
@@ -260,12 +265,26 @@ export function ChatBody({
   // user sends a message and the empty state clears. `showScrollToLatest`
   // is already false on the empty state (gated on `messages.length > 0`
   // at the call site), so this only affects `bannerSlot`.
-  const hasOverlay =
-    !isEmptyState && (showScrollToLatest || Boolean(bannerSlot));
+  const bannerRendered = !isEmptyState && Boolean(bannerSlot);
+  const hasOverlay = bannerRendered || (!isEmptyState && showScrollToLatest);
   const bottomOverlayReservePx =
-    !isEmptyState && bannerSlot && bottomBannerOverlayHeight > 0
+    bannerRendered && bottomBannerOverlayHeight > 0
       ? bottomBannerOverlayHeight
       : undefined;
+
+  // Mirror the mounted banner — not the candidate slot — into the shared
+  // store so tip surfaces stay mutually exclusive with nudge banners.
+  // Register/unregister (a count) tolerates concurrent instances (main +
+  // side panel) without a last-write-wins race.
+  const registerVisibleBanner =
+    useBannerVisibilityStore.use.registerVisibleBanner();
+  const unregisterVisibleBanner =
+    useBannerVisibilityStore.use.unregisterVisibleBanner();
+  useEffect(() => {
+    if (!bannerRendered) return;
+    registerVisibleBanner();
+    return unregisterVisibleBanner;
+  }, [bannerRendered, registerVisibleBanner, unregisterVisibleBanner]);
 
   // Composer stack — stays at the same tree position across the empty→active
   // transition so React preserves its state (focus, draft text, attachments)

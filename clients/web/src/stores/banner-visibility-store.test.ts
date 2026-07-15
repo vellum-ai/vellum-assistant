@@ -1,37 +1,64 @@
 import { describe, it, expect, beforeEach } from "bun:test";
+import { act, renderHook } from "@testing-library/react";
 
-import { useBannerVisibilityStore } from "@/stores/banner-visibility-store";
+import {
+  isBannerVisible,
+  useBannerVisibilityStore,
+  useBannerVisible,
+} from "@/stores/banner-visibility-store";
+
+const visible = () =>
+  isBannerVisible(useBannerVisibilityStore.getState().visibleBannerCount);
 
 beforeEach(() => {
-  useBannerVisibilityStore.setState({ bannerVisible: false });
+  useBannerVisibilityStore.setState({ visibleBannerCount: 0 });
 });
 
 describe("useBannerVisibilityStore", () => {
-  it("initial state is false", () => {
-    expect(useBannerVisibilityStore.getState().bannerVisible).toBe(false);
+  it("starts with no visible banners", () => {
+    expect(useBannerVisibilityStore.getState().visibleBannerCount).toBe(0);
+    expect(visible()).toBe(false);
   });
 
-  it("setBannerVisible(true) flips the flag", () => {
-    useBannerVisibilityStore.getState().setBannerVisible(true);
-    expect(useBannerVisibilityStore.getState().bannerVisible).toBe(true);
+  it("register/unregister round-trips the visibility", () => {
+    useBannerVisibilityStore.getState().registerVisibleBanner();
+    expect(visible()).toBe(true);
+    useBannerVisibilityStore.getState().unregisterVisibleBanner();
+    expect(visible()).toBe(false);
   });
 
-  it("setBannerVisible(false) flips back", () => {
-    useBannerVisibilityStore.getState().setBannerVisible(true);
-    useBannerVisibilityStore.getState().setBannerVisible(false);
-    expect(useBannerVisibilityStore.getState().bannerVisible).toBe(false);
+  it("stays visible until every registrant unregisters (concurrent instances)", () => {
+    const { registerVisibleBanner, unregisterVisibleBanner } =
+      useBannerVisibilityStore.getState();
+    registerVisibleBanner();
+    registerVisibleBanner();
+    expect(useBannerVisibilityStore.getState().visibleBannerCount).toBe(2);
+
+    unregisterVisibleBanner();
+    expect(visible()).toBe(true);
+    unregisterVisibleBanner();
+    expect(visible()).toBe(false);
   });
 
-  it("setting the same value is a no-op (no state churn)", () => {
-    let notifications = 0;
-    const unsubscribe = useBannerVisibilityStore.subscribe(() => {
-      notifications++;
-    });
-    useBannerVisibilityStore.getState().setBannerVisible(false);
-    expect(notifications).toBe(0);
-    useBannerVisibilityStore.getState().setBannerVisible(true);
-    useBannerVisibilityStore.getState().setBannerVisible(true);
-    expect(notifications).toBe(1);
-    unsubscribe();
+  it("unregister at zero clamps — the count never goes negative", () => {
+    useBannerVisibilityStore.getState().unregisterVisibleBanner();
+    expect(useBannerVisibilityStore.getState().visibleBannerCount).toBe(0);
+
+    // A later register must still flip visibility on.
+    useBannerVisibilityStore.getState().registerVisibleBanner();
+    expect(visible()).toBe(true);
+  });
+});
+
+describe("useBannerVisible", () => {
+  it("reactively derives count > 0", () => {
+    const { result } = renderHook(useBannerVisible);
+    expect(result.current).toBe(false);
+
+    act(() => useBannerVisibilityStore.getState().registerVisibleBanner());
+    expect(result.current).toBe(true);
+
+    act(() => useBannerVisibilityStore.getState().unregisterVisibleBanner());
+    expect(result.current).toBe(false);
   });
 });

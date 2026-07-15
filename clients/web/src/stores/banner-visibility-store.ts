@@ -1,10 +1,15 @@
 /**
  * Zustand store tracking whether a composer nudge banner is currently
- * visible. Contract for mutual exclusivity: a sidebar tip must never render
+ * rendered. Contract for mutual exclusivity: a sidebar tip must never render
  * while a composer nudge banner is showing, so tip surfaces read
- * `bannerVisible` and hide themselves when it's true.
+ * {@link useBannerVisible} and hide themselves while it's true.
  *
- * Not persisted — visibility is derived live by `use-chat-banner-slots`.
+ * Each `ChatBody` instance that actually mounts its banner overlay registers
+ * here for the duration. A count (not a boolean) tolerates concurrent
+ * instances — main chat plus the app-editing side panel — without a
+ * last-write-wins race, mirroring `edge-swipe-arbiter-store`.
+ *
+ * Not persisted — visibility is live render state.
  *
  * Reference: {@link https://zustand.docs.pmnd.rs/}
  */
@@ -18,11 +23,13 @@ import { createSelectors } from "@/utils/create-selectors";
 // ---------------------------------------------------------------------------
 
 export interface BannerVisibilityState {
-  bannerVisible: boolean;
+  /** Number of currently mounted nudge banner overlays. */
+  visibleBannerCount: number;
 }
 
 export interface BannerVisibilityActions {
-  setBannerVisible: (value: boolean) => void;
+  registerVisibleBanner: () => void;
+  unregisterVisibleBanner: () => void;
 }
 
 export type BannerVisibilityStore = BannerVisibilityState &
@@ -32,18 +39,29 @@ export type BannerVisibilityStore = BannerVisibilityState &
 // Store
 // ---------------------------------------------------------------------------
 
-const useBannerVisibilityStoreBase = create<BannerVisibilityStore>()(
-  (set, get) => ({
-    bannerVisible: false,
+const useBannerVisibilityStoreBase = create<BannerVisibilityStore>()((set) => ({
+  visibleBannerCount: 0,
 
-    setBannerVisible: (value) => {
-      if (get().bannerVisible !== value) {
-        set({ bannerVisible: value });
-      }
-    },
-  }),
-);
+  registerVisibleBanner: () =>
+    set((state) => ({ visibleBannerCount: state.visibleBannerCount + 1 })),
+  unregisterVisibleBanner: () =>
+    set((state) => ({
+      visibleBannerCount: Math.max(0, state.visibleBannerCount - 1),
+    })),
+}));
 
 export const useBannerVisibilityStore = createSelectors(
   useBannerVisibilityStoreBase,
 );
+
+// ---------------------------------------------------------------------------
+// Derivation
+// ---------------------------------------------------------------------------
+
+/** Pure predicate — true while any nudge banner is mounted. */
+export const isBannerVisible = (visibleBannerCount: number) =>
+  visibleBannerCount > 0;
+
+/** Reactive read for components (e.g. tip surfaces). */
+export const useBannerVisible = () =>
+  isBannerVisible(useBannerVisibilityStore.use.visibleBannerCount());
