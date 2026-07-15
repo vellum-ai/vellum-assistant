@@ -1,15 +1,13 @@
 import { getDeviceBool } from "@/utils/device-settings";
-import { getClientId } from "@/lib/telemetry/client-identity";
+import { postTelemetryEvents } from "@/lib/telemetry/ingest";
 
 /**
  * Memory-tab usage telemetry.
  *
- * Modeled on `domains/onboarding/funnel-events.ts`: POSTs directly to the
- * platform's `/v1/telemetry/ingest/` endpoint, consent-gated, device-scoped via
- * `getClientId()`. It reuses the existing `type: "onboarding"` event with a
- * distinct `funnel_version` (`memory_tab_v1`). `screen` / `step_name` /
- * `funnel_version` are open strings server-side, so these values ride the
- * existing wire shape and ingest path with no backend / terraform change.
+ * Reports through the shared `postTelemetryEvents` transport as a
+ * `type: "onboarding"` event with a distinct `funnel_version`
+ * (`memory_tab_v1`). `screen` / `step_name` / `funnel_version` are open strings
+ * server-side, so these values ride the existing ingest wire shape.
  *
  * Consent is read from the shared `device:share_analytics` bool
  * (`getDeviceBool("shareAnalytics", ...)`) rather than the onboarding domain's
@@ -42,12 +40,6 @@ interface MemoryEvent {
   user_id?: string;
 }
 
-function stripUndefined(value: object): Record<string, unknown> {
-  return Object.fromEntries(
-    Object.entries(value).filter(([, entry]) => entry !== undefined),
-  );
-}
-
 export function emitMemoryEvent(
   step: MemoryStep,
   options: { userId?: string } = {},
@@ -72,16 +64,5 @@ export function emitMemoryEvent(
     user_id: options.userId,
   };
 
-  const payload = JSON.stringify({
-    device_id: getClientId(),
-    assistant_version: import.meta.env.VITE_APP_VERSION ?? "web-dev",
-    events: [stripUndefined(event)],
-  });
-
-  void fetch("/v1/telemetry/ingest/", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: payload,
-    keepalive: true,
-  }).catch(() => {});
+  postTelemetryEvents([event]);
 }
