@@ -1,0 +1,206 @@
+/**
+ * Tests for `useTipCard` — the orchestration hook behind the sidebar tip
+ * card. Gates (flag, preference, banner exclusivity, new-user grace) are
+ * driven through the real stores/storage; only telemetry is mocked so
+ * emissions can be asserted without the onboarding funnel pipeline.
+ */
+
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { act, cleanup, renderHook } from "@testing-library/react";
+
+const emitTipEvent = mock(() => {});
+mock.module("@/utils/tips-telemetry", () => ({ emitTipEvent }));
+
+const { useTipCard } = await import("@/hooks/use-tip-card");
+const { useAssistantFeatureFlagStore } = await import(
+  "@/stores/assistant-feature-flag-store"
+);
+const { useBannerVisibilityStore } = await import(
+  "@/stores/banner-visibility-store"
+);
+const { useClientFeatureFlagStore } = await import(
+  "@/stores/client-feature-flag-store"
+);
+const { TIPS_CATALOG } = await import("@/utils/tips-catalog");
+const { TIPS_MIN_ACCOUNT_AGE_MS } = await import("@/utils/tips-selection");
+const {
+  recordTipDismissed,
+  tipRecordsStorage,
+  tipsEnabledStorage,
+  tipsFirstSeenAtStorage,
+} = await import("@/utils/tips-storage");
+
+const FIRST_TIP_ID = TIPS_CATALOG[0].id;
+
+function setFlag(value: "on" | "off") {
+  useClientFeatureFlagStore.getState().setStringFlags({ proactiveTips: value });
+}
+
+/** Stamp first-seen far enough in the past that the new-user grace has run. */
+function stampAgedFirstSeen() {
+  tipsFirstSeenAtStorage.save(Date.now() - TIPS_MIN_ACCOUNT_AGE_MS - 60_000);
+}
+
+/** Flag on + aged first-seen — tips enabled is the storage default (true). */
+function openAllGates() {
+  setFlag("on");
+  stampAgedFirstSeen();
+}
+
+beforeEach(() => {
+  localStorage.clear();
+  setFlag("off");
+  useAssistantFeatureFlagStore.getState().resetForAssistantSwitch();
+  useBannerVisibilityStore.setState({ visibleBannerCount: 0 });
+  emitTipEvent.mockClear();
+});
+
+afterEach(() => {
+  cleanup();
+  localStorage.clear();
+});
+
+describe("useTipCard gates", () => {
+  test("returns null while the proactive-tips flag is off", () => {
+    stampAgedFirstSeen();
+
+    const { result } = renderHook(() => useTipCard());
+
+    expect(result.current.tip).toBeNull();
+    expect(emitTipEvent).not.toHaveBeenCalled();
+  });
+
+  test("returns null when the user disabled tips", () => {
+    openAllGates();
+    tipsEnabledStorage.save(false);
+
+    const { result } = renderHook(() => useTipCard());
+
+    expect(result.current.tip).toBeNull();
+    expect(emitTipEvent).not.toHaveBeenCalled();
+  });
+
+  test("hides while a nudge banner is visible and reappears when it unregisters", () => {
+    openAllGates();
+    act(() => {
+      useBannerVisibilityStore.getState().registerVisibleBanner();
+    });
+
+    const { result } = renderHook(() => useTipCard());
+    expect(result.current.tip).toBeNull();
+
+    act(() => {
+      useBannerVisibilityStore.getState().unregisterVisibleBanner();
+    });
+    expect(result.current.tip?.id).toBe(FIRST_TIP_ID);
+  });
+
+  test("returns null during the new-user grace and stamps first-seen", () => {
+    setFlag("on");
+
+    const { result } = renderHook(() => useTipCard());
+
+    expect(result.current.tip).toBeNull();
+    expect(tipsFirstSeenAtStorage.load()).toBeGreaterThan(0);
+    expect(emitTipEvent).not.toHaveBeenCalled();
+  });
+});
+
+describe("useTipCard selection and impressions", () => {
+  test("selects the first catalog tip and records the impression", () => {
+    openAllGates();
+
+    const { result } = renderHook(() => useTipCard());
+
+    expect(result.current.tip?.id).toBe(FIRST_TIP_ID);
+    const record = tipRecordsStorage.load()[FIRST_TIP_ID];
+    expect(record?.lastShownAt).toBeGreaterThan(0);
+    expect(record?.shownCount).toBe(1);
+    expect(emitTipEvent).toHaveBeenCalledTimes(1);
+    expect(emitTipEvent).toHaveBeenCalledWith(FIRST_TIP_ID, "impression", "on");
+  });
+
+  test("emits the impression at most once per rotation window across remounts", () => {
+    openAllGates();
+
+    const first = renderHook(() => useTipCard());
+    expect(emitTipEvent).toHaveBeenCalledTimes(1);
+    first.unmount();
+
+    const second = renderHook(() => useTipCard());
+    expect(second.result.current.tip?.id).toBe(FIRST_TIP_ID);
+    expect(emitTipEvent).toHaveBeenCalledTimes(1);
+    expect(tipRecordsStorage.load()[FIRST_TIP_ID]?.shownCount).toBe(1);
+  });
+
+  test("excludes gated tips whose requirements fail and includes them when met", () => {
+    openAllGates();
+    // Exhaust every ungated tip; on web the electron/flag/plugins-gated
+    // remainder must all be filtered out, leaving nothing to show.
+    const now = Date.now();
+    for (const tip of TIPS_CATALOG.filter((entry) => !entry.gates)) {
+      recordTipDismissed(tip.id, now);
+    }
+
+    const { result } = renderHook(() => useTipCard());
+    expect(result.current.tip).toBeNull();
+
+    // Turning the gating assistant flag on makes the voice tip eligible.
+    act(() => {
+      useAssistantFeatureFlagStore.getState().setFlags({ voiceMode: true });
+    });
+    expect(result.current.tip?.id).toBe("voice-mode");
+  });
+});
+
+describe("useTipCard actions", () => {
+  test("dismiss stamps the record, emits, and blanks the slot for the window", () => {
+    openAllGates();
+    const { result } = renderHook(() => useTipCard());
+    emitTipEvent.mockClear();
+
+    act(() => {
+      result.current.onDismiss();
+    });
+
+    expect(result.current.tip).toBeNull();
+    expect(tipRecordsStorage.load()[FIRST_TIP_ID]?.dismissedAt).toBeGreaterThan(
+      0,
+    );
+    expect(emitTipEvent).toHaveBeenCalledTimes(1);
+    expect(emitTipEvent).toHaveBeenCalledWith(FIRST_TIP_ID, "dismiss", "on");
+  });
+
+  test("learn more emits without hiding the tip", () => {
+    openAllGates();
+    const { result } = renderHook(() => useTipCard());
+    emitTipEvent.mockClear();
+
+    act(() => {
+      result.current.onLearnMore();
+    });
+
+    expect(result.current.tip?.id).toBe(FIRST_TIP_ID);
+    expect(emitTipEvent).toHaveBeenCalledTimes(1);
+    expect(emitTipEvent).toHaveBeenCalledWith(FIRST_TIP_ID, "learn_more", "on");
+  });
+
+  test("don't show again disables tips and emits", () => {
+    openAllGates();
+    const { result } = renderHook(() => useTipCard());
+    emitTipEvent.mockClear();
+
+    act(() => {
+      result.current.onDontShowAgain();
+    });
+
+    expect(result.current.tip).toBeNull();
+    expect(tipsEnabledStorage.load()).toBe(false);
+    expect(emitTipEvent).toHaveBeenCalledTimes(1);
+    expect(emitTipEvent).toHaveBeenCalledWith(
+      FIRST_TIP_ID,
+      "dont_show_again",
+      "on",
+    );
+  });
+});
