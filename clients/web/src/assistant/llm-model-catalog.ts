@@ -943,6 +943,16 @@ const VELLUM_MODELS: readonly LlmCatalogModel[] = (() => {
 export function getManagedUpstreamForModel(
   modelId: string,
 ): (typeof VELLUM_SERVED_PROVIDERS)[number] | undefined {
+  // `<provider>/<model>` Vellum routing strings name their upstream directly
+  // (mirrors the daemon's parseVellumModel).
+  const slash = modelId.indexOf("/");
+  if (slash > 0) {
+    const prefix = modelId.slice(0, slash);
+    const match = VELLUM_SERVED_PROVIDERS.find((p) => p === prefix);
+    if (match) {
+      return match;
+    }
+  }
   return VELLUM_SERVED_PROVIDERS.find((provider) =>
     MODELS_BY_PROVIDER[provider].some((m) => m.id === modelId),
   );

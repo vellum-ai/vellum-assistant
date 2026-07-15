@@ -338,11 +338,11 @@ function ProfileEditorModalInner({
     () =>
       resolveProfileParamVisibility(
         provider === VELLUM_CONNECTION_PROVIDER
-          ? (getManagedUpstreamForModel(model) ?? "")
+          ? (getManagedUpstreamForModel(model) ?? initialValues?.provider ?? "")
           : provider,
         model,
       ),
-    [provider, model],
+    [provider, model, initialValues?.provider],
   );
 
   // Parent-supplied connections unioned with any created inline this session
@@ -582,9 +582,12 @@ function ProfileEditorModalInner({
       // managed upstream as `provider`, bound to the vellum connection. Old
       // daemons accept this today; the payload flips to provider "vellum"
       // in a later milestone with no UI change.
+      // Derivation can miss for a bound model this build doesn't list (a
+      // newer managed model); the editor preserves such models, so preserve
+      // the stored upstream too instead of clearing it.
       const wireProvider =
         provider === VELLUM_CONNECTION_PROVIDER
-          ? (getManagedUpstreamForModel(model) ?? "")
+          ? (getManagedUpstreamForModel(model) ?? initialValues?.provider ?? "")
           : provider;
       if (effectiveMode === "edit") {
         // In edit mode send null for cleared fields so the server deep-merges
