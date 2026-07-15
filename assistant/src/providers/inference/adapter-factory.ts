@@ -120,6 +120,13 @@ const ADAPTER_FACTORIES: Record<string, AdapterFactory> = {
       streamTimeoutMs,
       ...(baseURL ? { baseURL } : {}),
     }),
+  litellm: ({ apiKey, model, streamTimeoutMs, baseURL }) =>
+    new OpenAIChatCompletionsProvider(apiKey, model, {
+      providerName: "litellm",
+      providerLabel: "LiteLLM",
+      streamTimeoutMs,
+      ...(baseURL ? { baseURL } : {}),
+    }),
   "openai-compatible": ({ apiKey, model, streamTimeoutMs, baseURL }) =>
     new OpenAIChatCompletionsProvider(apiKey, model, {
       providerName: "openai-compatible",
