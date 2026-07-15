@@ -52,14 +52,36 @@ export const openUrl = (url: string): Promise<void> =>
  * Like {@link openUrl}, but the plain-web fallback opens a new tab
  * (`window.open`) instead of same-tab navigation, so the current page — and any
  * pending state on it — survives. Use for flows that must not unload the page,
- * e.g. the manual/cloud Connect Claude path where the user pastes a code back
- * into the still-mounted settings surface. Electron and native behave as in
- * `openUrl` (both already open without unloading).
+ * e.g. the Connect Claude paths where the tab keeps polling / awaiting a pasted
+ * code. Electron and native open externally and never unload the page.
+ *
+ * Resolves `false` only when the plain-web pop-up was blocked, so callers can
+ * prompt a retry instead of silently waiting on a tab that never opened; always
+ * `true` on Electron/native (which are never pop-up-blocked).
  */
-export const openUrlInNewTab = (url: string): Promise<void> =>
-  openUrlAcrossShells(url, (u) => {
-    window.open(u, "_blank", "noopener");
-  });
+export const openUrlInNewTab = async (url: string): Promise<boolean> => {
+  if (isElectron()) {
+    window.open(url, "_blank");
+    return true;
+  }
+  if (Capacitor.isNativePlatform()) {
+    try {
+      const { Browser } = await import("@capacitor/browser");
+      await Browser.open({ url, presentationStyle: "popover" });
+      return true;
+    } catch {
+      // Plugin unavailable (older app binary) — fall through to the web path.
+    }
+  }
+  // Plain web: a `window.open` issued after an `await` can outlast the click's
+  // transient activation on a slow response and be pop-up-blocked, returning
+  // null. `noopener` is intentionally dropped here — it forces `window.open` to
+  // return null unconditionally, which would hide the block. The destination is
+  // the trusted Claude OAuth page, so the reverse-tabnabbing exposure is
+  // immaterial.
+  const opened = window.open(url, "_blank");
+  return opened !== null;
+};
 
 /**
  * Subscribe to the Capacitor Browser `browserFinished` event, which fires

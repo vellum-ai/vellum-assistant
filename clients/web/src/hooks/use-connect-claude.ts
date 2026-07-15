@@ -129,25 +129,31 @@ export function useConnectClaude(assistantId: string): UseConnectClaudeResult {
     stateRef.current = start.state;
     setMode(start.mode);
 
+    // Open the sign-in page in a new tab; both paths keep this tab mounted (the
+    // loopback poll and the manual paste each need it, and same-tab navigation
+    // would unload it). On the web a slow `start` can outlast the click's
+    // activation and the browser blocks the pop-up — surface a retry rather than
+    // advancing to a wait for a tab that never opened. Electron/native open
+    // externally and never block, so `opened` is always true there.
+    const opened = await openUrlInNewTab(start.authorize_url);
+    if (isStale(flowId)) {
+      return;
+    }
+    if (!opened) {
+      setError(
+        "Your browser blocked the sign-in tab. Allow pop-ups for this site, then click Connect again.",
+      );
+      setPhase("error");
+      return;
+    }
+
     if (start.mode === "loopback") {
-      // Loopback/desktop: the daemon captures the token on its own callback, but
-      // this tab still has to survive to poll for the connected state. Open a new
-      // tab/window (like the manual path): in a plain browser `openUrl` would
-      // navigate the SPA away via `window.location.href`, unloading the poll and
-      // stranding the flow on the standalone completion page.
-      await openUrlInNewTab(start.authorize_url);
-      if (isStale(flowId)) {
-        return;
-      }
+      // Loopback/desktop: the daemon captures the token on its own callback; this
+      // tab polls for the connected state.
       setPhase("awaiting_capture");
       void pollUntilSettled(flowId, start.state);
     } else {
-      // Manual/cloud: open a new tab so this page — and the pending `state` plus
-      // paste field — survives; same-tab navigation would unload it.
-      await openUrlInNewTab(start.authorize_url);
-      if (isStale(flowId)) {
-        return;
-      }
+      // Manual/cloud: the user pastes the `code#state` back into this surface.
       setPhase("awaiting_paste");
     }
   }, [assistantId, isStale, pollUntilSettled]);

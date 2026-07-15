@@ -11,15 +11,24 @@
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import type { ReactNode } from "react";
 
 let supported = true;
 let alreadyConnected = false;
+// Whether the plain-web sign-in tab is "pop-up blocked": `openUrlInNewTab`
+// resolves `false` in that case (see runtime/browser).
+let popupBlocked = false;
 
 mock.module("@/runtime/browser", () => ({
   openUrl: async (_url: string) => {},
-  openUrlInNewTab: async (_url: string) => {},
+  openUrlInNewTab: async (_url: string) => !popupBlocked,
   openUrlFinishedListener: () => () => {},
 }));
 
@@ -70,6 +79,7 @@ const { AcpConnectAffordance } = await import("./acp-connect-affordance");
 beforeEach(() => {
   supported = true;
   alreadyConnected = false;
+  popupBlocked = false;
 });
 
 afterEach(() => {
@@ -118,5 +128,31 @@ describe("AcpConnectAffordance", () => {
     await waitFor(() => {
       expect(screen.queryByTestId("acp-connect-affordance")).toBeNull();
     });
+  });
+
+  test("opens the sign-in tab and advances to awaiting-capture", async () => {
+    render(<AcpConnectAffordance assistantId="assistant-123" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+
+    // The pop-up opened, so the loopback flow advances to its waiting state.
+    await waitFor(() =>
+      expect(screen.getByText(/Waiting for Claude sign-in/)).not.toBeNull(),
+    );
+  });
+
+  test("surfaces a retry when the sign-in pop-up is blocked", async () => {
+    popupBlocked = true;
+
+    render(<AcpConnectAffordance assistantId="assistant-123" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+
+    // A blocked pop-up must not silently advance to a wait; show an actionable
+    // error and keep the Connect button available for a retry.
+    await waitFor(() =>
+      expect(screen.getByText(/blocked the sign-in tab/)).not.toBeNull(),
+    );
+    expect(screen.getByRole("button", { name: "Connect" })).not.toBeNull();
   });
 });
