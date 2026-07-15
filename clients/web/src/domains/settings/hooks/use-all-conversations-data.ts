@@ -55,20 +55,29 @@ export function useAllConversationsData(
   const {
     conversations: active,
     isLoading: activeListLoading,
-    isError: activeError,
-    refetch: refetchActive,
+    isError: activeListError,
+    refetch: refetchForeground,
   } = useConversationListQuery(assistantId, needsActive);
 
   // Background and scheduled rows also count as "active" conversations but are
   // cached separately, so the page fetches them explicitly rather than lazily
-  // like the sidebar sections. They only report loading state — a failure
-  // falls back to an empty list, matching the sidebar's tolerance for a
-  // missing background/scheduled section.
-  const { conversations: background, isLoading: backgroundLoading } =
-    useBackgroundConversationListQuery(assistantId, needsActive);
+  // like the sidebar sections. Unlike the sidebar, which can drop a section it
+  // couldn't load, this page promises every conversation — a failure here
+  // means missing rows, so it counts against the active bucket rather than
+  // emptying quietly.
+  const {
+    conversations: background,
+    isLoading: backgroundLoading,
+    isError: backgroundError,
+    refetch: refetchBackground,
+  } = useBackgroundConversationListQuery(assistantId, needsActive);
 
-  const { conversations: scheduled, isLoading: scheduledLoading } =
-    useScheduledConversationListQuery(assistantId, needsActive);
+  const {
+    conversations: scheduled,
+    isLoading: scheduledLoading,
+    isError: scheduledError,
+    refetch: refetchScheduled,
+  } = useScheduledConversationListQuery(assistantId, needsActive);
 
   // The daemon serves active and archived as separate buckets, so the active
   // lists never carry an archived row — the Active filter can skip this list
@@ -80,8 +89,17 @@ export function useAllConversationsData(
     refetch: refetchArchived,
   } = useArchivedConversationListQuery(assistantId, needsArchived);
 
+  // The active bucket is the union of three lists, so it is only as healthy as
+  // its weakest one: any of them failing drops rows the view claims to show.
   const activeLoading =
     activeListLoading || backgroundLoading || scheduledLoading;
+  const activeError = activeListError || backgroundError || scheduledError;
+
+  const refetchActive = () => {
+    refetchForeground();
+    refetchBackground();
+    refetchScheduled();
+  };
 
   const merged = useMemo(
     () => mergeConversations([active, background, scheduled], archived),
