@@ -34,6 +34,10 @@ import {
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite, Speed } from "../config/schemas/llm.js";
+import {
+  derefToolResultReReads,
+  postTurnTruncateToolResults,
+} from "../context/post-turn-tool-result-truncation.js";
 import { PermissionPrompter } from "../permissions/prompter.js";
 import { SecretPrompter } from "../permissions/secret-prompter.js";
 import type { UserDecision } from "../permissions/types.js";
@@ -1258,7 +1262,38 @@ export class Conversation {
         "Repaired persisted history",
       );
     }
-    this.messages = repairedMessages;
+
+    // Recreate the post-turn tool-result view on the reloaded history. Tools
+    // exempt from the result-time spool (file_read/host_file_read, web_fetch)
+    // persist their full oversized content, while the pre-eviction in-memory
+    // history carried the post-turn stubs — so a reload would otherwise feed
+    // the provider the full content those turns already consumed. Re-running
+    // the deterministic finalize passes (deref, then truncate — same order)
+    // restores that byte-identical view (same stub bytes, same
+    // `.tool-results/` paths), keeping the provider prefix cache matching and
+    // the rebuilt context as lean as it was before eviction/restart.
+    // Best-effort like the finalize pass: a failure degrades to full-content
+    // history, never a failed load.
+    let messagesForHistory = repairedMessages;
+    if (conv) {
+      try {
+        messagesForHistory = postTurnTruncateToolResults(
+          derefToolResultReReads(repairedMessages).messages,
+          {
+            conversationDir: getResolvedConversationDirPath(
+              this.conversationId,
+              conv.createdAt,
+            ),
+          },
+        ).messages;
+      } catch (err) {
+        log.warn(
+          { conversationId: this.conversationId, err },
+          "Load-time tool result truncation failed (non-fatal)",
+        );
+      }
+    }
+    this.messages = messagesForHistory;
 
     if (contextSummaryForHistory) {
       this.messages.unshift(
