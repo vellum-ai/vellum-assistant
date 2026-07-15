@@ -10,6 +10,10 @@
 import { z } from "zod";
 
 import {
+  AcpCredentialFormatError,
+  assertAcpCredentialFormat,
+} from "../../acp/acp-credentials.js";
+import {
   getPlatformAssistantId,
   setPlatformAssistantId,
   setPlatformBaseUrl,
@@ -242,6 +246,18 @@ async function handleAddSecret({ body }: RouteHandlerArgs) {
       assertMetadataWritable();
       const service = name.slice(0, colonIdx);
       const field = name.slice(colonIdx + 1);
+
+      // Reject a mismatched ACP token type before storing it, routing the
+      // user to the right field.
+      try {
+        assertAcpCredentialFormat(service, field, value);
+      } catch (err) {
+        if (err instanceof AcpCredentialFormatError) {
+          throw new BadRequestError(err.message);
+        }
+        throw err;
+      }
+
       const key = credentialKey(service, field);
 
       const TRIMMED_IDENTITY_FIELDS = new Set([
