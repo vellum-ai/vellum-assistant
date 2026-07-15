@@ -75,6 +75,7 @@ function consentRecord(overrides: Partial<UserConsent> = {}): UserConsent {
     share_analytics_accepted_at: null,
     share_diagnostics_accepted_version: "",
     share_diagnostics_accepted_at: null,
+    required_versions: {},
     ...overrides,
   };
   // Mirror the wire contract: the platform serves effective = value ?? true.

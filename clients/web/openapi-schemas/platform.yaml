@@ -9089,9 +9089,15 @@ components:
           format: date-time
           readOnly: true
           nullable: true
+        required_versions:
+          type: object
+          additionalProperties:
+            type: string
+          readOnly: true
       required:
       - ai_data_sharing_accepted_at
       - privacy_policy_accepted_at
+      - required_versions
       - share_analytics_accepted_at
       - share_analytics_effective
       - share_diagnostics_accepted_at
