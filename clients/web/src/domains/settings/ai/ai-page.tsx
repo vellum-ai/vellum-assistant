@@ -8,6 +8,7 @@ import { EmailServiceCard } from "@/domains/settings/ai/email-service-card";
 import { ImageGenerationCard } from "@/domains/settings/ai/image-generation-card";
 import { TextToSpeechCard } from "@/domains/settings/ai/text-to-speech-card";
 import { SpeechToTextCard } from "@/domains/settings/ai/speech-to-text-card";
+import { ConnectClaudeSection } from "@/domains/settings/acp/connect-claude-section";
 
 // ---------------------------------------------------------------------------
 // AiPage — layout shell
@@ -50,6 +51,7 @@ export function AiPage() {
       <ImageGenerationCard />
       <TextToSpeechCard />
       <SpeechToTextCard />
+      <ConnectClaudeSection />
     </div>
   );
 }
