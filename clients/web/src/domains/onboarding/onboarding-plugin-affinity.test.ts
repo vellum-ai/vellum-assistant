@@ -148,4 +148,27 @@ describe("resolveDeterministicPlugins", () => {
     ]);
     expect(new Set(result).size).toBe(result.length);
   });
+
+  test("forced pick installs even when the role doesn't imply it", () => {
+    // Teacher is unmapped (no role affinity), so only the baseline + forced.
+    expect(
+      resolveDeterministicPlugins("Teacher", FULL_CATALOG, ["git-workflow"]),
+    ).toEqual(["admin-copilot", "git-workflow"]);
+  });
+
+  test("forced is narrowed to the catalog — an absent forced name is dropped", () => {
+    expect(
+      resolveDeterministicPlugins("Teacher", FULL_CATALOG, ["not-in-catalog"]),
+    ).toEqual(["admin-copilot"]);
+  });
+
+  test("forced is deduped against baseline and role matches", () => {
+    const result = resolveDeterministicPlugins(
+      "Founder / CEO",
+      FULL_CATALOG,
+      ["marketing-expert"],
+    );
+    expect(result).toEqual(["admin-copilot", "marketing-expert"]);
+    expect(new Set(result).size).toBe(result.length);
+  });
 });

@@ -164,17 +164,28 @@ export function pluginsForRole(role: string): string[] {
 }
 
 /**
- * The deterministic install set for a run: the always-install baseline unioned
- * with the role's affinity matches, narrowed to capabilities actually present in
- * the fetched catalog (`validNames`) so a name the marketplace doesn't carry —
- * or that's filtered out (non-Vellum, infra) — never hits the install route.
- * Baseline first, then role matches; deduped, order-stable.
+ * The deterministic install set for a run: the always-install baseline, any
+ * user-`forced` picks, and the role's affinity matches, narrowed to
+ * capabilities actually present in the fetched catalog (`validNames`) so a name
+ * the marketplace doesn't carry — or that's filtered out (non-Vellum, infra) —
+ * never hits the install route. Baseline first, then forced, then role matches;
+ * deduped, order-stable.
+ *
+ * `forced` is a user's explicit request (e.g. the plugin they clicked "Install"
+ * on before onboarding — see `pending-plugin-install`). It rides the same
+ * `validNames` gate as everything else: onboarding stays scoped to first-party
+ * plugins, so a non-first-party forced name is simply dropped here.
  */
 export function resolveDeterministicPlugins(
   role: string,
   validNames: Set<string>,
+  forced: readonly string[] = [],
 ): string[] {
-  const ordered = [...ALWAYS_INSTALL_PLUGINS, ...pluginsForRole(role)];
+  const ordered = [
+    ...ALWAYS_INSTALL_PLUGINS,
+    ...forced,
+    ...pluginsForRole(role),
+  ];
   const seen = new Set<string>();
   const result: string[] = [];
   for (const name of ordered) {

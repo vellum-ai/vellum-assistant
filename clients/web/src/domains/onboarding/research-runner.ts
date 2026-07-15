@@ -39,6 +39,10 @@ import type {
 } from "@/generated/daemon/types.gen";
 import { captureError } from "@/lib/sentry/capture-error";
 import { latestAssistantText } from "@/domains/onboarding/latest-assistant-text";
+import {
+  clearPendingPluginInstall,
+  readPendingPluginInstall,
+} from "@/domains/onboarding/pending-plugin-install";
 import { detectClientOs } from "@/runtime/platform-detection";
 import {
   buildResearchPrompt,
@@ -335,14 +339,17 @@ export function resolveOnboardingPluginInstalls({
   role,
   validNames,
   modelPlugins,
+  forced = [],
 }: {
   role: string;
   validNames: Set<string>;
   modelPlugins: readonly string[];
+  /** User-requested plugins to fold into the deterministic floor. */
+  forced?: readonly string[];
 }): string[] {
   return [
     ...new Set([
-      ...resolveDeterministicPlugins(role, validNames),
+      ...resolveDeterministicPlugins(role, validNames, forced),
       ...modelPlugins.filter((name) => validNames.has(name)),
     ]),
   ];
@@ -438,15 +445,27 @@ export function useResearchRunner(): UseResearchRunner {
           // later picks), keyed by name so the suggestion click can await them and
           // a name is never installed twice.
           const installs = installPromisesRef.current;
-          // Deterministic floor: the always-install baseline plus the role's
-          // affinity matches, narrowed to the live catalog. Fired here — right
-          // after the catalog fetch, before the model has replied — so these
-          // materialize while the research turn is still streaming. The model's
-          // `plugins` picks (handled in the poll loop) union on top for the long
-          // tail of roles this map doesn't enumerate.
+          // A user who clicked "Install" on the marketing plugin page before
+          // they had an assistant left the plugin here (state B — see
+          // `pending-plugin-install`). Fold it into the deterministic floor so
+          // onboarding sets it up. Consume-once: clear it now so a later
+          // onboarding doesn't re-install it. Gated by `validNames` like every
+          // other name, so a non-first-party pick is simply dropped.
+          const forcedPluginId = readPendingPluginInstall();
+          if (forcedPluginId) {
+            clearPendingPluginInstall();
+          }
+          const forcedPlugins = forcedPluginId ? [forcedPluginId] : [];
+          // Deterministic floor: the always-install baseline plus any forced
+          // pick plus the role's affinity matches, narrowed to the live catalog.
+          // Fired here — right after the catalog fetch, before the model has
+          // replied — so these materialize while the research turn is still
+          // streaming. The model's `plugins` picks (handled in the poll loop)
+          // union on top for the long tail of roles this map doesn't enumerate.
           const deterministicPlugins = resolveDeterministicPlugins(
             subject.occupation,
             validNames,
+            forcedPlugins,
           );
           for (const name of deterministicPlugins) {
             if (!installs.has(name)) {
@@ -621,6 +640,7 @@ export function useResearchRunner(): UseResearchRunner {
                 role: subject.occupation,
                 validNames,
                 modelPlugins: validPlugins,
+                forced: forcedPlugins,
               });
               setState({
                 status: "running",
