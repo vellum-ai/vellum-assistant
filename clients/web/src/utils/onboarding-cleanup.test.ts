@@ -125,7 +125,10 @@ const BUMPED_REQUIRED_VERSIONS = {
 
 // Unversioned per-user ack keys; the VALUE is the acknowledged version.
 const tosAckKey = (userId: string) => `device:consent:tos:${userId}`;
-const privacyAckKey = (userId: string) => `device:consent:privacy:${userId}`;
+const privacyPolicyAckKey = (userId: string) =>
+  `device:consent:privacy_policy:${userId}`;
+const aiDataSharingAckKey = (userId: string) =>
+  `device:consent:ai_data_sharing:${userId}`;
 const diagnosticsKey = (userId: string) =>
   `device:consent:share_diagnostics:${userId}`;
 // Legacy layout: the version was embedded in the KEY over a boolean value.
@@ -204,28 +207,40 @@ describe("resolveServerConsent", () => {
 
   test("null share_analytics (never asked) resolves analytics current — nothing to re-review", () => {
     const resolved = resolveServerConsent(
-      makeConsent({ share_analytics: null, share_analytics_accepted_version: "" }),
+      makeConsent({
+        share_analytics: null,
+        share_analytics_accepted_version: "",
+      }),
     );
     expect(resolved.analyticsCurrent).toBe(true);
   });
 
   test("an explicit analytics choice under a stale version still requires re-review", () => {
     const resolved = resolveServerConsent(
-      makeConsent({ share_analytics: false, share_analytics_accepted_version: "2026-01-01" }),
+      makeConsent({
+        share_analytics: false,
+        share_analytics_accepted_version: "2026-01-01",
+      }),
     );
     expect(resolved.analyticsCurrent).toBe(false);
   });
 
   test("null share_diagnostics (never asked) resolves diagnostics current — nothing to re-review", () => {
     const resolved = resolveServerConsent(
-      makeConsent({ share_diagnostics: null, share_diagnostics_accepted_version: "" }),
+      makeConsent({
+        share_diagnostics: null,
+        share_diagnostics_accepted_version: "",
+      }),
     );
     expect(resolved.diagnosticsCurrent).toBe(true);
   });
 
   test("an explicit diagnostics choice under a stale version still requires re-review", () => {
     const resolved = resolveServerConsent(
-      makeConsent({ share_diagnostics: false, share_diagnostics_accepted_version: "2026-01-01" }),
+      makeConsent({
+        share_diagnostics: false,
+        share_diagnostics_accepted_version: "2026-01-01",
+      }),
     );
     expect(resolved.diagnosticsCurrent).toBe(false);
   });
@@ -291,7 +306,10 @@ describe("resolveServerConsent", () => {
 
   test("absent effective fields (older backend) fall back to the raw values' opt-out reading", () => {
     const legacy = (overrides: Partial<UserConsent>) => {
-      const consent = makeConsent(overrides) as unknown as Record<string, unknown>;
+      const consent = makeConsent(overrides) as unknown as Record<
+        string,
+        unknown
+      >;
       delete consent.share_analytics_effective;
       delete consent.share_diagnostics_effective;
       return consent as unknown as UserConsent;
@@ -483,7 +501,10 @@ describe("resolveServerConsent", () => {
     };
     expect(
       resolveServerConsent(
-        makeConsent({ ...allDefaults, tos_accepted_version: TOS_CONSENT_VERSION }),
+        makeConsent({
+          ...allDefaults,
+          tos_accepted_version: TOS_CONSENT_VERSION,
+        }),
       ).hasServerRecord,
     ).toBe(true);
     expect(
@@ -578,7 +599,8 @@ describe("persistToggleConsent + restoreConsentForUser round-trip", () => {
     expect(r.privacy).toBe(false);
     // The stale key is removed and privacy is not stamped current.
     expect(localStorage.getItem(legacyAiKey)).toBeNull();
-    expect(localStorage.getItem(privacyAckKey("user-1"))).toBeNull();
+    expect(localStorage.getItem(privacyPolicyAckKey("user-1"))).toBeNull();
+    expect(localStorage.getItem(aiDataSharingAckKey("user-1"))).toBeNull();
   });
 
   test("migrates legacy unversioned ToS but forces privacy re-review", () => {
@@ -596,7 +618,8 @@ describe("persistToggleConsent + restoreConsentForUser round-trip", () => {
     expect(r.privacy).toBe(false);
     // ToS is promoted; privacy is not stamped current.
     expect(localStorage.getItem(tosAckKey("user-1"))).toBe(TOS_CONSENT_VERSION);
-    expect(localStorage.getItem(privacyAckKey("user-1"))).toBeNull();
+    expect(localStorage.getItem(privacyPolicyAckKey("user-1"))).toBeNull();
+    expect(localStorage.getItem(aiDataSharingAckKey("user-1"))).toBeNull();
   });
 
   test("promotes legacy versioned ack keys to unversioned keys (version becomes the value)", () => {
@@ -612,7 +635,11 @@ describe("persistToggleConsent + restoreConsentForUser round-trip", () => {
       "true",
     );
     localStorage.setItem(
-      legacyVersionedKey("share_diagnostics", DIAGNOSTICS_CONSENT_VERSION, "user-1"),
+      legacyVersionedKey(
+        "share_diagnostics",
+        DIAGNOSTICS_CONSENT_VERSION,
+        "user-1",
+      ),
       "true",
     );
 
@@ -622,7 +649,10 @@ describe("persistToggleConsent + restoreConsentForUser round-trip", () => {
     expect(r.privacy).toBe(true);
     expect(r.diagnosticsCurrent).toBe(true);
     expect(localStorage.getItem(tosAckKey("user-1"))).toBe(TOS_CONSENT_VERSION);
-    expect(localStorage.getItem(privacyAckKey("user-1"))).toBe(
+    expect(localStorage.getItem(privacyPolicyAckKey("user-1"))).toBe(
+      PRIVACY_CONSENT_VERSION,
+    );
+    expect(localStorage.getItem(aiDataSharingAckKey("user-1"))).toBe(
       PRIVACY_CONSENT_VERSION,
     );
     expect(localStorage.getItem(diagnosticsKey("user-1"))).toBe(
@@ -664,7 +694,11 @@ describe("persistToggleConsent + restoreConsentForUser round-trip", () => {
   test("migration never promotes a false legacy ack, and an existing unversioned key wins", () => {
     // A false legacy key is swept without promotion.
     localStorage.setItem(
-      legacyVersionedKey("share_diagnostics", DIAGNOSTICS_CONSENT_VERSION, "user-1"),
+      legacyVersionedKey(
+        "share_diagnostics",
+        DIAGNOSTICS_CONSENT_VERSION,
+        "user-1",
+      ),
       "false",
     );
     restoreConsentForUser("user-1");
@@ -673,7 +707,11 @@ describe("persistToggleConsent + restoreConsentForUser round-trip", () => {
     // Once an unversioned ack exists, a lingering legacy key can't overwrite it.
     localStorage.setItem(diagnosticsKey("user-1"), "2099-01-01");
     localStorage.setItem(
-      legacyVersionedKey("share_diagnostics", DIAGNOSTICS_CONSENT_VERSION, "user-1"),
+      legacyVersionedKey(
+        "share_diagnostics",
+        DIAGNOSTICS_CONSENT_VERSION,
+        "user-1",
+      ),
       "true",
     );
     restoreConsentForUser("user-1");
@@ -702,8 +740,12 @@ describe("saveConsent", () => {
     });
     expect(patchConsentMock).toHaveBeenCalledTimes(1);
     const body = patchConsentMock.mock.calls[0][0];
-    expect(body.share_analytics_accepted_version).toBe(ANALYTICS_CONSENT_VERSION);
-    expect(body.share_diagnostics_accepted_version).toBe(DIAGNOSTICS_CONSENT_VERSION);
+    expect(body.share_analytics_accepted_version).toBe(
+      ANALYTICS_CONSENT_VERSION,
+    );
+    expect(body.share_diagnostics_accepted_version).toBe(
+      DIAGNOSTICS_CONSENT_VERSION,
+    );
   });
 
   test("ToS stamps the ToS version; the privacy checkbox stamps privacy policy + AI data sharing", () => {
@@ -768,7 +810,9 @@ describe("saveConsent", () => {
     expect("share_analytics" in body).toBe(false);
     expect("share_analytics_accepted_version" in body).toBe(false);
     expect(body.share_diagnostics).toBe(true);
-    expect(body.share_diagnostics_accepted_version).toBe(DIAGNOSTICS_CONSENT_VERSION);
+    expect(body.share_diagnostics_accepted_version).toBe(
+      DIAGNOSTICS_CONSENT_VERSION,
+    );
     expect(storeState.setShareAnalytics).not.toHaveBeenCalled();
     expect(localStorage.getItem(analyticsKey("user-1"))).toBe(null);
     expect(localStorage.getItem(diagnosticsKey("user-1"))).toBe(
@@ -812,7 +856,10 @@ describe("saveConsent", () => {
       shareDiagnostics: true,
       hasPlatformSession: false,
     });
-    expect(setDeviceBoolMock).toHaveBeenCalledWith("diagnosticsReporting", true);
+    expect(setDeviceBoolMock).toHaveBeenCalledWith(
+      "diagnosticsReporting",
+      true,
+    );
   });
 
   test("explicit shareDiagnostics=false persists the opt-out and closes the reporting gate", () => {
@@ -824,10 +871,15 @@ describe("saveConsent", () => {
       shareDiagnostics: false,
       hasPlatformSession: true,
     });
-    expect(setDeviceBoolMock).toHaveBeenCalledWith("diagnosticsReporting", false);
+    expect(setDeviceBoolMock).toHaveBeenCalledWith(
+      "diagnosticsReporting",
+      false,
+    );
     const body = patchConsentMock.mock.calls[0][0];
     expect(body.share_diagnostics).toBe(false);
-    expect(body.share_diagnostics_accepted_version).toBe(DIAGNOSTICS_CONSENT_VERSION);
+    expect(body.share_diagnostics_accepted_version).toBe(
+      DIAGNOSTICS_CONSENT_VERSION,
+    );
     expect(localStorage.getItem(diagnosticsKey("user-1"))).toBe(
       DIAGNOSTICS_CONSENT_VERSION,
     );
@@ -848,7 +900,10 @@ describe("saveConsent", () => {
 
 describe("savePreferenceToggle", () => {
   test("stamps the analytics version server-side and sets its flag only (no device ack)", () => {
-    savePreferenceToggle("share_analytics", true, { userId: "user-1", hasPlatformSession: true });
+    savePreferenceToggle("share_analytics", true, {
+      userId: "user-1",
+      hasPlatformSession: true,
+    });
     expect(storeState.setShareAnalytics).toHaveBeenCalledWith(true);
     expect(storeState.setAnalyticsConsentCurrent).toHaveBeenCalledWith(true);
     expect(storeState.setDiagnosticsConsentCurrent).not.toHaveBeenCalled();
@@ -857,20 +912,30 @@ describe("savePreferenceToggle", () => {
     expect(localStorage.getItem(diagnosticsKey("user-1"))).toBeNull();
     const body = patchConsentMock.mock.calls[0][0];
     expect(body.share_analytics).toBe(true);
-    expect(body.share_analytics_accepted_version).toBe(ANALYTICS_CONSENT_VERSION);
+    expect(body.share_analytics_accepted_version).toBe(
+      ANALYTICS_CONSENT_VERSION,
+    );
   });
 
   test("stamps the diagnostics version and sets its flag only", () => {
-    savePreferenceToggle("share_diagnostics", false, { userId: "user-1", hasPlatformSession: true });
+    savePreferenceToggle("share_diagnostics", false, {
+      userId: "user-1",
+      hasPlatformSession: true,
+    });
     expect(storeState.setDiagnosticsConsentCurrent).toHaveBeenCalledWith(true);
     expect(storeState.setAnalyticsConsentCurrent).not.toHaveBeenCalled();
     const body = patchConsentMock.mock.calls[0][0];
     expect(body.share_diagnostics).toBe(false);
-    expect(body.share_diagnostics_accepted_version).toBe(DIAGNOSTICS_CONSENT_VERSION);
+    expect(body.share_diagnostics_accepted_version).toBe(
+      DIAGNOSTICS_CONSENT_VERSION,
+    );
   });
 
   test("offline persists the on/off value but skips the currency stamp, ack key, and server patch", () => {
-    savePreferenceToggle("share_analytics", true, { userId: "user-1", hasPlatformSession: false });
+    savePreferenceToggle("share_analytics", true, {
+      userId: "user-1",
+      hasPlatformSession: false,
+    });
     // The chosen value is still recorded (the store setter persists the
     // device key)...
     expect(storeState.setShareAnalytics).toHaveBeenCalledWith(true);
@@ -881,16 +946,28 @@ describe("savePreferenceToggle", () => {
   });
 
   test("an offline diagnostics opt-out still closes the reporting gate (opt-out follows the preference)", () => {
-    savePreferenceToggle("share_diagnostics", false, { userId: "user-1", hasPlatformSession: false });
+    savePreferenceToggle("share_diagnostics", false, {
+      userId: "user-1",
+      hasPlatformSession: false,
+    });
     expect(storeState.setShareDiagnostics).toHaveBeenCalledWith(false);
-    expect(setDeviceBoolMock).toHaveBeenCalledWith("diagnosticsReporting", false);
+    expect(setDeviceBoolMock).toHaveBeenCalledWith(
+      "diagnosticsReporting",
+      false,
+    );
     expect(storeState.setDiagnosticsConsentCurrent).not.toHaveBeenCalled();
     expect(patchConsentMock).not.toHaveBeenCalled();
   });
 
   test("an offline diagnostics opt-in opens the reporting gate", () => {
-    savePreferenceToggle("share_diagnostics", true, { userId: "user-1", hasPlatformSession: false });
-    expect(setDeviceBoolMock).toHaveBeenCalledWith("diagnosticsReporting", true);
+    savePreferenceToggle("share_diagnostics", true, {
+      userId: "user-1",
+      hasPlatformSession: false,
+    });
+    expect(setDeviceBoolMock).toHaveBeenCalledWith(
+      "diagnosticsReporting",
+      true,
+    );
   });
 });
 
@@ -898,7 +975,14 @@ describe("clearConsentForUser", () => {
   test("clears the ack keys, legacy versioned keys, and stale analytics ack keys", () => {
     persistToggleConsent("user-1", { diagnosticsCurrent: true });
     localStorage.setItem(tosAckKey("user-1"), TOS_CONSENT_VERSION);
-    localStorage.setItem(privacyAckKey("user-1"), PRIVACY_CONSENT_VERSION);
+    localStorage.setItem(
+      privacyPolicyAckKey("user-1"),
+      PRIVACY_CONSENT_VERSION,
+    );
+    localStorage.setItem(
+      aiDataSharingAckKey("user-1"),
+      PRIVACY_CONSENT_VERSION,
+    );
     localStorage.setItem(analyticsKey("user-1"), "true");
     localStorage.setItem(
       legacyVersionedKey("tos", TOS_CONSENT_VERSION, "user-1"),
@@ -908,7 +992,8 @@ describe("clearConsentForUser", () => {
     expect(localStorage.getItem(analyticsKey("user-1"))).toBeNull();
     expect(localStorage.getItem(diagnosticsKey("user-1"))).toBeNull();
     expect(localStorage.getItem(tosAckKey("user-1"))).toBeNull();
-    expect(localStorage.getItem(privacyAckKey("user-1"))).toBeNull();
+    expect(localStorage.getItem(privacyPolicyAckKey("user-1"))).toBeNull();
+    expect(localStorage.getItem(aiDataSharingAckKey("user-1"))).toBeNull();
     expect(
       localStorage.getItem(
         legacyVersionedKey("tos", TOS_CONSENT_VERSION, "user-1"),
@@ -1006,8 +1091,60 @@ describe("server-supplied required versions", () => {
     expect(body.share_analytics_accepted_version).toBe(BUMPED_VERSION);
     expect(body.share_diagnostics_accepted_version).toBe(BUMPED_VERSION);
     expect(localStorage.getItem(tosAckKey("user-1"))).toBe(BUMPED_VERSION);
-    expect(localStorage.getItem(privacyAckKey("user-1"))).toBe(BUMPED_VERSION);
+    expect(localStorage.getItem(privacyPolicyAckKey("user-1"))).toBe(
+      BUMPED_VERSION,
+    );
+    expect(localStorage.getItem(aiDataSharingAckKey("user-1"))).toBe(
+      BUMPED_VERSION,
+    );
     expect(localStorage.getItem(diagnosticsKey("user-1"))).toBe(BUMPED_VERSION);
+  });
+
+  test("privacy artifacts version independently — an ai_data_sharing bump is not masked by a newer privacy_policy ack", () => {
+    // Accept while privacy_policy requires a NEWER version than
+    // ai_data_sharing. Each artifact ack stores its own version — a single
+    // collapsed max would attest ai_data_sharing versions the user never saw.
+    resolveServerConsent(
+      makeConsent({
+        required_versions: {
+          tos: "2026-06-08",
+          privacy_policy: "2026-08-01",
+          ai_data_sharing: "2026-06-22",
+          share_analytics: "2026-06-18",
+          share_diagnostics: "2026-06-18",
+        },
+      }),
+    );
+    saveConsent({
+      userId: "user-1",
+      tos: true,
+      privacy: true,
+      shareAnalytics: null,
+      shareDiagnostics: null,
+      hasPlatformSession: false,
+    });
+    expect(localStorage.getItem(privacyPolicyAckKey("user-1"))).toBe(
+      "2026-08-01",
+    );
+    expect(localStorage.getItem(aiDataSharingAckKey("user-1"))).toBe(
+      "2026-06-22",
+    );
+    expect(restoreConsentForUser("user-1").privacy).toBe(true);
+
+    // ai_data_sharing bumps to a version still BELOW the stored
+    // privacy_policy ack — the checkbox must go stale anyway.
+    resolveServerConsent(
+      makeConsent({
+        required_versions: {
+          tos: "2026-06-08",
+          privacy_policy: "2026-08-01",
+          ai_data_sharing: "2026-07-01",
+          share_analytics: "2026-06-18",
+          share_diagnostics: "2026-06-18",
+        },
+      }),
+    );
+    expect(restoreConsentForUser("user-1").privacy).toBe(false);
   });
 
   test("device acks stamped under the constants read stale once the server bumps", () => {

@@ -118,10 +118,13 @@ export function __resetRequiredConsentVersionsForTesting(): void {
 // Device ack keys
 // ---------------------------------------------------------------------------
 
-// The three device-acknowledged axes: ToS, the privacy checkbox (privacy
-// policy + AI data sharing), and the diagnostics toggle. Analytics has no
+// The device-acknowledged axes. The privacy CHECKBOX covers two artifacts
+// (privacy policy + AI data sharing) whose required versions bump
+// independently, so each artifact keeps its own ack — a single collapsed
+// version would attest an artifact bump the user never saw. Analytics has no
 // device ack key.
-type DeviceAckField = "tos" | "privacy" | "share_diagnostics";
+type DeviceAckField =
+  "tos" | "privacy_policy" | "ai_data_sharing" | "share_diagnostics";
 
 function consentAckKey(field: DeviceAckField, userId: string): string {
   return `device:consent:${field}:${userId}`;
@@ -132,12 +135,10 @@ function requiredAckVersion(field: DeviceAckField): string {
   switch (field) {
     case "tos":
       return requiredVersions.tos;
-    case "privacy":
-      // One checkbox covers both privacy artifacts, so its ack must satisfy
-      // whichever required version is newer.
-      return requiredVersions.privacyPolicy >= requiredVersions.aiDataSharing
-        ? requiredVersions.privacyPolicy
-        : requiredVersions.aiDataSharing;
+    case "privacy_policy":
+      return requiredVersions.privacyPolicy;
+    case "ai_data_sharing":
+      return requiredVersions.aiDataSharing;
     case "share_diagnostics":
       return requiredVersions.shareDiagnostics;
   }
@@ -152,7 +153,10 @@ function readAckVersion(field: DeviceAckField, userId: string): string {
 }
 
 function isAckCurrent(field: DeviceAckField, userId: string): boolean {
-  return versionIsCurrent(readAckVersion(field, userId), requiredAckVersion(field));
+  return versionIsCurrent(
+    readAckVersion(field, userId),
+    requiredAckVersion(field),
+  );
 }
 
 // The previous release stored privacy consent under a field named "ai" (now
@@ -173,11 +177,11 @@ function legacyPrivacyConsentKey(userId: string): string {
  * so stale keys are deleted without promotion.
  */
 function migrateLegacyVersionedAcks(
-  field: DeviceAckField | "share_analytics",
+  legacyField: "tos" | "privacy" | "share_diagnostics" | "share_analytics",
   userId: string,
-  promote: boolean,
+  promoteTo: DeviceAckField[],
 ): void {
-  const prefix = `device:consent:${field}:v`;
+  const prefix = `device:consent:${legacyField}:v`;
   const suffix = `:${userId}`;
   const legacyKeys: string[] = [];
   let newestAcked = "";
@@ -197,32 +201,39 @@ function migrateLegacyVersionedAcks(
       newestAcked = version;
     }
   }
-  if (
-    promote &&
-    newestAcked &&
-    field !== "share_analytics" &&
-    !readAckVersion(field, userId)
-  ) {
-    setLocalSetting(consentAckKey(field, userId), newestAcked);
+  if (newestAcked) {
+    for (const target of promoteTo) {
+      if (!readAckVersion(target, userId)) {
+        setLocalSetting(consentAckKey(target, userId), newestAcked);
+      }
+    }
   }
   for (const key of legacyKeys) {
     removeLocalSetting(key);
   }
 }
 
-export function restoreConsentForUser(
-  userId: string | null,
-): { tos: boolean; privacy: boolean; diagnosticsCurrent: boolean } {
+export function restoreConsentForUser(userId: string | null): {
+  tos: boolean;
+  privacy: boolean;
+  diagnosticsCurrent: boolean;
+} {
   if (typeof window === "undefined" || !userId) {
     return { tos: false, privacy: false, diagnosticsCurrent: false };
   }
   try {
-    migrateLegacyVersionedAcks("tos", userId, true);
-    migrateLegacyVersionedAcks("privacy", userId, true);
-    migrateLegacyVersionedAcks("share_diagnostics", userId, true);
+    migrateLegacyVersionedAcks("tos", userId, ["tos"]);
+    // A legacy privacy ack attested BOTH artifacts at its stamped version.
+    migrateLegacyVersionedAcks("privacy", userId, [
+      "privacy_policy",
+      "ai_data_sharing",
+    ]);
+    migrateLegacyVersionedAcks("share_diagnostics", userId, [
+      "share_diagnostics",
+    ]);
     // Analytics device acks are never read (analytics is opt-out with
     // server-side version stamps only) — sweep stale keys, no promotion.
-    migrateLegacyVersionedAcks("share_analytics", userId, false);
+    migrateLegacyVersionedAcks("share_analytics", userId, []);
 
     // The legacy "ai"-named key was written under the previous privacy version,
     // so it cannot attest to the current one. Never promote it — that would
@@ -234,7 +245,9 @@ export function restoreConsentForUser(
     }
 
     const tos = isAckCurrent("tos", userId);
-    const privacy = isAckCurrent("privacy", userId);
+    const privacy =
+      isAckCurrent("privacy_policy", userId) &&
+      isAckCurrent("ai_data_sharing", userId);
     const diagnosticsCurrent = isAckCurrent("share_diagnostics", userId);
 
     if (tos || privacy) {
@@ -251,7 +264,10 @@ export function restoreConsentForUser(
     // backfill it) without showing the updated privacy checkbox. Force
     // privacy through re-review instead.
     const legacyTos = getLocalBool("vellum:onboarding:tosAccepted", false);
-    const legacyPrivacy = getLocalBool("vellum:onboarding:aiDataConsent", false);
+    const legacyPrivacy = getLocalBool(
+      "vellum:onboarding:aiDataConsent",
+      false,
+    );
     if (legacyTos || legacyPrivacy) {
       if (legacyTos) {
         setLocalSetting(consentAckKey("tos", userId), TOS_CONSENT_VERSION);
@@ -285,11 +301,16 @@ export function persistConsentForUser(
     }
     if (privacy) {
       setLocalSetting(
-        consentAckKey("privacy", userId),
-        requiredAckVersion("privacy"),
+        consentAckKey("privacy_policy", userId),
+        requiredAckVersion("privacy_policy"),
+      );
+      setLocalSetting(
+        consentAckKey("ai_data_sharing", userId),
+        requiredAckVersion("ai_data_sharing"),
       );
     } else {
-      removeLocalSetting(consentAckKey("privacy", userId));
+      removeLocalSetting(consentAckKey("privacy_policy", userId));
+      removeLocalSetting(consentAckKey("ai_data_sharing", userId));
     }
   } catch {
     // Storage unavailable.
@@ -326,13 +347,14 @@ export function clearConsentForUser(userId: string | null): void {
   }
   try {
     removeLocalSetting(consentAckKey("tos", userId));
-    removeLocalSetting(consentAckKey("privacy", userId));
+    removeLocalSetting(consentAckKey("privacy_policy", userId));
+    removeLocalSetting(consentAckKey("ai_data_sharing", userId));
     removeLocalSetting(consentAckKey("share_diagnostics", userId));
     removeLocalSetting(legacyPrivacyConsentKey(userId));
-    migrateLegacyVersionedAcks("tos", userId, false);
-    migrateLegacyVersionedAcks("privacy", userId, false);
-    migrateLegacyVersionedAcks("share_diagnostics", userId, false);
-    migrateLegacyVersionedAcks("share_analytics", userId, false);
+    migrateLegacyVersionedAcks("tos", userId, []);
+    migrateLegacyVersionedAcks("privacy", userId, []);
+    migrateLegacyVersionedAcks("share_diagnostics", userId, []);
+    migrateLegacyVersionedAcks("share_analytics", userId, []);
   } catch {
     // Storage unavailable.
   }
@@ -353,9 +375,7 @@ function versionIsCurrent(accepted: string, required: string): boolean {
   return accepted >= required;
 }
 
-export function resolveServerConsent(
-  consent: UserConsent | null | undefined,
-): {
+export function resolveServerConsent(consent: UserConsent | null | undefined): {
   tos: boolean;
   privacy: boolean;
   shareAnalytics: boolean | null;
@@ -453,7 +473,8 @@ export function resolveServerConsent(
     // opt-out) and serves it as `share_*_effective`. The fields are required
     // in the current schema, but an older backend omits them — fall back to
     // the raw value's opt-out reading so behavior is unchanged there.
-    analyticsEffective: consent.share_analytics_effective ?? consent.share_analytics ?? true,
+    analyticsEffective:
+      consent.share_analytics_effective ?? consent.share_analytics ?? true,
     diagnosticsEffective:
       consent.share_diagnostics_effective ?? consent.share_diagnostics ?? true,
     // Share-toggle re-review is owed only for an explicit, genuinely stale
@@ -461,8 +482,10 @@ export function resolveServerConsent(
     // `share_analytics` stays null until the user chooses via settings or
     // review-terms — null reads as "nothing to re-review", not stale consent.
     // An explicit choice with a stale/empty version still re-reviews.
-    analyticsCurrent: consent.share_analytics === null || analyticsVersionCurrent,
-    diagnosticsCurrent: consent.share_diagnostics === null || diagnosticsVersionCurrent,
+    analyticsCurrent:
+      consent.share_analytics === null || analyticsVersionCurrent,
+    diagnosticsCurrent:
+      consent.share_diagnostics === null || diagnosticsVersionCurrent,
     analyticsVersionCurrent,
     diagnosticsVersionCurrent,
     hasServerRecord,
