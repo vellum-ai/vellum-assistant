@@ -39,28 +39,30 @@ describe("useSupportsRedactedCredentialChips", () => {
     expect(check("")).toBe(false);
   });
 
-  test("returns true at exactly MIN_VERSION (0.11.0) for the identity owner's transcript", () => {
-    expect(check("0.11.0")).toBe(true);
+  test("returns true at exactly MIN_VERSION (0.10.10) for the identity owner's transcript", () => {
+    expect(check("0.10.10")).toBe(true);
   });
 
   test("returns true for dev builds ahead of MIN_VERSION", () => {
-    expect(check("0.11.0-dev.202607131200.abc1234")).toBe(true);
+    expect(check("0.10.10-dev.202607131200.abc1234")).toBe(true);
   });
 
   test("returns true for versions above MIN_VERSION", () => {
-    expect(check("0.11.1")).toBe(true);
-    expect(check("0.12.0")).toBe(true);
+    expect(check("0.10.11")).toBe(true);
+    expect(check("0.11.0")).toBe(true);
     expect(check("1.0.0")).toBe(true);
   });
 
   test("returns false for versions below MIN_VERSION", () => {
-    expect(check("0.10.8")).toBe(false);
+    // 0.10.9 is the last release without daemon-side sentinel support, so it is
+    // the boundary the gate actually has to hold.
     expect(check("0.10.9")).toBe(false);
+    expect(check("0.10.8")).toBe(false);
     expect(check("0.9.0")).toBe(false);
   });
 
   test("returns false for dev builds based below MIN_VERSION", () => {
-    expect(check("0.10.8-dev.202607131200.abc1234")).toBe(false);
+    expect(check("0.10.9-dev.202607131200.abc1234")).toBe(false);
   });
 
   test("returns false for unparseable versions", () => {
@@ -73,13 +75,13 @@ describe("useSupportsRedactedCredentialChips", () => {
     // version is still hydrated while the transcript now belongs to a
     // new assistant whose identity hasn't loaded. The version must not
     // validate the new owner's transcript.
-    expect(check("0.11.0", "asst-new-owner", "asst-previous")).toBe(false);
+    expect(check("0.10.10", "asst-new-owner", "asst-previous")).toBe(false);
   });
 
   test("returns false when the transcript owner is null or undefined", () => {
-    expect(check("0.11.0", null)).toBe(false);
+    expect(check("0.10.10", null)).toBe(false);
     // Passed explicitly (a default parameter would swallow `undefined`).
-    setIdentity("0.11.0", OWNER_ID);
+    setIdentity("0.10.10", OWNER_ID);
     const { result } = renderHook(() =>
       useSupportsRedactedCredentialChips(undefined),
     );
@@ -87,11 +89,11 @@ describe("useSupportsRedactedCredentialChips", () => {
   });
 
   test("returns false when the identity store has no owner recorded", () => {
-    expect(check("0.11.0", OWNER_ID, null)).toBe(false);
+    expect(check("0.10.10", OWNER_ID, null)).toBe(false);
   });
 
   test("flips off the moment the identity is cleared for an assistant switch", () => {
-    setIdentity("0.11.0", OWNER_ID);
+    setIdentity("0.10.10", OWNER_ID);
     const { result, rerender } = renderHook(() =>
       useSupportsRedactedCredentialChips(OWNER_ID),
     );

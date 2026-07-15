@@ -25,7 +25,7 @@
  * pairing could briefly validate an old-daemon transcript against the
  * previous assistant's version. Conservative on unknown.
  *
- * MIN_VERSION targets 0.11.0 — the release that ships daemon-side sentinel
+ * MIN_VERSION targets 0.10.10 — the release that ships daemon-side sentinel
  * minting and neutralization. On the `false` branch callers leave sentinel
  * text as plain literal text.
  */
@@ -33,7 +33,7 @@ import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 
 import { useAssistantSupports } from "./utils";
 
-export const MIN_VERSION = "0.11.0";
+export const MIN_VERSION = "0.10.10";
 
 /**
  * Returns `true` when the transcript owned by `transcriptAssistantId` may
