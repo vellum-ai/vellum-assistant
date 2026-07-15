@@ -551,6 +551,65 @@ describe("LiveVoiceSession server VAD", () => {
     expect(countType(frames, "assistant_text_delta")).toBe(0);
   });
 
+  test("a queued assistant_text_delta is dropped at send time once a thinking barge-in aborts", async () => {
+    let callbacks: VoiceTurnCallbacks | undefined;
+    const abort = mock();
+    const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
+      callbacks ??= options.callbacks;
+      return { turnId: "bridge-turn", abort };
+    });
+    let releaseFirstDelta: (() => void) | undefined;
+    // No TTS streamer: the turn emits text but never leaves the pre-TTS phase.
+    const { frames, session } = createHarness({
+      finals: ["first question", "second question"],
+      startVoiceTurn,
+      streamTtsAudio: null,
+      // Hold the first assistant_text_delta's transport write so the second
+      // one sits queued behind it (a backed-up outbound queue).
+      holdSendFrame: (payload) => {
+        if (
+          payload.type !== "assistant_text_delta" ||
+          releaseFirstDelta !== undefined
+        ) {
+          return null;
+        }
+        return new Promise<void>((resolve) => {
+          releaseFirstDelta = resolve;
+        });
+      },
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => callbacks !== undefined);
+
+    // First delta passes shouldSend, then blocks in the transport; the second
+    // is enqueued behind it and has not yet been send-time checked.
+    callbacks?.assistant_text_delta?.(makeTextDelta("early reply"));
+    await waitFor(() => releaseFirstDelta !== undefined);
+    callbacks?.assistant_text_delta?.(makeTextDelta("leaked tail"));
+
+    // Barge in while both deltas are queued: the turn aborts before the second
+    // delta drains.
+    await session.handleBinaryAudio(SUSTAINED_LOUD_CHUNK);
+    await flushAsyncCallbacks();
+
+    // Release the queue: the first (already-committed) delta writes, but the
+    // second must be dropped by the send-time guard — no cancelled-reply text
+    // leaks after the abort.
+    releaseFirstDelta?.();
+    await waitFor(() =>
+      frames.some((frame) => frame.type === "turn_cancelled"),
+    );
+    expect(countType(frames, "assistant_text_delta")).toBe(1);
+    expect(
+      frames.some(
+        (frame) =>
+          frame.type === "assistant_text_delta" && frame.text === "leaked tail",
+      ),
+    ).toBe(false);
+  });
+
   test("a thinking barge-in that rejects the pending turn start emits no error frame", async () => {
     // startVoiceTurn hangs like a real turn waiting for the conversation lock
     // and rejects when the turn's signal aborts (the waitForIdle behavior), so
