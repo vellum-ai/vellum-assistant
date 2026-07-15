@@ -185,4 +185,19 @@ describe("computeLearnedEdgeGraph", () => {
     const graph = graphOf({ windowMs: 10_000 });
     expect(graph.adjacency.size).toBe(0);
   });
+
+  test("degrades to an empty graph when the memory database is unavailable", () => {
+    // Simulate unavailability through the singleton slot instead of
+    // `mock.module`, which is process-global and leaks into sibling test
+    // files. The accessor extracts the raw connection from the stored
+    // handle's `$client`, so a handle without one makes `getMemorySqlite()`
+    // resolve to null, the same contract computeLearnedEdgeGraph sees when
+    // the dedicated open fails.
+    clearStoredDb("memory");
+    setStoredDb("memory", { $client: null }, () => {});
+
+    const graph = graphOf();
+    expect(graph.adjacency.size).toBe(0);
+    expect(graph.hubs.size).toBe(0);
+  });
 });
