@@ -100,12 +100,25 @@ mock.module("../../tools/credentials/broker.js", () => ({
   },
 }));
 
+/**
+ * Controls the gateway-mode (managed-proxy) gate. undefined = gate off (flag
+ * off or prereqs unmet), the PR-2 default that every existing test relies on.
+ */
+let gatewayAuthResult:
+  | { baseUrl: string; headers: Record<string, string> }
+  | undefined;
+
+mock.module("../gateway-auth.js", () => ({
+  resolveAcpGatewayAuth: async () => gatewayAuthResult,
+}));
+
 const { prepareAgentEnv, grantAcpAccessToSharedAnthropicKey } =
   await import("../prepare-agent-env.js");
 
 beforeEach(() => {
   metadataStore.clear();
   vaultStore.clear();
+  gatewayAuthResult = undefined;
 });
 
 // ---------------------------------------------------------------------------
@@ -494,5 +507,58 @@ describe("prepareAgentEnv — non-claude commands", () => {
     });
 
     expect(prepared.env).toEqual({ FOO: "bar" });
+  });
+});
+
+describe("prepareAgentEnv — claude-agent-acp gateway (managed-proxy) mode", () => {
+  const gatewayAuth = {
+    baseUrl: "https://platform.example.com/v1/runtime-proxy/anthropic",
+    headers: { "x-api-key": "sk-assistant-123" },
+  };
+
+  test("gate ON: skips credential injection and does NOT throw when no credential exists", async () => {
+    // No vault token, no config override — PR-2 would throw FailedDependencyError.
+    gatewayAuthResult = gatewayAuth;
+
+    const prepared = await prepareAgentEnv({
+      command: "claude-agent-acp",
+      args: [],
+    });
+
+    expect(prepared.env).not.toHaveProperty("ANTHROPIC_API_KEY");
+    expect(prepared.env).not.toHaveProperty("CLAUDE_CODE_OAUTH_TOKEN");
+    // No broker read happened, so no credential policy was auto-provisioned.
+    expect(metadataStore.has("acp/anthropic_api_key")).toBe(false);
+    expect(metadataStore.has("acp/claude_oauth_token")).toBe(false);
+  });
+
+  test("gate ON: does not read the vault even when a credential is present", async () => {
+    gatewayAuthResult = gatewayAuth;
+    seedVaultToken("vault-should-be-ignored");
+
+    const prepared = await prepareAgentEnv({
+      command: "claude-agent-acp",
+      args: [],
+    });
+
+    expect(prepared.env).not.toHaveProperty("CLAUDE_CODE_OAUTH_TOKEN");
+  });
+
+  test("gate OFF (default): behaves exactly as PR 2 — injects the vault token", async () => {
+    // gatewayAuthResult stays undefined (reset in beforeEach).
+    seedVaultToken("vault-default-path");
+
+    const prepared = await prepareAgentEnv({
+      command: "claude-agent-acp",
+      args: [],
+    });
+
+    expect(prepared.env?.CLAUDE_CODE_OAUTH_TOKEN).toBe("vault-default-path");
+  });
+
+  test("gate OFF (default): still throws when no credential is found", async () => {
+    await expect(
+      prepareAgentEnv({ command: "claude-agent-acp", args: [] }),
+    ).rejects.toThrow("CLAUDE_CODE_OAUTH_TOKEN");
   });
 });

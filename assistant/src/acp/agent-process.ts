@@ -20,6 +20,11 @@ import type {
 import * as acp from "@agentclientprotocol/sdk";
 
 import { getLogger } from "../util/logger.js";
+import {
+  type AcpGatewayAuth,
+  GATEWAY_AUTH_METHOD_ID,
+  resolveAcpGatewayAuth,
+} from "./gateway-auth.js";
 import type { AcpAgentConfig } from "./types.js";
 
 const log = getLogger("acp");
@@ -201,6 +206,11 @@ export class AcpAgentProcess {
   async initialize(): Promise<InitializeResponse> {
     const connection = this.requireConnection();
 
+    // Gateway-mode proxy routing (flag-gated, off by default): when resolved,
+    // advertise the auth capability so a supporting adapter offers a `gateway`
+    // method we authenticate with below. Off → payload unchanged (no regression).
+    const gatewayAuth = await resolveAcpGatewayAuth();
+
     log.info({ agentId: this.agentId }, "Initializing ACP connection");
 
     const response = await connection.initialize({
@@ -209,11 +219,52 @@ export class AcpAgentProcess {
       clientCapabilities: {
         fs: { readTextFile: true, writeTextFile: true },
         terminal: true,
+        ...(gatewayAuth ? { auth: { _meta: { gateway: true } } } : {}),
       },
     });
 
     this.initializeResponse = response;
+
+    if (gatewayAuth) {
+      await this.authenticateGateway(gatewayAuth);
+    }
+
     return response;
+  }
+
+  /**
+   * Proactively authenticate via the adapter's `gateway` auth method so the
+   * child routes through the Vellum runtime proxy — the adapter converts our
+   * baseUrl/headers into the child's `ANTHROPIC_BASE_URL` +
+   * `ANTHROPIC_CUSTOM_HEADERS`, so it needs no Anthropic credential.
+   *
+   * Version-skew-safe: an older adapter that did not advertise a `gateway`
+   * method is logged and skipped rather than authenticated, so the normal
+   * (credential) path still applies — this never throws.
+   */
+  private async authenticateGateway(auth: AcpGatewayAuth): Promise<void> {
+    const method = this.authMethods.find(
+      (m) => m.id === GATEWAY_AUTH_METHOD_ID,
+    );
+    if (!method) {
+      const advertised = this.authMethods.map((m) => m.id);
+      log.info(
+        { agentId: this.agentId, advertised },
+        "ACP adapter did not advertise gateway auth; falling back to credential path",
+      );
+      return;
+    }
+
+    // Do not log headers — they carry the assistant API key.
+    log.info(
+      { agentId: this.agentId, baseUrl: auth.baseUrl },
+      "Authenticating ACP child via gateway proxy routing",
+    );
+
+    await this.requireConnection().authenticate({
+      methodId: GATEWAY_AUTH_METHOD_ID,
+      _meta: { gateway: { baseUrl: auth.baseUrl, headers: auth.headers } },
+    });
   }
 
   /**
