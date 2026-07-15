@@ -183,6 +183,68 @@ describe("LiveVoiceSession surface resume", () => {
     expect(getVoiceResumeHandler(CONVERSATION_ID)).toBeUndefined();
   });
 
+  test("flushes a resume deferred behind an active turn (manual/no-turnDetector path)", async () => {
+    // START_FRAME requests no server_vad, so this session has no turnDetector —
+    // the manual path where scheduleRearmAfterTurn no-ops. A resume that arrives
+    // while a turn is still speaking must still run once that turn settles.
+    const { context, frames } = createContext();
+    const streamTtsAudio = mock(async (opts: LiveVoiceTtsOptions) => {
+      opts.onAudioChunk(makeTtsChunk(`audio:${opts.text}`));
+      return makeTtsResult(opts.text);
+    });
+    // The first turn is held open (no message_complete) so a resume can arrive
+    // mid-turn; later turns complete immediately.
+    let callIndex = 0;
+    const held: Array<() => void> = [];
+    const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
+      const idx = callIndex++;
+      const callbacks = options.callbacks;
+      callbacks?.assistant_text_delta?.({
+        type: "assistant_text_delta",
+        text: `reply-${idx}`,
+        conversationId: options.conversationId,
+      });
+      const complete = () =>
+        callbacks?.message_complete?.({
+          type: "message_complete",
+          conversationId: options.conversationId,
+          messageId: `assistant-message-${idx}`,
+        });
+      if (idx === 0) {
+        held.push(complete);
+      } else {
+        complete();
+      }
+      return { turnId: `bridge-turn-${idx}`, abort: mock() };
+    });
+    const session = new LiveVoiceSession(context, {
+      resolveTranscriber: mock(async () => new MockStreamingTranscriber()),
+      startVoiceTurn,
+      streamTtsAudio,
+      createTurnId: () => "live-turn-resume",
+    });
+    await session.start();
+    const handler = getVoiceResumeHandler(CONVERSATION_ID);
+
+    // First resume starts a turn that stays active (not completed).
+    handler?.resumeWithText("First follow-up.");
+    await waitFor(() => startVoiceTurn.mock.calls.length === 1);
+
+    // Second resume arrives mid-turn — deferred, no new turn yet.
+    handler?.resumeWithText("Second follow-up.");
+    expect(startVoiceTurn).toHaveBeenCalledTimes(1);
+
+    // Completing the first turn must flush the deferred resume into a real turn.
+    held.shift()?.();
+    await waitFor(() => startVoiceTurn.mock.calls.length === 2);
+    expect(startVoiceTurn.mock.calls[1]?.[0]).toMatchObject({
+      content: "Second follow-up.",
+    });
+    expect(frames.some((frame) => frame.type === "tts_done")).toBe(true);
+
+    await session.close("client_end");
+  });
+
   test("ignores an empty resume and does not start a turn", async () => {
     const { frames, session, startVoiceTurn } = createSessionHarness();
     await session.start();

@@ -2052,6 +2052,14 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
           }
         }
 
+        // Now that the active turn is actually cleared, dispatch a resume that
+        // arrived mid-turn. `finalizeAssistantTurn` runs its own flush too, but
+        // this path finalizes with `clearActive: false`, so at that point the
+        // slot was still taken and the flush re-stashed. `scheduleRearmAfterTurn`
+        // below no-ops in manual (no-`turnDetector`) sessions, so without this
+        // flush the deferred resume would never start there (JARVIS-1287).
+        this.flushPendingResume();
+
         // Re-arm only after the terminal tts_done frame so a slow or failing
         // next transcriber cannot block or precede turn completion. A
         // cancelled turn re-arms through cancelAssistantTurn instead.
