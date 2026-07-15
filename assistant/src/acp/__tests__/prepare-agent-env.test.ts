@@ -474,8 +474,10 @@ describe("prepareAgentEnv — claude-agent-acp gateway (managed-proxy) mode", ()
       args: [],
     });
 
-    expect(prepared.env).not.toHaveProperty("ANTHROPIC_API_KEY");
-    expect(prepared.env).not.toHaveProperty("CLAUDE_CODE_OAUTH_TOKEN");
+    // Shadowed to empty (not absent) so an inherited process.env value can't
+    // survive the spawn-time merge; empty reads as "unset" for the resolver.
+    expect(prepared.env?.ANTHROPIC_API_KEY).toBe("");
+    expect(prepared.env?.CLAUDE_CODE_OAUTH_TOKEN).toBe("");
     // No broker read happened, so no credential policy was auto-provisioned.
     expect(metadataStore.has("acp/anthropic_api_key")).toBe(false);
     expect(metadataStore.has("acp/claude_oauth_token")).toBe(false);
@@ -490,7 +492,8 @@ describe("prepareAgentEnv — claude-agent-acp gateway (managed-proxy) mode", ()
       args: [],
     });
 
-    expect(prepared.env).not.toHaveProperty("CLAUDE_CODE_OAUTH_TOKEN");
+    // Empty, not the vault value — proves the vault was never injected.
+    expect(prepared.env?.CLAUDE_CODE_OAUTH_TOKEN).toBe("");
   });
 
   test("gate ON: strips a config.json-supplied ANTHROPIC_API_KEY / CLAUDE_CODE_OAUTH_TOKEN so the proxy stays authoritative", async () => {
@@ -506,9 +509,30 @@ describe("prepareAgentEnv — claude-agent-acp gateway (managed-proxy) mode", ()
       },
     });
 
-    expect(prepared.env).not.toHaveProperty("ANTHROPIC_API_KEY");
-    expect(prepared.env).not.toHaveProperty("CLAUDE_CODE_OAUTH_TOKEN");
+    expect(prepared.env?.ANTHROPIC_API_KEY).toBe("");
+    expect(prepared.env?.CLAUDE_CODE_OAUTH_TOKEN).toBe("");
     expect(prepared.env?.OTHER_VAR).toBe("keep-me");
+  });
+
+  test("gate ON: empty shadow overrides an inherited process.env credential at the spawn-time { ...process.env, ...config.env } merge", async () => {
+    // Reproduces the exact bypass: AcpAgentProcess.spawn() merges the daemon's
+    // own process.env under config.env. A bare `delete` in the gateway branch
+    // would let an inherited key survive here and route around proxy billing.
+    gatewayAuthResult = gatewayAuth;
+
+    const prepared = await prepareAgentEnv({
+      command: "claude-agent-acp",
+      args: [],
+    });
+
+    const inheritedProcessEnv = {
+      ANTHROPIC_API_KEY: "sk-ant-api03-inherited",
+      CLAUDE_CODE_OAUTH_TOKEN: "sk-ant-oat01-inherited",
+    };
+    const childEnv = { ...inheritedProcessEnv, ...prepared.env };
+
+    expect(childEnv.ANTHROPIC_API_KEY).toBe("");
+    expect(childEnv.CLAUDE_CODE_OAUTH_TOKEN).toBe("");
   });
 
   test("gate OFF (default): behaves exactly as PR 2 — injects the vault token", async () => {

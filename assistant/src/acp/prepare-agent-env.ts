@@ -207,12 +207,18 @@ export async function prepareAgentEnv(
     // authenticates the child against the Vellum runtime proxy, so no Anthropic
     // credential is needed — skip injection and the throw. Off → PR-2 path below.
     if (await resolveAcpGatewayAuth()) {
-      // The proxy supplies auth and is authoritative; strip any
-      // config.json-supplied key so it can't bypass per-assistant proxy
-      // billing. The version-skew (adapter-without-gateway) case is validated
-      // during the dev-platform live test before un-flagging.
-      delete env.ANTHROPIC_API_KEY;
-      delete env.CLAUDE_CODE_OAUTH_TOKEN;
+      // The proxy supplies auth and is authoritative. Shadow (empty), not
+      // delete: AcpAgentProcess.spawn() builds the child env as
+      // `{ ...process.env, ...config.env }`, so a bare delete would let an
+      // ANTHROPIC_API_KEY / CLAUDE_CODE_OAUTH_TOKEN inherited from the daemon's
+      // own process.env survive the merge and bypass per-assistant proxy
+      // billing — worst case a version-skew adapter that never runs the gateway
+      // handshake falls back to that inherited key. An empty value overrides the
+      // inherited one and reads as "unset" (selectEnvVarAuthMethod requires
+      // non-empty). The dev-platform live test validates the version-skew case
+      // before un-flagging.
+      env.ANTHROPIC_API_KEY = "";
+      env.CLAUDE_CODE_OAUTH_TOKEN = "";
       return { ...agentConfig, env };
     }
 
