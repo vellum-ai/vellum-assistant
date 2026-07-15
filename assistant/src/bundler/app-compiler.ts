@@ -379,6 +379,26 @@ export async function runCompile(
   const srcDir = join(appDir, "src");
   const entryPoint = join(srcDir, "main.tsx");
 
+  // An app without src/main.tsx has nothing to build — report a diagnostic
+  // instead of letting the source scan below throw on the missing directory.
+  // When a source tree exists but the entrypoint is gone, also clear stale
+  // dist/ so serve/publish surface the failure instead of old compiled
+  // output; a directory with no src/ at all (e.g. a retired single-file app)
+  // is left untouched.
+  if (!existsSync(entryPoint)) {
+    if (existsSync(srcDir) && existsSync(distDir)) {
+      rmSync(distDir, { recursive: true, force: true });
+    }
+    return {
+      ok: false,
+      errors: [
+        { text: "App has no src/main.tsx — there is no source to compile." },
+      ],
+      warnings: [],
+      durationMs: Math.round(performance.now() - start),
+    };
+  }
+
   // Clear stale dist/ output so removed assets (e.g. CSS) don't persist
   if (existsSync(distDir)) {
     rmSync(distDir, { recursive: true, force: true });

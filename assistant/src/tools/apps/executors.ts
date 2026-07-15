@@ -43,7 +43,6 @@ export interface AppStoreWriter {
     icon?: string;
     schemaJson: string;
     htmlDefinition: string;
-    formatVersion?: number;
   }): AppDefinition;
   updateApp(
     id: string,
@@ -217,7 +216,6 @@ export async function executeAppCreate(
     icon,
     schemaJson,
     htmlDefinition: "",
-    formatVersion: 2,
   });
 
   // Associate the app with its conversation at creation so subsequent
@@ -407,28 +405,17 @@ export async function executeAppRefresh(
   // the client side.
   const updated = store.updateApp(input.app_id, {});
 
-  // Multifile apps need an explicit compile so the LLM sees any errors
-  // (bad imports, syntax issues, etc.) instead of silently serving the
-  // stale scaffold placeholder from the initial app_create.
-  if (app.formatVersion === 2) {
-    const appDir = getAppDirPath(input.app_id);
-    const compileResult = await compileApp(appDir);
-    return {
-      content: JSON.stringify({
-        refreshed: true,
-        appId: updated.id,
-        name: updated.name,
-        ...compileResultPayload(compileResult),
-      }),
-      isError: false,
-    };
-  }
-
+  // Compile explicitly so the LLM sees any errors (bad imports, syntax
+  // issues, etc.) instead of silently serving the stale scaffold placeholder
+  // from the initial app_create.
+  const appDir = getAppDirPath(input.app_id);
+  const compileResult = await compileApp(appDir);
   return {
     content: JSON.stringify({
       refreshed: true,
       appId: updated.id,
       name: updated.name,
+      ...compileResultPayload(compileResult),
     }),
     isError: false,
   };
@@ -485,29 +472,17 @@ export async function executeAppUpdate(
   // An empty update still bumps updatedAt, triggering a client surface refresh.
   const updated = store.updateApp(input.app_id, updates);
 
-  // Multifile apps recompile so the agent sees any errors from the edited
-  // source instead of serving a stale dist (mirrors app_refresh).
-  if (app.formatVersion === 2) {
-    const appDir = getAppDirPath(input.app_id);
-    const compileResult = await compileApp(appDir);
-    return {
-      content: JSON.stringify({
-        updated: true,
-        appId: updated.id,
-        name: updated.name,
-        description: updated.description,
-        ...compileResultPayload(compileResult),
-      }),
-      isError: false,
-    };
-  }
-
+  // Recompile so the agent sees any errors from the edited source instead of
+  // serving a stale dist (mirrors app_refresh).
+  const appDir = getAppDirPath(input.app_id);
+  const compileResult = await compileApp(appDir);
   return {
     content: JSON.stringify({
       updated: true,
       appId: updated.id,
       name: updated.name,
       description: updated.description,
+      ...compileResultPayload(compileResult),
     }),
     isError: false,
   };
