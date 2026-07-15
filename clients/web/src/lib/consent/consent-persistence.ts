@@ -30,7 +30,7 @@
  * - `savePreferenceToggle` — single-field write for settings page toggles
  * - `restoreConsentForUser` — read device keys, return {tos, privacy, diagnostics ack}
  * - `persistConsentForUser` — write tos/privacy device keys
- * - `persistToggleConsent`  — write the diagnostics ack key
+ * - `persistDiagnosticsAck` — stamp the diagnostics ack key
  * - `clearConsentForUser`   — delete device keys + legacy active keys
  */
 import {
@@ -326,22 +326,19 @@ export function persistConsentForUser(
   }
 }
 
-export function persistToggleConsent(
-  userId: string | null,
-  acks: { diagnosticsCurrent?: boolean },
-): void {
+/**
+ * Stamp the diagnostics ack key at the required version. Removal is owned by
+ * `clearConsentForUser`.
+ */
+export function persistDiagnosticsAck(userId: string | null): void {
   if (typeof window === "undefined" || !userId) {
     return;
   }
   try {
-    if (acks.diagnosticsCurrent === true) {
-      setLocalSetting(
-        consentAckKey("share_diagnostics", userId),
-        requiredAckVersion("share_diagnostics"),
-      );
-    } else if (acks.diagnosticsCurrent === false) {
-      removeLocalSetting(consentAckKey("share_diagnostics", userId));
-    }
+    setLocalSetting(
+      consentAckKey("share_diagnostics", userId),
+      requiredAckVersion("share_diagnostics"),
+    );
   } catch {
     // Storage unavailable.
   }
@@ -479,9 +476,13 @@ export function resolveServerConsent(consent: UserConsent | null | undefined): {
     shareAnalytics: consent.share_analytics,
     shareDiagnostics: consent.share_diagnostics,
     // The platform computes effective consent in one place (null = enabled,
-    // opt-out) and serves it as `share_*_effective`. The fields are required
-    // in the current schema, but an older backend omits them — fall back to
-    // the raw value's opt-out reading so behavior is unchanged there.
+    // opt-out) and serves it as `share_*_effective`; an older backend omits
+    // the fields, so fall back to the raw value's opt-out reading. These are
+    // the server-authoritative gate inputs that the fallback-deletion PR
+    // (plan PR 10) switches the data-capture gates to once platform deploys
+    // are confirmed; until then the store-based explicit-opt-out gates are
+    // behaviorally identical (effective differs from raw only when raw is
+    // null, which the gates read as enabled).
     analyticsEffective:
       consent.share_analytics_effective ?? consent.share_analytics ?? true,
     diagnosticsEffective:
@@ -572,7 +573,7 @@ function writeConsent(
   // earned by a consent-screen review, or by a toggle change made with a live
   // session to record it against. Analytics has no device ack.
   if (shareDiagnostics !== undefined && (legal || opts.hasPlatformSession)) {
-    persistToggleConsent(opts.userId, { diagnosticsCurrent: true });
+    persistDiagnosticsAck(opts.userId);
   }
 
   if (opts.hasPlatformSession) {

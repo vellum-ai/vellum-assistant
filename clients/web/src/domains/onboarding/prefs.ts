@@ -9,9 +9,9 @@
  * onboarding-only keys that don't fit the boolean store shape
  * (`onboarding.selectedVersion`, `onboarding.lastUserId`).
  *
- * Storage keys are documented in `onboarding-store.ts`. The privacy
- * settings page and the Sentry consent gate read `device:share_*`
- * directly — that contract is preserved by the per-key adapter.
+ * Storage keys are documented in `onboarding-store.ts`. The Sentry consent
+ * gate reads `device:share_*` directly — that contract is preserved by the
+ * per-key adapter.
  */
 import { useCallback } from "react";
 
