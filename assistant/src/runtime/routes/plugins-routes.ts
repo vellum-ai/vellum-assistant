@@ -1093,7 +1093,15 @@ async function handleUninstallPlugin({
   await ensurePluginApiShim().catch(() => {});
 
   try {
+    // `uninstallPlugin` runs the plugin's `shutdown` hook (while its files are
+    // still present) and then removes the directory — both in this daemon
+    // process. Following it with a reconcile drops the plugin's now-absent
+    // tools and hooks from the in-memory caches immediately (the `shutdown`
+    // already ran, so the reconcile's deactivation does not run it again),
+    // rather than leaving that to the background source watcher. Symmetric to
+    // the install route, which reconciles to bring a new plugin up.
     const result = await uninstallPlugin({ name: rawName });
+    await reconcilePluginSourcesNow();
     publishPluginsChanged(getOriginClientId(headers));
     return { name: result.name, target: result.target };
   } catch (err) {

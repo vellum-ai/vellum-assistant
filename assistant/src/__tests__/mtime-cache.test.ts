@@ -752,6 +752,36 @@ describe("plugin runtime activation", () => {
     expect(readFileSync(initMarker, "utf8").trim().split("\n")).toHaveLength(1);
   });
 
+  test("reconcilePluginSourcesNow deactivates a removed plugin without re-running shutdown", async () => {
+    await populateCacheAtBoot(); // empty plugins dir
+
+    const dir = freshPluginDir("teardown-plugin");
+    writePackageJson(dir, { ...SIMPLE_PKG, name: "teardown-plugin" });
+    writeTool(dir, "teardown-tool", TOOL_SRC("teardown-tool"));
+    const shutdownMarker = join(ROOT, "teardown-shutdown.log");
+    writeMarkerHook(dir, "shutdown", shutdownMarker, "bye");
+
+    await reconcilePluginSourcesNow();
+    await loadPluginTools();
+    expect(
+      getAllToolDefinitions().some((t) => t.name === "teardown-tool"),
+    ).toBe(true);
+
+    // This is the daemon uninstall route's teardown path: the managed uninstall
+    // runs `shutdown` itself (while the files are present) and removes the
+    // directory, then reconciles. The reconcile here only mirrors the removal —
+    // it drops the plugin's tools/hooks but must NOT run `shutdown` a second
+    // time (the removal reason carries no shutdown).
+    rmSync(dir, { recursive: true, force: true });
+    await reconcilePluginSourcesNow();
+    await loadPluginTools();
+
+    expect(
+      getAllToolDefinitions().some((t) => t.name === "teardown-tool"),
+    ).toBe(false);
+    expect(existsSync(shutdownMarker)).toBe(false);
+  });
+
   test("activation is idempotent — republishing without changes does not re-run init", async () => {
     const dir = freshPluginDir("idem-plugin");
     writePackageJson(dir, { ...SIMPLE_PKG, name: "idem-plugin" });
