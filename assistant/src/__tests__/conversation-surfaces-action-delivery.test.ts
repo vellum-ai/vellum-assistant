@@ -607,6 +607,57 @@ describe("surface action delivery to assistant", () => {
     }
   });
 
+  test("live-voice resume: relayed prompt is not pre-echoed (voice turn emits its own echo)", async () => {
+    const sent: ServerMessage[] = [];
+    const ctx = makeContext(sent);
+
+    // A relay_prompt surface: the text path echoes `prompt` here, but on the
+    // voice path `startVoiceTurn` emits its own user_message_echo for the
+    // resumed turn — so handleSurfaceAction must NOT also relay it.
+    const surfaceId = "relay-voice-surface";
+    ctx.surfaceState.set(surfaceId, {
+      surfaceType: "card",
+      data: { title: "Continue?", body: "Pick up where we left off." },
+      actions: [
+        {
+          id: "relay_prompt",
+          label: "Continue",
+          style: "primary",
+          data: {
+            prompt: "Continue from where you stopped.",
+            _completeSurface: true,
+            _completionSummary: "Continue",
+          },
+        },
+      ],
+    });
+    ctx.pendingSurfaceActions.set(surfaceId, { surfaceType: "card" });
+
+    const resumeCalls: Array<{ content: string; opts?: VoiceResumeOptions }> =
+      [];
+    const handler: VoiceResumeHandler = {
+      resumeWithText: (content, opts) => resumeCalls.push({ content, opts }),
+    };
+    registerVoiceResumeHandler("conv-1", handler);
+
+    try {
+      await handleSurfaceAction(ctx, surfaceId, "relay_prompt");
+
+      // Routed to the spoken resume, not the text path.
+      expect(resumeCalls.length).toBe(1);
+      expect(ctx.processMessageCalls.length).toBe(0);
+      // Exactly zero pre-echoes from handleSurfaceAction: the resumed turn's
+      // own user_message_echo (from startVoiceTurn, stubbed here) is the single
+      // source of the user bubble, so no double bubble for one click.
+      expect(
+        broadcastedMessages.filter((m) => m.type === "user_message_echo")
+          .length,
+      ).toBe(0);
+    } finally {
+      unregisterVoiceResumeHandler("conv-1", handler);
+    }
+  });
+
   test("live-voice resume: dynamic_page action forwards activeSurfaceId so the resumed turn keeps app context", async () => {
     const sent: ServerMessage[] = [];
     const ctx = makeContext(sent);

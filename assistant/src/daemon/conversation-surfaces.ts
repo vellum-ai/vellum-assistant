@@ -2453,7 +2453,10 @@ export async function handleSurfaceAction(
 
   // Echo the user's prompt to the client so it appears in the chat UI.
   // Deferred until after rejection check to avoid ghost messages.
-  if (shouldRelayPrompt && prompt) {
+  // Skipped on the voice-resume path: `startVoiceTurn` emits its own
+  // `user_message_echo` for the resumed turn, so relaying here as well would
+  // render two user bubbles for one surface click.
+  if (shouldRelayPrompt && prompt && !(voiceResumeHandler && routeToVoice)) {
     broadcastMessage({
       type: "user_message_echo",
       text: prompt,
