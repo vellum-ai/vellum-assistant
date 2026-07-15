@@ -299,6 +299,31 @@ describe("default marker", () => {
   });
 });
 
+describe("card titles", () => {
+  test("titles a ChatGPT subscription row distinctly from OpenAI API-key rows", async () => {
+    connectionsState = [
+      makeConnection({
+        name: "chatgpt-subscription",
+        provider: "openai",
+        auth: {
+          type: "oauth_subscription",
+          credential: "credential/chatgpt/access_token",
+        },
+      }),
+      makeConnection({ name: "openai-personal", provider: "openai" }),
+    ];
+
+    const result = renderModal();
+    await waitFor(() => {
+      expect(result.baseElement.textContent).toContain("ChatGPT Subscription");
+    });
+    // The API-key row still titles by the provider display name.
+    const apiKeyRow = rowFor(result, "openai-personal");
+    expect(apiKeyRow?.textContent).toContain("OpenAI");
+    expect(apiKeyRow?.textContent).not.toContain("ChatGPT");
+  });
+});
+
 describe("delete-guard errors", () => {
   async function clickDelete(name: string) {
     connectionsState = [makeConnection({ name, provider: "openai" })];

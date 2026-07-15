@@ -64,9 +64,20 @@ function errorEnvelopeMessage(error: unknown): string | undefined {
     : undefined;
 }
 
-/** Card title: user label, else the provider's display name. */
+/**
+ * Card title: user label, else the provider's display name. Subscription
+ * auth gets its own identity — without it, an unlabeled ChatGPT row (stored
+ * as provider "openai") would be indistinguishable from an OpenAI API-key
+ * card now that the auth subtitle is gone.
+ */
 function providerCardTitle(conn: ProviderConnection): string {
-  return conn.label ?? PROVIDER_DISPLAY_NAMES[conn.provider] ?? conn.provider;
+  if (conn.label) {
+    return conn.label;
+  }
+  if (conn.auth.type === "oauth_subscription") {
+    return PROVIDER_DISPLAY_NAMES.chatgpt;
+  }
+  return PROVIDER_DISPLAY_NAMES[conn.provider] ?? conn.provider;
 }
 
 /**
