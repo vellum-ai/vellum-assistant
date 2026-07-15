@@ -11,7 +11,10 @@ import { ChoiceSurface } from "@/domains/chat/components/surfaces/choice-surface
 import { CopyBlockSurface } from "@/domains/chat/components/surfaces/copy-block-surface";
 import { OAuthConnectSurface } from "@/domains/chat/components/surfaces/oauth-connect-surface";
 import { SurfaceRouter } from "@/domains/chat/components/surfaces/surface-router";
-import type { ManagedOAuthConnectClient } from "@/domains/chat/api/managed-oauth";
+import type {
+  ManagedOAuthConnectClient,
+  ManagedOAuthConnectResult,
+} from "@/domains/chat/api/managed-oauth";
 import type { OAuthConnection } from "@/generated/api/types.gen";
 import type { Surface } from "@/domains/chat/types/types";
 
@@ -238,6 +241,57 @@ describe("OAuthConnectSurface", () => {
         scopesGranted: ["gmail.readonly"],
       });
     });
+  });
+
+  test("does not submit the surface action after the card unmounts mid-connect", async () => {
+    // A remounted card can await the same deduped OAuth promise; only the
+    // still-mounted instance may report the result, so one authorization
+    // submits one surface action. Simulate the losing (unmounted) instance:
+    // it must NOT call onAction when the shared promise later resolves.
+    const onAction = mock(() => {});
+    let resolveConnect!: (result: ManagedOAuthConnectResult) => void;
+    const oauthClient: ManagedOAuthConnectClient = {
+      fetchProvider: mock(async () => null),
+      connect: mock(
+        () =>
+          new Promise<ManagedOAuthConnectResult>((resolve) => {
+            resolveConnect = resolve;
+          }),
+      ),
+    };
+
+    const { getByRole, unmount } = render(
+      <OAuthConnectSurface
+        surface={makeSurface({
+          surfaceType: "oauth_connect",
+          data: { providerKey: "google", displayName: "Google" },
+        })}
+        assistantId="assistant-1"
+        oauthClient={oauthClient}
+        onAction={onAction}
+      />,
+    );
+
+    fireEvent.click(getByRole("button", { name: "Connect" }));
+    await waitFor(() => expect(oauthClient.connect).toHaveBeenCalledTimes(1));
+
+    // The transcript re-render replaced this instance while OAuth was in flight.
+    unmount();
+    resolveConnect({
+      status: "connected",
+      connection: {
+        id: "conn-1",
+        provider: "google",
+        status: "ACTIVE",
+        connected: true,
+        account_label: "user@example.com",
+        scopes_granted: [],
+        expires_at: null,
+      } as OAuthConnection,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(onAction).not.toHaveBeenCalled();
   });
 
   test("does not double the verb when displayName already includes 'Connect'", () => {
