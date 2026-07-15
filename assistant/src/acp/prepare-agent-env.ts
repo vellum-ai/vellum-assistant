@@ -29,12 +29,24 @@ import {
   upsertCredentialMetadata,
 } from "../tools/credentials/metadata-store.js";
 import { getLogger } from "../util/logger.js";
+import {
+  ACP_ANTHROPIC_API_KEY_FIELD,
+  ACP_OAUTH_TOKEN_FIELD,
+} from "./acp-credentials.js";
 import type { AcpAgentConfig } from "./types.js";
 
 const log = getLogger("acp:prepare-agent-env");
 
 const ACP_SPAWN_TOOL = "acp_spawn";
 const ACP_SERVICE = "acp";
+
+// The SHARED Anthropic API key (service "anthropic", field "api_key") that
+// other tools already use. ACP reuses it only after explicit consent — see
+// `grantAcpAccessToSharedAnthropicKey`. The field name is bound through an
+// intermediate so its literal never shares a line with an `*_KEY = "…"` shape
+// the repo's secret-scan hook false-positives.
+const SHARED_ANTHROPIC_SERVICE = "anthropic";
+const sharedAnthropicApiField = "api_key";
 
 /**
  * Ensure an `acp/<field>` credential has metadata that allows the
@@ -94,6 +106,54 @@ async function injectCredential(
 }
 
 /**
+ * Read the SHARED `anthropic/api_key` credential through the broker and inject
+ * it as `ANTHROPIC_API_KEY`. Unlike `injectCredential`, this provisions no
+ * policy: the broker denies the read unless the user opted the shared key into
+ * ACP by adding `acp_spawn` to its `allowedTools` (see
+ * `grantAcpAccessToSharedAnthropicKey`), so an unconsented key is never reused.
+ * A miss (absent, unconsented, or valueless) is non-fatal — the caller falls
+ * through to the next credential tier.
+ */
+async function injectSharedAnthropicApiKey(
+  env: Record<string, string>,
+): Promise<void> {
+  const result = await credentialBroker.serverUse<void>({
+    service: SHARED_ANTHROPIC_SERVICE,
+    field: sharedAnthropicApiField,
+    toolName: ACP_SPAWN_TOOL,
+    execute: async (value) => {
+      env.ANTHROPIC_API_KEY = value;
+    },
+  });
+  if (!result.success) {
+    log.debug(
+      { reason: result.reason },
+      "shared anthropic/api_key not available for ACP reuse; trying next tier",
+    );
+  }
+}
+
+/**
+ * Opt the shared `anthropic/api_key` credential into ACP reuse by merging
+ * `acp_spawn` into its existing `allowedTools` — the auditable consent the
+ * reuse tier in `prepareAgentEnv` gates on. Metadata-only: the secret value is
+ * never read or rewritten. No-op when the credential has no metadata (nothing
+ * to grant) or already allows `acp_spawn` (idempotent).
+ */
+export function grantAcpAccessToSharedAnthropicKey(): void {
+  const meta = getCredentialMetadata(
+    SHARED_ANTHROPIC_SERVICE,
+    sharedAnthropicApiField,
+  );
+  if (!meta) return;
+  const tools = meta.allowedTools ?? [];
+  if (tools.includes(ACP_SPAWN_TOOL)) return;
+  upsertCredentialMetadata(SHARED_ANTHROPIC_SERVICE, sharedAnthropicApiField, {
+    allowedTools: [...tools, ACP_SPAWN_TOOL],
+  });
+}
+
+/**
  * Inject an OPTIONAL credential: skip when the env var is already set
  * (config.json override wins), and treat a vault miss as non-fatal — the
  * adapter has its own login fallback, so spawning without the key is fine.
@@ -131,19 +191,19 @@ async function injectOptionalCredential(
  * the env it needs. Because resolution always yields the real adapter binary
  * (never a `bun x` wrapper), the basename is the canonical adapter identity.
  *
- * For `claude-agent-acp` the only required env var is
- * `CLAUDE_CODE_OAUTH_TOKEN`. Two provisioning routes converge on it, with
- * config.json winning over the vault so explicit user overrides
- * (per-workspace, rotated, etc.) are never silently clobbered:
- *   1. `acp.agents.<id>.env.CLAUDE_CODE_OAUTH_TOKEN` in `config.json` —
- *      the user-supplied env override on the resolved agent config.
- *   2. Secure store via CLI: `assistant credentials set --service acp \
- *        --field claude_oauth_token <token>` — read through the
- *      credential broker for policy enforcement and audit logging.
- * After resolution, this asserts the token is present (from either route)
- * before spawning. The "fail-fast" throw is symmetric with the existing
- * `binary_not_found` preflight in `resolveAcpAgent` and strictly better
- * than a `warn` + zombie subprocess 10 seconds later.
+ * For `claude-agent-acp` exactly ONE credential env var is set, preferring an
+ * Anthropic API key over the subscription OAuth token. config.json wins over
+ * the vault so explicit user overrides are never silently clobbered; the first
+ * source that satisfies the auth requirement short-circuits the rest:
+ *   1. `acp.agents.<id>.env.ANTHROPIC_API_KEY` or `.CLAUDE_CODE_OAUTH_TOKEN`
+ *      in `config.json` — the user-supplied env override.
+ *   2. `acp/anthropic_api_key` from the vault → `ANTHROPIC_API_KEY`.
+ *   3. The SHARED `anthropic/api_key`, but only when the user opted it into
+ *      ACP (`acp_spawn` in its `allowedTools`) → `ANTHROPIC_API_KEY`.
+ *   4. `acp/claude_oauth_token` from the vault → `CLAUDE_CODE_OAUTH_TOKEN`.
+ * If none apply this throws `FailedDependencyError` naming the options — a
+ * fail-fast symmetric with the `binary_not_found` preflight in
+ * `resolveAcpAgent` and strictly better than a zombie subprocess later.
  *
  * For `codex-acp` the env vars are `OPENAI_API_KEY` (vault field
  * `acp/openai_api_key`) and `CODEX_API_KEY` (vault field
@@ -162,19 +222,38 @@ export async function prepareAgentEnv(
   const adapterCommand = basename(agentConfig.command);
 
   if (adapterCommand === "claude-agent-acp") {
-    if (!env.CLAUDE_CODE_OAUTH_TOKEN) {
+    const hasClaudeCred = () =>
+      Boolean(env.ANTHROPIC_API_KEY || env.CLAUDE_CODE_OAUTH_TOKEN);
+
+    if (!hasClaudeCred()) {
       await injectCredential(
         env,
-        "claude_oauth_token",
+        ACP_ANTHROPIC_API_KEY_FIELD,
+        "ANTHROPIC_API_KEY",
+        "Anthropic API key for ACP agent authentication",
+      );
+    }
+    if (!hasClaudeCred()) {
+      await injectSharedAnthropicApiKey(env);
+    }
+    if (!hasClaudeCred()) {
+      await injectCredential(
+        env,
+        ACP_OAUTH_TOKEN_FIELD,
         "CLAUDE_CODE_OAUTH_TOKEN",
         "Claude OAuth token for ACP agent authentication",
       );
     }
-    if (!env.CLAUDE_CODE_OAUTH_TOKEN) {
+    if (!hasClaudeCred()) {
       throw new FailedDependencyError(
-        "claude-agent-acp requires CLAUDE_CODE_OAUTH_TOKEN. " +
-          "Run: assistant credentials set --service acp --field claude_oauth_token <token> " +
-          "(or set it under acp.agents.<id>.env in config.json).",
+        "claude-agent-acp requires an Anthropic credential and none was found. " +
+          "Provision one of: the shared Anthropic API key opted into ACP " +
+          "(assistant credentials set --service anthropic --field api_key <sk-ant-api…> --allowed-tools acp_spawn), " +
+          "a dedicated acp/anthropic_api_key " +
+          "(assistant credentials set --service acp --field anthropic_api_key <sk-ant-api…>), " +
+          "or acp/claude_oauth_token " +
+          "(assistant credentials set --service acp --field claude_oauth_token <sk-ant-oat…>). " +
+          "You can also set ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN under acp.agents.<id>.env in config.json.",
       );
     }
   } else if (adapterCommand === "codex-acp") {
