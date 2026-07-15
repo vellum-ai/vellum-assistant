@@ -19,6 +19,10 @@ my-plugin/
 │   └── example.ts
 ├── routes/                    # HTTP routes, served under /x/plugins/<name>/
 │   └── status.ts
+├── apps/                      # Interactive apps served in the workspace panel
+│   └── dashboard/
+│       └── src/
+│           └── main.tsx
 ├── skills/                    # On-demand instruction bundles
 │   └── my-skill/
 │       └── SKILL.md
@@ -58,7 +62,7 @@ The assistant's own database is internal — `@vellumai/plugin-api` exposes no h
 
 Each surface can also be dropped straight into the workspace at `/workspace/<surface>/<name>/` without wrapping it in a plugin. A plugin is what lets you ship several surfaces together as one installable unit.
 
-The per-surface contracts live in their own references: [hooks.md](hooks.md), [tools.md](tools.md), [skills.md](skills.md), and [routes.md](routes.md).
+The per-surface contracts live in their own references: [hooks.md](hooks.md), [tools.md](tools.md), [skills.md](skills.md), [routes.md](routes.md), and [apps.md](apps.md).
 
 ## The manifest
 
@@ -120,7 +124,6 @@ The assistant supports these surfaces today, but they are not yet contributed th
 | Surface        | What it does                                                                                                  |
 | -------------- | ------------------------------------------------------------------------------------------------------------- |
 | Schedules      | Cron-style triggers that fire on a recurring schedule.                                                        |
-| Apps           | Persistent interactive apps (dashboards, games, tools) served in the workspace panel.                         |
 | Artifacts      | Versioned outputs the assistant produces and tracks (documents, diagrams, generated files).                   |
 | Webhooks       | Inbound HTTP endpoints that deliver external events into the assistant.                                       |
 | Prompts        | Reusable system prompt fragments and templates.                                                               |
