@@ -8,7 +8,7 @@
  */
 
 import { Database } from "bun:sqlite";
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
@@ -24,17 +24,6 @@ import { computeHotSet, type HotSetOptions } from "./hot-set.js";
 const HALF_LIFE_MS = 1000;
 const NOW = 100_000;
 
-// Fail-soft seam: `mock.module` is process-global and leaks into sibling
-// files in a directory run, so the stub DELEGATES to the real accessor unless
-// a test flips `memoryDbUnavailable`.
-const realMemoryDb = { ...(await import("../memory-db.js")) };
-let memoryDbUnavailable = false;
-mock.module("../memory-db.js", () => ({
-  ...realMemoryDb,
-  memorySqliteOrNull: (context: string) =>
-    memoryDbUnavailable ? null : realMemoryDb.memorySqliteOrNull(context),
-}));
-
 let sqlite: Database;
 
 beforeEach(() => {
@@ -44,7 +33,6 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  memoryDbUnavailable = false;
   clearStoredDb("memory");
 });
 
@@ -131,7 +119,14 @@ describe("computeHotSet", () => {
 
   test("degrades to an empty hot set when the memory database is unavailable", () => {
     seed("page-a", [NOW]);
-    memoryDbUnavailable = true;
+    // Simulate unavailability through the singleton slot instead of
+    // `mock.module`, which is process-global and leaks into sibling test
+    // files. The accessor extracts the raw connection from the stored
+    // handle's `$client`, so a handle without one makes `getMemorySqlite()`
+    // resolve to null, the same contract computeHotSet sees when the
+    // dedicated open fails.
+    clearStoredDb("memory");
+    setStoredDb("memory", { $client: null }, () => {});
     expect(hotSet()).toEqual([]);
   });
 });
