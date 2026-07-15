@@ -8,7 +8,14 @@ import {
     SquarePen,
     X,
 } from "lucide-react";
-import { useCallback, type ReactNode } from "react";
+import {
+    useCallback,
+    useLayoutEffect,
+    useRef,
+    useState,
+    type CSSProperties,
+    type ReactNode,
+} from "react";
 
 import { useCommandPaletteStore } from "@/stores/command-palette-store";
 
@@ -186,6 +193,45 @@ export function AssistantSideMenu({
   const pinnedApps = usePinnedAppsStore.use.pinnedApps();
 
   const isCollapsedRail = collapsed && variant === "rail";
+
+  // --- Overlay bottom reserve ---
+  // The overlay's floating bottom column (tip card + action pills) covers the
+  // scrollable body, so the body reserves matching bottom padding to keep the
+  // last conversation rows scrollable clear of it. Measured (not static)
+  // because the tip card appears/disappears and its copy length varies.
+  const overlayBottomColumnRef = useRef<HTMLDivElement | null>(null);
+  const [overlayBottomColumnHeight, setOverlayBottomColumnHeight] = useState(0);
+
+  useLayoutEffect(() => {
+    if (variant !== "overlay") {
+      setOverlayBottomColumnHeight(0);
+      return;
+    }
+
+    const el = overlayBottomColumnRef.current;
+    if (!el) {
+      return;
+    }
+
+    const updateHeight = () => {
+      const nextHeight = Math.ceil(el.getBoundingClientRect().height);
+      setOverlayBottomColumnHeight((currentHeight) =>
+        currentHeight === nextHeight ? currentHeight : nextHeight,
+      );
+    };
+
+    updateHeight();
+
+    if (typeof ResizeObserver === "undefined") {
+      return;
+    }
+
+    const observer = new ResizeObserver(updateHeight);
+    observer.observe(el);
+    return () => observer.disconnect();
+    // `tipCard` re-runs the initial measure on card mount/unmount as a
+    // fallback for environments without ResizeObserver.
+  }, [variant, tipCard]);
 
   // --- Drag-reorder (Pinned + custom groups; sections sorted by displayOrder) ---
 
@@ -368,10 +414,23 @@ export function AssistantSideMenu({
         <SideMenu.Body
           className={
             variant === "overlay"
-              /* pb-24 keeps the last rows scrollable clear of the floating
-                 action pills. */
+              /* pb-24 approximates the floating-column reserve until the
+                 measured inline padding below takes over (layout effects
+                 don't run in static/server markup). */
               ? "gap-4 pt-3 pb-24 max-md:pt-4"
               : "gap-4 pt-3 max-md:pt-4"
+          }
+          style={
+            variant === "overlay" && overlayBottomColumnHeight > 0
+              ? {
+                  /* The floating column overlaps the scrollport by its own
+                     height + the safe-area inset (its 1rem bottom offset
+                     cancels against the root's p-4); + 1rem breathing gap. */
+                  "--overlay-bottom-column-h": `${overlayBottomColumnHeight}px`,
+                  paddingBottom:
+                    "calc(var(--overlay-bottom-column-h) + 1rem + var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)))",
+                } as CSSProperties
+              : undefined
           }
         >
           {variant === "overlay" ? builtInNav : null}
@@ -525,6 +584,7 @@ export function AssistantSideMenu({
              while letting their drop shadows fade out naturally instead of
              being clipped at a safe-area boundary. */
           <div
+            ref={overlayBottomColumnRef}
             className="pointer-events-none absolute inset-x-4 z-10 flex flex-col gap-4"
             style={{
               bottom:

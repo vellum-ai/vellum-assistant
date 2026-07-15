@@ -8,6 +8,7 @@
  */
 
 import { describe, expect, mock, test } from "bun:test";
+import { act, cleanup, render, waitFor } from "@testing-library/react";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
@@ -330,6 +331,129 @@ describe("AssistantSideMenu · tipCard slot", () => {
     const html = renderMenu({ conversations, variant: "overlay" });
 
     expect(html).not.toContain("empty:hidden");
+  });
+});
+
+describe("AssistantSideMenu · overlay bottom scroll reserve", () => {
+  const conversations = [
+    makeConversation({ conversationId: "a", title: "Alpha" }),
+  ];
+
+  const sliceBodyOpeningTag = (html: string): string => {
+    const slotIndex = html.indexOf('data-slot="side-menu-body"');
+    expect(slotIndex).toBeGreaterThanOrEqual(0);
+    const open = html.lastIndexOf("<div", slotIndex);
+    const close = html.indexOf(">", slotIndex);
+    return html.slice(open, close + 1);
+  };
+
+  test("overlay static markup keeps the pb-24 fallback (layout effects don't run in static rendering)", () => {
+    const tag = sliceBodyOpeningTag(
+      renderMenu({ conversations, variant: "overlay", includeTipCard: true }),
+    );
+
+    expect(tag).toContain("pb-24");
+    expect(tag).not.toContain("padding-bottom");
+  });
+
+  test("rail body reserves no bottom padding", () => {
+    const tag = sliceBodyOpeningTag(renderMenu({ conversations }));
+
+    expect(tag).not.toContain("pb-24");
+    expect(tag).not.toContain("padding-bottom");
+  });
+
+  test("reserves the measured floating-column height once mounted", async () => {
+    const originalGetBoundingClientRect =
+      HTMLElement.prototype.getBoundingClientRect;
+    const originalResizeObserver = globalThis.ResizeObserver;
+    let measuredHeight = 132;
+    let resizeCallback: ResizeObserverCallback | null = null;
+
+    // Only the floating-column ref is measured by the reserve effect, so
+    // matching by tip descendant is safe — ancestors are never measured.
+    HTMLElement.prototype.getBoundingClientRect =
+      function getBoundingClientRect() {
+        if (this.querySelector('[data-testid="overlay-tip"]')) {
+          return {
+            bottom: measuredHeight,
+            height: measuredHeight,
+            left: 0,
+            right: 0,
+            top: 0,
+            width: 0,
+            x: 0,
+            y: 0,
+            toJSON: () => ({}),
+          };
+        }
+        return originalGetBoundingClientRect.call(this);
+      };
+    // Other components in the tree construct their own ResizeObservers, so
+    // capture the callback of the one observing the floating column rather
+    // than whichever was constructed last.
+    globalThis.ResizeObserver = class {
+      callback: ResizeObserverCallback;
+      constructor(callback: ResizeObserverCallback) {
+        this.callback = callback;
+      }
+      observe(target: Element) {
+        if (target.querySelector('[data-testid="overlay-tip"]')) {
+          resizeCallback = this.callback;
+        }
+      }
+      unobserve() {}
+      disconnect() {}
+    } as unknown as typeof ResizeObserver;
+
+    try {
+      const { container } = render(
+        createElement(AssistantSideMenu, {
+          assistantId: "asst-1",
+          collapsed: false,
+          variant: "overlay",
+          conversations,
+          onSelectConversation: () => {},
+          onStartNewConversation: () => {},
+          footerAction: createElement("span", null, "Preferences"),
+          tipCard: createElement(
+            "span",
+            { "data-testid": "overlay-tip" },
+            "TipSentinel",
+          ),
+        }),
+      );
+
+      // happy-dom's CSSStyleDeclaration drops values containing `env()`,
+      // so the composed `padding-bottom` calc is unobservable here; the
+      // measured height feeding it is asserted via its custom property,
+      // which happy-dom stores verbatim.
+      const measuredReserve = () => {
+        const body = container.querySelector<HTMLElement>(
+          '[data-slot="side-menu-body"]',
+        );
+        return body?.style.getPropertyValue("--overlay-bottom-column-h") ?? "";
+      };
+
+      await waitFor(() => {
+        expect(measuredReserve()).toBe("132px");
+      });
+
+      // Tip dismissal / copy-length changes resize the column; the
+      // reserve tracks the new height through the ResizeObserver.
+      measuredHeight = 56;
+      act(() => {
+        resizeCallback?.([], {} as ResizeObserver);
+      });
+      await waitFor(() => {
+        expect(measuredReserve()).toBe("56px");
+      });
+    } finally {
+      HTMLElement.prototype.getBoundingClientRect =
+        originalGetBoundingClientRect;
+      globalThis.ResizeObserver = originalResizeObserver;
+      cleanup();
+    }
   });
 });
 
