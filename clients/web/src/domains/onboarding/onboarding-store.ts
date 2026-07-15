@@ -12,7 +12,7 @@
  * are populated on session sync (e.g. `restoreConsentForUser`, called from
  * the auth store once the user id is known). Persistence to durable per-user
  * device keys is handled by `persistConsentForUser` in
- * `onboarding-cleanup.ts`. `consentHydrated` (also in-memory-only) records
+ * `consent-persistence.ts`. `consentHydrated` (also in-memory-only) records
  * that a session sync — or an explicit user acceptance — has populated those
  * flags, so route guards can distinguish "not yet loaded" from a genuine
  * `false`.

@@ -38,7 +38,7 @@ mock.module("@/domains/onboarding/prefs", () => ({
 }));
 
 const saveConsentMock = mock((_args: unknown) => {});
-mock.module("@/utils/onboarding-cleanup", () => ({
+mock.module("@/lib/consent/consent-persistence", () => ({
   saveConsent: saveConsentMock,
   PRIVACY_CONSENT_VERSION: "2026-06-22",
   TOS_CONSENT_VERSION: "2026-06-08",

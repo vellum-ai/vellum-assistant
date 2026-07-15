@@ -26,7 +26,7 @@ import {
     PRIVACY_CONSENT_VERSION,
     TOS_CONSENT_VERSION,
     saveConsent,
-} from "@/utils/onboarding-cleanup";
+} from "@/lib/consent/consent-persistence";
 import { sanitizeReturnTo } from "@/utils/return-to";
 import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";

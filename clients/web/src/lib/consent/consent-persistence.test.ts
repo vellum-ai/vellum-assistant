@@ -1,5 +1,5 @@
 /**
- * Tests for the versioned share-toggle consent layer in `onboarding-cleanup`.
+ * Tests for the versioned share-toggle consent layer in `consent-persistence`.
  *
  * Collaborators (`onboarding-store`, `profile.patchConsent`,
  * `device-settings`) are mocked so we exercise the per-user device-key
@@ -35,7 +35,7 @@ mock.module("@/domains/onboarding/onboarding-store", () => ({
   useOnboardingStore: { getState: () => storeState },
 }));
 
-// `onboarding-cleanup` only needs `patchConsent`; the real `profile` module
+// `consent-persistence` only needs `patchConsent`; the real `profile` module
 // pulls in the generated API client (unavailable in unit tests), so stub it.
 const patchConsentMock = mock(async (_consent: ConsentPatch) => {});
 mock.module("@/domains/account/profile", () => ({
@@ -65,7 +65,7 @@ import {
   restoreConsentForUser,
   saveConsent,
   savePreferenceToggle,
-} from "@/utils/onboarding-cleanup";
+} from "@/lib/consent/consent-persistence";
 import type { UserConsent } from "@/domains/account/profile";
 
 function makeConsent(overrides: Partial<UserConsent> = {}): UserConsent {

@@ -18,7 +18,7 @@ import {
     getDeviceSetting,
     setDeviceSetting,
 } from "@/utils/device-settings";
-import { savePreferenceToggle } from "@/utils/onboarding-cleanup";
+import { savePreferenceToggle } from "@/lib/consent/consent-persistence";
 import { legalUrl, routes } from "@/utils/routes";
 import { Dropdown } from "@vellumai/design-library/components/dropdown";
 

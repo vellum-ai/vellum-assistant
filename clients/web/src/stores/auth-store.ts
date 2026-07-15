@@ -70,7 +70,7 @@ import {
   PRIVACY_CONSENT_VERSION,
   ANALYTICS_CONSENT_VERSION,
   DIAGNOSTICS_CONSENT_VERSION,
-} from "@/utils/onboarding-cleanup";
+} from "@/lib/consent/consent-persistence";
 import { useOnboardingStore } from "@/domains/onboarding/onboarding-store";
 import {
   applyResolvedDiagnosticsConsent,
