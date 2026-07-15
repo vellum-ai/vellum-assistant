@@ -9,6 +9,7 @@
  *   2. The main connection no longer ATTACHes the memory file: there is no
  *      `memory` schema on its `database_list`.
  *   3. The relocated memory tables (`memory_jobs`, `memory_v2_injection_events`,
+ *      `memory_v2_activation_logs`, `memory_recall_logs`,
  *      `memory_v3_selections`, `activation_sessions`) live in the dedicated
  *      memory connection, not in the main connection — proving the physical
  *      split.
@@ -56,6 +57,8 @@ describe("memory database connection", () => {
   test.each([
     "memory_jobs",
     "memory_v2_injection_events",
+    "memory_v2_activation_logs",
+    "memory_recall_logs",
     "memory_v3_selections",
     "activation_sessions",
   ])("%s lives in the memory connection, not main", (table) => {

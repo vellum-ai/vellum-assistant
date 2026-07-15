@@ -443,6 +443,8 @@ import { migrateMoveSkillLoadedEventsToTelemetryDb } from "./migrations/332-move
 import { migrateCreateTelemetryEventsTable } from "./migrations/333-create-telemetry-events-table.js";
 import { migrateBackfillTelemetryEventsOutbox } from "./migrations/334-backfill-telemetry-events-outbox.js";
 import { migrateCollapseMemoryEmbedBacklog } from "./migrations/335-collapse-memory-embed-backlog.js";
+import { migrateMoveMemoryV2ActivationLogsToMemoryDb } from "./migrations/336-move-memory-v2-activation-logs-to-memory-db.js";
+import { migrateMoveMemoryRecallLogsToMemoryDb } from "./migrations/337-move-memory-recall-logs-to-memory-db.js";
 import { migrateMoveMemoryV3SelectionsToMemoryDb } from "./migrations/338-move-memory-v3-selections-to-memory-db.js";
 import { migrateMoveActivationSessionsToMemoryDb } from "./migrations/339-move-activation-sessions-to-memory-db.js";
 import type { MigrationStep } from "./migrations/run-migrations.js";
@@ -1359,6 +1361,25 @@ export const migrationSteps: MigrationStep[] = [
   migrateCreateTelemetryEventsTable,
   migrateBackfillTelemetryEventsOutbox,
   migrateCollapseMemoryEmbedBacklog,
+  {
+    name: "migrateMoveMemoryV2ActivationLogsToMemoryDb",
+    run: migrateMoveMemoryV2ActivationLogsToMemoryDb,
+    // 256's backfill reads memory_v2_activation_logs from main, so the move
+    // must not run on a database where 256 is still pending.
+    dependsOn: [
+      "migrateMemoryV2ActivationLogs",
+      "migrateMemoryV2InjectionEvents",
+    ],
+  },
+  {
+    name: "migrateMoveMemoryRecallLogsToMemoryDb",
+    run: migrateMoveMemoryRecallLogsToMemoryDb,
+    dependsOn: [
+      "migrateCreateMemoryRecallLogs",
+      "migrateMemoryRecallLogsQueryContext",
+      "migrateDeletePrivateConversations",
+    ],
+  },
   {
     name: "migrateMoveMemoryV3SelectionsToMemoryDb",
     run: migrateMoveMemoryV3SelectionsToMemoryDb,
