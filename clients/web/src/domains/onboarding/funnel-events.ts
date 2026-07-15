@@ -124,6 +124,11 @@ export interface OnboardingFunnelStepCompletedOptions {
   funnelVersion?: string;
   /** Completed vs skipped; omitted when the funnel doesn't distinguish. */
   outcome?: OnboardingFunnelStepOutcome;
+  /**
+   * Emitted `screen` when it differs from the step name — e.g. the tips
+   * funnel puts the tip id in `screen` and the action in `step_name`.
+   */
+  screen?: string;
 }
 
 export interface OnboardingFunnelEvent {
@@ -212,7 +217,7 @@ export function buildOnboardingFunnelEvent(
     type: "onboarding",
     daemon_event_id: crypto.randomUUID(),
     recorded_at: now,
-    screen: screen.stepName,
+    screen: options.screen ?? screen.stepName,
     session_id: getOnboardingFunnelSessionId(),
     step_name: screen.stepName,
     step_index: screen.stepIndex,
