@@ -167,9 +167,9 @@ function getButton(label: string): HTMLButtonElement {
 }
 
 /**
- * Display Name (and, for openai-compatible, the Key) live under a collapsed
- * "Advanced" disclosure. Open it so those inputs mount before a test reads
- * or edits them. Idempotent — a no-op when the section is already expanded.
+ * Display Name lives under a collapsed "Advanced" disclosure. Open it so the
+ * input mounts before a test reads or edits it. Idempotent — a no-op when the
+ * section is already expanded.
  */
 function openAdvancedFields(): void {
   const button = Array.from(
@@ -285,12 +285,12 @@ describe("ProviderCreateForm submit sequence", () => {
     expect(created?.name).toBe("anthropic-personal");
   });
 
-  test("blocks a duplicate openai-compatible key with the validation message", () => {
+  test("dedupes openai-compatible names without exposing the internal key", async () => {
     render(
       <ModalWrapper>
         <ProviderCreateForm
           assistantId={ASSISTANT_ID}
-          existingNames={["my-endpoint"]}
+          existingNames={["openai-compatible-personal"]}
           defaultProviderType="openai-compatible"
           onCreated={() => {}}
           onCancel={() => {}}
@@ -299,14 +299,24 @@ describe("ProviderCreateForm submit sequence", () => {
     );
 
     openAdvancedFields();
-    fireEvent.change(getInputByPlaceholder("e.g. my-endpoint"), {
-      target: { value: "my-endpoint" },
-    });
-
-    expect(document.body.textContent).toContain(
-      'A provider named "my-endpoint" already exists.',
+    expect(document.body.textContent).not.toContain(
+      "openai-compatible-personal",
     );
-    expect(getButton("Add").disabled).toBe(true);
+    expect(
+      Array.from(document.querySelectorAll<HTMLInputElement>("input")).some(
+        (input) => input.placeholder === "e.g. my-endpoint",
+      ),
+    ).toBe(false);
+
+    fireEvent.click(getButton("Add"));
+
+    await waitFor(() => {
+      expect(createConnectionCalls.length).toBe(1);
+    });
+    expect(createConnectionCalls[0].body).toMatchObject({
+      name: "openai-compatible-personal-2",
+      provider: "openai-compatible",
+    });
   });
 
   test("variant=inline renders the form without Modal chrome and still creates", async () => {
@@ -616,7 +626,7 @@ describe("ProviderCreateForm submit sequence", () => {
     });
   });
 
-  test("a provider switch re-seeds the hidden key even after a Display Name edit", async () => {
+  test("switching to openai-compatible re-seeds the hidden name after a Display Name edit", async () => {
     render(
       <ModalWrapper>
         <ProviderCreateForm
@@ -633,11 +643,8 @@ describe("ProviderCreateForm submit sequence", () => {
     fireEvent.change(getInputByPlaceholder("e.g. My Anthropic Key"), {
       target: { value: "My Custom Name" },
     });
-    selectDropdownOption("Provider", "OpenAI");
+    selectDropdownOption("Provider", "OpenAI-compatible");
 
-    fireEvent.change(getInputByPlaceholder("Enter your API key"), {
-      target: { value: "sk-test-123" },
-    });
     fireEvent.click(getButton("Add"));
 
     await waitFor(() => {
@@ -645,8 +652,8 @@ describe("ProviderCreateForm submit sequence", () => {
     });
     // Label edit preserved; key follows the provider's convention seed.
     expect(createConnectionCalls[0].body).toMatchObject({
-      name: "openai-personal",
-      provider: "openai",
+      name: "openai-compatible-personal",
+      provider: "openai-compatible",
       label: "My Custom Name",
     });
   });
@@ -683,7 +690,7 @@ describe("ProviderCreateForm submit sequence", () => {
     });
   });
 
-  test("the key input only exists for openai-compatible", () => {
+  test("internal provider keys never render as editable inputs", () => {
     render(
       <ModalWrapper>
         <ProviderCreateForm
@@ -696,17 +703,20 @@ describe("ProviderCreateForm submit sequence", () => {
       </ModalWrapper>,
     );
 
-    const keyInputMounted = () =>
+    const internalKeyInputMounted = () =>
       Array.from(document.querySelectorAll<HTMLInputElement>("input")).some(
         (el) => el.placeholder === "e.g. my-endpoint",
       );
 
     openAdvancedFields();
-    expect(keyInputMounted()).toBe(false);
+    expect(internalKeyInputMounted()).toBe(false);
 
     selectDropdownOption("Provider", "OpenAI-compatible");
     openAdvancedFields();
-    expect(keyInputMounted()).toBe(true);
+    expect(internalKeyInputMounted()).toBe(false);
+    expect(document.body.textContent).not.toContain(
+      "openai-compatible-personal",
+    );
   });
 
   test("clicking Cancel invokes onCancel", () => {

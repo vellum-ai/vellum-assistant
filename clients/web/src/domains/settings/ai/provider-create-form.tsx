@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, useRef, useState, type ReactNode } from "react";
 
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@vellumai/design-library/components/button";
@@ -35,7 +35,6 @@ import {
 } from "@/domains/settings/ai/provider-editor-constants";
 import { useSelectableConnectionProviders } from "@/domains/settings/ai/provider-availability";
 import { secretPlaceholder } from "@/domains/settings/ai/secret-placeholder";
-import { useLabelKeySync } from "@/domains/settings/ai/use-label-key-sync";
 import { useProviderCredentialsList } from "@/domains/settings/ai/use-provider-credentials-list";
 
 // ---------------------------------------------------------------------------
@@ -78,11 +77,8 @@ export function ProviderCreateForm({
       ? defaultProviderType
       : (selectableConnectionProviders[0] ?? "anthropic");
 
-  // Seed Display Name (label) + Key (name) from the initial provider type so
-  // the form opens pre-filled (e.g. Anthropic → "Anthropic" / "anthropic"),
-  // deduped against existing connection names. The user can override both, and
-  // a provider-type change re-seeds only while they haven't edited the fields
-  // (see the dirty guard in the Provider dropdown's onChange below).
+  // Seed the user-facing label and internal name from the provider type,
+  // deduped against existing provider names.
   const initialDefaults = deriveProviderDefaults(
     initialProvider,
     existingNames,
@@ -130,19 +126,12 @@ export function ProviderCreateForm({
     return base;
   }, [isChatgpt, provider, selectableConnectionProviders]);
 
-  // Key-follows-label sync only while the key field is visible
-  // (openai-compatible). For catalog providers the key has no editor and must
-  // stay on the `${provider}-personal` convention seed, so label edits pass
-  // through in the hook's non-syncing mode (still marking the form dirty).
-  const {
-    handleLabelChange,
-    handleKeyChange: handleNameChange,
-    getDirty,
-  } = useLabelKeySync(
-    isOpenAICompatible ? "create" : "edit",
-    setLabel,
-    setName,
-  );
+  const isLabelDirty = useRef(false);
+
+  function handleLabelChange(newLabel: string) {
+    isLabelDirty.current = true;
+    setLabel(newLabel);
+  }
 
   const [apiKeyValue, setApiKeyValue] = useState("");
   const [isSavingKey, setIsSavingKey] = useState(false);
@@ -171,17 +160,7 @@ export function ProviderCreateForm({
     enabled: true,
   });
 
-  const nameError = (() => {
-    if (!name.trim()) {
-      return null;
-    }
-    if (existingNames.includes(name.trim())) {
-      return `A provider named "${name.trim()}" already exists.`;
-    }
-    return null;
-  })();
-
-  const canSave = name.trim().length > 0 && !nameError;
+  const canSave = name.trim().length > 0;
 
   async function handleSave() {
     if (!canSave) {
@@ -280,19 +259,7 @@ export function ProviderCreateForm({
           body: input,
         });
       if (!createRes?.ok) {
-        let serverMessage: string | undefined;
-        try {
-          const body = await createRes?.json();
-          if (typeof body?.error?.message === "string") {
-            serverMessage = body.error.message;
-          }
-        } catch {
-          // Response body not JSON-parseable; fall through to generic message.
-        }
-        setError(
-          serverMessage ||
-            connectionSaveErrorMessage(createRes?.status, name.trim()),
-        );
+        setError(connectionSaveErrorMessage(createRes?.status));
         return;
       }
       if (!created) {
@@ -326,10 +293,8 @@ export function ProviderCreateForm({
     hasStoredCredential,
   );
 
-  // Display Name + Key are auto-derived from the selected provider and rarely
-  // need editing, so they live under an "Advanced" disclosure. Force it open
-  // when the Key collides with an existing connection so the error is visible.
-  const detailsOpen = isDetailsExpanded || Boolean(nameError);
+  // Display Name is optional and rarely needs editing.
+  const detailsOpen = isDetailsExpanded;
 
   const advancedDetailsSection = (
     <div>
@@ -361,34 +326,6 @@ export function ProviderCreateForm({
             />
           </div>
 
-          {/* Key — auto-derived from the provider; editable only for
-              openai-compatible, where several endpoints can coexist and the
-              key is what tells them apart. */}
-          {isOpenAICompatible && (
-            <div className="space-y-1">
-              <label className="block text-body-small-default text-[var(--content-tertiary)]">
-                Key
-              </label>
-              <Input
-                value={name}
-                onChange={(e) => {
-                  handleNameChange(e.target.value);
-                  setError(null);
-                }}
-                placeholder="e.g. my-endpoint"
-                fullWidth
-              />
-            </div>
-          )}
-          {nameError && (
-            <Typography
-              variant="body-small-default"
-              as="p"
-              className="text-(--system-negative-strong)"
-            >
-              {nameError}
-            </Typography>
-          )}
         </div>
       )}
     </div>
@@ -410,23 +347,16 @@ export function ProviderCreateForm({
             if (newSelected === "chatgpt") {
               return;
             }
-            // Re-seed Name + Key from the newly selected provider type.
-            // A user-edited Display Name is preserved (dirty tracking lives
-            // in useLabelKeySync), but the key ALWAYS follows the provider
-            // for catalog providers — it has no editor there, so a stale
-            // seed from a previous selection would silently violate the
-            // `${provider}-personal` convention. Seeding writes state
-            // directly so it doesn't itself flip the dirty flag.
+            // Internal names always follow the selected provider. Preserve a
+            // user-edited Display Name across provider changes.
             const { name: seedName, key: seedKey } = deriveProviderDefaults(
               newSelected,
               existingNames,
             );
-            if (!getDirty()) {
+            if (!isLabelDirty.current) {
               setLabel(seedName);
-              setName(seedKey);
-            } else if (newSelected !== "openai-compatible") {
-              setName(seedKey);
             }
+            setName(seedKey);
             setCredential(
               newSelected === "ollama"
                 ? ""

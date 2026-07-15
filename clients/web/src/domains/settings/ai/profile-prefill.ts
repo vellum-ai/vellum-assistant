@@ -35,8 +35,8 @@ function dedupeKey(base: string, existing: string[]): string {
  * connection names. The key follows the daemon's `${provider}-personal`
  * convention (see `resolveDefaultConnectionName`) so that recreating a
  * provider satisfies dangling default-provider/profile bindings that
- * reference the conventional row — the key editor is hidden for catalog
- * providers, so the seed must match the convention on its own.
+ * reference the conventional row. Provider keys are not user-editable, so the
+ * seed must match the convention and remain unique on its own.
  */
 export function deriveProviderDefaults(
   providerType: string,

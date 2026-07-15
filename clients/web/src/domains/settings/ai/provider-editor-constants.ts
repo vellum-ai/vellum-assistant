@@ -1,4 +1,9 @@
-import type { Auth, ConnectionProvider } from "@/generated/daemon/types.gen";
+import { PROVIDER_DISPLAY_NAMES } from "@/assistant/llm-model-catalog";
+import type {
+  Auth,
+  ConnectionProvider,
+  ProviderConnection,
+} from "@/generated/daemon/types.gen";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -39,17 +44,18 @@ export function parseCredentialRef(
   credRef: string,
 ): { service: string; field: string } | null {
   const parts = credRef.split("/");
-  if (parts.length < 3 || parts[0] !== "credential") return null;
+  if (parts.length < 3 || parts[0] !== "credential") {
+    return null;
+  }
   return { service: parts[1], field: parts.slice(2).join("/") };
 }
 
 export function connectionSaveErrorMessage(
   status: number | undefined,
-  connectionName: string,
 ): string {
   switch (status) {
     case 409:
-      return `A provider named "${connectionName}" already exists.`;
+      return "A provider with these settings already exists.";
     case 404:
       return "Provider not found. It may have been removed.";
     case 400:
@@ -57,4 +63,16 @@ export function connectionSaveErrorMessage(
     default:
       return "Failed to save provider. Please try again.";
   }
+}
+
+export function providerConnectionDisplayName(
+  connection: ProviderConnection,
+): string {
+  if (connection.label) {
+    return connection.label;
+  }
+  if (connection.auth.type === "oauth_subscription") {
+    return PROVIDER_DISPLAY_NAMES.chatgpt;
+  }
+  return PROVIDER_DISPLAY_NAMES[connection.provider] ?? connection.provider;
 }

@@ -16,7 +16,6 @@ import {
   secretsPost,
 } from "@/generated/daemon/sdk.gen";
 
-import { PROVIDER_DISPLAY_NAMES } from "@/assistant/llm-model-catalog";
 import { ChatgptOAuthSection } from "@/domains/settings/ai/chatgpt-oauth-section";
 import type {
   Auth,
@@ -29,9 +28,9 @@ import { ProviderEditorApiKeySection } from "@/domains/settings/ai/provider-edit
 import {
   connectionSaveErrorMessage,
   parseCredentialRef,
+  providerConnectionDisplayName,
 } from "@/domains/settings/ai/provider-editor-constants";
 import { secretPlaceholder } from "@/domains/settings/ai/secret-placeholder";
-import { useLabelKeySync } from "@/domains/settings/ai/use-label-key-sync";
 import { useProviderCredentialsList } from "@/domains/settings/ai/use-provider-credentials-list";
 
 // ---------------------------------------------------------------------------
@@ -61,16 +60,18 @@ export function ProviderEditorContent({
   onCancel,
 }: ProviderEditorContentProps) {
   const [label, setLabel] = useState(connection?.label ?? "");
-  const [name, setName] = useState(connection?.name ?? "");
-  const [provider, setProvider] = useState<ConnectionProvider>(
-    connection?.provider ?? "anthropic",
-  );
+  const name = connection?.name ?? "";
+  const provider: ConnectionProvider = connection?.provider ?? "anthropic";
   // Auth is fixed to the stored type — the editor rotates keys but never
   // switches auth modality (that's a different provider entry).
   const authType: Auth["type"] = connection?.auth.type ?? "api_key";
   const [credential, setCredential] = useState(() => {
-    if (connection?.auth.type === "api_key") return connection.auth.credential;
-    if (!connection) return `credential/anthropic/api_key`;
+    if (connection?.auth.type === "api_key") {
+      return connection.auth.credential;
+    }
+    if (!connection) {
+      return `credential/anthropic/api_key`;
+    }
     return "";
   });
   const [baseUrl, setBaseUrl] = useState(connection?.baseUrl ?? "");
@@ -84,12 +85,6 @@ export function ProviderEditorContent({
   const [error, setError] = useState<string | null>(null);
 
   const isOpenAICompatible = provider === "openai-compatible";
-
-  const { handleLabelChange, resetDirty } = useLabelKeySync(
-    mode,
-    setLabel,
-    setName,
-  );
 
   const [apiKeyValue, setApiKeyValue] = useState("");
   const [isSavingKey, setIsSavingKey] = useState(false);
@@ -127,8 +122,6 @@ export function ProviderEditorContent({
   useEffect(() => {
     const effectiveProvider = connection?.provider ?? "anthropic";
     setLabel(connection?.label ?? "");
-    setName(connection?.name ?? "");
-    setProvider(effectiveProvider);
     if (connection?.auth.type === "api_key") {
       setCredential(connection.auth.credential);
     } else if (!connection) {
@@ -136,8 +129,6 @@ export function ProviderEditorContent({
     } else {
       setCredential("");
     }
-    resetDirty();
-
     setError(null);
 
     // Reset openai-compatible fields
@@ -152,16 +143,16 @@ export function ProviderEditorContent({
     // newCredentialName) resets automatically on unmount/remount.
     setApiKeyValue("");
     setIsSavingKey(false);
-  }, [connection, resetDirty]);
+  }, [connection]);
 
-  // Only edit reaches this component's own Save (create is owned by
-  // ProviderCreateForm via the early return below), and the Key field is
-  // fixed/disabled there, so a non-empty name is the only save gate. Duplicate
-  // -name validation lives in ProviderCreateForm.
+  // Only edit reaches this component's own Save. The internal provider name
+  // remains fixed, so a non-empty value is the only save gate.
   const canSave = name.trim().length > 0;
 
   async function handleSave() {
-    if (!canSave) return;
+    if (!canSave) {
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
@@ -249,19 +240,7 @@ export function ProviderEditorContent({
           body: input,
         });
       if (!updateRes?.ok) {
-        let serverMessage: string | undefined;
-        try {
-          const body = await updateRes?.json();
-          if (typeof body?.error?.message === "string") {
-            serverMessage = body.error.message;
-          }
-        } catch {
-          // Response body not JSON-parseable; fall through to generic message.
-        }
-        setError(
-          serverMessage ||
-            connectionSaveErrorMessage(updateRes?.status, name.trim()),
-        );
+        setError(connectionSaveErrorMessage(updateRes?.status));
         return;
       }
       if (!updated) {
@@ -320,7 +299,9 @@ export function ProviderEditorContent({
       <Modal.Header>
         <Modal.Title>Edit Provider</Modal.Title>
         <Modal.Description>
-          {`Editing ${PROVIDER_DISPLAY_NAMES[provider] ?? provider} (${connection?.name}).`}
+          {connection
+            ? `Editing ${providerConnectionDisplayName(connection)}.`
+            : "Edit provider settings."}
         </Modal.Description>
       </Modal.Header>
 
@@ -333,7 +314,7 @@ export function ProviderEditorContent({
           </label>
           <Input
             value={label}
-            onChange={(e) => handleLabelChange(e.target.value)}
+            onChange={(e) => setLabel(e.target.value)}
             placeholder="e.g. My Anthropic Key"
             fullWidth
           />

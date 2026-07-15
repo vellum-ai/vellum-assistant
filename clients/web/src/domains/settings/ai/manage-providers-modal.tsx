@@ -21,7 +21,7 @@ import type {
   DefaultProviderStatus,
   ProviderConnection,
 } from "@/generated/daemon/types.gen";
-import { PROVIDER_DISPLAY_NAMES } from "@/assistant/llm-model-catalog";
+import { providerConnectionDisplayName } from "@/domains/settings/ai/provider-editor-constants";
 import { captureError } from "@/lib/sentry/capture-error";
 import { useSupportsDefaultProviderSettings } from "@/lib/backwards-compat/default-provider-settings";
 import { ProviderEditorContent } from "@/domains/settings/ai/provider-editor-modal";
@@ -44,40 +44,6 @@ const DEFAULT_PROVIDER_ELIGIBLE: Record<DefaultProviderId, true> = {
 
 function isDefaultProviderId(provider: string): provider is DefaultProviderId {
   return provider in DEFAULT_PROVIDER_ELIGIBLE;
-}
-
-/**
- * Extracts the daemon's error-envelope message (`{ error: { message } }`,
- * per the runtime's http-errors adapter) from a generated-SDK `error` field.
- */
-function errorEnvelopeMessage(error: unknown): string | undefined {
-  if (typeof error !== "object" || error === null) {
-    return undefined;
-  }
-  const inner = (error as { error?: unknown }).error;
-  if (typeof inner !== "object" || inner === null) {
-    return undefined;
-  }
-  const message = (inner as { message?: unknown }).message;
-  return typeof message === "string" && message.length > 0
-    ? message
-    : undefined;
-}
-
-/**
- * Card title: user label, else the provider's display name. Subscription
- * auth gets its own identity — without it, an unlabeled ChatGPT row (stored
- * as provider "openai") would be indistinguishable from an OpenAI API-key
- * card now that the auth subtitle is gone.
- */
-function providerCardTitle(conn: ProviderConnection): string {
-  if (conn.label) {
-    return conn.label;
-  }
-  if (conn.auth.type === "oauth_subscription") {
-    return PROVIDER_DISPLAY_NAMES.chatgpt;
-  }
-  return PROVIDER_DISPLAY_NAMES[conn.provider] ?? conn.provider;
 }
 
 // ---------------------------------------------------------------------------
@@ -303,21 +269,17 @@ function ManageProvidersModalInner({
       return next;
     });
     try {
-      const { error, response } =
-        await inferenceProviderconnectionsByNameDelete({
-          path: { assistant_id: assistantId, name },
-        });
+      const { response } = await inferenceProviderconnectionsByNameDelete({
+        path: { assistant_id: assistantId, name },
+      });
       if (response?.ok || response?.status === 404) {
         // 404 means already gone — still remove from local list.
         onConnectionDeleted(name);
       } else if (response?.status === 409) {
-        // The daemon's guard names what blocks the delete (default provider,
-        // referencing profiles) and the fix — render it verbatim.
         setRowErrors((prev) => ({
           ...prev,
           [name]:
-            errorEnvelopeMessage(error) ??
-            "This provider is in use by one or more profiles. Remove those references first.",
+            "This provider is in use by a profile or as the default provider. Update those settings before deleting it.",
         }));
       } else {
         setRowErrors((prev) => ({
@@ -397,7 +359,7 @@ function ManageProvidersModalInner({
                           as="span"
                           className="text-(--content-default)"
                         >
-                          {providerCardTitle(conn)}
+                          {providerConnectionDisplayName(conn)}
                         </Typography>
                         {isManaged && (
                           <Tag
@@ -451,7 +413,7 @@ function ManageProvidersModalInner({
                         variant="ghost"
                         size="compact"
                         iconOnly={<Trash2 />}
-                        aria-label={`Delete ${conn.name}`}
+                        aria-label={`Delete ${providerConnectionDisplayName(conn)}`}
                         disabled={isManaged || isDefault || isDeleting}
                         title={
                           isManaged

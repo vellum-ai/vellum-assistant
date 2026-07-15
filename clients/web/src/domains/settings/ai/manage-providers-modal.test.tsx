@@ -8,7 +8,7 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { createElement } from "react";
 
 import type {
@@ -132,24 +132,22 @@ function renderModal() {
   );
 }
 
-function rowFor(result: ReturnType<typeof render>, connectionName: string) {
-  const deleteButton = result.baseElement.querySelector(
-    `button[aria-label="Delete ${connectionName}"]`,
-  );
-  if (!deleteButton) {
-    throw new Error(`Row "${connectionName}" not found`);
+function rowFor(result: ReturnType<typeof render>, providerTitle: string) {
+  const title = Array.from(
+    result.baseElement.querySelectorAll<HTMLElement>("span"),
+  ).find((element) => element.textContent?.trim() === providerTitle);
+  if (!title) {
+    throw new Error(`Provider "${providerTitle}" not found`);
   }
-  return (
-    deleteButton.closest("div.flex.items-center.gap-3")?.parentElement ?? null
-  );
+  return title.closest("div.flex.items-center.gap-3")?.parentElement ?? null;
 }
 
 async function waitForRow(
   result: ReturnType<typeof render>,
-  connectionName: string,
+  providerTitle: string,
 ) {
   await waitFor(() => {
-    expect(rowFor(result, connectionName)).not.toBeNull();
+    expect(rowFor(result, providerTitle)).not.toBeNull();
   });
 }
 
@@ -200,13 +198,13 @@ describe("default marker", () => {
       expect(result.baseElement.textContent).toContain("Default");
     });
 
-    const defaultRow = rowFor(result, "anthropic-personal");
+    const defaultRow = rowFor(result, "Anthropic");
     expect(defaultRow?.textContent).toContain("Default");
-    const otherRow = rowFor(result, "openai-personal");
+    const otherRow = rowFor(result, "OpenAI");
     expect(otherRow?.textContent).not.toContain("Default");
 
     const deleteButton = defaultRow?.querySelector<HTMLButtonElement>(
-      'button[aria-label="Delete anthropic-personal"]',
+      'button[aria-label="Delete Anthropic"]',
     );
     expect(deleteButton?.disabled).toBe(true);
     expect(deleteButton?.title).toContain("default provider");
@@ -224,9 +222,9 @@ describe("default marker", () => {
     };
 
     const result = renderModal();
-    await waitForRow(result, "work-openai");
+    await waitForRow(result, "OpenAI");
 
-    const otherRow = rowFor(result, "work-openai");
+    const otherRow = rowFor(result, "OpenAI");
     const setDefaultButton = [
       ...(otherRow?.querySelectorAll("button") ?? []),
     ].find((b) => b.textContent === "Set as default");
@@ -242,7 +240,7 @@ describe("default marker", () => {
     // Invalidation refetches the GET (now pointing at work-openai) and the
     // tag moves to the new row.
     await waitFor(() => {
-      const refreshedRow = rowFor(result, "work-openai");
+      const refreshedRow = rowFor(result, "OpenAI");
       expect(refreshedRow?.textContent).toContain("Default");
     });
   });
@@ -253,9 +251,9 @@ describe("default marker", () => {
     ];
 
     const result = renderModal();
-    await waitForRow(result, "local-ollama");
+    await waitForRow(result, "Ollama");
 
-    const row = rowFor(result, "local-ollama");
+    const row = rowFor(result, "Ollama");
     const setDefaultButton = [...(row?.querySelectorAll("button") ?? [])].find(
       (b) => b.textContent === "Set as default",
     );
@@ -273,7 +271,7 @@ describe("default marker", () => {
     ];
 
     const result = renderModal();
-    await waitForRow(result, "openai-personal");
+    await waitForRow(result, "OpenAI");
 
     expect(result.baseElement.textContent).not.toContain("Set as default");
     expect(result.baseElement.textContent).not.toContain("Default");
@@ -287,9 +285,9 @@ describe("default marker", () => {
     putShouldFail = true;
 
     const result = renderModal();
-    await waitForRow(result, "openai-personal");
+    await waitForRow(result, "OpenAI");
 
-    const row = rowFor(result, "openai-personal");
+    const row = rowFor(result, "OpenAI");
     const setDefaultButton = [...(row?.querySelectorAll("button") ?? [])].find(
       (b) => b.textContent === "Set as default",
     );
@@ -325,13 +323,23 @@ describe("card titles", () => {
     });
 
     // THEN each provider has a distinct title without internal-key subtitles
-    const apiKeyRow = rowFor(result, "openai-personal");
+    const apiKeyRow = rowFor(result, "OpenAI");
     expect(apiKeyRow?.textContent).toContain("OpenAI");
     expect(apiKeyRow?.textContent).not.toContain("ChatGPT");
     expect(result.baseElement.textContent).not.toContain(
       "chatgpt-subscription",
     );
     expect(result.baseElement.textContent).not.toContain("openai-personal");
+    expect(
+      result.baseElement.querySelector(
+        'button[aria-label="Delete ChatGPT Subscription"]',
+      ),
+    ).not.toBeNull();
+    expect(
+      result.baseElement.querySelector(
+        'button[aria-label="Delete openai-personal"]',
+      ),
+    ).toBeNull();
   });
 });
 
@@ -339,15 +347,17 @@ describe("delete-guard errors", () => {
   async function clickDelete(name: string) {
     connectionsState = [makeConnection({ name, provider: "openai" })];
     const result = renderModal();
-    await waitForRow(result, name);
+    await waitForRow(result, "OpenAI");
     const deleteButton = result.baseElement.querySelector<HTMLButtonElement>(
-      `button[aria-label="Delete ${name}"]`,
+      'button[aria-label="Delete OpenAI"]',
     );
-    fireEvent.click(deleteButton as HTMLButtonElement);
+    await act(async () => {
+      fireEvent.click(deleteButton as HTMLButtonElement);
+    });
     return result;
   }
 
-  test("409 renders the daemon's guard message verbatim", async () => {
+  test("409 renders a user-facing guard without internal provider names", async () => {
     deleteResult = {
       status: 409,
       body: {
@@ -363,20 +373,11 @@ describe("delete-guard errors", () => {
     const result = await clickDelete("work-openai");
     await waitFor(() => {
       expect(result.baseElement.textContent).toContain(
-        "is referenced by llm.defaultProvider",
+        "This provider is in use by a profile or as the default provider",
       );
     });
-  });
-
-  test("409 without a parseable envelope falls back to the generic string", async () => {
-    deleteResult = { status: 409, body: "not-an-envelope" };
-
-    const result = await clickDelete("work-openai");
-    await waitFor(() => {
-      expect(result.baseElement.textContent).toContain(
-        "This provider is in use by one or more profiles",
-      );
-    });
+    expect(result.baseElement.textContent).not.toContain("work-openai");
+    expect(result.baseElement.textContent).not.toContain("llm.defaultProvider");
   });
 
   test("non-guarded connections still delete cleanly", async () => {
@@ -396,7 +397,7 @@ describe("delete-guard errors", () => {
     ];
 
     const result = renderModal();
-    await waitForRow(result, "openai-personal");
+    await waitForRow(result, "OpenAI");
     const setDefaultButton = [
       ...result.baseElement.querySelectorAll("button"),
     ].find((b) => b.textContent === "Set as default");
@@ -411,9 +412,9 @@ describe("delete-guard errors", () => {
 describe("editability", () => {
   function editButtonFor(
     result: ReturnType<typeof render>,
-    connectionName: string,
+    providerTitle: string,
   ): HTMLButtonElement | undefined {
-    const row = rowFor(result, connectionName);
+    const row = rowFor(result, providerTitle);
     return [...(row?.querySelectorAll("button") ?? [])].find(
       (b) => b.textContent === "Edit",
     ) as HTMLButtonElement | undefined;
@@ -428,10 +429,29 @@ describe("editability", () => {
 
     // WHEN the modal renders
     const result = renderModal();
-    await waitForRow(result, "anthropic-personal");
+    await waitForRow(result, "Anthropic");
 
     // THEN the managed row has no Edit button, but the user-owned one does
-    expect(editButtonFor(result, "vellum")).toBeUndefined();
-    expect(editButtonFor(result, "anthropic-personal")).toBeDefined();
+    expect(editButtonFor(result, "Vellum")).toBeUndefined();
+    expect(editButtonFor(result, "Anthropic")).toBeDefined();
+  });
+
+  test("the editor identifies providers without exposing their internal names", async () => {
+    connectionsState = [
+      makeConnection({
+        name: "ollama-personal",
+        provider: "ollama",
+        auth: { type: "none" },
+      }),
+    ];
+
+    const result = renderModal();
+    await waitForRow(result, "Ollama");
+    fireEvent.click(editButtonFor(result, "Ollama") as HTMLButtonElement);
+
+    await waitFor(() => {
+      expect(result.baseElement.textContent).toContain("Editing Ollama.");
+    });
+    expect(result.baseElement.textContent).not.toContain("ollama-personal");
   });
 });
