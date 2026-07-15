@@ -173,7 +173,7 @@ mock.module("@sentry/react", () => ({
 mock.module("@/domains/onboarding/prefs", () => ({
   readPrivacyConsent: () => true,
   readSelectedVersion: () => null,
-  readShareAnalytics: () => true,
+  isAnalyticsEnabled: () => true,
   readTosAccepted: () => true,
   writeSelectedVersion: writeSelectedVersionMock,
 }));

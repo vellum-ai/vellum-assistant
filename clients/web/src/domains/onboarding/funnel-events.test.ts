@@ -48,7 +48,8 @@ function ingestPayload(callIndex: number): IngestPayload {
 beforeEach(() => {
   sessionStorage.clear();
   localStorage.clear();
-  useOnboardingStore.setState({ shareAnalytics: true });
+  // Never-asked baseline: analytics is opt-out, so null authorizes uploads.
+  useOnboardingStore.setState({ shareAnalytics: null });
   __resetOnboardingFunnelEventsForTests();
   ingestMock.mockClear();
 });
@@ -132,8 +133,6 @@ describe("onboarding funnel events", () => {
   });
 
   test("emits fire-and-forget telemetry payloads with the same session id", () => {
-    localStorage.setItem("device:share_analytics", "true");
-
     emitOnboardingFunnelStepCompleted(ONBOARDING_FUNNEL_STEPS.privacyTos, {
       userId: "user-123",
       variant: ONBOARDING_FUNNEL_VARIANTS.paredDown,
@@ -161,8 +160,6 @@ describe("onboarding funnel events", () => {
   });
 
   test("stamps research-onboarding steps with the research funnel version", () => {
-    localStorage.setItem("device:share_analytics", "true");
-
     emitResearchOnboardingStepCompleted(RESEARCH_ONBOARDING_FUNNEL_STEPS.form, {
       userId: "user-123",
     });
@@ -198,8 +195,6 @@ describe("onboarding funnel events", () => {
   });
 
   test("emits the check-in calendar click on the research funnel", () => {
-    localStorage.setItem("device:share_analytics", "true");
-
     emitResearchOnboardingCheckinCalendarOpened({ userId: "user-123" });
 
     expect(ingestMock).toHaveBeenCalledTimes(1);
@@ -215,7 +210,7 @@ describe("onboarding funnel events", () => {
     });
   });
 
-  test("does not emit research telemetry until analytics sharing is opted in", () => {
+  test("does not emit research telemetry after an explicit analytics opt-out", () => {
     useOnboardingStore.setState({ shareAnalytics: false });
 
     emitResearchOnboardingStepCompleted(RESEARCH_ONBOARDING_FUNNEL_STEPS.form, {
@@ -226,24 +221,24 @@ describe("onboarding funnel events", () => {
   });
 
   test("emits by default (opt-out) but honors an explicit analytics opt-out", () => {
-    // Never-asked: no device preference on record — analytics is opt-out, so
-    // the event emits.
+    // Never-asked (null): analytics is opt-out, so the event emits.
     emitOnboardingFunnelStepCompleted(ONBOARDING_FUNNEL_STEPS.privacyTos, {
       userId: "user-123",
       variant: ONBOARDING_FUNNEL_VARIANTS.paredDown,
     });
     expect(ingestMock).toHaveBeenCalledTimes(1);
 
-    // An explicit device opt-out stops uploads.
-    localStorage.setItem("device:share_analytics", "false");
+    // An explicit opt-out through the store setter stops uploads.
+    useOnboardingStore.getState().setShareAnalytics(false);
     emitOnboardingFunnelStepCompleted(ONBOARDING_FUNNEL_STEPS.gmailConnect, {
       userId: "user-123",
       variant: ONBOARDING_FUNNEL_VARIANTS.paredDown,
     });
     expect(ingestMock).toHaveBeenCalledTimes(1);
 
-    // The in-memory store must agree: a failed opt-out write cannot leave an
-    // older stored opt-in authorizing a new event.
+    // The in-memory store is the single gate source: an explicit opt-out
+    // stops uploads even when a stale device key still says "true" (e.g. a
+    // failed opt-out write on another layer must not re-authorize events).
     localStorage.setItem("device:share_analytics", "true");
     useOnboardingStore.setState({ shareAnalytics: false });
     emitOnboardingFunnelStepCompleted(ONBOARDING_FUNNEL_STEPS.nameVibe, {
@@ -251,5 +246,24 @@ describe("onboarding funnel events", () => {
       variant: ONBOARDING_FUNNEL_VARIANTS.paredDown,
     });
     expect(ingestMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("an explicit opt-in emits and a server-driven never-asked reset keeps emitting", () => {
+    useOnboardingStore.getState().setShareAnalytics(true);
+    emitOnboardingFunnelStepCompleted(ONBOARDING_FUNNEL_STEPS.privacyTos, {
+      userId: "user-123",
+      variant: ONBOARDING_FUNNEL_VARIANTS.paredDown,
+    });
+    expect(ingestMock).toHaveBeenCalledTimes(1);
+
+    // A sync adopting server null (never asked) removes the device key and
+    // returns the store to null — still enabled under opt-out semantics.
+    useOnboardingStore.getState().setShareAnalytics(null);
+    expect(localStorage.getItem("device:share_analytics")).toBeNull();
+    emitOnboardingFunnelStepCompleted(ONBOARDING_FUNNEL_STEPS.nameVibe, {
+      userId: "user-123",
+      variant: ONBOARDING_FUNNEL_VARIANTS.paredDown,
+    });
+    expect(ingestMock).toHaveBeenCalledTimes(2);
   });
 });

@@ -279,20 +279,23 @@ function broadcastAuthChange(): void {
 
 /**
  * Payload for the fire-and-forget server backfill of device-attested consent.
- * Each axis contributes its current version stamp only when the device ack
- * attests it (device ack keys are version-stamped, so a true key proves
- * acceptance of the CURRENT version). Share boolean values ride along only
- * when `shareValues` is passed — appropriate for a truly empty server record,
- * where the API default would otherwise overwrite a device opt-out on the
- * next fetch. A real server record's share booleans are authoritative and
- * must not be patched from the device.
+ * The legal axes and diagnostics contribute their current version stamp only
+ * when the device ack attests it (device ack keys are version-stamped, so a
+ * true key proves acceptance of the CURRENT version). Share boolean values
+ * ride along only when `shareValues` is passed AND the value is an explicit
+ * choice (`null` = never asked = nothing to backfill) — appropriate for a
+ * truly empty server record, where the API default would otherwise overwrite
+ * a device opt-out on the next fetch. A real server record's share booleans
+ * are authoritative and must not be patched from the device. Analytics has no
+ * device ack; an explicit device value carries its version stamp directly (a
+ * device value only exists from an explicit choice, and a value without a
+ * stamp would read as stale and bounce the user to review-terms).
  */
 function buildDeviceConsentBackfill(axes: {
   tos: boolean;
   privacy: boolean;
-  analytics: boolean;
   diagnostics: boolean;
-  shareValues?: { analytics: boolean; diagnostics: boolean };
+  shareValues?: { analytics: boolean | null; diagnostics: boolean | null };
 }): ConsentPatch {
   return {
     ...(axes.tos ? { tos_accepted_version: TOS_CONSENT_VERSION } : {}),
@@ -302,18 +305,16 @@ function buildDeviceConsentBackfill(axes: {
           ai_data_sharing_accepted_version: PRIVACY_CONSENT_VERSION,
         }
       : {}),
-    ...(axes.analytics
+    ...(axes.shareValues && axes.shareValues.analytics !== null
       ? {
+          share_analytics: axes.shareValues.analytics,
           share_analytics_accepted_version: ANALYTICS_CONSENT_VERSION,
-          ...(axes.shareValues
-            ? { share_analytics: axes.shareValues.analytics }
-            : {}),
         }
       : {}),
     ...(axes.diagnostics
       ? {
           share_diagnostics_accepted_version: DIAGNOSTICS_CONSENT_VERSION,
-          ...(axes.shareValues
+          ...(axes.shareValues && axes.shareValues.diagnostics !== null
             ? { share_diagnostics: axes.shareValues.diagnostics }
             : {}),
         }
@@ -327,13 +328,19 @@ async function syncUserScopedState(nextUserId: string | null): Promise<void> {
       const consent = await fetchConsent();
       const resolved = resolveServerConsent(consent);
       const store = useOnboardingStore.getState();
-      // Only adopt the server's share-analytics boolean when the server has a
-      // real consent record. For an empty record it's just the API default and
-      // would clobber the device-local `device:share_analytics` choice that the
-      // fallback below relies on (the store already holds it from init). A real
-      // record's share value is authoritative even when its legal consent
-      // versions are stale (the nav layer routes to review-terms).
-      if (resolved.hasServerRecord && resolved.shareAnalytics !== null) {
+      // Local explicit share choices, captured before server adoption below —
+      // the truly-empty-record backfill must send what the user chose on this
+      // device, not the just-adopted server value.
+      const localShareAnalytics = store.shareAnalytics;
+      const localShareDiagnostics = store.shareDiagnostics;
+      // Adopt the server's tri-state share-analytics verbatim: an explicit
+      // choice is authoritative even when its legal consent versions are stale
+      // (the nav layer routes to review-terms), and null (never asked)
+      // propagates so the store reflects chosen-ness. One exception: null
+      // never overwrites a local explicit opt-out — its server write may still
+      // be in flight (or have failed), and clearing it would resume uploads
+      // the user declined.
+      if (resolved.shareAnalytics !== null || localShareAnalytics !== false) {
         store.setShareAnalytics(resolved.shareAnalytics);
       }
 
@@ -358,47 +365,45 @@ async function syncUserScopedState(nextUserId: string | null): Promise<void> {
       let privacy = resolved.privacy;
       let analyticsCurrent = resolved.analyticsCurrent;
       let diagnosticsCurrent = resolved.diagnosticsCurrent;
-      // Genuine "confirmed under the current version" attestations, distinct
+      // Genuine "confirmed under the current version" attestation, distinct
       // from the `*Current` flags, which also read never-asked (a null server
-      // value, or an implicit pre-nullable-platform default) as "nothing to
-      // re-review". Only a genuine ack may be device-persisted or backfill a
-      // server version stamp, so acks key off the raw version currency.
-      let analyticsAck =
-        resolved.shareAnalytics !== null && resolved.analyticsVersionCurrent;
+      // value) as "nothing to re-review". Only a genuine ack may be
+      // device-persisted or backfill a server version stamp, so the ack keys
+      // off the raw version currency. Analytics has no device ack — its
+      // version stamps are written server-side at choice time.
       let diagnosticsAck =
         resolved.shareDiagnostics !== null && resolved.diagnosticsVersionCurrent;
 
       // Fall back to device keys for a TRULY empty record: the device ack
-      // keys are the only consent evidence, so they drive all four axes and
+      // keys are the only consent evidence, so they drive the legal axes and
       // seed the server via the backfill.
       if (!resolved.hasServerRecord) {
         const deviceConsent = restoreConsentForUser(nextUserId);
         // No server record means no explicit share-toggle consent exists —
         // never-asked, so nothing to re-review regardless of the device acks.
         analyticsCurrent = true;
-        analyticsAck = deviceConsent.analyticsCurrent;
         diagnosticsCurrent = true;
         diagnosticsAck = deviceConsent.diagnosticsCurrent;
         if (deviceConsent.tos && deviceConsent.privacy) {
           tos = true;
           privacy = true;
-          // Backfill the server from the device acks. Stamp any toggle version
-          // whose device ack is current AND send the device share value so the
-          // next fetch can't overwrite a device opt-out with the API default.
+          // Backfill the server from the device evidence: stamp the
+          // diagnostics version when its device ack is current, and send any
+          // explicit device share choice so the next fetch can't overwrite a
+          // device opt-out with the API default.
           void patchConsent(
             buildDeviceConsentBackfill({
               tos: true,
               privacy: true,
-              analytics: analyticsAck,
               diagnostics: diagnosticsAck,
               shareValues: {
-                analytics: store.shareAnalytics,
-                diagnostics: store.shareDiagnostics,
+                analytics: localShareAnalytics,
+                diagnostics: localShareDiagnostics,
               },
             }),
           ).catch(() => {});
         }
-      } else if (!tos || !privacy || !analyticsCurrent || !diagnosticsCurrent) {
+      } else if (!tos || !privacy || !diagnosticsCurrent) {
         // A real record with stale/false version-derived flags. The device ack
         // keys are version-stamped, so a true key attests acceptance of the
         // CURRENT version — a stale server version alongside a current device
@@ -407,12 +412,11 @@ async function syncUserScopedState(nextUserId: string | null): Promise<void> {
         // backfill, so an established user isn't bounced into onboarding by a
         // record their own acceptance is still in flight to. Axes the server
         // records as current stay server-authoritative, as do the share
-        // boolean values (adopted above).
+        // boolean values (adopted above). Analytics has no device ack, so a
+        // stale explicit analytics choice always re-reviews.
         const deviceConsent = restoreConsentForUser(nextUserId);
         const tosFromDevice = !tos && deviceConsent.tos;
         const privacyFromDevice = !privacy && deviceConsent.privacy;
-        const analyticsFromDevice =
-          !analyticsCurrent && deviceConsent.analyticsCurrent;
         const diagnosticsFromDevice =
           !diagnosticsCurrent && deviceConsent.diagnosticsCurrent;
         if (tosFromDevice) {
@@ -421,25 +425,15 @@ async function syncUserScopedState(nextUserId: string | null): Promise<void> {
         if (privacyFromDevice) {
           privacy = true;
         }
-        if (analyticsFromDevice) {
-          analyticsCurrent = true;
-          analyticsAck = true;
-        }
         if (diagnosticsFromDevice) {
           diagnosticsCurrent = true;
           diagnosticsAck = true;
         }
-        if (
-          tosFromDevice ||
-          privacyFromDevice ||
-          analyticsFromDevice ||
-          diagnosticsFromDevice
-        ) {
+        if (tosFromDevice || privacyFromDevice || diagnosticsFromDevice) {
           void patchConsent(
             buildDeviceConsentBackfill({
               tos: tosFromDevice,
               privacy: privacyFromDevice,
-              analytics: analyticsFromDevice,
               diagnostics: diagnosticsFromDevice,
             }),
           ).catch(() => {});
@@ -455,7 +449,6 @@ async function syncUserScopedState(nextUserId: string | null): Promise<void> {
       // reader, and writing false would erase a genuine device attestation
       // whose backfill patch simply hasn't landed on the server yet.
       persistToggleConsent(nextUserId, {
-        ...(analyticsAck ? { analyticsCurrent: true } : {}),
         ...(diagnosticsAck ? { diagnosticsCurrent: true } : {}),
       });
       syncOrganizationState(nextUserId);

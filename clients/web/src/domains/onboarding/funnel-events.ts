@@ -1,4 +1,4 @@
-import { readShareAnalytics } from "@/domains/onboarding/prefs";
+import { isAnalyticsEnabled } from "@/domains/onboarding/prefs";
 import { getClientId } from "@/lib/telemetry/client-identity";
 import { telemetryIngestCreate } from "@/generated/api/sdk.gen";
 import type { ResearchStep } from "@/domains/onboarding/research-onboarding-persistence";
@@ -232,7 +232,7 @@ export function emitOnboardingFunnelStepCompleted(
   options: OnboardingFunnelStepCompletedOptions = {},
 ): void {
   if (typeof window === "undefined") return;
-  if (!readShareAnalytics()) return;
+  if (!isAnalyticsEnabled()) return;
 
   const event = stripUndefined(buildOnboardingFunnelEvent(screen, options));
 
