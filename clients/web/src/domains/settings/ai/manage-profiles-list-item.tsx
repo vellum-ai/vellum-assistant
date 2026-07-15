@@ -22,6 +22,12 @@ interface DropTarget {
 
 interface ProfileListItemProps {
   profile: ProfileWithName;
+  /**
+   * True when the connection named "vellum" is the managed sentinel row. A
+   * user-owned BYOK row may claim that name (the seeder preserves it), and
+   * profiles bound to it must not present as the managed Vellum route.
+   */
+  vellumIsManaged: boolean;
   isDragging: boolean;
   dropTarget: DropTarget | null;
   isDeleting: boolean;
@@ -54,7 +60,10 @@ function resolveModelDisplayName(
   return lastSlash >= 0 ? modelId.slice(lastSlash + 1) : modelId;
 }
 
-function formatProfileSubtitle(profile: ProfileWithName): string {
+function formatProfileSubtitle(
+  profile: ProfileWithName,
+  vellumIsManaged: boolean,
+): string {
   const parts: string[] = [];
 
   if (profile.description) {
@@ -62,9 +71,12 @@ function formatProfileSubtitle(profile: ProfileWithName): string {
   }
 
   // Profiles bound to the Vellum-managed connection present as "Vellum" —
-  // the stored provider is a routing detail users never see.
+  // the stored provider is a routing detail users never see. A user-owned
+  // row merely named "vellum" keeps its real provider.
   const displayProvider =
-    profile.provider_connection === "vellum" ? "vellum" : profile.provider;
+    profile.provider_connection === "vellum" && vellumIsManaged
+      ? "vellum"
+      : profile.provider;
   const modelProvider: string[] = [];
   if (profile.model) {
     modelProvider.push(resolveModelDisplayName(displayProvider, profile.model));
@@ -88,6 +100,7 @@ function formatProfileSubtitle(profile: ProfileWithName): string {
 
 export function ProfileListItem({
   profile,
+  vellumIsManaged,
   isDragging,
   dropTarget,
   isDeleting,
@@ -150,7 +163,7 @@ export function ProfileListItem({
               as="p"
               className="mt-0.5 text-(--content-tertiary)"
             >
-              {formatProfileSubtitle(profile)}
+              {formatProfileSubtitle(profile, vellumIsManaged)}
             </Typography>
           ) : null}
         </div>
