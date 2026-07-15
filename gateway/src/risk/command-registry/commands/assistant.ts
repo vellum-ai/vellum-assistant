@@ -142,6 +142,11 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "inference profiles list",
   "inference profiles update",
   "inference providers",
+  "inference providers create",
+  "inference providers delete",
+  "inference providers get",
+  "inference providers list",
+  "inference providers update",
   "inference providers connections",
   "inference providers connections create",
   "inference providers connections delete",
@@ -513,6 +518,32 @@ const riskOverrides: AssistantRiskOverride[] = [
     risk: "medium",
     reason:
       "Reads the default provider, or replaces llm.defaultProvider when a name is passed",
+  },
+  {
+    path: "inference providers list",
+    risk: "low",
+    reason: "Read-only listing of provider entries",
+  },
+  {
+    path: "inference providers get",
+    risk: "low",
+    reason: "Read-only fetch of a single provider entry",
+  },
+  {
+    path: "inference providers create",
+    risk: "medium",
+    reason: "Inserts a provider entry referenced by inference profiles",
+  },
+  {
+    path: "inference providers update",
+    risk: "medium",
+    reason: "Mutates provider auth config in place",
+  },
+  {
+    path: "inference providers delete",
+    risk: "medium",
+    reason:
+      "Deletes a provider entry; the daemon refuses while profiles still reference it",
   },
   {
     path: "inference providers connections list",

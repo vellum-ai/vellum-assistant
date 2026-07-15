@@ -195,39 +195,116 @@ Examples:
     },
     {
       name: "providers",
-      description: "Inference provider admin commands",
+      description: "Manage the model providers this assistant can use",
+      helpText: `
+A provider entry names a model provider plus how to reach it. Auth is
+derived from the provider: keyless providers (ollama) need none, the
+Vellum entry routes through the platform's managed proxy, and everything
+else uses an API key referenced by --credential.
+
+Canonical entry (seeded on every boot):
+  vellum → the platform-managed provider; cannot be deleted
+
+Examples:
+  $ assistant inference providers list
+  $ assistant inference providers get vellum
+  $ assistant inference providers create anthropic-personal \\
+      --provider anthropic --credential credential/anthropic/api_key
+  $ assistant inference providers create local-llm \\
+      --provider openai-compatible \\
+      --base-url http://localhost:1234/v1 --model my-model
+  $ assistant inference providers update anthropic-personal \\
+      --credential credential/anthropic/api_key
+  $ assistant inference providers delete anthropic-personal
+
+After creating or updating a provider, validate it with a live call through
+a profile that uses it:
+  $ assistant inference send --profile <profile> "Reply with OK"`,
       subcommands: [
+        {
+          name: "list",
+          description: "List configured providers",
+          options: [
+            { flags: "--provider <p>", description: "Filter by provider" },
+            { flags: "--json", description: "Output as JSON" },
+          ],
+        },
+        {
+          name: "get",
+          args: "<name>",
+          description: "Show a single provider entry",
+          options: [{ flags: "--json", description: "Output as JSON" }],
+        },
+        {
+          // NOTE: the repeatable `--model` collector option and the
+          // trailing `--json` are registered imperatively in
+          // `inference-providers.ts` (array-accumulating parser functions
+          // are not expressible as plain help data).
+          name: "create",
+          args: "<name>",
+          description: "Add a provider",
+          options: [
+            {
+              flags: "--provider <p>",
+              description: "Provider (anthropic|openai|gemini|ollama|...)",
+              required: true,
+            },
+            {
+              flags: "--credential <vault-key>",
+              description:
+                "Vault credential name (required for API-key providers)",
+            },
+            {
+              flags: "--auth <type>",
+              description:
+                "Override the derived auth: api_key|platform|none|oauth_subscription",
+            },
+            {
+              flags: "--base-url <url>",
+              description:
+                "Endpoint base URL (required for --provider openai-compatible)",
+            },
+          ],
+        },
+        {
+          // NOTE: `--model` + `--json` registered imperatively — see `create`.
+          name: "update",
+          args: "<name>",
+          description: "Update a provider entry",
+          options: [
+            {
+              flags: "--credential <vault-key>",
+              description:
+                "Rotate the API-key credential (derives api_key auth)",
+            },
+            {
+              flags: "--auth <type>",
+              description:
+                "Override the auth explicitly: api_key|platform|none|oauth_subscription",
+            },
+            {
+              flags: "--base-url <url>",
+              description: "Endpoint base URL (openai-compatible providers)",
+            },
+          ],
+        },
+        {
+          name: "delete",
+          args: "<name>",
+          description: "Remove a provider",
+          options: [{ flags: "--json", description: "Output as JSON" }],
+        },
         {
           name: "connections",
           description:
-            "Manage provider connections (auth configs for inference)",
+            "(Deprecated) use `assistant inference providers <verb>` instead",
           helpText: `
-Provider connections map a name to a (provider, auth) pair.
-Profiles reference connections via the 'provider_connection' field.
-
-Canonical connections (seeded on every boot):
-  anthropic-managed  → provider=anthropic, auth=platform
-  openai-managed     → provider=openai,    auth=platform
-  gemini-managed     → provider=gemini,    auth=platform
-
-Examples:
-  $ assistant inference providers connections list
-  $ assistant inference providers connections get anthropic-managed
-  $ assistant inference providers connections create anthropic-personal \\
-      --provider anthropic --auth api_key --credential credential/anthropic/api_key
-  $ assistant inference providers connections create local-llm \\
-      --provider openai-compatible --auth none \\
-      --base-url http://localhost:1234/v1 --model my-model
-  $ assistant inference providers connections update anthropic-personal --auth platform
-  $ assistant inference providers connections delete anthropic-personal
-
-After creating or updating a connection, validate it with a live call through
-a profile that uses it:
-  $ assistant inference send --profile <profile> "Reply with OK"`,
+Deprecated alias kept for one release: every verb here is the same as the
+matching \`assistant inference providers <verb>\` command.`,
           subcommands: [
             {
               name: "list",
-              description: "List all provider connections",
+              description: "(Deprecated) use `providers list`",
               options: [
                 { flags: "--provider <p>", description: "Filter by provider" },
                 { flags: "--json", description: "Output as JSON" },
@@ -236,17 +313,13 @@ a profile that uses it:
             {
               name: "get",
               args: "<name>",
-              description: "Show a single provider connection",
+              description: "(Deprecated) use `providers get`",
               options: [{ flags: "--json", description: "Output as JSON" }],
             },
             {
-              // NOTE: the repeatable `--model` collector option and the
-              // trailing `--json` are registered imperatively in
-              // `inference-providers.ts` (array-accumulating parser functions
-              // are not expressible as plain help data).
               name: "create",
               args: "<name>",
-              description: "Create a new provider connection",
+              description: "(Deprecated) use `providers create`",
               options: [
                 {
                   flags: "--provider <p>",
@@ -254,14 +327,14 @@ a profile that uses it:
                   required: true,
                 },
                 {
-                  flags: "--auth <type>",
-                  description: "Auth type: api_key|platform|none",
-                  required: true,
-                },
-                {
                   flags: "--credential <vault-key>",
                   description:
-                    "Vault credential name (required for --auth api_key)",
+                    "Vault credential name (required for API-key providers)",
+                },
+                {
+                  flags: "--auth <type>",
+                  description:
+                    "Override the derived auth: api_key|platform|none|oauth_subscription",
                 },
                 {
                   flags: "--base-url <url>",
@@ -271,32 +344,31 @@ a profile that uses it:
               ],
             },
             {
-              // NOTE: `--model` + `--json` registered imperatively — see `create`.
               name: "update",
               args: "<name>",
-              description: "Update a connection's auth",
+              description: "(Deprecated) use `providers update`",
               options: [
-                {
-                  flags: "--auth <type>",
-                  description: "Auth type: api_key|platform|none",
-                  required: true,
-                },
                 {
                   flags: "--credential <vault-key>",
                   description:
-                    "Vault credential name (required for --auth api_key)",
+                    "Rotate the API-key credential (derives api_key auth)",
+                },
+                {
+                  flags: "--auth <type>",
+                  description:
+                    "Override the auth explicitly: api_key|platform|none|oauth_subscription",
                 },
                 {
                   flags: "--base-url <url>",
                   description:
-                    "Endpoint base URL (openai-compatible connections)",
+                    "Endpoint base URL (openai-compatible providers)",
                 },
               ],
             },
             {
               name: "delete",
               args: "<name>",
-              description: "Delete a provider connection",
+              description: "(Deprecated) use `providers delete`",
               options: [{ flags: "--json", description: "Output as JSON" }],
             },
           ],
@@ -313,7 +385,7 @@ a profile that uses it:
           options: [
             {
               flags: "--connection <name>",
-              description: "Pin a specific connection when setting",
+              description: "Pin a specific provider entry when setting",
             },
             {
               flags: "--json",
