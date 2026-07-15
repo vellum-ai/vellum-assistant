@@ -1,27 +1,26 @@
 import { client } from "@/generated/api/client.gen";
 import {
+  userConsentRetrieve,
+  userConsentUpdate,
+} from "@/generated/api/sdk.gen";
+import type { UserConsent as GeneratedUserConsent } from "@/generated/api/types.gen";
+import {
   ApiError,
   assertHasResponse,
   extractErrorMessage,
 } from "@/utils/api-errors";
 import { parseDrfFieldError } from "@/domains/account/parse-drf-field-error";
 
-export interface UserConsent {
-  tos_accepted_version: string;
-  tos_accepted_at: string | null;
-  privacy_policy_accepted_version: string;
-  privacy_policy_accepted_at: string | null;
-  ai_data_sharing_accepted_version: string;
-  ai_data_sharing_accepted_at: string | null;
-  /** Null until the user makes an explicit choice (settings or review-terms). */
-  share_analytics: boolean | null;
-  /** Null until the user makes an explicit choice (onboarding, settings, or review-terms). */
-  share_diagnostics: boolean | null;
-  share_analytics_accepted_version: string;
-  share_analytics_accepted_at: string | null;
-  share_diagnostics_accepted_version: string;
-  share_diagnostics_accepted_at: string | null;
-}
+/**
+ * The generated wire type, tightened for reads: DRF serializes every field on
+ * a GET (the generated optionality is write-side schema conservatism). Tying
+ * this to the generated contract means a field that doesn't exist on the
+ * server fails the build instead of silently reading `undefined` — a
+ * hand-written copy of this interface once declared fields the endpoint never
+ * returned (see PR #38160). The share booleans are null until the user makes
+ * an explicit choice.
+ */
+export type UserConsent = Required<GeneratedUserConsent>;
 
 export type ConsentPatch = Partial<
   Omit<
@@ -146,8 +145,7 @@ export async function updateMe(patch: UpdateMePatch): Promise<UpdateMeResult> {
 }
 
 export async function fetchConsent(): Promise<UserConsent> {
-  const { data, error, response } = await client.get<UserConsent, unknown>({
-    url: "/v1/user/consent/",
+  const { data, error, response } = await userConsentRetrieve({
     throwOnError: false,
   });
   assertHasResponse(response, error, "Failed to load consent.");
@@ -157,13 +155,13 @@ export async function fetchConsent(): Promise<UserConsent> {
       extractErrorMessage(error, response, "Failed to load consent."),
     );
   }
-  return data;
+  // Safe: DRF serializes every field on a read; see the UserConsent alias.
+  return data as UserConsent;
 }
 
 // PUTs /v1/user/consent/ — partial bodies are accepted, no writable field is required.
 export async function patchConsent(consent: ConsentPatch): Promise<void> {
-  await client.put({
-    url: "/v1/user/consent/",
+  await userConsentUpdate({
     body: consent,
     throwOnError: true,
   });
