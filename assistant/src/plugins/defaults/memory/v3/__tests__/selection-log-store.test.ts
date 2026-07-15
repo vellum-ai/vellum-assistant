@@ -38,6 +38,9 @@ const realPageContent = { ...(await import("../page-content.js")) };
 
 let storeMockActive = false;
 let liveEnabled = false;
+// When false, the stubbed `getMemorySqlite` resolves to null — the contract
+// the store sees when the dedicated memory database cannot be opened.
+let memoryDbAvailable = true;
 
 let testSqlite: Database;
 // Selection rows live on the dedicated memory connection, resolved via
@@ -122,7 +125,11 @@ mock.module("../../../../../persistence/db-connection.js", () => ({
       ? testSqlite
       : realDb.getSqliteFrom(db as Parameters<typeof realDb.getSqliteFrom>[0]),
   getMemorySqlite: () =>
-    storeMockActive ? memorySqlite : realDb.getMemorySqlite(),
+    storeMockActive
+      ? memoryDbAvailable
+        ? memorySqlite
+        : null
+      : realDb.getMemorySqlite(),
 }));
 
 mock.module("../page-content.js", () => ({
@@ -148,6 +155,7 @@ const {
 beforeEach(() => {
   storeMockActive = true;
   liveEnabled = false;
+  memoryDbAvailable = true;
   // The inspector's `live` flag comes from `isMemoryV3Live(getConfig())`,
   // which reads `memory.v3.live` — seed it for real.
   setConfig("memory", { v3: { live: false } });
@@ -352,6 +360,23 @@ describe("getMemoryV3SelectionForInspectorByMessageIds", () => {
       await getMemoryV3SelectionForInspectorByMessageIds(["fork-msg"]),
     ).toBeNull();
   });
+
+  test("returns null when the memory database is unavailable", async () => {
+    // Rows exist for both lookup keys, but with the memory connection down
+    // both inspector reads (including the fork-fallback walk, which still
+    // touches the main-DB `messages` table) must degrade to null, not throw.
+    seed(
+      "conv-deg",
+      1,
+      [{ slug: "domain-a/page-1", source: "needle" }],
+      "msg-deg",
+    );
+    memoryDbAvailable = false;
+    expect(await getMemoryV3SelectionForInspector("conv-deg", 1)).toBeNull();
+    expect(
+      await getMemoryV3SelectionForInspectorByMessageIds(["msg-deg"]),
+    ).toBeNull();
+  });
 });
 
 describe("summarizeSelections", () => {
@@ -388,6 +413,28 @@ describe("summarizeSelections", () => {
 
   test("returns zeroed counts for a conversation with no rows", () => {
     expect(summarizeSelections("conv-none")).toEqual({
+      bySource: {
+        core: 0,
+        hot: 0,
+        fresh: 0,
+        needle: 0,
+        dense: 0,
+        edge: 0,
+        reply: 0,
+        learned: 0,
+        entity: 0,
+      },
+      turns: 0,
+      distinctSlugs: 0,
+    });
+  });
+
+  test("returns zeroed results when the memory database is unavailable", () => {
+    // Rows exist, but with the memory connection down the summary must
+    // degrade to zeroes rather than throw.
+    seed("conv-deg", 1, [{ slug: "domain-a/page-1", source: "needle" }]);
+    memoryDbAvailable = false;
+    expect(summarizeSelections("conv-deg")).toEqual({
       bySource: {
         core: 0,
         hot: 0,

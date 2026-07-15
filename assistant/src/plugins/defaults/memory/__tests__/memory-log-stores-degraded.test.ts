@@ -8,13 +8,18 @@
  * resolves to null without mocking any module (module mocks would leak into
  * other test files in the same run).
  */
+import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+
+import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import type { DrizzleDb } from "../../../../persistence/db-connection.js";
 import {
   clearStoredDb,
   setStoredDb,
 } from "../../../../persistence/db-singleton.js";
+import { migrateAddMemoryV3EverInjected } from "../../../../persistence/migrations/277-add-memory-v3-ever-injected.js";
+import * as schema from "../../../../persistence/schema/index.js";
 import {
   backfillMemoryRecallLogMessageId,
   getMemoryRecallLogByMessageIds,
@@ -27,6 +32,8 @@ import {
 } from "../memory-v2-activation-log-store.js";
 import { getConceptFrequencySummary } from "../memory-v2-concept-frequency.js";
 import { extractOracleTurns } from "../v2/harness/oracle.js";
+import { recordInjected } from "../v3/ever-injected-store.js";
+import { planPrune } from "../v3/prune.js";
 import {
   sampleConcepts,
   sampleConfig,
@@ -93,5 +100,49 @@ describe("memory log stores without a memory database", () => {
 
   test("oracle extraction returns no turns", () => {
     expect(extractOracleTurns({} as DrizzleDb)).toEqual([]);
+  });
+});
+
+describe("memory-v3 prune valve without a memory database", () => {
+  // The valve's candidate accounting (`memory_v3_ever_injected`) lives in the
+  // MAIN database, which stays available — install a schema-bearing in-memory
+  // main DB into the `main` singleton slot so only the memory connection
+  // (degraded by the outer beforeEach) is down.
+  let mainSqlite: Database;
+
+  beforeEach(() => {
+    mainSqlite = new Database(":memory:");
+    const mainDb = drizzle(mainSqlite, { schema });
+    migrateAddMemoryV3EverInjected(mainDb);
+    setStoredDb("main", mainDb, () => mainSqlite.close());
+  });
+
+  afterEach(() => {
+    clearStoredDb("main");
+  });
+
+  test("planPrune falls back to injected_at recency without throwing", () => {
+    // With the memory DB unavailable the selection-recency read degrades to
+    // no rows, so every candidate ranks by its injected_at fallback.
+    recordInjected(
+      "conv-degraded-prune",
+      [{ slug: "domain-a/page-old", bytes: 600 }],
+      1_000,
+    );
+    recordInjected(
+      "conv-degraded-prune",
+      [{ slug: "domain-a/page-new", bytes: 500 }],
+      2_000,
+    );
+
+    const plan = planPrune(
+      {
+        maxResidentBytes: 1_000,
+        targetResidentBytes: 500,
+        exemptSlugs: new Set(),
+      },
+      "conv-degraded-prune",
+    );
+    expect(plan).toEqual({ slugs: ["domain-a/page-old"], bytesFreed: 600 });
   });
 });
