@@ -1,3 +1,5 @@
+import type { CSSProperties } from "react";
+
 import {
   EDGE_LEARNED_COLOR,
   EDGE_LINK_COLOR,
@@ -14,6 +16,13 @@ interface ConceptGraphLegendProps {
   coloredByTheme?: boolean;
   hasLinks: boolean;
   hasLearned: boolean;
+  /** When provided (both edge kinds present), the Link / Learned rows become
+   * toggles that show/hide that edge kind; the `*Active` flags dim the row
+   * while its kind is hidden. Omitted → static, non-interactive rows. */
+  onToggleLink?: () => void;
+  onToggleLearned?: () => void;
+  linkActive?: boolean;
+  learnedActive?: boolean;
 }
 
 /** Compact legend for node kinds and edge kinds present in the graph. */
@@ -22,6 +31,10 @@ export function ConceptGraphLegend({
   coloredByTheme,
   hasLinks,
   hasLearned,
+  onToggleLink,
+  onToggleLearned,
+  linkActive,
+  learnedActive,
 }: ConceptGraphLegendProps) {
   return (
     <div
@@ -57,33 +70,63 @@ export function ConceptGraphLegend({
         />
       )}
       {hasLinks && (
-        <div className="flex items-center gap-2">
-          <span
-            className="inline-block h-0 w-4"
-            style={{ borderTop: `2px solid ${EDGE_LINK_COLOR}` }}
-          />
-          <span
-            className="text-[11px]"
-            style={{ color: "var(--content-tertiary)" }}
-          >
-            Link
-          </span>
-        </div>
+        <EdgeLegendRow
+          swatchStyle={{ borderTop: `2px solid ${EDGE_LINK_COLOR}` }}
+          label="Link"
+          onToggle={onToggleLink}
+          active={linkActive}
+        />
       )}
       {hasLearned && (
-        <div className="flex items-center gap-2">
-          <span
-            className="inline-block h-0 w-4"
-            style={{ borderTop: `2px dashed ${EDGE_LEARNED_COLOR}` }}
-          />
-          <span
-            className="text-[11px]"
-            style={{ color: "var(--content-tertiary)" }}
-          >
-            Learned
-          </span>
-        </div>
+        <EdgeLegendRow
+          swatchStyle={{ borderTop: `2px dashed ${EDGE_LEARNED_COLOR}` }}
+          label="Learned"
+          onToggle={onToggleLearned}
+          active={learnedActive}
+        />
       )}
     </div>
+  );
+}
+
+/** One edge-kind legend row: a line swatch + label. With `onToggle` it renders
+ * as a button that shows/hides that edge kind (dimmed while its kind is hidden);
+ * without one it's a static, non-interactive row that keeps the legend's look. */
+function EdgeLegendRow({
+  swatchStyle,
+  label,
+  onToggle,
+  active,
+}: {
+  swatchStyle: CSSProperties;
+  label: string;
+  onToggle?: () => void;
+  active?: boolean;
+}) {
+  const swatch = <span className="inline-block h-0 w-4" style={swatchStyle} />;
+  const text = (
+    <span className="text-[11px]" style={{ color: "var(--content-tertiary)" }}>
+      {label}
+    </span>
+  );
+  if (!onToggle) {
+    return (
+      <div className="flex items-center gap-2">
+        {swatch}
+        {text}
+      </div>
+    );
+  }
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-pressed={active}
+      className="pointer-events-auto flex cursor-pointer items-center gap-2 border-0 bg-transparent p-0 transition-opacity"
+      style={{ opacity: active === false ? 0.4 : 1 }}
+    >
+      {swatch}
+      {text}
+    </button>
   );
 }
