@@ -21,6 +21,7 @@ import { PreferencesModal } from "@/domains/settings/components/preferences-moda
 import { PreviewReleaseChannel } from "@/domains/settings/components/preview-release-channel";
 import { ResizeCard } from "@/domains/settings/components/resize-card";
 import { RetireAssistant } from "@/domains/settings/components/retire-assistant";
+import { ShowTipsCard } from "@/domains/settings/components/show-tips-card";
 import { TimezoneSection } from "@/domains/settings/components/timezone-section";
 import { UpdateWindowModal } from "@/domains/settings/components/update-window-modal";
 import { TwoFactorSection } from "@/domains/settings/security/two-factor-section";
@@ -284,6 +285,8 @@ export function GeneralPage() {
       )}
 
       <AppearanceCard />
+
+      <ShowTipsCard />
 
       {infraGate === "full" && assistant && (
         <ResizeCard
