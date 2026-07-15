@@ -117,6 +117,65 @@ describe("getEnvFlagOverridesForScope", () => {
     expect(result.bool).not.toHaveProperty("settingsDeveloperNav");
   });
 
+  test("keeps booleanish Vite env values as strings for string-valued flags", () => {
+    (globalThis as Record<string, unknown>).window = undefined;
+    process.env.VITE_VELLUM_FLAG_PROACTIVE_TIPS = "on";
+    try {
+      resetEnvOverridesCache();
+      const result = getEnvFlagOverridesForScope("client");
+      expect(result.str.proactiveTips).toBe("on");
+      expect(result.bool).not.toHaveProperty("proactiveTips");
+
+      process.env.VITE_VELLUM_FLAG_PROACTIVE_TIPS = "off";
+      resetEnvOverridesCache();
+      expect(getEnvFlagOverridesForScope("client").str.proactiveTips).toBe(
+        "off",
+      );
+    } finally {
+      delete process.env.VITE_VELLUM_FLAG_PROACTIVE_TIPS;
+    }
+  });
+
+  test("still boolean-coerces booleanish Vite env values for boolean flags", () => {
+    (globalThis as Record<string, unknown>).window = undefined;
+    process.env.VITE_VELLUM_FLAG_HOME_TAB = "on";
+    try {
+      resetEnvOverridesCache();
+      const result = getEnvFlagOverridesForScope("client");
+      expect(result.bool.homeTab).toBe(true);
+      expect(result.str).not.toHaveProperty("homeTab");
+    } finally {
+      delete process.env.VITE_VELLUM_FLAG_HOME_TAB;
+    }
+  });
+
+  test("maps boolean-coerced window overrides back onto on/off string flags", () => {
+    (globalThis as Record<string, unknown>).window = {
+      __VELLUM_FLAG_OVERRIDES__: { "proactive-tips": true },
+    };
+    resetEnvOverridesCache();
+    expect(getEnvFlagOverridesForScope("client").str.proactiveTips).toBe("on");
+
+    (globalThis as Record<string, unknown>).window = {
+      __VELLUM_FLAG_OVERRIDES__: { "proactive-tips": false },
+    };
+    resetEnvOverridesCache();
+    expect(getEnvFlagOverridesForScope("client").str.proactiveTips).toBe("off");
+  });
+
+  test("drops boolean-coerced window overrides for string flags without on/off arms", () => {
+    (globalThis as Record<string, unknown>).window = {
+      __VELLUM_FLAG_OVERRIDES__: {
+        "pre-chat-onboarding-experiment-2026-06-06": true,
+      },
+    };
+    resetEnvOverridesCache();
+
+    const result = getEnvFlagOverridesForScope("client");
+    expect(result.str).not.toHaveProperty("preChatOnboardingExperiment20260606");
+    expect(result.bool).not.toHaveProperty("preChatOnboardingExperiment20260606");
+  });
+
   test("flags with scope 'both' appear for both client and assistant scopes", () => {
     (globalThis as Record<string, unknown>).window = {
       __VELLUM_FLAG_OVERRIDES__: {

@@ -102,10 +102,28 @@ function upperSnakeToKebab(upper: string): string {
 const TRUTHY = new Set(["true", "1", "yes", "on"]);
 const FALSY = new Set(["false", "0", "no", "off"]);
 
-function parseEnvValue(raw: string): boolean | string {
+const FLAG_KEY_TO_DEF = new Map<string, FlagDefinition>();
+for (const flag of flags) {
+  FLAG_KEY_TO_DEF.set(flag.key, flag);
+}
+
+function isStringFlag(def: FlagDefinition | undefined): boolean {
+  return typeof def?.defaultEnabled === "string";
+}
+
+function parseEnvValue(flagKey: string, raw: string): boolean | string {
+  // String-valued flags take the env value verbatim — arms like "on"/"off"
+  // are variant names, not booleans.
+  if (isStringFlag(FLAG_KEY_TO_DEF.get(flagKey))) {
+    return raw;
+  }
   const lower = raw.toLowerCase();
-  if (TRUTHY.has(lower)) return true;
-  if (FALSY.has(lower)) return false;
+  if (TRUTHY.has(lower)) {
+    return true;
+  }
+  if (FALSY.has(lower)) {
+    return false;
+  }
   return raw;
 }
 
@@ -124,7 +142,7 @@ function computeEnvFlagOverrides(): Record<string, boolean | string> {
       const flagKey = upperSnakeToKebab(key.slice(VITE_FLAG_PREFIX.length));
       const raw = env[key as keyof ImportMetaEnv];
       if (raw != null) {
-        overrides[flagKey] = parseEnvValue(raw);
+        overrides[flagKey] = parseEnvValue(flagKey, raw);
       }
     }
   }
@@ -144,11 +162,6 @@ export function resetEnvOverridesCache(): void {
   cachedOverrides = null;
 }
 
-const FLAG_KEY_TO_DEF = new Map<string, FlagDefinition>();
-for (const flag of flags) {
-  FLAG_KEY_TO_DEF.set(flag.key, flag);
-}
-
 export function getEnvFlagOverridesForScope(
   scope: SingleScope,
 ): { bool: Record<string, boolean>; str: Record<string, string> } {
@@ -158,10 +171,19 @@ export function getEnvFlagOverridesForScope(
 
   for (const [key, value] of Object.entries(overrides)) {
     const def = FLAG_KEY_TO_DEF.get(key);
-    if (!def || !scopeIncludes(def.scope, scope)) continue;
+    if (!def || !scopeIncludes(def.scope, scope)) {
+      continue;
+    }
 
     const storeKey = flagKeyToStoreKey(key);
-    if (typeof value === "boolean") {
+    if (isStringFlag(def)) {
+      // Injectors (Electron preload, CLI) boolean-coerce booleanish values
+      // before the registry type is known; map back to the matching arm.
+      const arm = typeof value === "string" ? value : value ? "on" : "off";
+      if (typeof value === "string" || def.values?.includes(arm)) {
+        str[storeKey] = arm;
+      }
+    } else if (typeof value === "boolean") {
       bool[storeKey] = value;
     } else {
       str[storeKey] = value;
