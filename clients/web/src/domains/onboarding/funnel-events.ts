@@ -239,8 +239,7 @@ export function emitOnboardingFunnelStepCompleted(
   // The generated client (not a raw fetch): its interceptors attach the
   // session credentials the ingest endpoint authenticates — an
   // unauthenticated POST is acknowledged with 200 but silently dropped
-  // server-side (JARVIS-1292: a bare fetch here lost every browser funnel
-  // event for four weeks).
+  // server-side.
   void telemetryIngestCreate({
     body: {
       device_id: getClientId(),

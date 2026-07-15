@@ -15,10 +15,8 @@ import { parseDrfFieldError } from "@/domains/account/parse-drf-field-error";
  * The generated wire type, tightened for reads: DRF serializes every field on
  * a GET (the generated optionality is write-side schema conservatism). Tying
  * this to the generated contract means a field that doesn't exist on the
- * server fails the build instead of silently reading `undefined` — a
- * hand-written copy of this interface once declared fields the endpoint never
- * returned (see PR #38160). The share booleans are null until the user makes
- * an explicit choice.
+ * server fails the build instead of silently reading `undefined`. The share
+ * booleans are null until the user makes an explicit choice.
  */
 export type UserConsent = Required<GeneratedUserConsent>;
 
