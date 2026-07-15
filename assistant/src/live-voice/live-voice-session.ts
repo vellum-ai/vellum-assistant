@@ -943,8 +943,8 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
 
     const turn = this.activeAssistantTurn;
     // Any in-flight, non-finalized turn is interruptible, whether it is still
-    // "thinking" (pre-TTS) or audibly speaking. Dropping the ttsAudioStarted
-    // requirement is what lets a user interrupt during the thinking phase.
+    // "thinking" (pre-TTS) or audibly speaking, so a user can cut in before the
+    // assistant starts talking.
     const bargeableTurn = turn && !turn.finalized ? turn : null;
     // The client can still be draining audible playback after tts_done
     // (the turn is already cleared server-side) — that tail deserves the
