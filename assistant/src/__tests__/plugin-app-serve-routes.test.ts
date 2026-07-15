@@ -198,6 +198,19 @@ describe("multi-file plugin apps compile on open", () => {
     // the monitor's job. The on-open build happened in a throwaway temp dir.
     expect(existsSync(join(appDir, "dist"))).toBe(false);
   });
+
+  test("apps_open on a malformed plugin app (no src/, no dist/) serves the fallback, not a 500", async () => {
+    // An app dir with neither a root index.html nor src/ nor dist/ is
+    // classified as multi-file; the on-open compile must not throw.
+    installPluginApp("acme", "broken", {});
+    const handler = findRoute(APP_MGMT_ROUTES, "apps_open").handler;
+    const result = (await handler({
+      pathParams: { id: "plugins~acme~broken" },
+    } as RouteHandlerArgs)) as { html: string; origin: string };
+
+    expect(result.origin).toBe("plugin:acme");
+    expect(result.html).toContain("App compilation failed");
+  });
 });
 
 describe("plugin apps are read-only over the management surface", () => {

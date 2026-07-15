@@ -41,7 +41,7 @@ import {
 } from "../../apps/app-store.js";
 import { createSharedAppLink } from "../../apps/shared-app-links-store.js";
 import { packageApp } from "../../bundler/app-bundler.js";
-import { compileApp, compileAppToDir } from "../../bundler/app-compiler.js";
+import { compileApp, runCompile } from "../../bundler/app-compiler.js";
 import { scanBundle } from "../../bundler/bundle-scanner.js";
 import type { SignatureJson } from "../../bundler/bundle-signer.js";
 import { verifyBundleSignature } from "../../bundler/signature-verifier.js";
@@ -681,9 +681,17 @@ async function compilePluginAppHtmlEphemeral(
   appId: string,
   sourceDir: string,
 ): Promise<string | null> {
+  // `resolveAppSource` classifies any app without a root index.html as
+  // multi-file, even a malformed one with no src/ (or one whose source was
+  // removed before the monitor built dist/). Building that would make the
+  // compiler throw, so skip it and let the caller serve the standard fallback
+  // rather than surfacing a 500 from a plain open.
+  if (!existsSync(join(sourceDir, "src"))) {
+    return null;
+  }
   const tmpRoot = mkdtempSync(join(tmpdir(), "vellum-plugin-app-"));
   try {
-    const result = await compileAppToDir(sourceDir, join(tmpRoot, "dist"));
+    const result = await runCompile(sourceDir, join(tmpRoot, "dist"));
     if (!result.ok) {
       log.warn(
         { appId, errors: result.errors },
@@ -694,6 +702,12 @@ async function compilePluginAppHtmlEphemeral(
     // resolveEffectiveAppHtmlFromDir reads `<tmpRoot>/dist/index.html` and
     // inlines its JS/CSS, yielding a self-contained page.
     return resolveEffectiveAppHtmlFromDir(tmpRoot, 2);
+  } catch (err) {
+    // The compiler reports build failures via `ok: false`; a thrown error is
+    // unexpected (e.g. a filesystem fault mid-build) and must still degrade to
+    // the fallback instead of a 500.
+    log.warn({ appId, err }, "Ephemeral compile threw on plugin app open");
+    return null;
   } finally {
     rmSync(tmpRoot, { recursive: true, force: true });
   }

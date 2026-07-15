@@ -338,24 +338,6 @@ export function compileApp(appDir: string): Promise<CompileResult> {
   return pending;
 }
 
-/**
- * Compile a TSX app from `appDir/src/` into an arbitrary `outDir`, laid out
- * exactly like a normal `dist/` (`outDir/main.js`, `outDir/index.html`, …).
- *
- * Unlike {@link compileApp}, this does not touch `appDir/dist` and is not
- * routed through the per-`appDir` compile queue: each caller supplies its own
- * private `outDir`, so builds never share a mutable target and cannot race.
- * Used to render a plugin-bundled app on open without writing into the plugin
- * tree (which the daemon treats as read-only) or racing the monitor process,
- * which is the sole writer of a plugin app's real `dist/`.
- */
-export function compileAppToDir(
-  appDir: string,
-  outDir: string,
-): Promise<CompileResult> {
-  return runCompile(appDir, outDir);
-}
-
 function slotCompileSettled(
   appDir: string,
   finished: Promise<CompileResult>,
@@ -377,7 +359,19 @@ function slotCompileSettled(
   }
 }
 
-async function runCompile(
+/**
+ * Compile a TSX app from `appDir/src/` into `distDir`, laid out exactly like a
+ * normal `dist/` (`distDir/main.js`, `distDir/index.html`, …).
+ *
+ * {@link compileApp} wraps this to build `appDir/dist` through the per-`appDir`
+ * serialisation queue. Call it directly to build into a caller-owned directory
+ * instead: because each caller supplies its own private `distDir`, such builds
+ * never share a mutable target and need no serialisation. This is how a
+ * plugin-bundled app is rendered on open without writing into the plugin tree
+ * (which the daemon treats as read-only) or racing the monitor process, which
+ * is the sole writer of a plugin app's real `dist/`.
+ */
+export async function runCompile(
   appDir: string,
   distDir: string,
 ): Promise<CompileResult> {
