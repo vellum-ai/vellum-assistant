@@ -34,7 +34,7 @@ informing us of live clients in use so we can delete old cold paths incrementall
 | Module                                                 | Role                                                                                                                                                                                |
 | ------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `src/lib/backwards-compat/`                            | The centralized registry. One file per gated feature, each declaring its own `MIN_VERSION`. `grep` this path to find everything that can eventually be deleted.                     |
-| `src/lib/backwards-compat/utils.ts`                    | The shared gate primitives: `useAssistantSupports`, `assistantSupports`, `whenAssistantVersionKnown`. Every gate uses these so semver parsing and pre-release handling are uniform. |
+| `src/lib/backwards-compat/utils.ts`                    | The shared gate primitives: `useAssistantSupports`, `useAssistantScopedSupports`, `assistantSupports`, `whenAssistantVersionKnown`. Every gate uses these so semver parsing and pre-release handling are uniform. |
 | `src/utils/semver.ts`                                  | Low-level `parseSemver` / `compareParsed` / `comparePreRelease`. No app knowledge — just version-string math.                                                                       |
 | `src/stores/assistant-identity-store.ts`               | Zustand store holding the active assistant's `{ name, version }`. The source of truth every gate reads.                                                                             |
 | `src/assistant/identity.ts`                            | Fetches identity from the assistant's `/identity` endpoint and refreshes it on the SSE `identity_changed` event.                                                                    |
@@ -52,6 +52,14 @@ version off the identity store. Pick by call site:
 - **`assistantSupports(minVersion): boolean`** — the snapshot. Reads
   `getState().version` once. Safe outside React: event handlers, async
   ops, request builders.
+- **`useAssistantScopedSupports(minVersion, ownerAssistantId): boolean`** —
+  the assistant-scoped hook. Like `useAssistantSupports`, but additionally
+  requires the identity store's version to have been fetched for
+  `ownerAssistantId` (the assistant owning the gated surface — a
+  transcript, a live voice session), read as a single atomic snapshot.
+  Conservative `false` on any mismatch or unknown. Use when the gated
+  feature belongs to a specific assistant rather than "whichever assistant
+  is active."
 - **`whenAssistantVersionKnown(timeoutMs?): Promise<void>`** — resolves
   once the version is non-null (or after a 5 s timeout). Used by write
   paths before reading a snapshot gate; see [Read vs. write

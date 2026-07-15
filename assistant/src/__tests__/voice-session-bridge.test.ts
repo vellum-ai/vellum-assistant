@@ -1056,15 +1056,12 @@ describe("voice-session-bridge", () => {
     expect(handleConfirmationCalls[0].decision).toBe("allow");
   });
 
-  // Resolving a confirmation synchronously broadcasts `interaction_resolved`
-  // (handleConfirmationResponse → prompter → pending-interactions), and
-  // clients clear their approval card only on that event. The bridge must
-  // therefore broadcast the `confirmation_request` BEFORE resolving it —
-  // the reverse wire order leaves an orphaned, un-clearable card in any
-  // attached UI (e.g. the web app behind a live-voice room). The fake's
-  // handleConfirmationResponse mirrors the production broadcast so the wire
-  // order is observable through the event hub, which serializes publishes
-  // in call order.
+  // Wire-order invariant under test: the bridge must broadcast the
+  // `confirmation_request` BEFORE resolving it — canonical rationale on the
+  // broadcast in voice-session-bridge.ts's confirmation_request branch. The
+  // fake's handleConfirmationResponse mirrors production's synchronous
+  // `interaction_resolved` broadcast so the wire order is observable through
+  // the event hub, which serializes publishes in call order.
   function makeConfirmationOrderingSession(
     conversationId: string,
     requestId: string,
