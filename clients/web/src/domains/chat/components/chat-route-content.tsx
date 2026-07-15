@@ -564,7 +564,7 @@ export function ChatMainPanel({
     assistantState.kind === "active" && !assistantState.isLocal;
   const doctorAction = showDoctorAction ? (
     <Button asChild variant="outlined" size="compact">
-      <Link to={`${routes.settings.debug}?tab=doctor`}>
+      <Link to={`${routes.settings.advanced}?tab=doctor`}>
         Go to Doctor
       </Link>
     </Button>

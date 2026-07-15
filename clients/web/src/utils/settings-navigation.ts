@@ -11,7 +11,6 @@ import type { LucideIcon } from "lucide-react";
 import {
   Bell,
   Bookmark,
-  Bug,
   Code,
   Cpu,
   CreditCard,
@@ -42,7 +41,6 @@ export const PANEL_IDS = [
   "billing",
   "community",
   "assistant-status",
-  "assistant-debug",
   "advanced",
   "developer",
 ] as const;
@@ -80,14 +78,15 @@ export const SETTINGS_SIDEBAR: SidebarItem[] = [
   { id: "bookmarks", label: "Bookmarks", href: routes.settings.bookmarks, icon: Bookmark },
   { id: "billing", label: "Billing & Usage", href: routes.settings.billing, icon: CreditCard },
   { id: "community", label: "Community", href: routes.settings.community, icon: Users },
-  { id: "assistant-debug", label: "Debug", href: routes.settings.debug, icon: Bug },
   { id: "advanced", label: "Advanced", href: routes.settings.advanced, icon: Settings },
   { id: "developer", label: "Developer", href: routes.settings.developer, icon: Code },
 ];
 
 const SETTINGS_TAB_ID_ALIASES: Record<string, PanelId> = {
-  developer: "assistant-debug",
-  debug: "assistant-debug",
+  // General, Terminal, and Doctor are in-page tabs on the Advanced page, so the
+  // "developer" and "debug" client tab names resolve there.
+  developer: "advanced",
+  debug: "advanced",
   model: "model",
   privacy: "privacy",
   // Two-factor auth moved from the retired Security tab onto General.

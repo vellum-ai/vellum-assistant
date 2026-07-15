@@ -280,7 +280,6 @@ export const routeTree = [
                 { path: "billing/upgrade/success", lazy: { Component: () => import("@/domains/settings/billing/upgrade-success-page").then((m) => m.UpgradeSuccessPage) } },
                 { path: "community", lazy: { Component: () => import("@/domains/settings/pages/community-page").then((m) => m.CommunityPage) } },
                 { path: "mcp", Component: McpSettingsRedirect },
-                { path: "debug", lazy: { Component: () => import("@/domains/settings/pages/debug-page").then((m) => m.DebugPage) } },
                 { path: "developer", lazy: { Component: () => import("@/domains/settings/pages/developer-page").then((m) => m.DeveloperPage) } },
                 { path: "advanced", lazy: { Component: () => import("@/domains/settings/pages/advanced-page").then((m) => m.AdvancedPage) } },
                 { path: "danger-zone", lazy: { Component: () => import("@/domains/settings/pages/danger-zone-redirect-page").then((m) => m.DangerZoneRedirectPage) } },

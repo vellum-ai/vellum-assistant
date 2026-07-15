@@ -191,7 +191,6 @@ export const routes = {
       return `${SETTINGS_BILLING_PATH}?${params.toString()}`;
     },
     community: r("/assistant/settings/community"),
-    debug: r("/assistant/settings/debug"),
     developer: r("/assistant/settings/developer"),
     mcp: r("/assistant/settings/mcp"),
     advanced: r("/assistant/settings/advanced"),
