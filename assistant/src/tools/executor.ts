@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { getConfig } from "../config/loader.js";
 import { PermissionPrompter } from "../permissions/prompter.js";
 import { RiskLevel } from "../permissions/types.js";
+import { runInPluginContext } from "../plugins/plugin-execution-context.js";
 import { TokenExpiredError } from "../security/token-manager.js";
 import {
   recordToolError,
@@ -19,6 +20,7 @@ import {
 import { getWorkflowRunManager } from "../workflows/run-manager.js";
 import { executeWithTimeout, safeTimeoutMs } from "./execution-timeout.js";
 import { PermissionChecker } from "./permission-checker.js";
+import { getToolOwner } from "./registry.js";
 import { extractAndSanitize } from "./sensitive-output-placeholders.js";
 import { applyEdit } from "./shared/filesystem/edit-engine.js";
 import { sandboxPolicy } from "./shared/filesystem/path-policy.js";
@@ -223,8 +225,19 @@ export class ToolExecutor {
       const toolTimeoutMs = computePerToolTimeoutMs(name, input);
       const execContext = context;
 
+      // Mark the owning plugin as in context (via AsyncLocalStorage) so host
+      // APIs the tool reaches — e.g. resolveCredential — can scope to it. The
+      // context must be established around the `execute()` call itself so the
+      // returned promise carries the binding across its awaits. Non-plugin
+      // tools (default/skill/mcp/workspace) establish no context.
+      const owner = getToolOwner(name);
+      const execPromise =
+        owner?.kind === "plugin"
+          ? runInPluginContext(owner.id, () => tool.execute(input, execContext))
+          : tool.execute(input, execContext);
+
       let execResult: ToolExecutionResult = await executeWithTimeout(
-        tool.execute(input, execContext),
+        execPromise,
         toolTimeoutMs,
         name,
       );
