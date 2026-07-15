@@ -276,7 +276,7 @@ export function ConceptGraphView({
   // the clear button, Escape, or an assistant switch — so the next search
   // re-emits its start event.
   useEffect(() => {
-    if (!search) {
+    if (!search.trim()) {
       searchEmittedRef.current = false;
     }
   }, [search]);
@@ -936,7 +936,9 @@ export function ConceptGraphView({
                 onChange={(e) => {
                   const value = e.target.value;
                   // Emit once when a search session begins (empty → typed).
-                  if (value && !searchEmittedRef.current) {
+                  // Key on the trimmed value so whitespace-only input, which the
+                  // graph treats as no search, doesn't latch/emit prematurely.
+                  if (value.trim() && !searchEmittedRef.current) {
                     emitMemoryEvent("search");
                     searchEmittedRef.current = true;
                   }
