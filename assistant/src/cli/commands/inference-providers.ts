@@ -1,14 +1,17 @@
 /**
  * `assistant inference providers` CLI namespace.
  *
- * Provider-scoped admin commands. Currently exposes one subcommand:
+ * Provider-scoped admin commands:
  *
- *   `assistant inference providers connections <verb>`
- *     list    — list all connections (optionally filtered by provider)
- *     get     — show a single connection
- *     create  — create a new connection
- *     update  — update a connection's auth
- *     delete  — delete a connection (rejects if profiles reference it)
+ *   `assistant inference providers <verb>`
+ *     list    — list configured providers (optionally filtered by provider)
+ *     get     — show a single provider entry
+ *     create  — add a provider (auth derived from the provider type)
+ *     update  — update a provider entry
+ *     delete  — remove a provider (rejects if profiles reference it)
+ *
+ *   `assistant inference providers connections <verb>` is a deprecated alias
+ *   of the same verbs, kept for one release.
  *
  * All subcommands delegate to the daemon via IPC using the
  * `inference_provider_connections_*` routes.
@@ -61,95 +64,33 @@ function formatAuth(auth: AuthInfo): string {
 }
 
 // ---------------------------------------------------------------------------
-// Subcommand: list
-// ---------------------------------------------------------------------------
-
-function attachListSubcommand(connections: Command): void {
-  subcommand(connections, "list").action(
-    async (opts: { provider?: string; json?: boolean }) => {
-      const ipcResult = await cliIpcCall<{ connections: ProviderConnection[] }>(
-        "inference_provider_connections_list",
-        {
-          queryParams: opts.provider ? { provider: opts.provider } : {},
-        },
-      );
-
-      if (!ipcResult.ok) {
-        writeCliError(ipcResult.error ?? "Unknown error", opts.json);
-        return;
-      }
-
-      const rows = ipcResult.result!.connections;
-
-      if (opts.json) {
-        process.stdout.write(
-          JSON.stringify({ ok: true, connections: rows }) + "\n",
-        );
-        return;
-      }
-
-      if (rows.length === 0) {
-        process.stdout.write("No connections found.\n");
-        return;
-      }
-
-      for (const conn of rows) {
-        process.stdout.write(
-          `${conn.name}  provider=${conn.provider}  auth=${formatAuth(conn.auth)}\n`,
-        );
-      }
-    },
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Subcommand: get
-// ---------------------------------------------------------------------------
-
-function attachGetSubcommand(connections: Command): void {
-  subcommand(connections, "get").action(
-    async (name: string, opts: { json?: boolean }) => {
-      const ipcResult = await cliIpcCall<ProviderConnection>(
-        "inference_provider_connections_get",
-        {
-          pathParams: { name },
-        },
-      );
-
-      if (!ipcResult.ok) {
-        writeCliError(ipcResult.error ?? "Unknown error", opts.json);
-        return;
-      }
-
-      const conn = ipcResult.result!;
-
-      if (opts.json) {
-        process.stdout.write(
-          JSON.stringify({ ok: true, connection: conn }) + "\n",
-        );
-        return;
-      }
-
-      process.stdout.write(`name:     ${conn.name}\n`);
-      process.stdout.write(`provider: ${conn.provider}\n`);
-      process.stdout.write(`auth:     ${formatAuth(conn.auth)}\n`);
-      process.stdout.write(
-        `created:  ${new Date(conn.createdAt).toISOString()}\n`,
-      );
-      process.stdout.write(
-        `updated:  ${new Date(conn.updatedAt).toISOString()}\n`,
-      );
-    },
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Auth input builder
+// Auth derivation
 // ---------------------------------------------------------------------------
 
 /**
- * Build and validate auth input from CLI flags. Returns the auth object on
- * success, or an error message string on validation failure.
+ * Derive the auth object a provider implies via the daemon's shared
+ * `deriveAuthForProvider` (one source of truth for the keyless / vellum /
+ * openai-compatible rules), mapping its credential-required null to a
+ * CLI-flavored error message string.
+ */
+async function deriveAuthInput(
+  provider: string,
+  credential?: string,
+): Promise<Record<string, unknown> | string> {
+  // Deferred: pure module, imported lazily per cli/no-daemon-internals.
+  const { deriveAuthForProvider } =
+    await import("../../providers/inference/auth.js");
+  const derived = deriveAuthForProvider(provider, credential);
+  if (!derived) {
+    return `Provider "${provider}" authenticates by API key — pass --credential <vault-key> (or an explicit --auth override)`;
+  }
+  return derived as unknown as Record<string, unknown>;
+}
+
+/**
+ * Build and validate an explicit `--auth` override from CLI flags. Returns
+ * the auth object on success, or an error message string on validation
+ * failure.
  */
 function buildAuthInput(
   authType: string,
@@ -208,17 +149,98 @@ function buildCustomProviderFields(opts: {
 }
 
 // ---------------------------------------------------------------------------
+// Subcommand: list
+// ---------------------------------------------------------------------------
+
+function attachListSubcommand(parent: Command): void {
+  subcommand(parent, "list").action(
+    async (opts: { provider?: string; json?: boolean }) => {
+      const ipcResult = await cliIpcCall<{ connections: ProviderConnection[] }>(
+        "inference_provider_connections_list",
+        {
+          queryParams: opts.provider ? { provider: opts.provider } : {},
+        },
+      );
+
+      if (!ipcResult.ok) {
+        writeCliError(ipcResult.error ?? "Unknown error", opts.json);
+        return;
+      }
+
+      const rows = ipcResult.result!.connections;
+
+      if (opts.json) {
+        process.stdout.write(
+          JSON.stringify({ ok: true, connections: rows }) + "\n",
+        );
+        return;
+      }
+
+      if (rows.length === 0) {
+        process.stdout.write("No providers found.\n");
+        return;
+      }
+
+      for (const conn of rows) {
+        process.stdout.write(`${conn.name}  provider=${conn.provider}\n`);
+      }
+    },
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Subcommand: get
+// ---------------------------------------------------------------------------
+
+function attachGetSubcommand(parent: Command): void {
+  subcommand(parent, "get").action(
+    async (name: string, opts: { json?: boolean }) => {
+      const ipcResult = await cliIpcCall<ProviderConnection>(
+        "inference_provider_connections_get",
+        {
+          pathParams: { name },
+        },
+      );
+
+      if (!ipcResult.ok) {
+        writeCliError(ipcResult.error ?? "Unknown error", opts.json);
+        return;
+      }
+
+      const conn = ipcResult.result!;
+
+      if (opts.json) {
+        process.stdout.write(
+          JSON.stringify({ ok: true, connection: conn }) + "\n",
+        );
+        return;
+      }
+
+      process.stdout.write(`name:     ${conn.name}\n`);
+      process.stdout.write(`provider: ${conn.provider}\n`);
+      process.stdout.write(`auth:     ${formatAuth(conn.auth)}\n`);
+      process.stdout.write(
+        `created:  ${new Date(conn.createdAt).toISOString()}\n`,
+      );
+      process.stdout.write(
+        `updated:  ${new Date(conn.updatedAt).toISOString()}\n`,
+      );
+    },
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Subcommand: create
 // ---------------------------------------------------------------------------
 
-function attachCreateSubcommand(connections: Command): void {
+function attachCreateSubcommand(parent: Command): void {
   // `--model` uses an array-accumulating collector, which the declarative
   // help contract cannot express — it is registered imperatively here (with
   // the trailing `--json` after it, preserving option order).
-  subcommand(connections, "create")
+  subcommand(parent, "create")
     .option(
       "--model <id>",
-      "Model id offered by this connection (repeatable; required for openai-compatible)",
+      "Model id offered by this provider (repeatable; required for openai-compatible)",
       collectRepeatable,
       [] as string[],
     )
@@ -228,14 +250,16 @@ function attachCreateSubcommand(connections: Command): void {
         name: string,
         opts: {
           provider: string;
-          auth: string;
+          auth?: string;
           credential?: string;
           baseUrl?: string;
           model?: string[];
           json?: boolean;
         },
       ) => {
-        const authInput = buildAuthInput(opts.auth, opts.credential);
+        const authInput = opts.auth
+          ? buildAuthInput(opts.auth, opts.credential)
+          : await deriveAuthInput(opts.provider, opts.credential);
         if (typeof authInput === "string") {
           writeCliError(authInput, opts.json);
           return;
@@ -274,8 +298,8 @@ function attachCreateSubcommand(connections: Command): void {
           );
         } else {
           process.stdout.write(
-            `Created connection "${conn.name}" (provider=${conn.provider}, auth=${formatAuth(conn.auth)})\n` +
-              `Verify it works: point a profile's provider_connection at "${conn.name}", then run: assistant inference send --profile <profile> "Reply with OK"\n`,
+            `Added provider "${conn.name}" (provider=${conn.provider})\n` +
+              `Verify it works: point a profile at "${conn.name}", then run: assistant inference send --profile <profile> "Reply with OK"\n`,
           );
         }
       },
@@ -286,12 +310,12 @@ function attachCreateSubcommand(connections: Command): void {
 // Subcommand: update
 // ---------------------------------------------------------------------------
 
-function attachUpdateSubcommand(connections: Command): void {
+function attachUpdateSubcommand(parent: Command): void {
   // `--model` collector registered imperatively — see the note on `create`.
-  subcommand(connections, "update")
+  subcommand(parent, "update")
     .option(
       "--model <id>",
-      "Model id offered by this connection (repeatable; openai-compatible)",
+      "Model id offered by this provider (repeatable; openai-compatible)",
       collectRepeatable,
       [] as string[],
     )
@@ -300,14 +324,44 @@ function attachUpdateSubcommand(connections: Command): void {
       async (
         name: string,
         opts: {
-          auth: string;
+          auth?: string;
           credential?: string;
           baseUrl?: string;
           model?: string[];
           json?: boolean;
         },
       ) => {
-        const authInput = buildAuthInput(opts.auth, opts.credential);
+        // Resolve the auth to send: explicit --auth wins; a bare --credential
+        // rotates the key via derived api_key auth; with neither, re-send the
+        // stored auth verbatim so base-url/model-only updates work.
+        let authInput: Record<string, unknown> | string;
+        if (opts.auth) {
+          authInput = buildAuthInput(opts.auth, opts.credential);
+        } else {
+          const existing = await cliIpcCall<ProviderConnection>(
+            "inference_provider_connections_get",
+            { pathParams: { name } },
+          );
+          if (!existing.ok) {
+            writeCliError(existing.error ?? "Unknown error", opts.json);
+            return;
+          }
+          const storedAuth = existing.result!.auth;
+          if (opts.credential) {
+            // A bare --credential must never silently flip subscription auth
+            // to api_key — subscription tokens rotate via login-chatgpt.
+            if (storedAuth.type === "oauth_subscription") {
+              writeCliError(
+                `Provider "${name}" uses subscription auth, which --credential cannot rotate. Re-run: assistant inference providers login-chatgpt (or pass an explicit --auth to switch auth types)`,
+                opts.json,
+              );
+              return;
+            }
+            authInput = { type: "api_key", credential: opts.credential };
+          } else {
+            authInput = storedAuth as unknown as Record<string, unknown>;
+          }
+        }
         if (typeof authInput === "string") {
           writeCliError(authInput, opts.json);
           return;
@@ -334,8 +388,8 @@ function attachUpdateSubcommand(connections: Command): void {
           );
         } else {
           process.stdout.write(
-            `Updated connection "${name}" auth to ${formatAuth(conn.auth)}\n` +
-              `Verify it works: assistant inference send --profile <profile-using-this-connection> "Reply with OK"\n`,
+            `Updated provider "${name}" (auth=${formatAuth(conn.auth)})\n` +
+              `Verify it works: assistant inference send --profile <profile-using-this-provider> "Reply with OK"\n`,
           );
         }
       },
@@ -346,8 +400,8 @@ function attachUpdateSubcommand(connections: Command): void {
 // Subcommand: delete
 // ---------------------------------------------------------------------------
 
-function attachDeleteSubcommand(connections: Command): void {
-  subcommand(connections, "delete").action(
+function attachDeleteSubcommand(parent: Command): void {
+  subcommand(parent, "delete").action(
     async (name: string, opts: { json?: boolean }) => {
       const ipcResult = await cliIpcCall<{ ok: true }>(
         "inference_provider_connections_delete",
@@ -364,7 +418,7 @@ function attachDeleteSubcommand(connections: Command): void {
       if (opts.json) {
         process.stdout.write(JSON.stringify({ ok: true }) + "\n");
       } else {
-        process.stdout.write(`Deleted connection "${name}"\n`);
+        process.stdout.write(`Removed provider "${name}"\n`);
       }
     },
   );
@@ -442,14 +496,14 @@ function attachLoginChatgptSubcommand(providers: Command): void {
           );
         }
 
-        // Step 3: Create (or update) provider connection via IPC
+        // Step 3: Create (or update) the provider entry via IPC
         const connectionName = "chatgpt-subscription";
         const authInput = {
           type: "oauth_subscription",
           credential: "credential/chatgpt/access_token",
         };
 
-        // Try to update first; if the connection doesn't exist, create it.
+        // Try to update first; if the entry doesn't exist, create it.
         const updateResult = await cliIpcCall<ProviderConnection>(
           "inference_provider_connections_update",
           {
@@ -459,7 +513,7 @@ function attachLoginChatgptSubcommand(providers: Command): void {
         );
 
         if (!updateResult.ok) {
-          // Connection doesn't exist yet — create it
+          // Entry doesn't exist yet — create it
           const createResult = await cliIpcCall<ProviderConnection>(
             "inference_provider_connections_create",
             {
@@ -473,7 +527,7 @@ function attachLoginChatgptSubcommand(providers: Command): void {
 
           if (!createResult.ok) {
             writeCliError(
-              createResult.error ?? "Failed to create provider connection",
+              createResult.error ?? "Failed to add the ChatGPT provider",
               opts.json,
             );
             return;
@@ -491,7 +545,7 @@ function attachLoginChatgptSubcommand(providers: Command): void {
         } else {
           process.stdout.write(
             `ChatGPT subscription auth configured successfully.\n` +
-              `Connection "${connectionName}" is ready (provider=openai, auth=oauth_subscription).\n`,
+              `Provider "${connectionName}" is ready.\n`,
           );
         }
       } catch (err) {
@@ -506,15 +560,22 @@ function attachLoginChatgptSubcommand(providers: Command): void {
 // Registration
 // ---------------------------------------------------------------------------
 
+/** Attach the five CRUD verbs to a parent (`providers` or its alias). */
+function attachCrudVerbs(parent: Command): void {
+  attachListSubcommand(parent);
+  attachGetSubcommand(parent);
+  attachCreateSubcommand(parent);
+  attachUpdateSubcommand(parent);
+  attachDeleteSubcommand(parent);
+}
+
 export function attachProvidersSubcommand(inference: Command): void {
   const providers = subcommand(inference, "providers");
-  const connections = subcommand(providers, "connections");
+  attachCrudVerbs(providers);
 
-  attachListSubcommand(connections);
-  attachGetSubcommand(connections);
-  attachCreateSubcommand(connections);
-  attachUpdateSubcommand(connections);
-  attachDeleteSubcommand(connections);
+  // Deprecated alias, kept for one release.
+  const connections = subcommand(providers, "connections");
+  attachCrudVerbs(connections);
 
   attachLoginChatgptSubcommand(providers);
   attachDefaultProviderSubcommand(providers);
