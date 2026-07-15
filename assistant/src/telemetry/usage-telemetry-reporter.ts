@@ -317,11 +317,8 @@ export class UsageTelemetryReporter {
       // checkpoint-unavailable skip above. Purging here would silently
       // destroy events recorded before the cache warmed up; instead the
       // backlog ships (or is purged) on a later cycle once the 5-minute
-      // refresh loop resolves the cache to a confirmed value. The deferral
-      // is bounded: the age prune above deletes outbox rows older than
-      // OUTBOX_MAX_ROW_AGE_MS, so a permanently-unknown state (never
-      // logged in, logged out, no resolvable owner) cannot accumulate
-      // rows without limit.
+      // refresh loop resolves the cache to a confirmed value. Bounded by
+      // the age prune above.
       if (shareAnalytics === "unknown") {
         log.debug(
           "Telemetry flush: share_analytics consent unknown — skipping, will retry next cycle",

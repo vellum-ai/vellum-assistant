@@ -81,7 +81,6 @@ mock.module("../telemetry/tool-audit.js", () => ({
 // Analytics consent is granted so any consent-gated telemetry path the audit
 // terminals consult sees the opted-in state.
 mock.module("../platform/consent-cache.js", () => ({
-  getCachedShareAnalytics: () => true,
   getRawShareAnalytics: () => true,
 }));
 

@@ -1,13 +1,5 @@
-import {
-  afterEach,
-  beforeEach,
-  describe,
-  expect,
-  mock,
-  test,
-} from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { cleanup } from "@testing-library/react";
-
 
 type MockSessionUser = {
   id?: string;
@@ -322,12 +314,10 @@ mock.module("@/assistant/api", () => ({
 }));
 
 const { useAuthStore } = await import("@/stores/auth-store");
-const { useAssistantLifecycleStore } = await import(
-  "@/assistant/lifecycle-store"
-);
-const { useResolvedAssistantsStore } = await import(
-  "@/stores/resolved-assistants-store"
-);
+const { useAssistantLifecycleStore } =
+  await import("@/assistant/lifecycle-store");
+const { useResolvedAssistantsStore } =
+  await import("@/stores/resolved-assistants-store");
 
 function resetAuthStore(): void {
   useAuthStore.setState({
@@ -825,7 +815,10 @@ describe("auth store onboarding flag reconciliation", () => {
         share_diagnostics_accepted_version: expect.any(String),
       }),
     );
-    const backfillBody = patchConsentMock.mock.calls[0][0] as Record<string, unknown>;
+    const backfillBody = patchConsentMock.mock.calls[0][0] as Record<
+      string,
+      unknown
+    >;
     expect("share_analytics" in backfillBody).toBe(false);
     expect("share_analytics_accepted_version" in backfillBody).toBe(false);
     // A no-record response adopts nothing — its share values are API
@@ -859,11 +852,16 @@ describe("auth store onboarding flag reconciliation", () => {
     );
   });
 
-  test("backfill stamps the server-adopted required versions, not the frozen constants", async () => {
+  test("backfill stamps adopted required versions for acked axes; analytics stays at the build constant", async () => {
     // The server bumped required_versions past the build constants. The sync
-    // flow adopts them (via resolveServerConsent) before the backfill runs,
-    // so the backfill must stamp the adopted versions — frozen-constant
-    // stamps would write a stale server row and re-prompt every other device.
+    // flow adopts them (via resolveServerConsent) before the backfill runs.
+    // Device-ACKED axes (tos/privacy/diagnostics) stamp the adopted versions
+    // — their acks were validated against those requirements, and frozen
+    // stamps would write a stale server row that re-prompts other devices.
+    // Analytics has NO versioned device ack: a device value proves only a
+    // choice made under some build's disclosure, so it stamps the frozen
+    // build constant — stamping a bumped version would attest a disclosure
+    // the user never saw.
     sessionUser = { id: "user-1", email: "user@example.com" };
     mockRequiredVersions = {
       tos: "2026-09-01",
@@ -886,7 +884,8 @@ describe("auth store onboarding flag reconciliation", () => {
         tos_accepted_version: "2026-09-01",
         privacy_policy_accepted_version: "2026-09-02",
         ai_data_sharing_accepted_version: "2026-09-03",
-        share_analytics_accepted_version: "2026-09-04",
+        share_analytics: false,
+        share_analytics_accepted_version: "2026-06-08",
         share_diagnostics_accepted_version: "2026-09-05",
       }),
     );

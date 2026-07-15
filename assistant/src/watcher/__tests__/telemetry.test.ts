@@ -33,7 +33,6 @@ mock.module("../../persistence/lifecycle-events-store.js", () => ({
 }));
 
 mock.module("../../platform/consent-cache.js", () => ({
-  getCachedShareAnalytics: () => shareAnalytics === true,
   getRawShareAnalytics: () => shareAnalytics,
 }));
 

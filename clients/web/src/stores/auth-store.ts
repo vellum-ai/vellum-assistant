@@ -67,6 +67,7 @@ import {
   persistDiagnosticsAck,
   resolveServerConsent,
   getRequiredConsentVersions,
+  ANALYTICS_CONSENT_VERSION,
 } from "@/lib/consent/consent-persistence";
 import { useOnboardingStore } from "@/domains/onboarding/onboarding-store";
 import {
@@ -308,7 +309,13 @@ function buildDeviceConsentBackfill(axes: {
     ...(axes.shareValues && axes.shareValues.analytics !== null
       ? {
           share_analytics: axes.shareValues.analytics,
-          share_analytics_accepted_version: required.shareAnalytics,
+          // The frozen build constant, NOT the adopted required version:
+          // analytics has no versioned device ack, so a device value proves
+          // only a choice made under some build's disclosure — stamping a
+          // server-bumped version would attest a disclosure the user never
+          // saw. The constant bounds the stamp to what this build could have
+          // shown; an under-stamp at worst re-reviews.
+          share_analytics_accepted_version: ANALYTICS_CONSENT_VERSION,
         }
       : {}),
     ...(axes.diagnostics
@@ -378,7 +385,8 @@ async function syncUserScopedState(nextUserId: string | null): Promise<void> {
       // off the raw version currency. Analytics has no device ack — its
       // version stamps are written server-side at choice time.
       let diagnosticsAck =
-        resolved.shareDiagnostics !== null && resolved.diagnosticsVersionCurrent;
+        resolved.shareDiagnostics !== null &&
+        resolved.diagnosticsVersionCurrent;
 
       // Fall back to device keys for a TRULY empty record: the device ack
       // keys are the only consent evidence, so they drive the legal axes and

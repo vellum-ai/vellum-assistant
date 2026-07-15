@@ -34,7 +34,6 @@ import {
   __setCachedShareAnalyticsForTest,
   __setCachedShareDiagnosticsForTest,
   __setCachedShareDiagnosticsVersionForTest,
-  getCachedShareAnalytics,
   getCachedShareDiagnostics,
   getCachedShareDiagnosticsVersion,
   getRawShareAnalytics,
@@ -82,14 +81,12 @@ describe("consent-cache", () => {
 
   test("boot state is unknown; public accessor reads false", () => {
     expect(getRawShareAnalytics()).toBe("unknown");
-    expect(getCachedShareAnalytics()).toBe(false);
   });
 
   test("no platform client available → unknown; public accessor reads false", async () => {
     mockClient = null;
     await refreshConsentCache();
     expect(getRawShareAnalytics()).toBe("unknown");
-    expect(getCachedShareAnalytics()).toBe(false);
   });
 
   test("platform features disabled → confirmed false, not unknown", async () => {
@@ -111,19 +108,18 @@ describe("consent-cache", () => {
   test("becomes true after a successful fetch reporting shareAnalytics: true", async () => {
     mockClient = makeClient(makeConsent({ shareAnalytics: true }));
     await refreshConsentCache();
-    expect(getCachedShareAnalytics()).toBe(true);
     expect(getRawShareAnalytics()).toBe(true);
   });
 
   test("a null fetch keeps the last known value", async () => {
     mockClient = makeClient(makeConsent({ shareAnalytics: true }));
     await refreshConsentCache();
-    expect(getCachedShareAnalytics()).toBe(true);
+    expect(getRawShareAnalytics()).toBe(true);
 
     // Transient failure: consent endpoint returns null.
     mockClient = makeClient(null);
     await refreshConsentCache();
-    expect(getCachedShareAnalytics()).toBe(true);
+    expect(getRawShareAnalytics()).toBe(true);
   });
 
   test("a null fetch keeps a confirmed opt-out", async () => {
@@ -148,7 +144,6 @@ describe("consent-cache", () => {
     mockClient = null;
     await refreshConsentCache();
     expect(getRawShareAnalytics()).toBe("unknown");
-    expect(getCachedShareAnalytics()).toBe(false);
   });
 
   test("a client without a resolvable assistant identity demotes to unknown", async () => {
@@ -160,7 +155,6 @@ describe("consent-cache", () => {
     mockClient = makeClient(makeConsent({ shareAnalytics: true }), "");
     await refreshConsentCache();
     expect(getRawShareAnalytics()).toBe("unknown");
-    expect(getCachedShareAnalytics()).toBe(false);
   });
 
   test("legacy opt-out marker is honored at boot, before any refresh", () => {
@@ -170,7 +164,6 @@ describe("consent-cache", () => {
     // would otherwise leak events in that window).
     setConfig("legacyTelemetryOptOut", true);
     expect(getRawShareAnalytics()).toBe(false);
-    expect(getCachedShareAnalytics()).toBe(false);
   });
 
   test("legacy opt-out marker keeps analytics off despite platform opt-in", async () => {
@@ -179,7 +172,6 @@ describe("consent-cache", () => {
     await refreshConsentCache();
     // Platform reports opt-in, but the fail-closed marker forces off. The raw
     // accessor folds the marker into a confirmed false, not an unknown.
-    expect(getCachedShareAnalytics()).toBe(false);
     expect(getRawShareAnalytics()).toBe(false);
   });
 
@@ -187,7 +179,6 @@ describe("consent-cache", () => {
     __setCachedShareAnalyticsForTest(true);
     mockClient = makeClient(makeConsent({ shareDiagnostics: true }));
     await refreshConsentCache();
-    expect(getCachedShareAnalytics()).toBe(false);
     expect(getRawShareAnalytics()).toBe(false);
   });
 
@@ -199,7 +190,7 @@ describe("consent-cache", () => {
     // Let the fire-and-forget immediate refresh settle.
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    expect(getCachedShareAnalytics()).toBe(true);
+    expect(getRawShareAnalytics()).toBe(true);
     // One immediate refresh from the first call; the second is a no-op.
     expect(createCallCount).toBe(1);
   });
@@ -211,7 +202,7 @@ describe("consent-cache", () => {
     mockClient = makeClient(makeConsent({ shareAnalytics: true }));
     startConsentRefresh();
     await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(getCachedShareAnalytics()).toBe(true);
+    expect(getRawShareAnalytics()).toBe(true);
   });
 
   // share_diagnostics tracks the same refresh as share_analytics; Sentry's
@@ -315,7 +306,7 @@ describe("consent-cache", () => {
     for (const state of [true, false, "unknown"] as const) {
       __setCachedShareAnalyticsForTest(state);
       __setCachedShareDiagnosticsForTest(state);
-      expect(getCachedShareAnalytics()).toBe(state === true);
+      expect(getRawShareAnalytics()).toBe(state);
       expect(getCachedShareDiagnostics()).toBe(state === true);
       expect(getRawShareAnalytics()).toBe(state);
     }

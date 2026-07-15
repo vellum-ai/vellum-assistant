@@ -70,7 +70,7 @@ const LEGACY_AI_PRIVACY_CONSENT_VERSION = "2026-06-08";
 // Required versions — server-supplied, constants as fallback
 // ---------------------------------------------------------------------------
 
-export interface RequiredConsentVersions {
+interface RequiredConsentVersions {
   tos: string;
   privacyPolicy: string;
   aiDataSharing: string;
@@ -478,11 +478,10 @@ export function resolveServerConsent(consent: UserConsent | null | undefined): {
     // The platform computes effective consent in one place (null = enabled,
     // opt-out) and serves it as `share_*_effective`; an older backend omits
     // the fields, so fall back to the raw value's opt-out reading. These are
-    // the server-authoritative gate inputs that the fallback-deletion PR
-    // (plan PR 10) switches the data-capture gates to once platform deploys
-    // are confirmed; until then the store-based explicit-opt-out gates are
-    // behaviorally identical (effective differs from raw only when raw is
-    // null, which the gates read as enabled).
+    // the server-authoritative gate inputs; the store-based explicit-opt-out
+    // gates currently consume raw values, which are behaviorally identical
+    // (effective differs from raw only when raw is null, which the gates
+    // read as enabled).
     analyticsEffective:
       consent.share_analytics_effective ?? consent.share_analytics ?? true,
     diagnosticsEffective:
