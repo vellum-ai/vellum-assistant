@@ -51,6 +51,14 @@
       "defaultEnabled": false
     },
     {
+      "id": "acp-managed-proxy-routing",
+      "scope": "assistant",
+      "key": "acp-managed-proxy-routing",
+      "label": "ACP Managed Proxy Routing",
+      "description": "Route platform-hosted claude-agent-acp inference through the Vellum runtime proxy via the ACP gateway auth handshake, billing per-assistant so the child needs no Anthropic credential. Off by default; requires a dev-platform live test before enabling.",
+      "defaultEnabled": false
+    },
+    {
       "id": "settings-developer-nav",
       "scope": "assistant",
       "key": "settings-developer-nav",

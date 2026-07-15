@@ -33,6 +33,7 @@ import {
   ACP_ANTHROPIC_API_KEY_FIELD,
   ACP_OAUTH_TOKEN_FIELD,
 } from "./acp-credentials.js";
+import { resolveAcpGatewayAuth } from "./gateway-auth.js";
 import type { AcpAgentConfig } from "./types.js";
 
 const log = getLogger("acp:prepare-agent-env");
@@ -222,6 +223,13 @@ export async function prepareAgentEnv(
   const adapterCommand = basename(agentConfig.command);
 
   if (adapterCommand === "claude-agent-acp") {
+    // Gateway-mode proxy routing (flag-gated, off by default): the adapter
+    // authenticates the child against the Vellum runtime proxy, so no Anthropic
+    // credential is needed — skip injection and the throw. Off → PR-2 path below.
+    if (await resolveAcpGatewayAuth()) {
+      return { ...agentConfig, env };
+    }
+
     const hasClaudeCred = () =>
       Boolean(env.ANTHROPIC_API_KEY || env.CLAUDE_CODE_OAUTH_TOKEN);
 
