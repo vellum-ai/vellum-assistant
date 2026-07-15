@@ -50,6 +50,7 @@ function renderMenu(props: {
   collapsed?: boolean;
   variant?: "rail" | "overlay";
   includeFooterAction?: boolean;
+  includeTipCard?: boolean;
 }): string {
   const includeFooterAction = props.includeFooterAction ?? true;
   return renderToStaticMarkup(
@@ -62,6 +63,9 @@ function renderMenu(props: {
       onSelectConversation: () => {},
       footerAction: includeFooterAction
         ? createElement("span", null, "Preferences")
+        : undefined,
+      tipCard: props.includeTipCard
+        ? createElement("span", null, "TipSentinel")
         : undefined,
     }),
   );
@@ -259,6 +263,73 @@ describe("AssistantSideMenu · footer slot behavior", () => {
     const html = renderMenu({ conversations, includeFooterAction: false });
 
     expect(html).not.toContain("Preferences");
+    expect(html).not.toContain('data-slot="side-menu-footer"');
+  });
+});
+
+describe("AssistantSideMenu · tipCard slot", () => {
+  const conversations = [
+    makeConversation({ conversationId: "a", title: "Alpha" }),
+  ];
+
+  test("renders the tip card in the rail footer above the footer action", () => {
+    const html = renderMenu({ conversations, includeTipCard: true });
+
+    const footerIndex = html.indexOf('data-slot="side-menu-footer"');
+    const tipIndex = html.indexOf("TipSentinel");
+    const actionIndex = html.indexOf("Preferences");
+    expect(footerIndex).toBeGreaterThanOrEqual(0);
+    expect(tipIndex).toBeGreaterThan(footerIndex);
+    expect(actionIndex).toBeGreaterThan(tipIndex);
+  });
+
+  test("hides the tip card on the collapsed rail", () => {
+    const html = renderMenu({
+      conversations,
+      collapsed: true,
+      includeTipCard: true,
+    });
+
+    expect(html).not.toContain("TipSentinel");
+    // The footer action still renders when collapsed.
+    expect(html).toContain("Preferences");
+  });
+
+  test("renders the footer when only the tip card is provided", () => {
+    const html = renderMenu({
+      conversations,
+      includeFooterAction: false,
+      includeTipCard: true,
+    });
+
+    expect(html).toContain('data-slot="side-menu-footer"');
+    expect(html).toContain("TipSentinel");
+    expect(html).not.toContain("Preferences");
+  });
+
+  test("renders the tip card in the overlay floating container above the action pills", () => {
+    const html = renderMenu({
+      conversations,
+      variant: "overlay",
+      includeTipCard: true,
+    });
+
+    const tipIndex = html.indexOf("TipSentinel");
+    const actionIndex = html.indexOf("Preferences");
+    expect(tipIndex).toBeGreaterThanOrEqual(0);
+    expect(actionIndex).toBeGreaterThan(tipIndex);
+    // The wrapper re-enables pointer events inside the pointer-events-none
+    // container and collapses when the tip card renders null.
+    const wrapperOpen = html.lastIndexOf("<div", tipIndex);
+    const wrapper = html.slice(wrapperOpen, tipIndex);
+    expect(wrapper).toContain("pointer-events-auto");
+    expect(wrapper).toContain("empty:hidden");
+  });
+
+  test("omits the tip wrapper from the overlay when no tip card is provided", () => {
+    const html = renderMenu({ conversations, variant: "overlay" });
+
+    expect(html).not.toContain("empty:hidden");
   });
 });
 

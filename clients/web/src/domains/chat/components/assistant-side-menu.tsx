@@ -59,6 +59,11 @@ export interface AssistantSideMenuProps extends UseSidebarStateParams {
   activeAppId?: string;
   onStartNewConversation?: () => void;
   footerAction?: ReactNode;
+  /**
+   * Rendered above `footerAction` in the rail footer (hidden when collapsed)
+   * and above the floating action pills on the overlay.
+   */
+  tipCard?: ReactNode;
   onClose?: () => void;
 
   onPinConversation?: (conversation: Conversation) => void;
@@ -121,6 +126,7 @@ function SearchButton() {
  *                        (Slack, Telegram, WhatsApp, …)
  *   Footer
  *     • ───────────────
+ *     • caller-provided tip card (SidebarTipCard) — hidden on the collapsed rail
  *     • caller-provided action (PreferencesMenu)
  *
  * The conversation rows, row lists, and collapsible sections are
@@ -149,6 +155,7 @@ export function AssistantSideMenu({
   activeAppId,
   onStartNewConversation,
   footerAction,
+  tipCard,
   onPinConversation,
   onReorderConversations,
   onRenameConversation,
@@ -177,6 +184,8 @@ export function AssistantSideMenu({
   });
 
   const pinnedApps = usePinnedAppsStore.use.pinnedApps();
+
+  const isCollapsedRail = collapsed && variant === "rail";
 
   // --- Drag-reorder (Pinned + custom groups; sections sorted by displayOrder) ---
 
@@ -366,7 +375,7 @@ export function AssistantSideMenu({
           }
         >
           {variant === "overlay" ? builtInNav : null}
-          {collapsed && variant === "rail" ? (
+          {isCollapsedRail ? (
             <div className="flex flex-col items-center gap-2">
               {headerActions}
               {sidebar.pinned.length > 0 ? (
@@ -508,41 +517,50 @@ export function AssistantSideMenu({
         {variant === "overlay" ? (
           /* Overlay: the footer bar is replaced by floating action pills so
              the primary actions sit in the thumb zone without spending two
-             fixed rows (Figma 6764:6745). `pointer-events-none` on the row
-             keeps the list scrollable between/around the pills. The row
-             offsets itself by the bottom safe-area inset because the
-             overlay sheet runs full-bleed to the physical screen edge —
-             this keeps the pills above the home indicator while letting
-             their drop shadows fade out naturally instead of being clipped
-             at a safe-area boundary. */
+             fixed rows (Figma 6764:6745). `pointer-events-none` on the
+             container keeps the list scrollable between/around the pills.
+             The container offsets itself by the bottom safe-area inset
+             because the overlay sheet runs full-bleed to the physical
+             screen edge — this keeps the pills above the home indicator
+             while letting their drop shadows fade out naturally instead of
+             being clipped at a safe-area boundary. */
           <div
-            className="pointer-events-none absolute inset-x-4 z-10 flex items-center justify-center gap-4"
+            className="pointer-events-none absolute inset-x-4 z-10 flex flex-col gap-4"
             style={{
               bottom:
                 "calc(1rem + var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)))",
             }}
           >
-            {footerAction ? (
-              <div className="pointer-events-auto flex-1">{footerAction}</div>
+            {/* `empty:hidden` collapses the row when the tip card renders
+               null, so the column gap adds no phantom spacing. */}
+            {tipCard ? (
+              <div className="pointer-events-auto empty:hidden">{tipCard}</div>
             ) : null}
-            {onStartNewConversation ? (
-              <Button
-                variant="primary"
-                className="pointer-events-auto h-10 flex-1 rounded-full px-4 shadow-[var(--shadow-lg)]"
-                leftIcon={<SquarePen />}
-                onClick={() => {
-                  onStartNewConversation();
-                  onClose?.();
-                }}
-              >
-                New Chat
-              </Button>
-            ) : null}
+            <div className="flex items-center justify-center gap-4">
+              {footerAction ? (
+                <div className="pointer-events-auto flex-1">{footerAction}</div>
+              ) : null}
+              {onStartNewConversation ? (
+                <Button
+                  variant="primary"
+                  className="pointer-events-auto h-10 flex-1 rounded-full px-4 shadow-[var(--shadow-lg)]"
+                  leftIcon={<SquarePen />}
+                  onClick={() => {
+                    onStartNewConversation();
+                    onClose?.();
+                  }}
+                >
+                  New Chat
+                </Button>
+              ) : null}
+            </div>
           </div>
-        ) : footerAction ? (
+        ) : footerAction || tipCard ? (
           <SideMenu.Footer>
-            {/* The collapsed rail drops the footer divider (per design). */}
-            {collapsed && variant === "rail" ? null : <SideMenu.Separator />}
+            {/* The collapsed rail drops the footer divider and tip card
+               (per design). */}
+            {isCollapsedRail ? null : <SideMenu.Separator />}
+            {isCollapsedRail ? null : tipCard}
             {footerAction}
           </SideMenu.Footer>
         ) : null}

@@ -71,6 +71,7 @@ import { requestComposerFocus } from "./composer-focus";
 import { LazyBoundary } from "@/components/lazy-boundary";
 import { RuntimeUpgradeBanner } from "@/components/runtime-upgrade-banner";
 import { StatusBanner } from "@/components/status-banner";
+import { SidebarTipCard } from "@/components/tips/sidebar-tip-card";
 import { AssistantSideMenu } from "@/domains/chat/components/assistant-side-menu";
 import { PreferencesMenu } from "@/domains/chat/components/preferences-menu";
 import { useCommandPaletteOrchestrator } from "@/domains/chat/hooks/use-command-palette-orchestrator";
@@ -724,6 +725,7 @@ export function ChatLayout() {
           triggerVariant={args.variant === "overlay" ? "pill" : "item"}
         />
       }
+      tipCard={<SidebarTipCard />}
       onClose={args.onClose}
     />
   );
