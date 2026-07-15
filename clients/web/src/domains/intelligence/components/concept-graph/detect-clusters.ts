@@ -4,8 +4,8 @@
  * Pure and dependency-free: runs synchronous label propagation over an
  * undirected view of the graph — NO RNG (Math.random is forbidden in layout
  * code) and NO Date.now(), so identical input always yields an identical map.
- * A later PR uses the returned cluster ids to color concept nodes by theme, so
- * ids are renumbered into a compact 0..k-1 range a palette can index directly.
+ * Cluster ids are renumbered into a compact 0..k-1 range so a caller can index
+ * a color palette by id directly.
  */
 
 const PASSES = 8;
