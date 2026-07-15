@@ -1,4 +1,4 @@
-import { getDeviceBool } from "@/utils/device-settings";
+import { readAnalyticsConsent } from "@/lib/telemetry/consent";
 import { postTelemetryEvents } from "@/lib/telemetry/ingest";
 
 /**
@@ -9,18 +9,19 @@ import { postTelemetryEvents } from "@/lib/telemetry/ingest";
  * (`memory_tab_v1`). `screen` / `step_name` / `funnel_version` are open strings
  * server-side, so these values ride the existing ingest wire shape.
  *
- * Consent is read from the shared `device:share_analytics` bool
- * (`getDeviceBool("shareAnalytics", ...)`) rather than the onboarding domain's
- * `readShareAnalytics()` — the intelligence domain can't import from onboarding
- * (`local/no-cross-domain-imports`), and the device bool is the same persistent
- * opt-out signal that reader gates on (and that `/settings/privacy` and the
- * Sentry consent gate read directly).
+ * Consent is read through the shared `readAnalyticsConsent()` — the exact same
+ * decision the onboarding funnel gates on (the AND of the in-memory
+ * `shareAnalytics` store flag and the persisted `device:share_analytics` bool).
+ * Routing through the `lib/telemetry/` helper keeps the intelligence domain
+ * from importing onboarding directly (`local/no-cross-domain-imports`) while
+ * guaranteeing a failed opt-out write can't leave Memory telemetry uploading
+ * after onboarding telemetry has stopped.
  */
 
-export const MEMORY_FUNNEL_VERSION = "memory_tab_v1";
+const MEMORY_FUNNEL_VERSION = "memory_tab_v1";
 
 /** Which Memory-tab interaction is being reported. */
-export type MemoryStep = "opened" | "search" | "node_opened" | "chat_from_node";
+type MemoryStep = "opened" | "search" | "node_opened" | "chat_from_node";
 
 /**
  * Per-page-load session id, generated once when this module first loads. Ties
@@ -37,18 +38,13 @@ interface MemoryEvent {
   session_id: string;
   step_name: string;
   funnel_version: string;
-  user_id?: string;
 }
 
-export function emitMemoryEvent(
-  step: MemoryStep,
-  options: { userId?: string } = {},
-): void {
+export function emitMemoryEvent(step: MemoryStep): void {
   if (typeof window === "undefined") {
     return;
   }
-  // Analytics is opt-out; an absent preference authorizes uploads.
-  if (!getDeviceBool("shareAnalytics", true)) {
+  if (!readAnalyticsConsent()) {
     return;
   }
 
@@ -60,8 +56,6 @@ export function emitMemoryEvent(
     session_id: SESSION_ID,
     step_name: step,
     funnel_version: MEMORY_FUNNEL_VERSION,
-    // Omitted (→ stripped before send) when the caller has no user id.
-    user_id: options.userId,
   };
 
   postTelemetryEvents([event]);
