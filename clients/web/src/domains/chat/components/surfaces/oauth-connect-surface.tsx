@@ -1,19 +1,19 @@
 import { Tooltip } from "@vellumai/design-library";
 import {
-    CheckCircle2,
-    ExternalLink,
-    Info,
-    Loader2,
-    X,
-    XCircle,
+  CheckCircle2,
+  ExternalLink,
+  Info,
+  Loader2,
+  X,
+  XCircle,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { IntegrationIcon } from "@/components/integrations/integration-icon";
 import {
-    defaultManagedOAuthConnectClient,
-    type ManagedOAuthConnectClient,
-    type ManagedOAuthProviderSummary,
+  defaultManagedOAuthConnectClient,
+  type ManagedOAuthConnectClient,
+  type ManagedOAuthProviderSummary,
 } from "@/domains/chat/api/managed-oauth";
 import type { Surface } from "@/domains/chat/types/types";
 
@@ -106,6 +106,17 @@ export function OAuthConnectSurface({
   );
   const [state, setState] = useState<ConnectState>("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  // A remounted card can share one in-flight OAuth promise (see the module-level
+  // dedupe in `connectManagedOAuthProvider`). Only the still-mounted instance
+  // reports the shared result, so one completed authorization submits one
+  // surface action — not one per instance that awaited the promise.
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -145,6 +156,13 @@ export function OAuthConnectSurface({
       providerKey,
       providerLabel,
     });
+
+    // Skip if this instance unmounted while the (possibly shared) OAuth flow was
+    // in flight — a still-mounted sibling reports the result instead, so the
+    // surface action is submitted exactly once.
+    if (!mountedRef.current) {
+      return;
+    }
 
     if (result.status === "connected") {
       setState("connected");
