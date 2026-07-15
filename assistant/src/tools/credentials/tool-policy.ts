@@ -15,6 +15,13 @@
 export const BROWSER_FILL_CAPABILITY = "assistant_browser_fill_credential";
 
 /**
+ * Canonical capability key for in-process authenticated HTTP via
+ * `@vellumai/plugin-api` `authedFetch`. Credentials must list this literal
+ * in `allowedTools` for `authedFetch` to inject their headers.
+ */
+export const AUTHED_FETCH_CAPABILITY = "authedFetch";
+
+/**
  * Legacy tool names that map to canonical capability keys.
  *
  * Credentials stored with `browser_fill_credential` in their

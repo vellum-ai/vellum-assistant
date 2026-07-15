@@ -244,6 +244,16 @@ export {
 export type { SynthesizeTextOptions } from "../tts/synthesize-text.js";
 export { synthesizeText, TtsSynthesisError } from "../tts/synthesize-text.js";
 export type { TtsSynthesisResult } from "../tts/types.js";
+// Authenticated HTTP for plugin tools: fetch-compatible helper that matches a
+// credential by injectionTemplates.hostPattern (optional options.credential
+// pin), requires "authedFetch" in the credential's allowedTools, injects the
+// auth header from the secret store, then calls fetch. Secrets never leave
+// the helper return value.
+export type {
+  AuthedFetchErrorCode,
+  AuthedFetchOptions,
+} from "./authed-fetch.js";
+export { authedFetch, AuthedFetchError } from "./authed-fetch.js";
 // Conversation agent-loop turn — run a full conversation turn (persist user
 // message, execute the agent loop with history/tools/compaction/injections,
 // return the assistant's full content-block response). Accepts ContentBlock[]

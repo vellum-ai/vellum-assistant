@@ -1,6 +1,7 @@
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import type { UsageAttributionProfileSource } from "../usage/types.js";
 import type * as wire from "./telemetry-wire.generated.js";
+import { telemetryEventSchema } from "./telemetry-wire.generated.js";
 import type { TurnOutcome } from "./turn-outcome.js";
 
 /** Base fields present on every telemetry event. */

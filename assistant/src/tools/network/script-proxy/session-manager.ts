@@ -38,11 +38,11 @@ import {
   type HostMatchKind,
   matchHostPattern,
 } from "../../credentials/host-pattern-match.js";
+import { buildInjectedValue } from "../../credentials/injection.js";
 import { listCredentialMetadata } from "../../credentials/metadata-store.js";
 import type { CredentialInjectionTemplate } from "../../credentials/policy-types.js";
 import {
   resolveById,
-  resolveByServiceField,
   type ResolvedCredential,
 } from "../../credentials/resolve.js";
 
@@ -132,35 +132,6 @@ function isAllowedHost(hostname: string): boolean {
 // ---------------------------------------------------------------------------
 // Credential helpers
 // ---------------------------------------------------------------------------
-
-/**
- * Build the final header value for a matched credential injection template.
- * Handles optional composition with a second credential and value transforms.
- * Returns null if any referenced credential cannot be resolved.
- */
-async function buildInjectedValue(
-  tpl: CredentialInjectionTemplate,
-  primaryValue: string,
-): Promise<string | null> {
-  let value = primaryValue;
-
-  if (tpl.composeWith) {
-    const composed = resolveByServiceField(
-      tpl.composeWith.service,
-      tpl.composeWith.field,
-    );
-    if (!composed) return null;
-    const composedValue = await getSecureKeyAsync(composed.storageKey);
-    if (!composedValue) return null;
-    value = `${value}${tpl.composeWith.separator}${composedValue}`;
-  }
-
-  if (tpl.valueTransform === "base64") {
-    value = Buffer.from(value).toString("base64");
-  }
-
-  return (tpl.valuePrefix ?? "") + value;
-}
 
 /**
  * Resolve injection templates for a credential.
