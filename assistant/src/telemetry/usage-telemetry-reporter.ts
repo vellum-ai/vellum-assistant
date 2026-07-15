@@ -45,6 +45,10 @@ import {
   TOOL_EXECUTED_SOURCE_ID,
   watermarkKeysForSource,
 } from "./telemetry-event-sources.js";
+import {
+  deleteTelemetryOutboxEventsBefore,
+  OUTBOX_MAX_ROW_AGE_MS,
+} from "./telemetry-events-outbox.js";
 import { useReadOnlyMainDbForTelemetry } from "./telemetry-main-db.js";
 import { validateWireEvents } from "./telemetry-wire-validation.js";
 
@@ -266,6 +270,23 @@ export class UsageTelemetryReporter {
         return;
       }
 
+      // Age-bound the ack-mode outbox before any skip gate (platform,
+      // checkpoint store, consent three-way), so the bound holds in every
+      // state — including the unknown-consent deferral below. Only the
+      // reporter partition that flushes the outbox (ack-mode sources)
+      // prunes it.
+      if (batchCount === 0 && this.sources.some((source) => source.ack)) {
+        const prunedCount = deleteTelemetryOutboxEventsBefore(
+          Date.now() - OUTBOX_MAX_ROW_AGE_MS,
+        );
+        if (prunedCount > 0) {
+          log.debug(
+            { prunedCount },
+            "Telemetry flush: pruned expired outbox rows",
+          );
+        }
+      }
+
       // Skip when platform features are disabled (VELLUM_DISABLE_PLATFORM in
       // local mode; the flag is ignored when IS_PLATFORM is set, matching
       // VellumPlatformClient.create()). Watermarks are NOT advanced here: this
@@ -296,7 +317,11 @@ export class UsageTelemetryReporter {
       // checkpoint-unavailable skip above. Purging here would silently
       // destroy events recorded before the cache warmed up; instead the
       // backlog ships (or is purged) on a later cycle once the 5-minute
-      // refresh loop resolves the cache to a confirmed value.
+      // refresh loop resolves the cache to a confirmed value. The deferral
+      // is bounded: the age prune above deletes outbox rows older than
+      // OUTBOX_MAX_ROW_AGE_MS, so a permanently-unknown state (never
+      // logged in, logged out, no resolvable owner) cannot accumulate
+      // rows without limit.
       if (shareAnalytics === "unknown") {
         log.debug(
           "Telemetry flush: share_analytics consent unknown — skipping, will retry next cycle",

@@ -10,6 +10,7 @@ import {
 } from "./__tests__/outbox-test-harness.js";
 import {
   deleteTelemetryOutboxEvents,
+  deleteTelemetryOutboxEventsBefore,
   discardPendingTelemetryOutboxEvents,
   insertTelemetryOutboxEvent,
   insertTelemetryOutboxEvents,
@@ -326,6 +327,37 @@ describe("telemetry-events-outbox", () => {
       ).toBeNull();
     });
     expect(queryTelemetryOutboxBatch("watchdog", 10)).toEqual([]);
+  });
+
+  test("prune deletes rows strictly older than the cutoff across every name and returns the count", () => {
+    insert("evt-old-life", 1000, "lifecycle");
+    insert("evt-old-watch", 1500, "watchdog");
+    insert("evt-at-cutoff", 2000, "lifecycle");
+    insert("evt-fresh", 3000, "lifecycle");
+
+    expect(deleteTelemetryOutboxEventsBefore(2000)).toBe(2);
+
+    // Strictly-before semantics: the row AT the cutoff is retained.
+    expect(allIds()).toEqual(["evt-at-cutoff", "evt-fresh"]);
+    expect(queryTelemetryOutboxBatch("watchdog", 10)).toEqual([]);
+  });
+
+  test("prune with nothing expired deletes nothing and returns 0", () => {
+    insert("evt-1", 5000);
+
+    expect(deleteTelemetryOutboxEventsBefore(5000)).toBe(0);
+
+    expect(allIds()).toEqual(["evt-1"]);
+  });
+
+  test("prune returns 0 when the telemetry DB is unavailable", () => {
+    insert("evt-1", 1000);
+
+    withTelemetryDbUnavailable(() => {
+      expect(deleteTelemetryOutboxEventsBefore(2000)).toBe(0);
+    });
+
+    expect(allIds()).toEqual(["evt-1"]);
   });
 
   test("discards all pending rows for one name only", () => {
