@@ -60,7 +60,7 @@ describe("openai-compatible adapter factory", () => {
     };
 
     // Keyless local endpoints (LM Studio, vLLM) dispatch with none auth;
-    // the baseUrl travels on the resolved auth (#33108).
+    // the baseUrl travels on the resolved auth.
     const resolvedAuth: ResolvedAuth = {
       kind: "none",
       baseUrl: "http://localhost:8080/v1",

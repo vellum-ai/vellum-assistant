@@ -210,8 +210,7 @@ export function createAdapterFromConnection(
   if (!entry) return null;
   const isKeyless = entry.setupMode === "keyless";
   // openai-compatible is dual-mode: local endpoints (LM Studio, vLLM) are
-  // keyless, hosted ones keyed — none auth is valid for it (see #33108;
-  // the exemption was lost when this file moved under inference/).
+  // keyless, hosted ones keyed — none auth is valid for it.
   const isOpenAICompatible = provider === "openai-compatible";
 
   // Keyed providers can't operate without a credential.
