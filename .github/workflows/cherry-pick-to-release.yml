@@ -67,6 +67,7 @@ jobs:
           echo "Latest release branch: $LATEST_BRANCH"
 
       - name: Cherry-pick and create PR
+        id: cherry-pick
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           RELEASE_BRANCH: ${{ steps.release.outputs.branch }}
@@ -130,6 +131,44 @@ jobs:
 
             gh pr comment "$PR_NUMBER" --body "$BODY"
 
+            echo "status=conflict" >> "$GITHUB_OUTPUT"
+            echo "release_branch=${RELEASE_BRANCH}" >> "$GITHUB_OUTPUT"
             echo "::warning::Cherry-pick of #${PR_NUMBER} to ${RELEASE_BRANCH} failed due to conflicts. Commented on the original PR."
           fi
+
+      - name: Notify Slack of cherry-pick conflict
+        if: steps.cherry-pick.outputs.status == 'conflict'
+        continues-on-error: true
+        uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2.1.1
+        with:
+          webhook: ${{ secrets.SLACK_RELEASES_WEBHOOK_URL }}
+          webhook-type: incoming-webhook
+          payload: |
+            unfurl_links: false
+            unfurl_media: false
+            blocks:
+              - type: header
+                text:
+                  type: plain_text
+                  text: "\U000026A0\uFE0F Cherry-pick Conflict"
+              - type: section
+                text:
+                  type: mrkdwn
+                  text: "*PR:* <${{ github.server_url }}/${{ github.repository }}/pull/${{ github.event.pull_request.number }}|#${{ github.event.pull_request.number }} ${{ github.event.pull_request.title }}>\n*Target branch:* `${{ steps.cherry-pick.outputs.release_branch }}`\n*Merge commit:* `${{ github.event.pull_request.merge_commit_sha }}`"
+              - type: section
+                text:
+                  type: mrkdwn
+                  text: "Automated cherry-pick failed due to merge conflicts. A comment with manual resolution steps has been posted on the PR."
+              - type: actions
+                elements:
+                  - type: button
+                    text:
+                      type: plain_text
+                      text: "View PR"
+                    url: "${{ github.server_url }}/${{ github.repository }}/pull/${{ github.event.pull_request.number }}"
+                  - type: button
+                    text:
+                      type: plain_text
+                      text: "View Workflow Run"
+                    url: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
