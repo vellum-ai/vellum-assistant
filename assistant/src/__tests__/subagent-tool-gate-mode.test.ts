@@ -52,7 +52,6 @@ mock.module("../tools/browser/browser-screencast.js", () => ({
 mock.module("../apps/app-store.js", () => ({
   getApp: mock(() => null),
   getAppDirPath: mock(() => "/tmp/test-apps/dummy"),
-  isMultifileApp: mock(() => false),
   getAppsDir: mock(() => "/tmp/test-apps"),
   resolveAppIdByDirName: mock(() => null),
   resolveAppIdFromPath: mock(() => null),

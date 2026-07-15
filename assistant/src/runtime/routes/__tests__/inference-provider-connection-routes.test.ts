@@ -229,6 +229,63 @@ describe("POST inference/provider-connections (create)", () => {
     expect(result.auth).toEqual({ type: "none" });
   });
 
+  test("derives api_key auth from provider + credential when auth is omitted", async () => {
+    const result = (await call(
+      findHandler("inference_provider_connections_create"),
+      {
+        body: {
+          name: "derived-anthropic",
+          provider: "anthropic",
+          credential: "vault/anthropic/key",
+        },
+      },
+    )) as { auth: object };
+    expect(result.auth).toEqual({
+      type: "api_key",
+      credential: "vault/anthropic/key",
+    });
+  });
+
+  test("derives none auth for keyless providers when auth is omitted", async () => {
+    const result = (await call(
+      findHandler("inference_provider_connections_create"),
+      {
+        body: { name: "derived-ollama", provider: "ollama" },
+      },
+    )) as { auth: object };
+    expect(result.auth).toEqual({ type: "none" });
+  });
+
+  test("derives platform auth for the vellum provider when auth is omitted", async () => {
+    const result = (await call(
+      findHandler("inference_provider_connections_create"),
+      {
+        body: { name: "derived-vellum", provider: "vellum" },
+      },
+    )) as { auth: object };
+    expect(result.auth).toEqual({ type: "platform" });
+  });
+
+  test("throws 400 when auth is omitted and a keyed provider has no credential", async () => {
+    await expect(
+      call(findHandler("inference_provider_connections_create"), {
+        body: { name: "derived-no-cred", provider: "anthropic" },
+      }),
+    ).rejects.toBeInstanceOf(BadRequestError);
+  });
+
+  test("throws 400 when the derived credential is not a non-empty string", async () => {
+    await expect(
+      call(findHandler("inference_provider_connections_create"), {
+        body: {
+          name: "derived-bad-cred",
+          provider: "anthropic",
+          credential: "",
+        },
+      }),
+    ).rejects.toBeInstanceOf(BadRequestError);
+  });
+
   test("throws 409 when connection name already exists", async () => {
     seedConnection({
       name: "dup-name",
@@ -335,6 +392,59 @@ describe("PATCH inference/provider-connections/:name (update)", () => {
         body: { auth: { type: "api_key" } }, // missing credential
       }),
     ).rejects.toBeInstanceOf(BadRequestError);
+  });
+
+  test("keeps stored auth when both auth and credential are omitted", async () => {
+    seedConnection({
+      name: "label-only",
+      provider: "openai",
+      auth: { type: "oauth_subscription", credential: "vault/chatgpt/token" },
+    });
+
+    const result = (await call(
+      findHandler("inference_provider_connections_update"),
+      {
+        pathParams: { name: "label-only" },
+        body: { label: "Renamed" },
+      },
+    )) as { auth: object; label: string | null };
+    expect(result.auth).toEqual({
+      type: "oauth_subscription",
+      credential: "vault/chatgpt/token",
+    });
+    expect(result.label).toBe("Renamed");
+  });
+
+  test("throws 400 on credential-only PATCH of an oauth_subscription connection", async () => {
+    seedConnection({
+      name: "chatgpt-subscription",
+      provider: "openai",
+      auth: { type: "oauth_subscription", credential: "vault/chatgpt/token" },
+    });
+
+    await expect(
+      call(findHandler("inference_provider_connections_update"), {
+        pathParams: { name: "chatgpt-subscription" },
+        body: { credential: "vault/other" },
+      }),
+    ).rejects.toBeInstanceOf(BadRequestError);
+  });
+
+  test("rotates to derived api_key auth when only credential is passed", async () => {
+    seedConnection({
+      name: "rotate-cred",
+      provider: "anthropic",
+      auth: { type: "api_key", credential: "vault/old" },
+    });
+
+    const result = (await call(
+      findHandler("inference_provider_connections_update"),
+      {
+        pathParams: { name: "rotate-cred" },
+        body: { credential: "vault/new" },
+      },
+    )) as { auth: object };
+    expect(result.auth).toEqual({ type: "api_key", credential: "vault/new" });
   });
 });
 

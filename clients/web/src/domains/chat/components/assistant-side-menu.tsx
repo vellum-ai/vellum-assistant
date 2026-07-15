@@ -1,5 +1,4 @@
 import {
-    Brain,
     Calendar,
     Clock,
     LayoutGrid,
@@ -24,6 +23,7 @@ import {
 } from "@/domains/chat/components/conversation-nav-section";
 import { CollapsedGroupFlyout } from "@/domains/chat/components/conversation-rail-flyout";
 import { GroupActionsMenu, renderGroupMenuItems } from "@/domains/chat/components/group-actions-menu";
+import { AssistantNavItem } from "@/domains/chat/components/assistant-nav-item";
 import { PinnedAppNavItem } from "@/domains/chat/components/pinned-app-nav-item";
 import { useDragReorder } from "@/domains/chat/hooks/use-drag-reorder";
 import { SIDEBAR_CONVERSATION_LIMIT, useSidebarState, type UseSidebarStateParams } from "@/domains/chat/use-sidebar-state";
@@ -287,11 +287,11 @@ export function AssistantSideMenu({
       ) : null}
       {/* 4px row gap to match the conversation list. */}
       <div className="flex flex-col gap-[4px]">
-        <SideMenu.Item
-          icon={Brain}
+        <AssistantNavItem
+          assistantId={assistantId ?? null}
           label={assistantName || "Your Assistant"}
-          showCollapsedTooltip
           active={isIntelligenceActive}
+          collapsed={collapsed}
           onSelect={onOpenIntelligence ? () => { onOpenIntelligence(); onClose?.(); } : undefined}
         />
         {onOpenLibrary ? (

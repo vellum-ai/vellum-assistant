@@ -54,7 +54,7 @@ export interface AppDefinition {
   pages?: Record<string, string>;
   createdAt: number;
   updatedAt: number;
-  /** App format version. undefined or 1 = legacy single-HTML, 2 = multi-file TSX. */
+  /** App format version; 2 = multi-file TSX (the only supported format). */
   formatVersion?: number;
   /** Filesystem directory/file stem. Frozen at creation -- never changes on rename. */
   dirName?: string;
@@ -63,47 +63,45 @@ export interface AppDefinition {
 }
 
 /**
- * Returns true if the app uses the multi-file TSX format (formatVersion 2).
+ * Fallback body served for apps in the retired single-file HTML format.
+ * These apps have no compilable `src/`, so there is nothing to build or serve.
  */
-export function isMultifileApp(app: AppDefinition): boolean {
-  return app.formatVersion === 2;
+export const UNSUPPORTED_LEGACY_APP_HTML = `<p>This app uses the retired single-file format and can no longer be opened. Ask the assistant to recreate it.</p>`;
+
+/**
+ * Detect an app directory in the retired single-file HTML format: a root
+ * `index.html` with no `src/` to compile. Used to serve a clear message
+ * instead of a misleading "compilation failed" fallback.
+ */
+export function isLegacySingleFileDir(sourceDir: string): boolean {
+  return (
+    !existsSync(join(sourceDir, "src")) &&
+    existsSync(join(sourceDir, "index.html"))
+  );
 }
 
 /**
- * Resolve the effective HTML for an app. For single-file apps this is
- * `htmlDefinition` (the root index.html). For multifile apps it reads the
- * compiled `dist/index.html` and inlines JS/CSS assets so the result is a
+ * Resolve the effective HTML for an app by reading the compiled
+ * `dist/index.html` and inlining JS/CSS assets so the result is a
  * self-contained HTML string suitable for `loadHTMLString`.
  */
 export function resolveEffectiveAppHtml(app: AppDefinition): string {
-  if (!isMultifileApp(app)) return app.htmlDefinition;
-
-  const appDir = getAppDirPath(app.id);
-  const distIndex = join(appDir, "dist", "index.html");
-  if (existsSync(distIndex)) {
-    return inlineDistAssets(appDir, readFileSync(distIndex, "utf-8"));
-  }
-  return `<p>App compilation failed. Edit a source file to trigger a rebuild.</p>`;
+  return resolveEffectiveAppHtmlFromDir(getAppDirPath(app.id));
 }
 
 /**
  * Resolve the effective, self-contained HTML for an app given its source
- * directory and format, without needing a loaded {@link AppDefinition}. Used
- * to render apps addressed by path (e.g. plugin-bundled apps). Single-file
- * apps serve their root index.html; multi-file apps serve the compiled
+ * directory, without needing a loaded {@link AppDefinition}. Used to render
+ * apps addressed by path (e.g. plugin-bundled apps). Serves the compiled
  * dist/index.html with JS/CSS inlined.
  */
-export function resolveEffectiveAppHtmlFromDir(
-  sourceDir: string,
-  formatVersion: number,
-): string {
-  if (formatVersion !== 2) {
-    const indexPath = join(sourceDir, "index.html");
-    return existsSync(indexPath) ? readFileSync(indexPath, "utf-8") : "";
-  }
+export function resolveEffectiveAppHtmlFromDir(sourceDir: string): string {
   const distIndex = join(sourceDir, "dist", "index.html");
   if (existsSync(distIndex)) {
     return inlineDistAssets(sourceDir, readFileSync(distIndex, "utf-8"));
+  }
+  if (isLegacySingleFileDir(sourceDir)) {
+    return UNSUPPORTED_LEGACY_APP_HTML;
   }
   return `<p>App compilation failed. Edit a source file to trigger a rebuild.</p>`;
 }
@@ -531,7 +529,6 @@ export function createApp(params: {
   htmlDefinition: string;
   version?: string;
   pages?: Record<string, string>;
-  formatVersion?: number;
 }): AppDefinition {
   const dir = getAppsDir();
   const now = Date.now();
@@ -551,7 +548,7 @@ export function createApp(params: {
     version: params.version,
     createdAt: now,
     updatedAt: now,
-    formatVersion: params.formatVersion,
+    formatVersion: 2,
     dirName,
   };
 
@@ -814,8 +811,6 @@ export interface ResolvedAppSource {
   readonly sourceDir: string;
   /** Where the app is provided from. */
   readonly origin: AppOrigin;
-  /** 1 = single-file (index.html at root); 2 = multi-file (compiled dist/). */
-  readonly formatVersion: number;
 }
 
 /**
@@ -879,16 +874,12 @@ export function resolveAppSource(id: string): ResolvedAppSource | null {
     } catch {
       return null;
     }
-    // Single-file apps ship index.html at the root; anything else is treated
-    // as multi-file (served from a compiled dist/).
-    const formatVersion = existsSync(join(sourceDir, "index.html")) ? 1 : 2;
     return {
       id,
       name: appDirName,
       dirName: appDirName,
       sourceDir,
       origin: { kind: "plugin", pluginName },
-      formatVersion,
     };
   }
 
@@ -903,7 +894,6 @@ export function resolveAppSource(id: string): ResolvedAppSource | null {
     dirName,
     sourceDir: getAppDirPath(id),
     origin: { kind: "workspace" },
-    formatVersion: app.formatVersion ?? 1,
   };
 }
 

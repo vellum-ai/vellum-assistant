@@ -149,6 +149,8 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
     // Any new import must be reviewed for secret-leak risk and added here.
     const ALLOWED_IMPORTERS = new Set([
       "credential-execution/prompted-credential.ts", // shared prompt-action persistence (stores secret via setSecureKeyAsync)
+      "daemon/chat-credential-redaction.ts", // chat sentinel enrichment — scoped read ONLY of credentials a `credentials reveal` command in the same turn already printed to stdout; value byte-compared at persist and discarded, never persisted or logged
+
       "tools/credentials/broker.ts", // brokered credential access
       "tools/network/web-search.ts", // web search API key lookup
       "tools/network/web-fetch.ts", // web fetch provider (Firecrawl) API key lookup

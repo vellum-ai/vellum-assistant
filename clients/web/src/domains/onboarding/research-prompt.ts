@@ -83,7 +83,7 @@ export interface BuildResearchPromptOptions {
   /**
    * Whether to ask the model for clickable follow-up `suggestions`. The
    * suggestions-based final step is being retired in favor of the "Let's chat"
-   * handoff (gated behind the personality-onboarding flag), which installs the
+   * handoff (now always on), which installs the
    * picked plugins and drops the user straight into a primed chat. When false,
    * the prompt asks for ONLY `plugins` + `claims` and omits all suggestion
    * guidance. Defaults to true so the legacy suggestions flow is unchanged.
@@ -129,7 +129,7 @@ export function buildResearchPrompt(
     : "I'd like you to get to know me before we start working together.";
 
   // The clickable-suggestions block is optional: the "Let's chat" final step
-  // (personality-onboarding flag) installs the picked plugins and drops the
+  // (now always on) installs the picked plugins and drops the
   // user into a primed chat instead, so it asks for only `plugins` + `claims`.
   const suggestionsArrayExample = includeSuggestions
     ? ` "suggestions": [ { "suggestion": "I'll find the 3 newest arXiv eval papers worth your time", "prompt": "Find me the 3 newest arXiv eval papers worth reading." }, { "suggestion": "I'll draft a crisp summary of the latest model-serving trade-offs", "prompt": "Draft me a short summary of the latest model-serving trade-offs." }, { "suggestion": "Connect GitHub and I'll triage your stalest issues", "prompt": "Connect to GitHub and triage my oldest open issues." }, { "suggestion": "I'll plan a weekend climbing trip near Boulder", "prompt": "Plan me a weekend climbing trip near Boulder." } ]`

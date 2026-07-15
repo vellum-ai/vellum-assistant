@@ -9,7 +9,7 @@ import "@/index.css";
 import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
 import { useLiveVoiceStore } from "@/domains/chat/voice/live-voice/live-voice-store";
 import { useVoicePrefsStore } from "@/stores/voice-prefs-store";
-import { toneForBg } from "@/utils/surface-tone";
+import { toneForBg } from "@/utils/avatar-tone";
 
 import { VoiceAmbientTranscript } from "./voice-ambient-transcript";
 import { VoiceTranscriptText } from "./voice-transcript-text";

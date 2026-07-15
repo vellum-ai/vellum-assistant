@@ -9,8 +9,9 @@ const log = getLogger("migration-305");
  * Drops the redundant contact ACL columns now owned by the gateway DB.
  *
  * Combo 11 Phase B: the gateway DB is the source of truth for contact ACL,
- * making these assistant-DB columns redundant mirrors. Phase A already drained
- * every production read off them.
+ * making these assistant-DB columns redundant mirrors. Phase A drained the
+ * runtime reads; gateway data migrations m0006/m0008 still read them to seed a
+ * pre-cutover gateway, and checkpoint once they are gone.
  *
  * No DROP INDEX needed: the only contact_channels index
  * (idx_contact_channels_type_ext_chat on (type, external_chat_id)) covers none

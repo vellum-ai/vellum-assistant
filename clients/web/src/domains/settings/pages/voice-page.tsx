@@ -7,13 +7,16 @@ import {
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
-import { Link } from "react-router";
+import { Link, useSearchParams } from "react-router";
 
 import { Button } from "@vellumai/design-library/components/button";
 import { Dropdown } from "@vellumai/design-library/components/dropdown";
+import { Tabs } from "@vellumai/design-library/components/tabs";
 import { SegmentControl } from "@vellumai/design-library/components/segment-control";
 import { Slider } from "@vellumai/design-library/components/slider";
 import { Toggle } from "@vellumai/design-library/components/toggle";
+
+import { SoundsSections } from "@/domains/settings/pages/sounds-sections";
 
 import { DetailCard } from "@/components/detail-card";
 import {
@@ -89,6 +92,38 @@ const DEFAULT_CONVERSATION_TIMEOUT: ConversationTimeoutValue = "30";
 const labelClasses = "text-body-small-default text-[var(--content-tertiary)]";
 
 export function VoicePage() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTab = searchParams.get("tab") === "sounds" ? "sounds" : "voice";
+
+  const handleTabChange = (value: string) => {
+    const next = new URLSearchParams(searchParams);
+    if (value === "sounds") {
+      next.set("tab", "sounds");
+    } else {
+      next.delete("tab");
+    }
+    setSearchParams(next, { replace: true });
+  };
+
+  return (
+    <div className="space-y-6">
+      <Tabs.Root value={activeTab} onValueChange={handleTabChange}>
+        <Tabs.List>
+          <Tabs.Trigger value="voice">Voice</Tabs.Trigger>
+          <Tabs.Trigger value="sounds">Sounds</Tabs.Trigger>
+        </Tabs.List>
+        <Tabs.Panel value="voice" className="pt-4">
+          <VoiceSections />
+        </Tabs.Panel>
+        <Tabs.Panel value="sounds" className="pt-4">
+          <SoundsSections />
+        </Tabs.Panel>
+      </Tabs.Root>
+    </div>
+  );
+}
+
+export function VoiceSections() {
   return (
     <div className="flex flex-col gap-6">
       <SpeechServicesBanner />

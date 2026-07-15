@@ -5,7 +5,6 @@ import {
   ACTIVATION_FLOW_COHORT,
   ACTIVATION_RAIL_BOOTSTRAP_TEMPLATE,
   buildPreChatContext,
-  PARED_DOWN_GOOGLE_TOOL_IDS,
   type BuildPreChatContextInput,
 } from "@/domains/onboarding/prechat-context";
 
@@ -112,22 +111,6 @@ describe("buildPreChatContext — control", () => {
     );
     expect(context.googleConnected).toBe(true);
     expect(context.googleScopes).toEqual(["gmail.send"]);
-  });
-});
-
-describe("buildPreChatContext — pared-down", () => {
-  test("implies the Google tool bundle only when connected this action", () => {
-    const connected = buildPreChatContext(
-      baseInput({ mode: "paredDown", connectedScopes: ["gmail.readonly"] }),
-    );
-    expect(connected.tools).toEqual([...PARED_DOWN_GOOGLE_TOOL_IDS]);
-    expect(connected.googleConnected).toBe(true);
-    expect(connected.googleScopes).toEqual(["gmail.readonly"]);
-
-    const skipped = buildPreChatContext(baseInput({ mode: "paredDown" }));
-    expect(skipped.tools).toEqual([]);
-    expect(skipped.googleConnected).toBe(false);
-    expect(skipped.googleScopes).toBeUndefined();
   });
 });
 

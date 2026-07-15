@@ -25,6 +25,15 @@ mock.module("../runtime/auth/route-policy.js", () => ({
   ACTOR_PRINCIPALS: [],
 }));
 
+let chatCredentialRevealFlag = false;
+mock.module("../config/assistant-feature-flags.js", () => ({
+  isAssistantFeatureFlagEnabled: (key: string) =>
+    key === "chat-credential-reveal" && chatCredentialRevealFlag,
+}));
+mock.module("../config/loader.js", () => ({
+  getConfig: () => ({}),
+}));
+
 mock.module("../security/credential-key.js", () => ({
   credentialKey: (service: string, field: string) => `${service}:${field}`,
 }));
@@ -108,11 +117,22 @@ mock.module("../credential-execution/managed-catalog.js", () => ({
   fetchManagedCatalog: mock(async () => ({ ok: true, descriptors: [] })),
 }));
 
+import {
+  forChatMintsSince,
+  resetForChatMintRegistryForTest,
+} from "../runtime/for-chat-mint-registry.js";
+import {
+  _resetRevealSuccessRegistryForTest,
+  currentRevealSuccessWatermark,
+  openRevealProofWindow,
+  revealedValueSince,
+} from "../runtime/reveal-success-registry.js";
 import { ROUTES } from "../runtime/routes/credential-routes.js";
 
 const setRoute = ROUTES.find((r) => r.operationId === "credentials_set");
 const listRoute = ROUTES.find((r) => r.operationId === "credentials_list");
 const deleteRoute = ROUTES.find((r) => r.operationId === "credentials_delete");
+const revealRoute = ROUTES.find((r) => r.operationId === "credentials_reveal");
 
 type SetResponse = { credentialId: string; service: string; field: string };
 type ListResponse = {
@@ -135,6 +155,236 @@ describe("credentials routes", () => {
     syncedServices = [];
     disconnectedProviders = [];
     credentialIdCounter = 0;
+    _resetRevealSuccessRegistryForTest();
+    resetForChatMintRegistryForTest();
+    chatCredentialRevealFlag = false;
+  });
+
+  describe("credentials_reveal", () => {
+    test("a local-principal reveal returns the value and records proof", async () => {
+      /**
+       * A tool shell's `assistant credentials reveal` reaches this route as
+       * the direct-IPC `local` principal; its success is the ground truth
+       * the chat-credential persist seams use to promote staged refs.
+       */
+      // GIVEN a stored credential, a staged tool reveal (open proof
+      // window), and the staging watermark
+      secureStore.set("vercel:api_token", SECRET_VALUE);
+      openRevealProofWindow();
+      const watermark = currentRevealSuccessWatermark();
+
+      // WHEN revealed by the local principal with its tool-shell nonce
+      const result = (await revealRoute!.handler({
+        body: {
+          service: "vercel",
+          field: "api_token",
+          revealNonce: "nonce-A",
+        },
+        headers: { "x-vellum-principal-type": "local" },
+      })) as { value: string };
+
+      // THEN the value is returned and the proof is recorded
+      expect(result.value).toBe(SECRET_VALUE);
+      expect(
+        revealedValueSince(watermark, "vercel", "api_token", "nonce-A"),
+      ).toBe(SECRET_VALUE);
+    });
+
+    test("a web/gateway reveal returns the value but records no proof", async () => {
+      /**
+       * The Settings row and chat chips hit this same handler over HTTP or
+       * the gateway proxy. Those reveals are not evidence any tool ran a
+       * reveal — recording them would let a UI click promote a staged ref
+       * in a concurrent turn whose command merely echoed the invocation.
+       */
+      secureStore.set("vercel:api_token", SECRET_VALUE);
+      openRevealProofWindow();
+      const watermark = currentRevealSuccessWatermark();
+
+      for (const principal of ["user", "svc_gateway"]) {
+        const result = (await revealRoute!.handler({
+          body: {
+            service: "vercel",
+            field: "api_token",
+            revealNonce: "nonce-A",
+          },
+          headers: { "x-vellum-principal-type": principal },
+        })) as { value: string };
+        expect(result.value).toBe(SECRET_VALUE);
+      }
+
+      expect(
+        revealedValueSince(watermark, "vercel", "api_token", "nonce-A"),
+      ).toBeUndefined();
+    });
+
+    test("a gateway-proxied local-principal reveal records no proof", async () => {
+      /**
+       * In local mode the gateway derives the `local` principal from the
+       * verified JWT for WEB calls too, but it always stamps
+       * `x-vellum-proxy-server: ipc` — only a direct (unproxied) local call
+       * is a tool shell's CLI and may become proof.
+       */
+      secureStore.set("vercel:api_token", SECRET_VALUE);
+      openRevealProofWindow();
+      const watermark = currentRevealSuccessWatermark();
+
+      const result = (await revealRoute!.handler({
+        body: {
+          service: "vercel",
+          field: "api_token",
+          revealNonce: "nonce-A",
+        },
+        headers: {
+          "x-vellum-principal-type": "local",
+          "x-vellum-proxy-server": "ipc",
+        },
+      })) as { value: string };
+
+      expect(result.value).toBe(SECRET_VALUE);
+      expect(
+        revealedValueSince(watermark, "vercel", "api_token", "nonce-A"),
+      ).toBeUndefined();
+    });
+
+    test("a local reveal with NO staged tool reveal records no proof", async () => {
+      /**
+       * A user's own terminal CLI reveal outside any assistant tool turn
+       * has no pending proof to satisfy — the registry must not retain its
+       * plaintext at all (recording is gated on an open proof window).
+       */
+      secureStore.set("vercel:api_token", SECRET_VALUE);
+      const watermark = currentRevealSuccessWatermark();
+
+      const result = (await revealRoute!.handler({
+        body: { service: "vercel", field: "api_token" },
+        headers: { "x-vellum-principal-type": "local" },
+      })) as { value: string };
+
+      expect(result.value).toBe(SECRET_VALUE);
+      expect(
+        revealedValueSince(watermark, "vercel", "api_token", "nonce-A"),
+      ).toBeUndefined();
+    });
+
+    test("a reveal with no principal header records no proof (fails closed)", async () => {
+      secureStore.set("vercel:api_token", SECRET_VALUE);
+      openRevealProofWindow();
+      const watermark = currentRevealSuccessWatermark();
+
+      const result = (await revealRoute!.handler({
+        body: { service: "vercel", field: "api_token" },
+      })) as { value: string };
+
+      expect(result.value).toBe(SECRET_VALUE);
+      expect(
+        revealedValueSince(watermark, "vercel", "api_token", "nonce-A"),
+      ).toBeUndefined();
+    });
+  });
+
+  describe("credentials_reveal --for-chat", () => {
+    test("rejects forChat when the chat-credential-reveal flag is off", async () => {
+      secureStore.set("vercel:api_token", SECRET_VALUE);
+      await expect(
+        revealRoute!.handler({
+          body: { service: "vercel", field: "api_token", forChat: true },
+          headers: { "x-vellum-principal-type": "local" },
+        }),
+      ).rejects.toThrow("chat-credential-reveal feature flag");
+    });
+
+    test("a direct local forChat reveal returns the sentinel, records the mint, and no plaintext proof", async () => {
+      chatCredentialRevealFlag = true;
+      secureStore.set("vercel:api_token", SECRET_VALUE);
+      openRevealProofWindow();
+      const watermark = currentRevealSuccessWatermark();
+
+      const result = (await revealRoute!.handler({
+        body: {
+          service: "vercel",
+          field: "api_token",
+          forChat: true,
+          revealNonce: "nonce-A",
+        },
+        headers: { "x-vellum-principal-type": "local" },
+      })) as { value: string };
+
+      expect(result.value).toBe(
+        "\u3014redacted:Credential:vercel:api_token\u3015",
+      );
+      expect(result.value).not.toContain(SECRET_VALUE);
+      expect(forChatMintsSince(0)).toEqual([
+        {
+          service: "vercel",
+          field: "api_token",
+          sentinel: result.value,
+          nonce: "nonce-A",
+        },
+      ]);
+      // The channel never returns plaintext to the tool, so the plaintext
+      // proof registry must not retain the secret for it.
+      expect(
+        revealedValueSince(watermark, "vercel", "api_token", "nonce-A"),
+      ).toBeUndefined();
+    });
+
+    test("a gateway-proxied forChat reveal returns the sentinel but records no mint", async () => {
+      chatCredentialRevealFlag = true;
+      secureStore.set("vercel:api_token", SECRET_VALUE);
+
+      const result = (await revealRoute!.handler({
+        body: {
+          service: "vercel",
+          field: "api_token",
+          forChat: true,
+          revealNonce: "nonce-A",
+        },
+        headers: {
+          "x-vellum-principal-type": "local",
+          "x-vellum-proxy-server": "ipc",
+        },
+      })) as { value: string };
+
+      expect(result.value).toContain("\u3014redacted:");
+      expect(forChatMintsSince(0)).toEqual([]);
+    });
+
+    test("a direct local reveal WITHOUT a nonce records no authority at all", async () => {
+      // Direct terminal use (outside any conversation's tool shell) has no
+      // nonce to forward. The reveal works, but neither registry records —
+      // there is no conversation whose transcript could spend the record.
+      chatCredentialRevealFlag = true;
+      secureStore.set("vercel:api_token", SECRET_VALUE);
+      openRevealProofWindow();
+      const watermark = currentRevealSuccessWatermark();
+
+      await revealRoute!.handler({
+        body: { service: "vercel", field: "api_token" },
+        headers: { "x-vellum-principal-type": "local" },
+      });
+      await revealRoute!.handler({
+        body: { service: "vercel", field: "api_token", forChat: true },
+        headers: { "x-vellum-principal-type": "local" },
+      });
+
+      expect(
+        revealedValueSince(watermark, "vercel", "api_token", "nonce-A"),
+      ).toBeUndefined();
+      expect(forChatMintsSince(0)).toEqual([]);
+    });
+
+    test("a forChat reveal with no principal header records no mint (fails closed)", async () => {
+      chatCredentialRevealFlag = true;
+      secureStore.set("vercel:api_token", SECRET_VALUE);
+
+      const result = (await revealRoute!.handler({
+        body: { service: "vercel", field: "api_token", forChat: true },
+      })) as { value: string };
+
+      expect(result.value).toContain("\u3014redacted:");
+      expect(forChatMintsSince(0)).toEqual([]);
+    });
   });
 
   describe("credentials_set", () => {

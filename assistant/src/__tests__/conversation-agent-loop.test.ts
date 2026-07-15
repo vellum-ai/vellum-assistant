@@ -2610,9 +2610,15 @@ describe("session-agent-loop", () => {
       expect(updateMessageContentMock).toHaveBeenCalledTimes(0);
       expect(midTurnDeltaLines).toHaveLength(1);
       const delta = JSON.parse(midTurnDeltaLines![0]) as {
-        block: { type: string; text?: string };
+        block: { type: string; text?: string; _redactionVersion?: number };
       };
-      expect(delta.block).toEqual({ type: "text", text: "Hello, world." });
+      expect(delta.block).toEqual({
+        type: "text",
+        text: "Hello, world.",
+        // Stamped by the persist path's sentinel forgery guard (LUM-2768):
+        // marks the block as neutralization-aware for the history read seam.
+        _redactionVersion: 2,
+      });
       // The finalize seam folds the authoritative content inline and
       // removes the delta file.
       const finalize = finalizeMessageContentMock.mock.calls[0] as unknown as [
@@ -2621,7 +2627,7 @@ describe("session-agent-loop", () => {
       ];
       expect(finalize[0]).toBe("msg-reserve");
       expect(JSON.parse(finalize[1])).toEqual([
-        { type: "text", text: "Hello, world." },
+        { type: "text", text: "Hello, world.", _redactionVersion: 2 },
       ]);
       expect(inflightDeltaFiles()).toHaveLength(0);
     });

@@ -25,8 +25,7 @@ export function ConceptGraphIntroBanner({
       style={{
         backgroundColor: "var(--surface-lift)",
         border: "1px solid var(--border-base)",
-        boxShadow:
-          "0 8px 24px color-mix(in srgb, var(--content-default) 12%, transparent)",
+        boxShadow: "0 4px 12px rgba(0, 0, 0, 0.25)",
       }}
     >
       <span

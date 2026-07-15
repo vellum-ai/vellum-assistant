@@ -44,6 +44,29 @@ export const AuthSchema = z
 
 export type Auth = z.infer<typeof AuthSchema>;
 
+/**
+ * Derive the auth configuration a provider implies when a client omits an
+ * explicit `auth` object: keyless catalog providers (`setupMode: "keyless"`,
+ * e.g. ollama) need none, the Vellum-managed sentinel routes via the
+ * platform proxy, and every other provider authenticates by API key. Returns
+ * null when an API key is required but no credential was supplied, so route
+ * handlers can reject with a 400. `oauth_subscription` is never derived —
+ * the ChatGPT PKCE routes own that connection.
+ */
+export function deriveAuthForProvider(
+  provider: string,
+  credential?: string,
+): Auth | null {
+  if (provider === VELLUM_MANAGED_PROVIDER) {
+    return { type: "platform" };
+  }
+  const entry = PROVIDER_CATALOG.find((p) => p.id === provider);
+  if (entry?.setupMode === "keyless") {
+    return { type: "none" };
+  }
+  return credential ? { type: "api_key", credential } : null;
+}
+
 // ---------------------------------------------------------------------------
 // ResolvedAuth — what the dispatcher hands to each adapter
 // ---------------------------------------------------------------------------

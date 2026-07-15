@@ -61,7 +61,6 @@ mock.module("../apps/app-store.js", () => ({
     dirName: id,
     appDir: `/tmp/test-apps/${id}`,
   }),
-  isMultifileApp: (app: AppDefinition) => app.formatVersion === 2,
 }));
 
 // Mock compileApp for multifile scaffold path

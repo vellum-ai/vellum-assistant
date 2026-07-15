@@ -27,12 +27,20 @@ mock.module("../persistence/llm-request-log-store.js", () => ({
 }));
 
 // ── Imports (after mocks) ─────────────────────────────────────────────────────
+import { REDACTED_SENTINEL_OPEN } from "@vellumai/service-contracts/redacted-credential";
+
+import type { ResolvedRevealCandidate } from "../daemon/chat-credential-redaction.js";
 import {
   buildPersistedAssistantContent,
   stampThinkingTiming,
 } from "../daemon/conversation-agent-loop-handlers.js";
 import type { ToolActivityMetadata } from "../daemon/message-types/web-activity.js";
 import type { ContentBlock } from "../providers/types.js";
+import {
+  OPENAI_PROJECT_KEY_REDACTION_MARKER,
+  SYNTHETIC_OPAQUE_CREDENTIAL,
+  SYNTHETIC_OPENAI_PROJECT_KEY,
+} from "./secret-fixtures.js";
 
 const webSearchActivity: ToolActivityMetadata = {
   webSearch: {
@@ -227,5 +235,93 @@ describe("stampThinkingTiming", () => {
     // THEN the first block is stamped and the unmatched second block is left as-is
     expect(stamped[0]).toMatchObject({ _startedAt: 100, _completedAt: 250 });
     expect(stamped[1]).not.toHaveProperty("_startedAt");
+  });
+});
+
+/**
+ * The `chat-credential-reveal` gate lives one layer up in
+ * `chatRevealCandidates`, which yields `undefined` when the flag is off — so
+ * `revealCandidates: undefined` here is the flag-off persist path, and the
+ * default configuration. Redaction is not what the flag selects: a
+ * route-proven reveal plaintext must stay out of the persisted row in both
+ * modes, via the flag-independent `legacyFallbackCandidates` seam.
+ */
+describe("buildPersistedAssistantContent — legacy (flag-off) redaction", () => {
+  const openaiCandidate: ResolvedRevealCandidate = {
+    service: "openai",
+    field: "api_key",
+    value: SYNTHETIC_OPENAI_PROJECT_KEY,
+  };
+  const opaqueCandidate: ResolvedRevealCandidate = {
+    service: "acme",
+    field: "token",
+    value: SYNTHETIC_OPAQUE_CREDENTIAL,
+  };
+
+  function persistText(
+    text: string,
+    revealCandidates?: readonly ResolvedRevealCandidate[],
+    legacyFallbackCandidates: readonly ResolvedRevealCandidate[] = [],
+  ): string {
+    const built = buildPersistedAssistantContent(
+      [{ type: "text", text }] as unknown as ContentBlock[],
+      [],
+      undefined,
+      revealCandidates,
+      legacyFallbackCandidates,
+    ) as unknown as Array<Record<string, unknown>>;
+    return built[0].text as string;
+  }
+
+  test("emits the legacy marker for a scanner match, never sentinel glyphs", () => {
+    const out = persistText(`key: ${SYNTHETIC_OPENAI_PROJECT_KEY}`);
+
+    expect(out).toBe(`key: ${OPENAI_PROJECT_KEY_REDACTION_MARKER}`);
+    expect(out).not.toContain(SYNTHETIC_OPENAI_PROJECT_KEY);
+    expect(out).not.toContain(REDACTED_SENTINEL_OPEN);
+  });
+
+  test("redacts a proven candidate the scanner cannot classify", () => {
+    // The opaque value has no scanner-recognizable shape, so the fallback is
+    // the only thing standing between it and a raw persisted row.
+    const out = persistText(
+      `token: ${SYNTHETIC_OPAQUE_CREDENTIAL}`,
+      undefined,
+      [opaqueCandidate],
+    );
+
+    expect(out).not.toContain(SYNTHETIC_OPAQUE_CREDENTIAL);
+    expect(out).toContain("<redacted");
+    expect(out).not.toContain(REDACTED_SENTINEL_OPEN);
+  });
+
+  test("marks the block neutralization-aware in legacy mode too", () => {
+    // `renderHistoryContent` neutralizes any block lacking the rider, so a
+    // legacy-mode row must still carry it or its own text gets re-scanned.
+    const built = buildPersistedAssistantContent(
+      [{ type: "text", text: "no secrets here" }] as unknown as ContentBlock[],
+      [],
+    ) as unknown as Array<Record<string, unknown>>;
+
+    expect(built[0]._redactionVersion).toBe(2);
+  });
+
+  test("sentinel mode enriches the same candidate the legacy path flattens", () => {
+    // Candidate spans are protected ahead of the scanner in both modes, so the
+    // legacy marker reports the generic type while the sentinel carries the
+    // vault identity the chip needs.
+    const legacy = persistText(
+      `key: ${SYNTHETIC_OPENAI_PROJECT_KEY}`,
+      undefined,
+      [openaiCandidate],
+    );
+    const sentinel = persistText(`key: ${SYNTHETIC_OPENAI_PROJECT_KEY}`, [
+      openaiCandidate,
+    ]);
+
+    expect(legacy).toBe('key: <redacted type="Credential" />');
+    expect(sentinel).toBe(
+      "key: 〔redacted:OpenAI Project Key:openai:api_key〕",
+    );
   });
 });

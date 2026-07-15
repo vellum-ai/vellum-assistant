@@ -14,11 +14,17 @@ import {
 } from "../plugin-catalog-local.js";
 
 describe("buildBundledPluginCatalog", () => {
-  test("yields one match per manifest entry, sorted alphabetically", () => {
+  test("yields one match per unique manifest name, sorted alphabetically", () => {
     const catalog = buildBundledPluginCatalog();
 
     expect(catalog.ref).toBe("bundled");
-    expect(catalog.matches.length).toBe(bundledManifest.plugins.length);
+    // The catalog dedupes by name (first occurrence wins — see
+    // `projectMarketplaceEntries`), so the match count tracks the number of
+    // distinct names, not the raw entry count. The platform-generated manifest
+    // can carry multiple entries under one name (e.g. a repin that appends a
+    // new ref, or an icon-curation pass), and the reader collapses them.
+    const uniqueNames = new Set(bundledManifest.plugins.map((p) => p.name));
+    expect(catalog.matches.length).toBe(uniqueNames.size);
 
     const names = catalog.matches.map((m) => m.name);
     expect(names).toEqual([...names].sort((a, b) => a.localeCompare(b)));

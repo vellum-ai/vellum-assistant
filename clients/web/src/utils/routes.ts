@@ -111,8 +111,8 @@ export const routes = {
     privacy: r("/assistant/onboarding/privacy"),
     prechat: r("/assistant/onboarding/prechat"),
     hatching: r("/assistant/onboarding/hatching"),
-    // SPIKE — research-onboarding front door. Reachable on demand behind the
-    // default-off research-onboarding flag (see routes.tsx).
+    // SPIKE — research-onboarding front door. Reachable on demand behind auth
+    // alone (no flag; see routes.tsx).
     research: r("/assistant/onboarding/research"),
   },
 
@@ -130,6 +130,12 @@ export const routes = {
       dyn(r("/assistant/schedules"), scheduleId),
   },
   identity: r("/assistant/identity"),
+  /**
+   * Slider-based personality editor, drilled into from the assistant
+   * overview (`identity`). Lives alongside the other About Assistant
+   * sections so it inherits the shared drill-down chrome.
+   */
+  personality: r("/assistant/personality"),
   memory: r("/assistant/memory"),
   plugins: r("/assistant/plugins"),
   /**
@@ -170,13 +176,8 @@ export const routes = {
     integrations: r("/assistant/settings/integrations"),
     credentials: r("/assistant/settings/credentials"),
     notifications: r("/assistant/settings/notifications"),
-    keyboardShortcuts: r("/assistant/settings/keyboard-shortcuts"),
-    sounds: r("/assistant/settings/sounds"),
     voice: r("/assistant/settings/voice"),
-    devices: r("/assistant/settings/devices"),
     privacy: r("/assistant/settings/privacy"),
-    security: r("/assistant/settings/security"),
-    archive: r("/assistant/settings/archive"),
     bookmarks: r("/assistant/settings/bookmarks"),
     billing: SETTINGS_BILLING_PATH,
     billingUsage: `${SETTINGS_BILLING_PATH}?tab=usage`,
@@ -190,10 +191,9 @@ export const routes = {
       return `${SETTINGS_BILLING_PATH}?${params.toString()}`;
     },
     community: r("/assistant/settings/community"),
-    debug: r("/assistant/settings/debug"),
     developer: r("/assistant/settings/developer"),
     mcp: r("/assistant/settings/mcp"),
-    advanced: r("/assistant/settings/advanced"),
+    debug: r("/assistant/settings/debug"),
     dangerZone: r("/assistant/settings/danger-zone"),
     systemEvents: r("/assistant/settings/system-events"),
     upgradeCancel: r("/assistant/settings/billing/upgrade/cancel"),
@@ -223,6 +223,7 @@ export const routes = {
  */
 const ABOUT_ASSISTANT_PATHS: readonly string[] = [
   routes.identity,
+  routes.personality,
   routes.memory,
   routes.plugins,
   routes.skills.root,
