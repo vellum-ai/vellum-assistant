@@ -251,28 +251,17 @@ export async function getMemoryGraph(
 
   const workspaceDir = getWorkspaceDir();
   const pageIndex = await getPageIndex(workspaceDir);
-  // Concepts plus functionality (skills / CLI-command capabilities). Feeding the
-  // full set to the edge builders is what lets a concept's `[[skills/foo]]` link
-  // and skill↔concept co-selections resolve to real edges — buildEdgeGraph and
-  // computeLearnedEdgeGraph both drop endpoints outside the set they're given.
-  // Functionality nodes that end up disconnected are pruned in assembleMemoryGraph.
-  const entries = pageIndex.entries;
-
-  // Synthetic rows (skills / CLI commands) carry `modifiedAt: 0` and have no
-  // on-disk page. Keyed by slug (not prefix) so a real user page that happens
-  // to live under a reserved prefix is NOT mistaken for a synthetic one.
-  const syntheticSlugs = new Set(
-    entries.filter((e) => e.modifiedAt <= 0).map((e) => e.slug),
-  );
+  // The Memory graph is the assistant's learned mind: concept pages and the
+  // links between them. Skills and plugins have their own dedicated pages, so
+  // synthetic capability rows (skills / CLI commands, which carry `modifiedAt: 0`)
+  // are excluded here — the map is about what the assistant knows, not what it
+  // can do.
+  const entries = pageIndex.entries.filter((e) => e.modifiedAt > 0);
 
   // Raw (frontmatter + body) page reader, matching the v3 lane build. A read
   // that rejects drops that article's authored/wikilink edges but keeps its
-  // numeric fallbacks. Synthetic capability rows have no page, so short-circuit
-  // their guaranteed-miss read; a real page is read so its links are captured.
+  // numeric fallbacks.
   const pageRaw = async (slug: Slug): Promise<string> => {
-    if (syntheticSlugs.has(slug)) {
-      return "";
-    }
     const page = await readPage(workspaceDir, slug);
     if (!page) {
       throw new Error(`page not found: ${slug}`);
@@ -309,7 +298,6 @@ export async function getMemoryGraph(
     entries,
     staticAdjacency: staticGraph.adjacency,
     learnedAdjacency: learnedGraph.adjacency,
-    pruneDisconnectedNonConcepts: true,
   });
 
   return { backend: BACKEND_MEMORY_V3, supported: true, ...assembled };
