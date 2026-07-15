@@ -1,6 +1,6 @@
 import { Heart, Monitor, Moon, Sun } from "lucide-react";
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router";
+import { useNavigate, useSearchParams } from "react-router";
 
 import { useDiskPressureMonitor } from "@/assistant/use-disk-pressure-monitor";
 import { DetailCard } from "@/components/detail-card";
@@ -14,11 +14,10 @@ import {
     AssistantUpgrades,
     LocalAssistantUpgrades,
 } from "@/domains/settings/components/assistant-upgrades";
-import { ComposerSendCard } from "@/domains/settings/components/composer-send-card";
 import { DeleteAccountSection } from "@/domains/settings/components/delete-account-section";
 import { DevModeVersionUnlock } from "@/domains/settings/components/dev-mode-version-unlock";
 import { IOSAppCard } from "@/domains/settings/components/ios-app-card";
-import { LaunchAtLoginCard } from "@/domains/settings/components/launch-at-login-card";
+import { PreferencesModal } from "@/domains/settings/components/preferences-modal";
 import { PreviewReleaseChannel } from "@/domains/settings/components/preview-release-channel";
 import { ResizeCard } from "@/domains/settings/components/resize-card";
 import { RetireAssistant } from "@/domains/settings/components/retire-assistant";
@@ -47,6 +46,7 @@ import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-st
 import { useIsAuthenticated } from "@/stores/auth-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { watchDeviceSetting } from "@/utils/device-settings";
+import { isPointerCoarse } from "@/utils/pointer";
 import { routes } from "@/utils/routes";
 
 function AppearanceCard() {
@@ -139,6 +139,24 @@ export function GeneralPage() {
     enabled: infraGate === "full" && isPlatformHosted,
   });
   const [updateWindowOpen, setUpdateWindowOpen] = useState(false);
+  const [preferencesOpen, setPreferencesOpen] = useState(false);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const showPreferences = isElectron() || !isPointerCoarse();
+
+  // The keyboard-shortcuts redirect stub and tab aliases land here with
+  // `?preferences=open` to surface the Preferences modal directly. Consume
+  // the param so refresh/back does not reopen the modal.
+  useEffect(() => {
+    if (searchParams.get("preferences") !== "open") {
+      return;
+    }
+    const next = new URLSearchParams(searchParams);
+    next.delete("preferences");
+    setSearchParams(next, { replace: true });
+    if (showPreferences) {
+      setPreferencesOpen(true);
+    }
+  }, [searchParams, setSearchParams, showPreferences]);
 
   const platformAssistant = assistant?.is_local && !isLocalMode() ? null : assistant;
   const selected = getSelectedAssistant();
@@ -289,9 +307,29 @@ export function GeneralPage() {
         </DetailCard>
       )}
 
-      <ComposerSendCard />
-
-      {isElectron() && <LaunchAtLoginCard />}
+      {/* Composer behavior is pointless on touch (Enter never sends) and
+          shortcuts/launch-at-login are Electron-only, so hide the card when
+          the modal would be empty. */}
+      {showPreferences && (
+        <>
+          <DetailCard
+            title="Preferences"
+            subtitle="Customize shortcuts and how Vellum behaves on this device."
+            accessory={
+              <Button
+                variant="outlined"
+                onClick={() => setPreferencesOpen(true)}
+              >
+                Customize
+              </Button>
+            }
+          />
+          <PreferencesModal
+            open={preferencesOpen}
+            onClose={() => setPreferencesOpen(false)}
+          />
+        </>
+      )}
 
       {teleportEnabled && isElectron() && <TeleportCard />}
 

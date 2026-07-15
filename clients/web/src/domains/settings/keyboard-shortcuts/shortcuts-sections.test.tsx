@@ -1,13 +1,14 @@
 /**
- * Tests for the Keyboard Shortcuts settings page.
+ * Tests for the shortcut rebinding sections (hosted by the Preferences modal
+ * on Settings → General).
  *
  * Mounted via `@testing-library/react` (happy-dom — see `test-setup.ts`). The
- * typed `hotkeys` bridge and the Electron platform check are mocked so the
- * page renders its catalog without a real desktop host; the accelerator/
- * conflict math is unit-tested separately in `electron-accelerator.test.ts`.
- * Here we assert the user-facing contract: rows render grouped by scope, the
- * recorder turns a keypress into a `setHotkey` write, a conflicting capture is
- * blocked, and reset/remove map to the documented `null` / `""` writes.
+ * typed `hotkeys` bridge is mocked so the sections render their catalog
+ * without a real desktop host; the accelerator/conflict math is unit-tested
+ * separately in `electron-accelerator.test.ts`. Here we assert the
+ * user-facing contract: rows render grouped by scope, the recorder turns a
+ * keypress into a `setHotkey` write, a conflicting capture is blocked, and
+ * reset/remove map to the documented `null` / `""` writes.
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -48,12 +49,8 @@ mock.module("@/runtime/hotkeys", () => ({
   onHotkeysChange,
 }));
 
-mock.module("@/runtime/is-electron", () => ({
-  isElectron: () => true,
-}));
-
-const { KeyboardShortcutsPage } = await import(
-  "@/domains/settings/keyboard-shortcuts/keyboard-shortcuts-page"
+const { ShortcutsSections } = await import(
+  "@/domains/settings/keyboard-shortcuts/shortcuts-sections"
 );
 
 beforeEach(() => {
@@ -73,9 +70,9 @@ afterEach(() => {
   cleanup();
 });
 
-describe("KeyboardShortcutsPage", () => {
+describe("ShortcutsSections", () => {
   test("renders each command grouped under its scope section", async () => {
-    render(<KeyboardShortcutsPage />);
+    render(<ShortcutsSections />);
 
     expect(await screen.findByText("Open Vellum")).toBeDefined();
     expect(screen.getByText("New chat")).toBeDefined();
@@ -84,7 +81,7 @@ describe("KeyboardShortcutsPage", () => {
   });
 
   test("records a keypress into a setHotkey write", async () => {
-    render(<KeyboardShortcutsPage />);
+    render(<ShortcutsSections />);
     fireEvent.click(await screen.findByLabelText("Record shortcut for New chat"));
 
     fireEvent.keyDown(document.body, {
@@ -98,7 +95,7 @@ describe("KeyboardShortcutsPage", () => {
   });
 
   test("blocks a conflicting capture and surfaces a warning", async () => {
-    render(<KeyboardShortcutsPage />);
+    render(<ShortcutsSections />);
     fireEvent.click(await screen.findByLabelText("Record shortcut for Open Vellum"));
 
     // CmdOrCtrl+N is already bound to "New chat".
@@ -110,13 +107,13 @@ describe("KeyboardShortcutsPage", () => {
   });
 
   test("does not render a row for a reserved command", async () => {
-    render(<KeyboardShortcutsPage />);
+    render(<ShortcutsSections />);
     await screen.findByText("Open Vellum");
     expect(screen.queryByText("Find")).toBeNull();
   });
 
   test("blocks binding over a reserved accelerator", async () => {
-    render(<KeyboardShortcutsPage />);
+    render(<ShortcutsSections />);
     fireEvent.click(await screen.findByLabelText("Record shortcut for Home"));
 
     // CmdOrCtrl+F is reserved for Find, which the UI does not list as a row.
@@ -129,7 +126,7 @@ describe("KeyboardShortcutsPage", () => {
   });
 
   test("Escape cancels recording without writing", async () => {
-    render(<KeyboardShortcutsPage />);
+    render(<ShortcutsSections />);
     fireEvent.click(await screen.findByLabelText("Record shortcut for New chat"));
 
     fireEvent.keyDown(document.body, { code: "Escape" });
@@ -139,7 +136,7 @@ describe("KeyboardShortcutsPage", () => {
   });
 
   test("Reset clears the override with null", async () => {
-    render(<KeyboardShortcutsPage />);
+    render(<ShortcutsSections />);
     fireEvent.click(await screen.findByLabelText("Reset Home to default"));
 
     expect(setHotkey).toHaveBeenCalledWith("home", null);
@@ -169,7 +166,7 @@ describe("KeyboardShortcutsPage", () => {
       ),
     ];
 
-    render(<KeyboardShortcutsPage />);
+    render(<ShortcutsSections />);
     fireEvent.click(await screen.findByLabelText("Reset Home to default"));
 
     expect(setHotkey).not.toHaveBeenCalled();
@@ -179,7 +176,7 @@ describe("KeyboardShortcutsPage", () => {
   });
 
   test("Remove disables a binding with an empty string", async () => {
-    render(<KeyboardShortcutsPage />);
+    render(<ShortcutsSections />);
     fireEvent.click(await screen.findByLabelText("Remove New chat binding"));
 
     expect(setHotkey).toHaveBeenCalledWith("newConversation", "");

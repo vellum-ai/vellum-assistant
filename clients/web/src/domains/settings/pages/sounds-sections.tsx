@@ -197,7 +197,7 @@ function SoundEventRow({
   );
 }
 
-export function SoundsPage() {
+export function SoundsSections() {
   const queryClient = useQueryClient();
   const assistantId = useActiveAssistantId();
 
