@@ -1288,28 +1288,6 @@ async function handleInstallPlugin({ body = {}, headers }: RouteHandlerArgs) {
 }
 
 // ---------------------------------------------------------------------------
-// Handler — reconcile (bring installed plugins up now)
-// ---------------------------------------------------------------------------
-
-/**
- * Imperatively reconcile the daemon's plugin caches against the current on-disk
- * plugin set, right now. Registers a newly materialized plugin's tools and runs
- * its `init` hook without waiting for the resource monitor to republish the
- * source-versions sentinel or for a later turn to apply it.
- *
- * The daemon-side install route calls the reconcile primitive directly. This
- * route exists for the CLI's `assistant plugins install`, which materializes
- * the plugin locally (in its own process) and then pokes the daemon here so the
- * install runs `init` immediately rather than at the next daemon boot. The poke
- * is best-effort on the CLI side — a daemon that is down simply picks the plugin
- * up on its next start.
- */
-async function handlePluginsReconcile(): Promise<{ ok: true }> {
-  await reconcilePluginSourcesNow();
-  return { ok: true as const };
-}
-
-// ---------------------------------------------------------------------------
 // Handler — inspect (drift)
 // ---------------------------------------------------------------------------
 
@@ -2007,20 +1985,5 @@ export const ROUTES: RouteDefinition[] = [
       },
     },
     handler: handleDisablePlugin,
-  },
-  {
-    operationId: "plugins_reconcile",
-    endpoint: "plugins/reconcile",
-    method: "POST",
-    policy: {
-      requiredScopes: ["settings.write"],
-      allowedPrincipalTypes: ACTOR_PRINCIPALS,
-    },
-    summary: "Reconcile installed plugins now",
-    description:
-      "Imperatively reconcile the daemon's in-memory plugin state against the current on-disk plugin set, right now — registering a newly installed plugin's tools and running its `init` hook without waiting for the background source watcher to republish or a later turn to apply the change. Idempotent: a plugin already up is not re-initialized. Primarily the target of the CLI's post-install poke (`assistant plugins install` materializes the plugin in its own process, then calls this so `init` fires as part of the install instead of at the next daemon boot).",
-    tags: ["plugins"],
-    responseBody: z.object({ ok: z.literal(true) }),
-    handler: handlePluginsReconcile,
   },
 ];
