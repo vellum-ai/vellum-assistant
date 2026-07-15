@@ -220,13 +220,15 @@ export function resolveServerConsent(
     DIAGNOSTICS_CONSENT_VERSION,
   );
   // The endpoint always returns an object; for a user with no stored row it
-  // returns the API defaults (empty versions, share booleans true). Any
-  // non-empty version or any `false` share boolean can only have come from a
-  // real stored row, so it proves a record whose data is worth preserving.
-  // Truthiness (not `!== ""`) so a response that OMITS the newer
-  // share-version fields — e.g. an older backend during rollout — reads as
-  // absent rather than as record evidence. `undefined` and `""` both mean
-  // "no version on record".
+  // returns the API defaults (empty versions, share booleans coerced to a
+  // strict value). A non-empty version or a `false` share boolean indicates a
+  // stored row worth preserving. A coerced `false` (`*_chosen: false`) can also
+  // land here, but that only widens `hasServerRecord` — the values it guards
+  // resolve to null via the never-asked check below, so every consumer that
+  // gates on `!== null` / `=== true` skips it. Truthiness (not `!== ""`) so a
+  // response that OMITS the newer share-version fields — e.g. an older backend
+  // during rollout — reads as absent rather than as record evidence.
+  // `undefined` and `""` both mean "no version on record".
   const hasServerRecord =
     !!consent.tos_accepted_version ||
     !!consent.privacy_policy_accepted_version ||
@@ -235,18 +237,33 @@ export function resolveServerConsent(
     !!consent.share_diagnostics_accepted_version ||
     consent.share_analytics === false ||
     consent.share_diagnostics === false;
-  // An implicit grant — true with NO version on record — is never-asked in
-  // disguise, not an explicit choice: a pre-nullable platform materializes
-  // its DB default `true` on rows created without the toggle shown (e.g. a
-  // ToS-only row), while every explicit write stamps a version. Resolve it
-  // to null so no consumer can mistake it for a user grant — the diagnostics
-  // gate chokepoint and the analytics store adoption would otherwise
-  // overwrite an explicit local opt-out whose patch hasn't landed. An
-  // explicit opt-out (false) is never excused this way.
-  const analyticsImplicitDefault =
-    consent.share_analytics === true && !consent.share_analytics_accepted_version;
-  const diagnosticsImplicitDefault =
-    consent.share_diagnostics === true && !consent.share_diagnostics_accepted_version;
+  // A never-asked value is not a user choice and must not be adopted as one —
+  // the diagnostics gate chokepoint and the analytics store adoption would
+  // otherwise overwrite the local default-on (telemetry is opt-out) or an
+  // explicit local opt-out whose patch hasn't landed. Two shapes are
+  // never-asked:
+  //   1. An implicit grant — `true` with NO version on record: a pre-nullable
+  //      platform materializes its DB default `true` on rows created without
+  //      the toggle shown (e.g. a ToS-only row); every explicit write stamps a
+  //      version.
+  //   2. A platform-coerced `false` flagged `*_chosen: false` — the fail-closed
+  //      default the platform serves for an owner who was never shown the
+  //      toggle (JARVIS-1292). Onboarding never asks about analytics, so every
+  //      onboarding user lands here; adopting it as a hard `false` silently
+  //      disabled all browser onboarding telemetry.
+  // A real opt-out carries `*_chosen: true` and is never excused. A bare
+  // `false` with no `*_chosen` field (older backend, pre-rollout) also stays
+  // authoritative.
+  const analyticsNeverAsked =
+    (consent.share_analytics === true &&
+      !consent.share_analytics_accepted_version) ||
+    (consent.share_analytics === false &&
+      consent.share_analytics_chosen === false);
+  const diagnosticsNeverAsked =
+    (consent.share_diagnostics === true &&
+      !consent.share_diagnostics_accepted_version) ||
+    (consent.share_diagnostics === false &&
+      consent.share_diagnostics_chosen === false);
   return {
     // The ToS checkbox covers only the Terms of Service. The privacy checkbox
     // covers both the Privacy Policy and the AI Data Sharing Policy, so it is
@@ -255,8 +272,8 @@ export function resolveServerConsent(
     privacy:
       versionIsCurrent(consent.privacy_policy_accepted_version, PRIVACY_CONSENT_VERSION) &&
       versionIsCurrent(consent.ai_data_sharing_accepted_version, PRIVACY_CONSENT_VERSION),
-    shareAnalytics: analyticsImplicitDefault ? null : consent.share_analytics,
-    shareDiagnostics: diagnosticsImplicitDefault ? null : consent.share_diagnostics,
+    shareAnalytics: analyticsNeverAsked ? null : consent.share_analytics,
+    shareDiagnostics: diagnosticsNeverAsked ? null : consent.share_diagnostics,
     // Share-toggle re-review is owed only for an explicit, genuinely stale
     // choice on record. Onboarding doesn't show the analytics toggle, so
     // `share_analytics` stays null until the user chooses via settings or
@@ -265,11 +282,11 @@ export function resolveServerConsent(
     // false with a stale/empty version still re-reviews.
     analyticsCurrent:
       consent.share_analytics === null ||
-      analyticsImplicitDefault ||
+      analyticsNeverAsked ||
       analyticsVersionCurrent,
     diagnosticsCurrent:
       consent.share_diagnostics === null ||
-      diagnosticsImplicitDefault ||
+      diagnosticsNeverAsked ||
       diagnosticsVersionCurrent,
     analyticsVersionCurrent,
     diagnosticsVersionCurrent,

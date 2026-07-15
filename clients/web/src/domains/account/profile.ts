@@ -13,10 +13,23 @@ export interface UserConsent {
   privacy_policy_accepted_at: string | null;
   ai_data_sharing_accepted_version: string;
   ai_data_sharing_accepted_at: string | null;
-  /** Null until the user makes an explicit choice (settings or review-terms). */
+  /**
+   * The stored on/off value. The platform coerces a never-chosen value to a
+   * strict `false` on the wire (fail-closed), so `false` alone does NOT prove
+   * an explicit opt-out — read `share_analytics_chosen` to tell the two apart.
+   */
   share_analytics: boolean | null;
-  /** Null until the user makes an explicit choice (onboarding, settings, or review-terms). */
+  /** See {@link share_analytics}; read `share_diagnostics_chosen` to disambiguate. */
   share_diagnostics: boolean | null;
+  /**
+   * Whether the owner made an explicit analytics choice. `false` means the
+   * accompanying `share_analytics` is a platform-coerced default the user was
+   * never shown, not a real opt-out. Optional: older backends omit it, in
+   * which case a `false` value stays authoritative.
+   */
+  share_analytics_chosen?: boolean;
+  /** Whether the owner made an explicit diagnostics choice. See {@link share_analytics_chosen}. */
+  share_diagnostics_chosen?: boolean;
   share_analytics_accepted_version: string;
   share_analytics_accepted_at: string | null;
   share_diagnostics_accepted_version: string;

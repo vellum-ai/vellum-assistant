@@ -215,6 +215,62 @@ describe("resolveServerConsent", () => {
     expect(r.shareDiagnostics).toBe(true);
   });
 
+  test("coerced false (*_chosen: false, never shown) resolves to null — telemetry is opt-out", () => {
+    // The platform fail-closes a never-chosen value to a strict `false` on the
+    // wire (JARVIS-1292). Onboarding never asks about analytics, so every
+    // onboarding user lands here. It must NOT be adopted as an opt-out —
+    // resolve to null so the store keeps its default-on value and the emit
+    // gate stays open.
+    const r = resolveServerConsent(
+      makeConsent({
+        share_analytics: false,
+        share_analytics_chosen: false,
+        share_analytics_accepted_version: "",
+        share_diagnostics: false,
+        share_diagnostics_chosen: false,
+        share_diagnostics_accepted_version: "",
+      }),
+    );
+    expect(r.shareAnalytics).toBeNull();
+    expect(r.shareDiagnostics).toBeNull();
+    // Never-asked, so nothing to re-review.
+    expect(r.analyticsCurrent).toBe(true);
+    expect(r.diagnosticsCurrent).toBe(true);
+  });
+
+  test("explicit false (*_chosen: true) stays an authoritative opt-out", () => {
+    const r = resolveServerConsent(
+      makeConsent({
+        share_analytics: false,
+        share_analytics_chosen: true,
+        share_analytics_accepted_version: "",
+        share_diagnostics: false,
+        share_diagnostics_chosen: true,
+        share_diagnostics_accepted_version: "",
+      }),
+    );
+    expect(r.shareAnalytics).toBe(false);
+    expect(r.shareDiagnostics).toBe(false);
+    // An explicit opt-out with an empty version still owes a re-review.
+    expect(r.analyticsCurrent).toBe(false);
+    expect(r.diagnosticsCurrent).toBe(false);
+  });
+
+  test("false with no *_chosen field (older backend) stays authoritative", () => {
+    // Pre-rollout backends omit `*_chosen`; a bare `false` cannot be proven a
+    // coerced default, so it is honored as-is rather than silently re-enabled.
+    const r = resolveServerConsent(
+      makeConsent({
+        share_analytics: false,
+        share_analytics_accepted_version: "",
+        share_diagnostics: false,
+        share_diagnostics_accepted_version: "",
+      }),
+    );
+    expect(r.shareAnalytics).toBe(false);
+    expect(r.shareDiagnostics).toBe(false);
+  });
+
   test("reports stale toggles for explicit opt-outs with empty versions", () => {
     // An explicit false is never excused by an empty version — it still
     // owes a re-review.
