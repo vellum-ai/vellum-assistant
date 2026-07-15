@@ -26,7 +26,6 @@ import { recordConversationPersistedSeq } from "../persistence/conversation-crud
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { getCurrentSeq } from "../runtime/assistant-stream-state.js";
-import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
 import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
 import { createAbortReason } from "../util/abort-reasons.js";
@@ -188,8 +187,6 @@ export interface VoiceTurnOptions {
   assistantId?: string;
   /** Guardian trust context for the caller. */
   trustContext?: TrustContext;
-  /** Permission handling mode. Defaults to phone-call auto policy. */
-  approvalMode?: "phone-call" | "local-live-voice";
   /** Whether this is an inbound call (no outbound task). */
   isInbound: boolean;
   /** The outbound call task, if any. */
@@ -405,15 +402,12 @@ export async function startVoiceTurn(
     },
   };
 
-  // Phone voice has no interactive permission/secret UI, so apply explicit
-  // per-role policies by default. Local live voice opts into the normal
-  // client approval path instead. Side-effect double-defense
+  // Voice calls have no interactive permission/secret UI, so explicit
+  // per-role policies apply. Side-effect double-defense
   // (forcePromptSideEffects) is wired inside the agent-loop IIFE so it
   // is always paired with cleanup() in the IIFE's finally.
   const trustClass = opts.trustContext?.trustClass;
   const isGuardian = trustClass === "guardian";
-  const approvalMode = opts.approvalMode ?? "phone-call";
-  const usesLocalInteractiveApprovals = approvalMode === "local-live-voice";
   const voiceSessionId = opts.voiceSessionId ?? opts.callSessionId;
   const turnChannelContext: TurnChannelContext = {
     userMessageChannel: opts.userMessageChannel ?? "phone",
@@ -845,25 +839,6 @@ export async function startVoiceTurn(
   let lastError: string | null = null;
   conversation.updateClient(async (msg: ServerMessage) => {
     if (msg.type === "confirmation_request") {
-      if (usesLocalInteractiveApprovals) {
-        pendingInteractions.register(msg.requestId, {
-          conversationId: opts.conversationId,
-          kind: "confirmation",
-          confirmationDetails: {
-            toolName: msg.toolName,
-            input: msg.input,
-            riskLevel: msg.riskLevel,
-            executionTarget: msg.executionTarget,
-            allowlistOptions: msg.allowlistOptions,
-            scopeOptions: msg.scopeOptions,
-            persistentDecisionsAllowed: msg.persistentDecisionsAllowed,
-            acpToolKind: msg.acpToolKind,
-            acpOptions: msg.acpOptions,
-          },
-        });
-        broadcastMessage(msg);
-        return;
-      }
       if (autoDeny) {
         // Non-guardian voice callers have no interactive approval UI.
         // The pre-exec gate (tool-approval-handler.ts) handles grant
@@ -937,14 +912,7 @@ export async function startVoiceTurn(
         return;
       }
     } else if (msg.type === "secret_request") {
-      if (usesLocalInteractiveApprovals) {
-        // Local live voice runs alongside the desktop client, which has a
-        // secret-entry UI. Forward the broadcast and let the prompter's
-        // existing registration handle the response.
-        broadcastMessage(msg);
-        return;
-      }
-      // Phone voice has no secret-entry UI, so resolve immediately.
+      // Voice calls have no secret-entry UI, so resolve immediately.
       log.info(
         { turnId, service: msg.service, field: msg.field },
         "Auto-resolving secret request for voice turn (no secret-entry UI)",
@@ -974,15 +942,14 @@ export async function startVoiceTurn(
   // Fire-and-forget the agent loop
   void (async () => {
     try {
-      // Non-guardian phone voice forces side-effect tools to prompt so the
+      // Non-guardian voice callers force side-effect tools to prompt so the
       // auto-deny handler above reliably sees a confirmation_request. Without
       // this, a broad allow trust rule (e.g. wildcard bash) would let
       // side-effect tools execute without ever emitting an event for the
       // auto-deny / scoped-grant handler to intercept. Set inside the
       // try/finally so a failed setup before this point cannot leak the
       // flag into subsequent non-voice turns on the same conversation.
-      conversation.forcePromptSideEffects =
-        !isGuardian && !usesLocalInteractiveApprovals;
+      conversation.forcePromptSideEffects = !isGuardian;
       // Surface-resume turns install the resumed surface as the active surface
       // so `buildActiveSurfaceContext` re-injects its dynamic_page/app context,
       // and clear `currentPage` so the resumed surface isn't paired with a prior
