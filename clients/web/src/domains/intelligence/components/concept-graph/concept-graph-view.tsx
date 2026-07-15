@@ -891,10 +891,12 @@ export function ConceptGraphView({
         {/* Keep the box visible whenever a search is active, even if the graph
             shrank below the threshold (e.g. a refetch) — otherwise an active
             filter would ghost nodes with no way to clear it short of remount. */}
+        {/* z-20 keeps the results dropdown above the recency lens (top-14,
+            z-10) so its top rows stay clickable while a search is active. */}
         {layout.nodes.length > SEARCH_MIN_NODES || search ? (
           <div
             data-graph-control
-            className={`absolute top-4 z-10 ${onToggleFullscreen ? "left-16" : "left-4"}`}
+            className={`absolute top-4 z-20 ${onToggleFullscreen ? "left-16" : "left-4"}`}
           >
             <div
               className="flex items-center gap-1.5 rounded-full px-2.5 py-1"
