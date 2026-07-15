@@ -72,7 +72,9 @@ function cleanupExpiredFlows(): void {
 /** Update a tracked flow's status in place, if it still exists. */
 function markFlow(state: string, status: FlowStatus, error?: string): void {
   const flow = pendingFlows.get(state);
-  if (!flow) return;
+  if (!flow) {
+    return;
+  }
   flow.status = status;
   if (error !== undefined) {
     flow.error = error;

@@ -72,7 +72,9 @@ async function waitForStatus(
 ): Promise<StatusResult> {
   for (let i = 0; i < 40; i++) {
     const status = getStatus(state);
-    if (status.status === target) return status;
+    if (status.status === target) {
+      return status;
+    }
     await new Promise((r) => setTimeout(r, 5));
   }
   throw new Error(`status for ${state} never reached ${target}`);
