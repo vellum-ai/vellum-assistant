@@ -21,7 +21,7 @@ import type { UserConsent } from "@/domains/account/profile";
 let consentResult: Promise<UserConsent>;
 const fetchConsent = mock(() => consentResult);
 // `mock.module` is process-global and replaces the whole module, so re-export
-// `patchConsent` (imported transitively by onboarding-cleanup).
+// `patchConsent` (imported transitively by consent-persistence).
 mock.module("@/domains/account/profile", () => ({
   fetchConsent,
   patchConsent: mock(() => Promise.resolve()),
@@ -55,7 +55,7 @@ mock.module("@/domains/onboarding/onboarding-store", () => ({
   useOnboardingStore: { getState: () => ({ setShareDiagnostics }) },
 }));
 
-const { DIAGNOSTICS_CONSENT_VERSION } = await import("@/utils/onboarding-cleanup");
+const { DIAGNOSTICS_CONSENT_VERSION } = await import("@/lib/consent/consent-persistence");
 const { refreshDiagnosticsConsent, installConsentRefreshListeners } =
   await import("./consent-refresh");
 

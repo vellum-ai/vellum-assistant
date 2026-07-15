@@ -220,7 +220,7 @@ mock.module("@/domains/account/profile", () => ({
   patchConsent: patchConsentMock,
 }));
 
-mock.module("@/utils/onboarding-cleanup", () => ({
+mock.module("@/lib/consent/consent-persistence", () => ({
   restoreConsentForUser: restoreConsentForUserMock,
   persistConsentForUser: persistConsentForUserMock,
   persistToggleConsent: persistToggleConsentMock,

@@ -26,7 +26,7 @@ mock.module("@/domains/onboarding/prefs", () => ({
 }));
 
 const saveConsentMock = mock((_args: unknown) => {});
-mock.module("@/utils/onboarding-cleanup", () => ({
+mock.module("@/lib/consent/consent-persistence", () => ({
   saveConsent: saveConsentMock,
 }));
 
