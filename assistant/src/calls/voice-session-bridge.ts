@@ -237,6 +237,15 @@ export interface VoiceTurnOptions {
    * still receives `content`. Undefined = persist/echo `content`.
    */
   displayContent?: string;
+  /**
+   * Completed interactive-surface id to restore as the turn's active surface.
+   * Set by a live-voice surface resume so `runAgentLoop` feeds it to
+   * `buildActiveSurfaceContext` and the model sees the active `dynamic_page`/app
+   * HTML + schema it just acted on — parity with the text path, which threads
+   * `activeSurfaceId` into `conversation.currentActiveSurfaceId`. Undefined =
+   * a normal STT turn with no active surface (left at the per-turn default).
+   */
+  activeSurfaceId?: string;
 }
 
 export interface VoiceTurnHandle {
@@ -989,6 +998,14 @@ export async function startVoiceTurn(
       // flag into subsequent non-voice turns on the same conversation.
       conversation.forcePromptSideEffects =
         !isGuardian && !usesLocalInteractiveApprovals;
+      // Restore the active-surface context for a surface-resume turn so
+      // `runAgentLoop` → `buildActiveSurfaceContext` re-injects the completed
+      // `dynamic_page`/app the user acted on (parity with the text path's
+      // `currentActiveSurfaceId`). Guarded so a normal STT turn leaves the field
+      // at its per-turn default (reset to undefined by the agent loop).
+      if (opts.activeSurfaceId !== undefined) {
+        conversation.currentActiveSurfaceId = opts.activeSurfaceId;
+      }
       await conversation.runAgentLoop(persistedContent, messageId, {
         onEvent: (msg: ServerMessage) => {
           if (msg.type === "error") {

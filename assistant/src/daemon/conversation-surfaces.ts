@@ -2475,6 +2475,7 @@ export async function handleSurfaceAction(
     voiceResumeHandler.resumeWithText(content, {
       ...(displayContent !== undefined ? { displayContent } : {}),
       requestId,
+      activeSurfaceId: surfaceId,
     });
     log.info(
       { surfaceId, actionId, requestId },
