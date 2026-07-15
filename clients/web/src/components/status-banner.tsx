@@ -3,6 +3,7 @@ import {
   CircleCheck,
   CloudOff,
   Info,
+  Lightbulb,
   LoaderCircle,
   Moon,
   TriangleAlert,
@@ -109,6 +110,13 @@ const STATUS_TONE_CLASSES: Record<NoticeTone, StatusToneClasses> = {
     icon: "text-[color:var(--content-secondary)]",
     action: "[--status-banner-action-color:var(--content-secondary)]",
     DefaultIcon: null,
+  },
+  hint: {
+    container: "bg-[var(--system-info-weak)]",
+    content: "text-[color:var(--system-info-strong)]",
+    icon: "text-[color:var(--system-info-strong)]",
+    action: "[--status-banner-action-color:var(--system-info-strong)]",
+    DefaultIcon: Lightbulb,
   },
 };
 
