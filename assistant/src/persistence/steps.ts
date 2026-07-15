@@ -443,6 +443,8 @@ import { migrateMoveSkillLoadedEventsToTelemetryDb } from "./migrations/332-move
 import { migrateCreateTelemetryEventsTable } from "./migrations/333-create-telemetry-events-table.js";
 import { migrateBackfillTelemetryEventsOutbox } from "./migrations/334-backfill-telemetry-events-outbox.js";
 import { migrateCollapseMemoryEmbedBacklog } from "./migrations/335-collapse-memory-embed-backlog.js";
+import { migrateMoveMemoryV3SelectionsToMemoryDb } from "./migrations/338-move-memory-v3-selections-to-memory-db.js";
+import { migrateMoveActivationSessionsToMemoryDb } from "./migrations/339-move-activation-sessions-to-memory-db.js";
 import type { MigrationStep } from "./migrations/run-migrations.js";
 
 export const migrationSteps: MigrationStep[] = [
@@ -1357,4 +1359,17 @@ export const migrationSteps: MigrationStep[] = [
   migrateCreateTelemetryEventsTable,
   migrateBackfillTelemetryEventsOutbox,
   migrateCollapseMemoryEmbedBacklog,
+  {
+    name: "migrateMoveMemoryV3SelectionsToMemoryDb",
+    run: migrateMoveMemoryV3SelectionsToMemoryDb,
+    dependsOn: [
+      "migrateAddMemoryV3Selections",
+      "migrateMemoryV3SelectionsMessageIdAndSections",
+    ],
+  },
+  {
+    name: "migrateMoveActivationSessionsToMemoryDb",
+    run: migrateMoveActivationSessionsToMemoryDb,
+    dependsOn: ["createActivationSessionsTable"],
+  },
 ];

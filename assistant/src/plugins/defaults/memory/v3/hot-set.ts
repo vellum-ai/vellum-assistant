@@ -14,16 +14,8 @@
  * the hot lane never duplicates core.
  */
 
-import {
-  type DrizzleDb,
-  getSqliteFrom,
-} from "../../../../persistence/db-connection.js";
+import { memorySqliteOrNull } from "../memory-db.js";
 import type { Slug } from "./types.js";
-
-export interface HotSetDeps {
-  /** Handle to the database containing `memory_v3_selections`. */
-  db: DrizzleDb;
-}
 
 export interface HotSetOptions {
   /** Maximum number of slugs returned. */
@@ -52,15 +44,21 @@ interface SelectionAgeRow {
  * Deterministic for fixed inputs: ties break score desc, then slug asc. The
  * decay sum runs in TS over `(slug, created_at)` pairs — the selections table
  * is small enough that reading it directly beats pushing the math into SQL.
+ *
+ * Reads `memory_v3_selections` over the dedicated memory connection.
+ * Fail-soft: an unavailable memory database yields an empty hot set — the
+ * lane simply contributes nothing to the stable prefix.
  */
-export function computeHotSet(
-  deps: HotSetDeps,
-  opts: HotSetOptions,
-): HotSetEntry[] {
+export function computeHotSet(opts: HotSetOptions): HotSetEntry[] {
   const { k, halfLifeMs, now, excludeSlugs } = opts;
   if (k <= 0) return [];
 
-  const rows = getSqliteFrom(deps.db)
+  const raw = memorySqliteOrNull("computeHotSet");
+  if (!raw) {
+    return [];
+  }
+
+  const rows = raw
     .query(
       /*sql*/ `
       SELECT slug, created_at FROM memory_v3_selections
