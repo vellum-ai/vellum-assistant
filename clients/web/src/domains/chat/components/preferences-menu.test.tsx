@@ -12,6 +12,8 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
+import type { AuthUser } from "@/stores/auth-store";
+
 const isMobileRef = { value: false };
 
 mock.module("@/hooks/use-is-mobile", () => ({
@@ -19,9 +21,21 @@ mock.module("@/hooks/use-is-mobile", () => ({
   MOBILE_MEDIA_QUERY: "(max-width: 767px)",
 }));
 
-const authRef = {
+const authRef: {
+  isAuthenticated: boolean;
+  user: AuthUser;
+  logout: () => Promise<void>;
+} = {
   isAuthenticated: true,
-  user: { id: "u1", email: "user@example.com", isStaff: false, username: null, firstName: "", lastName: "" },
+  user: {
+    kind: "platform",
+    id: "u1",
+    email: "user@example.com",
+    isStaff: false,
+    username: null,
+    firstName: "",
+    lastName: "",
+  },
   logout: async () => {},
 };
 
@@ -77,10 +91,6 @@ mock.module("@/components/share-feedback-modal", () => ({
   ShareFeedbackModal: () => null,
 }));
 
-mock.module("@/components/earn-credits-modal", () => ({
-  EarnCreditsModal: () => null,
-}));
-
 mock.module("@/domains/chat/components/credits-card", () => ({
   CreditsCard: () => createElement("div", { "data-testid": "credits-card" }, "Credits"),
 }));
@@ -90,7 +100,7 @@ import { PreferencesMenu } from "@/domains/chat/components/preferences-menu";
 beforeEach(() => {
   isMobileRef.value = false;
   authRef.isAuthenticated = true;
-  authRef.user = { id: "u1", email: "user@example.com", isStaff: false, username: null, firstName: "", lastName: "" };
+  authRef.user = { kind: "platform", id: "u1", email: "user@example.com", isStaff: false, username: null, firstName: "", lastName: "" };
   billingRef.data = undefined;
 });
 
@@ -101,20 +111,73 @@ describe("PreferencesMenu", () => {
     expect(html).toBe("");
   });
 
-  test("renders a Preferences trigger when logged in", () => {
+  test("labels the trigger with the account's full name when present", () => {
+    authRef.user = {
+      kind: "platform",
+      id: "u1",
+      email: "user@example.com",
+      isStaff: false,
+      username: "jdoe",
+      firstName: "Jane",
+      lastName: "Doe",
+    };
     const html = renderToStaticMarkup(createElement(PreferencesMenu));
-    expect(html).toContain("Preferences");
+    expect(html).toContain("Jane Doe");
+  });
+
+  test("falls back to username, then email, then the generic label", () => {
+    // username fallback (no name)
+    authRef.user = {
+      kind: "platform",
+      id: "u1",
+      email: "user@example.com",
+      isStaff: false,
+      username: "jdoe",
+      firstName: "",
+      lastName: "",
+    };
+    expect(
+      renderToStaticMarkup(createElement(PreferencesMenu)),
+    ).toContain("jdoe");
+
+    // email fallback (no name, no username)
+    authRef.user = {
+      kind: "platform",
+      id: "u1",
+      email: "user@example.com",
+      isStaff: false,
+      username: null,
+      firstName: "",
+      lastName: "",
+    };
+    expect(
+      renderToStaticMarkup(createElement(PreferencesMenu)),
+    ).toContain("user@example.com");
+
+    // generic label (nothing identifying)
+    authRef.user = {
+      kind: "platform",
+      id: "u1",
+      email: null,
+      isStaff: false,
+      username: null,
+      firstName: "",
+      lastName: "",
+    };
+    expect(
+      renderToStaticMarkup(createElement(PreferencesMenu)),
+    ).toContain("Preferences");
   });
 
   test("desktop renders trigger (Popover surface)", () => {
     isMobileRef.value = false;
     const html = renderToStaticMarkup(createElement(PreferencesMenu));
-    expect(html).toContain("Preferences");
+    expect(html).toContain("user@example.com");
   });
 
   test("mobile renders trigger (BottomSheet surface)", () => {
     isMobileRef.value = true;
     const html = renderToStaticMarkup(createElement(PreferencesMenu));
-    expect(html).toContain("Preferences");
+    expect(html).toContain("user@example.com");
   });
 });
