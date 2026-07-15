@@ -12,6 +12,11 @@
  * collected through a secure prompt.
  */
 
+import {
+  ACP_SERVICE,
+  AcpCredentialFormatError,
+  assertAcpCredentialFormat,
+} from "../acp/acp-credentials.js";
 import { getConfig } from "../config/loader.js";
 import {
   setSlackChannelConfig,
@@ -113,6 +118,19 @@ export async function persistPromptedCredential(args: {
   policy: PromptedCredentialPolicy;
 }): Promise<PersistPromptedCredentialResult> {
   const { service, field, value, delivery, policy } = args;
+
+  // Reject an Anthropic API key pasted into the ACP OAuth-token field before any
+  // persistence, surfacing the guard message through the existing error channel.
+  if (service === ACP_SERVICE) {
+    try {
+      assertAcpCredentialFormat(field, value);
+    } catch (err) {
+      if (err instanceof AcpCredentialFormatError) {
+        return { outcome: "error", message: err.message };
+      }
+      throw err;
+    }
+  }
 
   if (delivery === "transient_send") {
     if (isSlackChannelCredential(service, field)) {
