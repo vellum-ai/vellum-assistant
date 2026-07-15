@@ -28,7 +28,7 @@
 
 import { getPlatformOrganizationId, getPlatformUserId } from "../config/env.js";
 import { VellumPlatformClient } from "../platform/client.js";
-import { getCachedShareAnalytics } from "../platform/consent-cache.js";
+import { getRawShareAnalytics } from "../platform/consent-cache.js";
 import { arePlatformFeaturesEnabled } from "../platform/feature-gate.js";
 import { getDeviceId } from "../util/device-id.js";
 import { getLogger } from "../util/logger.js";
@@ -286,7 +286,25 @@ export class UsageTelemetryReporter {
         return;
       }
 
-      // Respect opt-out: if the platform owner has not granted
+      // Tri-state consent gate: `true` ships, `false` purges, `"unknown"`
+      // defers.
+      const shareAnalytics = getRawShareAnalytics();
+
+      // `"unknown"` (boot before the first successful consent refresh, no
+      // platform session, no resolvable owner) is not an opt-out: nothing is
+      // sent, acked, discarded, or advanced — the same shape as the
+      // checkpoint-unavailable skip above. Purging here would silently
+      // destroy events recorded before the cache warmed up; instead the
+      // backlog ships (or is purged) on a later cycle once the 5-minute
+      // refresh loop resolves the cache to a confirmed value.
+      if (shareAnalytics === "unknown") {
+        log.debug(
+          "Telemetry flush: share_analytics consent unknown — skipping, will retry next cycle",
+        );
+        return;
+      }
+
+      // Respect a confirmed opt-out: if the platform owner declined
       // `share_analytics` consent, skip the flush and advance watermarks so
       // events recorded during the opt-out window are never sent
       // retroactively. The daemon runs the reporter even when opted out
@@ -302,7 +320,7 @@ export class UsageTelemetryReporter {
       // under builds predating the audit listener's write-time gate — new
       // opted-out tool_invocations rows persist NULL telemetry columns and
       // are unreportable by construction regardless of watermark timing.
-      if (!getCachedShareAnalytics()) {
+      if (shareAnalytics === false) {
         // Ack-mode sources drop their pending rows outright. Watermark-mode
         // sources advance the timestamp watermarks and pin the ID watermarks
         // to a sentinel that sorts above any real UUID. The sentinel (rather
