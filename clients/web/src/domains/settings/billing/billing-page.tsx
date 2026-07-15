@@ -150,7 +150,6 @@ function BillingTab() {
         <BillingPanel />
       </Suspense>
       <ReferralPanel />
-      <BillingUsagePanel />
       {showPlanManagement && (
         <BillingOnboardingModal open={hasSessionId} onClose={closeOnboarding} />
       )}
@@ -166,8 +165,29 @@ function BillingTab() {
 
 function UsagePanel() {
   const assistantId = useActiveAssistantId();
+  // The credit-usage chart reads the organization-scoped platform billing API,
+  // so it only makes sense for a platform-hosted assistant with the platform
+  // API reachable. This tab always renders (the daemon breakdown below works
+  // for every assistant), so gate the chart the same way the Billing tab gates
+  // its platform content: the platform-hosted-only gate must be "full", and the
+  // default reachability gate must not be "gated". The reachability gate is
+  // required because `platformHostedOnly` ignores VELLUM_DISABLE_PLATFORM — in
+  // local mode with the platform API disabled it can still report "full" even
+  // though `platformFeaturesGate` aborts the request, which the Billing tab
+  // already avoids by hiding itself for that same gated state.
+  // `useBillingUsageData` applies the same two-gate check to its fetches, so no
+  // billing request fires when the chart is hidden. The daemon breakdown table
+  // renders for every assistant regardless.
+  const chartGate = usePlatformGate({ platformHostedOnly: true });
+  const reachabilityGate = usePlatformGate();
+  const showChart = chartGate === "full" && reachabilityGate !== "gated";
 
-  return <UsageTab assistantId={assistantId} />;
+  return (
+    <div className="space-y-4">
+      {showChart && <BillingUsagePanel />}
+      <UsageTab assistantId={assistantId} />
+    </div>
+  );
 }
 
 export function BillingPage() {
