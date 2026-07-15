@@ -91,8 +91,6 @@ const SETTINGS_TAB_ID_ALIASES: Record<string, PanelId> = {
   privacy: "privacy",
   // Two-factor auth moved from the retired Security tab onto General.
   security: "assistant-status",
-  // Archive is an in-page tab on the Advanced page.
-  archive: "advanced",
   // Self-hosted assistant management has no settings page; land on General.
   devices: "assistant-status",
   "self-hosted assistants": "assistant-status",
@@ -109,6 +107,9 @@ const SETTINGS_TAB_ROUTE_ALIASES: Record<string, string> = {
   "keyboard shortcuts": `${routes.settings.general}?preferences=open`,
   // Sounds is an in-page tab on the Voice & Sounds page.
   sounds: `${routes.settings.voice}?tab=sounds`,
+  // Archive is an in-page tab on the Advanced page; the bare Advanced route
+  // opens General, so the archive alias carries the ?tab= param.
+  archive: `${routes.settings.advanced}?tab=archive`,
 };
 
 function normalizeSettingsTabName(tab: string): string {

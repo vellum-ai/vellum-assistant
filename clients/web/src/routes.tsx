@@ -38,6 +38,22 @@ function McpSettingsRedirect() {
   return <Navigate to={`${routes.settings.integrations}?tab=mcp`} replace />;
 }
 
+/**
+ * Forwards `/assistant/settings/debug` deep links to Settings → Advanced, which
+ * hosts the General, Terminal, and Doctor tabs. The query string is preserved
+ * so `?tab=terminal` and `?tab=doctor` land on the matching in-page tab.
+ */
+function DebugSettingsRedirect() {
+  const [searchParams] = useSearchParams();
+  const qs = searchParams.toString();
+  return (
+    <Navigate
+      to={`${routes.settings.advanced}${qs ? `?${qs}` : ""}`}
+      replace
+    />
+  );
+}
+
 export function getRouterBasename(): string | undefined {
   if (!isRemoteGatewayMode()) {return undefined;}
   return remoteGatewayPublicPathPrefix() || undefined;
@@ -280,6 +296,7 @@ export const routeTree = [
                 { path: "billing/upgrade/success", lazy: { Component: () => import("@/domains/settings/billing/upgrade-success-page").then((m) => m.UpgradeSuccessPage) } },
                 { path: "community", lazy: { Component: () => import("@/domains/settings/pages/community-page").then((m) => m.CommunityPage) } },
                 { path: "mcp", Component: McpSettingsRedirect },
+                { path: "debug", Component: DebugSettingsRedirect },
                 { path: "developer", lazy: { Component: () => import("@/domains/settings/pages/developer-page").then((m) => m.DeveloperPage) } },
                 { path: "advanced", lazy: { Component: () => import("@/domains/settings/pages/advanced-page").then((m) => m.AdvancedPage) } },
                 { path: "danger-zone", lazy: { Component: () => import("@/domains/settings/pages/danger-zone-redirect-page").then((m) => m.DangerZoneRedirectPage) } },

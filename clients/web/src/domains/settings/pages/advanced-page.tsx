@@ -63,8 +63,16 @@ export function AdvancedPage() {
   };
 
   return (
-    <div className="space-y-6">
-      <Tabs.Root value={activeTab} onValueChange={handleTabChange}>
+    // The Terminal and Doctor panels rely on a `flex min-h-0 flex-1 flex-col`
+    // ancestor chain to size their console/messages area; the settings `<main>`
+    // is a bounded-height flex column, so the page root and Tabs.Root extend
+    // that chain. General and Archive keep block flow (`pt-4`) and scroll.
+    <div className="flex min-h-0 flex-1 flex-col">
+      <Tabs.Root
+        value={activeTab}
+        onValueChange={handleTabChange}
+        className="flex min-h-0 flex-1 flex-col"
+      >
         <Tabs.List>
           {tabs.map((tab) => (
             <Tabs.Trigger key={tab.id} value={tab.id}>
@@ -76,12 +84,18 @@ export function AdvancedPage() {
           <DebugControlsPanel />
         </Tabs.Panel>
         {tabs.some((tab) => tab.id === "terminal") && (
-          <Tabs.Panel value="terminal" className="pt-4">
+          <Tabs.Panel
+            value="terminal"
+            className="flex min-h-0 flex-1 flex-col pt-4"
+          >
             <AssistantTerminalPanel />
           </Tabs.Panel>
         )}
         {tabs.some((tab) => tab.id === "doctor") && (
-          <Tabs.Panel value="doctor" className="pt-4">
+          <Tabs.Panel
+            value="doctor"
+            className="flex min-h-0 flex-1 flex-col pt-4"
+          >
             <DoctorPanel />
           </Tabs.Panel>
         )}
