@@ -835,6 +835,8 @@ export const MODELS_BY_PROVIDER = {
       supportsThinking: true,
     },
   ],
+  litellm: [
+  ],
   "openai-compatible": [
   ],
 } as const satisfies Record<string, readonly LlmCatalogModel[]>;
@@ -852,6 +854,7 @@ export const DEFAULT_MODEL_BY_PROVIDER: Record<LlmProviderId, string> = {
   "vercel-ai-gateway": "anthropic/claude-sonnet-4.6",
   minimax: "MiniMax-M2.7",
   atlascloud: "deepseek-ai/deepseek-v4-pro",
+  litellm: "",
   "openai-compatible": "",
 };
 
@@ -872,6 +875,7 @@ export const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
   "openai-compatible": "OpenAI-compatible",
   minimax: "MiniMax",
   atlascloud: "Atlas Cloud",
+  litellm: "LiteLLM",
 };
 
 /**
@@ -893,6 +897,7 @@ export const PROVIDER_SUPPORTS_PLATFORM_AUTH: Record<string, boolean> = {
   "openai-compatible": false,
   minimax: false,
   atlascloud: false,
+  litellm: false,
 };
 
 export const MANAGED_MODELS = MODELS_BY_PROVIDER.anthropic;

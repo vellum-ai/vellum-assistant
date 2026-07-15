@@ -1867,6 +1867,25 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
     apiKeyPlaceholder: "vck_...",
   },
   {
+    id: "litellm",
+    displayName: "LiteLLM",
+    subtitle:
+      "AI gateway proxy for 100+ LLM providers (OpenAI, Anthropic, Azure, Bedrock, Vertex, etc.).",
+    setupMode: "api-key",
+    setupHint:
+      "Enter your LiteLLM proxy base URL and API key. Models are auto-discovered from the proxy.",
+    envVar: "LITELLM_API_KEY",
+    credentialsGuide: {
+      description:
+        "Set up a LiteLLM proxy, then use the master key or a virtual key.",
+      url: "https://docs.litellm.ai/docs/proxy/quick_start",
+      linkLabel: "LiteLLM Proxy Quick Start",
+    },
+    apiKeyPlaceholder: "sk-...",
+    models: [],
+    defaultModel: "",
+  },
+  {
     id: "openai-compatible",
     displayName: "OpenAI-compatible",
     subtitle:

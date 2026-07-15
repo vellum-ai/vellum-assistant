@@ -1909,6 +1909,23 @@
       ]
     },
     {
+      "id": "litellm",
+      "displayName": "LiteLLM",
+      "subtitle": "AI gateway proxy for 100+ LLM providers (OpenAI, Anthropic, Azure, Bedrock, Vertex, etc.).",
+      "setupMode": "api-key",
+      "setupHint": "Enter your LiteLLM proxy base URL and API key. Models are auto-discovered from the proxy.",
+      "envVar": "LITELLM_API_KEY",
+      "apiKeyPlaceholder": "sk-...",
+      "credentialsGuide": {
+        "description": "Set up a LiteLLM proxy, then use the master key or a virtual key.",
+        "url": "https://docs.litellm.ai/docs/proxy/quick_start",
+        "linkLabel": "LiteLLM Proxy Quick Start"
+      },
+      "supportsPlatformAuth": false,
+      "defaultModel": "",
+      "models": []
+    },
+    {
       "id": "openai-compatible",
       "displayName": "OpenAI-compatible",
       "subtitle": "Bring your own OpenAI-compatible endpoint (vLLM, LMStudio, Groq, Together, etc.).",
