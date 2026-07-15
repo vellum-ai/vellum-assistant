@@ -66,6 +66,12 @@ export interface AcpSessionUsage {
   costCurrency?: string;
   inputTokens?: number;
   outputTokens?: number;
+  /** Model the adapter reported for the session, if known. */
+  model?: string;
+  /** Cumulative cache-read tokens, when the adapter reports them. */
+  cacheReadTokens?: number;
+  /** Cumulative cache-write tokens, when the adapter reports them. */
+  cacheWriteTokens?: number;
 }
 
 // --- Domain-level union alias (consumed by message-protocol.ts) ---
