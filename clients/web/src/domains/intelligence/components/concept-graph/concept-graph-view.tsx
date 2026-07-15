@@ -276,6 +276,22 @@ export function ConceptGraphView({
     setRecency("all");
   }, [assistantId]);
 
+  // Edge-kind filter: toggle authored (link) vs behavioral (learned) edges to
+  // declutter. The active flags live in a ref the 60fps loop reads (so a toggle
+  // click doesn't re-run the render effect), and `dirty` is bumped whenever they
+  // change so reduced-motion redraws. Only surfaced when both kinds are present.
+  const [edgeFilter, setEdgeFilter] = useState({ link: true, learned: true });
+  const edgeFilterRef = useRef(edgeFilter);
+  useEffect(() => {
+    edgeFilterRef.current = edgeFilter;
+    view.current.dirty = true;
+  }, [edgeFilter]);
+  // Reset on assistant switch (mirrors the search/recency resets), so a hidden
+  // kind doesn't carry over and blank out edges on the new assistant's graph.
+  useEffect(() => {
+    setEdgeFilter({ link: true, learned: true });
+  }, [assistantId]);
+
   const labelFor = useCallback(
     (id: string | null): string | null => {
       if (!id) {return null;}
@@ -394,6 +410,9 @@ export function ConceptGraphView({
         recencyWindowMs != null &&
         (!n.updatedAtMs || nowMs - n.updatedAtMs > recencyWindowMs);
 
+      // Edge-kind toggle: a hidden kind is skipped entirely below.
+      const edgeKinds = edgeFilterRef.current;
+
       // Density fog: fade the resting learned-edge web as the corpus grows.
       const learnedFog =
         nodes.length <= FOG_FULL_BELOW
@@ -446,6 +465,11 @@ export function ConceptGraphView({
         const b = posById.get(e.toId);
         if (!a || !b) {continue;}
         const learned = e.kind === "learned";
+        // A hidden kind is neither drawn nor collected for edge-hover, so the
+        // hit-test stays consistent with what's on screen.
+        if (learned ? !edgeKinds.learned : !edgeKinds.link) {
+          continue;
+        }
         // An edge ghosts if either endpoint is ghosted by search or recency.
         const ghost =
           (searchActive && (!isMatch(e.fromId) || !isMatch(e.toId))) ||
@@ -871,6 +895,16 @@ export function ConceptGraphView({
           coloredByTheme={presentKinds.includes("concept")}
           hasLinks={hasLinks}
           hasLearned={hasLearned}
+          {...(hasLinks && hasLearned
+            ? {
+                onToggleLink: () =>
+                  setEdgeFilter((f) => ({ ...f, link: !f.link })),
+                onToggleLearned: () =>
+                  setEdgeFilter((f) => ({ ...f, learned: !f.learned })),
+                linkActive: edgeFilter.link,
+                learnedActive: edgeFilter.learned,
+              }
+            : {})}
         />
 
         {/* One pill for both hovers. Node hover and edge hover are mutually
