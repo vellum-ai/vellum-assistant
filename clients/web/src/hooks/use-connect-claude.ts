@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { openUrl } from "@/runtime/browser";
+import { openUrl, openUrlInNewTab } from "@/runtime/browser";
 import {
   exchangeConnectClaude,
   pollConnectClaudeStatus,
@@ -128,15 +128,23 @@ export function useConnectClaude(assistantId: string): UseConnectClaudeResult {
 
     stateRef.current = start.state;
     setMode(start.mode);
-    await openUrl(start.authorize_url);
-    if (isStale(flowId)) {
-      return;
-    }
 
     if (start.mode === "loopback") {
+      // Loopback/desktop: the daemon captures the token on its own callback, so
+      // a same-tab open is fine.
+      await openUrl(start.authorize_url);
+      if (isStale(flowId)) {
+        return;
+      }
       setPhase("awaiting_capture");
       void pollUntilSettled(flowId, start.state);
     } else {
+      // Manual/cloud: open a new tab so this page — and the pending `state` plus
+      // paste field — survives; same-tab navigation would unload it.
+      await openUrlInNewTab(start.authorize_url);
+      if (isStale(flowId)) {
+        return;
+      }
       setPhase("awaiting_paste");
     }
   }, [assistantId, isStale, pollUntilSettled]);
