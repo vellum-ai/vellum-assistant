@@ -377,6 +377,10 @@ export function registerCredentialsCommand(program: Command): void {
               field: opts.field,
               id,
               ...(opts.forChat ? { forChat: true } : {}),
+              // Conversation-bound authority scope for the daemon's chat
+              // redaction seams (set by the shell tools; absent outside a
+              // conversation's tool shell, where no authority should exist).
+              revealNonce: process.env.__REVEAL_NONCE,
             },
           });
 

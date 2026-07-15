@@ -68,6 +68,7 @@ import {
   currentForChatMintWatermark,
   forChatMintsSince,
 } from "../runtime/for-chat-mint-registry.js";
+import { conversationRevealNonce } from "../runtime/reveal-nonce.js";
 import {
   closeRevealProofWindow,
   currentRevealSuccessWatermark,
@@ -111,6 +112,7 @@ import {
   resolveProvenRevealCandidates,
   resolveRefIdentities,
   resolveRevealCandidates,
+  type SentinelRemintAuthority,
 } from "./chat-credential-redaction.js";
 import type { Conversation } from "./conversation.js";
 import type { AssistantSurface } from "./conversation-agent-loop.js";
@@ -447,7 +449,7 @@ export interface EventHandlerState {
    * the live guard can consult them synchronously. Combined at each guard
    * site with the `--for-chat` mints the reveal route recorded this run.
    */
-  candidateRemintAuthorities: readonly ForChatMint[];
+  candidateRemintAuthorities: readonly SentinelRemintAuthority[];
   /**
    * `--for-chat` mint-registry watermark captured when this run's state
    * was created. `turnForChatMints` returns only mints the reveal route
@@ -715,12 +717,18 @@ async function awaitLiveRevealGuardReady(
  * registry is already current — no priming race like the async candidate
  * fetch has.
  */
-function turnForChatMints(state: EventHandlerState): ForChatMint[] {
+function turnForChatMints(
+  state: EventHandlerState,
+  deps: EventHandlerDeps,
+): ForChatMint[] {
   if (state.stagedRevealIdentities.size === 0) {
     return [];
   }
-  return forChatMintsSince(state.forChatMintWatermark).filter((mint) =>
-    state.stagedRevealIdentities.has(credentialKey(mint.service, mint.field)),
+  const nonce = conversationRevealNonce(deps.ctx.conversationId);
+  return forChatMintsSince(state.forChatMintWatermark).filter(
+    (mint) =>
+      mint.nonce === nonce &&
+      state.stagedRevealIdentities.has(credentialKey(mint.service, mint.field)),
   );
 }
 
@@ -729,8 +737,14 @@ function turnForChatMints(state: EventHandlerState): ForChatMint[] {
  * route-recorded `--for-chat` mints plus the candidate-derived authorities
  * primed behind the dispatcher barrier alongside the swap entries.
  */
-function liveRemintAuthorities(state: EventHandlerState): ForChatMint[] {
-  return [...turnForChatMints(state), ...state.candidateRemintAuthorities];
+function liveRemintAuthorities(
+  state: EventHandlerState,
+  deps: EventHandlerDeps,
+): SentinelRemintAuthority[] {
+  return [
+    ...turnForChatMints(state, deps),
+    ...state.candidateRemintAuthorities,
+  ];
 }
 
 /**
@@ -741,10 +755,11 @@ function liveRemintAuthorities(state: EventHandlerState): ForChatMint[] {
  */
 function persistRemintAuthorities(
   state: EventHandlerState,
+  deps: EventHandlerDeps,
   candidates: readonly ResolvedRevealCandidate[] | undefined,
-): ForChatMint[] {
+): SentinelRemintAuthority[] {
   return [
-    ...turnForChatMints(state),
+    ...turnForChatMints(state, deps),
     ...(candidates !== undefined && candidates.length > 0
       ? remintAuthoritiesFromCandidates(candidates)
       : []),
@@ -768,7 +783,7 @@ export function buildPersistedAssistantContent(
   activityByToolUseId?: ReadonlyMap<string, ToolActivityMetadata>,
   revealCandidates?: readonly ResolvedRevealCandidate[],
   legacyFallbackCandidates: readonly ResolvedRevealCandidate[] = [],
-  forChatMints: readonly ForChatMint[] = [],
+  forChatMints: readonly SentinelRemintAuthority[] = [],
 ): ContentBlock[] {
   const { cleanedContent } = cleanAssistantContent(rawBlocks);
   const cleaned = cleanedContent as ContentBlock[];
@@ -1018,7 +1033,7 @@ async function flushAccumulatedContent(
     state.toolActivityMetadata,
     revealCandidates,
     await resolvedRevealCandidatesForState(state),
-    persistRemintAuthorities(state, revealCandidates),
+    persistRemintAuthorities(state, deps, revealCandidates),
   );
   // Pair the seq with the exact content snapshot taken above: deltas that
   // arrive while the write is in flight bump `lastPersistedContentSeq`
@@ -1321,7 +1336,7 @@ function handleTextDelta(
     const guarded = drainSentinelGuardedText(
       state.pendingSentinelGuardBuffer + drained.emitText,
       state.liveRevealGuardEntries,
-      liveRemintAuthorities(state),
+      liveRemintAuthorities(state, deps),
     );
     state.pendingSentinelGuardBuffer = guarded.bufferedRemainder;
     if (guarded.emitText.length > 0) {
@@ -1608,7 +1623,11 @@ function handleToolOutputChunk(
       ? state.revealCandidateRefs
       : [
           ...state.revealCandidateRefs,
-          ...filterRefsByRevealProof(staged.refs, staged.watermark),
+          ...filterRefsByRevealProof(
+            staged.refs,
+            staged.watermark,
+            conversationRevealNonce(deps.ctx.conversationId),
+          ),
         ];
   if (guardRefs.length > 0) {
     const candidates = resolveProvenRevealCandidates(guardRefs);
@@ -1929,6 +1948,7 @@ export async function handleToolResult(
     const provenRefs = filterRefsByRevealProof(
       stagedReveal.refs,
       stagedReveal.watermark,
+      conversationRevealNonce(deps.ctx.conversationId),
     );
     // The proof is consumed (proven values now ride the refs), so this
     // staging no longer needs the registry to record.
@@ -2610,7 +2630,7 @@ export async function handleMessageComplete(
       text: neutralizeAndSwapLiveRevealValues(
         trailingLiveText,
         state.liveRevealGuardEntries,
-        liveRemintAuthorities(state),
+        liveRemintAuthorities(state, deps),
       ),
       conversationId: deps.ctx.conversationId,
       messageId: state.lastAssistantMessageId,
@@ -2683,7 +2703,7 @@ export async function handleMessageComplete(
       state.toolActivityMetadata,
       finalRevealCandidates,
       await resolvedRevealCandidatesForState(state),
-      persistRemintAuthorities(state, finalRevealCandidates),
+      persistRemintAuthorities(state, deps, finalRevealCandidates),
     ),
     state.currentThinkingTimestamps,
   );

@@ -9572,6 +9572,12 @@ paths:
                     Return the credential's redaction sentinel (renders as a click-to-reveal chip in chat) instead of the
                     plaintext. Requires the chat-credential-reveal feature flag.
                   type: boolean
+                revealNonce:
+                  description:
+                    Conversation-bound reveal nonce from the tool-shell environment. Scopes any recorded chat-redaction
+                    authority (plaintext proof or forChat mint) to the conversation whose tool executed this reveal;
+                    without it the reveal succeeds but records no authority.
+                  type: string
       responses:
         "200":
           description: Successful response

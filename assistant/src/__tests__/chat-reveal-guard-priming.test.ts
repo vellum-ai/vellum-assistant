@@ -95,6 +95,10 @@ import {
   resetForChatMintRegistryForTest,
 } from "../runtime/for-chat-mint-registry.js";
 import {
+  _resetRevealNoncesForTest,
+  conversationRevealNonce,
+} from "../runtime/reveal-nonce.js";
+import {
   _resetRevealSuccessRegistryForTest,
   recordRevealSuccess,
 } from "../runtime/reveal-success-registry.js";
@@ -172,6 +176,7 @@ beforeEach(() => {
   _resetStreamStateForTesting();
   _resetRevealSuccessRegistryForTest();
   resetForChatMintRegistryForTest();
+  _resetRevealNoncesForTest();
   pendingStoreReads.length = 0;
 });
 
@@ -192,7 +197,12 @@ describe("live reveal guard priming barrier", () => {
     // dispatched in the same tick — priming settles on a microtask, so the
     // barrier must hold the delta until then. The proven value means no store
     // read happens: redaction uses the route-served bytes directly.
-    recordRevealSuccess("openai", "api_key", SYNTHETIC_OPENAI_PROJECT_KEY);
+    recordRevealSuccess(
+      "openai",
+      "api_key",
+      SYNTHETIC_OPENAI_PROJECT_KEY,
+      conversationRevealNonce("test-conversation"),
+    );
     const resultDispatch = dispatchAgentEvent(state, deps, REVEAL_TOOL_RESULT);
     const delta = dispatchAgentEvent(state, deps, {
       type: "text_delta",
@@ -218,7 +228,12 @@ describe("live reveal guard priming barrier", () => {
     const deps = createMockDeps(events);
 
     await dispatchAgentEvent(state, deps, REVEAL_TOOL_USE);
-    recordRevealSuccess("openai", "api_key", SYNTHETIC_OPENAI_PROJECT_KEY);
+    recordRevealSuccess(
+      "openai",
+      "api_key",
+      SYNTHETIC_OPENAI_PROJECT_KEY,
+      conversationRevealNonce("test-conversation"),
+    );
     // Await the result dispatch fully (promotion + priming settle), then the
     // echo delta — the steady-state ordering. The sentinel must still appear.
     await dispatchAgentEvent(state, deps, REVEAL_TOOL_RESULT);
@@ -282,7 +297,12 @@ describe("live reveal guard priming barrier", () => {
     const deps = createMockDeps([]);
 
     await dispatchAgentEvent(state, deps, REVEAL_TOOL_USE);
-    recordRevealSuccess("linear", "api_key", "sk-linear-other");
+    recordRevealSuccess(
+      "linear",
+      "api_key",
+      "sk-linear-other",
+      conversationRevealNonce("test-conversation"),
+    );
     await dispatchAgentEvent(state, deps, REVEAL_TOOL_RESULT);
     expect(pendingStoreReads.length).toBe(0);
   });
@@ -297,7 +317,12 @@ describe("live reveal guard priming barrier", () => {
     // guard entry is protective here — the plaintext can still be echoed,
     // and the reveal's own stdout is redacted on the live tool_result.
     await dispatchAgentEvent(state, deps, REVEAL_TOOL_USE);
-    recordRevealSuccess("openai", "api_key", SYNTHETIC_OPENAI_PROJECT_KEY);
+    recordRevealSuccess(
+      "openai",
+      "api_key",
+      SYNTHETIC_OPENAI_PROJECT_KEY,
+      conversationRevealNonce("test-conversation"),
+    );
     await dispatchAgentEvent(state, deps, {
       type: "tool_result",
       toolUseId: "toolu_reveal",
@@ -339,8 +364,18 @@ describe("live reveal guard priming barrier", () => {
     // become a candidate — keeping only the latest would stream the earlier
     // value raw on a later echo.
     await dispatchAgentEvent(state, deps, REVEAL_TOOL_USE);
-    recordRevealSuccess("openai", "api_key", "hunter2-rotated-alpha");
-    recordRevealSuccess("openai", "api_key", "hunter2-rotated-beta");
+    recordRevealSuccess(
+      "openai",
+      "api_key",
+      "hunter2-rotated-alpha",
+      conversationRevealNonce("test-conversation"),
+    );
+    recordRevealSuccess(
+      "openai",
+      "api_key",
+      "hunter2-rotated-beta",
+      conversationRevealNonce("test-conversation"),
+    );
     await dispatchAgentEvent(state, deps, REVEAL_TOOL_RESULT);
     expect(pendingStoreReads.length).toBe(0);
 
@@ -368,7 +403,12 @@ describe("reveal stdout redaction on the live tool_result", () => {
     // Without redaction here the live tool card would show it raw until a
     // history refetch; the emitted tool_result must already hide it.
     await dispatchAgentEvent(state, deps, REVEAL_TOOL_USE);
-    recordRevealSuccess("openai", "api_key", SYNTHETIC_OPAQUE_CREDENTIAL);
+    recordRevealSuccess(
+      "openai",
+      "api_key",
+      SYNTHETIC_OPAQUE_CREDENTIAL,
+      conversationRevealNonce("test-conversation"),
+    );
     await dispatchAgentEvent(state, deps, {
       type: "tool_result",
       toolUseId: "toolu_reveal",
@@ -394,7 +434,12 @@ describe("reveal stdout redaction on the live tool_result", () => {
     // value overlapping the marker's own text would corrupt the persisted
     // marker on the second pass.
     await dispatchAgentEvent(state, deps, REVEAL_TOOL_USE);
-    recordRevealSuccess("openai", "api_key", SYNTHETIC_OPAQUE_CREDENTIAL);
+    recordRevealSuccess(
+      "openai",
+      "api_key",
+      SYNTHETIC_OPAQUE_CREDENTIAL,
+      conversationRevealNonce("test-conversation"),
+    );
     await dispatchAgentEvent(state, deps, {
       type: "tool_result",
       toolUseId: "toolu_reveal",
@@ -452,7 +497,12 @@ describe("live tool output chunk redaction", () => {
     // the drawer renders it live. The route recorded its success before the
     // CLI could print, so the guard has the proven value synchronously.
     await dispatchAgentEvent(state, deps, REVEAL_TOOL_USE);
-    recordRevealSuccess("openai", "api_key", SYNTHETIC_OPAQUE_CREDENTIAL);
+    recordRevealSuccess(
+      "openai",
+      "api_key",
+      SYNTHETIC_OPAQUE_CREDENTIAL,
+      conversationRevealNonce("test-conversation"),
+    );
     await dispatchAgentEvent(state, deps, {
       type: "tool_output_chunk",
       toolUseId: "toolu_reveal",
@@ -472,7 +522,12 @@ describe("live tool output chunk redaction", () => {
     const deps = createMockDeps(events);
 
     await dispatchAgentEvent(state, deps, REVEAL_TOOL_USE);
-    recordRevealSuccess("openai", "api_key", SYNTHETIC_OPAQUE_CREDENTIAL);
+    recordRevealSuccess(
+      "openai",
+      "api_key",
+      SYNTHETIC_OPAQUE_CREDENTIAL,
+      conversationRevealNonce("test-conversation"),
+    );
     const head = SYNTHETIC_OPAQUE_CREDENTIAL.slice(0, 8);
     const tail = SYNTHETIC_OPAQUE_CREDENTIAL.slice(8);
     await dispatchAgentEvent(state, deps, {
@@ -499,7 +554,12 @@ describe("live tool output chunk redaction", () => {
     const deps = createMockDeps(events);
 
     await dispatchAgentEvent(state, deps, REVEAL_TOOL_USE);
-    recordRevealSuccess("openai", "api_key", SYNTHETIC_OPAQUE_CREDENTIAL);
+    recordRevealSuccess(
+      "openai",
+      "api_key",
+      SYNTHETIC_OPAQUE_CREDENTIAL,
+      conversationRevealNonce("test-conversation"),
+    );
     // The stream ends mid-value: the tail is held when the result arrives.
     const head = SYNTHETIC_OPAQUE_CREDENTIAL.slice(0, 8);
     await dispatchAgentEvent(state, deps, {
@@ -554,7 +614,12 @@ describe("live tool output chunk redaction", () => {
 
     // Tool 1: the reveal, promoted at its result.
     await dispatchAgentEvent(state, deps, REVEAL_TOOL_USE);
-    recordRevealSuccess("openai", "api_key", SYNTHETIC_OPAQUE_CREDENTIAL);
+    recordRevealSuccess(
+      "openai",
+      "api_key",
+      SYNTHETIC_OPAQUE_CREDENTIAL,
+      conversationRevealNonce("test-conversation"),
+    );
     await dispatchAgentEvent(state, deps, REVEAL_TOOL_RESULT);
     // Tool 2: `echo <value>` — no reveal staged, but the promoted turn
     // candidates must still guard its live stdout.
@@ -603,11 +668,13 @@ describe("for-chat re-mint authority (two legs: staged AND executed)", () => {
 
     await dispatchAgentEvent(state, deps, FOR_CHAT_TOOL_USE);
     // The route records the mint while the tool executes (no plaintext
-    // proof — the for-chat channel never returns the secret).
+    // proof — the for-chat channel never returns the secret), stamped with
+    // the nonce this conversation's tool shell forwarded.
     recordForChatMint({
       service: "openai",
       field: "api_key",
       sentinel: FOR_CHAT_SENTINEL,
+      nonce: conversationRevealNonce("test-conversation"),
     });
     await dispatchAgentEvent(state, deps, FOR_CHAT_TOOL_RESULT);
 
@@ -620,12 +687,36 @@ describe("for-chat re-mint authority (two legs: staged AND executed)", () => {
     expect(streamedText(events)).not.toContain("\u2060");
   });
 
-  test("a mint alone — identity never staged by this run — neutralizes (env-override redirect grants nothing)", async () => {
-    // Simulates the redirect attack: another conversation's shell command
-    // overrode the CLI env so ITS executed reveal recorded a mint while
-    // this run never staged the identity. The mint passes the watermark
-    // check but fails the staging leg, so the echoed sentinel neutralizes
-    // like any forgery.
+  test("a concurrent turn's mint — staged here via a quote, executed elsewhere — neutralizes", async () => {
+    // The concurrent-turn attack: this run STAGES the identity (a quoted
+    // reveal command parses identically to a real one) while an
+    // overlapping conversation executes a real `--for-chat` reveal for the
+    // same identity. That mint passes the watermark and staging checks but
+    // carries the OTHER conversation's nonce, so it grants nothing here
+    // and the echoed sentinel neutralizes like any forgery.
+    const events: ServerMessage[] = [];
+    const state = createEventHandlerState();
+    const deps = createMockDeps(events);
+
+    await dispatchAgentEvent(state, deps, FOR_CHAT_TOOL_USE);
+    recordForChatMint({
+      service: "openai",
+      field: "api_key",
+      sentinel: FOR_CHAT_SENTINEL,
+      nonce: conversationRevealNonce("some-other-conversation"),
+    });
+    await dispatchAgentEvent(state, deps, FOR_CHAT_TOOL_RESULT);
+
+    await dispatchAgentEvent(state, deps, {
+      type: "text_delta",
+      text: `forged: ${FOR_CHAT_SENTINEL}!`,
+    } as Extract<AgentEvent, { type: "text_delta" }>);
+
+    expect(streamedText(events)).not.toContain(FOR_CHAT_SENTINEL);
+    expect(streamedText(events)).toContain("\u3014\u2060redacted:");
+  });
+
+  test("a mint alone — identity never staged by this run — neutralizes", async () => {
     const events: ServerMessage[] = [];
     const state = createEventHandlerState();
     const deps = createMockDeps(events);
@@ -634,6 +725,7 @@ describe("for-chat re-mint authority (two legs: staged AND executed)", () => {
       service: "openai",
       field: "api_key",
       sentinel: FOR_CHAT_SENTINEL,
+      nonce: conversationRevealNonce("test-conversation"),
     });
 
     await dispatchAgentEvent(state, deps, {

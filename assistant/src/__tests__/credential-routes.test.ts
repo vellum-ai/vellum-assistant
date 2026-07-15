@@ -173,17 +173,21 @@ describe("credentials routes", () => {
       openRevealProofWindow();
       const watermark = currentRevealSuccessWatermark();
 
-      // WHEN revealed by the local principal
+      // WHEN revealed by the local principal with its tool-shell nonce
       const result = (await revealRoute!.handler({
-        body: { service: "vercel", field: "api_token" },
+        body: {
+          service: "vercel",
+          field: "api_token",
+          revealNonce: "nonce-A",
+        },
         headers: { "x-vellum-principal-type": "local" },
       })) as { value: string };
 
       // THEN the value is returned and the proof is recorded
       expect(result.value).toBe(SECRET_VALUE);
-      expect(revealedValueSince(watermark, "vercel", "api_token")).toBe(
-        SECRET_VALUE,
-      );
+      expect(
+        revealedValueSince(watermark, "vercel", "api_token", "nonce-A"),
+      ).toBe(SECRET_VALUE);
     });
 
     test("a web/gateway reveal returns the value but records no proof", async () => {
@@ -199,14 +203,18 @@ describe("credentials routes", () => {
 
       for (const principal of ["user", "svc_gateway"]) {
         const result = (await revealRoute!.handler({
-          body: { service: "vercel", field: "api_token" },
+          body: {
+            service: "vercel",
+            field: "api_token",
+            revealNonce: "nonce-A",
+          },
           headers: { "x-vellum-principal-type": principal },
         })) as { value: string };
         expect(result.value).toBe(SECRET_VALUE);
       }
 
       expect(
-        revealedValueSince(watermark, "vercel", "api_token"),
+        revealedValueSince(watermark, "vercel", "api_token", "nonce-A"),
       ).toBeUndefined();
     });
 
@@ -222,7 +230,11 @@ describe("credentials routes", () => {
       const watermark = currentRevealSuccessWatermark();
 
       const result = (await revealRoute!.handler({
-        body: { service: "vercel", field: "api_token" },
+        body: {
+          service: "vercel",
+          field: "api_token",
+          revealNonce: "nonce-A",
+        },
         headers: {
           "x-vellum-principal-type": "local",
           "x-vellum-proxy-server": "ipc",
@@ -231,7 +243,7 @@ describe("credentials routes", () => {
 
       expect(result.value).toBe(SECRET_VALUE);
       expect(
-        revealedValueSince(watermark, "vercel", "api_token"),
+        revealedValueSince(watermark, "vercel", "api_token", "nonce-A"),
       ).toBeUndefined();
     });
 
@@ -251,7 +263,7 @@ describe("credentials routes", () => {
 
       expect(result.value).toBe(SECRET_VALUE);
       expect(
-        revealedValueSince(watermark, "vercel", "api_token"),
+        revealedValueSince(watermark, "vercel", "api_token", "nonce-A"),
       ).toBeUndefined();
     });
 
@@ -266,7 +278,7 @@ describe("credentials routes", () => {
 
       expect(result.value).toBe(SECRET_VALUE);
       expect(
-        revealedValueSince(watermark, "vercel", "api_token"),
+        revealedValueSince(watermark, "vercel", "api_token", "nonce-A"),
       ).toBeUndefined();
     });
   });
@@ -289,7 +301,12 @@ describe("credentials routes", () => {
       const watermark = currentRevealSuccessWatermark();
 
       const result = (await revealRoute!.handler({
-        body: { service: "vercel", field: "api_token", forChat: true },
+        body: {
+          service: "vercel",
+          field: "api_token",
+          forChat: true,
+          revealNonce: "nonce-A",
+        },
         headers: { "x-vellum-principal-type": "local" },
       })) as { value: string };
 
@@ -302,12 +319,13 @@ describe("credentials routes", () => {
           service: "vercel",
           field: "api_token",
           sentinel: result.value,
+          nonce: "nonce-A",
         },
       ]);
       // The channel never returns plaintext to the tool, so the plaintext
       // proof registry must not retain the secret for it.
       expect(
-        revealedValueSince(watermark, "vercel", "api_token"),
+        revealedValueSince(watermark, "vercel", "api_token", "nonce-A"),
       ).toBeUndefined();
     });
 
@@ -316,7 +334,12 @@ describe("credentials routes", () => {
       secureStore.set("vercel:api_token", SECRET_VALUE);
 
       const result = (await revealRoute!.handler({
-        body: { service: "vercel", field: "api_token", forChat: true },
+        body: {
+          service: "vercel",
+          field: "api_token",
+          forChat: true,
+          revealNonce: "nonce-A",
+        },
         headers: {
           "x-vellum-principal-type": "local",
           "x-vellum-proxy-server": "ipc",
@@ -324,6 +347,30 @@ describe("credentials routes", () => {
       })) as { value: string };
 
       expect(result.value).toContain("\u3014redacted:");
+      expect(forChatMintsSince(0)).toEqual([]);
+    });
+
+    test("a direct local reveal WITHOUT a nonce records no authority at all", async () => {
+      // Direct terminal use (outside any conversation's tool shell) has no
+      // nonce to forward. The reveal works, but neither registry records —
+      // there is no conversation whose transcript could spend the record.
+      chatCredentialRevealFlag = true;
+      secureStore.set("vercel:api_token", SECRET_VALUE);
+      openRevealProofWindow();
+      const watermark = currentRevealSuccessWatermark();
+
+      await revealRoute!.handler({
+        body: { service: "vercel", field: "api_token" },
+        headers: { "x-vellum-principal-type": "local" },
+      });
+      await revealRoute!.handler({
+        body: { service: "vercel", field: "api_token", forChat: true },
+        headers: { "x-vellum-principal-type": "local" },
+      });
+
+      expect(
+        revealedValueSince(watermark, "vercel", "api_token", "nonce-A"),
+      ).toBeUndefined();
       expect(forChatMintsSince(0)).toEqual([]);
     });
 

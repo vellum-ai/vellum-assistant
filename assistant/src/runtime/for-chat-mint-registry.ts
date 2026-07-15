@@ -20,19 +20,21 @@
  * and a tampered type label can't survive because the replacement is the
  * daemon's own original mint.
  *
- * Scope: records are deliberately NOT tagged with a conversation id. Any
- * conversation identity available to the route (a body field, a CLI env
- * forward like `__CONVERSATION_ID`) is caller-controlled — a shell command
- * can override the env for its `assistant` subprocess and redirect the mint
- * to a conversation that never ran the reveal. Conversation scoping is
- * instead enforced by the CONSUMER from trusted daemon-side context: the
- * agent loop only accepts a mint whose identity its own run STAGED from the
- * actual `tool_use` command it dispatched (see `turnForChatMints` in
- * `conversation-agent-loop-handlers.ts`), so one conversation's executed
- * reveal can never authorize another that merely names the identity.
- * `credentials reveal` is a high-risk, approval-gated command; both legs —
- * this registry (executed) and the run's own staging (requested here) —
- * must agree before a span re-mints.
+ * Scope: records are bound to the executing conversation by the reveal
+ * NONCE (see `reveal-nonce.ts`) — a daemon-held secret the shell tools
+ * export to the tool subprocess and the CLI forwards with the reveal. A
+ * predictable identifier (a conversation id in a body field or env var)
+ * would not do: the command under execution can override its subprocess
+ * env and redirect the mint to any conversation it can name, and staging
+ * alone cannot disambiguate CONCURRENT turns (staging is a parse — a turn
+ * that merely quotes a reveal command stages the same identity an
+ * overlapping turn legitimately executes). The consumer accepts a mint
+ * only when its nonce matches the consumer's own conversation AND its
+ * identity was staged by that run's own `tool_use` commands (see
+ * `turnForChatMints` in `conversation-agent-loop-handlers.ts`).
+ * `credentials reveal` is a high-risk, approval-gated command; earning a
+ * mint for a conversation requires an actual route call from that
+ * conversation's own tool shell.
  */
 
 /** A successful `--for-chat` reveal: identity plus the minted sentinel. */
@@ -41,6 +43,11 @@ export interface ForChatMint {
   field: string;
   /** The canonical sentinel the reveal route returned for this credential. */
   sentinel: string;
+  /**
+   * The conversation-bound reveal nonce the CLI forwarded (see
+   * `reveal-nonce.ts`). Consumers match on it exactly.
+   */
+  nonce: string;
 }
 
 interface MintRecord extends ForChatMint {
@@ -92,6 +99,7 @@ export function forChatMintsSince(watermark: number): ForChatMint[] {
         service: r.service,
         field: r.field,
         sentinel: r.sentinel,
+        nonce: r.nonce,
       });
     }
   }

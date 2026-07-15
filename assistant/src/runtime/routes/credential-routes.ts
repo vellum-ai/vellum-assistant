@@ -316,6 +316,15 @@ async function handleCredentialsReveal({ body, headers }: RouteHandlerArgs) {
     );
   }
 
+  // Conversation-bound reveal nonce (see reveal-nonce.ts), forwarded by
+  // the CLI from the tool-shell env. Required for RECORDING any
+  // reveal-derived chat authority below; the reveal itself works without
+  // it (Settings rows, direct terminal use) — those calls just create no
+  // authority for any conversation's transcript.
+  const rawNonce = (body as { revealNonce?: unknown }).revealNonce;
+  const revealNonce =
+    typeof rawNonce === "string" && rawNonce.length > 0 ? rawNonce : undefined;
+
   const lookup = resolveCredentialLookup(body);
   const { value: secret, unreachable } = await getSecureKeyResultAsync(
     lookup.storageKey,
@@ -369,16 +378,16 @@ async function handleCredentialsReveal({ body, headers }: RouteHandlerArgs) {
     // persist guard to re-mint a sentinel with this identity: a command
     // that merely quotes or comments out a reveal invocation never reaches
     // this route, so it never allowlists anything. Like the plaintext proof
-    // below, the mint records only for a direct tool-shell invocation. No
-    // conversation identity is read from the request — anything the caller
-    // could send here (body field, env-forwarded id) is caller-controlled;
-    // conversation scoping happens at the CONSUMER against the run's own
-    // staged reveal identities (see the registry module doc).
-    if (directLocalInvocation) {
+    // below, the mint records only for a direct tool-shell invocation, and
+    // only with the conversation-bound nonce that scopes it to the
+    // conversation whose tool shell made this call (see the registry
+    // module doc — no predictable identifier can do this job).
+    if (directLocalInvocation && revealNonce !== undefined) {
       recordForChatMint({
         service: lookup.service,
         field: lookup.field,
         sentinel,
+        nonce: revealNonce,
       });
     }
     return { value: sentinel };
@@ -396,10 +405,11 @@ async function handleCredentialsReveal({ body, headers }: RouteHandlerArgs) {
   // satisfies the loose `CredentialLookup` type.
   if (
     directLocalInvocation &&
+    revealNonce !== undefined &&
     lookup.service !== undefined &&
     lookup.field !== undefined
   ) {
-    recordRevealSuccess(lookup.service, lookup.field, secret);
+    recordRevealSuccess(lookup.service, lookup.field, secret, revealNonce);
   }
 
   return { value: secret };
@@ -621,6 +631,12 @@ export const ROUTES: RouteDefinition[] = [
         .optional()
         .describe(
           "Return the credential's redaction sentinel (renders as a click-to-reveal chip in chat) instead of the plaintext. Requires the chat-credential-reveal feature flag.",
+        ),
+      revealNonce: z
+        .string()
+        .optional()
+        .describe(
+          "Conversation-bound reveal nonce from the tool-shell environment. Scopes any recorded chat-redaction authority (plaintext proof or forChat mint) to the conversation whose tool executed this reveal; without it the reveal succeeds but records no authority.",
         ),
     }),
     responseBody: z.object({

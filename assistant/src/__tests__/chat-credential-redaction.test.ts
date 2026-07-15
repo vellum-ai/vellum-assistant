@@ -331,7 +331,12 @@ describe("filterRefsByRevealProof identity handling", () => {
     // fail and silently drop the ref for a value the tool already printed.
     _resetRevealSuccessRegistryForTest();
     openRevealProofWindow();
-    recordRevealSuccess("gone-service", "api_key", "hunter2-removed");
+    recordRevealSuccess(
+      "gone-service",
+      "api_key",
+      "hunter2-removed",
+      "nonce-test",
+    );
     const proven = filterRefsByRevealProof(
       [
         {
@@ -341,6 +346,7 @@ describe("filterRefsByRevealProof identity handling", () => {
         },
       ],
       0,
+      "nonce-test",
     );
     expect(proven).toEqual([
       {
@@ -1301,39 +1307,63 @@ describe("plain-reveal re-mint authorities (retyped sentinel after a proven reve
 describe("for-chat mint registry", () => {
   test("returns only mints recorded after the captured watermark", () => {
     resetForChatMintRegistryForTest();
-    recordForChatMint({ service: "old", field: "f", sentinel: "s0" });
+    recordForChatMint({
+      service: "old",
+      field: "f",
+      sentinel: "s0",
+      nonce: "n1",
+    });
     const watermark = currentForChatMintWatermark();
     expect(forChatMintsSince(watermark)).toEqual([]);
-    recordForChatMint({ service: "openai", field: "api_key", sentinel: "s1" });
+    recordForChatMint({
+      service: "openai",
+      field: "api_key",
+      sentinel: "s1",
+      nonce: "n1",
+    });
     expect(forChatMintsSince(watermark)).toEqual([
-      { service: "openai", field: "api_key", sentinel: "s1" },
+      { service: "openai", field: "api_key", sentinel: "s1", nonce: "n1" },
     ]);
     // A turn that started before the first mint sees both identities.
     expect(forChatMintsSince(0)).toHaveLength(2);
     resetForChatMintRegistryForTest();
   });
 
-  test("records carry no conversation identity — scoping is the consumer's staging set", () => {
-    // Any conversation id available to the route is caller-controlled (a
-    // shell command can override the CLI subprocess env), so the registry
-    // stores none. The agent loop intersects these global records with the
-    // identities its own run staged from its actual tool_use commands —
-    // one conversation's executed reveal never authorizes another that
-    // merely names the identity.
+  test("records carry the executing conversation's nonce for consumer-side binding", () => {
+    // The registry stores the secret nonce the executing tool shell
+    // forwarded; the agent loop accepts only records matching its own
+    // conversation's nonce AND an identity its run staged, so a concurrent
+    // conversation's executed reveal never authorizes another that merely
+    // names the identity.
     resetForChatMintRegistryForTest();
-    recordForChatMint({ service: "openai", field: "api_key", sentinel: "s1" });
+    recordForChatMint({
+      service: "openai",
+      field: "api_key",
+      sentinel: "s1",
+      nonce: "n1",
+    });
     expect(forChatMintsSince(0)).toEqual([
-      { service: "openai", field: "api_key", sentinel: "s1" },
+      { service: "openai", field: "api_key", sentinel: "s1", nonce: "n1" },
     ]);
     resetForChatMintRegistryForTest();
   });
 
   test("dedupes by identity with the latest sentinel winning", () => {
     resetForChatMintRegistryForTest();
-    recordForChatMint({ service: "svc", field: "f", sentinel: "first" });
-    recordForChatMint({ service: "svc", field: "f", sentinel: "second" });
+    recordForChatMint({
+      service: "svc",
+      field: "f",
+      sentinel: "first",
+      nonce: "n1",
+    });
+    recordForChatMint({
+      service: "svc",
+      field: "f",
+      sentinel: "second",
+      nonce: "n1",
+    });
     expect(forChatMintsSince(0)).toEqual([
-      { service: "svc", field: "f", sentinel: "second" },
+      { service: "svc", field: "f", sentinel: "second", nonce: "n1" },
     ]);
     resetForChatMintRegistryForTest();
   });
