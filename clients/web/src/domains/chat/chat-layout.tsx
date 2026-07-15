@@ -725,7 +725,14 @@ export function ChatLayout() {
           triggerVariant={args.variant === "overlay" ? "pill" : "item"}
         />
       }
-      tipCard={<SidebarTipCard />}
+      // The overlay subtree mounts mid edge-swipe while still off-screen;
+      // mounting the tip card there stamps an impression for a tip never
+      // seen, so the overlay only gets it once the drawer settles open.
+      tipCard={
+        args.variant === "overlay" && !drawerOpen ? undefined : (
+          <SidebarTipCard />
+        )
+      }
       onClose={args.onClose}
     />
   );
