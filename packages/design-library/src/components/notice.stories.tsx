@@ -8,7 +8,7 @@ const meta: Meta<typeof Notice> = {
   argTypes: {
     tone: {
       control: "select",
-      options: ["info", "success", "warning", "error", "neutral"],
+      options: ["info", "success", "warning", "error", "neutral", "hint"],
     },
     onDismiss: { action: "dismissed" },
   },
@@ -57,6 +57,14 @@ export const Error: Story = {
   },
 };
 
+export const Hint: Story = {
+  args: {
+    tone: "hint",
+    title: "Tip",
+    children: "This is a helpful hint.",
+  },
+};
+
 export const Neutral: Story = {
   args: {
     tone: "neutral",
@@ -98,7 +106,7 @@ export const BodyOnly: Story = {
 export const AllTones: Story = {
   render: () => (
     <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-      {(["info", "success", "warning", "error", "neutral"] as const).map((tone) => (
+      {(["info", "success", "warning", "error", "neutral", "hint"] as const).map((tone) => (
         <Notice key={tone} tone={tone} title={tone}>
           Example {tone} notice.
         </Notice>
