@@ -438,12 +438,14 @@ export function useResearchRunner(): UseResearchRunner {
           // later picks), keyed by name so the suggestion click can await them and
           // a name is never installed twice.
           const installs = installPromisesRef.current;
-          // Deterministic floor: the always-install baseline plus the role's
-          // affinity matches, narrowed to the live catalog. Fired here — right
-          // after the catalog fetch, before the model has replied — so these
-          // materialize while the research turn is still streaming. The model's
-          // `plugins` picks (handled in the poll loop) union on top for the long
-          // tail of roles this map doesn't enumerate.
+          // Deterministic floor: the always-install baseline plus any
+          // marketing-attributed pick (the plugin the user clicked "Install" on
+          // before onboarding — resolved inside `resolveDeterministicPlugins`)
+          // plus the role's affinity matches, narrowed to the live catalog.
+          // Fired here — right after the catalog fetch, before the model has
+          // replied — so these materialize while the research turn is still
+          // streaming. The model's `plugins` picks (handled in the poll loop)
+          // union on top for the long tail of roles this map doesn't enumerate.
           const deterministicPlugins = resolveDeterministicPlugins(
             subject.occupation,
             validNames,

@@ -54,7 +54,8 @@ export interface OnboardingFunnelStepDescriptor {
  * and ingest path. The backend stores step_name/funnel_version as open strings, so
  * these new values need no backend/terraform change.
  */
-export const RESEARCH_ONBOARDING_FUNNEL_VERSION = "research_onboarding_v1_2026_06";
+export const RESEARCH_ONBOARDING_FUNNEL_VERSION =
+  "research_onboarding_v1_2026_06";
 
 export const RESEARCH_ONBOARDING_FUNNEL_STEPS = {
   form: { stepName: "research_form", stepIndex: 0 },
@@ -243,7 +244,10 @@ export function emitOnboardingFunnelStepCompleted(
  */
 export function emitResearchOnboardingStepCompleted(
   step: ResearchOnboardingFunnelStep,
-  options: { userId?: string | null; outcome?: OnboardingFunnelStepOutcome } = {},
+  options: {
+    userId?: string | null;
+    outcome?: OnboardingFunnelStepOutcome;
+  } = {},
 ): void {
   emitOnboardingFunnelStepCompleted(step, {
     userId: options.userId,

@@ -22,6 +22,7 @@ import {
 import { DoctorAvatar } from "@/domains/settings/components/panels/doctor-avatar";
 import {
   type ChatEntry,
+  type DoctorUserOutcomeAnswer,
   applySessionUserOutcome,
   hasPendingApproval,
   hasPendingBackup,
@@ -369,25 +370,44 @@ export function DoctorPanel() {
         return;
       }
       // Optimistic answer for the live-session view (store-backed entries).
-      store.updateEntries((entries) =>
-        entries.map((entry) =>
-          entry.id === entryId && entry.kind === "user_outcome_prompt"
-            ? {
-                ...entry,
-                meta: {
-                  ...entry.meta,
-                  answer: resolved ? "resolved" : "not_resolved",
-                },
-              }
-            : entry,
-        ),
-      );
+      const existingEntry = store.entries.find((entry) => entry.id === entryId);
+      const previousAnswer =
+        existingEntry?.kind === "user_outcome_prompt"
+          ? existingEntry.meta?.answer
+          : undefined;
+      const optimisticAnswer = resolved ? "resolved" : "not_resolved";
+      const setAnswer = (answer: DoctorUserOutcomeAnswer | undefined) => {
+        store.updateEntries((entries) =>
+          entries.map((entry) =>
+            entry.id === entryId && entry.kind === "user_outcome_prompt"
+              ? { ...entry, meta: { ...entry.meta, answer } }
+              : entry,
+          ),
+        );
+      };
+      setAnswer(optimisticAnswer);
       assistantsDoctorSessionsUserOutcomeCreate({
         path: { assistant_id: assistantId, session_id: targetSessionId },
         body: { resolved },
         throwOnError: false,
       }).then(({ error }) => {
         if (error) {
+          // Roll back so the prompt stays retryable — the answer wasn't
+          // persisted. Guard against a session/assistant switch that reset the
+          // store and reused entry ids: only roll back while the store still
+          // targets this session and the entry still holds this request's
+          // optimistic answer.
+          const current = useDoctorPanelStore.getState();
+          const currentEntry = current.entries.find(
+            (entry) => entry.id === entryId,
+          );
+          if (
+            current.sessionId === targetSessionId &&
+            currentEntry?.kind === "user_outcome_prompt" &&
+            currentEntry.meta?.answer === optimisticAnswer
+          ) {
+            setAnswer(previousAnswer);
+          }
           captureError(error, { context: "doctor_session_user_outcome" });
         } else if (isHistoryView) {
           // History-view entries render from the query cache, not the

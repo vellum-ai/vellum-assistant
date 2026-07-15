@@ -1,3 +1,5 @@
+import { telemetryIngestCreate } from "@/generated/api/sdk.gen";
+
 import { getClientId } from "./client-identity";
 
 /**
@@ -14,24 +16,32 @@ function stripUndefined(event: object): Record<string, unknown> {
 
 /**
  * Wraps events in the telemetry envelope and fire-and-forgets them to the
- * platform's `/v1/telemetry/ingest/` endpoint. `keepalive` lets the request
- * outlive a page unload, and failures are swallowed since telemetry is
- * best-effort.
+ * platform's `/v1/telemetry/ingest/` endpoint via the generated client. The
+ * generated client (not a raw fetch) is required: its interceptors attach the
+ * session credentials the ingest endpoint authenticates — an unauthenticated
+ * POST is acknowledged with 200 but silently dropped server-side. `keepalive`
+ * lets the request outlive a page unload; failures are swallowed since
+ * telemetry is best-effort.
  *
  * Consent is NOT gated here — each caller applies its own opt-out check before
  * calling, because the funnels read consent from different signals.
  */
 export function postTelemetryEvents(events: readonly object[]): void {
-  const payload = JSON.stringify({
-    device_id: getClientId(),
-    assistant_version: import.meta.env.VITE_APP_VERSION ?? "web-dev",
-    events: events.map(stripUndefined),
-  });
-
-  void fetch("/v1/telemetry/ingest/", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: payload,
+  void telemetryIngestCreate({
+    body: {
+      device_id: getClientId(),
+      assistant_version: import.meta.env.VITE_APP_VERSION ?? "web-dev",
+      events: events.map(stripUndefined),
+    },
     keepalive: true,
-  }).catch(() => {});
+  })
+    .then(({ data, response }) => {
+      if (!import.meta.env.DEV) return;
+      if (!response?.ok) {
+        console.warn("telemetry event rejected", response?.status);
+      } else if (data && data.persisted < data.accepted) {
+        console.warn("telemetry event dropped by server", data.dropped);
+      }
+    })
+    .catch(() => {});
 }

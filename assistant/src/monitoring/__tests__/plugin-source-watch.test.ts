@@ -46,8 +46,10 @@ afterAll(() => {
   rmSync(ROOT, { recursive: true, force: true });
 });
 
-const { collectSourceVersions, createSourceWatchState, runSourceWatchPass } =
+const { createSourceWatchState, runSourceWatchPass } =
   await import("../plugin-source-watch.js");
+const { collectSourceVersions } =
+  await import("../../plugins/collect-source-versions.js");
 const { getSourceVersionsPath, readSourceVersions } =
   await import("../../plugins/source-versions.js");
 

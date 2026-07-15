@@ -3717,6 +3717,36 @@ paths:
           description: ''
       x-vellum-api-clients:
       - platform
+  /v1/assistants/telemetry/ingest/:
+    post:
+      operationId: assistants_telemetry_ingest_create
+      tags:
+      - assistants
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TelemetryIngestRequestRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/TelemetryIngestRequestRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/TelemetryIngestRequestRequest'
+        required: true
+      security:
+      - SDKCompatibleAssistantKey: []
+      - XSessionTokenAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TelemetryIngestResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
   /v1/assistants/upgrade/:
     post:
       operationId: assistants_upgrade_create
@@ -5338,6 +5368,80 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/ReleaseListItem'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+  /v1/telemetry/ingest/:
+    post:
+      operationId: telemetry_ingest_create
+      tags:
+      - telemetry
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TelemetryIngestRequestRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/TelemetryIngestRequestRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/TelemetryIngestRequestRequest'
+        required: true
+      security:
+      - SDKCompatibleAssistantKey: []
+      - XSessionTokenAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TelemetryIngestResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+  /v1/user/consent/:
+    get:
+      operationId: user_consent_retrieve
+      tags:
+      - user
+      security:
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserConsent'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+    put:
+      operationId: user_consent_update
+      tags:
+      - user
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserConsentRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/UserConsentRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/UserConsentRequest'
+      security:
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserConsent'
           description: ''
       x-vellum-api-clients:
       - platform
@@ -8673,6 +8777,44 @@ components:
         * `wake` - Wake
         * `profiler` - Profiler
         * `other` - Other
+    TelemetryIngestRequestRequest:
+      type: object
+      properties:
+        device_id:
+          type: string
+          minLength: 1
+          maxLength: 255
+        installation_id:
+          type: string
+          minLength: 1
+          maxLength: 255
+        assistant_version:
+          type: string
+          nullable: true
+          minLength: 1
+          maxLength: 64
+        events:
+          type: array
+          items:
+            type: object
+            additionalProperties: {}
+      required:
+      - events
+    TelemetryIngestResponse:
+      type: object
+      properties:
+        accepted:
+          type: integer
+        persisted:
+          type: integer
+        dropped:
+          type: object
+          additionalProperties:
+            type: integer
+      required:
+      - accepted
+      - dropped
+      - persisted
     TierChangeStatusEnum:
       enum:
       - ok
@@ -8892,6 +9034,85 @@ components:
       required:
       - event_count
       - total_usd
+    UserConsent:
+      type: object
+      properties:
+        tos_accepted_version:
+          type: string
+          maxLength: 32
+        tos_accepted_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        privacy_policy_accepted_version:
+          type: string
+          maxLength: 32
+        privacy_policy_accepted_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        ai_data_sharing_accepted_version:
+          type: string
+          maxLength: 32
+        ai_data_sharing_accepted_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        share_analytics:
+          type: boolean
+          nullable: true
+        share_diagnostics:
+          type: boolean
+          nullable: true
+        share_analytics_accepted_version:
+          type: string
+          maxLength: 32
+        share_analytics_accepted_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        share_diagnostics_accepted_version:
+          type: string
+          maxLength: 32
+        share_diagnostics_accepted_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+      required:
+      - ai_data_sharing_accepted_at
+      - privacy_policy_accepted_at
+      - share_analytics_accepted_at
+      - share_diagnostics_accepted_at
+      - tos_accepted_at
+    UserConsentRequest:
+      type: object
+      properties:
+        tos_accepted_version:
+          type: string
+          maxLength: 32
+        privacy_policy_accepted_version:
+          type: string
+          maxLength: 32
+        ai_data_sharing_accepted_version:
+          type: string
+          maxLength: 32
+        share_analytics:
+          type: boolean
+          nullable: true
+        share_diagnostics:
+          type: boolean
+          nullable: true
+        share_analytics_accepted_version:
+          type: string
+          maxLength: 32
+        share_diagnostics_accepted_version:
+          type: string
+          maxLength: 32
     UserOutcomeEnum:
       enum:
       - resolved
