@@ -894,6 +894,7 @@ export function useLiveVoice(
                 release,
                 interrupt,
                 setMuted,
+                updateConfig,
               });
               console.warn(
                 `live-voice: initial connect failed (${err.reason}); retrying ` +
