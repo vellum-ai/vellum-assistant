@@ -45,8 +45,19 @@ let cachedShareDiagnosticsVersion = ""; // "" fails the trace disclosure gate
 // before telemetry moved to platform `share_analytics` consent (migration 106).
 // While set, telemetry stays off regardless of platform consent. Cleared by a
 // future cross-repo reconciliation once the platform exposes an explicit
-// re-consent signal; not auto-cleared here.
-let legacyOptOut = false;
+// re-consent signal; not auto-cleared here. Read live from config (an
+// in-memory cached read, safe on the hot path): a boot-time default would
+// leave the record-time gates open between daemon start and the first
+// consent refresh, exactly the window unknown-consent recording now keeps
+// events flowing in.
+function isLegacyOptedOut(): boolean {
+  try {
+    return getConfigReadOnly().legacyTelemetryOptOut === true;
+  } catch {
+    // Config not yet loaded — no marker to honor yet.
+    return false;
+  }
+}
 let refreshTimer: ReturnType<typeof setInterval> | null = null;
 
 /**
@@ -56,7 +67,7 @@ let refreshTimer: ReturnType<typeof setInterval> | null = null;
  * fail-closed opt-out marker is set.
  */
 export function getCachedShareAnalytics(): boolean {
-  return cachedShareAnalytics === true && !legacyOptOut;
+  return cachedShareAnalytics === true && !isLegacyOptedOut();
 }
 
 /**
@@ -66,7 +77,7 @@ export function getCachedShareAnalytics(): boolean {
  * opt-out from a not-yet-known state.
  */
 export function getRawShareAnalytics(): ConsentState {
-  return legacyOptOut ? false : cachedShareAnalytics;
+  return isLegacyOptedOut() ? false : cachedShareAnalytics;
 }
 
 /**
@@ -109,8 +120,6 @@ export function getCachedShareDiagnosticsVersion(): string {
  * flipped off mid-session.
  */
 export async function refreshConsentCache(): Promise<void> {
-  legacyOptOut = getConfigReadOnly().legacyTelemetryOptOut === true;
-
   // Platform features disabled is a PERMANENT condition (config-level), not a
   // cold-cache transient: telemetry can never ship, so confirmed-off keeps the
   // record-time gates closed and the outbox from accumulating rows that no

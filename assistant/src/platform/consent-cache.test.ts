@@ -164,6 +164,16 @@ describe("consent-cache", () => {
     expect(getCachedShareAnalytics()).toBe(false);
   });
 
+  test("legacy opt-out marker is honored at boot, before any refresh", () => {
+    // The marker is read live from config: a workspace carrying
+    // legacyTelemetryOptOut=true must gate recording in the window between
+    // daemon start and the first consent refresh (unknown-consent recording
+    // would otherwise leak events in that window).
+    setConfig("legacyTelemetryOptOut", true);
+    expect(getRawShareAnalytics()).toBe(false);
+    expect(getCachedShareAnalytics()).toBe(false);
+  });
+
   test("legacy opt-out marker keeps analytics off despite platform opt-in", async () => {
     setConfig("legacyTelemetryOptOut", true);
     mockClient = makeClient(makeConsent({ shareAnalytics: true }));
