@@ -66,12 +66,15 @@ const WebSearchServiceSchema = BaseServiceSchema.extend({
     .default("inference-provider-native"),
 });
 
-const WebFetchServiceSchema = BaseServiceSchema.extend({
+/**
+ * Web-fetch carries no `mode`: there is no managed proxy for it, so the only
+ * axis is which provider backs the tool.
+ */
+const WebFetchServiceSchema = z.object({
   // Provider that backs the `web_fetch` tool. `default` is the daemon's
   // built-in HTTP fetch + extract path (no key). BYOK providers (e.g.
   // `firecrawl`) scrape via their hosted API and reuse the same stored key as
-  // their web-search counterpart. The `mode` field is inherited from
-  // `BaseServiceSchema` for symmetry; web-fetch has no managed proxy today.
+  // their web-search counterpart.
   provider: z.enum(VALID_WEB_FETCH_PROVIDERS).default("default"),
 });
 

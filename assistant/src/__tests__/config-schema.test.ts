@@ -128,7 +128,7 @@ describe("AssistantConfigSchema", () => {
   test("accepts Firecrawl as a web fetch provider", () => {
     const result = AssistantConfigSchema.parse({
       services: {
-        "web-fetch": { mode: "your-own", provider: "firecrawl" },
+        "web-fetch": { provider: "firecrawl" },
       },
     });
 
@@ -141,6 +141,18 @@ describe("AssistantConfigSchema", () => {
         services: { "web-fetch": { provider: "nope" } },
       }),
     ).toThrow();
+  });
+
+  // Legacy config objects on disk may carry a `mode` key; parsing must strip
+  // it rather than reject the whole config.
+  test("ignores a legacy web-fetch mode key", () => {
+    const result = AssistantConfigSchema.parse({
+      services: {
+        "web-fetch": { mode: "your-own", provider: "firecrawl" },
+      },
+    });
+
+    expect(result.services["web-fetch"]).toEqual({ provider: "firecrawl" });
   });
 
   test("accepts valid complete config", () => {
