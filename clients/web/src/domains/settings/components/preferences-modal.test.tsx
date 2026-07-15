@@ -1,14 +1,10 @@
 /**
- * Tests for `PreferencesModal`, focused on the Appearance section that was
- * migrated in from the standalone Settings → General "Appearance" card.
+ * Tests for the `PreferencesModal` Appearance section.
  *
- * The migration's behavior change is that Appearance now renders on every
- * platform (not just Electron), which is what gives the modal meaningful
- * content on web/iOS. These tests mount the modal as a web (non-Electron)
- * client and assert: (1) the Appearance section renders with a theme control,
- * and (2) choosing a theme writes and applies it. `SegmentControl` is stubbed
- * with a minimal harness exposing its `onChange` via buttons; the theme
- * persistence helpers and the Electron probe are mocked.
+ * Appearance renders on every platform, not just Electron, so the modal mounts
+ * as a web (non-Electron) client here. `SegmentControl` is stubbed with a
+ * minimal harness exposing its `onChange` via buttons; the theme persistence
+ * helpers and the Electron probe are mocked.
  */
 import {
   afterEach,
