@@ -4,23 +4,13 @@ import type { ResearchStep } from "@/domains/onboarding/research-onboarding-pers
 
 export const ONBOARDING_FUNNEL_VERSION = "onboarding_v3_2026_05";
 const SESSION_STORAGE_KEY = "onboarding.funnelSessionId";
-const VARIANT_STORAGE_KEY = "onboarding.funnelVariant";
 
 export const ONBOARDING_FUNNEL_VARIANTS = {
   control: "control",
-  paredDown: "pared_down",
 } as const;
 
 export type OnboardingFunnelVariant =
   (typeof ONBOARDING_FUNNEL_VARIANTS)[keyof typeof ONBOARDING_FUNNEL_VARIANTS];
-
-export function onboardingFunnelVariantFromExperiment(
-  experimentArm: string,
-): OnboardingFunnelVariant {
-  return experimentArm === "variant-a"
-    ? ONBOARDING_FUNNEL_VARIANTS.paredDown
-    : ONBOARDING_FUNNEL_VARIANTS.control;
-}
 
 export const ONBOARDING_FUNNEL_STEPS = {
   privacyTos: { stepName: "privacy_tos", stepIndex: 0 },
@@ -166,48 +156,12 @@ export function getOnboardingFunnelSessionId(): string {
   return next;
 }
 
-function isOnboardingFunnelVariant(
-  value: string | null,
-): value is OnboardingFunnelVariant {
-  return (
-    value === ONBOARDING_FUNNEL_VARIANTS.control ||
-    value === ONBOARDING_FUNNEL_VARIANTS.paredDown
-  );
-}
-
-export function readOnboardingFunnelVariant(): OnboardingFunnelVariant | null {
-  if (typeof window === "undefined") return null;
-  try {
-    const stored = sessionStorage.getItem(VARIANT_STORAGE_KEY);
-    return isOnboardingFunnelVariant(stored) ? stored : null;
-  } catch {
-    return null;
-  }
-}
-
-export function resolveOnboardingFunnelVariant(
-  preferred: OnboardingFunnelVariant,
-): OnboardingFunnelVariant {
-  const existing = readOnboardingFunnelVariant();
-  if (existing) return existing;
-  if (typeof window === "undefined") return preferred;
-  try {
-    sessionStorage.setItem(VARIANT_STORAGE_KEY, preferred);
-  } catch {
-    // Storage may be unavailable; the current event still carries the variant.
-  }
-  return preferred;
-}
-
 export function buildOnboardingFunnelEvent(
   screen: OnboardingFunnelStepDescriptor,
   options: OnboardingFunnelStepCompletedOptions = {},
 ): OnboardingFunnelEvent {
   const now = Date.now();
-  const variant =
-    options.variant ??
-    readOnboardingFunnelVariant() ??
-    ONBOARDING_FUNNEL_VARIANTS.control;
+  const variant = options.variant ?? ONBOARDING_FUNNEL_VARIANTS.control;
   return {
     type: "onboarding",
     daemon_event_id: crypto.randomUUID(),
@@ -254,8 +208,7 @@ export function emitOnboardingFunnelStepCompleted(
  * emits the same step-completed event on both its Continue and Skip handlers.
  *
  * The research flow has no A/B arm, so events are stamped with the `control`
- * variant (passed explicitly so this never reads the pre-chat funnel's stored
- * variant) and the research funnel version.
+ * variant and the research funnel version.
  *
  * `outcome` records whether the step was completed (Continue) or skipped;
  * defaults to `completed` for the Continue-only steps.
@@ -294,7 +247,6 @@ export function __resetOnboardingFunnelEventsForTests(): void {
   if (typeof window === "undefined") return;
   try {
     sessionStorage.removeItem(SESSION_STORAGE_KEY);
-    sessionStorage.removeItem(VARIANT_STORAGE_KEY);
   } catch {
     // ignore
   }

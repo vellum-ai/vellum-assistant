@@ -35,14 +35,12 @@ mock.module("@/domains/onboarding/funnel-events", () => ({
   emitOnboardingFunnelStepCompleted: emitFunnelStepCompletedMock,
   getOnboardingFunnelSessionId: () => "session-1",
   ONBOARDING_FUNNEL_STEPS: { privacyTos: "privacy_tos" },
-  onboardingFunnelVariantFromExperiment: () => "control",
-  resolveOnboardingFunnelVariant: () => "control",
+  ONBOARDING_FUNNEL_VARIANTS: { control: "control" },
 }));
 
 mock.module("@/runtime/is-electron", () => ({ isElectron: () => true }));
 // Mutable platform/flag state so individual tests can flip them.
 let nativePlatform = false;
-let researchFlag = false;
 let localMode = false;
 mock.module("@/lib/local-mode", () => ({ isLocalMode: () => localMode }));
 mock.module("@/runtime/native-auth", () => ({
@@ -54,7 +52,7 @@ mock.module("@/stores/auth-store", () => ({
 }));
 mock.module("@/stores/client-feature-flag-store", () => ({
   useClientFeatureFlagStore: {
-    use: { stringFlags: () => ({}), researchOnboarding: () => researchFlag },
+    use: { stringFlags: () => ({}) },
   },
 }));
 
@@ -104,13 +102,11 @@ describe("PrivacyScreen — Start navigation", () => {
     navigateMock.mockClear();
     saveConsentMock.mockClear();
     emitFunnelStepCompletedMock.mockClear();
-    researchFlag = false;
     nativePlatform = false;
     localMode = false;
   });
   afterEach(() => {
     cleanup();
-    researchFlag = false;
     nativePlatform = false;
     localMode = false;
   });
