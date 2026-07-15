@@ -218,14 +218,6 @@ export interface VoiceTurnOptions {
    * supplies its own `voiceControlPrompt`.
    */
   routingLeg?: VoiceRoutingLeg;
-  /**
-   * The interactive surface being resumed as a spoken turn. When set, the turn
-   * runs with this surface as the active surface (and no active page) so
-   * `buildActiveSurfaceContext` re-injects its `dynamic_page`/app HTML+schema,
-   * matching the text path's `activeSurfaceId`. Undefined on ordinary STT
-   * turns, which carry no active surface.
-   */
-  activeSurfaceId?: string;
 }
 
 export interface VoiceTurnHandle {
@@ -950,16 +942,6 @@ export async function startVoiceTurn(
       // try/finally so a failed setup before this point cannot leak the
       // flag into subsequent non-voice turns on the same conversation.
       conversation.forcePromptSideEffects = !isGuardian;
-      // Surface-resume turns install the resumed surface as the active surface
-      // so `buildActiveSurfaceContext` re-injects its dynamic_page/app context,
-      // and clear `currentPage` so the resumed surface isn't paired with a prior
-      // turn's stale page (parity with the text path, which passes no page for
-      // surface actions). `runAgentLoop` clears `currentActiveSurfaceId` at turn
-      // end, so this stays turn-scoped. Left untouched on ordinary STT turns.
-      if (opts.activeSurfaceId !== undefined) {
-        conversation.currentActiveSurfaceId = opts.activeSurfaceId;
-        conversation.currentPage = undefined;
-      }
       await conversation.runAgentLoop(persistedContent, messageId, {
         onEvent: (msg: ServerMessage) => {
           if (msg.type === "error") {
