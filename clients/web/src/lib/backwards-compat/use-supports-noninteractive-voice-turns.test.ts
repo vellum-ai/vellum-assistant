@@ -21,29 +21,29 @@ afterEach(() => {
 });
 
 // Exhaustive semver truth-table lives in `utils.test.ts`. Here we verify the
-// boundary on each side of MIN_VERSION (0.11.0 — the release that forces
-// `supportsDynamicUi: false` on voice turns) plus the conservative-on-unknown
-// policy, exercised through the public hook. `false` means the voice room
-// keeps its fallback OAuth connect card reachable.
+// boundary on each side of MIN_VERSION (0.10.10 — the first release that can
+// force `supportsDynamicUi: false` on voice turns; v0.10.9 shipped without it)
+// plus the conservative-on-unknown policy, exercised through the public hook.
+// `false` means the voice room keeps its fallback OAuth connect card reachable.
 describe("useSupportsNoninteractiveVoiceTurns", () => {
   test("reads false when the version is unknown (fallback card stays available)", () => {
     expect(readGate(null)).toBe(false);
   });
 
-  test("reads false below 0.11.0 — those assistants can still raise oauth_connect mid-call", () => {
+  test("reads false below 0.10.10 — those assistants can still raise oauth_connect mid-call", () => {
     expect(readGate("0.10.9")).toBe(false);
     expect(readGate("0.10.8")).toBe(false);
     expect(readGate("0.9.0")).toBe(false);
   });
 
-  test("reads true for assistants on 0.11.0+", () => {
+  test("reads true for assistants on 0.10.10+", () => {
+    expect(readGate("0.10.10")).toBe(true);
     expect(readGate("0.11.0")).toBe(true);
-    expect(readGate("0.11.1")).toBe(true);
     expect(readGate("1.0.0")).toBe(true);
   });
 
-  test("reads true for dev builds on the 0.11.0 base", () => {
-    expect(readGate("0.11.0-dev.202607150000.abc1234")).toBe(true);
+  test("reads true for dev builds on the 0.10.10 base", () => {
+    expect(readGate("0.10.10-dev.202607150000.abc1234")).toBe(true);
   });
 
   test("reads false for unparseable versions", () => {

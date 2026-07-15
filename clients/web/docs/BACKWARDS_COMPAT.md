@@ -152,7 +152,7 @@ Each module owns one feature's old/new split. Current registry:
 | `default-provider-settings.ts`      | `0.10.8`                          | No default-provider marker UI in the Providers modal; status query never fires                           | "Default" tag + "Set as default" via `GET/PUT /v1/config/llm/default-provider`             |
 | `complete-profile-snapshots.ts`     | `0.10.8`                          | Blank profile fields live-inherit (deep merge); no snapshot copy in the editor                            | Blanks are baked at save time; editor shows the snapshot helper line                        |
 | `use-supports-redacted-credential-chips.ts` | `0.11.0`                  | Sentinel-shaped transcript text renders as plain text (daemon neither mints nor neutralizes sentinels)   | Assistant-message sentinels upgrade to redacted-credential reveal chips                     |
-| `use-supports-noninteractive-voice-turns.ts` | `0.11.0`                 | Voice turns can raise `oauth_connect` surfaces mid-call; the voice room renders its own reachable connect card | Voice turns force `supportsDynamicUi: false` (no mid-call surfaces); the room card stays hidden |
+| `use-supports-noninteractive-voice-turns.ts` | `0.10.10`                | Voice turns can raise `oauth_connect` surfaces mid-call; the voice room renders its own reachable connect card | Voice turns force `supportsDynamicUi: false` (no mid-call surfaces); the room card stays hidden |
 
 When you delete a row here, also delete its module, its test, and the now-dead
 legacy branch at the call site.

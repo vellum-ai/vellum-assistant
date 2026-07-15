@@ -21,12 +21,15 @@
  * - New behavior (>= MIN_VERSION): voice turns can never raise UI
  *   surfaces; the room card is dead weight and stays hidden.
  *
- * MIN_VERSION targets 0.11.0 — the release that ships the daemon-side
- * `supportsDynamicUi: false` enforcement on voice turns (the current
- * in-repo assistant version is 0.10.8, so that change first releases in
- * 0.11.0). Erring HIGH is safe here: the fallback card self-hides when
- * no pending surface exists, so showing the fallback slot against a
- * newer assistant that never raises one costs nothing.
+ * MIN_VERSION is 0.10.10 — the first release that can ship the
+ * daemon-side `supportsDynamicUi: false` enforcement on voice turns
+ * (v0.10.9 was cut 2026-07-14, before that change merged, so 0.10.9
+ * assistants still raise surfaces mid-call). If the next cut is a minor
+ * (0.11.0) instead of a patch, the semver comparison still passes.
+ * Erring HIGH is safe here: the fallback card self-hides when no
+ * pending surface exists, so showing the fallback slot against a newer
+ * assistant that never raises one costs nothing; erring LOW would hide
+ * the card from assistants that can still raise it mid-call.
  *
  * Delete this gate — along with the voice-room connect card
  * (`use-active-connect-surface.ts` and the card slot in
@@ -35,7 +38,7 @@
  */
 import { useAssistantSupports } from "./utils";
 
-export const MIN_VERSION = "0.11.0";
+export const MIN_VERSION = "0.10.10";
 
 /**
  * Returns `true` when the active assistant enforces non-interactive
