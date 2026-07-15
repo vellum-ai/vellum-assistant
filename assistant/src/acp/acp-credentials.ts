@@ -51,8 +51,12 @@ export function classifyAnthropicToken(
   value: string,
 ): "oauth" | "api_key" | "unknown" {
   const trimmed = value.trim();
-  if (trimmed.startsWith("sk-ant-api")) return "api_key";
-  if (trimmed.startsWith("sk-ant-oat")) return "oauth";
+  if (trimmed.startsWith("sk-ant-api")) {
+    return "api_key";
+  }
+  if (trimmed.startsWith("sk-ant-oat")) {
+    return "oauth";
+  }
   return "unknown";
 }
 
@@ -67,7 +71,9 @@ export function assertAcpCredentialFormat(
   field: string,
   value: string,
 ): void {
-  if (service !== ACP_SERVICE) return;
+  if (service !== ACP_SERVICE) {
+    return;
+  }
 
   const classification = classifyAnthropicToken(value);
 
