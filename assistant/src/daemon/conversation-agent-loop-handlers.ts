@@ -68,12 +68,12 @@ import {
   currentForChatMintWatermark,
   forChatMintsSince,
 } from "../runtime/for-chat-mint-registry.js";
-import { credentialKey } from "../security/credential-key.js";
 import {
   closeRevealProofWindow,
   currentRevealSuccessWatermark,
   openRevealProofWindow,
 } from "../runtime/reveal-success-registry.js";
+import { credentialKey } from "../security/credential-key.js";
 import { extractDomain } from "../tools/network/domain-normalize.js";
 import {
   classifyWebSearchFailure,

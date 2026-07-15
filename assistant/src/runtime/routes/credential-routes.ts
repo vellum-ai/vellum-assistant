@@ -610,15 +610,25 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "Reveal a credential's plaintext value",
     description:
-      "Return the raw plaintext value of a stored credential. Blocked in untrusted shell mode.",
+      "Return the raw plaintext value of a stored credential. Blocked in untrusted shell mode. With forChat, returns a chat-safe redaction sentinel instead of the plaintext.",
     tags: ["credentials"],
     requestBody: z.object({
       service: z.string().optional().describe("Service namespace"),
       field: z.string().optional().describe("Field name"),
       id: z.string().optional().describe("Credential UUID for lookup by ID"),
+      forChat: z
+        .boolean()
+        .optional()
+        .describe(
+          "Return the credential's redaction sentinel (renders as a click-to-reveal chip in chat) instead of the plaintext. Requires the chat-credential-reveal feature flag.",
+        ),
     }),
     responseBody: z.object({
-      value: z.string().describe("The plaintext credential value"),
+      value: z
+        .string()
+        .describe(
+          "The plaintext credential value (or its redaction sentinel when forChat is set)",
+        ),
     }),
     handler: handleCredentialsReveal,
   },

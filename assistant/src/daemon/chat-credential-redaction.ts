@@ -121,7 +121,7 @@ const UUID_RE =
  */
 function flagValue(segment: string, re: RegExp): string | undefined {
   const m = re.exec(segment);
-  if (!m) return undefined;
+  if (!m) {return undefined;}
   if (m[1] !== undefined) {
     return m[1].replace(/\\(["\\])/g, "$1");
   }
@@ -153,7 +153,7 @@ function splitShellSegments(command: string): string[] {
     const ch = command[i]!;
     if (quote === "'") {
       current += ch;
-      if (ch === "'") quote = undefined;
+      if (ch === "'") {quote = undefined;}
       i += 1;
       continue;
     }
@@ -164,7 +164,7 @@ function splitShellSegments(command: string): string[] {
         continue;
       }
       current += ch;
-      if (ch === '"') quote = undefined;
+      if (ch === '"') {quote = undefined;}
       i += 1;
       continue;
     }
@@ -235,7 +235,7 @@ function revealInvocationSlices(segment: string): string[] {
 export function collectRevealRefsFromCommand(
   command: string,
 ): RevealCandidateRef[] {
-  if (!command.includes("reveal")) return [];
+  if (!command.includes("reveal")) {return [];}
   const refs: RevealCandidateRef[] = [];
   // Split compound commands so flags from one invocation can't bleed into
   // another (`reveal --service a --field b && reveal --service c --field d`),
@@ -245,7 +245,7 @@ export function collectRevealRefsFromCommand(
   // `revealInvocationSlices`).
   const segments = splitShellSegments(command);
   for (const segment of segments) {
-    if (!REVEAL_INVOCATION_RE.test(segment)) continue;
+    if (!REVEAL_INVOCATION_RE.test(segment)) {continue;}
     for (const invocation of revealInvocationSlices(segment)) {
       const service = flagValue(invocation, SERVICE_FLAG_RE);
       const field = flagValue(invocation, FIELD_FLAG_RE);
@@ -286,7 +286,7 @@ export function resolveRefIdentities(
     }
     try {
       const meta = getCredentialMetadataById(ref.id);
-      if (!meta) return ref;
+      if (!meta) {return ref;}
       return { ...ref, service: meta.service, field: meta.field };
     } catch (err) {
       log.debug(
@@ -325,7 +325,7 @@ export function filterRefsByRevealProof(
     ) {
       try {
         const meta = getCredentialMetadataById(ref.id);
-        if (!meta) continue;
+        if (!meta) {continue;}
         service = meta.service;
         field = meta.field;
       } catch (err) {
@@ -333,7 +333,7 @@ export function filterRefsByRevealProof(
         continue;
       }
     }
-    if (service === undefined || field === undefined) continue;
+    if (service === undefined || field === undefined) {continue;}
     // Capture the plaintexts the route served alongside the proof, in the
     // same lookup. Resolving service/field here too means each returned ref
     // is fully self-describing, so candidate resolution needs neither the
@@ -344,7 +344,7 @@ export function filterRefsByRevealProof(
     // cannot classify it.
     for (const provenValue of revealedValuesSince(watermark, service, field)) {
       const dedupeKey = JSON.stringify([service, field, provenValue]);
-      if (seenValues.has(dedupeKey)) continue;
+      if (seenValues.has(dedupeKey)) {continue;}
       seenValues.add(dedupeKey);
       proven.push({ service, field, provenValue });
     }
@@ -391,9 +391,9 @@ function appendCandidateEncodings(
   value: string,
 ): void {
   for (const encoded of [value, JSON.stringify(value).slice(1, -1)]) {
-    if (encoded.length < MIN_CANDIDATE_VALUE_LENGTH) continue;
+    if (encoded.length < MIN_CANDIDATE_VALUE_LENGTH) {continue;}
     const dedupeKey = JSON.stringify([service, field, encoded]);
-    if (seen.has(dedupeKey)) continue;
+    if (seen.has(dedupeKey)) {continue;}
     seen.add(dedupeKey);
     candidates.push({ service, field, value: encoded });
   }
@@ -412,7 +412,7 @@ export function resolveProvenRevealCandidates(
   const seen = new Set<string>();
   const candidates: ResolvedRevealCandidate[] = [];
   for (const ref of refs) {
-    if (ref.service === undefined || ref.field === undefined) continue;
+    if (ref.service === undefined || ref.field === undefined) {continue;}
     if (ref.provenValue === undefined || ref.provenValue.length === 0) {
       continue;
     }
@@ -456,7 +456,7 @@ export async function resolveRevealCandidates(
     ) {
       try {
         const meta = getCredentialMetadataById(ref.id);
-        if (!meta) continue;
+        if (!meta) {continue;}
         service = meta.service;
         field = meta.field;
       } catch (err) {
@@ -464,7 +464,7 @@ export async function resolveRevealCandidates(
         continue;
       }
     }
-    if (service === undefined || field === undefined) continue;
+    if (service === undefined || field === undefined) {continue;}
     // Prefer the plaintext the reveal route actually served (captured at proof
     // time). Re-reading the vault here would return a rotated or deleted
     // value, so the guard/fallback could miss the exact bytes the tool
@@ -475,7 +475,7 @@ export async function resolveRevealCandidates(
       continue;
     }
     const key = credentialKey(service, field);
-    if (vaultReadKeys.has(key)) continue;
+    if (vaultReadKeys.has(key)) {continue;}
     vaultReadKeys.add(key);
     try {
       const value = await getSecureKeyAsync(key);
@@ -1209,7 +1209,7 @@ function containedInLongerScannerMatch(
 function classifyCandidateType(value: string): string {
   let best: { type: string; endIndex: number } | undefined;
   for (const m of scanText(value)) {
-    if (m.startIndex !== 0) continue;
+    if (m.startIndex !== 0) {continue;}
     if (best === undefined || m.endIndex > best.endIndex) {
       best = { type: m.type, endIndex: m.endIndex };
     }
