@@ -1,6 +1,6 @@
 import { getConfigReadOnly } from "../config/loader.js";
 import type { AssistantConfig } from "../config/schema.js";
-import { getCachedShareAnalytics } from "../platform/consent-cache.js";
+import { getRawShareAnalytics } from "../platform/consent-cache.js";
 import { getLogger } from "../util/logger.js";
 import { recordConfigSettingEvent } from "./config-setting-events-store.js";
 
@@ -51,13 +51,15 @@ const lastRecorded = new Map<string, string>();
  * Record a `config_setting` event for every tracked setting whose effective
  * value differs from what this process last recorded.
  *
- * Consent-gated with a memo reset on opt-out. While `share_analytics` is off,
- * nothing is recorded and the memo is cleared: the reporter's opt-out flush
- * discards any config_setting rows still pending upload, so a memo entry from
- * before the opt-out no longer corresponds to a delivered row. Clearing it
- * means a later re-opt-in (in the same process, unchanged config) re-records
- * the full current snapshot rather than skipping memoized keys — consumers
- * that expect a complete snapshot after re-opt-in stay correct.
+ * Consent-gated with a memo reset on opt-out. While `share_analytics` is a
+ * confirmed opt-out, nothing is recorded and the memo is cleared: the
+ * reporter's opt-out flush discards any config_setting rows still pending
+ * upload, so a memo entry from before the opt-out no longer corresponds to a
+ * delivered row. Clearing it means a later re-opt-in (in the same process,
+ * unchanged config) re-records the full current snapshot rather than skipping
+ * memoized keys — consumers that expect a complete snapshot after re-opt-in
+ * stay correct. An unknown consent state records normally — the record-time
+ * drop is a courtesy for known opt-outs only, never a reason to lose data.
  *
  * Retry-friendly when opted in: `recordConfigSettingEvent` returns false when
  * the telemetry DB is momentarily unavailable, and the memo is only advanced
@@ -67,7 +69,7 @@ const lastRecorded = new Map<string, string>();
  * retries on the next invocation.
  */
 export function recordConfigSettingSnapshot(config: AssistantConfig): void {
-  if (!getCachedShareAnalytics()) {
+  if (getRawShareAnalytics() === false) {
     lastRecorded.clear();
     return;
   }

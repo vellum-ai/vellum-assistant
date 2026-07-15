@@ -82,6 +82,7 @@ mock.module("../telemetry/tool-audit.js", () => ({
 // terminals consult sees the opted-in state.
 mock.module("../platform/consent-cache.js", () => ({
   getCachedShareAnalytics: () => true,
+  getRawShareAnalytics: () => true,
 }));
 
 mock.module("../permissions/checker.js", () => ({

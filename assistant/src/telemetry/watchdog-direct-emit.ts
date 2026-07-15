@@ -20,7 +20,7 @@ import { v4 as uuid } from "uuid";
 
 import { getPlatformOrganizationId, getPlatformUserId } from "../config/env.js";
 import { VellumPlatformClient } from "../platform/client.js";
-import { getCachedShareAnalytics } from "../platform/consent-cache.js";
+import { getRawShareAnalytics } from "../platform/consent-cache.js";
 import { arePlatformFeaturesEnabled } from "../platform/feature-gate.js";
 import { getDeviceId } from "../util/device-id.js";
 import { getLogger } from "../util/logger.js";
@@ -35,9 +35,11 @@ const TELEMETRY_INGEST_PATH = "/v1/telemetry/ingest/";
 
 /**
  * POST one `watchdog` event directly to the platform, bypassing the SQLite
- * buffer. Honors the `share_analytics` opt-out and the platform-features gate,
- * matching the batched reporter. Never throws — the caller is on a query hot
- * path.
+ * buffer. Honors a confirmed `share_analytics` opt-out and the
+ * platform-features gate. An unknown consent state emits: this path reports
+ * SQLite corruption and has no outbox to defer into, and platform ingest
+ * re-gates on consent authoritatively server-side. Never throws — the caller
+ * is on a query hot path.
  */
 export async function emitWatchdogEventDirect(
   checkName: string,
@@ -45,8 +47,9 @@ export async function emitWatchdogEventDirect(
   value: number | null = null,
 ): Promise<void> {
   try {
-    // Opt-out and deployment gates, mirroring the batched reporter's flush.
-    if (!getCachedShareAnalytics()) return;
+    // Drop only on a confirmed opt-out; unknown emits (no buffer to defer
+    // into, and platform ingest re-gates on consent server-side).
+    if (getRawShareAnalytics() === false) return;
     if (!arePlatformFeaturesEnabled()) return;
 
     // Authenticated-only. Null before the CES handshake resolves credentials;

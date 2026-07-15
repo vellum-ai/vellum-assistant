@@ -24,7 +24,7 @@ import {
   setMemoryCheckpoint,
 } from "../persistence/checkpoints.js";
 import { recordLifecycleEvent } from "../persistence/lifecycle-events-store.js";
-import { getCachedShareAnalytics } from "../platform/consent-cache.js";
+import { getRawShareAnalytics } from "../platform/consent-cache.js";
 import { getLogger } from "../util/logger.js";
 import { listWatchers } from "./watcher-store.js";
 
@@ -39,9 +39,9 @@ let warnedInventoryDbUnavailable = false;
  * Record one `watcher_enabled:<providerId>` lifecycle event per enabled
  * watcher, at most once per 24h. Called from every watcher tick; the
  * checkpoint advances only after the events are recorded, so a transient
- * storage failure (a throw, or a degraded-mode `null` while analytics
- * consent is granted) retries on the next tick instead of skipping a day.
- * A consent-off `null` is a deliberate skip and still advances. Retries
+ * storage failure (a throw, or a degraded-mode `null` while consent is not
+ * a confirmed opt-out) retries on the next tick instead of skipping a day.
+ * A confirmed-opt-out `null` is a deliberate skip and still advances. Retries
  * can duplicate events for watchers recorded before the failure point —
  * an acceptable overcount for best-effort telemetry, where losing a full
  * day's inventory would not be.
@@ -54,7 +54,7 @@ export function recordWatcherInventoryIfDue(now: number): void {
       const recorded = recordLifecycleEvent(
         `watcher_enabled:${watcher.providerId}`,
       );
-      if (recorded === null && getCachedShareAnalytics()) {
+      if (recorded === null && getRawShareAnalytics() !== false) {
         if (!warnedInventoryDbUnavailable) {
           warnedInventoryDbUnavailable = true;
           log.warn(

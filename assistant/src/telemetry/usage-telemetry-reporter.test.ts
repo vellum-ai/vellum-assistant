@@ -102,6 +102,9 @@ const mockGetCachedShareDiagnosticsVersion = mock(() => "2999-01-01");
 
 mock.module("../platform/consent-cache.js", () => ({
   getCachedShareAnalytics: mockGetCachedShareAnalytics,
+  // Raw tri-state accessor the record-time gates consult; these tests only
+  // exercise confirmed true/false states, so it mirrors the boolean mock.
+  getRawShareAnalytics: () => mockGetCachedShareAnalytics(),
   getCachedShareDiagnostics: mockGetCachedShareDiagnostics,
   getCachedShareDiagnosticsVersion: mockGetCachedShareDiagnosticsVersion,
 }));

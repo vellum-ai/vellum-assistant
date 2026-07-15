@@ -8,9 +8,12 @@
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-let shareAnalytics = true;
+import type { ConsentState } from "../platform/consent-cache.js";
+
+let shareAnalytics: ConsentState = true;
 mock.module("../platform/consent-cache.js", () => ({
-  getCachedShareAnalytics: () => shareAnalytics,
+  getCachedShareAnalytics: () => shareAnalytics === true,
+  getRawShareAnalytics: () => shareAnalytics,
 }));
 
 let platformEnabled = true;
@@ -84,10 +87,16 @@ describe("emitWatchdogEventDirect", () => {
     });
   });
 
-  test("sends nothing when share_analytics is opted out", async () => {
+  test("sends nothing when share_analytics is a confirmed opt-out", async () => {
     shareAnalytics = false;
     await emitWatchdogEventDirect("sqlite_corrupted", { database: "main" });
     expect(fetchCalls).toHaveLength(0);
+  });
+
+  test("emits while consent is unknown (no buffer to defer into)", async () => {
+    shareAnalytics = "unknown";
+    await emitWatchdogEventDirect("sqlite_corrupted", { database: "main" });
+    expect(fetchCalls).toHaveLength(1);
   });
 
   test("sends nothing when platform features are disabled", async () => {

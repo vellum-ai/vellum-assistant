@@ -60,6 +60,16 @@ describe("config-setting-snapshot", () => {
     expect(recordedPairs()).toEqual([["memory.v2.enabled", "false"]]);
   });
 
+  test("unknown consent records the snapshot (a cold cache never drops data)", () => {
+    setShareAnalytics("unknown");
+    recordConfigSettingSnapshot(makeConfig(true, false));
+
+    expect(recordedPairs().sort()).toEqual([
+      ["memory.enabled", "true"],
+      ["memory.v2.enabled", "false"],
+    ]);
+  });
+
   test("consent off drops the snapshot without poisoning the memo", () => {
     setShareAnalytics(false);
     recordConfigSettingSnapshot(makeConfig(true, true));

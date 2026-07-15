@@ -9,11 +9,12 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { LifecycleEvent } from "../../persistence/lifecycle-events-store.js";
+import type { ConsentState } from "../../platform/consent-cache.js";
 
 const checkpoints = new Map<string, string>();
 const recordedEvents: string[] = [];
 let fakeEnabledWatchers: Array<{ providerId: string }> = [];
-let shareAnalytics = true;
+let shareAnalytics: ConsentState = true;
 const recordAndReturnEvent = (name: string): LifecycleEvent => {
   recordedEvents.push(name);
   return { id: "evt-1", eventName: name, createdAt: 0 };
@@ -32,7 +33,8 @@ mock.module("../../persistence/lifecycle-events-store.js", () => ({
 }));
 
 mock.module("../../platform/consent-cache.js", () => ({
-  getCachedShareAnalytics: () => shareAnalytics,
+  getCachedShareAnalytics: () => shareAnalytics === true,
+  getRawShareAnalytics: () => shareAnalytics,
 }));
 
 mock.module("../watcher-store.js", () => ({
@@ -135,16 +137,28 @@ describe("recordWatcherInventoryIfDue", () => {
     expect(checkpoints.get(INVENTORY_KEY)).toBe(String(BASE + 3));
   });
 
-  test("advances the checkpoint when consent is off", () => {
+  test("advances the checkpoint when consent is a confirmed opt-out", () => {
     fakeEnabledWatchers = [{ providerId: "gmail" }];
     shareAnalytics = false;
-    // Consent-off skip: the store records nothing and returns null.
+    // Confirmed-opt-out skip: the store records nothing and returns null.
     recordImpl = () => null;
 
     recordWatcherInventoryIfDue(BASE + 4);
 
     expect(recordedEvents).toEqual([]);
     expect(checkpoints.get(INVENTORY_KEY)).toBe(String(BASE + 4));
+  });
+
+  test("leaves the checkpoint for retry when the store returns null while consent is unknown", () => {
+    fakeEnabledWatchers = [{ providerId: "gmail" }];
+    shareAnalytics = "unknown";
+    // Unknown consent never drops at record time, so a null here means the
+    // telemetry DB is unavailable — retry, don't skip a day.
+    recordImpl = () => null;
+
+    recordWatcherInventoryIfDue(BASE + 4);
+
+    expect(checkpoints.get(INVENTORY_KEY)).toBeUndefined();
   });
 });
 

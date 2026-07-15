@@ -1,14 +1,17 @@
 import { beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 
-// Toggle for the share_analytics opt-out the real store consults. The store
+import type { ConsentState } from "../platform/consent-cache.js";
+
+// Toggle for the share_analytics consent the real store consults. The store
 // module is intentionally NOT mocked here — it has its own DB-backed tests, and
 // Bun's `mock.module` is process-global, so mocking it would leak into those
 // tests when files share an invocation. Exercising the real store keeps every
 // auth-fallback test order-independent.
-let shareAnalytics = true;
+let shareAnalytics: ConsentState = true;
 
 mock.module("../platform/consent-cache.js", () => ({
-  getCachedShareAnalytics: () => shareAnalytics,
+  getCachedShareAnalytics: () => shareAnalytics === true,
+  getRawShareAnalytics: () => shareAnalytics,
 }));
 
 // The watchdog relay must go through the direct (unbuffered) emit; capture the
@@ -104,10 +107,16 @@ describe("internal-telemetry-routes: auth-fallback", () => {
     });
   });
 
-  test("returns skipped and persists nothing under the opt-out", () => {
+  test("returns skipped and persists nothing under a confirmed opt-out", () => {
     shareAnalytics = false;
     expect(call(VALID_BODY)).toEqual({ skipped: true });
     expect(pendingAuthFallbackPayloads().length).toBe(0);
+  });
+
+  test("records the batch while consent is unknown (a cold cache never drops data)", () => {
+    shareAnalytics = "unknown";
+    expect(call(VALID_BODY)).toEqual({ recorded: 1 });
+    expect(pendingAuthFallbackPayloads().length).toBe(1);
   });
 
   test("throws 503 when consent is on but the telemetry DB is unavailable, so the gateway re-queues", () => {
@@ -121,6 +130,17 @@ describe("internal-telemetry-routes: auth-fallback", () => {
 
     // Once the DB is back the same batch records normally.
     expect(call(VALID_BODY)).toEqual({ recorded: 1 });
+  });
+
+  test("throws 503 (not skipped) when consent is unknown and the telemetry DB is unavailable", () => {
+    shareAnalytics = "unknown";
+    const spy = spyOn(dbConnection, "getTelemetryDb").mockReturnValue(null);
+    try {
+      expect(() => call(VALID_BODY)).toThrow(ServiceUnavailableError);
+    } finally {
+      spy.mockRestore();
+    }
+    expect(pendingAuthFallbackPayloads().length).toBe(0);
   });
 
   test("rejects a malformed body without persisting", () => {
