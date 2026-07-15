@@ -104,6 +104,20 @@ function labelForEdge(edge: { kind: string; description?: string }): string {
   return edge.description ?? "Linked concepts";
 }
 
+// Recency-lens staleness test: a node/point is stale when its last-update
+// timestamp falls outside the active window. With no window set (windowMs ==
+// null) nothing is stale; a missing timestamp counts as stale/older.
+function isStale(
+  updatedAtMs: number | undefined,
+  windowMs: number | null,
+  now: number,
+): boolean {
+  if (windowMs == null) {
+    return false;
+  }
+  return updatedAtMs == null || now - updatedAtMs > windowMs;
+}
+
 export interface ConceptGraphViewProps {
   assistantId: string;
   className?: string;
@@ -160,6 +174,35 @@ export function ConceptGraphView({
     () => detectClusters(layout.nodes, layout.edges),
     [layout.nodes, layout.edges],
   );
+
+  // One label per theme: the highest-degree node in each cluster is its hub, so
+  // even small clusters (every node below the hub-label degree threshold) get a
+  // name. Ties break to the lowest id for determinism. The render loop
+  // force-labels these ids so a theme always reads with at least one word.
+  // Disconnected nodes (degree 0) each form their own singleton cluster; they're
+  // not themes, so skipping them keeps orphans from turning into label soup.
+  const clusterHubs = useMemo(() => {
+    const bestByCluster = new Map<number, GraphLayoutNode>();
+    for (const node of layout.nodes) {
+      const cluster = clusters.get(node.id);
+      if (cluster == null || node.degree === 0) {
+        continue;
+      }
+      const current = bestByCluster.get(cluster);
+      if (
+        !current ||
+        node.degree > current.degree ||
+        (node.degree === current.degree && node.id < current.id)
+      ) {
+        bestByCluster.set(cluster, node);
+      }
+    }
+    const hubIds = new Set<string>();
+    for (const node of bestByCluster.values()) {
+      hubIds.add(node.id);
+    }
+    return hubIds;
+  }, [clusters, layout.nodes]);
 
   // Neighbor adjacency for hover highlighting.
   const adjacency = useMemo(() => {
@@ -266,12 +309,6 @@ export function ConceptGraphView({
     filterRef.current = { active: Boolean(matchIds), matches: matchIds };
     view.current.dirty = true;
   }, [matchIds]);
-  // Reset the search when the active assistant changes: this component is reused
-  // across assistants (IdentityTab doesn't key it), so a stale query would
-  // otherwise filter the new assistant's graph and ghost every node.
-  useEffect(() => {
-    setSearch("");
-  }, [assistantId]);
   // Reset the "search started" latch whenever the box empties — by keystroke,
   // the clear button, Escape, or an assistant switch — so the next search
   // re-emits its start event.
@@ -298,17 +335,19 @@ export function ConceptGraphView({
   // lives in a ref the 60fps loop reads (so segment clicks don't re-run it), and
   // `dirty` is bumped whenever it changes so reduced-motion redraws.
   const [recency, setRecency] = useState<RecencyWindow>("all");
-  const recencyRef = useRef<{ windowMs: number | null }>({ windowMs: null });
+  const recencyRef = useRef<number | null>(null);
   useEffect(() => {
-    recencyRef.current.windowMs =
+    recencyRef.current =
       recency === "week" ? 7 * DAY_MS : recency === "month" ? 30 * DAY_MS : null;
     view.current.dirty = true;
   }, [recency]);
-  // Reset the window on assistant switch (mirrors the search reset above), so a
-  // stale window doesn't ghost the new assistant's freshly-loaded concepts.
-  useEffect(() => {
-    setRecency("all");
-  }, [assistantId]);
+  // Whether any node carries a recency timestamp. Without one the lens has
+  // nothing to narrow by — showing it would let Week/Month ghost the entire
+  // graph — so the lens stays hidden.
+  const hasRecencyData = useMemo(
+    () => layout.nodes.some((n) => n.updatedAtMs != null),
+    [layout.nodes],
+  );
 
   // Edge-kind filter: toggle authored (link) vs behavioral (learned) edges to
   // declutter. The active flags live in a ref the 60fps loop reads (so a toggle
@@ -320,10 +359,15 @@ export function ConceptGraphView({
     edgeFilterRef.current = edgeFilter;
     view.current.dirty = true;
   }, [edgeFilter]);
-  // Reset on assistant switch (mirrors the search/recency resets), so a hidden
-  // kind doesn't carry over and blank out edges on the new assistant's graph.
+  // Reset every lens when the active assistant changes: this component is reused
+  // across assistants (IdentityTab doesn't key it), so a stale search, recency
+  // window, or hidden edge kind would otherwise ghost/blank the new assistant's
+  // freshly-loaded graph.
   useEffect(() => {
+    setSearch("");
+    setRecency("all");
     setEdgeFilter({ link: true, learned: true });
+    searchEmittedRef.current = false;
   }, [assistantId]);
 
   const labelFor = useCallback(
@@ -374,6 +418,7 @@ export function ConceptGraphView({
     const nodes = layout.nodes;
     const edges = layout.edges;
     const nodeClusters = clusters;
+    const hubIds = clusterHubs;
     const adj = adjacency;
     const R = massRadius;
 
@@ -486,10 +531,9 @@ export function ConceptGraphView({
 
       // Recency lens: when a window is set, concepts not updated within it ghost
       // (like non-search-matches). A missing timestamp counts as stale/older.
-      const recencyWindowMs = recencyRef.current.windowMs;
+      const recencyWindowMs = recencyRef.current;
       const isRecencyGhost = (n: GraphLayoutNode) =>
-        recencyWindowMs != null &&
-        (!n.updatedAtMs || nowMs - n.updatedAtMs > recencyWindowMs);
+        isStale(n.updatedAtMs, recencyWindowMs, nowMs);
 
       // Edge-kind toggle: a hidden kind is skipped entirely below.
       const edgeKinds = edgeFilterRef.current;
@@ -617,9 +661,9 @@ export function ConceptGraphView({
         const updatedAtMs = node.updatedAtMs;
         if (updatedAtMs) {
           const age = nowMs - updatedAtMs;
-          const recency = Math.max(0, 1 - age / RECENCY_GLOW_WINDOW_MS);
-          if (recency > 0) {
-            let boost = recency * RECENCY_GLOW_MAX;
+          const freshness = Math.max(0, 1 - age / RECENCY_GLOW_WINDOW_MS);
+          if (freshness > 0) {
+            let boost = freshness * RECENCY_GLOW_MAX;
             if (!reduceMotion && age < PULSE_WINDOW_MS) {
               boost *= 0.55 + 0.45 * Math.sin(t / 420 + idx * 1.7);
             }
@@ -651,7 +695,8 @@ export function ConceptGraphView({
         const p = proj[idx];
         const node = p.node;
         // When nothing is focused, only label front-facing hubs (depth-gated) so
-        // the dense middle of the mass doesn't turn into unreadable label soup.
+        // the dense middle of the mass doesn't turn into unreadable label soup —
+        // but always label each cluster's hub so every theme reads with a name.
         // While searching, label the matches instead (that's what you're after).
         // Ghosted nodes (search or recency) never get labels.
         if ((searchActive && !isMatch(node.id)) || isRecencyGhost(node)) {continue;}
@@ -659,7 +704,8 @@ export function ConceptGraphView({
           ? p.depth > 0.3
           : activeId != null
             ? isLit(node.id)
-            : node.degree >= HUB_LABEL_DEGREE && p.depth > 0.55;
+            : hubIds.has(node.id) ||
+              (node.degree >= HUB_LABEL_DEGREE && p.depth > 0.55);
         if (!showLabel) {continue;}
         ctx.globalAlpha = (node.id === activeId ? 1 : 0.85) * (0.4 + 0.6 * p.depth);
         ctx.fillStyle = colors.content;
@@ -686,7 +732,7 @@ export function ConceptGraphView({
       cancelAnimationFrame(raf);
       ro.disconnect();
     };
-  }, [ready, layout, adjacency, massRadius, clusters]);
+  }, [ready, layout, adjacency, massRadius, clusters, clusterHubs]);
 
   // Nearest node under a screen point; nearest-in-front wins. Ghosted nodes are
   // skipped so hover/click land on a live node, not a faded background one: both
@@ -694,16 +740,13 @@ export function ConceptGraphView({
   // (a missing timestamp counts as stale). Mirrors the render-loop ghosting.
   const hitTest = useCallback((x: number, y: number): string | null => {
     const filter = filterRef.current;
-    const recencyWindowMs = recencyRef.current.windowMs;
+    const recencyWindowMs = recencyRef.current;
     const now = Date.now();
     let best: string | null = null;
     let bestDepth = -1;
     for (const p of projectedRef.current) {
       if (filter.active && !(filter.matches?.has(p.id) ?? false)) {continue;}
-      if (
-        recencyWindowMs != null &&
-        (!p.updatedAtMs || now - p.updatedAtMs > recencyWindowMs)
-      ) {
+      if (isStale(p.updatedAtMs, recencyWindowMs, now)) {
         continue;
       }
       const dx = x - p.sx;
@@ -759,6 +802,9 @@ export function ConceptGraphView({
     if (e.button !== 0) {return;}
     if ((e.target as HTMLElement).closest("[data-graph-control]")) {return;}
     const v = view.current;
+    // A user grab takes control immediately: cancel any in-flight search
+    // jump-to ease so the drag isn't fighting the camera each frame.
+    focusTargetRef.current = null;
     v.dragging = true;
     v.moved = false;
     v.lastX = e.clientX;
@@ -1017,8 +1063,12 @@ export function ConceptGraphView({
             while a non-"all" window is active even if the graph shrank below the
             threshold (e.g. a refetch), so an active window is always resettable
             — mirrors the search box's own guard. */}
-        {layout.nodes.length > SEARCH_MIN_NODES || recency !== "all" ? (
-          <div className={`absolute top-14 z-10 ${onToggleFullscreen ? "left-16" : "left-4"}`}>
+        {(layout.nodes.length > SEARCH_MIN_NODES || recency !== "all") &&
+        hasRecencyData ? (
+          <div
+            data-graph-control
+            className={`absolute top-14 z-10 ${onToggleFullscreen ? "left-16" : "left-4"}`}
+          >
             <RecencyLens value={recency} onChange={setRecency} />
           </div>
         ) : null}
