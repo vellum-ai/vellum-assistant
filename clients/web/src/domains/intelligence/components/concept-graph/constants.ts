@@ -10,6 +10,26 @@ export const NODE_KIND_COLORS: Record<ConceptNodeKind, string> = {
   other: "#8D99A5",
 };
 
+/** Categorical fills for concept clusters/themes, indexed by the compact
+ * cluster id from `detectClusters`. Ten distinct hues, ordered so adjacent
+ * cluster ids (0,1,2,…) contrast strongly, tuned bright enough to read on the
+ * dark graph surface. These are data-viz *series* colors — semantic by cluster,
+ * not by theme surface — so raw hex is correct here (see STYLE_GUIDE "Color →
+ * When raw hex is acceptable" and the `BAR_CHART_PALETTE` precedent). Callers
+ * index modulo the length; `NODE_KIND_COLORS` stays as the per-kind fallback. */
+export const CLUSTER_PALETTE: string[] = [
+  "#5B8DEF", // blue
+  "#FB923C", // orange
+  "#2DD4BF", // teal
+  "#F472B6", // pink
+  "#A3E635", // lime
+  "#C084FC", // violet
+  "#FACC15", // yellow
+  "#38BDF8", // sky
+  "#F87171", // red
+  "#4ADE80", // green
+];
+
 export const NODE_KIND_LABELS: Record<ConceptNodeKind, string> = {
   concept: "Concept",
   skill: "Skill",

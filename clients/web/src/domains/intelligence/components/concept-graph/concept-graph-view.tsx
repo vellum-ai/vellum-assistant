@@ -18,7 +18,8 @@ import { buildForceLayout } from "./build-force-layout";
 import { ConceptDetailPanel, type ConceptDetailNode } from "./concept-detail-panel";
 import { ConceptGraphIntroBanner } from "./concept-graph-intro-banner";
 import { ConceptGraphLegend } from "./concept-graph-legend";
-import { EDGE_LEARNED_COLOR, NODE_KIND_COLORS } from "./constants";
+import { CLUSTER_PALETTE, EDGE_LEARNED_COLOR, NODE_KIND_COLORS } from "./constants";
+import { detectClusters } from "./detect-clusters";
 import type { ConceptNodeKind, GraphLayoutNode } from "./types";
 import { useGraphIntroDismissed } from "./use-graph-intro-dismissed";
 
@@ -128,6 +129,13 @@ export function ConceptGraphView({
     [graph],
   );
   const ready = query.data?.kind === "ready" && layout.nodes.length > 0;
+
+  // Group concepts into themes so the map reads as colored clusters instead of
+  // one flat color. Deterministic (see detect-clusters), so no render churn.
+  const clusters = useMemo(
+    () => detectClusters(layout.nodes, layout.edges),
+    [layout.nodes, layout.edges],
+  );
 
   // Neighbor adjacency for hover highlighting.
   const adjacency = useMemo(() => {
@@ -260,6 +268,7 @@ export function ConceptGraphView({
     // this loop) whenever the data changes, so these never go stale.
     const nodes = layout.nodes;
     const edges = layout.edges;
+    const nodeClusters = clusters;
     const adj = adjacency;
     const R = massRadius;
 
@@ -412,7 +421,12 @@ export function ConceptGraphView({
       for (const idx of order) {
         const p = proj[idx];
         const node = p.node;
-        const color = NODE_KIND_COLORS[node.kind];
+        // Concepts are colored by their detected theme/cluster; any non-concept
+        // node falls back to its per-kind color.
+        const color =
+          node.kind === "concept"
+            ? CLUSTER_PALETTE[(nodeClusters.get(node.id) ?? 0) % CLUSTER_PALETTE.length]
+            : NODE_KIND_COLORS[node.kind];
         const ghost = searchActive && !isMatch(node.id);
         const lit = !ghost && isLit(node.id);
         const isActive = node.id === activeId;
@@ -491,7 +505,7 @@ export function ConceptGraphView({
       cancelAnimationFrame(raf);
       ro.disconnect();
     };
-  }, [ready, layout, adjacency, massRadius]);
+  }, [ready, layout, adjacency, massRadius, clusters]);
 
   // Nearest node under a screen point; nearest-in-front wins. While a search is
   // active, ghosted (non-matching) nodes are skipped so hover/click land on a
@@ -716,7 +730,8 @@ export function ConceptGraphView({
         ) : null}
 
         <ConceptGraphLegend
-          nodeKinds={presentKinds.length > 1 ? presentKinds : []}
+          nodeKinds={presentKinds.filter((k) => k !== "concept")}
+          coloredByTheme={presentKinds.includes("concept")}
           hasLinks={hasLinks}
           hasLearned={hasLearned}
         />
