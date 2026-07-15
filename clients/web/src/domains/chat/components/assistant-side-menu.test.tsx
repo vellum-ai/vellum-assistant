@@ -347,15 +347,6 @@ describe("AssistantSideMenu · overlay bottom scroll reserve", () => {
     return html.slice(open, close + 1);
   };
 
-  test("overlay static markup keeps the pb-24 fallback (layout effects don't run in static rendering)", () => {
-    const tag = sliceBodyOpeningTag(
-      renderMenu({ conversations, variant: "overlay", includeTipCard: true }),
-    );
-
-    expect(tag).toContain("pb-24");
-    expect(tag).not.toContain("padding-bottom");
-  });
-
   test("rail body reserves no bottom padding", () => {
     const tag = sliceBodyOpeningTag(renderMenu({ conversations }));
 

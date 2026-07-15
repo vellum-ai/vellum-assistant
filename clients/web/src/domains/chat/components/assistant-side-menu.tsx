@@ -229,9 +229,7 @@ export function AssistantSideMenu({
     const observer = new ResizeObserver(updateHeight);
     observer.observe(el);
     return () => observer.disconnect();
-    // `tipCard` re-runs the initial measure on card mount/unmount as a
-    // fallback for environments without ResizeObserver.
-  }, [variant, tipCard]);
+  }, [variant]);
 
   // --- Drag-reorder (Pinned + custom groups; sections sorted by displayOrder) ---
 
@@ -414,9 +412,8 @@ export function AssistantSideMenu({
         <SideMenu.Body
           className={
             variant === "overlay"
-              /* pb-24 approximates the floating-column reserve until the
-                 measured inline padding below takes over (layout effects
-                 don't run in static/server markup). */
+              /* pb-24 is a coarse floating-column reserve until the measured
+                 inline padding below is applied. */
               ? "gap-4 pt-3 pb-24 max-md:pt-4"
               : "gap-4 pt-3 max-md:pt-4"
           }
