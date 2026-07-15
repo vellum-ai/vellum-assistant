@@ -42,7 +42,7 @@ informing us of live clients in use so we can delete old cold paths incrementall
 
 ## How a gate is detected
 
-`utils.ts` exposes three variants, all reading the active assistant
+`utils.ts` exposes four variants, all reading the active assistant
 version off the identity store. Pick by call site:
 
 - **`useAssistantSupports(minVersion): boolean`** — the hook. Subscribes
