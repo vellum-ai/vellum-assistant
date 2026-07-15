@@ -130,6 +130,12 @@ export const routes = {
       dyn(r("/assistant/schedules"), scheduleId),
   },
   identity: r("/assistant/identity"),
+  /**
+   * Slider-based personality editor, drilled into from the assistant
+   * overview (`identity`). Lives alongside the other About Assistant
+   * sections so it inherits the shared drill-down chrome.
+   */
+  personality: r("/assistant/personality"),
   memory: r("/assistant/memory"),
   plugins: r("/assistant/plugins"),
   /**
@@ -218,6 +224,7 @@ export const routes = {
  */
 const ABOUT_ASSISTANT_PATHS: readonly string[] = [
   routes.identity,
+  routes.personality,
   routes.memory,
   routes.plugins,
   routes.skills.root,
