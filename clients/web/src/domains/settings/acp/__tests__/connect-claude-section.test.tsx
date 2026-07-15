@@ -19,8 +19,10 @@ import type { ReactNode } from "react";
 let flagEnabled = true;
 
 const openUrl = mock(async (_url: string) => {});
+const openUrlInNewTab = mock(async (_url: string) => {});
 mock.module("@/runtime/browser", () => ({
   openUrl,
+  openUrlInNewTab,
   openUrlFinishedListener: () => () => {},
 }));
 
@@ -93,6 +95,7 @@ const { ConnectClaudeSection } = await import("../connect-claude-section");
 beforeEach(() => {
   flagEnabled = true;
   openUrl.mockClear();
+  openUrlInNewTab.mockClear();
   startConnectClaude.mockClear();
   startConnectClaude.mockImplementation(async () => ({
     mode: "loopback",
@@ -133,6 +136,8 @@ describe("ConnectClaudeSection", () => {
       expect(openUrl).toHaveBeenCalledWith("https://claude.ai/oauth?x=1"),
     );
     expect(startConnectClaude).toHaveBeenCalledWith("assistant-123");
+    // Loopback stays in the same tab (the daemon captures the callback).
+    expect(openUrlInNewTab).not.toHaveBeenCalled();
 
     await waitFor(
       () => expect(screen.getByText("Claude Code connected.")).not.toBeNull(),
@@ -160,7 +165,13 @@ describe("ConnectClaudeSection", () => {
       screen.getByRole("button", { name: "Connect Claude Code" }),
     );
 
+    // Manual mode opens a NEW tab, never same-tab navigation — same-tab would
+    // unload this page and destroy the pending state + paste field below.
     const input = await screen.findByPlaceholderText("Paste code here...");
+    expect(openUrlInNewTab).toHaveBeenCalledWith("https://claude.ai/oauth?x=2");
+    expect(openUrl).not.toHaveBeenCalled();
+
+    // The paste field survives the open and stays usable.
     fireEvent.change(input, { target: { value: "code-123#state-xyz" } });
 
     fireEvent.click(

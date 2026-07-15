@@ -17,6 +17,7 @@ let flagEnabled = true;
 
 mock.module("@/runtime/browser", () => ({
   openUrl: async (_url: string) => {},
+  openUrlInNewTab: async (_url: string) => {},
   openUrlFinishedListener: () => () => {},
 }));
 
