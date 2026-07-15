@@ -19,7 +19,7 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 
 import {
-  isGeneratedAppBuildDir,
+  GENERATED_APP_BUILD_DIR,
   walkPluginTree,
 } from "../../plugins/plugin-tree-walk.js";
 
@@ -69,7 +69,7 @@ export function computeFingerprint(
   const files: Record<string, string> = {};
   walkPluginTree(
     root,
-    { excludeRootEntries: exclude, excludeDir: isGeneratedAppBuildDir },
+    { excludeRootEntries: [...exclude, GENERATED_APP_BUILD_DIR] },
     (rel, abs) => {
       files[rel] = hashFile(abs);
     },
@@ -187,7 +187,7 @@ export function computeContentHash(
   const entries: Array<{ rel: string; abs: string }> = [];
   walkPluginTree(
     root,
-    { excludeRootEntries: exclude, excludeDir: isGeneratedAppBuildDir },
+    { excludeRootEntries: [...exclude, GENERATED_APP_BUILD_DIR] },
     (rel, abs) => {
       entries.push({ rel, abs });
     },
