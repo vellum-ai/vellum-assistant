@@ -37,6 +37,8 @@ import {
   getCachedShareAnalytics,
   getCachedShareDiagnostics,
   getCachedShareDiagnosticsVersion,
+  getRawShareAnalytics,
+  getRawShareDiagnostics,
   refreshConsentCache,
   startConsentRefresh,
   stopConsentRefresh,
@@ -69,8 +71,9 @@ describe("consent-cache", () => {
     // Legacy fail-closed opt-out marker read via getConfigReadOnly(). Default
     // off so existing behavior is unchanged.
     setConfig("legacyTelemetryOptOut", false);
-    __setCachedShareAnalyticsForTest(false);
-    __setCachedShareDiagnosticsForTest(false);
+    // Boot state: no confirmed consent yet.
+    __setCachedShareAnalyticsForTest("unknown");
+    __setCachedShareDiagnosticsForTest("unknown");
     __setCachedShareDiagnosticsVersionForTest("");
   });
 
@@ -78,13 +81,15 @@ describe("consent-cache", () => {
     await stopConsentRefresh();
   });
 
-  test("defaults to false before any refresh", () => {
+  test("boot state is unknown; public accessor reads false", () => {
+    expect(getRawShareAnalytics()).toBe("unknown");
     expect(getCachedShareAnalytics()).toBe(false);
   });
 
-  test("stays false when no platform client is available", async () => {
+  test("no platform client available → unknown; public accessor reads false", async () => {
     mockClient = null;
     await refreshConsentCache();
+    expect(getRawShareAnalytics()).toBe("unknown");
     expect(getCachedShareAnalytics()).toBe(false);
   });
 
@@ -92,6 +97,7 @@ describe("consent-cache", () => {
     mockClient = makeClient(makeConsent({ shareAnalytics: true }));
     await refreshConsentCache();
     expect(getCachedShareAnalytics()).toBe(true);
+    expect(getRawShareAnalytics()).toBe(true);
   });
 
   test("a null fetch keeps the last known value", async () => {
@@ -105,20 +111,40 @@ describe("consent-cache", () => {
     expect(getCachedShareAnalytics()).toBe(true);
   });
 
-  test("a missing client flips a prior opt-in back to false", async () => {
+  test("a null fetch keeps a confirmed opt-out", async () => {
+    mockClient = makeClient(makeConsent({ shareAnalytics: false }));
+    await refreshConsentCache();
+    expect(getRawShareAnalytics()).toBe(false);
+
+    mockClient = makeClient(null);
+    await refreshConsentCache();
+    expect(getRawShareAnalytics()).toBe(false);
+  });
+
+  test("a null fetch keeps the boot unknown state", async () => {
+    mockClient = makeClient(null);
+    await refreshConsentCache();
+    expect(getRawShareAnalytics()).toBe("unknown");
+    expect(getRawShareDiagnostics()).toBe("unknown");
+  });
+
+  test("a missing client demotes a prior opt-in to unknown (public accessor reads false)", async () => {
     __setCachedShareAnalyticsForTest(true);
     mockClient = null;
     await refreshConsentCache();
+    expect(getRawShareAnalytics()).toBe("unknown");
     expect(getCachedShareAnalytics()).toBe(false);
   });
 
-  test("a client without a resolvable assistant identity fails closed", async () => {
+  test("a client without a resolvable assistant identity demotes to unknown", async () => {
     __setCachedShareAnalyticsForTest(true);
     // Identity cleared mid-session (e.g. assistantId emptied while base URL +
     // API key persist). getOwnerConsent must not be relied upon to preserve the
-    // prior opt-in here — fail closed instead.
+    // prior opt-in here — losing the owner mapping is not an opt-out, but the
+    // stale opt-in must not keep riding either.
     mockClient = makeClient(makeConsent({ shareAnalytics: true }), "");
     await refreshConsentCache();
+    expect(getRawShareAnalytics()).toBe("unknown");
     expect(getCachedShareAnalytics()).toBe(false);
   });
 
@@ -126,8 +152,10 @@ describe("consent-cache", () => {
     setConfig("legacyTelemetryOptOut", true);
     mockClient = makeClient(makeConsent({ shareAnalytics: true }));
     await refreshConsentCache();
-    // Platform reports opt-in, but the fail-closed marker forces off.
+    // Platform reports opt-in, but the fail-closed marker forces off. The raw
+    // accessor folds the marker into a confirmed false, not an unknown.
     expect(getCachedShareAnalytics()).toBe(false);
+    expect(getRawShareAnalytics()).toBe(false);
   });
 
   test("a fetch reporting shareAnalytics: false turns the cache off", async () => {
@@ -135,6 +163,7 @@ describe("consent-cache", () => {
     mockClient = makeClient(makeConsent({ shareDiagnostics: true }));
     await refreshConsentCache();
     expect(getCachedShareAnalytics()).toBe(false);
+    expect(getRawShareAnalytics()).toBe(false);
   });
 
   test("startConsentRefresh is idempotent and runs an immediate refresh", async () => {
@@ -162,7 +191,8 @@ describe("consent-cache", () => {
 
   // share_diagnostics tracks the same refresh as share_analytics; Sentry's
   // beforeSend re-reads it per event so a revocation is honored within a cycle.
-  test("diagnostics defaults to false before any refresh", () => {
+  test("diagnostics boots unknown; public accessor reads false", () => {
+    expect(getRawShareDiagnostics()).toBe("unknown");
     expect(getCachedShareDiagnostics()).toBe(false);
   });
 
@@ -170,6 +200,7 @@ describe("consent-cache", () => {
     mockClient = makeClient(makeConsent({ shareDiagnostics: true }));
     await refreshConsentCache();
     expect(getCachedShareDiagnostics()).toBe(true);
+    expect(getRawShareDiagnostics()).toBe(true);
   });
 
   test("a later fetch reporting shareDiagnostics: false honors the revocation", async () => {
@@ -180,6 +211,7 @@ describe("consent-cache", () => {
     mockClient = makeClient(makeConsent({ shareDiagnostics: false }));
     await refreshConsentCache();
     expect(getCachedShareDiagnostics()).toBe(false);
+    expect(getRawShareDiagnostics()).toBe(false);
   });
 
   test("a null diagnostics fetch keeps the last known value", async () => {
@@ -192,17 +224,19 @@ describe("consent-cache", () => {
     expect(getCachedShareDiagnostics()).toBe(true);
   });
 
-  test("a missing client flips a prior diagnostics opt-in back to false", async () => {
+  test("a missing client demotes a prior diagnostics opt-in to unknown (public accessor reads false)", async () => {
     __setCachedShareDiagnosticsForTest(true);
     mockClient = null;
     await refreshConsentCache();
+    expect(getRawShareDiagnostics()).toBe("unknown");
     expect(getCachedShareDiagnostics()).toBe(false);
   });
 
-  test("a client without a resolvable assistant identity fails diagnostics closed", async () => {
+  test("a client without a resolvable assistant identity demotes diagnostics to unknown", async () => {
     __setCachedShareDiagnosticsForTest(true);
     mockClient = makeClient(makeConsent({ shareDiagnostics: true }), "");
     await refreshConsentCache();
+    expect(getRawShareDiagnostics()).toBe("unknown");
     expect(getCachedShareDiagnostics()).toBe(false);
   });
 
@@ -250,5 +284,29 @@ describe("consent-cache", () => {
     mockClient = makeClient(null);
     await refreshConsentCache();
     expect(getCachedShareDiagnosticsVersion()).toBe("2026-06-18");
+  });
+
+  test("public accessors collapse unknown to false; raw accessors expose the tri-state", async () => {
+    // Refresh once so the module's legacy opt-out marker reflects the
+    // beforeEach config (the marker is only re-read during a refresh).
+    mockClient = null;
+    await refreshConsentCache();
+
+    for (const state of [true, false, "unknown"] as const) {
+      __setCachedShareAnalyticsForTest(state);
+      __setCachedShareDiagnosticsForTest(state);
+      expect(getCachedShareAnalytics()).toBe(state === true);
+      expect(getCachedShareDiagnostics()).toBe(state === true);
+      expect(getRawShareAnalytics()).toBe(state);
+      expect(getRawShareDiagnostics()).toBe(state);
+    }
+  });
+
+  test("legacy opt-out marker folds the raw analytics state to false (diagnostics unaffected)", async () => {
+    setConfig("legacyTelemetryOptOut", true);
+    mockClient = null;
+    await refreshConsentCache();
+    expect(getRawShareAnalytics()).toBe(false);
+    expect(getRawShareDiagnostics()).toBe("unknown");
   });
 });

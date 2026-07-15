@@ -152,7 +152,7 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "Record onboarding-research event",
     description:
-      'Record the settled result of an onboarding "research me" web-search turn (claims, suggestions, and plugin picks). Client-orchestrated: the web client reports this once it has observed the turn complete. Gated on share_diagnostics consent (in addition to share_analytics) since the payload carries the model\'s raw inferred claims about the user.',
+      'Record the settled result of an onboarding "research me" web-search turn (claims, suggestions, and plugin picks). Client-orchestrated: the web client reports this once it has observed the turn complete. Gated on share_analytics consent like every other outbox-backed event; the platform re-checks the owner\'s consent server-side at ingest.',
     tags: ["telemetry"],
     requestBody: onboardingResearchRequestSchema,
     responseBody: z.union([
@@ -161,7 +161,7 @@ export const ROUTES: RouteDefinition[] = [
         skipped: z
           .literal(true)
           .describe(
-            "Event skipped: usage data collection or diagnostics consent is disabled/ineligible",
+            "Event skipped: usage data collection is disabled or the telemetry database is unavailable",
           ),
       }),
     ]),

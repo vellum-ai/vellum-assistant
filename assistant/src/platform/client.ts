@@ -18,11 +18,9 @@ let _missingPrereqsWarned = false;
 
 export interface OwnerConsent {
   /**
-   * Telemetry is opt-out: a null wire value (the owner was never shown the
-   * choice) maps to `true` here — only an explicit opt-out disables sharing.
-   * A `false` accompanied by `share_analytics_chosen: false` is the platform
-   * coercing a never-chose null to a strict boolean, not a real opt-out, so
-   * it also maps to `true`.
+   * Telemetry is opt-out: the owner-consent endpoint returns effective
+   * values (a never-chose null is served as consented), so an explicit
+   * `false` is the only thing that disables sharing.
    */
   shareAnalytics: boolean;
   /** Same opt-out semantics as {@link shareAnalytics}. */
@@ -132,10 +130,11 @@ export class VellumPlatformClient {
   /**
    * Fetch the platform owner's telemetry consent for this assistant.
    *
+   * The endpoint returns effective consent values (a never-chose null is
+   * served as consented); an explicit `false` is the only disable.
+   *
    * Returns `null` whenever the consent is unknown — missing assistant id,
-   * any non-2xx response (e.g. 404 before the endpoint is deployed), a
-   * malformed body, or a network error. Callers treat `null` as default-off.
-   * Never throws.
+   * any non-2xx response, a malformed body, or a network error. Never throws.
    */
   async getOwnerConsent(): Promise<OwnerConsent | null> {
     if (!this.assistantId) {
@@ -156,9 +155,7 @@ export class VellumPlatformClient {
 
       const body = (await res.json()) as {
         share_analytics?: unknown;
-        share_analytics_chosen?: unknown;
         share_diagnostics?: unknown;
-        share_diagnostics_chosen?: unknown;
         share_diagnostics_accepted_version?: unknown;
       };
       if (
@@ -172,16 +169,9 @@ export class VellumPlatformClient {
       }
 
       return {
-        // Opt-out: anything but an explicit false enables sharing. A false
-        // with `*_chosen: false` is a platform-coerced never-chose default
-        // (not a real opt-out), so it enables too. An absent `*_chosen`
-        // (older platform) leaves false authoritative.
-        shareAnalytics:
-          body.share_analytics !== false ||
-          body.share_analytics_chosen === false,
-        shareDiagnostics:
-          body.share_diagnostics !== false ||
-          body.share_diagnostics_chosen === false,
+        // Opt-out: anything but an explicit false enables sharing.
+        shareAnalytics: body.share_analytics !== false,
+        shareDiagnostics: body.share_diagnostics !== false,
         // Back-compat: an older platform that doesn't return this field yields
         // "" → fails the trace-collection version gate → fail-closed (no trace).
         shareDiagnosticsAcceptedVersion:
