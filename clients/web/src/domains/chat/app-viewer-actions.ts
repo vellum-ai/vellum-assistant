@@ -2,12 +2,14 @@
  * Handles actions a sandboxed app viewer dispatches through
  * `window.vellum.sendAction(actionId, data)`. Two independent actions:
  *
- * - `relay_prompt` ({ prompt, conversation }) — sends `prompt` to a conversation
+ * - `relay_prompt` ({ prompt, conversation?, conversationId? }) — sends `prompt` to a conversation
  *   via the `?prompt=` auto-send pathway (see `use-auto-send-effects.ts`).
  *   `conversation` is `"active"` (default, the open conversation) or `"new"` (a
- *   fresh draft). It never touches the layout. Each relay carries a unique
- *   token so the auto-send dedupe re-fires even when the same prompt is relayed
- *   repeatedly. No-op for `"active"` when no conversation is open.
+ *   fresh draft). `conversationId` (a specific conversation ID string) takes
+ *   precedence over both and navigates to that exact conversation. It never
+ *   touches the layout. Each relay carries a unique token so the auto-send
+ *   dedupe re-fires even when the same prompt is relayed repeatedly. No-op for
+ *   `"active"` when no conversation is open.
  *
  * - `set_view` ({ view }) — moves the app panel: `"split"` (side by side with
  *   chat), `"full"` (full-width), or `"chat"` (close the app). Side-by-side has
@@ -38,7 +40,12 @@ function relayPrompt(
   if (!prompt) return;
 
   let conversationId: string | null;
-  if (data?.conversation === "new") {
+  if (typeof data?.conversationId === "string" && data.conversationId) {
+    // Navigate to a specific conversation by ID (e.g. a plugin that
+    // manages its own conversation for assistant turns).
+    conversationId = data.conversationId;
+    useConversationStore.getState().setActiveConversationId(conversationId);
+  } else if (data?.conversation === "new") {
     conversationId = createDraftConversationId();
     useConversationStore.getState().setActiveConversationId(conversationId);
   } else {

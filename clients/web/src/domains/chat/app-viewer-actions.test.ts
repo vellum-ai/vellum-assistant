@@ -71,6 +71,42 @@ describe("handleAppViewerAction — relay_prompt", () => {
 
     expect(ctx.navigate).not.toHaveBeenCalled();
   });
+
+  it("conversationId navigates to a specific conversation", () => {
+    useConversationStore.setState({ activeConversationId: "conv-1" });
+    const ctx = makeCtx();
+
+    handleAppViewerAction(ctx, "relay_prompt", {
+      prompt: "your turn",
+      conversationId: "battleship-conv-99",
+    });
+
+    expect(useConversationStore.getState().activeConversationId).toBe(
+      "battleship-conv-99",
+    );
+    expect(ctx.navigate.mock.calls[0][0]).toContain(
+      "/assistant/conversations/battleship-conv-99?",
+    );
+    expect(ctx.navigate.mock.calls[0][0]).toContain("prompt=your%20turn");
+  });
+
+  it("conversationId takes precedence over conversation 'new'", () => {
+    useConversationStore.setState({ activeConversationId: "conv-1" });
+    const ctx = makeCtx();
+
+    handleAppViewerAction(ctx, "relay_prompt", {
+      prompt: "go",
+      conversation: "new",
+      conversationId: "specific-conv",
+    });
+
+    expect(useConversationStore.getState().activeConversationId).toBe(
+      "specific-conv",
+    );
+    expect(ctx.navigate.mock.calls[0][0]).toContain(
+      "/assistant/conversations/specific-conv?",
+    );
+  });
 });
 
 describe("handleAppViewerAction — set_view", () => {
