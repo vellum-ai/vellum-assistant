@@ -730,8 +730,8 @@ export function ConceptGraphView({
         ) : null}
 
         <ConceptGraphLegend
-          nodeKinds={presentKinds.length > 1 ? presentKinds : []}
-          coloredByTheme={presentKinds.length <= 1}
+          nodeKinds={presentKinds.filter((k) => k !== "concept")}
+          coloredByTheme={presentKinds.includes("concept")}
           hasLinks={hasLinks}
           hasLearned={hasLearned}
         />
