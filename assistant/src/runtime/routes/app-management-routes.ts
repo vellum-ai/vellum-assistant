@@ -281,6 +281,29 @@ function forkSharedApp(
     return { success: false, error: "Shared app HTML not found" };
   }
 
+  // The unpacked bundle keeps its manifest.json; only multi-file (format 2)
+  // shared apps may be forked, else the fork would resurrect the retired
+  // single-file format through the dist/ materialization below.
+  let sharedFormatVersion: unknown;
+  const manifestPath = join(dir, appUuid, "manifest.json");
+  if (existsSync(manifestPath)) {
+    try {
+      const manifest = JSON.parse(readFileSync(manifestPath, "utf-8")) as {
+        format_version?: unknown;
+      };
+      sharedFormatVersion = manifest.format_version;
+    } catch {
+      // Malformed manifest — treated as unsupported below.
+    }
+  }
+  if (Number(sharedFormatVersion) !== 2) {
+    return {
+      success: false,
+      error:
+        "This shared app uses the legacy single-file format, which is no longer supported",
+    };
+  }
+
   const htmlContent = readFileSync(htmlPath, "utf-8");
 
   const newApp = createApp({
@@ -465,7 +488,7 @@ async function importBundle(
       manifest = JSON.parse(manifestText);
     }
 
-    if (manifest.format_version !== 2) {
+    if (Number(manifest.format_version) !== 2) {
       throw new BadRequestError(
         "This app bundle uses the legacy single-file format, which is no longer supported. Re-export the app from a current version and try again.",
       );
