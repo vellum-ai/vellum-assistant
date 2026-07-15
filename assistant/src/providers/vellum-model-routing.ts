@@ -14,6 +14,7 @@
  * codec — no I/O, no wiring — so it can be adopted incrementally.
  */
 
+import { getCatalogProviderForModel } from "./model-catalog.js";
 import { PLATFORM_PROVIDER_META } from "./platform-proxy/constants.js";
 
 /**
@@ -116,4 +117,23 @@ export function parseVellumModel(
     return null;
   }
   return { provider, model };
+}
+
+/**
+ * Resolve the managed upstream provider for a model referenced by a
+ * `provider: "vellum"` profile. Such a profile carries no upstream of its own,
+ * so the model alone determines it: a `<provider>/<model>` routing string
+ * names the upstream directly, and a bare id resolves to its catalog owner.
+ * Returns null when the model has no managed-routable upstream (unknown id,
+ * or owned by a non-managed provider like openrouter).
+ */
+export function getManagedUpstream(model: string): string | null {
+  const route = parseVellumModel(model);
+  if (route) {
+    return route.provider;
+  }
+  const owner = getCatalogProviderForModel(model);
+  return owner !== undefined && MANAGED_ROUTABLE_PROVIDERS.has(owner)
+    ? owner
+    : null;
 }
