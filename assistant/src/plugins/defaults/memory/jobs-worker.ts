@@ -665,7 +665,10 @@ function recordCleanupEnqueued(kind: CleanupJobKind, nowMs: number): void {
  * Enqueue periodic cleanup jobs, each on a cadence equal to its own retention
  * window. A job that keeps data for N is re-enqueued at most once per N:
  * pruning that retains LLM logs for 1h runs hourly, pruning that retains
- * conversations for 30d runs every 30d. Each job's throttle is tracked
+ * conversations for 30d runs every 30d. A non-positive window disables its job
+ * (`conversationRetentionDays`/`auditLog.retentionDays` of 0, or
+ * `llmRequestLogRetentionMs` of `null`/0) — a 0 window would otherwise make the
+ * cadence 0 and busy-loop the enqueue. Each job's throttle is tracked
  * independently in cleanup-schedule-state (and persisted via checkpoints so the
  * cadence survives restarts), and enqueue is deduped in jobs-store, so repeated
  * calls remain safe.
@@ -708,8 +711,14 @@ export function maybeEnqueueScheduledCleanupJobs(
     );
   }
 
+  // A retention of `null` or `0` disables LLM-request-log pruning (keep
+  // forever). `0` must be excluded here, not just `null`: the cadence interval
+  // equals the retention window, so `isDue("llm_request_logs", 0)` reduces to
+  // `nowMs - lastEnqueue >= 0` — always true — which would re-enqueue the prune
+  // on every idle/drain tick and spin a sqlite3 subprocess many times a second.
   if (
     cleanup.llmRequestLogRetentionMs !== null &&
+    cleanup.llmRequestLogRetentionMs > 0 &&
     isDue("llm_request_logs", cleanup.llmRequestLogRetentionMs)
   ) {
     const jobId = enqueuePruneOldLlmRequestLogsJob(
