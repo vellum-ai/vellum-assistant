@@ -132,8 +132,8 @@ function SearchButton() {
  *     • Channel ▾      — one collapsible section per origin channel
  *                        (Slack, Telegram, WhatsApp, …)
  *   Footer
- *     • ───────────────
  *     • caller-provided tip card (SidebarTipCard) — hidden on the collapsed rail
+ *     • ───────────────
  *     • caller-provided action (PreferencesMenu)
  *
  * The conversation rows, row lists, and collapsible sections are
@@ -614,10 +614,10 @@ export function AssistantSideMenu({
           </div>
         ) : footerAction || tipCard ? (
           <SideMenu.Footer>
-            {/* The collapsed rail drops the footer divider and tip card
-               (per design). */}
-            {isCollapsedRail ? null : <SideMenu.Separator />}
+            {/* Tip card first, divider between it and the footer action. The
+               collapsed rail drops both (per design). */}
             {isCollapsedRail ? null : tipCard}
+            {isCollapsedRail ? null : <SideMenu.Separator />}
             {footerAction}
           </SideMenu.Footer>
         ) : null}

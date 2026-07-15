@@ -12,7 +12,14 @@ const DAY = 24 * 60 * 60 * 1000;
 const NOW = 10 * DAY;
 
 function tip(id: string): Tip {
-  return { id, kind: "info", source: "curated", body: `body of ${id}` };
+  return {
+    id,
+    kind: "info",
+    source: "curated",
+    eyebrow: "Tips",
+    title: `title of ${id}`,
+    body: `body of ${id}`,
+  };
 }
 
 const catalog: readonly Tip[] = [tip("one"), tip("two"), tip("three")];

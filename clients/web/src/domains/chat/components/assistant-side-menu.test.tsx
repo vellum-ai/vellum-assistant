@@ -273,15 +273,22 @@ describe("AssistantSideMenu · tipCard slot", () => {
     makeConversation({ conversationId: "a", title: "Alpha" }),
   ];
 
-  test("renders the tip card in the rail footer above the footer action", () => {
+  test("renders the rail footer as tip card, then divider, then footer action", () => {
     const html = renderMenu({ conversations, includeTipCard: true });
 
     const footerIndex = html.indexOf('data-slot="side-menu-footer"');
     const tipIndex = html.indexOf("TipSentinel");
+    const separatorIndex = html.indexOf(
+      'data-slot="side-menu-separator"',
+      tipIndex,
+    );
     const actionIndex = html.indexOf("Preferences");
     expect(footerIndex).toBeGreaterThanOrEqual(0);
     expect(tipIndex).toBeGreaterThan(footerIndex);
-    expect(actionIndex).toBeGreaterThan(tipIndex);
+    // The divider sits BETWEEN the tip card and the footer action, never
+    // above the tip.
+    expect(separatorIndex).toBeGreaterThan(tipIndex);
+    expect(actionIndex).toBeGreaterThan(separatorIndex);
   });
 
   test("hides the tip card on the collapsed rail", () => {

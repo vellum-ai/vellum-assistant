@@ -46,7 +46,16 @@ describe("TIPS_CATALOG", () => {
   it("keeps tip copy short enough for the sidebar", () => {
     for (const tip of TIPS_CATALOG) {
       expect(tip.body.length).toBeGreaterThan(0);
-      expect(tip.body.length).toBeLessThanOrEqual(120);
+      expect(tip.body.length).toBeLessThanOrEqual(90);
+    }
+  });
+
+  it("gives every tip a short title and eyebrow", () => {
+    for (const tip of TIPS_CATALOG) {
+      expect(tip.title.length).toBeGreaterThan(0);
+      expect(tip.title.length).toBeLessThanOrEqual(30);
+      expect(tip.eyebrow.length).toBeGreaterThan(0);
+      expect(tip.eyebrow.length).toBeLessThanOrEqual(14);
     }
   });
 
