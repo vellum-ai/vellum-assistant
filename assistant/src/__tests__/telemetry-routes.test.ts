@@ -79,10 +79,13 @@ describe("telemetry-routes: onboarding-research", () => {
     expect(pendingPayloads().length).toBe(0);
   });
 
-  test("returns skipped and persists nothing under the diagnostics opt-out", () => {
-    setShareDiagnostics(false);
-    expect(call(VALID_BODY)).toEqual({ skipped: true });
-    expect(pendingPayloads().length).toBe(0);
+  test("persists regardless of the diagnostics opt-out (rides analytics only)", () => {
+    // No longer diagnostics-gated: with analytics consent, the event persists
+    // even when diagnostics is opted out (and the accepted version is stale).
+    // The platform re-checks the owner's consent server-side at ingest.
+    setShareDiagnostics(false, "2000-01-01");
+    expect(call(VALID_BODY)).toEqual({ id: expect.any(String) });
+    expect(pendingPayloads().length).toBe(1);
   });
 
   test("rejects a malformed body without persisting", () => {
