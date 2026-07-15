@@ -1375,6 +1375,7 @@ export const migrationSteps: MigrationStep[] = [
     dependsOn: [
       "migrateCreateMemoryRecallLogs",
       "migrateMemoryRecallLogsQueryContext",
+      "migrateDeletePrivateConversations",
     ],
   },
 ];
