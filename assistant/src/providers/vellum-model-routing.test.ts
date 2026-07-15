@@ -59,6 +59,11 @@ describe("vellum-model-routing", () => {
     expect(getManagedUpstream("")).toBeNull();
   });
 
+  test("getManagedUpstream rejects managed-prefixed strings whose model is not cataloged under that provider", () => {
+    expect(getManagedUpstream("anthropic/definitely-not-a-model")).toBeNull();
+    expect(getManagedUpstream("openai/accounts/foo/bar")).toBeNull();
+  });
+
   test("managed set matches the platform proxy table", () => {
     // Guards against drift if PLATFORM_PROVIDER_META changes.
     expect([...MANAGED_ROUTABLE_PROVIDERS].sort()).toEqual([

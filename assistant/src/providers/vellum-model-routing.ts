@@ -14,7 +14,10 @@
  * codec — no I/O, no wiring — so it can be adopted incrementally.
  */
 
-import { getCatalogProviderForModel } from "./model-catalog.js";
+import {
+  getCatalogProviderForModel,
+  isModelInCatalog,
+} from "./model-catalog.js";
 import { PLATFORM_PROVIDER_META } from "./platform-proxy/constants.js";
 
 /**
@@ -126,11 +129,18 @@ export function parseVellumModel(
  * names the upstream directly, and a bare id resolves to its catalog owner.
  * Returns null when the model has no managed-routable upstream (unknown id,
  * or owned by a non-managed provider like openrouter).
+ *
+ * A decoded routing string must also name a real catalog model under its
+ * prefix: OpenRouter/Vercel native ids share the `<provider>/<model>` shape
+ * (e.g. `anthropic/…`), so an unvalidated prefix match could route an
+ * arbitrary non-managed id through the managed proxy.
  */
 export function getManagedUpstream(model: string): string | null {
   const route = parseVellumModel(model);
   if (route) {
-    return route.provider;
+    return isModelInCatalog(route.provider, route.model)
+      ? route.provider
+      : null;
   }
   const owner = getCatalogProviderForModel(model);
   return owner !== undefined && MANAGED_ROUTABLE_PROVIDERS.has(owner)
