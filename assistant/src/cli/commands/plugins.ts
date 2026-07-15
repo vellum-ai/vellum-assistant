@@ -10,6 +10,7 @@ import { createRequire } from "node:module";
 
 import type { Command } from "commander";
 
+import { cliIpcCall } from "../../ipc/cli-client.js";
 import { yellow } from "../lib/cli-colors.js";
 import { applyCommandHelp, subcommand } from "../lib/cli-command-help.js";
 import { confirmPrompt } from "../lib/confirm-prompt.js";
@@ -569,7 +570,32 @@ export function registerPluginsCommand(program: Command): void {
                 return;
               }
             }
-            const result = await libs.uninstall.uninstallPlugin({ name });
+            // Prefer the daemon: it runs the plugin's `shutdown` hook and drops
+            // the plugin's tools/hooks in the main process — symmetric to how
+            // install runs `init` there. Fall back to a local uninstall only
+            // when the daemon is unreachable (a transport error carries no
+            // `statusCode`); an operator can still uninstall while it's stopped,
+            // and `shutdown` then runs in this process, the only one available.
+            const daemon = await cliIpcCall<{ name: string; target: string }>(
+              "plugins_uninstall",
+              { pathParams: { name } },
+            );
+            let result: { name: string; target: string };
+            if (daemon.ok && daemon.result) {
+              result = daemon.result;
+            } else if (daemon.statusCode === undefined) {
+              log.debug(
+                { name, error: daemon.error },
+                "uninstall could not reach the daemon; running shutdown + removal locally",
+              );
+              result = await libs.uninstall.uninstallPlugin({ name });
+            } else {
+              // The daemon reached a decision (not installed, bad name, …);
+              // surface it rather than silently retrying locally.
+              console.error(daemon.error ?? "Plugin uninstall failed.");
+              process.exitCode = 1;
+              return;
+            }
             log.info(
               { name: result.name, target: result.target },
               "external plugin uninstalled",

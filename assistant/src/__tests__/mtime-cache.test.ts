@@ -39,6 +39,7 @@ import {
   getCachedUserTools,
   getUserHooksFor,
   populateCacheAtBoot,
+  reconcilePluginSourcesNow,
   resetPluginCacheForTests,
 } from "../plugins/mtime-cache.js";
 import { getSourceVersionsPath } from "../plugins/source-versions.js";
@@ -719,6 +720,66 @@ describe("plugin runtime activation", () => {
     expect(
       getAllToolDefinitions().some((t) => t.name === "coarse-b-tool"),
     ).toBe(true);
+  });
+
+  test("reconcilePluginSourcesNow brings a freshly installed plugin up immediately, without the sentinel", async () => {
+    await populateCacheAtBoot(); // empty plugins dir
+    expect(getAllToolDefinitions().some((t) => t.name === "eager-tool")).toBe(
+      false,
+    );
+
+    const dir = freshPluginDir("eager-plugin");
+    writePackageJson(dir, { ...SIMPLE_PKG, name: "eager-plugin" });
+    writeTool(dir, "eager-tool", TOOL_SRC("eager-tool"));
+    const initMarker = join(ROOT, "eager-init.log");
+    writeMarkerHook(dir, "init", initMarker, "init");
+
+    // Deliberately do NOT publish through the watcher and do NOT dispatch a
+    // hook — this is the imperative install path: the plugin's files land on
+    // disk and the daemon is told to bring it up right now.
+    await reconcilePluginSourcesNow();
+    await loadPluginTools();
+
+    expect(getAllToolDefinitions().some((t) => t.name === "eager-tool")).toBe(
+      true,
+    );
+    // init ran exactly once, as part of the reconcile — not at a later turn.
+    expect(readFileSync(initMarker, "utf8").trim().split("\n")).toHaveLength(1);
+
+    // Calling it again (e.g. the monitor's later sentinel publish, or a
+    // redundant poke) is a no-op — the plugin is already up.
+    await reconcilePluginSourcesNow();
+    expect(readFileSync(initMarker, "utf8").trim().split("\n")).toHaveLength(1);
+  });
+
+  test("reconcilePluginSourcesNow deactivates a removed plugin without re-running shutdown", async () => {
+    await populateCacheAtBoot(); // empty plugins dir
+
+    const dir = freshPluginDir("teardown-plugin");
+    writePackageJson(dir, { ...SIMPLE_PKG, name: "teardown-plugin" });
+    writeTool(dir, "teardown-tool", TOOL_SRC("teardown-tool"));
+    const shutdownMarker = join(ROOT, "teardown-shutdown.log");
+    writeMarkerHook(dir, "shutdown", shutdownMarker, "bye");
+
+    await reconcilePluginSourcesNow();
+    await loadPluginTools();
+    expect(
+      getAllToolDefinitions().some((t) => t.name === "teardown-tool"),
+    ).toBe(true);
+
+    // This is the daemon uninstall route's teardown path: the managed uninstall
+    // runs `shutdown` itself (while the files are present) and removes the
+    // directory, then reconciles. The reconcile here only mirrors the removal —
+    // it drops the plugin's tools/hooks but must NOT run `shutdown` a second
+    // time (the removal reason carries no shutdown).
+    rmSync(dir, { recursive: true, force: true });
+    await reconcilePluginSourcesNow();
+    await loadPluginTools();
+
+    expect(
+      getAllToolDefinitions().some((t) => t.name === "teardown-tool"),
+    ).toBe(false);
+    expect(existsSync(shutdownMarker)).toBe(false);
   });
 
   test("activation is idempotent — republishing without changes does not re-run init", async () => {
