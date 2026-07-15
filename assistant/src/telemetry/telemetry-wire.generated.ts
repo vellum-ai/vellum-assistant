@@ -427,6 +427,8 @@ export type TelemetryIngestRequest = z.infer<
 
 export const telemetryIngestResponseSchema = z.object({
   accepted: z.number().int(),
+  persisted: z.number().int(),
+  dropped: z.record(z.string(), jsonValueSchema),
 });
 export type TelemetryIngestResponse = z.infer<
   typeof telemetryIngestResponseSchema
