@@ -14,16 +14,19 @@
  *   - `logToolFailure` emits the operator-facing failure log.
  *
  * The telemetry-only columns (payload sizes + model attribution) are the
- * single write-time privacy gate for `tool_executed` telemetry: when usage
- * data collection is disabled they persist as NULL, which the projection's
- * `arg_bytes IS NOT NULL` filter excludes permanently. The audit fields
+ * single write-time privacy gate for `tool_executed` telemetry: on a confirmed
+ * `share_analytics` opt-out they persist as NULL, which the projection's
+ * `arg_bytes IS NOT NULL` filter excludes permanently. An unknown consent
+ * state (cold cache) populates the columns — NULLing them would destroy the
+ * data irreversibly, and consent is enforced again at flush time and platform
+ * ingest, so opted-out rows never leave the device. The audit fields
  * themselves (tool name, decision, redacted input/result previews, duration)
  * are unaffected — `tool_invocations` is a local always-on audit log.
  */
 
 import { isAllowDecision, type UserDecision } from "../permissions/types.js";
 import { recordLifecycleEvent } from "../persistence/lifecycle-events-store.js";
-import { getCachedShareAnalytics } from "../platform/consent-cache.js";
+import { getRawShareAnalytics } from "../platform/consent-cache.js";
 import { redactJsonStringLeaves } from "../security/redact-json.js";
 import { redactSensitiveFields } from "../security/redaction.js";
 import { redactSecrets } from "../security/secret-scanner.js";
@@ -257,17 +260,20 @@ const NULL_TELEMETRY_COLUMNS: TelemetryColumns = {
 };
 
 /**
- * Telemetry-only columns (payload sizes + model attribution). When usage data
- * collection is disabled the columns persist as NULL, which the projection's
- * `arg_bytes IS NOT NULL` filter excludes permanently — the same mechanism
- * that excludes legacy pre-migration rows (see tool-executed-events-store.ts).
+ * Telemetry-only columns (payload sizes + model attribution). NULLed only on a
+ * confirmed `share_analytics` opt-out — the projection's `arg_bytes IS NOT
+ * NULL` filter excludes NULL rows permanently (the same mechanism that
+ * excludes legacy pre-migration rows, see tool-executed-events-store.ts), so
+ * an unknown consent state (cold cache) must populate the columns rather than
+ * destroy them. Consent is enforced again at flush time and platform ingest,
+ * so opted-out rows never ship.
  */
 function telemetryColumns(
   attribution: UsageAttributionSnapshot | null,
   rawInput: string,
   resultBytes: number,
 ): TelemetryColumns {
-  if (!getCachedShareAnalytics()) {
+  if (getRawShareAnalytics() === false) {
     return NULL_TELEMETRY_COLUMNS;
   }
   return {

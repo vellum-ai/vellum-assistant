@@ -21,9 +21,10 @@
  * confirmed state exists — boot before the first refresh, no platform session,
  * or no resolvable owner identity. A transient fetch failure keeps the
  * previous value so a known opt-in is not flipped mid-session. The boolean
- * accessors collapse `"unknown"` to `false` (fail-closed); the raw accessors
- * expose the tri-state for callers that must distinguish a confirmed opt-out
- * from a not-yet-known state.
+ * accessors collapse `"unknown"` to `false` (fail-closed); the raw analytics
+ * accessor exposes the tri-state for callers that must distinguish a confirmed
+ * opt-out from a not-yet-known state. Diagnostics gates are deliberately
+ * fail-closed, so no raw diagnostics accessor exists.
  */
 
 import { getConfigReadOnly } from "../config/loader.js";
@@ -89,14 +90,6 @@ export function getRawShareAnalytics(): ConsentState {
  */
 export function getCachedShareDiagnostics(): boolean {
   return cachedShareDiagnostics === true;
-}
-
-/**
- * Raw tri-state `share_diagnostics` consent, for callers that must
- * distinguish a confirmed opt-out from a not-yet-known state.
- */
-export function getRawShareDiagnostics(): ConsentState {
-  return cachedShareDiagnostics;
 }
 
 /**
