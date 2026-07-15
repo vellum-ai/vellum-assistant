@@ -18,3 +18,12 @@ export const SYNTHETIC_OPENAI_PROJECT_KEY =
 /** The marker `redactSecrets()` substitutes for the key above. */
 export const OPENAI_PROJECT_KEY_REDACTION_MARKER =
   '<redacted type="OpenAI Project Key" />';
+
+/**
+ * An opaque/manual credential value with NO scanner-recognizable shape — no
+ * known prefix, not high-entropy enough for the AWS-secret heuristic, no
+ * private-key header. The scanner leaves it untouched, so only the
+ * reveal-candidate exact-match machinery can redact it. Used to prove the
+ * candidate fallback catches values the pattern scanner cannot classify.
+ */
+export const SYNTHETIC_OPAQUE_CREDENTIAL = "hunter2-manual-token-value";

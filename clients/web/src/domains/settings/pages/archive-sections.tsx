@@ -96,7 +96,7 @@ function ArchivedConversationRow({
   );
 }
 
-export function ArchivePage() {
+export function ArchiveSections() {
   const queryClient = useQueryClient();
   const assistantId = useActiveAssistantId();
 

@@ -5,6 +5,7 @@ import { SettingRow } from "@/components/setting-row";
 import { SystemPermissionsCard } from "@/components/system-permissions-card";
 import { AccessConsentSetting } from "@/domains/settings/components/access-consent-setting";
 import { BiometricSettingsCard } from "@/domains/settings/components/biometric-settings-card";
+import { MediaEmbedsCard } from "@/domains/settings/components/media-embeds-card";
 import { RiskToleranceSettings } from "@/domains/settings/components/risk-tolerance-settings";
 import { TrustRules } from "@/domains/settings/components/trust-rules/trust-rules";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
@@ -84,6 +85,7 @@ export function PrivacyPage() {
       <SystemPermissionsCard />
       <TrustRules />
       <RiskToleranceSettings />
+      <MediaEmbedsCard />
       <DetailCard
         title="Privacy"
         subtitle={

@@ -6,8 +6,10 @@ import { randomBytes } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
+  mkdtempSync,
   readdirSync,
   readFileSync,
+  rmSync,
   statSync,
   writeFileSync,
 } from "node:fs";
@@ -19,6 +21,7 @@ import { z } from "zod";
 
 import {
   type AppDefinition,
+  type AppOrigin,
   createApp,
   createAppRecord,
   deleteApp,
@@ -38,7 +41,7 @@ import {
 } from "../../apps/app-store.js";
 import { createSharedAppLink } from "../../apps/shared-app-links-store.js";
 import { packageApp } from "../../bundler/app-bundler.js";
-import { compileApp } from "../../bundler/app-compiler.js";
+import { compileApp, runCompile } from "../../bundler/app-compiler.js";
 import { scanBundle } from "../../bundler/bundle-scanner.js";
 import type { SignatureJson } from "../../bundler/bundle-signer.js";
 import { verifyBundleSignature } from "../../bundler/signature-verifier.js";
@@ -278,6 +281,29 @@ function forkSharedApp(
     return { success: false, error: "Shared app HTML not found" };
   }
 
+  // The unpacked bundle keeps its manifest.json; only multi-file (format 2)
+  // shared apps may be forked, else the fork would resurrect the retired
+  // single-file format through the dist/ materialization below.
+  let sharedFormatVersion: unknown;
+  const manifestPath = join(dir, appUuid, "manifest.json");
+  if (existsSync(manifestPath)) {
+    try {
+      const manifest = JSON.parse(readFileSync(manifestPath, "utf-8")) as {
+        format_version?: unknown;
+      };
+      sharedFormatVersion = manifest.format_version;
+    } catch {
+      // Malformed manifest — treated as unsupported below.
+    }
+  }
+  if (Number(sharedFormatVersion) !== 2) {
+    return {
+      success: false,
+      error:
+        "This shared app uses the legacy single-file format, which is no longer supported",
+    };
+  }
+
   const htmlContent = readFileSync(htmlPath, "utf-8");
 
   const newApp = createApp({
@@ -286,6 +312,18 @@ function forkSharedApp(
     schemaJson: JSON.stringify({ type: "object", properties: {} }),
     htmlDefinition: htmlContent,
   });
+
+  // Materialize the shared app's compiled output as the fork's dist/ so the
+  // fork opens without a source compile (mirrors bundle import).
+  const distDir = join(getAppDirPath(newApp.id), "dist");
+  mkdirSync(distDir, { recursive: true });
+  writeFileSync(join(distDir, "index.html"), htmlContent, "utf-8");
+  for (const asset of ["main.js", "main.css"]) {
+    const assetPath = join(dir, appUuid, asset);
+    if (existsSync(assetPath)) {
+      writeFileSync(join(distDir, asset), readFileSync(assetPath, "utf-8"));
+    }
+  }
 
   return { success: true, appId: newApp.id, name: newApp.name };
 }
@@ -450,10 +488,15 @@ async function importBundle(
       manifest = JSON.parse(manifestText);
     }
 
+    if (Number(manifest.format_version) !== 2) {
+      throw new BadRequestError(
+        "This app bundle uses the legacy single-file format, which is no longer supported. Re-export the app from a current version and try again.",
+      );
+    }
+
     const appName = manifest.name ?? "Imported App";
     const appDescription = manifest.description;
     const entry = manifest.entry ?? "index.html";
-    const isMultiFile = manifest.format_version === 2;
 
     // Extract entry HTML
     const entryFile = zip.file(entry);
@@ -476,32 +519,29 @@ async function importBundle(
       schemaJson: JSON.stringify({ type: "object", properties: {} }),
       htmlDefinition,
       icon,
-      formatVersion: isMultiFile ? 2 : undefined,
     });
 
-    // For multi-file apps, extract compiled dist assets (main.js, main.css)
-    // into the app's dist/ directory so the app can run correctly.
-    if (isMultiFile) {
-      const appDir = getAppDirPath(newApp.id);
-      const distDir = join(appDir, "dist");
-      mkdirSync(distDir, { recursive: true });
+    // Extract compiled dist assets (main.js, main.css) into the app's dist/
+    // directory so the app can run correctly.
+    const appDir = getAppDirPath(newApp.id);
+    const distDir = join(appDir, "dist");
+    mkdirSync(distDir, { recursive: true });
 
-      // Write dist/index.html
-      writeFileSync(join(distDir, "index.html"), htmlDefinition, "utf-8");
+    // Write dist/index.html
+    writeFileSync(join(distDir, "index.html"), htmlDefinition, "utf-8");
 
-      // Write dist/main.js if present in the bundle
-      const mainJsFile = zip.file("main.js");
-      if (mainJsFile) {
-        const mainJs = await mainJsFile.async("text");
-        writeFileSync(join(distDir, "main.js"), mainJs, "utf-8");
-      }
+    // Write dist/main.js if present in the bundle
+    const mainJsFile = zip.file("main.js");
+    if (mainJsFile) {
+      const mainJs = await mainJsFile.async("text");
+      writeFileSync(join(distDir, "main.js"), mainJs, "utf-8");
+    }
 
-      // Write dist/main.css if present in the bundle
-      const mainCssFile = zip.file("main.css");
-      if (mainCssFile) {
-        const mainCss = await mainCssFile.async("text");
-        writeFileSync(join(distDir, "main.css"), mainCss, "utf-8");
-      }
+    // Write dist/main.css if present in the bundle
+    const mainCssFile = zip.file("main.css");
+    if (mainCssFile) {
+      const mainCss = await mainCssFile.async("text");
+      writeFileSync(join(distDir, "main.css"), mainCss, "utf-8");
     }
 
     return {
@@ -651,6 +691,65 @@ function handleMutateAppData({ pathParams, body }: RouteHandlerArgs) {
   return { success: true, result };
 }
 
+/**
+ * Wire-format provenance tag for an app, matching what `apps_list` reports:
+ * `"workspace"` for user-created apps, `"plugin:<name>"` for plugin-bundled
+ * ones. Clients read it to hide the mutation actions (delete, share, deploy)
+ * the daemon rejects for plugin apps.
+ */
+function appOriginWire(origin: AppOrigin): string {
+  return origin.kind === "plugin" ? `plugin:${origin.pluginName}` : "workspace";
+}
+
+/**
+ * Compile a multi-file plugin app on open, without touching its `dist/`.
+ *
+ * A plugin app's real `dist/` is owned by the monitor process
+ * (`plugin-source-watch`), which builds it on install and on every source
+ * change. But a just-installed app can be opened before the monitor's first
+ * pass lands, which would otherwise render the "not compiled yet" fallback.
+ * Building in place here would both write into the read-only plugin tree and
+ * race the monitor's `rm -rf dist` + write. Instead we compile into a private
+ * temp dir and return the self-contained HTML from there, leaving `dist/`
+ * ownership solely with the monitor. Returns `null` if the build fails, so the
+ * caller falls back to the standard fallback HTML.
+ */
+async function compilePluginAppHtmlEphemeral(
+  appId: string,
+  sourceDir: string,
+): Promise<string | null> {
+  // `resolveAppSource` classifies any app without a root index.html as
+  // multi-file, even a malformed one with no src/ (or one whose source was
+  // removed before the monitor built dist/). Building that would make the
+  // compiler throw, so skip it and let the caller serve the standard fallback
+  // rather than surfacing a 500 from a plain open.
+  if (!existsSync(join(sourceDir, "src"))) {
+    return null;
+  }
+  const tmpRoot = mkdtempSync(join(tmpdir(), "vellum-plugin-app-"));
+  try {
+    const result = await runCompile(sourceDir, join(tmpRoot, "dist"));
+    if (!result.ok) {
+      log.warn(
+        { appId, errors: result.errors },
+        "Ephemeral compile failed on plugin app open",
+      );
+      return null;
+    }
+    // resolveEffectiveAppHtmlFromDir reads `<tmpRoot>/dist/index.html` and
+    // inlines its JS/CSS, yielding a self-contained page.
+    return resolveEffectiveAppHtmlFromDir(tmpRoot);
+  } catch (err) {
+    // The compiler reports build failures via `ok: false`; a thrown error is
+    // unexpected (e.g. a filesystem fault mid-build) and must still degrade to
+    // the fallback instead of a 500.
+    log.warn({ appId, err }, "Ephemeral compile threw on plugin app open");
+    return null;
+  } finally {
+    rmSync(tmpRoot, { recursive: true, force: true });
+  }
+}
+
 async function handleOpenApp({ pathParams }: RouteHandlerArgs) {
   const appId = pathParams?.id as string;
   const source = resolveAppSource(appId);
@@ -658,33 +757,40 @@ async function handleOpenApp({ pathParams }: RouteHandlerArgs) {
     throw new NotFoundError(`App not found: ${appId}`);
   }
 
-  // Multifile workspace apps auto-compile on open when their dist is missing.
-  // Plugin apps are not compiled here — a compile cache for plugin sources is a
-  // follow-up — so a multifile plugin app without a prebuilt dist/ renders its
-  // fallback message.
-  if (source.formatVersion === 2 && source.origin.kind === "workspace") {
-    const distIndex = join(source.sourceDir, "dist", "index.html");
-    if (!existsSync(distIndex)) {
-      const result = await compileApp(source.sourceDir);
-      if (!result.ok) {
-        log.warn(
-          { appId, errors: result.errors },
-          "Auto-compile failed on app open",
-        );
-      }
-    }
-  }
-
-  const html = resolveEffectiveAppHtmlFromDir(
-    source.sourceDir,
-    source.formatVersion,
-  );
-  return {
+  const result = {
     appId: source.id,
     dirName: source.dirName,
     name: source.name,
-    html,
+    origin: appOriginWire(source.origin),
   };
+
+  // Apps auto-compile on open when their dist/ is missing so a freshly
+  // installed app renders immediately instead of the "not compiled yet"
+  // fallback.
+  if (!existsSync(join(source.sourceDir, "dist", "index.html"))) {
+    if (source.origin.kind === "workspace") {
+      // Workspace apps own their dist/ and are only compiled in this (daemon)
+      // process, so building in place is safe.
+      const compiled = await compileApp(source.sourceDir);
+      if (!compiled.ok) {
+        log.warn(
+          { appId, errors: compiled.errors },
+          "Auto-compile failed on app open",
+        );
+      }
+    } else {
+      // Plugin apps: compile off to the side (see helper) rather than write
+      // into the plugin tree or race the monitor.
+      const html = await compilePluginAppHtmlEphemeral(appId, source.sourceDir);
+      if (html !== null) {
+        return { ...result, html };
+      }
+      // Build failed — fall through to the standard fallback HTML.
+    }
+  }
+
+  const html = resolveEffectiveAppHtmlFromDir(source.sourceDir);
+  return { ...result, html };
 }
 
 /**
@@ -1015,6 +1121,7 @@ export const ROUTES: RouteDefinition[] = [
       dirName: z.string(),
       name: z.string(),
       html: z.string(),
+      origin: z.string(),
     }),
   },
   {

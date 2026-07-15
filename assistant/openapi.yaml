@@ -834,11 +834,14 @@ paths:
                     type: string
                   html:
                     type: string
+                  origin:
+                    type: string
                 required:
                   - appId
                   - dirName
                   - name
                   - html
+                  - origin
                 additionalProperties: false
   /v1/apps/{id}/preview:
     get:
@@ -9543,7 +9546,9 @@ paths:
     post:
       operationId: credentials_reveal_post
       summary: Reveal a credential's plaintext value
-      description: Return the raw plaintext value of a stored credential. Blocked in untrusted shell mode.
+      description:
+        Return the raw plaintext value of a stored credential. Blocked in untrusted shell mode. With forChat,
+        returns a chat-safe redaction sentinel instead of the plaintext.
       tags:
         - credentials
       requestBody:
@@ -9562,6 +9567,17 @@ paths:
                 id:
                   description: Credential UUID for lookup by ID
                   type: string
+                forChat:
+                  description:
+                    Return the credential's redaction sentinel (renders as a click-to-reveal chip in chat) instead of the
+                    plaintext. Requires the chat-credential-reveal feature flag.
+                  type: boolean
+                revealNonce:
+                  description:
+                    Conversation-bound reveal nonce from the tool-shell environment. Scopes any recorded chat-redaction
+                    authority (plaintext proof or forChat mint) to the conversation whose tool executed this reveal;
+                    without it the reveal succeeds but records no authority.
+                  type: string
       responses:
         "200":
           description: Successful response
@@ -9572,7 +9588,7 @@ paths:
                 properties:
                   value:
                     type: string
-                    description: The plaintext credential value
+                    description: The plaintext credential value (or its redaction sentinel when forChat is set)
                 required:
                   - value
                 additionalProperties: false
