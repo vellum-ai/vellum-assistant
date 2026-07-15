@@ -9,6 +9,10 @@
 import { z } from "zod";
 
 import {
+  AcpCredentialFormatError,
+  assertAcpCredentialFormat,
+} from "../../acp/acp-credentials.js";
+import {
   formatSlackChannelStatus,
   persistPromptedCredential,
 } from "../../credential-execution/prompted-credential.js";
@@ -136,6 +140,22 @@ async function handleCredentialPrompt({ body = {} }: RouteHandlerArgs) {
       };
     }
     return { ok: false, cancelled: true, error: "Cancelled by the user" };
+  }
+
+  // Reject a mismatched ACP token type before persisting, so a stored
+  // credential is never silently placed under the wrong field.
+  try {
+    assertAcpCredentialFormat(validated.service, validated.field, result.value);
+  } catch (err) {
+    if (err instanceof AcpCredentialFormatError) {
+      return {
+        ok: false,
+        error: err.message,
+        service: validated.service,
+        field: validated.field,
+      };
+    }
+    throw err;
   }
 
   const persisted = await persistPromptedCredential({
