@@ -61,12 +61,17 @@ function formatProfileSubtitle(profile: ProfileWithName): string {
     parts.push(profile.description);
   }
 
+  // Profiles bound to the Vellum-managed connection present as "Vellum" —
+  // the stored provider is a routing detail users never see.
+  const displayProvider =
+    profile.provider_connection === "vellum" ? "vellum" : profile.provider;
   const modelProvider: string[] = [];
   if (profile.model) {
-    modelProvider.push(resolveModelDisplayName(profile.provider, profile.model));
+    modelProvider.push(resolveModelDisplayName(displayProvider, profile.model));
   }
-  if (profile.provider) {
-    const providerLabel = PROVIDER_DISPLAY_NAMES[profile.provider] ?? profile.provider;
+  if (displayProvider) {
+    const providerLabel =
+      PROVIDER_DISPLAY_NAMES[displayProvider] ?? displayProvider;
     modelProvider.push(`hosted by ${providerLabel}`);
   }
 
@@ -139,7 +144,7 @@ export function ProfileListItem({
               </Tag>
             )}
           </div>
-          {(profile.description || profile.model || profile.provider) ? (
+          {profile.description || profile.model || profile.provider ? (
             <Typography
               variant="body-medium-lighter"
               as="p"

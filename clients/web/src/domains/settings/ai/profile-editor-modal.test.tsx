@@ -428,14 +428,98 @@ describe("ProfileEditorModal create mode — provider-first", () => {
     const optionLabels = Array.from(
       document.querySelectorAll<HTMLElement>('[role="option"]'),
     ).map((o) => o.textContent?.trim());
-    expect(optionLabels).toEqual([
-      "Anthropic",
-      "OpenAI",
-      "Google Gemini",
-      "Fireworks",
-      "Together AI",
-      "+ Create new provider",
-    ]);
+    // A single Vellum entry — never the managed upstreams it routes to.
+    expect(optionLabels).toEqual(["Vellum", "+ Create new provider"]);
+  });
+
+  test("selecting Vellum saves the model's managed upstream bound to the vellum connection", async () => {
+    const saveCalls: { name: string; entry: Record<string, unknown> }[] = [];
+    const onSave = (name: string, entry: unknown) => {
+      saveCalls.push({ name, entry: entry as Record<string, unknown> });
+      return Promise.resolve();
+    };
+    renderCreate([makeConnection("vellum-managed", "vellum")], onSave);
+
+    selectProvider("Vellum");
+    selectModel("Claude Opus 4.8");
+
+    await waitFor(() => {
+      expect(getSaveBtn().disabled).toBe(false);
+    });
+    fireEvent.click(getSaveBtn());
+
+    await waitFor(() => {
+      expect(saveCalls.length).toBe(1);
+    });
+    // Legacy wire shape: upstream derived from the model, vellum binding.
+    expect(saveCalls[0].entry.provider).toBe("anthropic");
+    expect(saveCalls[0].entry.provider_connection).toBe("vellum-managed");
+  });
+
+  test("a Vellum fireworks-hosted model derives the fireworks upstream", async () => {
+    const saveCalls: { name: string; entry: Record<string, unknown> }[] = [];
+    const onSave = (name: string, entry: unknown) => {
+      saveCalls.push({ name, entry: entry as Record<string, unknown> });
+      return Promise.resolve();
+    };
+    renderCreate([makeConnection("vellum-managed", "vellum")], onSave);
+
+    selectProvider("Vellum");
+    selectModel("GLM 5.2");
+
+    await waitFor(() => {
+      expect(getSaveBtn().disabled).toBe(false);
+    });
+    fireEvent.click(getSaveBtn());
+
+    await waitFor(() => {
+      expect(saveCalls.length).toBe(1);
+    });
+    expect(saveCalls[0].entry.provider).toBe("fireworks");
+    expect(saveCalls[0].entry.provider_connection).toBe("vellum-managed");
+  });
+
+  test("a legacy-shape managed profile presents as Vellum in edit mode", async () => {
+    // Managed profiles store their real upstream (anthropic) bound to the
+    // vellum connection; the editor must present them as "Vellum".
+    render(
+      <Wrapper>
+        <ProfileEditorModal
+          isOpen
+          mode="edit"
+          profileName="my-managed"
+          initialValues={
+            {
+              name: "my-managed",
+              provider: "anthropic",
+              model: "claude-opus-4-8",
+              provider_connection: "vellum",
+            } as never
+          }
+          existingNames={["my-managed"]}
+          connections={[makeConnection("vellum", "vellum")]}
+          assistantId={ASSISTANT_ID}
+          onSave={() => Promise.resolve()}
+          onCancel={() => {}}
+        />
+      </Wrapper>,
+    );
+
+    await waitFor(() => {
+      expect(providerTrigger().textContent?.trim()).toBe("Vellum");
+    });
+    expect(document.body.textContent).not.toContain("Connection (optional)");
+  });
+
+  test("Vellum hides the Connection sub-dropdown", () => {
+    renderCreate([makeConnection("vellum-managed", "vellum")]);
+    selectProvider("Vellum");
+    expect(document.body.textContent).not.toContain("Connection (optional)");
+    expect(
+      Array.from(document.querySelectorAll("label")).some((l) =>
+        l.textContent?.trim().startsWith("Connection"),
+      ),
+    ).toBe(false);
   });
 
   test("a BYOK connection surfaces its own provider", () => {

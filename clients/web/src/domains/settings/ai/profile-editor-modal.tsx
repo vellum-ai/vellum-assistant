@@ -41,6 +41,7 @@ import {
   MANAGED_ROUTABLE_PROVIDERS,
   VELLUM_CONNECTION_PROVIDER,
 } from "@/domains/settings/ai/constants";
+import { getManagedUpstreamForModel } from "@/assistant/llm-model-catalog";
 import { providersServedByConnections } from "@/domains/settings/ai/provider-availability";
 import type {
   ConnectionProvider,
@@ -67,6 +68,8 @@ function connectionServesProvider(
   selectedProvider: string,
 ): boolean {
   if (connectionProvider === selectedProvider) return true;
+  // Legacy wire shape: a managed profile stores its real upstream (e.g.
+  // "fireworks") while binding to the provider-agnostic vellum connection.
   return (
     connectionProvider === VELLUM_CONNECTION_PROVIDER &&
     MANAGED_ROUTABLE_PROVIDERS.has(selectedProvider)
@@ -215,9 +218,16 @@ function ProfileEditorModalInner({
     initialValues?.description ?? "",
   );
   const [key, setKey] = useState(mode === "create" ? "" : (profileName ?? ""));
+  // "vellum" is a picker-level value: profiles bound to the Vellum-managed
+  // connection present (and edit) as provider "Vellum"; the wire-shape
+  // upstream is derived from the model at save time.
   const [provider, setProvider] = useState<
-    NonNullable<ProfileEntry["provider"]> | ""
-  >(initialValues?.provider ?? "");
+    NonNullable<ProfileEntry["provider"]> | "vellum" | ""
+  >(
+    initialValues?.provider_connection === VELLUM_CONNECTION_PROVIDER
+      ? VELLUM_CONNECTION_PROVIDER
+      : (initialValues?.provider ?? ""),
+  );
   const [model, setModel] = useState(initialValues?.model ?? "");
   // Per-profile provider-connection binding. Empty string means no explicit
   // binding — daemon falls back to its first-connection dispatch. Snake_case
@@ -325,7 +335,13 @@ function ProfileEditorModalInner({
 
   // Derived: which advanced param fields to show
   const visibility = useMemo(
-    () => resolveProfileParamVisibility(provider, model),
+    () =>
+      resolveProfileParamVisibility(
+        provider === VELLUM_CONNECTION_PROVIDER
+          ? (getManagedUpstreamForModel(model) ?? "")
+          : provider,
+        model,
+      ),
     [provider, model],
   );
 
@@ -386,9 +402,6 @@ function ProfileEditorModalInner({
 
   function handleProviderChange(newProvider: ConnectionProvider) {
     if (newProvider === provider) return;
-    // vellum is a connection type, not a selectable profile LLM provider — it's
-    // filtered out of the picker; this narrows ConnectionProvider to LlmProvider.
-    if (newProvider === "vellum") return;
     setProvider(newProvider);
     setModel("");
     // Auto-select connection: if exactly one connection exists for the new
@@ -565,19 +578,27 @@ function ProfileEditorModalInner({
           ? availableConnectionsForProvider[0].name
           : providerConnection;
       const effectiveBinding = connectionNotFound ? "" : resolvedBinding;
+      // The Vellum picker entry writes the legacy wire shape: the model's
+      // managed upstream as `provider`, bound to the vellum connection. Old
+      // daemons accept this today; the payload flips to provider "vellum"
+      // in a later milestone with no UI change.
+      const wireProvider =
+        provider === VELLUM_CONNECTION_PROVIDER
+          ? (getManagedUpstreamForModel(model) ?? "")
+          : provider;
       if (effectiveMode === "edit") {
         // In edit mode send null for cleared fields so the server deep-merges
         // them as cleared rather than silently preserving the old value.
         entry.label = label.trim() || null;
         entry.description = description.trim() || null;
-        entry.provider = provider || null;
+        entry.provider = wireProvider || null;
         entry.model = model || null;
         entry.provider_connection = effectiveBinding || null;
       } else {
         // In create mode omit optional fields that are still empty.
         if (label.trim()) entry.label = label.trim();
         if (description.trim()) entry.description = description.trim();
-        if (provider) entry.provider = provider;
+        if (wireProvider) entry.provider = wireProvider;
         if (model) entry.model = model;
         if (effectiveBinding) entry.provider_connection = effectiveBinding;
       }
