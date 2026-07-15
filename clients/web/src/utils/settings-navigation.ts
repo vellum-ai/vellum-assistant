@@ -9,7 +9,6 @@
 
 import type { LucideIcon } from "lucide-react";
 import {
-  Archive,
   Bell,
   Bookmark,
   Bug,
@@ -17,11 +16,9 @@ import {
   Cpu,
   CreditCard,
   KeyRound,
-  Laptop,
   Mic,
   Settings,
   Users,
-  Volume2,
   Puzzle,
   ShieldCheck,
   SlidersHorizontal,
@@ -39,11 +36,8 @@ export const PANEL_IDS = [
   "credentials",
   "model",
   "notifications",
-  "sounds",
   "voice",
-  "devices",
   "privacy",
-  "archive",
   "bookmarks",
   "billing",
   "community",
@@ -81,11 +75,8 @@ export const SETTINGS_SIDEBAR: SidebarItem[] = [
   { id: "integrations", label: "Integrations", href: routes.settings.integrations, icon: Puzzle },
   { id: "credentials", label: "Credentials", href: routes.settings.credentials, icon: KeyRound },
   { id: "notifications", label: "Notifications", href: routes.settings.notifications, icon: Bell },
-  { id: "sounds", label: "Sounds", href: routes.settings.sounds, icon: Volume2 },
-  { id: "voice", label: "Voice", href: routes.settings.voice, icon: Mic },
-  { id: "devices", label: "Self-Hosted Assistants", href: routes.settings.devices, icon: Laptop },
+  { id: "voice", label: "Voice & Sounds", href: routes.settings.voice, icon: Mic },
   { id: "privacy", label: "Permissions & Privacy", href: routes.settings.privacy, icon: ShieldCheck },
-  { id: "archive", label: "Archive", href: routes.settings.archive, icon: Archive },
   { id: "bookmarks", label: "Bookmarks", href: routes.settings.bookmarks, icon: Bookmark },
   { id: "billing", label: "Billing & Usage", href: routes.settings.billing, icon: CreditCard },
   { id: "community", label: "Community", href: routes.settings.community, icon: Users },
@@ -101,6 +92,11 @@ const SETTINGS_TAB_ID_ALIASES: Record<string, PanelId> = {
   privacy: "privacy",
   // Two-factor auth moved from the retired Security tab onto General.
   security: "assistant-status",
+  // Archive is an in-page tab on the Advanced page.
+  archive: "advanced",
+  // Self-hosted assistant management has no settings page; land on General.
+  devices: "assistant-status",
+  "self-hosted assistants": "assistant-status",
 };
 
 /**
@@ -112,6 +108,8 @@ const SETTINGS_TAB_ROUTE_ALIASES: Record<string, string> = {
   // Shortcut rebinding lives in the Preferences modal on General.
   "keyboard-shortcuts": `${routes.settings.general}?preferences=open`,
   "keyboard shortcuts": `${routes.settings.general}?preferences=open`,
+  // Sounds is an in-page tab on the Voice & Sounds page.
+  sounds: `${routes.settings.voice}?tab=sounds`,
 };
 
 function normalizeSettingsTabName(tab: string): string {

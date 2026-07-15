@@ -85,7 +85,7 @@ mock.module("@/generated/daemon/@tanstack/react-query.gen", () => ({
 
 const { configGetQueryKey } =
   await import("@/generated/daemon/@tanstack/react-query.gen");
-const { AdvancedPage } = await import("./advanced-page");
+const { MemoryCard } = await import("./memory-card");
 
 function renderWithQuery(ui: React.ReactElement) {
   const queryClient = new QueryClient({
@@ -108,9 +108,9 @@ afterEach(() => {
   cleanup();
 });
 
-describe("AdvancedPage memory settings", () => {
+describe("MemoryCard memory settings", () => {
   test("shows memory enabled by default and patches memory.enabled off", async () => {
-    renderWithQuery(<AdvancedPage />);
+    renderWithQuery(<MemoryCard />);
 
     expect(screen.getByText("Memory")).toBeTruthy();
     const toggle = screen.getByRole("switch", { name: "Enable memory" });
@@ -128,7 +128,7 @@ describe("AdvancedPage memory settings", () => {
 
   test("treats missing memory.enabled as enabled and can patch it off", async () => {
     daemonConfig = {};
-    renderWithQuery(<AdvancedPage />);
+    renderWithQuery(<MemoryCard />);
 
     const toggle = screen.getByRole("switch", { name: "Enable memory" });
     expect(toggle.getAttribute("aria-checked")).toBe("true");
@@ -141,7 +141,7 @@ describe("AdvancedPage memory settings", () => {
   test("hides memory settings when the assistant does not report opt-out support", () => {
     memoryOptOutCapability = false;
 
-    renderWithQuery(<AdvancedPage />);
+    renderWithQuery(<MemoryCard />);
 
     expect(screen.queryByText("Memory")).toBeNull();
     expect(screen.queryByRole("switch", { name: "Enable memory" })).toBeNull();
