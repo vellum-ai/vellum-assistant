@@ -70,7 +70,7 @@ const LEGACY_AI_PRIVACY_CONSENT_VERSION = "2026-06-08";
 // Required versions — server-supplied, constants as fallback
 // ---------------------------------------------------------------------------
 
-interface RequiredConsentVersions {
+export interface RequiredConsentVersions {
   tos: string;
   privacyPolicy: string;
   aiDataSharing: string;
@@ -107,6 +107,15 @@ function toRequiredVersions(
     shareAnalytics: raw?.share_analytics || ANALYTICS_CONSENT_VERSION,
     shareDiagnostics: raw?.share_diagnostics || DIAGNOSTICS_CONSENT_VERSION,
   };
+}
+
+/**
+ * The module's current required versions (server-adopted, constants
+ * fallback), for callers stamping server-bound consent versions outside this
+ * module — e.g. the device-consent backfill.
+ */
+export function getRequiredConsentVersions(): RequiredConsentVersions {
+  return { ...requiredVersions };
 }
 
 /** Test-only: restore the constants-fallback required versions. */

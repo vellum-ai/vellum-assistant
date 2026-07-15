@@ -94,6 +94,19 @@ const resolveServerConsentMock = mock(
   }),
 );
 
+// Adopted-or-fallback required versions served by the mocked accessor; the
+// backfill stamps from these. Defaults mirror the frozen constants; tests
+// override to simulate a server-side required_versions bump.
+const DEFAULT_REQUIRED_VERSIONS = {
+  tos: "2026-06-08",
+  privacyPolicy: "2026-06-08",
+  aiDataSharing: "2026-06-08",
+  shareAnalytics: "2026-06-08",
+  shareDiagnostics: "2026-06-08",
+};
+let mockRequiredVersions = { ...DEFAULT_REQUIRED_VERSIONS };
+const getRequiredConsentVersionsMock = mock(() => mockRequiredVersions);
+
 const EMPTY_CONSENT = {
   tos_accepted_version: "",
   tos_accepted_at: null,
@@ -225,6 +238,7 @@ mock.module("@/lib/consent/consent-persistence", () => ({
   persistConsentForUser: persistConsentForUserMock,
   persistToggleConsent: persistToggleConsentMock,
   resolveServerConsent: resolveServerConsentMock,
+  getRequiredConsentVersions: getRequiredConsentVersionsMock,
   TOS_CONSENT_VERSION: "2026-06-08",
   PRIVACY_CONSENT_VERSION: "2026-06-08",
   ANALYTICS_CONSENT_VERSION: "2026-06-08",
@@ -371,6 +385,8 @@ beforeEach(() => {
   persistConsentForUserMock.mockClear();
   persistToggleConsentMock.mockClear();
   resolveServerConsentMock.mockClear();
+  mockRequiredVersions = { ...DEFAULT_REQUIRED_VERSIONS };
+  getRequiredConsentVersionsMock.mockClear();
   setTosAcceptedMock.mockClear();
   setPrivacyConsentMock.mockClear();
   setAnalyticsConsentCurrentMock.mockClear();
@@ -849,6 +865,39 @@ describe("auth store onboarding flag reconciliation", () => {
       expect.objectContaining({
         share_analytics_accepted_version: "2026-06-08",
         share_analytics: false,
+      }),
+    );
+  });
+
+  test("backfill stamps the server-adopted required versions, not the frozen constants", async () => {
+    // The server bumped required_versions past the build constants. The sync
+    // flow adopts them (via resolveServerConsent) before the backfill runs,
+    // so the backfill must stamp the adopted versions — frozen-constant
+    // stamps would write a stale server row and re-prompt every other device.
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    mockRequiredVersions = {
+      tos: "2026-09-01",
+      privacyPolicy: "2026-09-02",
+      aiDataSharing: "2026-09-03",
+      shareAnalytics: "2026-09-04",
+      shareDiagnostics: "2026-09-05",
+    };
+    mockStoreShareAnalytics = false;
+    restoreConsentForUserMock.mockReturnValueOnce({
+      tos: true,
+      privacy: true,
+      diagnosticsCurrent: true,
+    });
+
+    await useAuthStore.getState().initSession();
+
+    expect(patchConsentMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tos_accepted_version: "2026-09-01",
+        privacy_policy_accepted_version: "2026-09-02",
+        ai_data_sharing_accepted_version: "2026-09-03",
+        share_analytics_accepted_version: "2026-09-04",
+        share_diagnostics_accepted_version: "2026-09-05",
       }),
     );
   });

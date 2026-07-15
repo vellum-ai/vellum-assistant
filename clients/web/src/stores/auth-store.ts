@@ -66,10 +66,7 @@ import {
   persistConsentForUser,
   persistToggleConsent,
   resolveServerConsent,
-  TOS_CONSENT_VERSION,
-  PRIVACY_CONSENT_VERSION,
-  ANALYTICS_CONSENT_VERSION,
-  DIAGNOSTICS_CONSENT_VERSION,
+  getRequiredConsentVersions,
 } from "@/lib/consent/consent-persistence";
 import { useOnboardingStore } from "@/domains/onboarding/onboarding-store";
 import {
@@ -296,23 +293,27 @@ function buildDeviceConsentBackfill(axes: {
   diagnostics: boolean;
   shareValues?: { analytics: boolean | null; diagnostics: boolean | null };
 }): ConsentPatch {
+  // Stamps come from the adopted required versions (server-supplied when the
+  // preceding resolveServerConsent saw them, frozen constants otherwise) so a
+  // server-side version bump is never backfilled with a stale stamp.
+  const required = getRequiredConsentVersions();
   return {
-    ...(axes.tos ? { tos_accepted_version: TOS_CONSENT_VERSION } : {}),
+    ...(axes.tos ? { tos_accepted_version: required.tos } : {}),
     ...(axes.privacy
       ? {
-          privacy_policy_accepted_version: PRIVACY_CONSENT_VERSION,
-          ai_data_sharing_accepted_version: PRIVACY_CONSENT_VERSION,
+          privacy_policy_accepted_version: required.privacyPolicy,
+          ai_data_sharing_accepted_version: required.aiDataSharing,
         }
       : {}),
     ...(axes.shareValues && axes.shareValues.analytics !== null
       ? {
           share_analytics: axes.shareValues.analytics,
-          share_analytics_accepted_version: ANALYTICS_CONSENT_VERSION,
+          share_analytics_accepted_version: required.shareAnalytics,
         }
       : {}),
     ...(axes.diagnostics
       ? {
-          share_diagnostics_accepted_version: DIAGNOSTICS_CONSENT_VERSION,
+          share_diagnostics_accepted_version: required.shareDiagnostics,
           ...(axes.shareValues && axes.shareValues.diagnostics !== null
             ? { share_diagnostics: axes.shareValues.diagnostics }
             : {}),
