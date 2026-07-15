@@ -58,6 +58,7 @@ import {
   PRIVACY_CONSENT_VERSION,
   ANALYTICS_CONSENT_VERSION,
   DIAGNOSTICS_CONSENT_VERSION,
+  __resetRequiredConsentVersionsForTesting,
   clearConsentForUser,
   persistToggleConsent,
   resolveServerConsent,
@@ -83,6 +84,13 @@ function makeConsent(overrides: Partial<UserConsent> = {}): UserConsent {
     share_analytics_accepted_at: null,
     share_diagnostics_accepted_version: DIAGNOSTICS_CONSENT_VERSION,
     share_diagnostics_accepted_at: null,
+    required_versions: {
+      tos: TOS_CONSENT_VERSION,
+      privacy_policy: PRIVACY_CONSENT_VERSION,
+      ai_data_sharing: PRIVACY_CONSENT_VERSION,
+      share_analytics: ANALYTICS_CONSENT_VERSION,
+      share_diagnostics: DIAGNOSTICS_CONSENT_VERSION,
+    },
     ...overrides,
   };
   // Mirror the wire contract unless a test overrides the effective fields
@@ -96,12 +104,38 @@ function makeConsent(overrides: Partial<UserConsent> = {}): UserConsent {
   };
 }
 
-const analyticsKey = (userId: string) =>
-  `device:consent:share_analytics:v${ANALYTICS_CONSENT_VERSION}:${userId}`;
+/** A consent record from an older backend that predates `required_versions`. */
+function makeConsentWithoutRequiredVersions(
+  overrides: Partial<UserConsent> = {},
+): UserConsent {
+  const consent = makeConsent(overrides) as unknown as Record<string, unknown>;
+  delete consent.required_versions;
+  return consent as unknown as UserConsent;
+}
+
+// A server-side bump newer than every frozen build constant.
+const BUMPED_VERSION = "2026-08-01";
+const BUMPED_REQUIRED_VERSIONS = {
+  tos: BUMPED_VERSION,
+  privacy_policy: BUMPED_VERSION,
+  ai_data_sharing: BUMPED_VERSION,
+  share_analytics: BUMPED_VERSION,
+  share_diagnostics: BUMPED_VERSION,
+};
+
+// Unversioned per-user ack keys; the VALUE is the acknowledged version.
+const tosAckKey = (userId: string) => `device:consent:tos:${userId}`;
+const privacyAckKey = (userId: string) => `device:consent:privacy:${userId}`;
 const diagnosticsKey = (userId: string) =>
-  `device:consent:share_diagnostics:v${DIAGNOSTICS_CONSENT_VERSION}:${userId}`;
+  `device:consent:share_diagnostics:${userId}`;
+// Legacy layout: the version was embedded in the KEY over a boolean value.
+const legacyVersionedKey = (field: string, version: string, userId: string) =>
+  `device:consent:${field}:v${version}:${userId}`;
+const analyticsKey = (userId: string) =>
+  legacyVersionedKey("share_analytics", ANALYTICS_CONSENT_VERSION, userId);
 
 beforeEach(() => {
+  __resetRequiredConsentVersionsForTesting();
   storeState.setTosAccepted.mockReset();
   storeState.setPrivacyConsent.mockReset();
   storeState.setShareAnalytics.mockReset();
@@ -148,18 +182,13 @@ describe("resolveServerConsent", () => {
     expect(r.diagnosticsCurrent).toBe(true);
   });
 
-  test("the data-capture toggles freeze at the prior privacy version (no re-prompt)", () => {
-    // Guards the no-re-prompt guarantee: the toggle versions must stay pinned to
-    // the value existing acks/device keys were stamped under. A careless future
-    // edit that re-points them at the bumped privacy version fails here.
+  test("the data-capture toggle fallbacks freeze at the prior privacy version (no re-prompt)", () => {
+    // Guards the no-re-prompt guarantee on the fallback path: the frozen
+    // constants must stay pinned to the value existing acks were stamped
+    // under. A careless future edit that re-points them at the bumped privacy
+    // version fails here — genuine bumps arrive via server `required_versions`.
     expect(ANALYTICS_CONSENT_VERSION).toBe("2026-06-18");
     expect(DIAGNOSTICS_CONSENT_VERSION).toBe("2026-06-18");
-    expect(analyticsKey("user-1")).toBe(
-      "device:consent:share_analytics:v2026-06-18:user-1",
-    );
-    expect(diagnosticsKey("user-1")).toBe(
-      "device:consent:share_diagnostics:v2026-06-18:user-1",
-    );
   });
 
   test("reports stale toggles for mismatched versions", () => {
@@ -491,9 +520,11 @@ describe("resolveServerConsent", () => {
 });
 
 describe("persistToggleConsent + restoreConsentForUser round-trip", () => {
-  test("round-trips the diagnostics ack key", () => {
+  test("round-trips the diagnostics ack key (value = acknowledged version)", () => {
     persistToggleConsent("user-1", { diagnosticsCurrent: true });
-    expect(localStorage.getItem(diagnosticsKey("user-1"))).toBe("true");
+    expect(localStorage.getItem(diagnosticsKey("user-1"))).toBe(
+      DIAGNOSTICS_CONSENT_VERSION,
+    );
     const r = restoreConsentForUser("user-1");
     expect(r.diagnosticsCurrent).toBe(true);
   });
@@ -540,7 +571,6 @@ describe("persistToggleConsent + restoreConsentForUser round-trip", () => {
     // The privacy version has since been bumped, so that stale consent must not
     // be promoted as current — the key is cleaned up and privacy stays un-set.
     const legacyAiKey = `device:consent:ai:v2026-06-08:user-1`;
-    const privacyKey = `device:consent:privacy:v${PRIVACY_CONSENT_VERSION}:user-1`;
     localStorage.setItem(legacyAiKey, "true");
 
     const r = restoreConsentForUser("user-1");
@@ -548,25 +578,115 @@ describe("persistToggleConsent + restoreConsentForUser round-trip", () => {
     expect(r.privacy).toBe(false);
     // The stale key is removed and privacy is not stamped current.
     expect(localStorage.getItem(legacyAiKey)).toBeNull();
-    expect(localStorage.getItem(privacyKey)).toBeNull();
+    expect(localStorage.getItem(privacyAckKey("user-1"))).toBeNull();
   });
 
   test("migrates legacy unversioned ToS but forces privacy re-review", () => {
-    // A pre-versioning user with only the legacy active keys. ToS is unchanged
-    // so it migrates as current; the unversioned privacy consent predates the
-    // current privacy version, so it must NOT be promoted as current.
+    // A pre-versioning user with only the legacy active keys. ToS is stamped
+    // at the frozen constant — the version the legacy acceptance actually
+    // attests — so it migrates as current; the unversioned privacy consent
+    // predates the current privacy version, so it must NOT be promoted as
+    // current.
     localStorage.setItem("vellum:onboarding:tosAccepted", "true");
     localStorage.setItem("vellum:onboarding:aiDataConsent", "true");
-    const privacyKey = `device:consent:privacy:v${PRIVACY_CONSENT_VERSION}:user-1`;
-    const tosKey = `device:consent:tos:v${TOS_CONSENT_VERSION}:user-1`;
 
     const r = restoreConsentForUser("user-1");
 
     expect(r.tos).toBe(true);
     expect(r.privacy).toBe(false);
     // ToS is promoted; privacy is not stamped current.
-    expect(localStorage.getItem(tosKey)).toBe("true");
-    expect(localStorage.getItem(privacyKey)).toBe("false");
+    expect(localStorage.getItem(tosAckKey("user-1"))).toBe(TOS_CONSENT_VERSION);
+    expect(localStorage.getItem(privacyAckKey("user-1"))).toBeNull();
+  });
+
+  test("promotes legacy versioned ack keys to unversioned keys (version becomes the value)", () => {
+    // The legacy layout embedded the version in the key over a boolean value.
+    // Migration carries the exact attested version into the new key's value
+    // and removes every legacy key for the field.
+    localStorage.setItem(
+      legacyVersionedKey("tos", TOS_CONSENT_VERSION, "user-1"),
+      "true",
+    );
+    localStorage.setItem(
+      legacyVersionedKey("privacy", PRIVACY_CONSENT_VERSION, "user-1"),
+      "true",
+    );
+    localStorage.setItem(
+      legacyVersionedKey("share_diagnostics", DIAGNOSTICS_CONSENT_VERSION, "user-1"),
+      "true",
+    );
+
+    const r = restoreConsentForUser("user-1");
+
+    expect(r.tos).toBe(true);
+    expect(r.privacy).toBe(true);
+    expect(r.diagnosticsCurrent).toBe(true);
+    expect(localStorage.getItem(tosAckKey("user-1"))).toBe(TOS_CONSENT_VERSION);
+    expect(localStorage.getItem(privacyAckKey("user-1"))).toBe(
+      PRIVACY_CONSENT_VERSION,
+    );
+    expect(localStorage.getItem(diagnosticsKey("user-1"))).toBe(
+      DIAGNOSTICS_CONSENT_VERSION,
+    );
+    expect(
+      localStorage.getItem(
+        legacyVersionedKey("tos", TOS_CONSENT_VERSION, "user-1"),
+      ),
+    ).toBeNull();
+    expect(
+      localStorage.getItem(
+        legacyVersionedKey("privacy", PRIVACY_CONSENT_VERSION, "user-1"),
+      ),
+    ).toBeNull();
+    expect(
+      localStorage.getItem(
+        legacyVersionedKey(
+          "share_diagnostics",
+          DIAGNOSTICS_CONSENT_VERSION,
+          "user-1",
+        ),
+      ),
+    ).toBeNull();
+  });
+
+  test("migration promotes the attested version verbatim — an old version reads stale, not current", () => {
+    localStorage.setItem(
+      legacyVersionedKey("share_diagnostics", "2020-01-01", "user-1"),
+      "true",
+    );
+
+    const r = restoreConsentForUser("user-1");
+
+    expect(r.diagnosticsCurrent).toBe(false);
+    expect(localStorage.getItem(diagnosticsKey("user-1"))).toBe("2020-01-01");
+  });
+
+  test("migration never promotes a false legacy ack, and an existing unversioned key wins", () => {
+    // A false legacy key is swept without promotion.
+    localStorage.setItem(
+      legacyVersionedKey("share_diagnostics", DIAGNOSTICS_CONSENT_VERSION, "user-1"),
+      "false",
+    );
+    restoreConsentForUser("user-1");
+    expect(localStorage.getItem(diagnosticsKey("user-1"))).toBeNull();
+
+    // Once an unversioned ack exists, a lingering legacy key can't overwrite it.
+    localStorage.setItem(diagnosticsKey("user-1"), "2099-01-01");
+    localStorage.setItem(
+      legacyVersionedKey("share_diagnostics", DIAGNOSTICS_CONSENT_VERSION, "user-1"),
+      "true",
+    );
+    restoreConsentForUser("user-1");
+    expect(localStorage.getItem(diagnosticsKey("user-1"))).toBe("2099-01-01");
+    expect(
+      localStorage.getItem(
+        legacyVersionedKey(
+          "share_diagnostics",
+          DIAGNOSTICS_CONSENT_VERSION,
+          "user-1",
+        ),
+      ),
+    ).toBeNull();
   });
 });
 
@@ -630,7 +750,9 @@ describe("saveConsent", () => {
     expect(storeState.setDiagnosticsConsentCurrent).toHaveBeenCalledWith(true);
     // Analytics has no device ack — its version stamp is server-side only.
     expect(localStorage.getItem(analyticsKey("user-1"))).toBeNull();
-    expect(localStorage.getItem(diagnosticsKey("user-1"))).toBe("true");
+    expect(localStorage.getItem(diagnosticsKey("user-1"))).toBe(
+      DIAGNOSTICS_CONSENT_VERSION,
+    );
   });
 
   test("null shareAnalytics (toggle not shown) omits analytics from the patch and skips its ack", () => {
@@ -649,7 +771,9 @@ describe("saveConsent", () => {
     expect(body.share_diagnostics_accepted_version).toBe(DIAGNOSTICS_CONSENT_VERSION);
     expect(storeState.setShareAnalytics).not.toHaveBeenCalled();
     expect(localStorage.getItem(analyticsKey("user-1"))).toBe(null);
-    expect(localStorage.getItem(diagnosticsKey("user-1"))).toBe("true");
+    expect(localStorage.getItem(diagnosticsKey("user-1"))).toBe(
+      DIAGNOSTICS_CONSENT_VERSION,
+    );
     // Never-asked has nothing to re-review — must not bounce to review-terms.
     expect(storeState.setAnalyticsConsentCurrent).toHaveBeenCalledWith(true);
   });
@@ -704,7 +828,9 @@ describe("saveConsent", () => {
     const body = patchConsentMock.mock.calls[0][0];
     expect(body.share_diagnostics).toBe(false);
     expect(body.share_diagnostics_accepted_version).toBe(DIAGNOSTICS_CONSENT_VERSION);
-    expect(localStorage.getItem(diagnosticsKey("user-1"))).toBe("true");
+    expect(localStorage.getItem(diagnosticsKey("user-1"))).toBe(
+      DIAGNOSTICS_CONSENT_VERSION,
+    );
   });
 
   test("marks consent hydrated — an explicit acceptance is authoritative", () => {
@@ -769,11 +895,163 @@ describe("savePreferenceToggle", () => {
 });
 
 describe("clearConsentForUser", () => {
-  test("clears the diagnostics ack key and any stale analytics ack keys", () => {
+  test("clears the ack keys, legacy versioned keys, and stale analytics ack keys", () => {
     persistToggleConsent("user-1", { diagnosticsCurrent: true });
+    localStorage.setItem(tosAckKey("user-1"), TOS_CONSENT_VERSION);
+    localStorage.setItem(privacyAckKey("user-1"), PRIVACY_CONSENT_VERSION);
     localStorage.setItem(analyticsKey("user-1"), "true");
+    localStorage.setItem(
+      legacyVersionedKey("tos", TOS_CONSENT_VERSION, "user-1"),
+      "true",
+    );
     clearConsentForUser("user-1");
     expect(localStorage.getItem(analyticsKey("user-1"))).toBeNull();
     expect(localStorage.getItem(diagnosticsKey("user-1"))).toBeNull();
+    expect(localStorage.getItem(tosAckKey("user-1"))).toBeNull();
+    expect(localStorage.getItem(privacyAckKey("user-1"))).toBeNull();
+    expect(
+      localStorage.getItem(
+        legacyVersionedKey("tos", TOS_CONSENT_VERSION, "user-1"),
+      ),
+    ).toBeNull();
+  });
+});
+
+describe("server-supplied required versions", () => {
+  test("required_versions newer than the accepted versions owes re-review on every axis", () => {
+    const r = resolveServerConsent(
+      makeConsent({ required_versions: BUMPED_REQUIRED_VERSIONS }),
+    );
+    expect(r.tos).toBe(false);
+    expect(r.privacy).toBe(false);
+    // Explicit choices on record are stale against the bumped requirement.
+    expect(r.analyticsCurrent).toBe(false);
+    expect(r.diagnosticsCurrent).toBe(false);
+    expect(r.analyticsVersionCurrent).toBe(false);
+    expect(r.diagnosticsVersionCurrent).toBe(false);
+  });
+
+  test("accepted versions at the bumped requirement resolve current", () => {
+    const r = resolveServerConsent(
+      makeConsent({
+        required_versions: BUMPED_REQUIRED_VERSIONS,
+        tos_accepted_version: BUMPED_VERSION,
+        privacy_policy_accepted_version: BUMPED_VERSION,
+        ai_data_sharing_accepted_version: BUMPED_VERSION,
+        share_analytics_accepted_version: BUMPED_VERSION,
+        share_diagnostics_accepted_version: BUMPED_VERSION,
+      }),
+    );
+    expect(r.tos).toBe(true);
+    expect(r.privacy).toBe(true);
+    expect(r.analyticsCurrent).toBe(true);
+    expect(r.diagnosticsCurrent).toBe(true);
+  });
+
+  test("absent required_versions (older backend) falls back to the frozen constants", () => {
+    const r = resolveServerConsent(makeConsentWithoutRequiredVersions());
+    expect(r.tos).toBe(true);
+    expect(r.privacy).toBe(true);
+    expect(r.analyticsCurrent).toBe(true);
+    expect(r.diagnosticsCurrent).toBe(true);
+  });
+
+  test("each privacy artifact compares against its own required version", () => {
+    // Only the AI data sharing requirement is bumped: the privacy checkbox
+    // (covering both artifacts) goes stale while every other axis stays
+    // current.
+    const r = resolveServerConsent(
+      makeConsent({
+        required_versions: {
+          tos: TOS_CONSENT_VERSION,
+          privacy_policy: PRIVACY_CONSENT_VERSION,
+          ai_data_sharing: BUMPED_VERSION,
+          share_analytics: ANALYTICS_CONSENT_VERSION,
+          share_diagnostics: DIAGNOSTICS_CONSENT_VERSION,
+        },
+      }),
+    );
+    expect(r.privacy).toBe(false);
+    expect(r.tos).toBe(true);
+    expect(r.analyticsCurrent).toBe(true);
+    expect(r.diagnosticsCurrent).toBe(true);
+  });
+
+  test("missing keys inside required_versions fall back per-key to the constants", () => {
+    const r = resolveServerConsent(
+      makeConsent({ required_versions: { tos: BUMPED_VERSION } }),
+    );
+    expect(r.tos).toBe(false);
+    expect(r.privacy).toBe(true);
+    expect(r.analyticsCurrent).toBe(true);
+    expect(r.diagnosticsCurrent).toBe(true);
+  });
+
+  test("PATCH bodies and device acks stamp the server-supplied required versions", () => {
+    resolveServerConsent(
+      makeConsent({ required_versions: BUMPED_REQUIRED_VERSIONS }),
+    );
+    saveConsent({
+      userId: "user-1",
+      tos: true,
+      privacy: true,
+      shareAnalytics: true,
+      shareDiagnostics: true,
+      hasPlatformSession: true,
+    });
+    const body = patchConsentMock.mock.calls[0][0];
+    expect(body.tos_accepted_version).toBe(BUMPED_VERSION);
+    expect(body.privacy_policy_accepted_version).toBe(BUMPED_VERSION);
+    expect(body.ai_data_sharing_accepted_version).toBe(BUMPED_VERSION);
+    expect(body.share_analytics_accepted_version).toBe(BUMPED_VERSION);
+    expect(body.share_diagnostics_accepted_version).toBe(BUMPED_VERSION);
+    expect(localStorage.getItem(tosAckKey("user-1"))).toBe(BUMPED_VERSION);
+    expect(localStorage.getItem(privacyAckKey("user-1"))).toBe(BUMPED_VERSION);
+    expect(localStorage.getItem(diagnosticsKey("user-1"))).toBe(BUMPED_VERSION);
+  });
+
+  test("device acks stamped under the constants read stale once the server bumps", () => {
+    // Acks earned while the module still ran on the constants fallback...
+    saveConsent({
+      userId: "user-1",
+      tos: true,
+      privacy: true,
+      shareAnalytics: null,
+      shareDiagnostics: true,
+      hasPlatformSession: false,
+    });
+    expect(restoreConsentForUser("user-1")).toEqual({
+      tos: true,
+      privacy: true,
+      diagnosticsCurrent: true,
+    });
+
+    // ...owe a re-review after a resolve adopts bumped requirements.
+    resolveServerConsent(
+      makeConsent({ required_versions: BUMPED_REQUIRED_VERSIONS }),
+    );
+    expect(restoreConsentForUser("user-1")).toEqual({
+      tos: false,
+      privacy: false,
+      diagnosticsCurrent: false,
+    });
+  });
+
+  test("a later resolve without required_versions restores the constants for stamps", () => {
+    resolveServerConsent(
+      makeConsent({ required_versions: BUMPED_REQUIRED_VERSIONS }),
+    );
+    resolveServerConsent(makeConsentWithoutRequiredVersions());
+    savePreferenceToggle("share_diagnostics", true, {
+      userId: "user-1",
+      hasPlatformSession: true,
+    });
+    const body = patchConsentMock.mock.calls[0][0];
+    expect(body.share_diagnostics_accepted_version).toBe(
+      DIAGNOSTICS_CONSENT_VERSION,
+    );
+    expect(localStorage.getItem(diagnosticsKey("user-1"))).toBe(
+      DIAGNOSTICS_CONSENT_VERSION,
+    );
   });
 });
