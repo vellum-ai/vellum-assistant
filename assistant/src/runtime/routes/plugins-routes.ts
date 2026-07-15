@@ -1465,9 +1465,10 @@ async function handleUpgradePlugin({
     if (err instanceof PluginMergeBaselineError) {
       throw new ConflictError(err.message);
     }
-    // The install exists but has no marketplace entry to advance to — a
-    // permanent state the caller cannot resolve by retrying. 409 marks the
-    // request as well-formed but not actionable in the current state.
+    // The install has neither a marketplace entry nor a recorded GitHub source
+    // to advance to — a permanent state the caller cannot resolve by retrying.
+    // 409 marks the request as well-formed but not actionable in the current
+    // state.
     if (err instanceof PluginNotUpgradableError) {
       throw new ConflictError(err.message);
     }
@@ -1896,9 +1897,9 @@ export const ROUTES: RouteDefinition[] = [
       requiredScopes: ["settings.write"],
       allowedPrincipalTypes: ACTOR_PRINCIPALS,
     },
-    summary: "Upgrade a plugin to the marketplace pin",
+    summary: "Upgrade a plugin to its source's current revision",
     description:
-      'Move an installed plugin to the marketplace\'s current pinned commit, re-materializing it under `<workspaceDir>/plugins/<name>/`. Always resolves against the curated marketplace pin (no caller-supplied ref), mirroring `plugins install`\'s curation boundary. A no-op (`outcome: "already-up-to-date"`) when the installed commit already equals the pin; pass `dryRun` to preview the move (`outcome: "would-upgrade"`) without touching the install. Installs lacking provenance are re-pinned to the current SHA. The upgraded code is picked up live on the next read (no restart required). `strategy` controls how local edits are reconciled: `overwrite` (default) discards them and re-installs the pin wholesale; `ours`/`theirs`/`assistant` perform a three-way merge against the re-materialized install commit, carrying non-conflicting edits from both sides forward and resolving conflicting hunks toward the local edit (`ours`) or the pin (`theirs`), or writing git conflict markers into the file and reporting them in `conflicts`/`binaryConflicts` for the assistant to resolve (`assistant`). A merge strategy whose install-time baseline cannot be reconstructed returns 409. Mirrors the CLI\'s `assistant plugins upgrade <name> [--strategy <s>]`.',
+      'Move an installed plugin to its source\'s current revision, re-materializing it under `<workspaceDir>/plugins/<name>/`. A marketplace plugin advances to the curated pin; a plugin installed directly from a GitHub URL (untrusted, not in the marketplace) advances to whatever its recorded ref now resolves to — a pinned SHA is immutable (a no-op), a branch/tag/HEAD moves as upstream does — re-materialized verbatim with no curated adapter overlay, exactly as the original untrusted install was. The target ref is never taken from the request (no caller-supplied ref), mirroring `plugins install`\'s curation boundary. A no-op (`outcome: "already-up-to-date"`) when the installed commit already equals the target; pass `dryRun` to preview the move (`outcome: "would-upgrade"`) without touching the install. Installs lacking provenance are re-pinned to the current SHA. The upgraded code is picked up live on the next read (no restart required). `strategy` controls how local edits are reconciled: `overwrite` (default) discards them and re-installs the target wholesale; `ours`/`theirs`/`assistant` perform a three-way merge against the re-materialized install commit, carrying non-conflicting edits from both sides forward and resolving conflicting hunks toward the local edit (`ours`) or the target (`theirs`), or writing git conflict markers into the file and reporting them in `conflicts`/`binaryConflicts` for the assistant to resolve (`assistant`). A merge strategy whose install-time baseline cannot be reconstructed returns 409. Mirrors the CLI\'s `assistant plugins upgrade <name> [--strategy <s>]`.',
     tags: ["plugins"],
     pathParams: [
       {
@@ -1921,7 +1922,7 @@ export const ROUTES: RouteDefinition[] = [
       },
       "409": {
         description:
-          "The install exists but has no marketplace entry to advance to, or a merge strategy was requested whose install-time baseline cannot be reconstructed.",
+          "The install has neither a marketplace entry nor a recorded GitHub source to advance to, or a merge strategy was requested whose install-time baseline cannot be reconstructed.",
       },
       "503": {
         description:

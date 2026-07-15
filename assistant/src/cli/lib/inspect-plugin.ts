@@ -224,8 +224,12 @@ function readRemote(
  * Best-effort: any failure (network, rate-limit, unexpected shape) yields
  * `null` so inspection still reports the remote pin's SHA without its date,
  * mirroring how the local side degrades to `unknown` when no date was recorded.
+ *
+ * Exported for reuse by `plugins upgrade`, which resolves the same
+ * human-readable "to" timestamp when previewing a directly-installed plugin's
+ * upgrade (its target commit has no marketplace entry to read the date from).
  */
-async function fetchCommitDate(
+export async function fetchCommitDate(
   repo: string,
   sha: string,
   fetch: FetchLike,
