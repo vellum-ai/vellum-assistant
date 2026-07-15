@@ -281,7 +281,9 @@ export function ChatBody({
   const unregisterVisibleBanner =
     useBannerVisibilityStore.use.unregisterVisibleBanner();
   useLayoutEffect(() => {
-    if (!bannerRendered) return;
+    if (!bannerRendered) {
+      return;
+    }
     registerVisibleBanner();
     return unregisterVisibleBanner;
   }, [bannerRendered, registerVisibleBanner, unregisterVisibleBanner]);
