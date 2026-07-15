@@ -1,7 +1,7 @@
 /**
- * Tests for `TimezoneCard` in the Settings General page.
+ * Tests for `TimezoneSection`, the timezone editor inside the Profile card.
  *
- * Strategy: render `TimezoneCard` directly (the full `GeneralPage` pulls in
+ * Strategy: render `TimezoneSection` directly (the full Profile card pulls in
  * many feature-flag/query dependencies). Mock the generated API client's
  * `patch`, `setDeviceSetting`, `captureError`, and stub `TimezonePicker` with
  * a minimal harness that exposes its `onChange` via buttons. Drive the active
@@ -80,7 +80,7 @@ mock.module("@/domains/settings/components/timezone-picker", () => ({
   ),
 }));
 
-const { TimezoneCard } = await import("@/domains/settings/pages/general-page");
+const { TimezoneSection } = await import("@/domains/settings/components/timezone-section");
 
 beforeEach(() => {
   patchMock.mockClear();
@@ -95,9 +95,9 @@ afterEach(() => {
   useResolvedAssistantsStore.setState({ activeAssistantId: null });
 });
 
-describe("TimezoneCard", () => {
+describe("TimezoneSection", () => {
   test("explicit zone change PATCHes ui.userTimezone and writes the device setting", () => {
-    const { getByText } = render(<TimezoneCard />);
+    const { getByText } = render(<TimezoneSection />);
     fireEvent.click(getByText("pick-zone"));
 
     expect(setDeviceSettingMock).toHaveBeenCalledWith("timezone", ZONE);
@@ -109,7 +109,7 @@ describe("TimezoneCard", () => {
   });
 
   test("selecting auto/clear PATCHes ui.userTimezone with an empty string", () => {
-    const { getByText } = render(<TimezoneCard />);
+    const { getByText } = render(<TimezoneSection />);
     fireEvent.click(getByText("pick-auto"));
 
     expect(setDeviceSettingMock).toHaveBeenCalledWith("timezone", "");
@@ -121,7 +121,7 @@ describe("TimezoneCard", () => {
 
   test("with no assistant id, writes the device setting and skips the PATCH", () => {
     useResolvedAssistantsStore.setState({ activeAssistantId: null });
-    const { getByText } = render(<TimezoneCard />);
+    const { getByText } = render(<TimezoneSection />);
     fireEvent.click(getByText("pick-zone"));
 
     expect(setDeviceSettingMock).toHaveBeenCalledWith("timezone", ZONE);
@@ -146,7 +146,7 @@ describe("TimezoneCard", () => {
         }),
     );
 
-    const { getByText } = render(<TimezoneCard />);
+    const { getByText } = render(<TimezoneSection />);
 
     // Three rapid changes. The first starts a PATCH; the next two only update
     // the pending target while the first is in flight.
@@ -195,7 +195,7 @@ describe("TimezoneCard", () => {
     );
 
     useResolvedAssistantsStore.setState({ activeAssistantId: "asst-A" });
-    const { getByText, rerender } = render(<TimezoneCard />);
+    const { getByText, rerender } = render(<TimezoneSection />);
 
     // (a) Start a change for assistant A: the first PATCH fires and stays in
     // flight.
@@ -206,7 +206,7 @@ describe("TimezoneCard", () => {
     // (b) Switch the active assistant to B and re-render so `assistantIdRef`
     // picks up the new id via its effect.
     useResolvedAssistantsStore.setState({ activeAssistantId: "asst-B" });
-    rerender(<TimezoneCard />);
+    rerender(<TimezoneSection />);
 
     // (c) Change the timezone again while A's PATCH is still in flight: this
     // only records the pending value (no second PATCH yet).

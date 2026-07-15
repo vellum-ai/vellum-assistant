@@ -175,7 +175,6 @@ export const routes = {
     voice: r("/assistant/settings/voice"),
     devices: r("/assistant/settings/devices"),
     privacy: r("/assistant/settings/privacy"),
-    security: r("/assistant/settings/security"),
     archive: r("/assistant/settings/archive"),
     bookmarks: r("/assistant/settings/bookmarks"),
     billing: SETTINGS_BILLING_PATH,
