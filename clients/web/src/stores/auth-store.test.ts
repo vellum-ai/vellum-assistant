@@ -61,9 +61,7 @@ const restoreConsentForUserMock = mock(
 const persistConsentForUserMock = mock(
   (_userId: string | null, _tos: boolean, _privacy: boolean) => {},
 );
-const persistToggleConsentMock = mock(
-  (_userId: string | null, _acks: { diagnosticsCurrent?: boolean }) => {},
-);
+const persistDiagnosticsAckMock = mock((_userId: string | null) => {});
 const resolveServerConsentMock = mock(
   (
     _consent: unknown,
@@ -223,7 +221,7 @@ mock.module("@/domains/account/profile", () => ({
 mock.module("@/lib/consent/consent-persistence", () => ({
   restoreConsentForUser: restoreConsentForUserMock,
   persistConsentForUser: persistConsentForUserMock,
-  persistToggleConsent: persistToggleConsentMock,
+  persistDiagnosticsAck: persistDiagnosticsAckMock,
   resolveServerConsent: resolveServerConsentMock,
   TOS_CONSENT_VERSION: "2026-06-08",
   PRIVACY_CONSENT_VERSION: "2026-06-08",
@@ -369,7 +367,7 @@ beforeEach(() => {
   refreshRemoteGatewaySessionMock.mockClear();
   restoreConsentForUserMock.mockClear();
   persistConsentForUserMock.mockClear();
-  persistToggleConsentMock.mockClear();
+  persistDiagnosticsAckMock.mockClear();
   resolveServerConsentMock.mockClear();
   setTosAcceptedMock.mockClear();
   setPrivacyConsentMock.mockClear();
@@ -587,9 +585,7 @@ describe("auth store onboarding flag reconciliation", () => {
     expect(setAnalyticsConsentCurrentMock).toHaveBeenCalledWith(true);
     expect(setDiagnosticsConsentCurrentMock).toHaveBeenCalledWith(true);
     // Only diagnostics carries a device ack — analytics has none.
-    expect(persistToggleConsentMock).toHaveBeenCalledWith("user-1", {
-      diagnosticsCurrent: true,
-    });
+    expect(persistDiagnosticsAckMock).toHaveBeenCalledWith("user-1");
     expect(useAuthStore.getState().sessionStatus).toBe("authenticated");
   });
 
@@ -616,9 +612,7 @@ describe("auth store onboarding flag reconciliation", () => {
     expect(setAnalyticsConsentCurrentMock).toHaveBeenCalledWith(true);
     // ...but no versioned ack either: only an explicit choice may attest a
     // confirmation that could later backfill a server version stamp.
-    expect(persistToggleConsentMock).toHaveBeenCalledWith("user-1", {
-      diagnosticsCurrent: true,
-    });
+    expect(persistDiagnosticsAckMock).toHaveBeenCalledWith("user-1");
     // Never-asked propagates: the store adopts null so tri-state chosen-ness
     // mirrors the server.
     expect(setShareAnalyticsMock).toHaveBeenCalledWith(null);
@@ -696,7 +690,7 @@ describe("auth store onboarding flag reconciliation", () => {
     expect(setDiagnosticsConsentCurrentMock).toHaveBeenCalledWith(true);
     // ...but no versioned ack either: only an explicit choice may attest a
     // confirmation that could later backfill a server version stamp.
-    expect(persistToggleConsentMock).toHaveBeenCalledWith("user-1", {});
+    expect(persistDiagnosticsAckMock).not.toHaveBeenCalled();
     // A null server value never overwrites the device-local preference.
     expect(setShareDiagnosticsMock).not.toHaveBeenCalled();
   });
@@ -746,7 +740,7 @@ describe("auth store onboarding flag reconciliation", () => {
     expect("share_analytics_accepted_version" in body).toBe(false);
     expect("share_diagnostics_accepted_version" in body).toBe(false);
     // No ack keys are written for never-asked toggles.
-    expect(persistToggleConsentMock).toHaveBeenCalledWith("user-1", {});
+    expect(persistDiagnosticsAckMock).not.toHaveBeenCalled();
   });
 
   test("no-record fallback without an analytics device ack stays current and backfills without analytics", async () => {
@@ -768,9 +762,7 @@ describe("auth store onboarding flag reconciliation", () => {
     expect("share_analytics" in body).toBe(false);
     expect("share_analytics_accepted_version" in body).toBe(false);
     expect(body.share_diagnostics_accepted_version).toEqual(expect.any(String));
-    expect(persistToggleConsentMock).toHaveBeenCalledWith("user-1", {
-      diagnosticsCurrent: true,
-    });
+    expect(persistDiagnosticsAckMock).toHaveBeenCalledWith("user-1");
   });
 
   test("initSession falls through to device keys when server versions are empty", async () => {
@@ -800,9 +792,7 @@ describe("auth store onboarding flag reconciliation", () => {
     expect(setDiagnosticsConsentCurrentMock).toHaveBeenCalledWith(true);
     // Acks are persisted from the device-restored values, not the empty
     // server values — otherwise the fallback would clobber its own input.
-    expect(persistToggleConsentMock).toHaveBeenLastCalledWith("user-1", {
-      diagnosticsCurrent: true,
-    });
+    expect(persistDiagnosticsAckMock).toHaveBeenLastCalledWith("user-1");
     // Legal consent is persisted with the restored (true) values, after the
     // fallback — never the empty server values that would erase device acks.
     expect(persistConsentForUserMock).toHaveBeenLastCalledWith(

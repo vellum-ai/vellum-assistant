@@ -64,7 +64,7 @@ import {
 import {
   restoreConsentForUser,
   persistConsentForUser,
-  persistToggleConsent,
+  persistDiagnosticsAck,
   resolveServerConsent,
   TOS_CONSENT_VERSION,
   PRIVACY_CONSENT_VERSION,
@@ -453,9 +453,9 @@ async function syncUserScopedState(nextUserId: string | null): Promise<void> {
       // A false toggle ack is never written: absent ≡ false for every
       // reader, and writing false would erase a genuine device attestation
       // whose backfill patch simply hasn't landed on the server yet.
-      persistToggleConsent(nextUserId, {
-        ...(diagnosticsAck ? { diagnosticsCurrent: true } : {}),
-      });
+      if (diagnosticsAck) {
+        persistDiagnosticsAck(nextUserId);
+      }
       syncOrganizationState(nextUserId);
       store.setConsentHydrated(true);
       return;

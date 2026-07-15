@@ -60,7 +60,7 @@ import {
   DIAGNOSTICS_CONSENT_VERSION,
   __resetRequiredConsentVersionsForTesting,
   clearConsentForUser,
-  persistToggleConsent,
+  persistDiagnosticsAck,
   resolveServerConsent,
   restoreConsentForUser,
   saveConsent,
@@ -540,9 +540,9 @@ describe("resolveServerConsent", () => {
   });
 });
 
-describe("persistToggleConsent + restoreConsentForUser round-trip", () => {
+describe("persistDiagnosticsAck + restoreConsentForUser round-trip", () => {
   test("round-trips the diagnostics ack key (value = acknowledged version)", () => {
-    persistToggleConsent("user-1", { diagnosticsCurrent: true });
+    persistDiagnosticsAck("user-1");
     expect(localStorage.getItem(diagnosticsKey("user-1"))).toBe(
       DIAGNOSTICS_CONSENT_VERSION,
     );
@@ -550,15 +550,14 @@ describe("persistToggleConsent + restoreConsentForUser round-trip", () => {
     expect(r.diagnosticsCurrent).toBe(true);
   });
 
-  test("writes nothing when no ack is provided", () => {
-    persistToggleConsent("user-1", {});
+  test("restore reads false while no ack has been stamped", () => {
     expect(localStorage.getItem(diagnosticsKey("user-1"))).toBeNull();
     const r = restoreConsentForUser("user-1");
     expect(r.diagnosticsCurrent).toBe(false);
   });
 
   test("no-ops without a userId", () => {
-    persistToggleConsent(null, { diagnosticsCurrent: true });
+    persistDiagnosticsAck(null);
     expect(localStorage.getItem(diagnosticsKey("user-1"))).toBeNull();
   });
 
@@ -973,7 +972,7 @@ describe("savePreferenceToggle", () => {
 
 describe("clearConsentForUser", () => {
   test("clears the ack keys, legacy versioned keys, and stale analytics ack keys", () => {
-    persistToggleConsent("user-1", { diagnosticsCurrent: true });
+    persistDiagnosticsAck("user-1");
     localStorage.setItem(tosAckKey("user-1"), TOS_CONSENT_VERSION);
     localStorage.setItem(
       privacyPolicyAckKey("user-1"),
