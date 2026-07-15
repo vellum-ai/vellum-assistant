@@ -22,7 +22,15 @@
  * a walk trips over a half-written plugin directory.
  */
 
-import { mkdirSync, renameSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  renameSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import { join } from "node:path";
 
 import { collectSourceVersions } from "../plugins/collect-source-versions.js";
 import type {
