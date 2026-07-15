@@ -514,6 +514,19 @@ export function useLiveVoice(
     if (muted) s.setInputAmplitude(0);
   }, []);
 
+  /**
+   * Retune the running session's turn-detection knobs live (the voice-room
+   * gear). Delegates to the transport, which no-ops unless the socket is
+   * active; a no-op during the reconnect gap (no session) is fine — the fresh
+   * `connectSession` re-reads the current settings into its start frame.
+   */
+  const updateConfig = useCallback(
+    (config: { silenceThresholdMs?: number; bargeInMinSpeechMs?: number }) => {
+      sessionRef.current?.client.updateConfig(config);
+    },
+    [],
+  );
+
   // The connect flow, shared by the user-facing `start()` and the hands-free
   // reconnect path. `start()` owns the "already active" guard and resets the
   // reconnect budget; `connectSession` assumes it may run. On reconnect it is
@@ -558,6 +571,7 @@ export function useLiveVoice(
         release,
         interrupt,
         setMuted,
+        updateConfig,
       });
 
       const opts = optionsRef.current;
@@ -942,6 +956,7 @@ export function useLiveVoice(
               release,
               interrupt,
               setMuted,
+              updateConfig,
             });
             console.warn(
               `live-voice: transport closed (code ${info.code}); reconnecting ` +
@@ -985,7 +1000,7 @@ export function useLiveVoice(
           : {}),
       });
     },
-    [teardown, stop, release, interrupt, setMuted],
+    [teardown, stop, release, interrupt, setMuted, updateConfig],
   );
 
   // Let the transport `closed` handler re-enter the connect flow for a

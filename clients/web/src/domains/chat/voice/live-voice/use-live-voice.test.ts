@@ -2642,8 +2642,7 @@ describe("initial-connect resilience (JARVIS-1282)", () => {
     expect(useLiveVoiceStore.getState().reconnecting).toBe(false);
     expect(useLiveVoiceStore.getState().controls).not.toBeNull();
 
-    // Backoff elapses → a fresh connect to the same conversation (no turn-taking
-    // overrides, since none were set).
+    // Backoff elapses → a fresh connect to the same conversation.
     await act(async () => {
       await sleep(30);
     });

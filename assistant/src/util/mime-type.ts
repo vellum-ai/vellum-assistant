@@ -1,5 +1,8 @@
 /**
- * Shared MIME type guessing for Gmail attachment support.
+ * Best-effort MIME type inference from a file path's extension.
+ *
+ * Used to label outbound attachments (Gmail/Outlook multipart parts, native
+ * email attachments) when the source is a local file with no declared type.
  */
 
 import { extname } from "node:path";

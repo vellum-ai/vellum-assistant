@@ -5,29 +5,29 @@ import { useSearchParams } from "react-router";
 
 import { Dropdown } from "@vellumai/design-library";
 
-import { buildCallSiteMetadataMap } from "@/domains/logs/call-site-metadata";
+import { buildCallSiteMetadataMap } from "@/domains/settings/billing/usage/call-site-metadata";
 import {
     UsageTrendChart,
     UsageTrendSkeleton,
     type UsageTrendChartLegendItem,
-} from "@/domains/logs/components/usage-trend-chart";
-import { formatCost, formatTokens } from "@/domains/logs/format";
-import { decorateUsageBreakdownGroups } from "@/domains/logs/group-labels";
+} from "@/domains/settings/billing/usage/usage-trend-chart";
+import { formatCost, formatTokens } from "@/domains/settings/billing/usage/format";
+import { decorateUsageBreakdownGroups } from "@/domains/settings/billing/usage/group-labels";
 import {
     buildUsageBreakdownQuery,
     buildUsageDailyQuery,
     buildUsageSeriesQuery,
     buildUsageTotalsQuery,
-} from "@/domains/logs/usage-api";
+} from "@/domains/settings/billing/usage/usage-api";
 import {
     formatBreakdownTokens,
     formatBreakdownTokensShort,
-} from "@/domains/logs/usage-breakdown-format";
+} from "@/domains/settings/billing/usage/usage-breakdown-format";
 import {
     decorateUsageSeriesGroups,
     seriesFromDailyBuckets,
     usageSeriesKeyForGroupValue,
-} from "@/domains/logs/usage-series";
+} from "@/domains/settings/billing/usage/usage-series";
 import {
     buildUsageSearchParams,
     FALLBACK_USAGE_GROUP_BY,
@@ -41,14 +41,14 @@ import {
     trendTitle,
     USAGE_GROUP_BY_OPTIONS,
     type UsageSearchParamsUpdate,
-} from "@/domains/logs/usage-tab-state";
+} from "@/domains/settings/billing/usage/usage-tab-state";
 import type {
     UsageBreakdownResponse,
     UsageGroupBreakdown,
     UsageGroupBy,
     UsageTimeRange,
     UsageTotals,
-} from "@/domains/logs/usage-types";
+} from "@/domains/settings/billing/usage/usage-types";
 import { usageBreakdownGet } from "@/generated/daemon/sdk.gen";
 import {
     configGetOptions,

@@ -370,3 +370,37 @@ describe("rememberTool.execute — batch (array) content", () => {
     expect(enqueueCalls).toHaveLength(0);
   });
 });
+
+describe("rememberTool definition — page-hint guidance gating", () => {
+  // The rest of this file exercises the v1 PKB path; restore its seed.
+  afterAll(() => {
+    setConfig("memory", { v2: { enabled: false } });
+  });
+
+  test("omits the [[slug]] hint guidance in v1/PKB mode", () => {
+    setConfig("memory", { v2: { enabled: false } });
+    expect(
+      rememberTool.input_schema.properties.content.description,
+    ).not.toContain("[[slug]]");
+  });
+
+  test("includes the [[slug]] hint guidance under wiki memory (v2)", () => {
+    setConfig("memory", { v2: { enabled: true } });
+    expect(rememberTool.input_schema.properties.content.description).toContain(
+      "[[slug]] wikilinks",
+    );
+    // The gate must survive JSON serialization — that's how the schema
+    // reaches the provider wire format.
+    expect(JSON.stringify(rememberTool.input_schema)).toContain(
+      "[[slug]] wikilinks",
+    );
+  });
+
+  test("re-resolves against config on each read, without re-registration", () => {
+    const schema = rememberTool.input_schema;
+    setConfig("memory", { v2: { enabled: true } });
+    expect(schema.properties.content.description).toContain("[[slug]]");
+    setConfig("memory", { v2: { enabled: false } });
+    expect(schema.properties.content.description).not.toContain("[[slug]]");
+  });
+});

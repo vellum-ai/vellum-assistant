@@ -1174,6 +1174,32 @@ describe("LiveVoiceSession VAD threshold configuration", () => {
     }
   });
 
+  // JARVIS-1284 (in-session gear): a mid-session `update_config` frame retunes
+  // the live turn detector's pause, so the "pause before reply" slider in the
+  // voice room takes effect without reconnecting.
+  test("update_config retunes the live silence threshold mid-session", async () => {
+    const { frames, session } = createHarness({
+      // Start with a long pause that would time the waitFor out on its own.
+      startFrame: { ...VAD_START_FRAME, silenceThresholdMs: 5_000 },
+      finals: ["configured turn"],
+      startVoiceTurn: makeAutoCompletingTurnStarter(["Done."]).startVoiceTurn,
+    });
+    await session.start();
+
+    // Retune to a short pause mid-session…
+    await session.handleClientFrame({
+      type: "update_config",
+      silenceThresholdMs: 60,
+    });
+
+    // …so this utterance ends ~60 ms after speech, inside the waitFor budget.
+    await session.handleBinaryAudio(pcm(3_000));
+    await waitFor(() => countType(frames, "utterance_end") === 1);
+    expect(
+      frames.find((frame) => frame.type === "utterance_end"),
+    ).toMatchObject({ type: "utterance_end", reason: "silence" });
+  });
+
   // JARVIS-1284: the per-session start-frame `silenceThresholdMs` wins over the
   // daemon-config/option value, so the client's "pause before reply" setting
   // takes effect.

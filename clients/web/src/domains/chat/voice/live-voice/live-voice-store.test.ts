@@ -19,6 +19,7 @@ import {
   releaseLiveVoiceTurn,
   setLiveVoiceMuted,
   stopLiveVoiceResponse,
+  updateLiveVoiceSessionConfig,
   useLiveVoiceStore,
   type LiveVoiceSessionState,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
@@ -134,10 +135,20 @@ describe("useLiveVoiceStore — mute + handsFree", () => {
     expect(controls.interrupt).toHaveBeenCalledTimes(1);
   });
 
+  test("updateLiveVoiceSessionConfig drives the registered updateConfig control", () => {
+    const controls = makeControlsSpies();
+    useLiveVoiceStore.getState().setControls(controls);
+    updateLiveVoiceSessionConfig({ silenceThresholdMs: 1500 });
+    expect(controls.updateConfig).toHaveBeenCalledWith({
+      silenceThresholdMs: 1500,
+    });
+  });
+
   test("helpers are no-ops with no registered controls", () => {
     expect(() => {
       setLiveVoiceMuted(true);
       stopLiveVoiceResponse();
+      updateLiveVoiceSessionConfig({ silenceThresholdMs: 1500 });
     }).not.toThrow();
   });
 

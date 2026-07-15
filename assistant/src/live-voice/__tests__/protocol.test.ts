@@ -62,6 +62,54 @@ describe("parseLiveVoiceClientTextFrame", () => {
     }
   });
 
+  test("parses an update_config frame with both fields", () => {
+    const frame = {
+      type: "update_config",
+      silenceThresholdMs: 1400,
+      bargeInMinSpeechMs: 300,
+    } satisfies LiveVoiceClientFrame;
+    const result = parseLiveVoiceClientTextFrame(JSON.stringify(frame));
+    expect(result).toEqual({ ok: true, frame });
+  });
+
+  test("parses an update_config frame with a single field, omitting the other", () => {
+    const result = parseLiveVoiceClientTextFrame(
+      JSON.stringify({ type: "update_config", silenceThresholdMs: 900 }),
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.frame).toEqual({
+      type: "update_config",
+      silenceThresholdMs: 900,
+    });
+  });
+
+  test("parses an empty update_config frame (no-op)", () => {
+    const result = parseLiveVoiceClientTextFrame(
+      JSON.stringify({ type: "update_config" }),
+    );
+    expect(result).toEqual({ ok: true, frame: { type: "update_config" } });
+  });
+
+  test.each([
+    ["silenceThresholdMs", 50],
+    ["silenceThresholdMs", 10_000],
+    ["bargeInMinSpeechMs", -1],
+    ["bargeInMinSpeechMs", 9_000],
+  ])("rejects an out-of-range update_config %s=%p", (field, badValue) => {
+    const result = validateLiveVoiceClientFrame({
+      type: "update_config",
+      [field]: badValue,
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toMatchObject({
+      code: "invalid_field",
+      field,
+      frameType: "update_config",
+    });
+  });
+
   test("returns typed protocol errors for invalid JSON", () => {
     const result = parseLiveVoiceClientTextFrame("{");
 

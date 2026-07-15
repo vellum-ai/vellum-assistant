@@ -4,6 +4,7 @@ const LIVE_VOICE_CLIENT_FRAME_TYPES = [
   "ptt_release",
   "interrupt",
   "end",
+  "update_config",
 ] as const;
 
 type LiveVoiceClientFrameType = (typeof LIVE_VOICE_CLIENT_FRAME_TYPES)[number];
@@ -125,12 +126,26 @@ export interface LiveVoiceClientEndFrame {
   readonly type: "end";
 }
 
+/**
+ * Mid-session tuning update: applies the same turn-detection knobs the start
+ * frame carries to the *running* session, so the client can retune "pause
+ * before reply" / "interrupt sensitivity" without reconnecting. Each field is
+ * optional and independently applied; the same bounds as the start frame apply.
+ * Only meaningful for `server_vad` sessions.
+ */
+export interface LiveVoiceClientUpdateConfigFrame {
+  readonly type: "update_config";
+  readonly silenceThresholdMs?: number;
+  readonly bargeInMinSpeechMs?: number;
+}
+
 export type LiveVoiceClientFrame =
   | LiveVoiceClientStartFrame
   | LiveVoiceClientAudioFrame
   | LiveVoiceClientPttReleaseFrame
   | LiveVoiceClientInterruptFrame
-  | LiveVoiceClientEndFrame;
+  | LiveVoiceClientEndFrame
+  | LiveVoiceClientUpdateConfigFrame;
 
 interface LiveVoiceBinaryAudioFrame {
   readonly type: "binary_audio";
@@ -386,7 +401,58 @@ export function validateLiveVoiceClientFrame(
       return { ok: true, frame: { type: "interrupt" } };
     case "end":
       return { ok: true, frame: { type: "end" } };
+    case "update_config":
+      return validateUpdateConfigFrame(value);
   }
+}
+
+function validateUpdateConfigFrame(
+  value: Record<string, unknown>,
+): LiveVoiceParseResult<LiveVoiceClientUpdateConfigFrame> {
+  if (
+    "silenceThresholdMs" in value &&
+    !isIntInRange(
+      value.silenceThresholdMs,
+      MIN_SILENCE_THRESHOLD_MS,
+      MAX_SILENCE_THRESHOLD_MS,
+    )
+  ) {
+    return protocolError(
+      "invalid_field",
+      `update_config field silenceThresholdMs must be an integer in [${MIN_SILENCE_THRESHOLD_MS}, ${MAX_SILENCE_THRESHOLD_MS}]`,
+      "silenceThresholdMs",
+      "update_config",
+    );
+  }
+
+  if (
+    "bargeInMinSpeechMs" in value &&
+    !isIntInRange(
+      value.bargeInMinSpeechMs,
+      MIN_BARGE_IN_MIN_SPEECH_MS,
+      MAX_BARGE_IN_MIN_SPEECH_MS,
+    )
+  ) {
+    return protocolError(
+      "invalid_field",
+      `update_config field bargeInMinSpeechMs must be an integer in [${MIN_BARGE_IN_MIN_SPEECH_MS}, ${MAX_BARGE_IN_MIN_SPEECH_MS}]`,
+      "bargeInMinSpeechMs",
+      "update_config",
+    );
+  }
+
+  return {
+    ok: true,
+    frame: {
+      type: "update_config",
+      ...(typeof value.silenceThresholdMs === "number"
+        ? { silenceThresholdMs: value.silenceThresholdMs }
+        : {}),
+      ...(typeof value.bargeInMinSpeechMs === "number"
+        ? { bargeInMinSpeechMs: value.bargeInMinSpeechMs }
+        : {}),
+    },
+  };
 }
 
 export function parseLiveVoiceBinaryAudioFrame(

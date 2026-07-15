@@ -11173,6 +11173,23 @@ paths:
                   type: array
                   items:
                     type: string
+                attachments:
+                  description: File attachments
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      filename:
+                        type: string
+                      content_type:
+                        type: string
+                      content:
+                        type: string
+                        description: Base64-encoded file content
+                    required:
+                      - filename
+                      - content_type
+                      - content
                 reply_to:
                   description: Reply-to email ID
                   type: string
