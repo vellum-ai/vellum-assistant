@@ -47,7 +47,7 @@ const ACP_SERVICE = "acp";
  *   by the user/admin. Respect it even if `acp_spawn` is absent; the
  *   broker will deny the read and the caller decides whether that's fatal.
  */
-function ensureAcpCredentialPolicy(
+export function ensureAcpCredentialPolicy(
   field: string,
   usageDescription: string,
 ): void {
