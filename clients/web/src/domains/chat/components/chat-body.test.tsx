@@ -12,12 +12,16 @@
  * `ChatBody` itself.
  */
 
-import { describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { act, cleanup, render, waitFor } from "@testing-library/react";
 import { type ButtonHTMLAttributes, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import type { ChatBodyProps } from "@/domains/chat/components/chat-body";
+import {
+  isBannerVisible,
+  useBannerVisibilityStore,
+} from "@/stores/banner-visibility-store";
 
 // Stub child components that require browser APIs or complex hooks.
 // NOTE: Do NOT mock chat-scroll-area itself — that leaks across test
@@ -293,6 +297,83 @@ describe("ChatBody — banner overlay suppression (LUM-1566)", () => {
       globalThis.ResizeObserver = originalResizeObserver;
       cleanup();
     }
+  });
+});
+
+describe("ChatBody — banner-visibility store mirroring", () => {
+  // The shared store must reflect the banner actually being MOUNTED
+  // (bannerSlot provided AND not on the empty state), not merely a
+  // candidate slot existing — a sidebar tip hides itself while the store
+  // reports a visible banner. Count-based register/unregister keeps
+  // concurrent instances (main chat + app-editing side panel) from
+  // clobbering each other.
+  const bannerSlot = <div data-testid="banner">BANNER_CONTENT</div>;
+  const visible = () =>
+    isBannerVisible(useBannerVisibilityStore.getState().visibleBannerCount);
+
+  beforeEach(() => {
+    useBannerVisibilityStore.setState({ visibleBannerCount: 0 });
+  });
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  test("registers while the banner overlay is mounted, unregisters on unmount", () => {
+    const { unmount } = render(<ChatBody {...baseProps({ bannerSlot })} />);
+    expect(visible()).toBe(true);
+
+    unmount();
+    expect(visible()).toBe(false);
+  });
+
+  test("does NOT register on the empty state even when bannerSlot is provided", () => {
+    render(<ChatBody {...withEmptyState({ bannerSlot })} />);
+    expect(visible()).toBe(false);
+  });
+
+  test("does NOT register without a bannerSlot (side panel passes undefined)", () => {
+    render(<ChatBody {...baseProps({ variant: "side-panel" })} />);
+    expect(visible()).toBe(false);
+  });
+
+  test("empty→active transition flips the store as the banner mounts/unmounts", () => {
+    const { rerender } = render(
+      <ChatBody {...withEmptyState({ bannerSlot })} />,
+    );
+    expect(visible()).toBe(false);
+
+    rerender(<ChatBody {...baseProps({ bannerSlot })} />);
+    expect(visible()).toBe(true);
+
+    rerender(<ChatBody {...withEmptyState({ bannerSlot })} />);
+    expect(visible()).toBe(false);
+  });
+
+  test("a bannerless second instance does not clobber the first's visibility", () => {
+    const main = render(<ChatBody {...baseProps({ bannerSlot })} />);
+    const sidePanel = render(
+      <ChatBody {...baseProps({ variant: "side-panel" })} />,
+    );
+    expect(visible()).toBe(true);
+
+    sidePanel.unmount();
+    expect(visible()).toBe(true);
+
+    main.unmount();
+    expect(visible()).toBe(false);
+  });
+
+  test("stays visible until every banner-rendering instance unmounts", () => {
+    const first = render(<ChatBody {...baseProps({ bannerSlot })} />);
+    const second = render(<ChatBody {...baseProps({ bannerSlot })} />);
+    expect(useBannerVisibilityStore.getState().visibleBannerCount).toBe(2);
+
+    first.unmount();
+    expect(visible()).toBe(true);
+
+    second.unmount();
+    expect(visible()).toBe(false);
   });
 });
 
