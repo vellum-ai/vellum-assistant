@@ -290,6 +290,18 @@ function forkSharedApp(
     htmlDefinition: htmlContent,
   });
 
+  // Materialize the shared app's compiled output as the fork's dist/ so the
+  // fork opens without a source compile (mirrors bundle import).
+  const distDir = join(getAppDirPath(newApp.id), "dist");
+  mkdirSync(distDir, { recursive: true });
+  writeFileSync(join(distDir, "index.html"), htmlContent, "utf-8");
+  for (const asset of ["main.js", "main.css"]) {
+    const assetPath = join(dir, appUuid, asset);
+    if (existsSync(assetPath)) {
+      writeFileSync(join(distDir, asset), readFileSync(assetPath, "utf-8"));
+    }
+  }
+
   return { success: true, appId: newApp.id, name: newApp.name };
 }
 
