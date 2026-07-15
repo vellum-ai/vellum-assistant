@@ -383,6 +383,35 @@ describe("AcpSessionManager.resumeFromHistory", () => {
     expect(state.status).toBe("running");
   });
 
+  test("resume re-seeds model and cache tokens so a null-usage terminal upsert preserves attribution", async () => {
+    fakeCaps.resume = true;
+    insertHistoryRow({
+      id: "resume-usage-1",
+      usedTokens: 100,
+      contextSize: 2000,
+      inputTokens: 60,
+      outputTokens: 40,
+      model: "claude-opus-4-8",
+      cacheReadTokens: 15,
+      cacheWriteTokens: 5,
+    });
+
+    const manager = new AcpSessionManager(4);
+    await manager.resumeFromHistory("resume-usage-1", () => {});
+
+    // The persisted model + cache columns are re-seeded onto latestUsage, so a
+    // terminal transition without a fresh usage event re-persists them instead
+    // of NULLing attribution already on the row.
+    const state = manager.getStatus("resume-usage-1") as AcpSessionState;
+    expect(state.latestUsage).toMatchObject({
+      inputTokens: 60,
+      outputTokens: 40,
+      model: "claude-opus-4-8",
+      cacheReadTokens: 15,
+      cacheWriteTokens: 5,
+    });
+  });
+
   test("legacy row with null cwd raises an actionable error", async () => {
     insertHistoryRow({ id: "legacy-1", cwd: null });
 

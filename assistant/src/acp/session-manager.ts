@@ -519,6 +519,9 @@ export class AcpSessionManager {
         costCurrency: row.costCurrency ?? undefined,
         inputTokens: row.inputTokens ?? undefined,
         outputTokens: row.outputTokens ?? undefined,
+        model: row.model ?? undefined,
+        cacheReadTokens: row.cacheReadTokens ?? undefined,
+        cacheWriteTokens: row.cacheWriteTokens ?? undefined,
       };
     }
 
@@ -936,6 +939,9 @@ export class AcpSessionManager {
       costCurrency: usage?.costCurrency ?? null,
       inputTokens: usage?.inputTokens ?? null,
       outputTokens: usage?.outputTokens ?? null,
+      model: usage?.model ?? null,
+      cacheReadTokens: usage?.cacheReadTokens ?? null,
+      cacheWriteTokens: usage?.cacheWriteTokens ?? null,
     };
     try {
       getDb()
