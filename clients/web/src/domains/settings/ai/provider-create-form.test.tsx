@@ -9,6 +9,10 @@
  *      assembled `CreateConnectionInput`, then hand the returned connection
  *      back to the consumer via `onCreated`.
  *
+ * Auth is derived from the chosen provider (keyless → none, everything else
+ * → api_key; ChatGPT is a subscription pseudo-provider whose connection is
+ * created by the OAuth flow) — there is no auth-type control.
+ *
  * We mock the generated daemon SDK (sdk.gen) at module scope via
  * module-level holders so each test can inspect the exact request bodies,
  * mirroring the mocking style in
@@ -78,8 +82,11 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
 // Stub the credential hooks so render doesn't issue real daemon queries.
 // `hasStoredCredential: false` matches the empty create-mode state.
 mock.module("@/domains/settings/ai/use-stored-credential-presence", () => ({
-  credentialPresenceQueryKey: (assistantId: string, kind: string, name: string) =>
-    ["credentialPresence", assistantId, kind, name] as const,
+  credentialPresenceQueryKey: (
+    assistantId: string,
+    kind: string,
+    name: string,
+  ) => ["credentialPresence", assistantId, kind, name] as const,
   useStoredCredentialPresence: () => ({
     hasStoredCredential: false,
     isLoading: false,
@@ -93,9 +100,8 @@ mock.module("@/domains/settings/ai/use-provider-credentials-list", () => ({
   }),
 }));
 
-const { ProviderCreateForm } = await import(
-  "@/domains/settings/ai/provider-create-form"
-);
+const { ProviderCreateForm } =
+  await import("@/domains/settings/ai/provider-create-form");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -161,9 +167,9 @@ function getButton(label: string): HTMLButtonElement {
 }
 
 /**
- * Display Name + Key live under a collapsed "Advanced" disclosure. Open it
- * so those inputs mount before a test reads or edits them. Idempotent — a
- * no-op when the section is already expanded.
+ * Display Name (and, for openai-compatible, the Key) live under a collapsed
+ * "Advanced" disclosure. Open it so those inputs mount before a test reads
+ * or edits them. Idempotent — a no-op when the section is already expanded.
  */
 function openAdvancedFields(): void {
   const button = Array.from(
@@ -208,7 +214,7 @@ function selectDropdownOption(ariaLabel: string, optionLabel: string): void {
 beforeEach(() => {
   secretsPostCalls = [];
   createConnectionCalls = [];
-  createdConnection = makeConnection("anthropic-personal");
+  createdConnection = makeConnection("anthropic");
   createResponseOk = true;
   createResponseStatus = 200;
   toastSuccessCalls = [];
@@ -224,13 +230,14 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("ProviderCreateForm submit sequence", () => {
-  test("submitting an API key fires secretsPost then inferenceProviderconnectionsPost and calls onCreated", async () => {
+  test("a keyed provider derives api_key auth: secretsPost then inferenceProviderconnectionsPost", async () => {
     let created: ProviderConnection | undefined;
     render(
       <ModalWrapper>
         <ProviderCreateForm
           assistantId={ASSISTANT_ID}
           existingNames={[]}
+          defaultProviderType="anthropic"
           onCreated={(c) => {
             created = c;
           }}
@@ -239,21 +246,13 @@ describe("ProviderCreateForm submit sequence", () => {
       </ModalWrapper>,
     );
 
-    // Default provider is anthropic with platform auth — switch to API Key.
-    // Type a Key (name) and an API key value.
-    openAdvancedFields();
-    fireEvent.change(getInputByPlaceholder("e.g. anthropic-personal"), {
-      target: { value: "anthropic-personal" },
-    });
-
-    // Select API Key auth so the API Key field renders.
-    selectDropdownOption("Auth type", "API Key");
-
+    // No auth-type control: a keyed provider goes straight to the API key
+    // field, and the connection name is seeded from the provider.
     fireEvent.change(getInputByPlaceholder("Enter your API key"), {
       target: { value: "sk-test-123" },
     });
 
-    fireEvent.click(getButton("Create"));
+    fireEvent.click(getButton("Add"));
 
     await waitFor(() => {
       expect(createConnectionCalls.length).toBe(1);
@@ -269,10 +268,12 @@ describe("ProviderCreateForm submit sequence", () => {
       value: "sk-test-123",
     });
 
-    // Then inferenceProviderconnectionsPost with the CreateConnectionInput.
+    // Then inferenceProviderconnectionsPost with the full derived auth
+    // object (NOT the bare `credential` field — older daemons only accept
+    // explicit auth, and this form must work against them without a gate).
     expect(createConnectionCalls[0].path.assistant_id).toBe(ASSISTANT_ID);
     expect(createConnectionCalls[0].body).toMatchObject({
-      name: "anthropic-personal",
+      name: "anthropic",
       provider: "anthropic",
       auth: { type: "api_key", credential: "credential/anthropic/api_key" },
     });
@@ -281,15 +282,16 @@ describe("ProviderCreateForm submit sequence", () => {
     await waitFor(() => {
       expect(created).toBeDefined();
     });
-    expect(created?.name).toBe("anthropic-personal");
+    expect(created?.name).toBe("anthropic");
   });
 
-  test("blocks duplicate names with the existing validation message", () => {
+  test("blocks a duplicate openai-compatible key with the validation message", () => {
     render(
       <ModalWrapper>
         <ProviderCreateForm
           assistantId={ASSISTANT_ID}
-          existingNames={["anthropic-personal"]}
+          existingNames={["my-endpoint"]}
+          defaultProviderType="openai-compatible"
           onCreated={() => {}}
           onCancel={() => {}}
         />
@@ -297,14 +299,14 @@ describe("ProviderCreateForm submit sequence", () => {
     );
 
     openAdvancedFields();
-    fireEvent.change(getInputByPlaceholder("e.g. anthropic-personal"), {
-      target: { value: "anthropic-personal" },
+    fireEvent.change(getInputByPlaceholder("e.g. my-endpoint"), {
+      target: { value: "my-endpoint" },
     });
 
     expect(document.body.textContent).toContain(
-      'A connection named "anthropic-personal" already exists.',
+      'A provider named "my-endpoint" already exists.',
     );
-    expect(getButton("Create").disabled).toBe(true);
+    expect(getButton("Add").disabled).toBe(true);
   });
 
   test("variant=inline renders the form without Modal chrome and still creates", async () => {
@@ -315,6 +317,7 @@ describe("ProviderCreateForm submit sequence", () => {
           variant="inline"
           assistantId={ASSISTANT_ID}
           existingNames={[]}
+          defaultProviderType="anthropic"
           onCreated={(c) => {
             created = c;
           }}
@@ -324,44 +327,40 @@ describe("ProviderCreateForm submit sequence", () => {
     );
 
     // Inline variant drops the modal title.
-    expect(document.body.textContent).not.toContain("New Provider Connection");
+    expect(document.body.textContent).not.toContain("Add Provider");
 
-    openAdvancedFields();
-    fireEvent.change(getInputByPlaceholder("e.g. anthropic-personal"), {
-      target: { value: "anthropic-personal" },
-    });
-
-    selectDropdownOption("Auth type", "API Key");
     fireEvent.change(getInputByPlaceholder("Enter your API key"), {
       target: { value: "sk-test-123" },
     });
 
-    fireEvent.click(getButton("Create"));
+    fireEvent.click(getButton("Add"));
 
     await waitFor(() => {
       expect(createConnectionCalls.length).toBe(1);
     });
     await waitFor(() => {
-      expect(created?.name).toBe("anthropic-personal");
+      expect(created?.name).toBe("anthropic");
     });
   });
 
-  test("a provider without platform auth (e.g. openrouter) seeds api_key, not platform", () => {
-    // openrouter has no managed proxy, so defaulting to `platform` would let the
-    // user create an unusable connection. The initial auth seed must fall back
-    // to api_key — the API Key field's presence confirms it.
+  test("there is no auth-type control — auth derives from the provider", () => {
     render(
       <ModalWrapper>
         <ProviderCreateForm
           assistantId={ASSISTANT_ID}
           existingNames={[]}
-          defaultProviderType="openrouter"
+          defaultProviderType="anthropic"
           onCreated={() => {}}
           onCancel={() => {}}
         />
       </ModalWrapper>,
     );
 
+    expect(
+      document.querySelector('button[role="combobox"][aria-label="Auth type"]'),
+    ).toBeNull();
+    expect(document.body.textContent).not.toContain("Auth Type");
+    // Keyed provider → API key field present.
     expect(getInputByPlaceholder("Enter your API key")).toBeDefined();
   });
 
@@ -387,7 +386,7 @@ describe("ProviderCreateForm submit sequence", () => {
       ),
     ).toBe(false);
 
-    fireEvent.click(getButton("Create"));
+    fireEvent.click(getButton("Add"));
 
     await waitFor(() => {
       expect(createConnectionCalls.length).toBe(1);
@@ -400,7 +399,7 @@ describe("ProviderCreateForm submit sequence", () => {
     });
   });
 
-  test("platform-hosted assistants ignore an Ollama default provider seed", async () => {
+  test("platform-hosted assistants ignore an Ollama default provider seed", () => {
     useAssistantLifecycleStore.setState({
       assistantState: { kind: "active", isLocal: false },
     });
@@ -416,16 +415,41 @@ describe("ProviderCreateForm submit sequence", () => {
       </ModalWrapper>,
     );
 
-    fireEvent.click(getButton("Create"));
+    // Ollama isn't selectable on platform-hosted assistants, so the picker
+    // falls back to the first selectable provider — a keyed one, so the API
+    // key field renders (adding a provider always means your own key now;
+    // platform-managed routing is the Vellum row, not a per-provider choice).
+    expect(getInputByPlaceholder("Enter your API key")).toBeDefined();
+  });
 
-    await waitFor(() => {
-      expect(createConnectionCalls.length).toBe(1);
-    });
-    expect(createConnectionCalls[0].body).toMatchObject({
-      name: "anthropic",
-      provider: "anthropic",
-      auth: { type: "platform" },
-    });
+  test("selecting ChatGPT shows the sign-in flow instead of Save", () => {
+    render(
+      <ModalWrapper>
+        <ProviderCreateForm
+          assistantId={ASSISTANT_ID}
+          existingNames={[]}
+          defaultProviderType="anthropic"
+          onCreated={() => {}}
+          onCancel={() => {}}
+        />
+      </ModalWrapper>,
+    );
+
+    selectDropdownOption("Provider", "ChatGPT");
+
+    // Subscription auth is owned by the OAuth flow: no API key field, no
+    // Add button, sign-in affordance present.
+    expect(
+      Array.from(document.querySelectorAll<HTMLInputElement>("input")).some(
+        (el) => el.placeholder === "Enter your API key",
+      ),
+    ).toBe(false);
+    expect(
+      Array.from(document.querySelectorAll<HTMLButtonElement>("button")).some(
+        (b) => b.textContent?.trim() === "Add",
+      ),
+    ).toBe(false);
+    expect(document.body.textContent).toContain("ChatGPT");
   });
 
   test("fires a 'Provider connected' success toast on a successful create", async () => {
@@ -434,22 +458,18 @@ describe("ProviderCreateForm submit sequence", () => {
         <ProviderCreateForm
           assistantId={ASSISTANT_ID}
           existingNames={[]}
+          defaultProviderType="anthropic"
           onCreated={() => {}}
           onCancel={() => {}}
         />
       </ModalWrapper>,
     );
 
-    openAdvancedFields();
-    fireEvent.change(getInputByPlaceholder("e.g. anthropic-personal"), {
-      target: { value: "anthropic-personal" },
-    });
-    selectDropdownOption("Auth type", "API Key");
     fireEvent.change(getInputByPlaceholder("Enter your API key"), {
       target: { value: "sk-test-123" },
     });
 
-    fireEvent.click(getButton("Create"));
+    fireEvent.click(getButton("Add"));
 
     await waitFor(() => {
       expect(toastSuccessCalls).toEqual(["Provider connected"]);
@@ -465,38 +485,6 @@ describe("ProviderCreateForm submit sequence", () => {
         <ProviderCreateForm
           assistantId={ASSISTANT_ID}
           existingNames={[]}
-          onCreated={() => {}}
-          onCancel={() => {}}
-        />
-      </ModalWrapper>,
-    );
-
-    openAdvancedFields();
-    fireEvent.change(getInputByPlaceholder("e.g. anthropic-personal"), {
-      target: { value: "anthropic-personal" },
-    });
-    selectDropdownOption("Auth type", "API Key");
-    fireEvent.change(getInputByPlaceholder("Enter your API key"), {
-      target: { value: "sk-test-123" },
-    });
-
-    fireEvent.click(getButton("Create"));
-
-    // The connection-failure message surfaces inline...
-    await waitFor(() => {
-      expect(createConnectionCalls.length).toBe(1);
-    });
-    expect(toastSuccessCalls).toEqual([]);
-    // ...and the form stays mounted (the Create button is still present).
-    expect(getButton("Create")).toBeDefined();
-  });
-
-  test("seeds Name + Key from the initial provider type", () => {
-    render(
-      <ModalWrapper>
-        <ProviderCreateForm
-          assistantId={ASSISTANT_ID}
-          existingNames={[]}
           defaultProviderType="anthropic"
           onCreated={() => {}}
           onCancel={() => {}}
@@ -504,16 +492,22 @@ describe("ProviderCreateForm submit sequence", () => {
       </ModalWrapper>,
     );
 
-    openAdvancedFields();
-    expect(getInputByPlaceholder("e.g. My Anthropic Key").value).toBe(
-      "Anthropic",
-    );
-    expect(getInputByPlaceholder("e.g. anthropic-personal").value).toBe(
-      "anthropic",
-    );
+    fireEvent.change(getInputByPlaceholder("Enter your API key"), {
+      target: { value: "sk-test-123" },
+    });
+
+    fireEvent.click(getButton("Add"));
+
+    // The connection-failure message surfaces inline...
+    await waitFor(() => {
+      expect(createConnectionCalls.length).toBe(1);
+    });
+    expect(toastSuccessCalls).toEqual([]);
+    // ...and the form stays mounted (the Add button is still present).
+    expect(getButton("Add")).toBeDefined();
   });
 
-  test("dedupes the seeded Key against existingNames", () => {
+  test("seeds Display Name from the provider and dedupes the key against existingNames", async () => {
     render(
       <ModalWrapper>
         <ProviderCreateForm
@@ -530,12 +524,24 @@ describe("ProviderCreateForm submit sequence", () => {
     expect(getInputByPlaceholder("e.g. My Anthropic Key").value).toBe(
       "Anthropic",
     );
-    expect(getInputByPlaceholder("e.g. anthropic-personal").value).toBe(
-      "anthropic-2",
-    );
+
+    // The key is auto-derived (no input for keyed providers) — its deduped
+    // value is observable in the POST body.
+    fireEvent.change(getInputByPlaceholder("Enter your API key"), {
+      target: { value: "sk-test-123" },
+    });
+    fireEvent.click(getButton("Add"));
+
+    await waitFor(() => {
+      expect(createConnectionCalls.length).toBe(1);
+    });
+    expect(createConnectionCalls[0].body).toMatchObject({
+      name: "anthropic-2",
+      provider: "anthropic",
+    });
   });
 
-  test("changing the provider type re-seeds Name + Key", () => {
+  test("changing the provider type re-seeds the Display Name", () => {
     render(
       <ModalWrapper>
         <ProviderCreateForm
@@ -552,12 +558,9 @@ describe("ProviderCreateForm submit sequence", () => {
     selectDropdownOption("Provider", "OpenAI");
 
     expect(getInputByPlaceholder("e.g. My Anthropic Key").value).toBe("OpenAI");
-    expect(getInputByPlaceholder("e.g. anthropic-personal").value).toBe(
-      "openai",
-    );
   });
 
-  test("a manual Name edit is NOT overwritten by a later provider-type change", () => {
+  test("a manual Display Name edit is NOT overwritten by a later provider-type change", () => {
     render(
       <ModalWrapper>
         <ProviderCreateForm
@@ -570,7 +573,6 @@ describe("ProviderCreateForm submit sequence", () => {
       </ModalWrapper>,
     );
 
-    // User overrides the Name; the Key auto-follows the label edit.
     openAdvancedFields();
     fireEvent.change(getInputByPlaceholder("e.g. My Anthropic Key"), {
       target: { value: "My Custom Name" },
@@ -581,12 +583,9 @@ describe("ProviderCreateForm submit sequence", () => {
     expect(getInputByPlaceholder("e.g. My Anthropic Key").value).toBe(
       "My Custom Name",
     );
-    expect(getInputByPlaceholder("e.g. anthropic-personal").value).toBe(
-      "my-custom-name",
-    );
   });
 
-  test("a manual Key edit is NOT overwritten by a later provider-type change", () => {
+  test("the key input only exists for openai-compatible", () => {
     render(
       <ModalWrapper>
         <ProviderCreateForm
@@ -599,82 +598,17 @@ describe("ProviderCreateForm submit sequence", () => {
       </ModalWrapper>,
     );
 
-    openAdvancedFields();
-    fireEvent.change(getInputByPlaceholder("e.g. anthropic-personal"), {
-      target: { value: "my-custom-key" },
-    });
-
-    selectDropdownOption("Provider", "OpenAI");
-
-    expect(getInputByPlaceholder("e.g. anthropic-personal").value).toBe(
-      "my-custom-key",
-    );
-  });
-
-  test("Display Name + Key are collapsed by default and reveal on Advanced", () => {
-    render(
-      <ModalWrapper>
-        <ProviderCreateForm
-          assistantId={ASSISTANT_ID}
-          existingNames={[]}
-          defaultProviderType="anthropic"
-          onCreated={() => {}}
-          onCancel={() => {}}
-        />
-      </ModalWrapper>,
-    );
-
-    // Collapsed: neither the Display Name nor Key input is mounted yet.
-    const isMounted = (placeholder: string) =>
+    const keyInputMounted = () =>
       Array.from(document.querySelectorAll<HTMLInputElement>("input")).some(
-        (el) => el.placeholder === placeholder,
+        (el) => el.placeholder === "e.g. my-endpoint",
       );
-    expect(isMounted("e.g. My Anthropic Key")).toBe(false);
-    expect(isMounted("e.g. anthropic-personal")).toBe(false);
 
-    // Opening the disclosure mounts both.
     openAdvancedFields();
-    expect(isMounted("e.g. My Anthropic Key")).toBe(true);
-    expect(isMounted("e.g. anthropic-personal")).toBe(true);
-  });
+    expect(keyInputMounted()).toBe(false);
 
-  test("a duplicate Key keeps Advanced open even when the user collapses it", () => {
-    render(
-      <ModalWrapper>
-        <ProviderCreateForm
-          assistantId={ASSISTANT_ID}
-          existingNames={["anthropic"]}
-          defaultProviderType="anthropic"
-          onCreated={() => {}}
-          onCancel={() => {}}
-        />
-      </ModalWrapper>,
-    );
-
-    // The seeded Key dedupes to "anthropic-2", so type the colliding name.
+    selectDropdownOption("Provider", "OpenAI-compatible");
     openAdvancedFields();
-    fireEvent.change(getInputByPlaceholder("e.g. anthropic-personal"), {
-      target: { value: "anthropic" },
-    });
-
-    // Try to collapse the disclosure — the pending error must force it open,
-    // keeping the Key field and its validation message visible.
-    const disclosure = Array.from(
-      document.querySelectorAll<HTMLButtonElement>("button"),
-    ).find((b) => b.textContent?.trim() === "Advanced");
-    if (!disclosure) {
-      throw new Error("expected the Advanced disclosure button");
-    }
-    fireEvent.click(disclosure);
-
-    expect(document.body.textContent).toContain(
-      'A connection named "anthropic" already exists.',
-    );
-    expect(
-      Array.from(document.querySelectorAll<HTMLInputElement>("input")).some(
-        (el) => el.placeholder === "e.g. anthropic-personal",
-      ),
-    ).toBe(true);
+    expect(keyInputMounted()).toBe(true);
   });
 
   test("clicking Cancel invokes onCancel", () => {

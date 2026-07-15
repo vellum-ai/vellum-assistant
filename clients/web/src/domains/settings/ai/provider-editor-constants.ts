@@ -31,19 +31,13 @@ export const CONNECTION_PROVIDERS: ConnectionProvider[] = [
   "openai-compatible",
 ];
 
-export const AUTH_TYPE_DISPLAY_NAMES: Record<AuthType, string> = {
-  api_key: "API Key",
-  platform: "Platform (managed proxy)",
-  none: "None (local / no auth)",
-  oauth_subscription: "ChatGPT Subscription",
-  service_account: "Service Account",
-};
-
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-export function parseCredentialRef(credRef: string): { service: string; field: string } | null {
+export function parseCredentialRef(
+  credRef: string,
+): { service: string; field: string } | null {
   const parts = credRef.split("/");
   if (parts.length < 3 || parts[0] !== "credential") return null;
   return { service: parts[1], field: parts.slice(2).join("/") };
@@ -55,12 +49,12 @@ export function connectionSaveErrorMessage(
 ): string {
   switch (status) {
     case 409:
-      return `A connection named "${connectionName}" already exists.`;
+      return `A provider named "${connectionName}" already exists.`;
     case 404:
-      return "Connection not found. It may have been deleted.";
+      return "Provider not found. It may have been removed.";
     case 400:
-      return "Invalid configuration. Check the provider and auth settings.";
+      return "Invalid configuration. Check the provider settings.";
     default:
-      return "Failed to save connection. Please try again.";
+      return "Failed to save provider. Please try again.";
   }
 }

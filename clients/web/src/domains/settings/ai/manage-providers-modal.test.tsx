@@ -340,7 +340,7 @@ describe("delete-guard errors", () => {
     const result = await clickDelete("work-openai");
     await waitFor(() => {
       expect(result.baseElement.textContent).toContain(
-        "Connection is in use by one or more profiles",
+        "This provider is in use by one or more profiles",
       );
     });
   });

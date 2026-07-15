@@ -835,8 +835,7 @@ export const MODELS_BY_PROVIDER = {
       supportsThinking: true,
     },
   ],
-  "openai-compatible": [
-  ],
+  "openai-compatible": [],
 } as const satisfies Record<string, readonly LlmCatalogModel[]>;
 
 export type LlmProviderId = keyof typeof MODELS_BY_PROVIDER;
@@ -861,6 +860,11 @@ export const DEFAULT_MODEL_BY_PROVIDER: Record<LlmProviderId, string> = {
  *   PROVIDER_DISPLAY_NAMES[id] ?? id
  */
 export const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
+  // Not catalog providers: the platform-managed routing sentinel and the
+  // subscription-auth pseudo-provider. Cards and pickers render both as
+  // providers, so they need display names.
+  vellum: "Vellum",
+  chatgpt: "ChatGPT",
   anthropic: "Anthropic",
   openai: "OpenAI",
   gemini: "Google Gemini",
