@@ -5,13 +5,27 @@ on:
     branches:
       - main
     types:
+      # 'closed' handles the common case: the label is already on the PR when it
+      # merges. 'labeled' handles applying the label after the PR has merged, so
+      # the cherry-pick can be requested after the fact.
       - closed
+      - labeled
 
 jobs:
   cherry-pick:
+    # Only ever act on merged PRs. Two entry points:
+    #   - closed:  the label was already present at merge time.
+    #   - labeled: the 'cherry-pick-to-release' label was added, and the PR is
+    #              already merged (labeling an open PR is a no-op here — the
+    #              subsequent 'closed'/merge event will cover it).
     if: >-
       github.event.pull_request.merged == true &&
-      contains(github.event.pull_request.labels.*.name, 'cherry-pick-to-release')
+      (
+        (github.event.action == 'closed' &&
+          contains(github.event.pull_request.labels.*.name, 'cherry-pick-to-release')) ||
+        (github.event.action == 'labeled' &&
+          github.event.label.name == 'cherry-pick-to-release')
+      )
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:

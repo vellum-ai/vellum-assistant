@@ -269,8 +269,8 @@ interface ActiveAssistantTurn {
   handle: VoiceTurnHandle | null;
   assistantCompleted: boolean;
   ttsDone: boolean;
-  // A tts_audio frame actually went out to the client — the barge-in gate:
-  // speech only cancels a turn that has audibly started speaking.
+  // A tts_audio frame actually went out to the client — latches on the first
+  // forwarded chunk so the firstTtsAudio metric is marked exactly once per turn.
   ttsAudioStarted: boolean;
   finalized: boolean;
   // Triage-and-escalate (Voice Mode): the front-door leg emitted [ESCALATE]
@@ -926,12 +926,14 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   }
 
   // VAD speech onset. Contract: speech_started tells the client to flush
-  // tail playback immediately; barge-in then cancels the active turn only
-  // once its first tts_audio chunk was forwarded — speech during a pre-TTS
-  // "thinking" turn never kills the unspoken reply. While a turn is audibly
-  // speaking, both are deferred behind the sustained-speech guard so a
-  // cough or noise blip cannot kill the reply; onset while listening keeps
-  // the instant speech_started (turn-taking latency is untouched).
+  // tail playback immediately; barge-in then cancels any in-flight,
+  // non-finalized turn — including a pre-TTS "thinking" turn whose reply is
+  // still being generated, so a user can cut in before the assistant starts
+  // talking (JARVIS-1266). Speaking over a thinking or audibly speaking turn
+  // is deferred behind the same sustained-speech guard, so a cough or noise
+  // blip cannot kill an unspoken reply or clip a spoken one; sustained speech
+  // aborts the turn. Onset while listening keeps the instant speech_started
+  // (turn-taking latency is untouched).
   private handleVadSpeechStart(): void {
     if (this.isClosed || this.state === "failed") {
       return;
@@ -940,25 +942,27 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     this.vadSpeechStartPending = true;
 
     const turn = this.activeAssistantTurn;
-    const speakingTurn =
-      turn && !turn.finalized && turn.ttsAudioStarted ? turn : null;
+    // Any in-flight, non-finalized turn is interruptible, whether it is still
+    // "thinking" (pre-TTS) or audibly speaking, so a user can cut in before the
+    // assistant starts talking.
+    const bargeableTurn = turn && !turn.finalized ? turn : null;
     // The client can still be draining audible playback after tts_done
     // (the turn is already cleared server-side) — that tail deserves the
     // same guard, or a noise blip clips the reply's last words.
     const drainingPlayback = Date.now() < this.assistantPlaybackTailUntilMs;
 
-    if ((speakingTurn || drainingPlayback) && this.bargeInMinSpeechMs > 0) {
+    if ((bargeableTurn || drainingPlayback) && this.bargeInMinSpeechMs > 0) {
       // Onset audio keeps flowing into the cycle/pre-roll while the guard
       // accumulates (trackBargeInGuard), so no speech is lost either way.
-      this.pendingBargeIn = { turn: speakingTurn, speechMs: 0 };
+      this.pendingBargeIn = { turn: bargeableTurn, speechMs: 0 };
       return;
     }
 
     this.pendingBargeIn = null;
     this.assistantPlaybackTailUntilMs = 0;
     void this.sendFrame({ type: "speech_started" });
-    if (speakingTurn) {
-      this.bargeIn(speakingTurn);
+    if (bargeableTurn) {
+      this.bargeIn(bargeableTurn);
     }
   }
 
@@ -1730,7 +1734,14 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         return;
       }
       this.markFirstAssistantDelta(utterance, turnId);
-      void this.sendFrame({ type: "assistant_text_delta", text: chunk });
+      // Same send-time abort gate as the default-leg delta path: a front-door
+      // delta queued behind a backed-up outbound frame must not be written
+      // once barge-in aborts the turn. Escalation aborts the front-door handle,
+      // not this turn's controller, so legitimate front-door text still sends.
+      void this.sendFrame(
+        { type: "assistant_text_delta", text: chunk },
+        () => !activeTurn.abortController.signal.aborted && !this.isClosed,
+      );
       this.bufferAssistantTextForTts(token, chunk);
     };
 
@@ -1804,10 +1815,21 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
               return;
             }
             this.markFirstAssistantDelta(utterance, turnId);
-            void this.sendFrame({
-              type: "assistant_text_delta",
-              text: msg.text,
-            });
+            void this.sendFrame(
+              {
+                type: "assistant_text_delta",
+                text: msg.text,
+              },
+              // Re-check at send time (mirrors the tts_audio path): a delta
+              // already queued behind a backed-up outbound frame must not be
+              // written once barge-in has aborted the turn, or the cancelled
+              // reply's text leaks ahead of turn_cancelled. Key off this turn's
+              // own abort signal — a normal message_complete finalizes and
+              // clears activeAssistantTurn while trailing deltas may still be
+              // draining, so an activeAssistantTurn-based guard would drop them.
+              () =>
+                !activeTurn.abortController.signal.aborted && !this.isClosed,
+            );
             this.bufferAssistantTextForTts(token, msg.text);
           },
           message_complete: (msg) => {
@@ -1980,7 +2002,14 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   private isActiveAssistantTurn(token: symbol): boolean {
     const activeTurn = this.activeAssistantTurn;
     return (
-      activeTurn?.token === token && !activeTurn.finalized && !this.isClosed
+      activeTurn?.token === token &&
+      !activeTurn.finalized &&
+      // Barge-in aborts synchronously but finalizes through an async
+      // cancelAssistantTurn chain; the abort makes the turn dead at once so a
+      // rejected startVoiceTurn or a trailing onError in that window does not
+      // treat it as live (and emit a stray error frame or double-finalize).
+      !activeTurn.abortController.signal.aborted &&
+      !this.isClosed
     );
   }
 
@@ -1990,6 +2019,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       activeTurn?.token === token &&
       !activeTurn.assistantCompleted &&
       !activeTurn.finalized &&
+      // Fence a late first assistant_text_delta once barge-in aborts a pre-TTS
+      // turn, before its async teardown finalizes — mirrors isForwardingTts so
+      // no cancelled-turn text leaks after turn_cancelled.
+      !activeTurn.abortController.signal.aborted &&
       !this.isClosed
     );
   }
@@ -2281,10 +2314,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         },
         () => this.isForwardingTts(token),
       );
-      // Arm the barge-in gate only once a tts_audio frame was actually
-      // written — a backed-up outbound queue must not let speech cancel a
-      // still-unspoken reply. Token match keeps a stale turn's late send
-      // from arming a newer turn.
+      // Skip a frame that wasn't actually written — a backed-up outbound
+      // queue hasn't reached the client, so it must not extend the
+      // playback-tail estimate or latch first-audio state. Token match keeps
+      // a stale turn's late send from latching a newer turn.
       if (!sent) {
         return;
       }
