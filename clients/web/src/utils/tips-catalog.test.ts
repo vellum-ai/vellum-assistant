@@ -1,5 +1,9 @@
 import { describe, expect, it } from "bun:test";
 
+import {
+  getFlagDefinition,
+  scopeIncludes,
+} from "@/lib/feature-flags/feature-flag-catalog";
 import { routes } from "@/utils/routes";
 import { TIPS_CATALOG } from "@/utils/tips-catalog";
 
@@ -43,6 +47,26 @@ describe("TIPS_CATALOG", () => {
     for (const tip of TIPS_CATALOG) {
       expect(tip.body.length).toBeGreaterThan(0);
       expect(tip.body.length).toBeLessThanOrEqual(120);
+    }
+  });
+
+  it("gates flag-gated tips on a registry flag with the matching scope", () => {
+    for (const tip of TIPS_CATALOG) {
+      const checks = [
+        { storeKey: tip.gates?.requiresClientFlag, scope: "client" as const },
+        {
+          storeKey: tip.gates?.requiresAssistantFlag,
+          scope: "assistant" as const,
+        },
+      ];
+      for (const { storeKey, scope } of checks) {
+        if (!storeKey) {
+          continue;
+        }
+        const definition = getFlagDefinition(storeKey);
+        expect(definition).toBeDefined();
+        expect(scopeIncludes(definition!.scope, scope)).toBe(true);
+      }
     }
   });
 });

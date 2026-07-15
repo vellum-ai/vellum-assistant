@@ -13,8 +13,13 @@ export type TipSource = "curated"; // future: "assistant"
 export interface TipGates {
   /** Only show inside the Electron desktop shell. */
   requiresElectron?: boolean;
-  /** Client feature-flag store key (camelCase, e.g. "voiceMode") that must be on. */
+  /** Client feature-flag store key (camelCase, e.g. "quickInput") that must be on. */
   requiresClientFlag?: string;
+  /**
+   * Assistant feature-flag store key (camelCase, e.g. "voiceMode") that must be
+   * on — resolved via useAssistantFeatureFlagStore by the consuming hook.
+   */
+  requiresAssistantFlag?: string;
   /** Requires the plugins surface — a daemon-version gate resolved by the consuming hook. */
   requiresPluginsSurface?: boolean;
 }
@@ -80,7 +85,7 @@ export const TIPS_CATALOG: readonly Tip[] = [
     kind: "info",
     source: "curated",
     body: "You can talk to me — voice mode is in the top right.",
-    gates: { requiresClientFlag: "voiceMode" },
+    gates: { requiresAssistantFlag: "voiceMode" },
   },
   {
     id: "computer-use",
