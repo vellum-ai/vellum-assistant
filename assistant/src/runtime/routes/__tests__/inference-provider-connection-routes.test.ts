@@ -266,6 +266,40 @@ describe("POST inference/provider-connections (create)", () => {
     expect(result.auth).toEqual({ type: "platform" });
   });
 
+  test("derives none auth for openai-compatible without a credential", async () => {
+    const result = (await call(
+      findHandler("inference_provider_connections_create"),
+      {
+        body: {
+          name: "derived-local-llm",
+          provider: "openai-compatible",
+          base_url: "http://localhost:1234/v1",
+          models: [{ id: "my-model" }],
+        },
+      },
+    )) as { auth: object };
+    expect(result.auth).toEqual({ type: "none" });
+  });
+
+  test("derives api_key auth for openai-compatible with a credential", async () => {
+    const result = (await call(
+      findHandler("inference_provider_connections_create"),
+      {
+        body: {
+          name: "derived-hosted-llm",
+          provider: "openai-compatible",
+          credential: "credential/hosted/key",
+          base_url: "https://api.example.com/v1",
+          models: [{ id: "my-model" }],
+        },
+      },
+    )) as { auth: object };
+    expect(result.auth).toEqual({
+      type: "api_key",
+      credential: "credential/hosted/key",
+    });
+  });
+
   test("throws 400 when auth is omitted and a keyed provider has no credential", async () => {
     await expect(
       call(findHandler("inference_provider_connections_create"), {
