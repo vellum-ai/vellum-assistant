@@ -936,6 +936,9 @@ export class AcpSessionManager {
       costCurrency: usage?.costCurrency ?? null,
       inputTokens: usage?.inputTokens ?? null,
       outputTokens: usage?.outputTokens ?? null,
+      model: usage?.model ?? null,
+      cacheReadTokens: usage?.cacheReadTokens ?? null,
+      cacheWriteTokens: usage?.cacheWriteTokens ?? null,
     };
     try {
       getDb()

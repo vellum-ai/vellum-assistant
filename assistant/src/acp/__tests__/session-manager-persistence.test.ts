@@ -436,6 +436,57 @@ describe("AcpSessionManager — terminal persistence", () => {
     expect(row!.cost_currency).toBe("USD");
   });
 
+  test("persists model + cache tokens and stays joinable to its conversation", async () => {
+    const id = "session-model-cache-1";
+    const conversationId = "conv-model-cache";
+    // Seed the parent conversation so the join below has a matching row.
+    getSqlite()
+      .query(
+        `INSERT INTO conversations (id, created_at, updated_at) VALUES (?, ?, ?)`,
+      )
+      .run(conversationId, 1000, 2000);
+
+    const handles = buildSessionWithFakeProcess({
+      id,
+      agentId: "agent-model-cache",
+      protocolSessionId: "proto-model-cache",
+      parentConversationId: conversationId,
+      latestUsage: {
+        usedTokens: 4200,
+        contextSize: 200_000,
+        costAmount: 0.0123,
+        costCurrency: "USD",
+        inputTokens: 5000,
+        outputTokens: 800,
+        model: "claude-opus-4-8",
+        cacheReadTokens: 900,
+        cacheWriteTokens: 300,
+      },
+    });
+
+    handles.resolvePrompt({ stopReason: "end_turn" });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const row = readHistoryRow(id);
+    expect(row).not.toBeNull();
+    expect(row!.model).toBe("claude-opus-4-8");
+    expect(row!.cache_read_tokens).toBe(900);
+    expect(row!.cache_write_tokens).toBe(300);
+
+    // Row remains joinable to its conversation via parent_conversation_id.
+    const joined = getSqlite()
+      .query(
+        `SELECT h.id AS history_id, c.id AS conversation_id
+           FROM acp_session_history h
+           JOIN conversations c ON c.id = h.parent_conversation_id
+          WHERE h.id = ?`,
+      )
+      .get(id) as { history_id: string; conversation_id: string } | null;
+    expect(joined).not.toBeNull();
+    expect(joined!.conversation_id).toBe(conversationId);
+  });
+
   test("persists NULL usage columns when latestUsage is undefined", async () => {
     const id = "session-no-usage-1";
     const handles = buildSessionWithFakeProcess({
@@ -460,6 +511,9 @@ describe("AcpSessionManager — terminal persistence", () => {
     expect(row!.cost_currency).toBeNull();
     expect(row!.input_tokens).toBeNull();
     expect(row!.output_tokens).toBeNull();
+    expect(row!.model).toBeNull();
+    expect(row!.cache_read_tokens).toBeNull();
+    expect(row!.cache_write_tokens).toBeNull();
   });
 
   test("emits acp_session_usage and persists input/output tokens from PromptResponse.usage", async () => {
