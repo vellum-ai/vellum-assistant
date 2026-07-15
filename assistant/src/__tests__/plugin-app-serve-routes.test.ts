@@ -227,7 +227,7 @@ describe("bundle import format gate", () => {
         rawBody,
         headers: { "content-type": "application/octet-stream" },
       } as RouteHandlerArgs),
-    ).rejects.toThrow(/legacy single-file format/);
+    ).rejects.toThrow(/format_version 1 is not supported/);
   });
 
   test("apps_import_bundle imports format_version 2 bundles", async () => {
