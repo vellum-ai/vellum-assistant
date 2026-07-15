@@ -519,6 +519,9 @@ export class AcpSessionManager {
         costCurrency: row.costCurrency ?? undefined,
         inputTokens: row.inputTokens ?? undefined,
         outputTokens: row.outputTokens ?? undefined,
+        model: row.model ?? undefined,
+        cacheReadTokens: row.cacheReadTokens ?? undefined,
+        cacheWriteTokens: row.cacheWriteTokens ?? undefined,
       };
     }
 
