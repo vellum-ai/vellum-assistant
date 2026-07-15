@@ -55,12 +55,6 @@ import {
   type LiveVoiceTurnSeedMarks,
 } from "./live-voice-metrics.js";
 import {
-  registerVoiceResumeHandler,
-  unregisterVoiceResumeHandler,
-  type VoiceResumeHandler,
-  type VoiceResumeOptions,
-} from "./live-voice-resume-registry.js";
-import {
   type LiveVoiceSession as LiveVoiceSessionContract,
   type LiveVoiceSessionCloseReason,
   type LiveVoiceSessionFactoryContext,
@@ -373,15 +367,6 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   /** The cycle whose grace timer is armed (only the newest release has one). */
   private finalizeGraceCycle: UtteranceCycle | null = null;
   private readonly finalizeGraceMs: number;
-  // Registered in the registry so the HTTP surface-action path can resume a
-  // yielded interactive surface as a SPOKEN turn on this session (JARVIS-1287).
-  private readonly voiceResumeHandler: VoiceResumeHandler;
-  // A resume requested while an assistant turn was still in flight; dispatched
-  // once the active turn settles (see flushPendingResume).
-  private pendingResume: {
-    content: string;
-    opts?: VoiceResumeOptions;
-  } | null = null;
 
   constructor(
     context: LiveVoiceSessionFactoryContext,
@@ -399,10 +384,6 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     this.createTurnId = options.createTurnId ?? randomUUID;
     this.conversationId =
       context.startFrame.conversationId ?? context.sessionId;
-    this.voiceResumeHandler = {
-      resumeWithText: (content, opts) => this.resumeWithText(content, opts),
-    };
-    registerVoiceResumeHandler(this.conversationId, this.voiceResumeHandler);
     this.metricsClock = options.metricsClock ?? Date.now;
     this.metrics = new LiveVoiceMetricsCollector({
       sessionId: context.sessionId,
@@ -529,7 +510,6 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
 
     const shouldEmitSessionEndMetrics = this.state !== "failed";
     this.state = "closed";
-    unregisterVoiceResumeHandler(this.conversationId, this.voiceResumeHandler);
     this.turnDetector?.dispose();
     this.stopSessionTranscriber();
     await this.cancelAssistantTurn("session_closed");
@@ -697,10 +677,6 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     if (this.isClosed || this.state === "failed") {
       return;
     }
-
-    // A resume deferred behind the finished turn takes the freed slot before a
-    // fresh utterance is armed (no-op when there's nothing pending).
-    this.flushPendingResume();
 
     const current = this.currentUtterance;
     if (current && !current.completed) {
@@ -1519,14 +1495,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   }
 
   // Build the ActiveAssistantTurn for a released utterance and drive its model
-  // leg. Shared by the STT path (startAssistantTurnIfReady) and the spoken
-  // surface-resume path (startResumeTurn) so both run identical turn machinery.
+  // leg.
   private async launchAssistantTurn(
     utterance: UtteranceCycle,
     content: string,
-    // Only set on the surface-resume path; the STT path leaves it undefined so
-    // no active-surface context is injected into an ordinary spoken turn.
-    activeSurfaceId?: string,
   ): Promise<void> {
     utterance.assistantTurnStarted = true;
     const token = Symbol("live-voice-assistant-turn");
@@ -1579,113 +1551,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
             overrideProfile: FRONT_DOOR_PROFILE,
             routingLeg: "front-door",
             frontDoor: true,
-            ...(activeSurfaceId !== undefined ? { activeSurfaceId } : {}),
           }
-        : {
-            content,
-            ...(activeSurfaceId !== undefined ? { activeSurfaceId } : {}),
-          },
+        : { content },
     );
-  }
-
-  /**
-   * Resume a yielded interactive surface as a SPOKEN turn. The HTTP surface-
-   * action path calls this (via the resume registry) once the user completes a
-   * surface the voice turn raised, so the follow-up reply is synthesized to
-   * audio through this session's TTS pipeline instead of running silently
-   * through the text pipeline (JARVIS-1287).
-   *
-   * If a turn is still in flight the resume is deferred (pendingResume) and
-   * dispatched once that turn settles — never rejected with CONVERSATION_BUSY.
-   */
-  resumeWithText(content: string, opts?: VoiceResumeOptions): void {
-    const trimmed = content.trim();
-    if (
-      this.isClosed ||
-      this.state === "failed" ||
-      !this.startVoiceTurn ||
-      trimmed.length === 0
-    ) {
-      return;
-    }
-    if (this.activeAssistantTurn) {
-      this.pendingResume = { content: trimmed, opts };
-      return;
-    }
-    void this.startResumeTurn(trimmed, opts).catch((err) => {
-      log.error(
-        { err, conversationId: this.conversationId },
-        "live-voice resume turn failed",
-      );
-    });
-  }
-
-  private async startResumeTurn(
-    content: string,
-    opts?: VoiceResumeOptions,
-  ): Promise<void> {
-    if (this.isClosed || this.state === "failed" || !this.startVoiceTurn) {
-      return;
-    }
-    if (this.activeAssistantTurn) {
-      this.pendingResume = { content, opts };
-      return;
-    }
-    // A synthetic utterance carrying only the resume text: it is not
-    // this.currentUtterance (which holds the server-VAD armed next utterance),
-    // so the armed transcriber is untouched. finalizeAssistantTurn works on
-    // turn.utterance and tolerates the empty audio buffers.
-    const utterance: UtteranceCycle = {
-      phase: "transcriber_closed",
-      released: true,
-      assistantTurnStarted: false,
-      completed: false,
-      finalizeRequested: false,
-      transcriber: null,
-      pendingAudioChunks: [],
-      pendingAudioBytes: 0,
-      finalTranscriptSegments: [content],
-      turnId: null,
-      userMessageId: null,
-      userAudioChunks: [],
-      metricsTurnStarted: false,
-      metricsTurnFinished: false,
-      stashedMetricsMarks: {
-        firstAudioAtMs: null,
-        firstPartialAtMs: null,
-        speechStartAtMs: null,
-        utteranceEndAtMs: null,
-        finalTranscriptAtMs: null,
-      },
-    };
-    await this.launchAssistantTurn(utterance, content, opts?.activeSurfaceId);
-  }
-
-  // Dispatch a resume deferred behind an in-flight turn, once that turn has
-  // settled. Null out pendingResume before dispatch so a re-entrant settle
-  // cannot double-fire the same resume.
-  private flushPendingResume(): void {
-    const deferred = this.pendingResume;
-    this.pendingResume = null;
-    if (
-      deferred &&
-      !this.activeAssistantTurn &&
-      !this.isClosed &&
-      this.state !== "failed"
-    ) {
-      void this.startResumeTurn(deferred.content, deferred.opts).catch(
-        (err) => {
-          log.error(
-            { err, conversationId: this.conversationId },
-            "live-voice deferred resume turn failed",
-          );
-        },
-      );
-    } else if (deferred) {
-      // Could not dispatch now (turn still active / session gone); keep it for
-      // the next settle point rather than dropping it.
-      this.pendingResume = deferred;
-    }
   }
 
   /**
@@ -1708,9 +1576,6 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       overrideProfile?: string;
       routingLeg?: VoiceRoutingLeg;
       frontDoor?: boolean;
-      // Present only on the primary surface-resume leg — never on the escalated
-      // continuation leg, so the active-surface context stays turn-scoped.
-      activeSurfaceId?: string;
     },
   ): Promise<void> {
     if (!this.startVoiceTurn) {
@@ -1785,9 +1650,6 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
           ? { overrideProfile: leg.overrideProfile }
           : {}),
         ...(leg.routingLeg != null ? { routingLeg: leg.routingLeg } : {}),
-        ...(leg.activeSurfaceId != null
-          ? { activeSurfaceId: leg.activeSurfaceId }
-          : {}),
         callbacks: {
           assistant_text_delta: (msg) => {
             if (!this.isForwardingAssistantText(token)) {
@@ -2062,14 +1924,6 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
             this.activeAssistantTurn = null;
           }
         }
-
-        // Now that the active turn is actually cleared, dispatch a resume that
-        // arrived mid-turn. `finalizeAssistantTurn` runs its own flush too, but
-        // this path finalizes with `clearActive: false`, so at that point the
-        // slot was still taken and the flush re-stashed. `scheduleRearmAfterTurn`
-        // below no-ops in manual (no-`turnDetector`) sessions, so without this
-        // flush the deferred resume would never start there (JARVIS-1287).
-        this.flushPendingResume();
 
         // Re-arm only after the terminal tts_done frame so a slow or failing
         // next transcriber cannot block or precede turn completion. A
@@ -2481,11 +2335,6 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     if (options.rearm ?? true) {
       this.scheduleRearmAfterTurn();
     }
-
-    // A surface-resume that arrived mid-turn waits here: the just-cleared
-    // active turn frees the slot, so dispatch it now. rearmAfterTurn also
-    // flushes (covers the manual path where scheduleRearmAfterTurn no-ops).
-    this.flushPendingResume();
   }
 
   private async archiveBufferedAudio(input: {
