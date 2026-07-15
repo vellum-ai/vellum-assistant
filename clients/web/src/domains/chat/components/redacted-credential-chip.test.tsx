@@ -91,6 +91,29 @@ describe("RedactedCredentialChip reveal scoping", () => {
 
     expect(queryAllByLabelText(REVEAL_LABEL)).toHaveLength(0);
   });
+
+  test("a neutralized span renders a generic badge with no reveal affordance and none of its claims", () => {
+    // Even when enriched-looking props ride along, `neutralized` wins: the
+    // daemon refused to vouch for this span, so nothing it claims (type,
+    // service, field) may be displayed or made interactive.
+    useResolvedAssistantsStore.setState({
+      activeAssistantId: "active-assistant",
+    });
+
+    const { container, queryAllByLabelText, getByText } = render(
+      <RedactedCredentialChip
+        {...ENRICHED}
+        assistantId="transcript-assistant"
+        neutralized
+      />,
+    );
+
+    expect(getByText("Redacted")).toBeTruthy();
+    expect(queryAllByLabelText(REVEAL_LABEL)).toHaveLength(0);
+    expect(container.querySelector("button")).toBeNull();
+    expect(container.textContent).not.toContain(ENRICHED.type);
+    expect(credentialsRevealPost).not.toHaveBeenCalled();
+  });
 });
 
 describe("chip identity remount (via ChatMarkdownMessage)", () => {

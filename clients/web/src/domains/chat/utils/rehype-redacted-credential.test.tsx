@@ -18,10 +18,12 @@ function StubChip({
   type,
   service,
   field,
+  neutralized,
 }: {
   type?: string;
   service?: string;
   field?: string;
+  neutralized?: boolean;
 }) {
   return (
     <span
@@ -29,6 +31,7 @@ function StubChip({
       data-type={type}
       data-service={service}
       data-field={field}
+      data-neutralized={neutralized ? "true" : undefined}
     />
   );
 }
@@ -127,9 +130,12 @@ describe("rehypeRedactedCredential", () => {
     expect(container.querySelector("pre")?.textContent).toContain(PLAIN);
   });
 
-  test("neutralized (forged) sentinels render as literal text, not chips", () => {
+  test("neutralized (forged) sentinels become a generic inert badge carrying none of the span's claims", () => {
     // A word joiner after the open bracket is the daemon's forgery
-    // neutralization — the plugin must not match it.
+    // neutralization. The span renders as a badge element flagged
+    // `neutralized` — never a revealable chip, and none of its own
+    // type/service/field claims are forwarded: displaying them would lend a
+    // forgery the daemon's voice.
     const neutralized =
       "\u3014\u2060redacted:GitHub Token:github-app:pem\u3015";
     const { container } = render(
@@ -139,8 +145,30 @@ describe("rehypeRedactedCredential", () => {
         extraComponents={EXTRA}
       />,
     );
-    expect(container.querySelector("[data-testid=chip]")).toBeNull();
-    expect(container.textContent).toContain("redacted:GitHub Token");
+    const chip = container.querySelector("[data-testid=chip]");
+    expect(chip).not.toBeNull();
+    expect(chip!.getAttribute("data-neutralized")).toBe("true");
+    expect(chip!.getAttribute("data-type")).toBeNull();
+    expect(chip!.getAttribute("data-service")).toBeNull();
+    expect(chip!.getAttribute("data-field")).toBeNull();
+    expect(container.textContent).not.toContain("redacted:GitHub Token");
+  });
+
+  test("a genuine and a neutralized sentinel in one text node split correctly", () => {
+    const neutralized = "\u3014\u2060redacted:Credential:test:qa_token\u3015";
+    const { container } = render(
+      <MarkdownMessage
+        content={`real ${ENRICHED} vs defused ${neutralized}`}
+        extraRehypePlugins={PLUGINS}
+        extraComponents={EXTRA}
+      />,
+    );
+    const chips = container.querySelectorAll("[data-testid=chip]");
+    expect(chips.length).toBe(2);
+    expect(chips[0].getAttribute("data-service")).toBe("anthropic");
+    expect(chips[0].getAttribute("data-neutralized")).toBeNull();
+    expect(chips[1].getAttribute("data-neutralized")).toBe("true");
+    expect(chips[1].getAttribute("data-service")).toBeNull();
   });
 
   test("leaves sentinels inside link text as literal text (no nested buttons)", () => {

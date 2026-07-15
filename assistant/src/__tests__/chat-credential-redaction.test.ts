@@ -24,19 +24,30 @@ mock.module("../tools/credentials/metadata-store.js", () => ({
 }));
 
 // ── Imports (after mocks) ────────────────────────────────────────────────
+import { neutralizeRedactedSentinels } from "@vellumai/service-contracts/redacted-credential";
+
 import {
+  buildForChatSentinel,
   buildLiveRevealGuardEntries,
   collectRevealRefsFromCommand,
   drainCandidateGuardedChunk,
   drainSentinelGuardedText,
   filterRefsByRevealProof,
+  guardForChatSentinels,
   redactCandidateValuesLegacy,
   redactSecretsForChat,
+  remintAuthoritiesFromCandidates,
   resolveProvenRevealCandidates,
   resolveRefIdentities,
   resolveRevealCandidates,
   swapLiveRevealValues,
 } from "../daemon/chat-credential-redaction.js";
+import {
+  currentForChatMintWatermark,
+  forChatMintsSince,
+  recordForChatMint,
+  resetForChatMintRegistryForTest,
+} from "../runtime/for-chat-mint-registry.js";
 import {
   _resetRevealSuccessRegistryForTest,
   openRevealProofWindow,
@@ -320,7 +331,12 @@ describe("filterRefsByRevealProof identity handling", () => {
     // fail and silently drop the ref for a value the tool already printed.
     _resetRevealSuccessRegistryForTest();
     openRevealProofWindow();
-    recordRevealSuccess("gone-service", "api_key", "hunter2-removed");
+    recordRevealSuccess(
+      "gone-service",
+      "api_key",
+      "hunter2-removed",
+      "nonce-test",
+    );
     const proven = filterRefsByRevealProof(
       [
         {
@@ -330,6 +346,7 @@ describe("filterRefsByRevealProof identity handling", () => {
         },
       ],
       0,
+      "nonce-test",
     );
     expect(proven).toEqual([
       {
@@ -1094,5 +1111,285 @@ describe("legacy marker invariant", () => {
     expect(redactSecrets(`key: ${SYNTHETIC_OPENAI_PROJECT_KEY}`)).toBe(
       `key: ${OPENAI_PROJECT_KEY_REDACTION_MARKER}`,
     );
+  });
+});
+
+describe("--for-chat (daemon-minted sentinel channel)", () => {
+  const FOR_CHAT_CANDIDATE = {
+    service: "openai",
+    field: "api_key",
+    value: SYNTHETIC_OPENAI_PROJECT_KEY,
+  };
+  const CANONICAL = buildForChatSentinel(FOR_CHAT_CANDIDATE);
+  const MINT = {
+    service: "openai",
+    field: "api_key",
+    sentinel: CANONICAL,
+  };
+
+  test("collectRevealRefsFromCommand carries no --for-chat signal — executed mints are the only authority", () => {
+    // A parse of the requested command must never authorize re-minting: a
+    // segment that merely QUOTES a reveal invocation (echo '… --for-chat …')
+    // parses identically to one that runs it. The refs exist only to scope
+    // the plaintext-swap candidate fetch; the re-mint allowlist comes from
+    // the route-recorded mint registry and from candidates PROVEN by the
+    // reveal-success registry.
+    expect(
+      collectRevealRefsFromCommand(
+        "assistant credentials reveal --for-chat --service openai --field api_key",
+      ),
+    ).toEqual([{ service: "openai", field: "api_key" }]);
+    expect(
+      collectRevealRefsFromCommand(
+        `assistant credentials reveal ${UUID} --for-chat`,
+      ),
+    ).toEqual([{ id: UUID }]);
+  });
+
+  test("buildForChatSentinel stamps the scanner's type label", () => {
+    expect(CANONICAL).toBe(
+      "\u3014redacted:OpenAI Project Key:openai:api_key\u3015",
+    );
+  });
+
+  test("buildForChatSentinel falls back to a generic label for unscannable values", () => {
+    expect(
+      buildForChatSentinel({
+        service: "svc",
+        field: "f",
+        value: "plain-value-no-pattern",
+      }),
+    ).toBe("\u3014redacted:Credential:svc:f\u3015");
+  });
+
+  test("guardForChatSentinels re-mints an identity match, even with a tampered type label", () => {
+    const echoed = `Your key: ${CANONICAL} — click to reveal.`;
+    expect(guardForChatSentinels(echoed, [MINT])).toBe(echoed);
+    // A hand-altered type label is canonicalized away, not trusted — the
+    // replacement is the route's original mint.
+    const tampered = "see \u3014redacted:GitHub Token:openai:api_key\u3015";
+    expect(guardForChatSentinels(tampered, [MINT])).toBe(`see ${CANONICAL}`);
+  });
+
+  test("guardForChatSentinels neutralizes unknown identities and plain shapes", () => {
+    const unknown = "\u3014redacted:API Key:github-app:pem\u3015";
+    const plain = "\u3014redacted:API Key\u3015";
+    const out = guardForChatSentinels(`${unknown} ${plain}`, [MINT]);
+    expect(out).toBe(
+      "\u3014\u2060redacted:API Key:github-app:pem\u3015 \u3014\u2060redacted:API Key\u3015",
+    );
+  });
+
+  test("guardForChatSentinels equals plain neutralization with no recorded mints", () => {
+    const text = `x ${CANONICAL} y \u3014redac partial`;
+    expect(guardForChatSentinels(text, [])).toBe(
+      neutralizeRedactedSentinels(text),
+    );
+  });
+
+  test("redactSecretsForChat preserves the daemon-minted sentinel and still redacts plaintext", () => {
+    const text = `chip ${CANONICAL} and raw ${SYNTHETIC_OPENAI_PROJECT_KEY}`;
+    const out = redactSecretsForChat(text, [FOR_CHAT_CANDIDATE], [MINT]);
+    expect(out).toBe(`chip ${CANONICAL} and raw ${CANONICAL}`);
+    expect(out).not.toContain(SYNTHETIC_OPENAI_PROJECT_KEY);
+  });
+
+  test("a secret embedded inside a forged sentinel is still scanner-redacted", () => {
+    // The forged span's identity matches no authority, so its bytes run
+    // the full neutralize+scan pipeline — an attacker cannot smuggle a
+    // real key through persistence by dressing it as a sentinel.
+    const forged = `\u3014redacted:x:svc:${SYNTHETIC_OPENAI_PROJECT_KEY}\u3015`;
+    const out = redactSecretsForChat(forged, [], [MINT]);
+    expect(out).not.toContain(SYNTHETIC_OPENAI_PROJECT_KEY);
+  });
+
+  test("a candidate list alone is not re-mint authority (quoted command grants nothing)", () => {
+    // The quoted-command scenario: the identity IS a reveal candidate
+    // (staging parsed the echoed text), but the route never executed the
+    // reveal, so no proof exists, handlers derive no authorities, and the
+    // echoed sentinel is neutralized like any other forgery.
+    const out = redactSecretsForChat(`chip ${CANONICAL}`, [FOR_CHAT_CANDIDATE]);
+    expect(out).toBe(`chip ${neutralizeRedactedSentinels(CANONICAL)}`);
+  });
+
+  test("stream guard holds an unclosed trigger open until the sentinel completes, then re-mints", () => {
+    const head = CANONICAL.slice(0, 20); // past the trigger, before the close
+    const tail = CANONICAL.slice(20);
+    const first = drainSentinelGuardedText(`token: ${head}`, [], [MINT]);
+    expect(first.emitText).toBe("token: ");
+    expect(first.bufferedRemainder).toBe(head);
+    const second = drainSentinelGuardedText(
+      first.bufferedRemainder + tail + " done",
+      [],
+      [MINT],
+    );
+    expect(second.emitText).toBe(`${CANONICAL} done`);
+    expect(second.bufferedRemainder).toBe("");
+  });
+
+  test("stream guard still eagerly neutralizes complete triggers without recorded mints", () => {
+    const out = drainSentinelGuardedText("x \u3014redacted:oops not closed");
+    expect(out.emitText).toBe("x \u3014\u2060redacted:oops not closed");
+    expect(out.bufferedRemainder).toBe("");
+  });
+
+  test("stream guard releases (neutralized) an unclosed trigger past the hold cap", () => {
+    const forged = "\u3014redacted:" + "a".repeat(600);
+    const out = drainSentinelGuardedText(`pre ${forged}`, [], [MINT]);
+    expect(out.emitText).toContain("\u3014\u2060redacted:");
+    expect(out.bufferedRemainder).toBe("");
+  });
+});
+
+describe("plain-reveal re-mint authorities (retyped sentinel after a proven reveal)", () => {
+  const CANDIDATE = {
+    service: "test",
+    field: "qa_token",
+    value: "hunter2-manual-token-value",
+  };
+  const CANONICAL = buildForChatSentinel(CANDIDATE);
+  const AUTHORITIES = remintAuthoritiesFromCandidates([CANDIDATE]);
+
+  test("remintAuthoritiesFromCandidates builds one canonical authority per identity", () => {
+    // Encoding-variant candidates share an identity and must not produce
+    // duplicate authorities; the sentinel is minted from the first
+    // candidate's own metadata, never from any retyped span.
+    const variants = [
+      CANDIDATE,
+      { ...CANDIDATE, value: "hunter2-manual\\ntoken" },
+    ];
+    expect(remintAuthoritiesFromCandidates(variants)).toEqual([
+      {
+        service: "test",
+        field: "qa_token",
+        sentinel: CANONICAL,
+      },
+    ]);
+  });
+
+  test("persist re-mints a model-retyped sentinel whose identity was proven this turn", () => {
+    // The LUM-2768 repro: history shows the model its own redacted reply;
+    // asked to "show it again", it retypes the sentinel instead of echoing
+    // the plaintext. With the identity proven this turn, the retyped span
+    // is restored to the canonical mint instead of degrading to
+    // neutralized glyph text.
+    const retyped = `here it is again: ${CANONICAL}`;
+    expect(redactSecretsForChat(retyped, [CANDIDATE], AUTHORITIES)).toBe(
+      retyped,
+    );
+  });
+
+  test("a tampered label on a proven identity canonicalizes instead of neutralizing", () => {
+    const tampered = "\u3014redacted:GitHub Token:test:qa_token\u3015";
+    expect(redactSecretsForChat(tampered, [CANDIDATE], AUTHORITIES)).toBe(
+      CANONICAL,
+    );
+  });
+
+  test("live guard re-mints the retyped sentinel so the wire matches persistence", () => {
+    const out = drainSentinelGuardedText(
+      `again: ${CANONICAL}!`,
+      [],
+      AUTHORITIES,
+    );
+    expect(out.emitText).toBe(`again: ${CANONICAL}!`);
+    expect(out.bufferedRemainder).toBe("");
+  });
+
+  test("an unproven identity still neutralizes even with other authorities present", () => {
+    const other = "\u3014redacted:Credential:prod:api_key\u3015";
+    expect(redactSecretsForChat(other, [CANDIDATE], AUTHORITIES)).toBe(
+      neutralizeRedactedSentinels(other),
+    );
+  });
+});
+
+describe("for-chat mint registry", () => {
+  test("returns only mints recorded after the captured watermark", () => {
+    resetForChatMintRegistryForTest();
+    recordForChatMint({
+      service: "old",
+      field: "f",
+      sentinel: "s0",
+      nonce: "n1",
+    });
+    const watermark = currentForChatMintWatermark();
+    expect(forChatMintsSince(watermark)).toEqual([]);
+    recordForChatMint({
+      service: "openai",
+      field: "api_key",
+      sentinel: "s1",
+      nonce: "n1",
+    });
+    expect(forChatMintsSince(watermark)).toEqual([
+      { service: "openai", field: "api_key", sentinel: "s1", nonce: "n1" },
+    ]);
+    // A turn that started before the first mint sees both identities.
+    expect(forChatMintsSince(0)).toHaveLength(2);
+    resetForChatMintRegistryForTest();
+  });
+
+  test("records carry the executing conversation's nonce for consumer-side binding", () => {
+    // The registry stores the secret nonce the executing tool shell
+    // forwarded; the agent loop accepts only records matching its own
+    // conversation's nonce AND an identity its run staged, so a concurrent
+    // conversation's executed reveal never authorizes another that merely
+    // names the identity.
+    resetForChatMintRegistryForTest();
+    recordForChatMint({
+      service: "openai",
+      field: "api_key",
+      sentinel: "s1",
+      nonce: "n1",
+    });
+    expect(forChatMintsSince(0)).toEqual([
+      { service: "openai", field: "api_key", sentinel: "s1", nonce: "n1" },
+    ]);
+    resetForChatMintRegistryForTest();
+  });
+
+  test("dedupes per nonce+identity with the latest sentinel winning", () => {
+    resetForChatMintRegistryForTest();
+    recordForChatMint({
+      service: "svc",
+      field: "f",
+      sentinel: "first",
+      nonce: "n1",
+    });
+    recordForChatMint({
+      service: "svc",
+      field: "f",
+      sentinel: "second",
+      nonce: "n1",
+    });
+    expect(forChatMintsSince(0)).toEqual([
+      { service: "svc", field: "f", sentinel: "second", nonce: "n1" },
+    ]);
+    resetForChatMintRegistryForTest();
+  });
+
+  test("concurrent same-credential reveals from different conversations both survive", () => {
+    // The dedupe key includes the nonce: consumers filter by THEIR nonce
+    // after this call, so an identity-only dedupe would let conversation
+    // B's later reveal of the same credential clobber conversation A's
+    // legitimate mint and neutralize A's echoed sentinel.
+    resetForChatMintRegistryForTest();
+    recordForChatMint({
+      service: "svc",
+      field: "f",
+      sentinel: "s-a",
+      nonce: "nonce-a",
+    });
+    recordForChatMint({
+      service: "svc",
+      field: "f",
+      sentinel: "s-b",
+      nonce: "nonce-b",
+    });
+    const mints = forChatMintsSince(0);
+    expect(mints).toHaveLength(2);
+    expect(mints.find((m) => m.nonce === "nonce-a")?.sentinel).toBe("s-a");
+    expect(mints.find((m) => m.nonce === "nonce-b")?.sentinel).toBe("s-b");
+    resetForChatMintRegistryForTest();
   });
 });
