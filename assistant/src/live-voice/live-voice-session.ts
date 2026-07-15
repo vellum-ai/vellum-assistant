@@ -15,6 +15,7 @@ import type {
   VoiceTurnHandle,
   VoiceTurnOptions,
 } from "../calls/voice-session-bridge.js";
+import { VOICE_NO_SETUP_FLOWS_RULE } from "../calls/voice-session-bridge.js";
 import {
   ESCALATION_CONTINUATION_CONTENT,
   ESCALATION_PROFILE,
@@ -1641,7 +1642,8 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         userMessageInterface: "macos",
         assistantMessageInterface: "macos",
         voiceControlPrompt:
-          "You are speaking in a local live voice session. Keep replies brief and conversational. You cannot display cards, forms, or any on-screen UI during the call — convey everything in speech.",
+          "You are speaking in a local live voice session. Keep replies brief and conversational. You cannot display cards, forms, or any on-screen UI during the call — convey everything in speech. " +
+          VOICE_NO_SETUP_FLOWS_RULE,
         content: leg.content,
         isInbound: true,
         signal: activeTurn.abortController.signal,

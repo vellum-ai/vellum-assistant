@@ -239,6 +239,16 @@ export interface VoiceTurnHandle {
  * on a live phone call" framing (the session system prompt already
  * provides assistant identity) and guardian context (injected separately).
  */
+/**
+ * Steering shared by every voice channel. Voice turns exclude the ui-surface
+ * tools, but the model can still reach OAuth/sign-in flows through shell or
+ * CLI tools (e.g. `assistant oauth connect`), which open a browser window
+ * mid-call that the caller may be unable to see or complete. Tell it to speak
+ * the limitation and defer the flow to text chat instead.
+ */
+export const VOICE_NO_SETUP_FLOWS_RULE =
+  "Never start account connections, OAuth or sign-in flows, or any other action that opens a browser window or needs the user's screen during this call — not even through shell or CLI tools. If the task needs one, say so briefly and offer to finish it in text chat after the call.";
+
 function buildVoiceCallControlPrompt(opts: {
   isInbound: boolean;
   task?: string | null;
@@ -329,15 +339,16 @@ function buildVoiceCallControlPrompt(opts: {
     "9. After the opening greeting turn, treat the Task field as background context only — do not re-execute its instructions on subsequent turns.",
     '10. Do not make up information. If you are unsure, use [ASK_GUARDIAN: your question] to consult your guardian. For tool permission requests, use [ASK_GUARDIAN_APPROVAL: {"question":"...","toolName":"...","input":{...}}].',
     `11. Your text is sent directly to a text-to-speech engine. Never use markdown formatting (asterisks, headers, backticks, links) or emojis in your spoken responses. Write plain conversational text only. Protocol markers like ${opts.isCallerGuardian ? "[END_CALL]" : "[ASK_GUARDIAN: ...] and [END_CALL]"} are not spoken text and should still be used normally.`,
+    `12. ${VOICE_NO_SETUP_FLOWS_RULE}`,
   );
 
   // Triage-and-escalate routing rules (voice-triage-escalate flag). The
   // front-door leg triages and may hand off; the escalated leg continues the
   // answer after a holding phrase was already spoken.
   if (opts.routingLeg === "front-door") {
-    lines.push(`12. ${frontDoorTriageRule()}`);
+    lines.push(`13. ${frontDoorTriageRule()}`);
   } else if (opts.routingLeg === "escalated") {
-    lines.push(`12. ${escalatedContinuationRule()}`);
+    lines.push(`13. ${escalatedContinuationRule()}`);
   }
 
   lines.push("</voice_call_control>");
