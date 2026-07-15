@@ -16,6 +16,7 @@ const CANONICAL_TABS = [
   "Billing",
   "Archive",
   "Schedules",
+  "Debug",
   "Developer",
 ];
 
