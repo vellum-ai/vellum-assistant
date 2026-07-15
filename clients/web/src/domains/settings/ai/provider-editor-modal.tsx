@@ -27,6 +27,7 @@ import { ProviderCreateForm } from "@/domains/settings/ai/provider-create-form";
 import { ProviderEditorApiKeySection } from "@/domains/settings/ai/provider-editor-api-key-section";
 import {
   connectionSaveErrorMessage,
+  validationErrorMessage,
   parseCredentialRef,
   providerConnectionDisplayName,
 } from "@/domains/settings/ai/provider-editor-constants";
@@ -231,16 +232,22 @@ export function ProviderEditorContent({
             : null,
         }),
       };
-      const { data: updated, response: updateRes } =
-        await inferenceProviderconnectionsByNamePatch({
-          path: {
-            assistant_id: assistantId,
-            name: connection?.name ?? name.trim(),
-          },
-          body: input,
-        });
+      const {
+        data: updated,
+        error: updateErr,
+        response: updateRes,
+      } = await inferenceProviderconnectionsByNamePatch({
+        path: {
+          assistant_id: assistantId,
+          name: connection?.name ?? name.trim(),
+        },
+        body: input,
+      });
       if (!updateRes?.ok) {
-        setError(connectionSaveErrorMessage(updateRes?.status));
+        setError(
+          validationErrorMessage(updateRes?.status, updateErr) ??
+            connectionSaveErrorMessage(updateRes?.status),
+        );
         return;
       }
       if (!updated) {
