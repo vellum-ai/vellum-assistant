@@ -49,7 +49,9 @@ export async function emitWatchdogEventDirect(
   try {
     // Drop only on a confirmed opt-out; unknown emits (no buffer to defer
     // into, and platform ingest re-gates on consent server-side).
-    if (getRawShareAnalytics() === false) return;
+    if (getRawShareAnalytics() === false) {
+      return;
+    }
     if (!arePlatformFeaturesEnabled()) return;
 
     // Authenticated-only. Null before the CES handshake resolves credentials;
