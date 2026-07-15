@@ -185,6 +185,13 @@ export function resolveServerConsent(
   privacy: boolean;
   shareAnalytics: boolean | null;
   shareDiagnostics: boolean | null;
+  /**
+   * Server-computed effective consent (opt-out semantics: null/never-asked =
+   * enabled). This is the value data-capture gates should honor; the raw
+   * `share*` fields above stay tri-state for chosen-ness.
+   */
+  analyticsEffective: boolean;
+  diagnosticsEffective: boolean;
   analyticsCurrent: boolean;
   diagnosticsCurrent: boolean;
   /**
@@ -204,6 +211,10 @@ export function resolveServerConsent(
       privacy: false,
       shareAnalytics: null,
       shareDiagnostics: null,
+      // No server record to resolve; opt-out semantics default to enabled,
+      // matching the fallback chain applied to an all-null record.
+      analyticsEffective: true,
+      diagnosticsEffective: true,
       analyticsCurrent: false,
       diagnosticsCurrent: false,
       analyticsVersionCurrent: false,
@@ -220,7 +231,7 @@ export function resolveServerConsent(
     DIAGNOSTICS_CONSENT_VERSION,
   );
   // The endpoint always returns an object; for a user with no stored row it
-  // returns the API defaults (empty versions, share booleans true). Any
+  // returns the API defaults (empty versions, null share booleans). Any
   // non-empty version or any `false` share boolean can only have come from a
   // real stored row, so it proves a record whose data is worth preserving.
   // Truthiness (not `!== ""`) so a response that OMITS the newer
@@ -235,18 +246,6 @@ export function resolveServerConsent(
     !!consent.share_diagnostics_accepted_version ||
     consent.share_analytics === false ||
     consent.share_diagnostics === false;
-  // An implicit grant — true with NO version on record — is never-asked in
-  // disguise, not an explicit choice: a pre-nullable platform materializes
-  // its DB default `true` on rows created without the toggle shown (e.g. a
-  // ToS-only row), while every explicit write stamps a version. Resolve it
-  // to null so no consumer can mistake it for a user grant — the diagnostics
-  // gate chokepoint and the analytics store adoption would otherwise
-  // overwrite an explicit local opt-out whose patch hasn't landed. An
-  // explicit opt-out (false) is never excused this way.
-  const analyticsImplicitDefault =
-    consent.share_analytics === true && !consent.share_analytics_accepted_version;
-  const diagnosticsImplicitDefault =
-    consent.share_diagnostics === true && !consent.share_diagnostics_accepted_version;
   return {
     // The ToS checkbox covers only the Terms of Service. The privacy checkbox
     // covers both the Privacy Policy and the AI Data Sharing Policy, so it is
@@ -255,22 +254,25 @@ export function resolveServerConsent(
     privacy:
       versionIsCurrent(consent.privacy_policy_accepted_version, PRIVACY_CONSENT_VERSION) &&
       versionIsCurrent(consent.ai_data_sharing_accepted_version, PRIVACY_CONSENT_VERSION),
-    shareAnalytics: analyticsImplicitDefault ? null : consent.share_analytics,
-    shareDiagnostics: diagnosticsImplicitDefault ? null : consent.share_diagnostics,
+    // Raw tri-state chosen-ness: null = never asked, boolean = explicit
+    // choice. The platform stores explicit choices only, so the value can be
+    // consumed verbatim.
+    shareAnalytics: consent.share_analytics,
+    shareDiagnostics: consent.share_diagnostics,
+    // The platform computes effective consent in one place (null = enabled,
+    // opt-out) and serves it as `share_*_effective`. The fields are required
+    // in the current schema, but an older backend omits them — fall back to
+    // the raw value's opt-out reading so behavior is unchanged there.
+    analyticsEffective: consent.share_analytics_effective ?? consent.share_analytics ?? true,
+    diagnosticsEffective:
+      consent.share_diagnostics_effective ?? consent.share_diagnostics ?? true,
     // Share-toggle re-review is owed only for an explicit, genuinely stale
     // choice on record. Onboarding doesn't show the analytics toggle, so
     // `share_analytics` stays null until the user chooses via settings or
-    // review-terms — null (including an implicit default resolved to null
-    // above) reads as "nothing to re-review", not stale consent. An explicit
-    // false with a stale/empty version still re-reviews.
-    analyticsCurrent:
-      consent.share_analytics === null ||
-      analyticsImplicitDefault ||
-      analyticsVersionCurrent,
-    diagnosticsCurrent:
-      consent.share_diagnostics === null ||
-      diagnosticsImplicitDefault ||
-      diagnosticsVersionCurrent,
+    // review-terms — null reads as "nothing to re-review", not stale consent.
+    // An explicit choice with a stale/empty version still re-reviews.
+    analyticsCurrent: consent.share_analytics === null || analyticsVersionCurrent,
+    diagnosticsCurrent: consent.share_diagnostics === null || diagnosticsVersionCurrent,
     analyticsVersionCurrent,
     diagnosticsVersionCurrent,
     hasServerRecord,

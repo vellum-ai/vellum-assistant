@@ -63,7 +63,7 @@ import {
 import type { UserConsent } from "@/domains/account/profile";
 
 function makeConsent(overrides: Partial<UserConsent> = {}): UserConsent {
-  return {
+  const base: UserConsent = {
     tos_accepted_version: TOS_CONSENT_VERSION,
     tos_accepted_at: null,
     privacy_policy_accepted_version: PRIVACY_CONSENT_VERSION,
@@ -72,11 +72,22 @@ function makeConsent(overrides: Partial<UserConsent> = {}): UserConsent {
     ai_data_sharing_accepted_at: null,
     share_analytics: true,
     share_diagnostics: true,
+    share_analytics_effective: true,
+    share_diagnostics_effective: true,
     share_analytics_accepted_version: ANALYTICS_CONSENT_VERSION,
     share_analytics_accepted_at: null,
     share_diagnostics_accepted_version: DIAGNOSTICS_CONSENT_VERSION,
     share_diagnostics_accepted_at: null,
     ...overrides,
+  };
+  // Mirror the wire contract unless a test overrides the effective fields
+  // directly: the platform computes effective = value ?? true (opt-out).
+  return {
+    ...base,
+    share_analytics_effective:
+      overrides.share_analytics_effective ?? base.share_analytics ?? true,
+    share_diagnostics_effective:
+      overrides.share_diagnostics_effective ?? base.share_diagnostics ?? true,
   };
 }
 
@@ -185,28 +196,84 @@ describe("resolveServerConsent", () => {
     expect(resolved.diagnosticsCurrent).toBe(false);
   });
 
-  test("implicit defaults (true + empty version) read as never-asked, not stale", () => {
-    // A pre-nullable platform materializes its DB default `true` with no
-    // version on rows created without the toggle shown — never-asked in
-    // disguise. Must not bounce to review-terms, but earns no version ack.
+  // The implicit-default cases (`true` + empty version resolving to null)
+  // are gone: they guarded a pre-nullable platform that materialized its DB
+  // default `true` on rows created without the toggle shown. Platform
+  // migration 0169 nulled every such implicit ledger row on the single
+  // deployment, so that shape no longer exists on the wire — never-asked is
+  // exactly `share_analytics === null` now, and any explicit value with an
+  // empty version owes a re-review like any other stale explicit choice.
+
+  test("server effective fields are consumed verbatim when present", () => {
+    // Never-asked row: raw null stays null (chosen-ness), while the
+    // server-computed effective (null = enabled) is surfaced directly.
     const r = resolveServerConsent(
       makeConsent({
-        share_analytics: true,
+        share_analytics: null,
         share_analytics_accepted_version: "",
-        share_diagnostics: true,
+        share_diagnostics: null,
         share_diagnostics_accepted_version: "",
       }),
     );
-    expect(r.analyticsCurrent).toBe(true);
-    expect(r.diagnosticsCurrent).toBe(true);
-    expect(r.analyticsVersionCurrent).toBe(false);
-    expect(r.diagnosticsVersionCurrent).toBe(false);
-    // The values resolve to null so no consumer treats the materialized
-    // default as an explicit grant — the diagnostics gate chokepoint and
-    // the analytics store adoption must not overwrite an explicit local
-    // opt-out whose patch hasn't landed on such a row.
     expect(r.shareAnalytics).toBeNull();
     expect(r.shareDiagnostics).toBeNull();
+    expect(r.analyticsEffective).toBe(true);
+    expect(r.diagnosticsEffective).toBe(true);
+    expect(r.analyticsCurrent).toBe(true);
+    expect(r.diagnosticsCurrent).toBe(true);
+  });
+
+  test("effective fields win over the raw values when they disagree", () => {
+    // The platform owns the effective computation; the resolver must not
+    // re-derive it from the raw value when the server sent one.
+    const r = resolveServerConsent(
+      makeConsent({
+        share_analytics: true,
+        share_analytics_effective: false,
+        share_diagnostics: null,
+        share_diagnostics_effective: false,
+      }),
+    );
+    expect(r.analyticsEffective).toBe(false);
+    expect(r.diagnosticsEffective).toBe(false);
+  });
+
+  test("an explicit opt-out resolves effective false and still owes re-review when stale", () => {
+    const r = resolveServerConsent(
+      makeConsent({
+        share_analytics: false,
+        share_analytics_accepted_version: "",
+        share_diagnostics: false,
+        share_diagnostics_accepted_version: "2020-01-01",
+      }),
+    );
+    expect(r.shareAnalytics).toBe(false);
+    expect(r.shareDiagnostics).toBe(false);
+    expect(r.analyticsEffective).toBe(false);
+    expect(r.diagnosticsEffective).toBe(false);
+    expect(r.analyticsCurrent).toBe(false);
+    expect(r.diagnosticsCurrent).toBe(false);
+  });
+
+  test("absent effective fields (older backend) fall back to the raw values' opt-out reading", () => {
+    const legacy = (overrides: Partial<UserConsent>) => {
+      const consent = makeConsent(overrides) as unknown as Record<string, unknown>;
+      delete consent.share_analytics_effective;
+      delete consent.share_diagnostics_effective;
+      return consent as unknown as UserConsent;
+    };
+    // Explicit values pass through...
+    const explicit = resolveServerConsent(
+      legacy({ share_analytics: false, share_diagnostics: true }),
+    );
+    expect(explicit.analyticsEffective).toBe(false);
+    expect(explicit.diagnosticsEffective).toBe(true);
+    // ...and never-asked defaults to enabled (opt-out semantics).
+    const neverAsked = resolveServerConsent(
+      legacy({ share_analytics: null, share_diagnostics: null }),
+    );
+    expect(neverAsked.analyticsEffective).toBe(true);
+    expect(neverAsked.diagnosticsEffective).toBe(true);
   });
 
   test("an explicit grant with a version on record resolves the raw values", () => {
@@ -235,6 +302,9 @@ describe("resolveServerConsent", () => {
     expect(resolveServerConsent(null).diagnosticsCurrent).toBe(false);
     expect(resolveServerConsent(undefined).analyticsCurrent).toBe(false);
     expect(resolveServerConsent(undefined).diagnosticsCurrent).toBe(false);
+    // No record at all still resolves effective to enabled (opt-out).
+    expect(resolveServerConsent(null).analyticsEffective).toBe(true);
+    expect(resolveServerConsent(null).diagnosticsEffective).toBe(true);
   });
 
   // A server version newer than this build's constant counts as current on
