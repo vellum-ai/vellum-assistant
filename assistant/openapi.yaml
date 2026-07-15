@@ -3,7 +3,7 @@
 openapi: 3.1.0
 info:
   title: Vellum Assistant API
-  version: 0.10.8
+  version: 0.10.9
   description: Auto-generated OpenAPI specification for the Vellum Assistant runtime HTTP server.
 servers:
   - url: http://127.0.0.1:7821
@@ -14341,7 +14341,10 @@ paths:
     post:
       operationId: inference_providerconnections_post
       summary: Create a provider connection
-      description: Create a new named provider connection. Fails with 409 if a connection with this name already exists.
+      description:
+        Create a new named provider connection. When auth is omitted it is derived from the provider (keyless
+        providers get none, vellum gets platform, everything else needs credential for api_key auth). Fails with 409 if
+        a connection with this name already exists.
       tags:
         - inference
       requestBody:
@@ -14358,6 +14361,9 @@ paths:
                   $ref: "#/components/schemas/ConnectionProvider"
                 auth:
                   $ref: "#/components/schemas/Auth"
+                credential:
+                  type: string
+                  minLength: 1
                 label:
                   type: string
                   minLength: 1
@@ -14375,7 +14381,6 @@ paths:
               required:
                 - name
                 - provider
-                - auth
       responses:
         "201":
           description: Successful response
@@ -14447,7 +14452,8 @@ paths:
       operationId: inference_providerconnections_by_name_patch
       summary: Update a provider connection
       description:
-        Update an existing connection. Cannot rename or change the provider. For the Vellum-managed connection
+        Update an existing connection. Cannot rename or change the provider. Omitting auth keeps the stored auth;
+        passing credential alone rotates the key via provider-derived api_key auth. For the Vellum-managed connection
         (vellum) the auth is locked to platform; label remains editable.
       tags:
         - inference
@@ -14466,6 +14472,9 @@ paths:
               properties:
                 auth:
                   $ref: "#/components/schemas/Auth"
+                credential:
+                  type: string
+                  minLength: 1
                 label:
                   anyOf:
                     - type: string
@@ -14482,8 +14491,6 @@ paths:
                       items:
                         $ref: "#/components/schemas/ConnectionModel"
                     - type: "null"
-              required:
-                - auth
       responses:
         "200":
           description: Successful response

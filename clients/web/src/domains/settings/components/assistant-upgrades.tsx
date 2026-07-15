@@ -15,6 +15,7 @@ import type {
   ReleaseChannelEnum,
   ReleaseListItem,
 } from "@/generated/api/types.gen";
+import { useDevModeVersionTap } from "@/domains/settings/components/dev-mode-version-unlock";
 import { useLocalRuntimeUpgrade } from "@/hooks/use-local-runtime-upgrade";
 import {
   getLatestRuntimeRelease,
@@ -43,6 +44,37 @@ function releaseLabel(
 }
 
 const POLL_INTERVAL_MS = 3000;
+
+/**
+ * The "Current" version value, doubling as the 7-tap developer-mode unlock
+ * target (see `useDevModeVersionTap`). Shared by both the platform and local
+ * upgrade panels so the unlock lives on the version label that is on screen.
+ */
+function CurrentVersionValue({
+  version,
+  assistantId,
+}: {
+  version: string | null | undefined;
+  assistantId: string | null;
+}) {
+  const { onTap, message } = useDevModeVersionTap(assistantId);
+  return (
+    <div className="min-w-0">
+      <button
+        type="button"
+        className="block min-w-0 break-all text-left text-body-medium-lighter text-[var(--content-default)]"
+        onClick={onTap}
+      >
+        {version ?? "—"}
+      </button>
+      {message && (
+        <p className="mt-1 text-body-small-default text-[var(--content-accent)]">
+          {message}
+        </p>
+      )}
+    </div>
+  );
+}
 
 interface AssistantUpgradesProps {
   assistantId: string;
@@ -215,9 +247,10 @@ export function AssistantUpgrades({
           <span className="text-body-medium-default text-[var(--content-tertiary)]">
             Current
           </span>
-          <span className="block min-w-0 break-all text-body-medium-lighter text-[var(--content-default)]">
-            {currentVersion ?? "—"}
-          </span>
+          <CurrentVersionValue
+            version={currentVersion}
+            assistantId={assistantId}
+          />
         </div>
 
         <div className="flex flex-col gap-1 md:contents">
@@ -419,9 +452,10 @@ export function LocalAssistantUpgrades({
           <span className="text-body-medium-default text-[var(--content-tertiary)]">
             Current
           </span>
-          <span className="block min-w-0 break-all text-body-medium-lighter text-[var(--content-default)]">
-            {currentVersion ?? "—"}
-          </span>
+          <CurrentVersionValue
+            version={currentVersion}
+            assistantId={assistantId}
+          />
         </div>
 
         <div className="flex flex-col gap-1 md:contents">

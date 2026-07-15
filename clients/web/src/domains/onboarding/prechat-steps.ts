@@ -3,9 +3,9 @@
  *
  * The flow is expressed as an ordered list of steps, each with the funnel
  * event it emits when the user advances past it. Which steps appear is a pure
- * function of the runtime's capabilities — local mode, feature-flag variant,
- * connected tools, and platform all "fall out" of the predicates here rather
- * than being special-cased across navigation handlers.
+ * function of the runtime's capabilities — local mode, connected tools, and
+ * platform all "fall out" of the predicates here rather than being
+ * special-cased across navigation handlers.
  *
  * Navigation operates on step **ids**, never numeric indices: `nextStep` and
  * `prevStep` resolve to the adjacent *enabled* step. Because back always lands
@@ -39,12 +39,11 @@ export interface PreChatStep {
 
 /**
  * Capabilities that decide which web steps are reachable. Each maps to an
- * existing self-gate in the flow: feature-flag variant, the platform-backed
- * prior-assistants import, the Google OAuth step, whether a Google tool was
- * picked, and the iOS app nudge.
+ * existing self-gate in the flow: the platform-backed prior-assistants import,
+ * the Google OAuth step, whether a Google tool was picked, and the iOS app
+ * nudge.
  */
 export interface WebStepCapabilities {
-  paredDown: boolean;
   canOfferPriorAssistants: boolean;
   canOfferGoogleStep: boolean;
   hasGoogleTool: boolean;
@@ -80,11 +79,10 @@ export function isPlatformFunnelAvailable(args: {
 }
 
 /**
- * Resolve the ordered, enabled web steps. The pared-down funnel variant is the
- * same flow with most steps gated off, not a separate code path.
+ * Resolve the ordered, enabled web steps. A single control funnel: which steps
+ * appear falls out of the runtime capabilities rather than a separate code path.
  */
 export function resolveWebSteps(caps: WebStepCapabilities): PreChatStep[] {
-  const { paredDown } = caps;
   const candidates: Array<PreChatStep & { enabled: boolean }> = [
     {
       id: "name",
@@ -94,32 +92,29 @@ export function resolveWebSteps(caps: WebStepCapabilities): PreChatStep[] {
     {
       id: "taskTone",
       funnelStep: ONBOARDING_FUNNEL_STEPS.controlWorkType,
-      enabled: !paredDown,
+      enabled: true,
     },
     {
       id: "tools",
       funnelStep: ONBOARDING_FUNNEL_STEPS.controlTools,
-      enabled: !paredDown,
+      enabled: true,
     },
     {
       id: "priorAssistants",
       funnelStep: ONBOARDING_FUNNEL_STEPS.controlPriorAssistants,
-      enabled: !paredDown && caps.canOfferPriorAssistants,
+      enabled: caps.canOfferPriorAssistants,
     },
     {
       id: "google",
-      funnelStep: paredDown
-        ? ONBOARDING_FUNNEL_STEPS.gmailConnect
-        : ONBOARDING_FUNNEL_STEPS.controlGmailConnect,
-      // The pared-down funnel has no tool-selection screen, so it offers
-      // Google whenever the step is available; the control funnel only offers
-      // it when the user actually picked a Google tool.
-      enabled: caps.canOfferGoogleStep && (paredDown || caps.hasGoogleTool),
+      funnelStep: ONBOARDING_FUNNEL_STEPS.controlGmailConnect,
+      // The control funnel offers Google only when the user actually picked a
+      // Google tool.
+      enabled: caps.canOfferGoogleStep && caps.hasGoogleTool,
     },
     {
       id: "iosApp",
       funnelStep: ONBOARDING_FUNNEL_STEPS.controlGetApp,
-      enabled: !paredDown && caps.showIOSAppStep,
+      enabled: caps.showIOSAppStep,
     },
   ];
   return candidates

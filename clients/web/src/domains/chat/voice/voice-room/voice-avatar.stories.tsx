@@ -12,7 +12,7 @@ import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
 import { avatarQueryKey } from "@/hooks/use-assistant-avatar";
 import type { CharacterTraits } from "@/types/avatar";
 
-import { toneForBg } from "@/utils/surface-tone";
+import { toneForBg } from "@/utils/avatar-tone";
 
 import { VoiceRoomAmbientBackground } from "./voice-room-ambient-background";
 import {

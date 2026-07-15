@@ -65,21 +65,23 @@ describe("deriveProviderDefaults", () => {
   test("uses the display name and a deduped slug key", () => {
     expect(deriveProviderDefaults("anthropic", [])).toEqual({
       name: "Anthropic",
-      key: "anthropic",
+      key: "anthropic-personal",
     });
   });
 
   test("dedupes the key against existing connection names", () => {
-    expect(deriveProviderDefaults("anthropic", ["anthropic"])).toEqual({
+    expect(
+      deriveProviderDefaults("anthropic", ["anthropic-personal"]),
+    ).toEqual({
       name: "Anthropic",
-      key: "anthropic-2",
+      key: "anthropic-personal-2",
     });
   });
 
   test("falls back to the provider type when no display name exists", () => {
     expect(deriveProviderDefaults("custom-provider", [])).toEqual({
       name: "custom-provider",
-      key: "custom-provider",
+      key: "custom-provider-personal",
     });
   });
 });

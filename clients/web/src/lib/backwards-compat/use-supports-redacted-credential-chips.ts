@@ -19,13 +19,13 @@
  * `useAssistantScopedSupports` — see its JSDoc in `./utils.ts` for the
  * atomic version+owner snapshot and conservative-on-mismatch semantics.
  *
- * MIN_VERSION targets 0.11.0 — the release that ships daemon-side sentinel
+ * MIN_VERSION targets 0.10.10 — the release that ships daemon-side sentinel
  * minting and neutralization. On the `false` branch callers leave sentinel
  * text as plain literal text.
  */
 import { useAssistantScopedSupports } from "./utils";
 
-export const MIN_VERSION = "0.11.0";
+export const MIN_VERSION = "0.10.10";
 
 /**
  * Returns `true` when the transcript owned by `transcriptAssistantId` may

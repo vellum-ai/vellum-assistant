@@ -28,8 +28,7 @@
  * MIN_VERSION is 0.11.0. v0.10.9 was released 2026-07-14 without the
  * daemon-side `supportsDynamicUi: false` enforcement, and a later 0.10.x
  * patch could be cut without it too; 0.11.0 is the first release
- * GUARANTEED to contain it (the other in-flight gates in this directory
- * pin the same 0.11.0). The asymmetry makes erring HIGH free: if the
+ * GUARANTEED to contain it. The asymmetry makes erring HIGH free: if the
  * enforcement happens to ship in an earlier patch, the only cost is the
  * fallback card remaining available for that patch's assistants — it
  * self-hides whenever no pending surface exists, and such an assistant

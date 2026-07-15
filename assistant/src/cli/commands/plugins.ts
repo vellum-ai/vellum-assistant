@@ -10,6 +10,7 @@ import { createRequire } from "node:module";
 
 import type { Command } from "commander";
 
+import { cliIpcCall } from "../../ipc/cli-client.js";
 import { yellow } from "../lib/cli-colors.js";
 import { applyCommandHelp, subcommand } from "../lib/cli-command-help.js";
 import { confirmPrompt } from "../lib/confirm-prompt.js";
@@ -569,7 +570,32 @@ export function registerPluginsCommand(program: Command): void {
                 return;
               }
             }
-            const result = await libs.uninstall.uninstallPlugin({ name });
+            // Prefer the daemon: it runs the plugin's `shutdown` hook and drops
+            // the plugin's tools/hooks in the main process — symmetric to how
+            // install runs `init` there. Fall back to a local uninstall only
+            // when the daemon is unreachable (a transport error carries no
+            // `statusCode`); an operator can still uninstall while it's stopped,
+            // and `shutdown` then runs in this process, the only one available.
+            const daemon = await cliIpcCall<{ name: string; target: string }>(
+              "plugins_uninstall",
+              { pathParams: { name } },
+            );
+            let result: { name: string; target: string };
+            if (daemon.ok && daemon.result) {
+              result = daemon.result;
+            } else if (daemon.statusCode === undefined) {
+              log.debug(
+                { name, error: daemon.error },
+                "uninstall could not reach the daemon; running shutdown + removal locally",
+              );
+              result = await libs.uninstall.uninstallPlugin({ name });
+            } else {
+              // The daemon reached a decision (not installed, bad name, …);
+              // surface it rather than silently retrying locally.
+              console.error(daemon.error ?? "Plugin uninstall failed.");
+              process.exitCode = 1;
+              return;
+            }
             log.info(
               { name: result.name, target: result.target },
               "external plugin uninstalled",
@@ -653,14 +679,42 @@ export function registerPluginsCommand(program: Command): void {
             return;
           }
           try {
-            const result = await libs.upgrade.upgradePlugin(
+            // Prefer the daemon: when the upgrade re-materializes files it runs
+            // the plugin's `shutdown` + `init` hooks in the main process —
+            // symmetric to how install/uninstall run their lifecycle there.
+            // Fall back to a local upgrade only when the daemon is unreachable
+            // (a transport error carries no `statusCode`); an operator can still
+            // upgrade while it's stopped, and the new code is picked up on the
+            // daemon's next start. A daemon-side decision (not installed, not
+            // upgradable, …) is surfaced rather than silently retried locally.
+            const daemon = await cliIpcCall<PluginUpgradeResult>(
+              "plugins_upgrade",
               {
-                name,
-                dryRun: opts.dryRun,
-                strategy: strategy as PluginUpgradeStrategy | undefined,
+                pathParams: { name },
+                body: { dryRun: opts.dryRun, strategy },
               },
-              { fetch: globalThis.fetch.bind(globalThis) },
             );
+            let result: PluginUpgradeResult;
+            if (daemon.ok && daemon.result) {
+              result = daemon.result;
+            } else if (daemon.statusCode === undefined) {
+              log.debug(
+                { name, error: daemon.error },
+                "upgrade could not reach the daemon; upgrading locally",
+              );
+              result = await libs.upgrade.upgradePlugin(
+                {
+                  name,
+                  dryRun: opts.dryRun,
+                  strategy: strategy as PluginUpgradeStrategy | undefined,
+                },
+                { fetch: globalThis.fetch.bind(globalThis) },
+              );
+            } else {
+              console.error(daemon.error ?? "Plugin upgrade failed.");
+              process.exitCode = 1;
+              return;
+            }
 
             if (opts.json) {
               process.stdout.write(JSON.stringify(result, null, 2) + "\n");
@@ -1148,7 +1202,7 @@ function formatUpgrade(result: PluginUpgradeResult): string[] {
         `Upgraded "${name}" ${move}`,
         "",
         `${count}→ ${result.target}`,
-        "Restart the assistant to pick up the upgrade.",
+        "The upgrade is picked up live (no restart required).",
       ];
       if (mergeNote) {
         lines.push(mergeNote);

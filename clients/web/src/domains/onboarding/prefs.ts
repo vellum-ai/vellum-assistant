@@ -20,7 +20,7 @@ import {
   removeLocalSetting,
   setLocalSetting,
 } from "@/utils/local-settings";
-import { getDeviceBool } from "@/utils/device-settings";
+import { readAnalyticsConsent } from "@/lib/telemetry/consent";
 import { useOnboardingStore } from "@/domains/onboarding/onboarding-store";
 
 // ---------------------------------------------------------------------------
@@ -169,16 +169,13 @@ export function readConsentHydrated(): boolean {
 /**
  * SSR-safe, non-hook read for telemetry emitters.
  *
- * Analytics is opt-out: an absent preference (never asked) authorizes uploads;
- * only an explicit opt-out stops them. The in-memory store must also agree so
- * a failed opt-out write cannot leave an older stored opt-in authorizing a new
- * event.
+ * Thin wrapper over the shared `readAnalyticsConsent()` so the onboarding
+ * funnel and the intelligence domain's Memory telemetry gate on the exact
+ * same decision (the AND of the in-memory `shareAnalytics` store flag and the
+ * persisted `device:share_analytics` bool).
  */
 export function readShareAnalytics(): boolean {
-  return (
-    useOnboardingStore.getState().shareAnalytics &&
-    getDeviceBool("shareAnalytics", true)
-  );
+  return readAnalyticsConsent();
 }
 
 /**
