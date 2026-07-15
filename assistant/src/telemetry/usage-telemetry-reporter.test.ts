@@ -107,7 +107,6 @@ const mockGetCachedShareDiagnosticsVersion = mock(() => "2999-01-01");
 
 mock.module("../platform/consent-cache.js", () => ({
   getRawShareAnalytics: mockGetRawShareAnalytics,
-  getCachedShareAnalytics: () => mockGetRawShareAnalytics() === true,
   getCachedShareDiagnostics: mockGetCachedShareDiagnostics,
   getCachedShareDiagnosticsVersion: mockGetCachedShareDiagnosticsVersion,
 }));

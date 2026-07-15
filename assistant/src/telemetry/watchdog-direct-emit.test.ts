@@ -12,7 +12,6 @@ import type { ConsentState } from "../platform/consent-cache.js";
 
 let shareAnalytics: ConsentState = true;
 mock.module("../platform/consent-cache.js", () => ({
-  getCachedShareAnalytics: () => shareAnalytics === true,
   getRawShareAnalytics: () => shareAnalytics,
 }));
 

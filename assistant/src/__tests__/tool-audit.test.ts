@@ -5,7 +5,6 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 let shareAnalytics: boolean | "unknown" = true;
 
 mock.module("../platform/consent-cache.js", () => ({
-  getCachedShareAnalytics: () => shareAnalytics === true,
   getRawShareAnalytics: () => shareAnalytics,
 }));
 
@@ -407,31 +406,6 @@ describe("tool audit terminals", () => {
       model: "model-a",
       inferenceProfile: "balanced",
       inferenceProfileSource: "active",
-    });
-  });
-
-  test("populates telemetry columns under confirmed opt-in", () => {
-    shareAnalytics = true;
-
-    recordToolExecuted({
-      conversationId: "conv-opt-in",
-      toolName: "file_read",
-      input: { path: "/tmp/a" },
-      resultContent: "ok",
-      resultBytes: 42,
-      decision: "allow",
-      riskLevel: "low",
-      durationMs: 5,
-      attribution: ATTRIBUTION,
-      wasPrompted: false,
-    });
-
-    expect(records).toHaveLength(1);
-    expect(records[0]).toMatchObject({
-      argBytes: Buffer.byteLength(JSON.stringify({ path: "/tmp/a" }), "utf8"),
-      resultBytes: 42,
-      provider: "anthropic",
-      model: "model-a",
     });
   });
 

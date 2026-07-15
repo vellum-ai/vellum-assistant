@@ -5,7 +5,6 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 let shareAnalytics = true;
 
 mock.module("../platform/consent-cache.js", () => ({
-  getCachedShareAnalytics: () => shareAnalytics,
   getRawShareAnalytics: () => shareAnalytics,
 }));
 

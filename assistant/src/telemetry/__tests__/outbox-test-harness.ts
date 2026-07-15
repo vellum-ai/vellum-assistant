@@ -19,7 +19,6 @@ let shareDiagnosticsVersion = "2999-01-01";
 // imports are as safe as in the test files themselves (AGENTS.md "Test
 // machinery isolation" scopes its no-src/ rule to preload-time machinery).
 mock.module("../../platform/consent-cache.js", () => ({
-  getCachedShareAnalytics: () => shareAnalytics === true,
   getRawShareAnalytics: () => shareAnalytics,
   getCachedShareDiagnostics: () => shareDiagnostics,
   getCachedShareDiagnosticsVersion: () => shareDiagnosticsVersion,

@@ -6,7 +6,6 @@ import type { ServerMessage } from "../daemon/message-protocol.js";
 let shareAnalytics = true;
 
 mock.module("../platform/consent-cache.js", () => ({
-  getCachedShareAnalytics: () => shareAnalytics,
   getRawShareAnalytics: () => shareAnalytics,
 }));
 

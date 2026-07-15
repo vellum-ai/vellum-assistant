@@ -62,20 +62,11 @@ function isLegacyOptedOut(): boolean {
 let refreshTimer: ReturnType<typeof setInterval> | null = null;
 
 /**
- * Synchronous hot-path accessor for the effective `share_analytics` consent.
- * Never does I/O; returns `false` unless a successful refresh confirmed an
- * opt-in (`"unknown"` reads as `false`), and stays `false` while the legacy
- * fail-closed opt-out marker is set.
- */
-export function getCachedShareAnalytics(): boolean {
-  return cachedShareAnalytics === true && !isLegacyOptedOut();
-}
-
-/**
- * Raw tri-state `share_analytics` consent. The legacy fail-closed opt-out
+ * Raw tri-state `share_analytics` consent — the ONLY analytics accessor:
+ * every gate distinguishes a confirmed opt-out (`false`, the only state that
+ * drops or purges) from a not-yet-known one. The legacy fail-closed opt-out
  * marker folds into `false` — a workspace-level opt-out is a confirmed
- * opt-out, not an unknown. For callers that must distinguish a confirmed
- * opt-out from a not-yet-known state.
+ * opt-out, not an unknown. Never does I/O; hot-path safe.
  */
 export function getRawShareAnalytics(): ConsentState {
   return isLegacyOptedOut() ? false : cachedShareAnalytics;
