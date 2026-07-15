@@ -1,11 +1,12 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-// Toggle for the share_analytics opt-out gate consulted when populating the
-// telemetry columns.
-let shareAnalytics = true;
+// Tri-state share_analytics consent consulted when populating the telemetry
+// columns: only a confirmed `false` NULLs them.
+let shareAnalytics: boolean | "unknown" = true;
 
 mock.module("../platform/consent-cache.js", () => ({
-  getCachedShareAnalytics: () => shareAnalytics,
+  getCachedShareAnalytics: () => shareAnalytics === true,
+  getRawShareAnalytics: () => shareAnalytics,
 }));
 
 // Capture the audit rows the terminals would insert, and the lifecycle-event
@@ -376,6 +377,61 @@ describe("tool audit terminals", () => {
       result: "error: boom",
       decision: "error",
       durationMs: 9,
+    });
+  });
+
+  test("populates telemetry columns under unknown consent (cold cache)", () => {
+    // NULL columns are permanently excluded by the projection's
+    // arg_bytes IS NOT NULL filter, so only a CONFIRMED opt-out may NULL
+    // them — unknown records, and flush-time consent gating decides later.
+    shareAnalytics = "unknown";
+
+    recordToolExecuted({
+      conversationId: "conv-unknown",
+      toolName: "file_read",
+      input: { path: "/tmp/a" },
+      resultContent: "ok",
+      resultBytes: 99,
+      decision: "allow",
+      riskLevel: "low",
+      durationMs: 12,
+      attribution: ATTRIBUTION,
+      wasPrompted: false,
+    });
+
+    expect(records).toHaveLength(1);
+    expect(records[0]).toMatchObject({
+      argBytes: Buffer.byteLength(JSON.stringify({ path: "/tmp/a" }), "utf8"),
+      resultBytes: 99,
+      provider: "anthropic",
+      model: "model-a",
+      inferenceProfile: "balanced",
+      inferenceProfileSource: "active",
+    });
+  });
+
+  test("populates telemetry columns under confirmed opt-in", () => {
+    shareAnalytics = true;
+
+    recordToolExecuted({
+      conversationId: "conv-opt-in",
+      toolName: "file_read",
+      input: { path: "/tmp/a" },
+      resultContent: "ok",
+      resultBytes: 42,
+      decision: "allow",
+      riskLevel: "low",
+      durationMs: 5,
+      attribution: ATTRIBUTION,
+      wasPrompted: false,
+    });
+
+    expect(records).toHaveLength(1);
+    expect(records[0]).toMatchObject({
+      argBytes: Buffer.byteLength(JSON.stringify({ path: "/tmp/a" }), "utf8"),
+      resultBytes: 42,
+      provider: "anthropic",
+      model: "model-a",
     });
   });
 
