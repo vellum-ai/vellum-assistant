@@ -37,7 +37,6 @@ import {
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
-import * as pendingInteractions from "../runtime/pending-interactions.js";
 
 await initializeDb();
 
@@ -161,7 +160,6 @@ describe("voice-session-bridge", () => {
     const db = getDb();
     db.run("DELETE FROM messages");
     db.run("DELETE FROM conversations");
-    pendingInteractions.clear();
   });
 
   test("throws when deps not injected", async () => {
@@ -479,7 +477,7 @@ describe("voice-session-bridge", () => {
 
     await startVoiceTurn({
       conversationId: conversation.id,
-      voiceSessionId: "local-live-voice-session-1",
+      voiceSessionId: "live-voice-session-1",
       userMessageChannel: "vellum",
       assistantMessageChannel: "vellum",
       userMessageInterface: "macos",
@@ -503,7 +501,7 @@ describe("voice-session-bridge", () => {
 
     await new Promise((r) => setTimeout(r, 50));
 
-    expect(capturedVoiceSessionId).toBe("local-live-voice-session-1");
+    expect(capturedVoiceSessionId).toBe("live-voice-session-1");
     expect(capturedPrompts[0]).toBe(
       "You are speaking in a local live voice session. Keep replies brief and conversational.",
     );
@@ -893,105 +891,6 @@ describe("voice-session-bridge", () => {
     expect(handleConfirmationCalls.length).toBe(1);
     expect(handleConfirmationCalls[0].requestId).toBe("req-voice-unknown");
     expect(handleConfirmationCalls[0].decision).toBe("deny");
-  });
-
-  test("publishes local live voice confirmation requests without auto-resolving them", async () => {
-    const conversation = createConversation(
-      "voice bridge local live voice approval test",
-    );
-
-    let clientHandler: (msg: ServerMessage) => void = () => {};
-    const handleConfirmationCalls: Array<{
-      requestId: string;
-      decision: string;
-    }> = [];
-    const publishedMessages: ServerMessage[] = [];
-    const subscription = assistantEventHub.subscribe({
-      type: "process",
-      filter: {
-        conversationId: conversation.id,
-      },
-      callback: (event) => {
-        publishedMessages.push(event.message);
-      },
-    });
-
-    const session = {
-      isProcessing: () => false,
-      persistUserMessage: async () => ({
-        id: "test-msg-id",
-        deduplicated: false,
-      }),
-      setChannelCapabilities: () => {},
-      setAssistantId: () => {},
-      setTrustContext: () => {},
-      setCommandIntent: () => {},
-      setTurnChannelContext: () => {},
-      setTurnInterfaceContext: () => {},
-      setVoiceCallControlPrompt: () => {},
-      updateClient: (handler: (msg: ServerMessage) => void) => {
-        clientHandler = handler;
-      },
-      ensureActorScopedHistory: async () => {},
-      runAgentLoop: async () => {
-        clientHandler({
-          type: "confirmation_request",
-          requestId: "req-local-live-voice",
-          toolName: "host_bash",
-          input: { command: "ls" },
-          riskLevel: "low",
-          allowlistOptions: [],
-          scopeOptions: [],
-          conversationId: conversation.id,
-        } as ServerMessage);
-      },
-      handleConfirmationResponse: (requestId: string, decision: string) => {
-        handleConfirmationCalls.push({ requestId, decision });
-      },
-      abort: () => {},
-    } as unknown as Conversation;
-
-    try {
-      injectDeps(() => session);
-
-      await startVoiceTurn({
-        conversationId: conversation.id,
-        approvalMode: "local-live-voice",
-        content: "List files",
-        isInbound: true,
-        trustContext: {
-          sourceChannel: "phone",
-          trustClass: "guardian",
-          guardianExternalUserId: "+12125550142",
-          guardianChatId: "+12125550142",
-        },
-        onTextDelta: () => {},
-        onComplete: () => {},
-        onError: () => {},
-      });
-
-      await new Promise((r) => setTimeout(r, 50));
-
-      expect(handleConfirmationCalls).toHaveLength(0);
-      expect(
-        publishedMessages.some(
-          (message) =>
-            message.type === "confirmation_request" &&
-            message.requestId === "req-local-live-voice",
-        ),
-      ).toBe(true);
-      expect(pendingInteractions.get("req-local-live-voice")).toMatchObject({
-        conversationId: conversation.id,
-        kind: "confirmation",
-        confirmationDetails: {
-          toolName: "host_bash",
-          riskLevel: "low",
-        },
-      });
-    } finally {
-      pendingInteractions.resolve("req-local-live-voice");
-      subscription.dispose();
-    }
   });
 
   test("auto-allows confirmation requests for guardian voice turns", async () => {

@@ -246,7 +246,10 @@ describe("LiveVoiceSession archive and metrics events", () => {
 
     await startReleasedTurn(session);
     expect(startVoiceTurn.mock.calls[0]?.[0]).toMatchObject({
-      approvalMode: "local-live-voice",
+      userMessageChannel: "vellum",
+      assistantMessageChannel: "vellum",
+      userMessageInterface: "macos",
+      assistantMessageInterface: "macos",
     });
     callbacks?.assistant_text_delta?.(makeTextDelta("Hello there."));
     callbacks?.message_complete?.(makeMessageComplete());
