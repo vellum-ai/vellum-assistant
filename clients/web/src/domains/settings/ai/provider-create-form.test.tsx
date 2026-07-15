@@ -214,7 +214,7 @@ function selectDropdownOption(ariaLabel: string, optionLabel: string): void {
 beforeEach(() => {
   secretsPostCalls = [];
   createConnectionCalls = [];
-  createdConnection = makeConnection("anthropic");
+  createdConnection = makeConnection("anthropic-personal");
   createResponseOk = true;
   createResponseStatus = 200;
   toastSuccessCalls = [];
@@ -273,7 +273,7 @@ describe("ProviderCreateForm submit sequence", () => {
     // explicit auth, and this form must work against them without a gate).
     expect(createConnectionCalls[0].path.assistant_id).toBe(ASSISTANT_ID);
     expect(createConnectionCalls[0].body).toMatchObject({
-      name: "anthropic",
+      name: "anthropic-personal",
       provider: "anthropic",
       auth: { type: "api_key", credential: "credential/anthropic/api_key" },
     });
@@ -282,7 +282,7 @@ describe("ProviderCreateForm submit sequence", () => {
     await waitFor(() => {
       expect(created).toBeDefined();
     });
-    expect(created?.name).toBe("anthropic");
+    expect(created?.name).toBe("anthropic-personal");
   });
 
   test("blocks a duplicate openai-compatible key with the validation message", () => {
@@ -339,7 +339,7 @@ describe("ProviderCreateForm submit sequence", () => {
       expect(createConnectionCalls.length).toBe(1);
     });
     await waitFor(() => {
-      expect(created?.name).toBe("anthropic");
+      expect(created?.name).toBe("anthropic-personal");
     });
   });
 
@@ -393,7 +393,7 @@ describe("ProviderCreateForm submit sequence", () => {
     });
     expect(secretsPostCalls).toEqual([]);
     expect(createConnectionCalls[0].body).toMatchObject({
-      name: "ollama",
+      name: "ollama-personal",
       provider: "ollama",
       auth: { type: "none" },
     });
@@ -512,7 +512,7 @@ describe("ProviderCreateForm submit sequence", () => {
       <ModalWrapper>
         <ProviderCreateForm
           assistantId={ASSISTANT_ID}
-          existingNames={["anthropic"]}
+          existingNames={["anthropic-personal"]}
           defaultProviderType="anthropic"
           onCreated={() => {}}
           onCancel={() => {}}
@@ -536,7 +536,7 @@ describe("ProviderCreateForm submit sequence", () => {
       expect(createConnectionCalls.length).toBe(1);
     });
     expect(createConnectionCalls[0].body).toMatchObject({
-      name: "anthropic-2",
+      name: "anthropic-personal-2",
       provider: "anthropic",
     });
   });

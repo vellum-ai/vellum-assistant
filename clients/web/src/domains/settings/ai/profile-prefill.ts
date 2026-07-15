@@ -32,7 +32,11 @@ function dedupeKey(base: string, existing: string[]): string {
 /**
  * Derive default display name and key for a new provider connection of the
  * given provider type, ensuring the key does not collide with existing
- * connection names.
+ * connection names. The key follows the daemon's `${provider}-personal`
+ * convention (see `resolveDefaultConnectionName`) so that recreating a
+ * provider satisfies dangling default-provider/profile bindings that
+ * reference the conventional row — the key editor is hidden for catalog
+ * providers, so the seed must match the convention on its own.
  */
 export function deriveProviderDefaults(
   providerType: string,
@@ -40,7 +44,10 @@ export function deriveProviderDefaults(
 ): { name: string; key: string } {
   return {
     name: PROVIDER_DISPLAY_NAMES[providerType] ?? providerType,
-    key: dedupeKey(slugify(providerType), existingConnectionNames),
+    key: dedupeKey(
+      `${slugify(providerType)}-personal`,
+      existingConnectionNames,
+    ),
   };
 }
 
