@@ -4,20 +4,13 @@ Ship a persistent, interactive app from a plugin — a dashboard, tracker, calcu
 
 An app is a directory under `apps/<name>/`. There is no registration step and no manifest entry: the assistant discovers each app by walking the plugin's `apps/` directory on disk, exactly as it does for a plugin's routes. Each immediate subdirectory of `apps/` is one app, and the directory name is the app's name.
 
-## Two app formats
+## App structure
 
-An app is served in one of two formats, chosen by what the directory ships:
-
-- **Single-file.** An `index.html` at the app root. The assistant serves it as-is — inline `<script>` and `<style>` are allowed (the served page's CSP permits `'unsafe-inline'`). Good for a small self-contained page with no build step.
-- **Multi-file.** A Preact + TSX project under `src/`, with no root `index.html`. The assistant compiles `src/` into a sibling `dist/` with esbuild and serves the bundled `dist/index.html`. The served page's CSP is stricter (`script-src 'self'`, no inline), matching workspace apps built through the app-builder skill.
-
-The presence of a root `index.html` is what distinguishes the two: `index.html` at the app root ⇒ single-file; otherwise ⇒ multi-file compiled from `src/`.
+An app is a Preact + TSX project under `src/`, which the assistant compiles into a sibling `dist/` with esbuild and serves. The compiled page runs under a strict content-security policy (`script-src 'self'`, no inline scripts), which is why the app ships as a bundle rather than an inline-script HTML file.
 
 ```
 apps/
-├── dashboard/            # single-file app
-│   └── index.html
-└── tracker/              # multi-file app
+└── tracker/
     ├── src/
     │   ├── index.html    # shell that loads the bundle
     │   ├── main.tsx      # renders <App /> into #app
@@ -29,10 +22,10 @@ apps/
 
 ## Compilation and live reload
 
-Multi-file apps are compiled off the assistant's hot path by the plugin source watcher, which already fingerprints plugin source for live reload. When a plugin's source changes, the watcher builds each `apps/<app>/src` into its sibling `apps/<app>/dist` and the new bundle is picked up on the next open — no restart.
+Apps are compiled off the assistant's hot path by the plugin source watcher, which already fingerprints plugin source for live reload. When a plugin's source changes, the watcher builds each `apps/<app>/src` into its sibling `apps/<app>/dist` and the new bundle is picked up on the next open — no restart.
 
-- **`dist/` is generated, not source.** You never hand-write or commit `dist/`. It is excluded from the plugin source fingerprint and from install-time drift detection (the `apps/<app>/dist` path is a recognized generated-build directory), so the watcher's own compile never reads as a source change and generated output never shows as drift against the pinned commit. Ship only `src/` (or a root `index.html`) in your repo.
-- **The plugin tree is read-only to the assistant.** The daemon never writes into the plugin directory. If a multi-file app is opened before the watcher has produced its `dist/`, the daemon compiles it in a throwaway temp directory to render that open — the persistent `dist/` is still the watcher's job.
+- **`dist/` is generated, not source.** You never hand-write or commit `dist/`. It is excluded from the plugin source fingerprint and from install-time drift detection (the `apps/<app>/dist` path is a recognized generated-build directory), so the watcher's own compile never reads as a source change and generated output never shows as drift against the pinned commit. Ship only `src/` in your repo.
+- **The watcher owns the persistent build.** The source watcher is what writes `apps/<app>/dist` into the plugin directory. On the open path, if an app is opened before the watcher has produced its `dist/`, the assistant compiles it in a throwaway temporary directory to render that one open, rather than writing into the plugin tree — the persistent `dist/` is still the watcher's job.
 
 ## Addressing and serving
 
@@ -44,7 +37,7 @@ plugins~<plugin-name>~<app-dir>
 
 which maps to `<workspaceDir>/plugins/<plugin-name>/apps/<app-dir>`. The delimiter is `~` (not `/`) so the id stays a single URL path segment. Workspace apps — the ones a user builds with the app-builder skill — instead use an opaque UUID and live under `<workspaceDir>/data/apps/`; a plugin app is resolved by building its path directly from the id.
 
-Once resolved, a plugin app is opened and served exactly like a workspace app: opening it reports an origin of `plugin:<plugin-name>`, its HTML is rendered into the workspace panel, and a multi-file app's compiled JS/CSS is inlined so the page is self-contained. Files bundled next to the app (images, fonts, media) are served from the app's own directory with path traversal rejected, and are addressed at runtime through the same `window.vellum.asset(...)` bridge workspace apps use.
+Once resolved, a plugin app is opened and served exactly like a workspace app: opening it reports an origin of `plugin:<plugin-name>`, its HTML is rendered into the workspace panel, and its compiled JS/CSS is inlined so the page is self-contained. Files bundled next to the app (images, fonts, media) are served from the app's own directory with path traversal rejected, and are addressed at runtime through the same `window.vellum.asset(...)` bridge workspace apps use.
 
 ## Discovery and lifecycle
 
@@ -56,7 +49,7 @@ App discovery mirrors the plugin loader's own scan, so an app is visible on exac
 
 ## The frontend contract
 
-This reference covers how an app is packaged, compiled, and served as a plugin surface. The *authoring* contract for the app itself — the design system and `--v-*` tokens, the widget library, responsive rules, the `window.vellum` bridge (`fetch`, `asset`, `subscribe`, `sendAction`), and how an app reaches backend data through routes — is owned by the **app-builder** skill, with design quality delegated to **frontend-design**. Build the app's UI by those skills, then drop the resulting directory (single-file `index.html`, or a multi-file `src/`) under your plugin's `apps/`. A plugin that also ships `routes/` can back its app's data with its own namespaced HTTP routes (see [routes.md](routes.md)).
+This reference covers how an app is packaged, compiled, and served as a plugin surface. The *authoring* contract for the app itself — the design system and `--v-*` tokens, the widget library, responsive rules, the `window.vellum` bridge (`fetch`, `asset`, `subscribe`, `sendAction`), and how an app reaches backend data through routes — is owned by the **app-builder** skill, with design quality delegated to **frontend-design**. Build the app's UI by those skills, then drop the resulting `src/` under your plugin's `apps/`. A plugin that also ships `routes/` can back its app's data with its own namespaced HTTP routes (see [routes.md](routes.md)).
 
 ## Anatomy of an app
 

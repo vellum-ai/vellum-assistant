@@ -49,7 +49,7 @@ Three entries at the plugin root are runtime-owned state, not part of the plugin
 
 Uninstalling a plugin (`assistant plugins uninstall`) removes the entire plugin directory, so `config.json`, `data/`, and `.disabled` go with it. No orphaned state is left behind.
 
-One more path is runtime-generated rather than source: `apps/<app>/dist`, the compiled output the source watcher builds from a multi-file app's `src/`. Like the preserved entries, it is excluded from fingerprinting and drift detection, so the watcher's own compile is not seen as a source change and generated bundles never show as drift against the pinned commit. Ship only the app's `src/` (or a root `index.html`); never commit `dist/`. See [apps.md](apps.md).
+One more path is runtime-generated rather than source: `apps/<app>/dist`, the compiled output the source watcher builds from an app's `src/`. Like the preserved entries, it is excluded from fingerprinting and drift detection, so the watcher's own compile is not seen as a source change and generated bundles never show as drift against the pinned commit. Ship only the app's `src/`; never commit `dist/`. See [apps.md](apps.md).
 
 ### State is plugin-owned
 
