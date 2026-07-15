@@ -267,6 +267,52 @@ export function registerCredentialsCommand(program: Command): void {
       );
 
       // -----------------------------------------------------------------------
+      // grant
+      // -----------------------------------------------------------------------
+
+      subcommand(credential, "grant").action(
+        async (
+          opts: { service: string; field: string; tool: string },
+          cmd: Command,
+        ) => {
+          const r = await cliIpcCall<{
+            service: string;
+            field: string;
+            allowedTools: string[];
+          }>("credentials_grant", {
+            body: {
+              service: opts.service,
+              field: opts.field,
+              tool: opts.tool,
+            },
+          });
+
+          if (!r.ok) {
+            writeError(
+              cmd,
+              r.error ??
+                `Failed to grant ${opts.tool} access to ${opts.service}:${opts.field}`,
+            );
+            process.exitCode = 1;
+            return;
+          }
+
+          if (shouldOutputJson(cmd)) {
+            writeOutput(cmd, {
+              ok: true,
+              service: opts.service,
+              field: opts.field,
+              allowedTools: r.result!.allowedTools,
+            });
+          } else {
+            log.info(
+              `Granted ${opts.tool} read access to ${opts.service}:${opts.field}`,
+            );
+          }
+        },
+      );
+
+      // -----------------------------------------------------------------------
       // delete
       // -----------------------------------------------------------------------
 

@@ -9358,6 +9358,57 @@ paths:
                   - service
                   - field
                 additionalProperties: false
+  /v1/credentials/grant:
+    post:
+      operationId: credentials_grant_post
+      summary: Grant a tool read access to a credential
+      description:
+        Add a tool name to a credential's allowedTools policy so the broker permits that tool to read it.
+        Metadata-only — never reads or rewrites the secret value.
+      tags:
+        - credentials
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                service:
+                  type: string
+                  description: Service namespace
+                field:
+                  type: string
+                  description: Field name
+                tool:
+                  type: string
+                  description: Tool name to grant read access
+              required:
+                - service
+                - field
+                - tool
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  service:
+                    type: string
+                  field:
+                    type: string
+                  allowedTools:
+                    type: array
+                    items:
+                      type: string
+                    description: The credential's allowedTools after the grant
+                required:
+                  - service
+                  - field
+                  - allowedTools
+                additionalProperties: false
   /v1/credentials/inspect:
     post:
       operationId: credentials_inspect_post

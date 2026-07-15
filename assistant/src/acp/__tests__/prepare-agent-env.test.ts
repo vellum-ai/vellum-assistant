@@ -112,8 +112,7 @@ mock.module("../gateway-auth.js", () => ({
   resolveAcpGatewayAuth: async () => gatewayAuthResult,
 }));
 
-const { prepareAgentEnv, grantAcpAccessToSharedAnthropicKey } =
-  await import("../prepare-agent-env.js");
+const { prepareAgentEnv } = await import("../prepare-agent-env.js");
 
 beforeEach(() => {
   metadataStore.clear();
@@ -362,56 +361,6 @@ describe("prepareAgentEnv — claude-agent-acp API-key precedence", () => {
   });
 });
 
-describe("grantAcpAccessToSharedAnthropicKey", () => {
-  test("merges acp_spawn into existing allowedTools without touching the value", async () => {
-    metadataStore.set("anthropic/api_key", { allowedTools: ["some_tool"] });
-    vaultStore.set("anthropic/api_key", "shared-LLL");
-
-    grantAcpAccessToSharedAnthropicKey();
-
-    const meta = metadataStore.get("anthropic/api_key");
-    expect(meta!.allowedTools).toContain("some_tool");
-    expect(meta!.allowedTools).toContain("acp_spawn");
-    // Secret value is untouched — grant is metadata-only.
-    expect(vaultStore.get("anthropic/api_key")).toBe("shared-LLL");
-  });
-
-  test("is idempotent when acp_spawn is already allowed", async () => {
-    metadataStore.set("anthropic/api_key", {
-      allowedTools: ["acp_spawn", "keep"],
-    });
-
-    grantAcpAccessToSharedAnthropicKey();
-
-    const meta = metadataStore.get("anthropic/api_key");
-    expect(meta!.allowedTools).toEqual(["acp_spawn", "keep"]);
-  });
-
-  test("no-ops when the shared credential has no metadata", async () => {
-    grantAcpAccessToSharedAnthropicKey();
-
-    expect(metadataStore.has("anthropic/api_key")).toBe(false);
-  });
-
-  test("consent flow: grant then spawn reuses the shared key", async () => {
-    // Shared key exists but not opted into ACP yet → spawn fails.
-    metadataStore.set("anthropic/api_key", { allowedTools: ["other_tool"] });
-    vaultStore.set("anthropic/api_key", "shared-MMM");
-
-    await expect(
-      prepareAgentEnv({ command: "claude-agent-acp", args: [] }),
-    ).rejects.toThrow(/Anthropic credential/);
-
-    grantAcpAccessToSharedAnthropicKey();
-
-    const prepared = await prepareAgentEnv({
-      command: "claude-agent-acp",
-      args: [],
-    });
-    expect(prepared.env?.ANTHROPIC_API_KEY).toBe("shared-MMM");
-  });
-});
-
 describe("prepareAgentEnv - codex-acp gating", () => {
   function seedVaultOpenaiKey(key: string): void {
     vaultStore.set("acp/openai_api_key", key);
@@ -542,6 +491,24 @@ describe("prepareAgentEnv — claude-agent-acp gateway (managed-proxy) mode", ()
     });
 
     expect(prepared.env).not.toHaveProperty("CLAUDE_CODE_OAUTH_TOKEN");
+  });
+
+  test("gate ON: strips a config.json-supplied ANTHROPIC_API_KEY / CLAUDE_CODE_OAUTH_TOKEN so the proxy stays authoritative", async () => {
+    gatewayAuthResult = gatewayAuth;
+
+    const prepared = await prepareAgentEnv({
+      command: "claude-agent-acp",
+      args: [],
+      env: {
+        ANTHROPIC_API_KEY: "config-key",
+        CLAUDE_CODE_OAUTH_TOKEN: "config-oauth",
+        OTHER_VAR: "keep-me",
+      },
+    });
+
+    expect(prepared.env).not.toHaveProperty("ANTHROPIC_API_KEY");
+    expect(prepared.env).not.toHaveProperty("CLAUDE_CODE_OAUTH_TOKEN");
+    expect(prepared.env?.OTHER_VAR).toBe("keep-me");
   });
 
   test("gate OFF (default): behaves exactly as PR 2 — injects the vault token", async () => {
