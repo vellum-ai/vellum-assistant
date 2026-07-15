@@ -723,3 +723,30 @@ body {
     opacity: 0.4;
   }
 }
+
+/* About Assistant bento: cards sit on pure white in light mode and pure
+   black in dark/velvet (a deliberate departure from the surface tokens),
+   with the avatar-color wash applied in light mode only. The bento's
+   inline card-background color-mix reads both variables. */
+.identity-bento {
+  --card-tint-pct: 5%;
+  --card-surface: #ffffff;
+}
+[data-theme="dark"] .identity-bento,
+[data-theme="velvet"] .identity-bento {
+  --card-tint-pct: 0%;
+  --card-surface: #000000;
+}
+
+/* About Assistant hero avatar: clicking it opens the avatar/name modal,
+   so the pointer itself becomes a pencil while over it. White-filled,
+   dark-stroked so it reads on any avatar color; hotspot at the tip.
+   `!important` + the descendant selector out-rank ChatAvatar's inline
+   `cursor: pointer` on its interactive inner elements. */
+.avatar-edit-cursor,
+.avatar-edit-cursor * {
+  cursor:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='white' stroke='%2324292E' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z'/%3E%3C/svg%3E")
+      2 22,
+    pointer !important;
+}

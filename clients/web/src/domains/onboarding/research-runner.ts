@@ -37,7 +37,7 @@ import type {
   PluginsSearchGetResponses,
 } from "@/generated/daemon/types.gen";
 import { captureError } from "@/lib/sentry/capture-error";
-import { latestAssistantText } from "@/domains/onboarding/latest-assistant-text";
+import { latestAssistantText } from "@/utils/latest-assistant-text";
 import { detectClientOs } from "@/runtime/platform-detection";
 import {
   buildResearchPrompt,

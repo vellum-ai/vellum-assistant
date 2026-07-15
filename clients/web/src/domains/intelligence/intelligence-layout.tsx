@@ -1,79 +1,69 @@
 import { useEffect } from "react";
-import { NavLink, Outlet, useLocation } from "react-router";
+import { ChevronLeft } from "lucide-react";
+import { Link, Outlet, useLocation } from "react-router";
 
-import { Typography, cn } from "@vellumai/design-library";
+import { Typography } from "@vellumai/design-library";
 
 import { useChatLayoutSlotsStore } from "@/components/layout/chat-layout-slots-store";
 import { PageShell } from "@/components/page-shell";
 import { useIsMobile } from "@/hooks/use-is-mobile";
-import { useSupportsPluginsSurface } from "@/lib/backwards-compat/plugins-surface";
-import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { routes } from "@/utils/routes";
 
-interface IntelligenceTab {
+interface IntelligenceSection {
   readonly label: string;
   readonly to: string;
 }
 
-const BASE_INTELLIGENCE_TABS: readonly IntelligenceTab[] = [
-  { label: "Identity", to: routes.identity },
+/**
+ * The drill-down section pages that get the shared back-button chrome.
+ * Sub-paths (e.g. `/assistant/plugins/:name`) count as inside a section.
+ */
+const CHROME_SECTIONS: readonly IntelligenceSection[] = [
+  { label: "Plugins", to: routes.plugins },
   { label: "Skills", to: routes.skills.root },
   { label: "Workspace", to: routes.workspace },
   { label: "Contacts", to: routes.contacts.root },
+  { label: "Channels", to: routes.channels },
 ];
 
-const PLUGINS_TAB: IntelligenceTab = {
-  label: "Plugins",
-  to: routes.plugins,
-};
-
-const CHANNELS_TAB: IntelligenceTab = {
-  label: "Channels",
-  to: routes.channels,
-};
+function sectionForPath(pathname: string): IntelligenceSection | null {
+  return (
+    CHROME_SECTIONS.find(
+      ({ to }) => pathname === to || pathname.startsWith(to + "/"),
+    ) ?? null
+  );
+}
 
 /**
- * Shared layout for the "About Assistant" pages (Identity, Skills,
- * Workspace, Contacts, plus Plugins on plugin-capable assistants and
- * Channels behind the `channel-trust-floors` flag). Renders a heading +
- * tab bar above an `<Outlet />` for the active tab's content.
+ * Shared layout for the "About Assistant" pages. The overview
+ * (`/assistant/identity`) and the personality page render full-bleed —
+ * they own their avatar-tinted stage chrome — while every other section
+ * (Plugins, Skills, Workspace, Contacts, Channels) renders inside the
+ * standard page shell with a back button to the overview where the old
+ * tab bar used to be.
  *
- * Mounted as a pathless layout route in `routes.tsx` so the child
- * routes keep their existing URL paths (`/assistant/identity`, etc.)
- * while inheriting the shared chrome.
+ * Mounted as a pathless layout route in `routes.tsx` so the child routes
+ * keep their existing URL paths (`/assistant/identity`, etc.) while
+ * inheriting the shared chrome.
  *
  * @see https://reactrouter.com/start/framework/routing#layout-routes
  */
 export function IntelligenceLayout() {
   const assistantName = useAssistantIdentityStore.use.name();
-  const supportsPlugins = useSupportsPluginsSurface();
-  const showChannelsTab = useAssistantFeatureFlagStore.use.channelTrustFloors();
   const { pathname } = useLocation();
   const isMobile = useIsMobile();
   const setTopBarCenter = useChatLayoutSlotsStore.use.setTopBarCenter();
 
-  // Insert the Plugins tab between Identity and Skills, but only when the
-  // connected assistant is new enough to expose the plugin routes (see
-  // `lib/backwards-compat/plugins-surface.ts`). On older assistants the
-  // routes 404, so the tab stays hidden rather than linking to a broken
-  // catalog. `useSupportsPluginsSurface` returns false until the version
-  // hydrates, so the tab appears once identity resolves.
-  //
-  // The Channels tab is gated on the `channel-trust-floors` flag (on by
-  // default); while the flag is off, channels are managed from the Contacts
-  // assistant detail instead.
-  const withPlugins: readonly IntelligenceTab[] = supportsPlugins
-    ? [BASE_INTELLIGENCE_TABS[0], PLUGINS_TAB, ...BASE_INTELLIGENCE_TABS.slice(1)]
-    : BASE_INTELLIGENCE_TABS;
-  const tabs: readonly IntelligenceTab[] = showChannelsTab
-    ? [...withPlugins, CHANNELS_TAB]
-    : withPlugins;
+  const section = sectionForPath(pathname);
+  const mobileTitle = section
+    ? section.label
+    : `About ${assistantName || "Assistant"}`;
 
   // On mobile the title moves out of the page body and into the shared top
-  // bar — centered between the hamburger menu and the search icon — so the
-  // tab row can rise directly beneath the header. Desktop keeps the in-body
-  // <h1> and leaves the top-bar center empty.
+  // bar — centered between the hamburger menu and the search icon. Desktop
+  // keeps the in-body <h1> (section pages only) and leaves the top-bar
+  // center empty.
   useEffect(() => {
     if (isMobile) {
       setTopBarCenter(
@@ -81,7 +71,7 @@ export function IntelligenceLayout() {
           variant="body-medium-default"
           className="truncate text-[var(--content-secondary)]"
         >
-          About {assistantName || "Assistant"}
+          {mobileTitle}
         </Typography>,
       );
     } else {
@@ -90,42 +80,33 @@ export function IntelligenceLayout() {
     return () => {
       setTopBarCenter(null);
     };
-  }, [isMobile, assistantName, setTopBarCenter]);
+  }, [isMobile, mobileTitle, setTopBarCenter]);
+
+  // The overview and personality pages paint their own full-bleed stage —
+  // no shell, heading, or back chrome.
+  if (!section) {
+    return (
+      <div className="flex min-h-0 flex-1 flex-col">
+        <Outlet />
+      </div>
+    );
+  }
 
   return (
     <PageShell>
-      <h1 className="mb-4 shrink-0 text-title-large text-[var(--content-default)] max-md:hidden">
-        About {assistantName || "Assistant"}
-      </h1>
-
-      <nav
-        className="mb-4 flex shrink-0 items-center overflow-x-auto border-b border-[var(--border-base)]"
-        style={{ scrollbarWidth: "none", WebkitOverflowScrolling: "touch" }}
-        aria-label="About assistant sections"
-      >
-        {tabs.map(({ label, to }) => {
-          const isActive =
-            pathname === to || pathname.startsWith(to + "/");
-          return (
-            <NavLink
-              key={to}
-              to={to}
-              className={cn(
-                "relative -mb-px inline-flex cursor-pointer items-center gap-1.5 border-b-2 border-transparent bg-transparent px-2.5 py-[7px]",
-                "text-body-medium-default whitespace-nowrap",
-                "text-[var(--content-secondary)] transition-colors",
-                "outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-0",
-                "hover:bg-[var(--surface-hover)] hover:text-[var(--content-default)]",
-                isActive &&
-                  "border-[var(--border-active)] text-[var(--primary-active)]",
-                isActive && "hover:bg-transparent",
-              )}
-            >
-              {label}
-            </NavLink>
-          );
-        })}
-      </nav>
+      <div className="mb-4 flex shrink-0 items-center gap-1.5">
+        <Link
+          to={routes.identity}
+          className="-ml-2 flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-md text-[var(--content-secondary)] transition-colors outline-none hover:bg-[var(--surface-hover)] hover:text-[var(--content-default)] focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
+          aria-label={`Back to ${assistantName || "Assistant"}`}
+          title={`Back to ${assistantName || "Assistant"}`}
+        >
+          <ChevronLeft className="h-5 w-5" aria-hidden />
+        </Link>
+        <h1 className="text-title-large text-[var(--content-default)] max-md:hidden">
+          {section.label}
+        </h1>
+      </div>
 
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
         <Outlet />

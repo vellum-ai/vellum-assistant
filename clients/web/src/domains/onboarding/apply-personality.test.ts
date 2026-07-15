@@ -49,6 +49,9 @@ describe("buildPersonalityMessage", () => {
     // rewrite lands the persona in the assistant's voice instead of stacking a
     // patch on top of the default text.
     expect(msg).toContain("Overwrite each file completely with file_write");
+    // The daemon's /identity endpoint parses this exact bullet format — the
+    // rewrite must keep it or the UI shows the personality as unset.
+    expect(msg).toContain("- **Personality:** <one short sentence>");
     expect(msg).toContain("not an edit");
     expect(msg).toContain("do not append");
     // The rewrite reshapes personality only — it must not rename the assistant.

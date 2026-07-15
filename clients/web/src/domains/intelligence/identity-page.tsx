@@ -1,5 +1,5 @@
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
-import { IdentityTab } from "@/domains/intelligence/components/identity-tab";
+import { IdentityOverview } from "@/domains/intelligence/components/identity-overview";
 
 interface IdentityPageProps {
   onOpenThread?: (message: string) => void;
@@ -8,5 +8,7 @@ interface IdentityPageProps {
 export function IdentityPage({ onOpenThread }: IdentityPageProps) {
   const assistantId = useActiveAssistantId();
 
-  return <IdentityTab assistantId={assistantId} onOpenThread={onOpenThread} />;
+  return (
+    <IdentityOverview assistantId={assistantId} onOpenThread={onOpenThread} />
+  );
 }

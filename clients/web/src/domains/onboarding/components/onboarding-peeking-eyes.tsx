@@ -16,7 +16,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { motion, useAnimationControls, useReducedMotion } from "motion/react";
 
-import { pathBBox, unionBBox } from "@/domains/onboarding/components/eye-bbox";
+import { pathBBox, unionBBox } from "@/utils/eye-bbox";
 import { useOnboardingStageSize } from "@/domains/onboarding/hooks/use-onboarding-stage-size";
 import { useOnboardingAvatarPoolStore } from "@/domains/onboarding/onboarding-avatar-pool-store";
 import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";

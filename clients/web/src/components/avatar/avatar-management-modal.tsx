@@ -11,6 +11,8 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 
+import { Button, Input } from "@vellumai/design-library";
+
 import { AvatarCustomizationPanel } from "@/components/avatar/avatar-customization-panel";
 import { ChatAvatar } from "@/components/avatar/chat-avatar";
 import { uploadAvatarImage } from "@/assistant/avatar-api";
@@ -28,6 +30,13 @@ interface AvatarManagementModalProps {
   onSaveCharacter: (traits: CharacterTraits) => void;
   onUploadImage: () => void;
   onGenerateWithAI?: () => void;
+  /** Current assistant name — shows the name editor when provided
+   *  together with `onRenameSubmit`. */
+  assistantName?: string;
+  /** Called with the new trimmed name; the caller runs the rename. */
+  onRenameSubmit?: (name: string) => void;
+  /** A rename is in flight — the name editor locks and shows progress. */
+  isRenaming?: boolean;
 }
 
 export function AvatarManagementModal({
@@ -40,6 +49,9 @@ export function AvatarManagementModal({
   onSaveCharacter,
   onUploadImage,
   onGenerateWithAI,
+  assistantName,
+  onRenameSubmit,
+  isRenaming = false,
 }: AvatarManagementModalProps) {
   const titleId = useId();
   const overlayRef = useRef<HTMLDivElement>(null);
@@ -47,6 +59,22 @@ export function AvatarManagementModal({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [view, setView] = useState<ModalView>("actions");
   const [isUploading, setIsUploading] = useState(false);
+  const [nameDraft, setNameDraft] = useState(assistantName ?? "");
+
+  // Re-seed the draft whenever the modal opens (or a rename lands and the
+  // canonical name changes underneath it).
+  useEffect(() => {
+    if (open) {
+      setNameDraft(assistantName ?? "");
+    }
+  }, [open, assistantName]);
+
+  const trimmedDraft = nameDraft.trim();
+  const canSaveName =
+    Boolean(onRenameSubmit) &&
+    !isRenaming &&
+    trimmedDraft.length > 0 &&
+    trimmedDraft !== (assistantName ?? "");
 
   useEffect(() => {
     if (open) {
@@ -205,6 +233,35 @@ export function AvatarManagementModal({
                 size={120}
                 interactive
               />
+
+              {assistantName !== undefined && onRenameSubmit && (
+                <form
+                  className="flex w-full items-end gap-2"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    if (canSaveName) {
+                      onRenameSubmit(trimmedDraft);
+                    }
+                  }}
+                >
+                  <Input
+                    label="Name"
+                    value={nameDraft}
+                    onChange={(e) => setNameDraft(e.target.value)}
+                    disabled={isRenaming}
+                    maxLength={40}
+                    fullWidth
+                  />
+                  <Button
+                    type="submit"
+                    variant="primary"
+                    disabled={!canSaveName}
+                    className="shrink-0"
+                  >
+                    {isRenaming ? "Saving…" : "Save"}
+                  </Button>
+                </form>
+              )}
 
               <div className="w-full space-y-2">
                 <button
