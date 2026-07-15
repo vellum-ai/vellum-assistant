@@ -64,6 +64,11 @@ export function deriveAuthForProvider(
   if (entry?.setupMode === "keyless") {
     return { type: "none" };
   }
+  if (provider === "openai-compatible") {
+    // Custom endpoints have no fixed auth story: local servers are usually
+    // keyless, hosted ones keyed. Credential presence decides.
+    return credential ? { type: "api_key", credential } : { type: "none" };
+  }
   return credential ? { type: "api_key", credential } : null;
 }
 
