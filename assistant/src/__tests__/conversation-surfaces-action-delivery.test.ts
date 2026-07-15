@@ -12,6 +12,8 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
 const { createSurfaceMutex, handleSurfaceAction, surfaceProxyResolver } =
   await import("../daemon/conversation-surfaces.js");
 
+const { registerVoiceResumeHandler, unregisterVoiceResumeHandler } =
+  await import("../live-voice/live-voice-resume-registry.js");
 import type { SurfaceConversationContext } from "../daemon/conversation-surfaces.js";
 import type {
   SurfaceData,
@@ -19,6 +21,7 @@ import type {
   UiSurfaceShow,
 } from "../daemon/message-protocol.js";
 import type { UserMessageAttachment } from "../daemon/message-types/shared.js";
+import type { VoiceResumeHandler } from "../live-voice/live-voice-resume-registry.js";
 
 interface ProcessMessageCall {
   content: string;
@@ -511,6 +514,81 @@ describe("surface action delivery to assistant", () => {
     expect(completeMsg).toBeDefined();
     expect(completeMsg?.conversationId).toBe("conv-1");
     expect(completeMsg?.summary).toBe("Connected Google: user@example.com");
+    expect(ctx.pendingSurfaceActions.has(surfaceId)).toBe(false);
+  });
+
+  test("oauth_connect routes to the voice resume handler (spoken) and skips processMessage when a live-voice session owns the conversation", async () => {
+    const sent: ServerMessage[] = [];
+    const ctx = makeContext(sent);
+
+    const resumeCalls: Array<{
+      content: string;
+      opts?: { displayContent?: string; sourceActorPrincipalId?: string };
+    }> = [];
+    const handler: VoiceResumeHandler = {
+      resumeWithText: (content, opts) => resumeCalls.push({ content, opts }),
+    };
+    registerVoiceResumeHandler(ctx.conversationId, handler);
+
+    try {
+      await surfaceProxyResolver(ctx, "ui_show", {
+        surface_type: "oauth_connect",
+        title: "Connect Google",
+        data: { providerKey: "google", displayName: "Google" },
+      });
+      const showMessage = sent.find(
+        (msg): msg is UiSurfaceShow => msg.type === "ui_surface_show",
+      ) as UiSurfaceShow;
+      const surfaceId = showMessage.surfaceId;
+      expect(ctx.pendingSurfaceActions.has(surfaceId)).toBe(true);
+
+      await handleSurfaceAction(ctx, surfaceId, "connect", {
+        status: "connected",
+        providerKey: "google",
+        providerLabel: "Google",
+        accountLabel: "user@example.com",
+      });
+
+      // Routed to the spoken resume, not the silent text pipeline.
+      expect(resumeCalls).toHaveLength(1);
+      expect(ctx.processMessageCalls).toHaveLength(0);
+      // The one-shot surface still completes and the pending guard is cleared.
+      expect(ctx.pendingSurfaceActions.has(surfaceId)).toBe(false);
+      expect(
+        broadcastedMessages.some(
+          (msg) =>
+            msg.type === "ui_surface_complete" && msg.surfaceId === surfaceId,
+        ),
+      ).toBe(true);
+    } finally {
+      unregisterVoiceResumeHandler(ctx.conversationId, handler);
+    }
+  });
+
+  test("oauth_connect falls back to processMessage when no voice resume handler is registered", async () => {
+    const sent: ServerMessage[] = [];
+    const ctx = makeContext(sent);
+    // The prior voice test unregisters its handler, so "conv-1" has no handler.
+
+    await surfaceProxyResolver(ctx, "ui_show", {
+      surface_type: "oauth_connect",
+      title: "Connect Google",
+      data: { providerKey: "google", displayName: "Google" },
+    });
+    const showMessage = sent.find(
+      (msg): msg is UiSurfaceShow => msg.type === "ui_surface_show",
+    ) as UiSurfaceShow;
+    const surfaceId = showMessage.surfaceId;
+
+    await handleSurfaceAction(ctx, surfaceId, "connect", {
+      status: "connected",
+      providerKey: "google",
+      providerLabel: "Google",
+      accountLabel: "user@example.com",
+    });
+
+    // Byte-for-byte the prior behavior: text pipeline runs, guard cleared.
+    expect(ctx.processMessageCalls).toHaveLength(1);
     expect(ctx.pendingSurfaceActions.has(surfaceId)).toBe(false);
   });
 
