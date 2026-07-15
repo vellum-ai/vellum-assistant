@@ -237,11 +237,11 @@ afterEach(() => {
 
 const connectCard = () => screen.queryByTestId("room-connect-card");
 
-// The card is a backwards-compat fallback: only assistants below the
-// non-interactive-voice gate's MIN_VERSION can still raise `oauth_connect`
-// surfaces mid-call. The suite runs with the version unknown (cleared in
-// `beforeEach`), which the gate conservatively reads as "legacy" — the card
-// stays reachable exactly as it would against an old assistant.
+// Backwards-compat fallback card — see
+// use-supports-noninteractive-voice-turns.ts for the canonical writeup. The
+// suite runs with the identity cleared in `beforeEach`, which the gate
+// conservatively reads as "legacy" — the card stays reachable exactly as it
+// would against an old assistant.
 describe("VoiceRoom — OAuth connect card (backwards-compat fallback)", () => {
   test("renders a reachable connect card when a pending oauth_connect surface exists (version unknown)", () => {
     startOwnedSession("listening");
@@ -256,7 +256,9 @@ describe("VoiceRoom — OAuth connect card (backwards-compat fallback)", () => {
   });
 
   test("renders the card for a legacy assistant below the non-interactive gate", () => {
-    useAssistantIdentityStore.getState().setIdentity("test-asst", "0.10.8");
+    useAssistantIdentityStore
+      .getState()
+      .setIdentity("test-asst", "0.10.8", ASSISTANT_ID);
     startOwnedSession("listening");
     seedTranscriptSurface(connectSurface("surface-oauth-1", "google"));
     render(<VoiceRoom />);
@@ -269,11 +271,24 @@ describe("VoiceRoom — OAuth connect card (backwards-compat fallback)", () => {
     // stays hidden even if a stale pending surface lingers in the snapshot.
     useAssistantIdentityStore
       .getState()
-      .setIdentity("test-asst", NONINTERACTIVE_VOICE_MIN_VERSION);
+      .setIdentity("test-asst", NONINTERACTIVE_VOICE_MIN_VERSION, ASSISTANT_ID);
     startOwnedSession("listening");
     seedTranscriptSurface(connectSurface("surface-oauth-1", "google"));
     render(<VoiceRoom />);
     expect(connectCard()).toBeNull();
+  });
+
+  test("keeps the card when the hydrated version belongs to a different assistant", () => {
+    // Identity switch/re-hydration mid-call: another assistant's version
+    // must not vouch for this session's assistant — the gate scopes to the
+    // session owner and conservatively keeps the fallback reachable.
+    useAssistantIdentityStore
+      .getState()
+      .setIdentity("test-asst", NONINTERACTIVE_VOICE_MIN_VERSION, "asst-other");
+    startOwnedSession("listening");
+    seedTranscriptSurface(connectSurface("surface-oauth-1", "google"));
+    render(<VoiceRoom />);
+    expect(connectCard()).not.toBeNull();
   });
 
   test("routes the card action to handleSurfaceAction", () => {
