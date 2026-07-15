@@ -401,7 +401,7 @@ describe("StatusBanner", () => {
       expect(html).toContain("bg-[var(--system-negative-weak)]");
       expect(html).toContain("lucide-triangle-alert");
       expect(html).toContain("Go to Doctor");
-      expect(html).toContain("/assistant/settings/advanced?tab=doctor");
+      expect(html).toContain("/assistant/settings/debug?tab=doctor");
     }
   });
 

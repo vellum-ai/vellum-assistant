@@ -1,32 +1,48 @@
 import { describe, expect, test } from "bun:test";
 
-import { getSettingsRouteForClientTab } from "@/utils/settings-navigation";
+import {
+  SETTINGS_SIDEBAR,
+  getSettingsRouteForClientTab,
+} from "@/utils/settings-navigation";
 
-describe("getSettingsRouteForClientTab — Advanced merge", () => {
-  test("resolves the debug and developer client tabs to the Advanced page", () => {
+describe("getSettingsRouteForClientTab — Debug page", () => {
+  test("resolves the debug and developer client tabs to the Debug page", () => {
     expect(getSettingsRouteForClientTab("debug")).toBe(
-      "/assistant/settings/advanced",
+      "/assistant/settings/debug",
     );
     expect(getSettingsRouteForClientTab("developer")).toBe(
-      "/assistant/settings/advanced",
+      "/assistant/settings/debug",
     );
   });
 
-  test("routes the archive alias to the Advanced Archive tab", () => {
-    // The bare Advanced route opens General, so archive must carry ?tab=archive
-    // to land on the Archive tab.
+  test("routes the archive alias to the Debug Archive tab", () => {
+    // The bare Debug route opens General, so archive must carry ?tab=archive to
+    // land on the Archive tab.
     expect(getSettingsRouteForClientTab("archive")).toBe(
-      "/assistant/settings/advanced?tab=archive",
+      "/assistant/settings/debug?tab=archive",
     );
     expect(getSettingsRouteForClientTab("Archive")).toBe(
-      "/assistant/settings/advanced?tab=archive",
+      "/assistant/settings/debug?tab=archive",
     );
   });
 
-  test("resolves the Advanced sidebar label to the Advanced page without ambiguity", () => {
-    expect(getSettingsRouteForClientTab("Advanced")).toBe(
-      "/assistant/settings/advanced",
+  test("resolves the Debug sidebar label to the Debug page without ambiguity", () => {
+    expect(getSettingsRouteForClientTab("Debug")).toBe(
+      "/assistant/settings/debug",
     );
+  });
+
+  test("keeps resolving the legacy Advanced tab name to the Debug page", () => {
+    expect(getSettingsRouteForClientTab("Advanced")).toBe(
+      "/assistant/settings/debug",
+    );
+  });
+
+  test("no two sidebar items share a label", () => {
+    // The label is a lookup key in the fallback tier, so a duplicate would make
+    // resolution order-dependent.
+    const labels = SETTINGS_SIDEBAR.map((item) => item.label.toLowerCase());
+    expect(new Set(labels).size).toBe(labels.length);
   });
 
   test("returns null for an unknown tab name", () => {
