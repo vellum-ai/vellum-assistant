@@ -69,11 +69,13 @@ const SECTION_ICONS: Record<string, LucideIcon> = {
 
 /**
  * Hand-varied corner radii per card so the mosaic reads as placed by hand
- * rather than stamped from one template.
+ * rather than stamped from one template. The two feature cards
+ * (Personality, Schedules) share one uniform radius so the top-row trio
+ * reads symmetric.
  */
 const SECTION_RADII: Record<string, string> = {
-  personality: "rounded-[2.5rem_1.25rem_2.5rem_1rem]",
-  schedules: "rounded-[1rem_2.25rem_1rem_2.25rem]",
+  personality: "rounded-3xl",
+  schedules: "rounded-3xl",
   skills: "rounded-[1.25rem_2.75rem_1.25rem_2.5rem]",
   channels: "rounded-[2.25rem_1rem_2.5rem_1.25rem]",
   contacts: "rounded-[1rem_2.5rem_1.25rem_2.75rem]",
@@ -397,9 +399,12 @@ function SectionCard({
     section.key === "personality" || section.key === "schedules";
 
   return (
+    // The feature cards float flat on the page — no border, no shadow;
+    // the other tiles keep the standard raised card chrome.
     <Card.Root
       asChild
-      elevated
+      bordered={!isFeatureCard}
+      elevated={!isFeatureCard}
       className={`${SECTION_RADII[section.key] ?? ""} ${
         isFeatureCard
           ? "bg-[var(--card-feature-bg,var(--card-bg))]"
@@ -485,11 +490,8 @@ function SectionCard({
             {stat.schedules.items.map((schedule) => (
               <span
                 key={schedule.id}
-                className="flex flex-col gap-0.5 rounded-xl border px-3 py-2 transition-colors duration-300"
+                className="flex flex-col gap-0.5 rounded-xl px-3 py-2 transition-colors duration-300"
                 style={{
-                  borderColor: flooded
-                    ? "color-mix(in srgb, var(--card-flood-fg) 30%, transparent)"
-                    : "var(--border-base)",
                   // A content-tinted wash (not a surface token) so the tile
                   // visibly lifts off the card in dark themes too.
                   backgroundColor: flooded
