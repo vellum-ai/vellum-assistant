@@ -72,6 +72,9 @@ export const memoryEmbeddings = sqliteTable(
   ],
 );
 
+// Background job queue for the memory plugin. Lives in the dedicated memory
+// database (`assistant-memory.db`), not main — access it via the memory
+// connection (`getMemoryDb()` / `getMemorySqlite()`).
 export const memoryJobs = sqliteTable("memory_jobs", {
   id: text("id").primaryKey(),
   type: text("type").notNull(),
