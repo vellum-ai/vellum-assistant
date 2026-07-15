@@ -22,6 +22,18 @@
       ]
     },
     {
+      "id": "proactive-tips",
+      "scope": "client",
+      "key": "proactive-tips",
+      "label": "Proactive Tips",
+      "description": "Gates the dismissible proactive tip card in the web sidebar. String-valued so future A/B arms can be added as new values.",
+      "defaultEnabled": "off",
+      "values": [
+        "off",
+        "on"
+      ]
+    },
+    {
       "id": "experiment-activation-flow-2026-06-03",
       "scope": "both",
       "key": "experiment-activation-flow-2026-06-03",
