@@ -46,6 +46,7 @@ A single plugin can contribute several different kinds of behavior. Each surface
 | [Skills](references/skills.md)             | `skills/<name>/`   | Directories of instructions and associated assets, scripts, and resources that the Assistant loads dynamically when relevant.    |
 | [Model-visible tools](references/tools.md) | `tools/<name>.ts`  | Add new tools the model can call. Plugin tools land in the same catalog as built-in tools.                                       |
 | [HTTP routes](references/routes.md)        | `routes/<path>.ts` | Serve HTTP endpoints (webhooks, integrations, callbacks) in the plugin's own `/x/plugins/<name>/` namespace.                     |
+| [Apps](references/apps.md)                 | `apps/<name>/`     | Ship persistent interactive apps (dashboards, trackers, visualizations) rendered in the workspace panel from bundled HTML or a compiled TSX bundle. |
 
 The two extensibility patterns serve different goals. **Plugins are for distribution**: you intend to share the capability, publish to the marketplace, or install it across multiple assistants. The plugin manifest (`package.json`), the `@vellumai/plugin-api` peer dependency, and the install flow exist to make a capability portable, versioned, and discoverable by others.
 
@@ -62,7 +63,7 @@ Vellum's plugin model was designed to line up with the agent harnesses you may a
 Ask before building. Six questions, in this order. Stop if the user is unclear on any of them.
 
 1. **What job does the plugin do?** One sentence, plain language. If you cannot write this, the plugin should not be built yet.
-2. **Which surfaces does it ship?** Tools (model calls), hooks (lifecycle transforms), skills (on-demand instructions), and routes (HTTP endpoints). Most plugins ship one or two, not all of them. See `references/plugins.md` for the directory layout and manifest, and the surface-specific references for each surface's contract.
+2. **Which surfaces does it ship?** Tools (model calls), hooks (lifecycle transforms), skills (on-demand instructions), routes (HTTP endpoints), and apps (interactive workspace-panel UIs). Most plugins ship one or two, not all of them. See `references/plugins.md` for the directory layout and manifest, and the surface-specific references for each surface's contract.
 3. **Does it need credentials?** An API key, OAuth token, or webhook secret is not a value that belongs in a `.ts` file. For LLM inference credentials, use `getConfiguredProvider()` from `@vellumai/plugin-api` to route through the workspace's stored credentials without handling plaintext. For other credential types (OAuth tokens, webhook secrets), store them via the credential vault and resolve at runtime through the assistant's credential system.
 4. **Does it keep state?** A plugin is fully self-contained: durable state lives in its `data/` directory (`InitContext.pluginStorageDir`), with schema created idempotently by the `init` hook, handles closed in `shutdown`, and per-conversation rows purged in `conversation-deleted`. A plugin never persists state in the assistant's database or elsewhere in the workspace. See "State is plugin-owned" in `references/plugins.md`.
 5. **Where will the source live?** A GitHub repo, ideally under the user's own namespace. The marketplace entry pins to a full commit SHA.
@@ -96,7 +97,7 @@ A URL install bypasses the marketplace entirely: the tree is cloned verbatim (no
 
 1. Plugin directory copied into `plugins/<name>/`, `assistant plugins list` shows status `ok` (not `error`, not `skipped`).
 2. `assistant plugins inspect <name>` reports `up-to-date` and `drift: none`.
-3. Each surface exercised on a real code path: a tool called by the model, a hook fires on the right event, a skill loads when hints match.
+3. Each surface exercised on a real code path: a tool called by the model, a hook fires on the right event, a skill loads when hints match, an app opens and renders in the workspace panel.
 4. Compiled files win: if you ship both `.js` and `.ts` for the same basename, the `.js` is loaded.
 
 If a surface fails to load or fire, see `references/plugins.md` for loader rules and `references/distribution.md` for the CLI diagnostic commands.
@@ -110,7 +111,7 @@ Once merged, users install by name: `assistant plugins install my-plugin`. The n
 ## SKILL COMPLETE WHEN
 
 - Job and surfaces locked in the alignment pass (questions 1 and 2 answered).
-- Directory matches the loader convention (`hooks/`, `tools/`, `skills/`, optional `src/`).
+- Directory matches the loader convention (`hooks/`, `tools/`, `skills/`, `routes/`, `apps/`, optional `src/`).
 - `package.json` declares `name`, `version`, and a real `peerDependencies["@vellumai/plugin-api"]` range.
 - Any durable state lives in `data/`, created by `init` and cleaned up by `shutdown` / `conversation-deleted`.
 - Each surface has been exercised locally with a working example.
@@ -123,4 +124,5 @@ Once merged, users install by name: `assistant plugins install my-plugin`. The n
 - `references/tools.md`: Tool definition fields, the execute context, result shape, resolution order, and a tool anatomy example.
 - `references/skills.md`: Frontmatter reference, resolution order, and a skill anatomy example.
 - `references/routes.md`: The `/x/plugins/<name>/` namespace, path mapping, handler signature, and a route anatomy example.
+- `references/apps.md`: The single-file vs multi-file app formats, `src/`→`dist/` compilation, the `plugins~<name>~<app>` id scheme, serving in the workspace panel, and an app anatomy example.
 - `references/distribution.md`: Marketplace catalog, CLI commands, drift and upgrades, the manifest schema, commit pinning, and adapters.

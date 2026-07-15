@@ -22,6 +22,9 @@ my-plugin/
 ├── skills/                    # On-demand instruction bundles
 │   └── my-skill/
 │       └── SKILL.md
+├── apps/                      # Interactive apps served in the workspace panel
+│   └── my-app/
+│       └── src/               # (dist/ is generated — never committed)
 └── src/                       # Internal modules (NOT walked by the loader)
     └── state.ts
 ```
@@ -46,6 +49,8 @@ Three entries at the plugin root are runtime-owned state, not part of the plugin
 
 Uninstalling a plugin (`assistant plugins uninstall`) removes the entire plugin directory, so `config.json`, `data/`, and `.disabled` go with it. No orphaned state is left behind.
 
+One more path is runtime-generated rather than source: `apps/<app>/dist`, the compiled output the source watcher builds from a multi-file app's `src/`. Like the preserved entries, it is excluded from fingerprinting and drift detection, so the watcher's own compile is not seen as a source change and generated bundles never show as drift against the pinned commit. Ship only the app's `src/` (or a root `index.html`); never commit `dist/`. See [apps.md](apps.md).
+
 ### State is plugin-owned
 
 A plugin must be fully self-contained: every byte of durable state it keeps lives in `data/`, and its lifecycle hooks own that state end-to-end.
@@ -58,7 +63,7 @@ The assistant's own database is internal — `@vellumai/plugin-api` exposes no h
 
 Each surface can also be dropped straight into the workspace at `/workspace/<surface>/<name>/` without wrapping it in a plugin. A plugin is what lets you ship several surfaces together as one installable unit.
 
-The per-surface contracts live in their own references: [hooks.md](hooks.md), [tools.md](tools.md), [skills.md](skills.md), and [routes.md](routes.md).
+The per-surface contracts live in their own references: [hooks.md](hooks.md), [tools.md](tools.md), [skills.md](skills.md), [routes.md](routes.md), and [apps.md](apps.md).
 
 ## The manifest
 
@@ -120,7 +125,6 @@ The assistant supports these surfaces today, but they are not yet contributed th
 | Surface        | What it does                                                                                                  |
 | -------------- | ------------------------------------------------------------------------------------------------------------- |
 | Schedules      | Cron-style triggers that fire on a recurring schedule.                                                        |
-| Apps           | Persistent interactive apps (dashboards, games, tools) served in the workspace panel.                         |
 | Artifacts      | Versioned outputs the assistant produces and tracks (documents, diagrams, generated files).                   |
 | Webhooks       | Inbound HTTP endpoints that deliver external events into the assistant.                                       |
 | Prompts        | Reusable system prompt fragments and templates.                                                               |
