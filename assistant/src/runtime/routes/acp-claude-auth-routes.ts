@@ -1,35 +1,54 @@
 /**
  * Route definitions for the "Connect Claude" ACP OAuth flow.
  *
- * This module owns the LOCAL/desktop true-one-click path: the daemon binds a
- * loopback callback server, hands the web client an authorize URL to open, and
- * captures + exchanges the redirect itself — no browser is opened daemon-side.
+ * On a local/desktop host the daemon binds a loopback callback server, hands
+ * the web client an authorize URL to open, and captures + exchanges the
+ * redirect itself. On a containerized (cloud) host — where no such loopback
+ * exists — the user pastes the redirect's `code#state` back for the daemon to
+ * exchange.
  *
- * POST /v1/acp/claude/auth/start — bind a loopback callback, return
- *   `{ authorize_url, state }` for the web client to open, and begin capturing
- *   the redirect in the background.
- * GET  /v1/acp/claude/auth/status/:state — poll the flow's status
+ * POST /v1/acp/claude/auth/start — on a local host bind a loopback callback and
+ *   return `{ mode: "loopback", authorize_url, state }`, capturing the redirect
+ *   in the background. On a containerized (cloud) host — where no loopback the
+ *   user's browser can reach exists — return `{ mode: "manual", authorize_url,
+ *   state }` against Claude's manual redirect page; the user copies the
+ *   `code#state` it renders back into the web client.
+ * GET  /v1/acp/claude/auth/status/:state — poll a loopback flow's status
  *   (`pending` | `connected` | `error`) so the web client knows when the token
  *   has landed.
+ * POST /v1/acp/claude/auth/exchange — complete a manual/cloud flow: accept the
+ *   pasted `code#state` (or a raw code + state), exchange it, and store the
+ *   Claude OAuth token.
  *
- * PR 6 adds the CLOUD manual-paste branch to this same module; the pending-flow
- * map + `markFlow` helper are shared so that addition slots in cleanly.
+ * The cloud manual path is flag-gated + fail-closed (see `handleStartAuth`).
  */
 
 import { z } from "zod";
 
 import {
+  buildClaudeAuthorizeUrl,
+  CLAUDE_MANUAL_REDIRECT_URI,
   CLAUDE_OAUTH_CONFIG,
+  parseManualClaudeCode,
   storeAcpClaudeToken,
 } from "../../acp/acp-claude-oauth.js";
 import { ACP_SERVICE } from "../../acp/acp-credentials.js";
+import { isAcpClaudeOauthConnectEnabled } from "../../acp/acp-oauth-connect-flag.js";
+import { getIsContainerized } from "../../config/env-registry.js";
+import { loadConfig } from "../../config/loader.js";
 import { credentialKey } from "../../security/credential-key.js";
 import type { OAuth2FlowResult } from "../../security/oauth2.js";
-import { prepareOAuth2Flow } from "../../security/oauth2.js";
+import {
+  exchangeCodeForTokens,
+  generateCodeChallenge,
+  generateCodeVerifier,
+  generateState,
+  prepareOAuth2Flow,
+} from "../../security/oauth2.js";
 import { setSecureKeyAsync } from "../../security/secure-keys.js";
 import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
-import { NotFoundError } from "./errors.js";
+import { BadRequestError, ForbiddenError, NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("acp-claude-auth");
@@ -44,7 +63,7 @@ const CLAUDE_REFRESH_TOKEN_FIELD = "claude_oauth_refresh_token";
 const CLAUDE_EXPIRES_AT_FIELD = "claude_oauth_expires_at";
 
 // ---------------------------------------------------------------------------
-// Pending-flow tracking (shared with the PR 6 cloud/manual branch)
+// Pending-flow tracking (shared by the loopback + manual/cloud branches)
 // ---------------------------------------------------------------------------
 
 type FlowStatus = "pending" | "connected" | "error";
@@ -53,6 +72,20 @@ interface PendingFlow {
   status: FlowStatus;
   error?: string;
   createdAt: number;
+  /**
+   * Cloud/manual path only: the PKCE verifier + redirect the pasted code is
+   * exchanged with. Absent on loopback flows (the daemon exchanges those
+   * itself), which also keeps loopback entries from being exchangeable via the
+   * manual `exchange` route.
+   */
+  codeVerifier?: string;
+  redirectUri?: string;
+}
+
+interface StartResponse {
+  mode: "loopback" | "manual";
+  authorize_url: string;
+  state: string;
 }
 
 const pendingFlows = new Map<string, PendingFlow>();
@@ -108,11 +141,34 @@ async function persistClaudeTokens(result: OAuth2FlowResult): Promise<void> {
 // Handlers
 // ---------------------------------------------------------------------------
 
-async function handleStartLocalAuth(
+/**
+ * Route entry point. Locally the daemon captures the redirect on a loopback;
+ * on a containerized (cloud) host it can't bind a loopback the user's browser
+ * reaches, so it falls back to the manual `code#state` paste path.
+ *
+ * The manual path performs Claude subscription inference OFF the user's device,
+ * which is the ToS-sensitive pattern documented in
+ * `.private/acp-claude-code-tos-memo.md` — so it is flag-gated and fails closed
+ * (a clear error, never a broken loopback attempt) when the flag is off.
+ */
+async function handleStartAuth(
   _args: RouteHandlerArgs,
-): Promise<{ authorize_url: string; state: string }> {
+): Promise<StartResponse> {
   cleanupExpiredFlows();
 
+  if (getIsContainerized()) {
+    if (!isAcpClaudeOauthConnectEnabled(loadConfig())) {
+      throw new ForbiddenError(
+        "Connect Claude is not enabled for this workspace.",
+      );
+    }
+    return handleStartManualAuth();
+  }
+
+  return handleStartLocalAuth();
+}
+
+async function handleStartLocalAuth(): Promise<StartResponse> {
   // Bind a fresh loopback port and let the oauth2 layer capture + exchange the
   // redirect. The port is OS-assigned (dynamic): Claude matches localhost
   // redirects port-agnostically per RFC 8252, so a random port sidesteps
@@ -139,7 +195,89 @@ async function handleStartLocalAuth(
       log.error({ err: message }, "ACP Claude local OAuth flow failed");
     });
 
-  return { authorize_url: flow.authorizeUrl, state: flow.state };
+  return {
+    mode: "loopback",
+    authorize_url: flow.authorizeUrl,
+    state: flow.state,
+  };
+}
+
+/**
+ * Cloud/manual path: build a PKCE authorize URL against Claude's manual
+ * redirect page and stash the verifier keyed by `state` so `handleExchange` can
+ * complete the flow once the user pastes the `code#state` it renders back.
+ */
+function handleStartManualAuth(): StartResponse {
+  const codeVerifier = generateCodeVerifier();
+  const codeChallenge = generateCodeChallenge(codeVerifier);
+  const state = generateState();
+
+  pendingFlows.set(state, {
+    status: "pending",
+    createdAt: Date.now(),
+    codeVerifier,
+    redirectUri: CLAUDE_MANUAL_REDIRECT_URI,
+  });
+
+  const authorizeUrl = buildClaudeAuthorizeUrl(CLAUDE_MANUAL_REDIRECT_URI, {
+    codeChallenge,
+    state,
+  });
+
+  return { mode: "manual", authorize_url: authorizeUrl, state };
+}
+
+/**
+ * Complete a manual/cloud flow. The redirect page renders a `code#state` string
+ * the web client may paste verbatim into `code`, so split it when the `#`
+ * separator is present (or when no separate `state` was supplied). A raw code
+ * plus an explicit `state` is also accepted.
+ */
+async function handleExchange(args: RouteHandlerArgs): Promise<{ ok: true }> {
+  const body = (args.body ?? {}) as { code?: string; state?: string };
+  const rawCode = (body.code ?? "").trim();
+  let code = rawCode;
+  let state = (body.state ?? "").trim();
+
+  if (rawCode.includes("#") || !state) {
+    try {
+      ({ code, state } = parseManualClaudeCode(rawCode));
+    } catch (err) {
+      throw new BadRequestError(
+        err instanceof Error
+          ? err.message
+          : "Malformed Claude authorization code.",
+      );
+    }
+  }
+
+  const pending = pendingFlows.get(state);
+  // Only manual flows carry a verifier; a loopback entry (no verifier) is
+  // completed by the daemon itself and must not be exchangeable here.
+  if (!pending || pending.codeVerifier === undefined) {
+    throw new BadRequestError(
+      "Invalid or expired state. Restart the Connect Claude flow.",
+    );
+  }
+
+  if (Date.now() - pending.createdAt > PENDING_FLOW_TTL_MS) {
+    pendingFlows.delete(state);
+    throw new BadRequestError(
+      "Connect Claude flow expired. Restart the Connect Claude flow.",
+    );
+  }
+
+  const result = await exchangeCodeForTokens(
+    CLAUDE_OAUTH_CONFIG,
+    code,
+    pending.redirectUri ?? CLAUDE_MANUAL_REDIRECT_URI,
+    pending.codeVerifier,
+  );
+  await persistClaudeTokens(result);
+  pendingFlows.delete(state);
+
+  log.info("ACP Claude manual OAuth flow connected");
+  return { ok: true };
 }
 
 function handleAuthStatus({ pathParams }: RouteHandlerArgs): {
@@ -173,17 +311,20 @@ export const ROUTES: RouteDefinition[] = [
       requiredScopes: ["settings.write"],
       allowedPrincipalTypes: ACTOR_PRINCIPALS,
     },
-    summary: "Start local Connect Claude OAuth flow",
+    summary: "Start Connect Claude OAuth flow",
     description:
-      "Bind a daemon loopback callback and return a PKCE authorize URL plus a " +
-      "state token. The web client opens the URL; the daemon captures the " +
-      "redirect, exchanges the code, and stores the Claude OAuth token.",
+      "Return a PKCE authorize URL plus a state token. On a local host (" +
+      "`mode: loopback`) the daemon binds a loopback callback and captures the " +
+      "redirect itself; on a containerized host (`mode: manual`) it targets " +
+      "Claude's manual redirect page and the web client posts the pasted " +
+      "`code#state` back to `.../auth/exchange`.",
     tags: ["acp"],
     responseBody: z.object({
+      mode: z.enum(["loopback", "manual"]),
       authorize_url: z.string(),
       state: z.string(),
     }),
-    handler: handleStartLocalAuth,
+    handler: handleStartAuth,
   },
   {
     operationId: "acp_claude_auth_status",
@@ -208,5 +349,28 @@ export const ROUTES: RouteDefinition[] = [
       error: z.string().optional(),
     }),
     handler: handleAuthStatus,
+  },
+  {
+    operationId: "acp_claude_auth_exchange",
+    endpoint: "acp/claude/auth/exchange",
+    method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Exchange a manual Connect Claude authorization code",
+    description:
+      "Complete a containerized/manual Connect Claude flow: accept the pasted " +
+      "`code#state` (or a raw code plus state), exchange it against Claude's " +
+      "manual redirect URI, and store the Claude OAuth token.",
+    tags: ["acp"],
+    requestBody: z.object({
+      code: z.string(),
+      state: z.string(),
+    }),
+    responseBody: z.object({
+      ok: z.boolean(),
+    }),
+    handler: handleExchange,
   },
 ];
