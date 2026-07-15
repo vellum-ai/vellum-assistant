@@ -11,7 +11,6 @@ import {
   getApp,
   getAppDirPath,
   getAppPreview,
-  isMultifileApp,
   listAppsByConversation,
   resolveAppDir,
   resolveEffectiveAppHtml,
@@ -3516,22 +3515,20 @@ export async function surfaceProxyResolver(
     const storedPreview = getAppPreview(app.id);
     const { dirName } = resolveAppDir(app.id);
 
-    // For multifile TSX apps, auto-compile if dist is missing, then
-    // resolve HTML from compiled dist/index.html with inlined assets.
-    if (isMultifileApp(app)) {
-      const { existsSync } = await import("node:fs");
-      const { join } = await import("node:path");
-      const appDir = getAppDirPath(app.id);
-      const distIndex = join(appDir, "dist", "index.html");
-      if (!existsSync(distIndex)) {
-        const { compileApp } = await import("../bundler/app-compiler.js");
-        const result = await compileApp(appDir);
-        if (!result.ok) {
-          log.warn(
-            { appId, errors: result.errors },
-            "Auto-compile failed on app_open",
-          );
-        }
+    // Auto-compile if dist is missing, then resolve HTML from compiled
+    // dist/index.html with inlined assets.
+    const { existsSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const appDir = getAppDirPath(app.id);
+    const distIndex = join(appDir, "dist", "index.html");
+    if (!existsSync(distIndex)) {
+      const { compileApp } = await import("../bundler/app-compiler.js");
+      const result = await compileApp(appDir);
+      if (!result.ok) {
+        log.warn(
+          { appId, errors: result.errors },
+          "Auto-compile failed on app_open",
+        );
       }
     }
     const html = resolveEffectiveAppHtml(app);

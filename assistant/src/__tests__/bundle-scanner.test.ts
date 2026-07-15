@@ -12,7 +12,7 @@ import { scanBundle, type ScanFinding } from "../bundler/bundle-scanner.js";
 // ---------------------------------------------------------------------------
 
 const MINIMAL_MANIFEST = {
-  format_version: "1",
+  format_version: "2",
   name: "test-app",
   created_at: "2025-01-01T00:00:00Z",
   created_by: "test",

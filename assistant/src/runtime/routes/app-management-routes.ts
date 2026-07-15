@@ -453,10 +453,15 @@ async function importBundle(
       manifest = JSON.parse(manifestText);
     }
 
+    if (manifest.format_version !== 2) {
+      throw new BadRequestError(
+        "This app bundle uses the legacy single-file format, which is no longer supported. Re-export the app from a current version and try again.",
+      );
+    }
+
     const appName = manifest.name ?? "Imported App";
     const appDescription = manifest.description;
     const entry = manifest.entry ?? "index.html";
-    const isMultiFile = manifest.format_version === 2;
 
     // Extract entry HTML
     const entryFile = zip.file(entry);
@@ -479,32 +484,29 @@ async function importBundle(
       schemaJson: JSON.stringify({ type: "object", properties: {} }),
       htmlDefinition,
       icon,
-      formatVersion: isMultiFile ? 2 : undefined,
     });
 
-    // For multi-file apps, extract compiled dist assets (main.js, main.css)
-    // into the app's dist/ directory so the app can run correctly.
-    if (isMultiFile) {
-      const appDir = getAppDirPath(newApp.id);
-      const distDir = join(appDir, "dist");
-      mkdirSync(distDir, { recursive: true });
+    // Extract compiled dist assets (main.js, main.css) into the app's dist/
+    // directory so the app can run correctly.
+    const appDir = getAppDirPath(newApp.id);
+    const distDir = join(appDir, "dist");
+    mkdirSync(distDir, { recursive: true });
 
-      // Write dist/index.html
-      writeFileSync(join(distDir, "index.html"), htmlDefinition, "utf-8");
+    // Write dist/index.html
+    writeFileSync(join(distDir, "index.html"), htmlDefinition, "utf-8");
 
-      // Write dist/main.js if present in the bundle
-      const mainJsFile = zip.file("main.js");
-      if (mainJsFile) {
-        const mainJs = await mainJsFile.async("text");
-        writeFileSync(join(distDir, "main.js"), mainJs, "utf-8");
-      }
+    // Write dist/main.js if present in the bundle
+    const mainJsFile = zip.file("main.js");
+    if (mainJsFile) {
+      const mainJs = await mainJsFile.async("text");
+      writeFileSync(join(distDir, "main.js"), mainJs, "utf-8");
+    }
 
-      // Write dist/main.css if present in the bundle
-      const mainCssFile = zip.file("main.css");
-      if (mainCssFile) {
-        const mainCss = await mainCssFile.async("text");
-        writeFileSync(join(distDir, "main.css"), mainCss, "utf-8");
-      }
+    // Write dist/main.css if present in the bundle
+    const mainCssFile = zip.file("main.css");
+    if (mainCssFile) {
+      const mainCss = await mainCssFile.async("text");
+      writeFileSync(join(distDir, "main.css"), mainCss, "utf-8");
     }
 
     return {
@@ -701,7 +703,7 @@ async function compilePluginAppHtmlEphemeral(
     }
     // resolveEffectiveAppHtmlFromDir reads `<tmpRoot>/dist/index.html` and
     // inlines its JS/CSS, yielding a self-contained page.
-    return resolveEffectiveAppHtmlFromDir(tmpRoot, 2);
+    return resolveEffectiveAppHtmlFromDir(tmpRoot);
   } catch (err) {
     // The compiler reports build failures via `ok: false`; a thrown error is
     // unexpected (e.g. a filesystem fault mid-build) and must still degrade to
@@ -727,13 +729,10 @@ async function handleOpenApp({ pathParams }: RouteHandlerArgs) {
     origin: appOriginWire(source.origin),
   };
 
-  // Multi-file apps auto-compile on open when their dist/ is missing so a
-  // freshly installed app renders immediately instead of the "not compiled
-  // yet" fallback.
-  if (
-    source.formatVersion === 2 &&
-    !existsSync(join(source.sourceDir, "dist", "index.html"))
-  ) {
+  // Apps auto-compile on open when their dist/ is missing so a freshly
+  // installed app renders immediately instead of the "not compiled yet"
+  // fallback.
+  if (!existsSync(join(source.sourceDir, "dist", "index.html"))) {
     if (source.origin.kind === "workspace") {
       // Workspace apps own their dist/ and are only compiled in this (daemon)
       // process, so building in place is safe.
@@ -755,10 +754,7 @@ async function handleOpenApp({ pathParams }: RouteHandlerArgs) {
     }
   }
 
-  const html = resolveEffectiveAppHtmlFromDir(
-    source.sourceDir,
-    source.formatVersion,
-  );
+  const html = resolveEffectiveAppHtmlFromDir(source.sourceDir);
   return { ...result, html };
 }
 

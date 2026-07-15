@@ -379,6 +379,19 @@ export async function runCompile(
   const srcDir = join(appDir, "src");
   const entryPoint = join(srcDir, "main.tsx");
 
+  // An app without src/main.tsx has nothing to build — report a diagnostic
+  // instead of letting the source scan below throw on the missing directory.
+  if (!existsSync(entryPoint)) {
+    return {
+      ok: false,
+      errors: [
+        { text: "App has no src/main.tsx — there is no source to compile." },
+      ],
+      warnings: [],
+      durationMs: Math.round(performance.now() - start),
+    };
+  }
+
   // Clear stale dist/ output so removed assets (e.g. CSS) don't persist
   if (existsSync(distDir)) {
     rmSync(distDir, { recursive: true, force: true });
