@@ -14,10 +14,16 @@
  * synchronous, I/O-free read, so this module owns the values and refreshes them
  * periodically in the background. Consent is opt-out — an owner who never made
  * an explicit choice reports as consented (the client maps a never-chose wire
- * value to `true`) — but UNKNOWN consent stays off: an absent session, a
- * disabled platform, or a transient fetch failure all leave the values
- * untouched (initial `false`), so we never report analytics or send crash
- * diagnostics without a confirmed consent state.
+ * value to `true`).
+ *
+ * The consent values are tri-state (`ConsentState`): `true`/`false` are
+ * confirmed states from a successful platform fetch; `"unknown"` means no
+ * confirmed state exists — boot before the first refresh, no platform session,
+ * or no resolvable owner identity. A transient fetch failure keeps the
+ * previous value so a known opt-in is not flipped mid-session. The boolean
+ * accessors collapse `"unknown"` to `false` (fail-closed); the raw accessors
+ * expose the tri-state for callers that must distinguish a confirmed opt-out
+ * from a not-yet-known state.
  */
 
 import { getConfigReadOnly } from "../config/loader.js";
@@ -28,8 +34,11 @@ const log = getLogger("consent-cache");
 
 const REFRESH_INTERVAL_MS = 5 * 60_000; // refresh consent every 5 min
 
-let cachedShareAnalytics = false; // default-off until first success
-let cachedShareDiagnostics = false; // default-off until first success
+/** Cached consent value: a confirmed boolean, or `"unknown"` when no confirmed state exists. */
+export type ConsentState = boolean | "unknown";
+
+let cachedShareAnalytics: ConsentState = "unknown"; // no confirmed state until first success
+let cachedShareDiagnostics: ConsentState = "unknown"; // no confirmed state until first success
 let cachedShareDiagnosticsVersion = ""; // "" fails the trace disclosure gate
 // Fail-closed marker for a workspace that locally opted out of usage data
 // before telemetry moved to platform `share_analytics` consent (migration 106).
@@ -41,20 +50,40 @@ let refreshTimer: ReturnType<typeof setInterval> | null = null;
 
 /**
  * Synchronous hot-path accessor for the effective `share_analytics` consent.
- * Never does I/O; returns `false` until a successful refresh proves otherwise,
- * and stays `false` while the legacy fail-closed opt-out marker is set.
+ * Never does I/O; returns `false` unless a successful refresh confirmed an
+ * opt-in (`"unknown"` reads as `false`), and stays `false` while the legacy
+ * fail-closed opt-out marker is set.
  */
 export function getCachedShareAnalytics(): boolean {
-  return cachedShareAnalytics && !legacyOptOut;
+  return cachedShareAnalytics === true && !legacyOptOut;
+}
+
+/**
+ * Raw tri-state `share_analytics` consent. The legacy fail-closed opt-out
+ * marker folds into `false` — a workspace-level opt-out is a confirmed
+ * opt-out, not an unknown. For callers that must distinguish a confirmed
+ * opt-out from a not-yet-known state.
+ */
+export function getRawShareAnalytics(): ConsentState {
+  return legacyOptOut ? false : cachedShareAnalytics;
 }
 
 /**
  * Synchronous hot-path accessor for the `share_diagnostics` consent (read by
- * Sentry `beforeSend`). Never does I/O; returns `false` until a successful
- * refresh proves otherwise. Because every Sentry event re-reads this, a
- * mid-session opt-out is honored within one refresh cycle.
+ * Sentry `beforeSend`). Never does I/O; returns `false` unless a successful
+ * refresh confirmed an opt-in (`"unknown"` reads as `false`). Because every
+ * Sentry event re-reads this, a mid-session opt-out is honored within one
+ * refresh cycle.
  */
 export function getCachedShareDiagnostics(): boolean {
+  return cachedShareDiagnostics === true;
+}
+
+/**
+ * Raw tri-state `share_diagnostics` consent, for callers that must
+ * distinguish a confirmed opt-out from a not-yet-known state.
+ */
+export function getRawShareDiagnostics(): ConsentState {
   return cachedShareDiagnostics;
 }
 
@@ -70,28 +99,26 @@ export function getCachedShareDiagnosticsVersion(): string {
 /**
  * Refresh the cached consent from the platform.
  *
- * No platform session / features disabled (`create()` is null) → default-off.
+ * No platform session / features disabled (`create()` is null) → `"unknown"`.
  * No resolvable assistant identity (no owner whose consent we can attest to) →
- * fail closed. A successful fetch adopts the reported values. A `null` fetch
- * (transient failure / undeployed endpoint) leaves the previous values
- * unchanged so a known opt-in is not flipped off mid-session.
+ * `"unknown"` — losing the owner mapping is not an opt-out, but it also isn't
+ * a confirmed opt-in, so we stop riding a stale one. A successful fetch adopts
+ * the reported values. A `null` fetch (transient failure / undeployed
+ * endpoint) leaves the previous values unchanged so a known opt-in is not
+ * flipped off mid-session.
  */
 export async function refreshConsentCache(): Promise<void> {
   legacyOptOut = getConfigReadOnly().legacyTelemetryOptOut === true;
 
   const client = await VellumPlatformClient.create();
   if (!client) {
-    setCachedShareAnalytics(false);
-    setCachedShareDiagnostics(false);
-    setCachedShareDiagnosticsVersion("");
+    resetConsentToUnknown();
     return;
   }
 
-  // No resolvable owner identity → fail closed (don't ride a stale opt-in).
+  // No resolvable owner identity → unknown (don't ride a stale opt-in).
   if (!client.platformAssistantId) {
-    setCachedShareAnalytics(false);
-    setCachedShareDiagnostics(false);
-    setCachedShareDiagnosticsVersion("");
+    resetConsentToUnknown();
     return;
   }
 
@@ -103,7 +130,13 @@ export async function refreshConsentCache(): Promise<void> {
   }
 }
 
-function setCachedShareAnalytics(value: boolean): void {
+function resetConsentToUnknown(): void {
+  setCachedShareAnalytics("unknown");
+  setCachedShareDiagnostics("unknown");
+  setCachedShareDiagnosticsVersion("");
+}
+
+function setCachedShareAnalytics(value: ConsentState): void {
   if (value !== cachedShareAnalytics) {
     log.debug(
       { from: cachedShareAnalytics, to: value },
@@ -113,7 +146,7 @@ function setCachedShareAnalytics(value: boolean): void {
   }
 }
 
-function setCachedShareDiagnostics(value: boolean): void {
+function setCachedShareDiagnostics(value: ConsentState): void {
   if (value !== cachedShareDiagnostics) {
     log.debug(
       { from: cachedShareDiagnostics, to: value },
@@ -161,12 +194,12 @@ export async function stopConsentRefresh(): Promise<void> {
 }
 
 /** Test-only: override the cached analytics value without going through a refresh. */
-export function __setCachedShareAnalyticsForTest(value: boolean): void {
+export function __setCachedShareAnalyticsForTest(value: ConsentState): void {
   cachedShareAnalytics = value;
 }
 
 /** Test-only: override the cached diagnostics value without going through a refresh. */
-export function __setCachedShareDiagnosticsForTest(value: boolean): void {
+export function __setCachedShareDiagnosticsForTest(value: ConsentState): void {
   cachedShareDiagnostics = value;
 }
 
