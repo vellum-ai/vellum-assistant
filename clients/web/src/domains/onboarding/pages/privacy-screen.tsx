@@ -11,7 +11,6 @@ import {
     emitOnboardingFunnelStepCompleted,
     getOnboardingFunnelSessionId,
     ONBOARDING_FUNNEL_STEPS,
-    ONBOARDING_FUNNEL_VARIANTS,
 } from "@/domains/onboarding/funnel-events";
 import { onboardingDestinationAfterConsent } from "@/domains/onboarding/onboarding-destination";
 import { isLocalMode } from "@/lib/local-mode";
@@ -66,7 +65,6 @@ export function PrivacyScreen() {
     if (!isNative) {
       emitOnboardingFunnelStepCompleted(ONBOARDING_FUNNEL_STEPS.privacyTos, {
         userId,
-        variant: ONBOARDING_FUNNEL_VARIANTS.control,
       });
     }
 

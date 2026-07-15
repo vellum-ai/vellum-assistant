@@ -8,7 +8,6 @@ import {
   emitResearchOnboardingCheckinCalendarOpened,
   ONBOARDING_FUNNEL_STEPS,
   ONBOARDING_FUNNEL_VERSION,
-  ONBOARDING_FUNNEL_VARIANTS,
   RESEARCH_ONBOARDING_FUNNEL_STEPS,
   RESEARCH_ONBOARDING_FUNNEL_VERSION,
 } from "@/domains/onboarding/funnel-events";
@@ -33,14 +32,12 @@ describe("onboarding funnel events", () => {
       ONBOARDING_FUNNEL_STEPS.privacyTos,
       {
         userId: "user-123",
-        variant: ONBOARDING_FUNNEL_VARIANTS.control,
       },
     );
     const nameVibe = buildOnboardingFunnelEvent(
       ONBOARDING_FUNNEL_STEPS.nameVibe,
       {
         userId: "user-123",
-        variant: ONBOARDING_FUNNEL_VARIANTS.control,
       },
     );
 
@@ -81,7 +78,6 @@ describe("onboarding funnel events", () => {
       ONBOARDING_FUNNEL_STEPS.controlTools,
       {
         userId: "user-123",
-        variant: ONBOARDING_FUNNEL_VARIANTS.control,
       },
     );
 
@@ -105,11 +101,9 @@ describe("onboarding funnel events", () => {
 
     emitOnboardingFunnelStepCompleted(ONBOARDING_FUNNEL_STEPS.privacyTos, {
       userId: "user-123",
-      variant: ONBOARDING_FUNNEL_VARIANTS.control,
     });
     emitOnboardingFunnelStepCompleted(ONBOARDING_FUNNEL_STEPS.gmailConnect, {
       userId: "user-123",
-      variant: ONBOARDING_FUNNEL_VARIANTS.control,
     });
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
@@ -249,7 +243,6 @@ describe("onboarding funnel events", () => {
     // the event emits.
     emitOnboardingFunnelStepCompleted(ONBOARDING_FUNNEL_STEPS.privacyTos, {
       userId: "user-123",
-      variant: ONBOARDING_FUNNEL_VARIANTS.control,
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
 
@@ -257,7 +250,6 @@ describe("onboarding funnel events", () => {
     localStorage.setItem("device:share_analytics", "false");
     emitOnboardingFunnelStepCompleted(ONBOARDING_FUNNEL_STEPS.gmailConnect, {
       userId: "user-123",
-      variant: ONBOARDING_FUNNEL_VARIANTS.control,
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
 
@@ -267,7 +259,6 @@ describe("onboarding funnel events", () => {
     useOnboardingStore.setState({ shareAnalytics: false });
     emitOnboardingFunnelStepCompleted(ONBOARDING_FUNNEL_STEPS.nameVibe, {
       userId: "user-123",
-      variant: ONBOARDING_FUNNEL_VARIANTS.control,
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
