@@ -214,40 +214,19 @@ export const ORPHAN_OUTBOX_DRAIN_SOURCE_ID = "__orphan_outbox_drain";
  * derived per-type sources ({@link OUTBOX_TELEMETRY_EVENT_NAMES}) never query
  * those names, so without this the rows would sit in the outbox forever.
  *
- * When diagnostics consent IS eligible, draining is send-then-ack, so it is
- * safe against a stale local wire copy: the platform skips an unknown event
- * type but still returns 2xx, after which the row is deleted, and a name merely
- * missing from a lagging wire still ships and lands rather than being lost.
- *
- * Diagnostics-consent fail-closed: an orphaned type may have been
- * diagnostics-gated (like `onboarding_research`), and once it is gone from the
- * wire we can no longer tell. So this re-checks `share_diagnostics` eligibility
- * exactly like {@link diagnosticsGatedOutboxSource} and, when INELIGIBLE, purges
- * the orphaned rows outright rather than shipping them under `share_analytics`
- * alone — a revoked/never-granted diagnostics consent must never leak PII
- * through this path. The cost is that a diagnostics-off owner's rare orphaned
- * rows (even non-PII ones) are dropped rather than sent; acceptable for a
- * removed type, and the only choice that cannot bypass the PII gate.
+ * Draining is send-then-ack: the platform skips an unknown event type but still
+ * returns 2xx, after which the row is deleted. This is safe against a stale
+ * local wire copy — a name merely missing from a lagging wire still ships and
+ * lands rather than being purged and lost — and rides `share_analytics` like
+ * every other outbox event (no outbox type is diagnostics-gated at flush).
  */
 export function orphanOutboxDrainSource(): TelemetryEventSource {
   const known = new Set<string>(OUTBOX_TELEMETRY_EVENT_NAMES);
   const orphanNames = (): string[] =>
     queryDistinctOutboxEventNames().filter((name) => !known.has(name));
-  const diagnosticsEligible = (): boolean =>
-    getCachedShareDiagnostics() &&
-    isDiagnosticsConsentVersionEligible(getCachedShareDiagnosticsVersion());
-  const purgeOrphans = (): void => {
-    for (const name of orphanNames()) {
-      discardPendingTelemetryOutboxEvents(name);
-    }
-  };
   return {
     id: ORPHAN_OUTBOX_DRAIN_SOURCE_ID,
     collect(_afterCreatedAt, _afterId, limit) {
-      if (!diagnosticsEligible()) {
-        purgeOrphans();
-        return { events: [], rowIds: [], lastCursor: null, fullBatch: false };
-      }
       const acc = {
         events: [] as TelemetryEvent[],
         rowIds: [] as string[],
@@ -273,49 +252,12 @@ export function orphanOutboxDrainSource(): TelemetryEventSource {
     },
     ack: {
       acknowledge: (rowIds) => deleteTelemetryOutboxEvents(rowIds),
-      discardPending: purgeOrphans,
-    },
-  };
-}
-
-/**
- * Build an ack-mode source like {@link outboxSource}, but additionally
- * re-checks `share_diagnostics` eligibility (at an eligible accepted
- * version) on every collect, not just at record time. A writer's record-
- * time gate only covers the moment the row is recorded — if the owner
- * revokes diagnostics consent after that but before the next flush, a
- * still-pending row must not ship anyway (unlike `turnSource`'s trace,
- * which is assembled fresh at flush time and so re-evaluates consent for
- * free, a pre-built outbox payload has no such natural re-check point).
- * Ineligible pending rows are purged outright rather than held for a later
- * re-check, mirroring the corrupt-payload purge above — consent revocation
- * calls for dropping the backlog, not retrying it.
- */
-function diagnosticsGatedOutboxSource(
-  name: OutboxTelemetryEventName,
-): TelemetryEventSource {
-  const base = outboxSource(name);
-  return {
-    id: base.id,
-    collect(afterCreatedAt, afterId, limit) {
-      if (
-        !getCachedShareDiagnostics() ||
-        !isDiagnosticsConsentVersionEligible(getCachedShareDiagnosticsVersion())
-      ) {
-        const rows = queryTelemetryOutboxBatch(name, limit);
-        if (rows.length > 0) {
-          deleteTelemetryOutboxEvents(rows.map((row) => row.id));
+      discardPending: () => {
+        for (const name of orphanNames()) {
+          discardPendingTelemetryOutboxEvents(name);
         }
-        return {
-          events: [],
-          rowIds: [],
-          lastCursor: null,
-          fullBatch: rows.length === limit,
-        };
-      }
-      return base.collect(afterCreatedAt, afterId, limit);
+      },
     },
-    ack: base.ack,
   };
 }
 
@@ -586,17 +528,16 @@ const WATERMARK_TELEMETRY_EVENT_SOURCES: readonly TelemetryEventSource[] = [
  * Per-outbox-event flush-source override. The default for every outbox event is
  * the plain {@link outboxSource}; list only the exceptions here. A new outbox
  * event type therefore needs no edit — it flushes through `outboxSource`
- * automatically. `onboarding_research` is diagnostics-gated at flush time (not
- * just record time) because its payload carries raw inferred claims.
+ * automatically. There are currently no exceptions: every outbox event,
+ * including `onboarding_research`, flushes through the default source and is
+ * gated only by the `share_analytics` consent enforced at record time.
  */
 const OUTBOX_SOURCE_FACTORY: Partial<
   Record<
     OutboxTelemetryEventName,
     (name: OutboxTelemetryEventName) => TelemetryEventSource
   >
-> = {
-  onboarding_research: diagnosticsGatedOutboxSource,
-};
+> = {};
 
 /**
  * Every telemetry event source, in payload order (watermark sources first, then

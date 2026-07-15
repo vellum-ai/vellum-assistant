@@ -33,7 +33,7 @@ recordTelemetryEvent(
 Manual edits in this directory are needed **only** to override a default:
 
 - **Watermark-flushed** (the type has its own high-volume table, not the outbox): add it to `WATERMARK_TELEMETRY_EVENT_NAMES` in `types.ts` and add its source to `WATERMARK_TELEMETRY_EVENT_SOURCES`.
-- **Diagnostics-gated flush** (payload carries PII, gate at flush like `onboarding_research`): add it to `OUTBOX_SOURCE_FACTORY` in `telemetry-event-sources.ts`.
+- **Custom flush behavior** (a non-default per-type source — e.g. re-checking consent at flush time): map the type to a custom source factory in `OUTBOX_SOURCE_FACTORY` in `telemetry-event-sources.ts`. (No type currently needs one — every outbox event, `onboarding_research` included, flushes through the default `outboxSource` under `share_analytics`.)
 - **Daemon-partition flush** (needs live in-process state, like `turn`): add its source to `DAEMON_TELEMETRY_EVENT_SOURCES`.
 - **Richer daemon type** than the wire: add an `Overrides` entry in `types.ts` with the drift guards (see the wire-contract section above).
 

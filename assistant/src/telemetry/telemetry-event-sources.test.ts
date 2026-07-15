@@ -113,7 +113,7 @@ describe("telemetry event source partition", () => {
   });
 });
 
-describe("onboarding_research source: flush-time diagnostics gate", () => {
+describe("onboarding_research source: flushes via the default outbox source", () => {
   beforeEach(() => {
     setShareAnalytics(true);
     setShareDiagnostics(true);
@@ -141,34 +141,16 @@ describe("onboarding_research source: flush-time diagnostics gate", () => {
     });
   }
 
-  test("ships normally when diagnostics consent is eligible", () => {
+  test("ships pending rows regardless of diagnostics consent, like every other outbox event", () => {
+    // No flush-time diagnostics gate: the daemon rides `share_analytics`
+    // only and leaves the diagnostics decision to the platform's
+    // authoritative server-side ingest gate. Diagnostics off (and even a
+    // stale accepted version) must not hold the row back.
+    setShareDiagnostics(false, "2000-01-01");
     recordSample();
+
     const batch = onboardingResearchSource().collect(0, undefined, 100);
     expect(batch.events).toHaveLength(1);
-  });
-
-  test("purges pending rows outright once diagnostics consent is revoked before flush, rather than shipping them", () => {
-    recordSample();
-    // Consent was on at record time — the row is already pending — then
-    // revoked before the reporter gets to flush it.
-    setShareDiagnostics(false);
-
-    const batch = onboardingResearchSource().collect(0, undefined, 100);
-    expect(batch.events).toHaveLength(0);
-
-    // Purged, not merely skipped: a later collect (e.g. consent flips back
-    // on) must never resurrect the stale pre-revocation row.
-    setShareDiagnostics(true);
-    const secondBatch = onboardingResearchSource().collect(0, undefined, 100);
-    expect(secondBatch.events).toHaveLength(0);
-  });
-
-  test("purges pending rows when the accepted diagnostics-consent version becomes stale before flush", () => {
-    recordSample();
-    setShareDiagnostics(true, "2000-01-01");
-
-    const batch = onboardingResearchSource().collect(0, undefined, 100);
-    expect(batch.events).toHaveLength(0);
   });
 });
 
@@ -176,9 +158,6 @@ describe("orphan-drain source", () => {
   beforeEach(() => {
     resetOutboxTable();
     setShareAnalytics(true);
-    // Eligible by default: an orphaned type may have been diagnostics-gated, so
-    // the source fails closed on diagnostics consent (see the ineligible case).
-    setShareDiagnostics(true);
   });
 
   function insertOutboxRow(name: string, id: string): void {
@@ -220,21 +199,6 @@ describe("orphan-drain source", () => {
     insertOutboxRow(knownName, "known-row-1");
     const batch = orphanOutboxDrainSource().collect(0, undefined, 500);
     expect(batch.events).toHaveLength(0);
-  });
-
-  test("purges orphan rows without shipping them when diagnostics consent is ineligible", () => {
-    // An orphaned type may have been diagnostics-gated PII. With diagnostics
-    // consent off, the row must NOT ship under share_analytics alone — it is
-    // purged, fail-closed, exactly like diagnosticsGatedOutboxSource.
-    const orphanName = "removed_pii_event";
-    insertOutboxRow(orphanName, "orphan-pii-1");
-    setShareDiagnostics(false);
-
-    const batch = orphanOutboxDrainSource().collect(0, undefined, 500);
-    expect(batch.events).toHaveLength(0);
-    expect(batch.rowIds ?? []).toHaveLength(0);
-    // Purged, not left pending: a later collect can't resurrect it.
-    expect(pendingOutboxRows(orphanName)).toHaveLength(0);
   });
 
   test("is registered in the monitor partition", () => {
