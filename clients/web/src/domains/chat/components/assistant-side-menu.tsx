@@ -71,6 +71,12 @@ export interface AssistantSideMenuProps extends UseSidebarStateParams {
    * and above the floating action pills on the overlay.
    */
   tipCard?: ReactNode;
+  /**
+   * Experimental "popover" tip placement — floats to the right of the
+   * "Your Assistant" entry. Expanded rail only; ignored when collapsed or
+   * on the overlay (desktop-only experiment).
+   */
+  tipPopover?: ReactNode;
   onClose?: () => void;
 
   onPinConversation?: (conversation: Conversation) => void;
@@ -163,6 +169,7 @@ export function AssistantSideMenu({
   onStartNewConversation,
   footerAction,
   tipCard,
+  tipPopover,
   onPinConversation,
   onReorderConversations,
   onRenameConversation,
@@ -193,6 +200,9 @@ export function AssistantSideMenu({
   const pinnedApps = usePinnedAppsStore.use.pinnedApps();
 
   const isCollapsedRail = collapsed && variant === "rail";
+
+  const showTipPopover =
+    variant === "rail" && !collapsed && tipPopover !== undefined;
 
   // --- Overlay bottom reserve ---
   // The overlay's floating bottom column (tip card + action pills) covers the
@@ -320,6 +330,16 @@ export function AssistantSideMenu({
   // at the top of the body so the whole menu scrolls as one surface (Figma
   // 6764:6745).
 
+  const assistantNavItem = (
+    <SideMenu.Item
+      icon={Brain}
+      label={assistantName || "Your Assistant"}
+      showCollapsedTooltip
+      active={isIntelligenceActive}
+      onSelect={onOpenIntelligence ? () => { onOpenIntelligence(); onClose?.(); } : undefined}
+    />
+  );
+
   const builtInNav = (
     <>
       {pinnedApps.length > 0 ? (
@@ -340,13 +360,23 @@ export function AssistantSideMenu({
       ) : null}
       {/* 4px row gap to match the conversation list. */}
       <div className="flex flex-col gap-[4px]">
-        <SideMenu.Item
-          icon={Brain}
-          label={assistantName || "Your Assistant"}
-          showCollapsedTooltip
-          active={isIntelligenceActive}
-          onSelect={onOpenIntelligence ? () => { onOpenIntelligence(); onClose?.(); } : undefined}
-        />
+        {showTipPopover ? (
+          /* Experimental popover placement, anchored beside the entry. The
+             shell adds only width/rounding/shadow — the tip card brings its
+             own background — and `empty:hidden` collapses it while the card
+             renders null. */
+          <div className="relative">
+            {assistantNavItem}
+            <div
+              data-slot="tip-popover"
+              className="absolute top-0 left-full z-50 ml-2 w-64 rounded-xl shadow-[var(--shadow-lg)] empty:hidden"
+            >
+              {tipPopover}
+            </div>
+          </div>
+        ) : (
+          assistantNavItem
+        )}
         {onOpenLibrary ? (
           <SideMenu.Item
             icon={LayoutGrid}
@@ -388,7 +418,14 @@ export function AssistantSideMenu({
         variant={variant}
         width={width}
         onWidthChange={onWidthChange}
-        className="relative h-full"
+        // The root's `overflow-hidden` would clip the tip popover at the rail
+        // edge; un-clip only while it renders (body scrolling is unaffected —
+        // SideMenu.Body owns its own overflow).
+        className={
+          showTipPopover
+            ? "relative h-full overflow-visible"
+            : "relative h-full"
+        }
       >
         <SideMenu.Header>
           {variant === "overlay" ? (

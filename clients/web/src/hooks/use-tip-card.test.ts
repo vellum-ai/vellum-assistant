@@ -37,6 +37,7 @@ const {
   tipsDemoCyclerStorage,
   tipsEnabledStorage,
   tipsFirstSeenAtStorage,
+  tipsPlacementStorage,
 } = await import("@/utils/tips-storage");
 
 const FIRST_TIP_ID = TIPS_CATALOG[0].id;
@@ -130,6 +131,18 @@ describe("useTipCard selection and impressions", () => {
     expect(record?.shownCount).toBe(1);
     expect(emitTipEvent).toHaveBeenCalledTimes(1);
     expect(emitTipEvent).toHaveBeenCalledWith(FIRST_TIP_ID, "impression", "on");
+  });
+
+  test("recordImpressions: false selects a tip but stamps no records or telemetry", () => {
+    openAllGates();
+
+    const { result } = renderHook(() =>
+      useTipCard({ recordImpressions: false }),
+    );
+
+    expect(result.current.tip?.id).toBe(FIRST_TIP_ID);
+    expect(tipRecordsStorage.load()).toEqual({});
+    expect(emitTipEvent).not.toHaveBeenCalled();
   });
 
   test("emits the impression at most once per rotation window across remounts", () => {
@@ -294,6 +307,57 @@ describe("useTipCard actions", () => {
       "on",
     );
   });
+});
+
+describe("useTipCard experimental placements", () => {
+  test("exposes the storage placement (default sidebar)", () => {
+    openAllGates();
+
+    const first = renderHook(() => useTipCard());
+    expect(first.result.current.placement).toBe("sidebar");
+    first.unmount();
+
+    tipsPlacementStorage.save("popover");
+    const second = renderHook(() => useTipCard());
+    expect(second.result.current.placement).toBe("popover");
+  });
+
+  test("banner placement skips the banner-visibility gate", () => {
+    openAllGates();
+    tipsPlacementStorage.save("banner");
+    act(() => {
+      useBannerVisibilityStore.getState().registerVisibleBanner();
+    });
+
+    const { result } = renderHook(() => useTipCard());
+
+    expect(result.current.tip?.id).toBe(FIRST_TIP_ID);
+  });
+
+  test("sidebar placement still respects the banner-visibility gate", () => {
+    openAllGates();
+    tipsPlacementStorage.save("sidebar");
+    act(() => {
+      useBannerVisibilityStore.getState().registerVisibleBanner();
+    });
+
+    const { result } = renderHook(() => useTipCard());
+
+    expect(result.current.tip).toBeNull();
+  });
+
+  for (const placement of ["banner", "popover"] as const) {
+    test(`${placement} placement stamps no records and emits no telemetry`, () => {
+      openAllGates();
+      tipsPlacementStorage.save(placement);
+
+      const { result } = renderHook(() => useTipCard());
+
+      expect(result.current.tip?.id).toBe(FIRST_TIP_ID);
+      expect(tipRecordsStorage.load()).toEqual({});
+      expect(emitTipEvent).not.toHaveBeenCalled();
+    });
+  }
 });
 
 describe("useTipCard demo cycler", () => {

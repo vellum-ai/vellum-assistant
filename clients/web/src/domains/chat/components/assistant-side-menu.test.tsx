@@ -341,6 +341,69 @@ describe("AssistantSideMenu · tipCard slot", () => {
   });
 });
 
+describe("AssistantSideMenu · tipPopover slot (experimental)", () => {
+  const conversations = [
+    makeConversation({ conversationId: "a", title: "Alpha" }),
+  ];
+
+  const renderWithPopover = (props: {
+    collapsed?: boolean;
+    variant?: "rail" | "overlay";
+  }): string =>
+    renderToStaticMarkup(
+      createElement(AssistantSideMenu, {
+        assistantId: "asst-1",
+        collapsed: props.collapsed ?? false,
+        variant: props.variant ?? "rail",
+        conversations,
+        onSelectConversation: () => {},
+        tipPopover: createElement("span", null, "PopoverSentinel"),
+      }),
+    );
+
+  test("floats beside the expanded rail and un-clips the menu root", () => {
+    const html = renderWithPopover({});
+
+    expect(html).toContain("PopoverSentinel");
+    const slotIndex = html.indexOf('data-slot="tip-popover"');
+    expect(slotIndex).toBeGreaterThanOrEqual(0);
+    const open = html.lastIndexOf("<div", slotIndex);
+    const shellTag = html.slice(open, html.indexOf(">", slotIndex) + 1);
+    expect(shellTag).toContain("left-full");
+    expect(shellTag).toContain("empty:hidden");
+
+    // The root swaps overflow-hidden for overflow-visible so the popover
+    // isn't cut off at the rail edge.
+    const rootIndex = html.indexOf('data-slot="side-menu"');
+    const rootTag = html.slice(
+      html.lastIndexOf("<nav", rootIndex),
+      html.indexOf(">", rootIndex) + 1,
+    );
+    expect(rootTag).toContain("overflow-visible");
+    expect(rootTag).not.toContain("overflow-hidden");
+  });
+
+  test("hidden on the collapsed rail and on the overlay", () => {
+    expect(renderWithPopover({ collapsed: true })).not.toContain(
+      "PopoverSentinel",
+    );
+    expect(renderWithPopover({ variant: "overlay" })).not.toContain(
+      "PopoverSentinel",
+    );
+  });
+
+  test("without a tipPopover the root keeps its overflow clip", () => {
+    const html = renderMenu({ conversations });
+
+    const rootIndex = html.indexOf('data-slot="side-menu"');
+    const rootTag = html.slice(
+      html.lastIndexOf("<nav", rootIndex),
+      html.indexOf(">", rootIndex) + 1,
+    );
+    expect(rootTag).toContain("overflow-hidden");
+  });
+});
+
 describe("AssistantSideMenu · overlay bottom scroll reserve", () => {
   const conversations = [
     makeConversation({ conversationId: "a", title: "Alpha" }),

@@ -84,6 +84,24 @@ export const tipsDemoCyclerStorage = createStorageAccessor<boolean>({
   fallback: false,
 });
 
+/** Where the tip surfaces: sidebar footer, composer banner slot, or nav popover. */
+export type TipsPlacement = "sidebar" | "banner" | "popover";
+
+/**
+ * Experimental placement switcher. No UI writes this — set via console:
+ * `localStorage.setItem("device:tips:placement", "banner")`.
+ */
+export const tipsPlacementStorage = createStorageAccessor<TipsPlacement>({
+  key: "device:tips:placement",
+  scope: "device",
+  parse: (value) =>
+    value === "sidebar" || value === "banner" || value === "popover"
+      ? value
+      : null,
+  serialize: String,
+  fallback: "sidebar",
+});
+
 /** Epoch ms of the first time the tips feature observed this user. 0 = not yet. */
 export const tipsFirstSeenAtStorage = createStorageAccessor<number>({
   key: "device:tips:first_seen_at",

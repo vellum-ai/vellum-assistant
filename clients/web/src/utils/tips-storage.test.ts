@@ -8,6 +8,7 @@ import {
   tipsDemoCyclerStorage,
   tipsEnabledStorage,
   tipsFirstSeenAtStorage,
+  tipsPlacementStorage,
 } from "@/utils/tips-storage";
 
 beforeEach(() => {
@@ -75,6 +76,24 @@ describe("tipsDemoCyclerStorage", () => {
   it("falls back to off on malformed values", () => {
     localStorage.setItem(tipsDemoCyclerStorage.key, "yes");
     expect(tipsDemoCyclerStorage.load()).toBe(false);
+  });
+});
+
+describe("tipsPlacementStorage", () => {
+  it("defaults to sidebar and round-trips every placement", () => {
+    expect(tipsPlacementStorage.load()).toBe("sidebar");
+    for (const placement of ["banner", "popover", "sidebar"] as const) {
+      tipsPlacementStorage.save(placement);
+      expect(tipsPlacementStorage.load()).toBe(placement);
+    }
+  });
+
+  it("falls back to sidebar on invalid values", () => {
+    localStorage.setItem(tipsPlacementStorage.key, "toast");
+    expect(tipsPlacementStorage.load()).toBe("sidebar");
+
+    localStorage.setItem(tipsPlacementStorage.key, "");
+    expect(tipsPlacementStorage.load()).toBe("sidebar");
   });
 });
 

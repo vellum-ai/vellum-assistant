@@ -36,6 +36,8 @@ import {
   tipsDemoCyclerStorage,
   tipsEnabledStorage,
   tipsFirstSeenAtStorage,
+  tipsPlacementStorage,
+  type TipsPlacement,
 } from "@/utils/tips-storage";
 import { emitTipEvent } from "@/utils/tips-telemetry";
 
@@ -75,9 +77,20 @@ function tipPassesGates(tip: Tip, ctx: TipGateContext): boolean {
   return true;
 }
 
+export interface UseTipCardOptions {
+  /**
+   * Whether this consumer's renders count as impressions (rotation stamping
+   * + impression telemetry). The banner-slot allocator passes false: it only
+   * routes placements, and in the sidebar placement its tip is never shown.
+   */
+  recordImpressions?: boolean;
+}
+
 export interface UseTipCardResult {
   /** The tip to render, or `null` when no tip should show. */
   tip: Tip | null;
+  /** Experimental placement switcher value (`device:tips:placement`). */
+  placement: TipsPlacement;
   onDismiss: () => void;
   onLearnMore: () => void;
   onDontShowAgain: () => void;
@@ -85,7 +98,9 @@ export interface UseTipCardResult {
   onNextTip: (() => void) | undefined;
 }
 
-export function useTipCard(): UseTipCardResult {
+export function useTipCard(options?: UseTipCardOptions): UseTipCardResult {
+  const recordImpressions = options?.recordImpressions ?? true;
+
   // Whole-store subscriptions: tip gates reference flags by dynamic key, so
   // per-key selectors can't be used (same pattern as the feature-flags panel).
   const clientFlagState = useClientFeatureFlagStore();
@@ -93,6 +108,7 @@ export function useTipCard(): UseTipCardResult {
   const bannerVisible = useBannerVisible();
   const supportsPluginsSurface = useSupportsPluginsSurface();
   const tipsEnabled = tipsEnabledStorage.useValue();
+  const placement = tipsPlacementStorage.useValue();
   const demoCyclerEnabled = tipsDemoCyclerStorage.useValue();
   const records = tipRecordsStorage.useValue();
   const firstSeenAt = tipsFirstSeenAtStorage.useValue();
@@ -157,8 +173,16 @@ export function useTipCard(): UseTipCardResult {
     return () => clearTimeout(timer);
   }, [records, now]);
 
+  // In the "banner" placement the tip IS the composer banner, so the
+  // exclusivity gate would suppress itself into an oscillation — the banner
+  // slot allocator enforces exclusivity there instead (nudges win the slot).
+  const bannerExclusivityOpen = placement === "banner" || !bannerVisible;
+
   const gatesOpen =
-    isProactiveTipsOn(variant) && tipsEnabled && !bannerVisible && ageEligible;
+    isProactiveTipsOn(variant) &&
+    tipsEnabled &&
+    bannerExclusivityOpen &&
+    ageEligible;
 
   const eligibleCatalog = TIPS_CATALOG.filter((tip) =>
     tipPassesGates(tip, {
@@ -194,6 +218,13 @@ export function useTipCard(): UseTipCardResult {
     if (demoActive) {
       return;
     }
+    if (!recordImpressions) {
+      return;
+    }
+    // Experimental placements are demo-only and must not consume rotation state.
+    if (placement !== "sidebar") {
+      return;
+    }
     // Layout effects flush before passive effects, so this read sees a banner
     // registered in this commit that the render's `bannerVisible` missed.
     if (useBannerVisibilityStore.getState().visibleBannerCount > 0) {
@@ -209,7 +240,7 @@ export function useTipCard(): UseTipCardResult {
     }
     recordTipShown(tipId, shownAt);
     emitTipEvent(tipId, "impression", variant);
-  }, [tipId, variant, demoActive]);
+  }, [tipId, variant, demoActive, placement, recordImpressions]);
 
   const cycleToNextTip = useCallback(() => {
     setDemoIndex((current) => {
@@ -247,6 +278,7 @@ export function useTipCard(): UseTipCardResult {
 
   return {
     tip,
+    placement,
     onDismiss,
     onLearnMore,
     onDontShowAgain,

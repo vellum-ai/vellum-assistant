@@ -52,6 +52,7 @@ import {
   navigateToNewConversation,
 } from "@/utils/conversation-navigation";
 import { haptic } from "@/utils/haptics";
+import { tipsPlacementStorage } from "@/utils/tips-storage";
 
 import {
   useConversationGroupsQuery,
@@ -290,6 +291,9 @@ export function ChatLayout() {
     setSidebarWidth(width);
     setLocalNumber(SIDEBAR_WIDTH_STORAGE_KEY, Math.round(width));
   }, []);
+
+  // Experimental device-local tip placement switcher (device:tips:placement).
+  const tipsPlacement = tipsPlacementStorage.useValue();
 
   const isMobile = useIsMobile();
   const [drawerOpen, setDrawerOpen] = useState<boolean>(false);
@@ -729,9 +733,16 @@ export function ChatLayout() {
       // mounting the tip card there stamps an impression for a tip never
       // seen, so the overlay only gets it once the drawer settles open.
       tipCard={
-        args.variant === "overlay" && !drawerOpen ? undefined : (
+        tipsPlacement === "sidebar" &&
+        !(args.variant === "overlay" && !drawerOpen) ? (
           <SidebarTipCard />
-        )
+        ) : undefined
+      }
+      // Experimental "popover" placement — desktop rail only.
+      tipPopover={
+        tipsPlacement === "popover" && args.variant === "rail" ? (
+          <SidebarTipCard />
+        ) : undefined
       }
       onClose={args.onClose}
     />
