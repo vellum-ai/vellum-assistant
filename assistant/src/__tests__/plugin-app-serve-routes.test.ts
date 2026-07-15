@@ -138,6 +138,38 @@ describe("plugin app serve routes", () => {
   });
 });
 
+describe("apps_open reports app origin", () => {
+  test("plugin app opens with a plugin:<name> origin", async () => {
+    installPluginApp("acme", "dash", {
+      "index.html": "<div id='root'>Plugin Home</div>",
+    });
+    const handler = findRoute(APP_MGMT_ROUTES, "apps_open").handler;
+    const result = (await handler({
+      pathParams: { id: "plugins~acme~dash" },
+    } as RouteHandlerArgs)) as { origin: string; html: string };
+
+    expect(result.origin).toBe("plugin:acme");
+    expect(result.html).toContain("Plugin Home");
+  });
+
+  test("workspace app opens with a workspace origin", async () => {
+    // Import lazily so the workspace-dir override from beforeEach is in effect.
+    const { createApp } = await import("../apps/app-store.js");
+    const app = createApp({
+      name: "My App",
+      schemaJson: "{}",
+      htmlDefinition: "<div id='root'>Workspace Home</div>",
+    });
+    const handler = findRoute(APP_MGMT_ROUTES, "apps_open").handler;
+    const result = (await handler({
+      pathParams: { id: app.id },
+    } as RouteHandlerArgs)) as { origin: string; html: string };
+
+    expect(result.origin).toBe("workspace");
+    expect(result.html).toContain("Workspace Home");
+  });
+});
+
 describe("plugin apps are read-only over the management surface", () => {
   test("apps_delete rejects a plugin app id", () => {
     installPluginApp("acme", "dash", { "index.html": "<div>x</div>" });
