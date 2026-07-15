@@ -6,8 +6,9 @@
  * testable independently and the orchestrator stays focused on wiring.
  */
 
-import { type ReactNode, useMemo } from "react";
+import { type ReactNode, useEffect, useMemo } from "react";
 
+import { useBannerVisibilityStore } from "@/stores/banner-visibility-store";
 import { DiscordNudgeBanner } from "@/components/nudges/discord-nudge-banner";
 import { GitHubNudgeBanner } from "@/components/nudges/github-nudge-banner";
 import { IOSAppBanner } from "@/components/nudges/ios-app-banner";
@@ -94,6 +95,15 @@ export function useChatBannerSlots({
     }
     return null;
   }, [showBanner, isOnIOS, nudge, showGitHubBanner, githubNudge, showDiscordBanner, discordNudge]);
+
+  // Mirror banner visibility into the shared store so the sidebar tip can
+  // stay mutually exclusive with nudge banners.
+  const bannerVisible = mainBannerSlot !== null;
+  useEffect(() => {
+    const { setBannerVisible } = useBannerVisibilityStore.getState();
+    setBannerVisible(bannerVisible);
+    return () => setBannerVisible(false);
+  }, [bannerVisible]);
 
   const mainQueuedDrawerSlot = useMemo((): ReactNode => (
     <QueuedMessagesDrawer
