@@ -12,6 +12,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { VIRTUAL_CENTER } from "@/domains/intelligence/components/constellation-view/constants";
 import { memoryGraphOptions } from "@/domains/intelligence/memory-graph/get-memory-graph";
+import { emitMemoryEvent } from "@/domains/intelligence/memory-telemetry";
 import { Button } from "@vellumai/design-library";
 
 import { buildForceLayout } from "./build-force-layout";
@@ -227,6 +228,13 @@ export function ConceptGraphView({
   const [edgeLabel, setEdgeLabel] = useState<string | null>(null);
   // The concept opened into the detail drawer (null = graph only).
   const [openNode, setOpenNode] = useState<ConceptDetailNode | null>(null);
+  // Opening a concept into the detail drawer (canvas click or search result)
+  // is a tracked memory interaction. Route every open through here so
+  // "node_opened" is emitted exactly once per open, from one place.
+  const openNodeDetail = useCallback((node: ConceptDetailNode) => {
+    emitMemoryEvent("node_opened");
+    setOpenNode(node);
+  }, []);
 
   // First-run explainer: shown over the graph (empty or populated) until the
   // user dismisses it; the dismissal sticks per-assistant.
@@ -237,6 +245,10 @@ export function ConceptGraphView({
   // a ref the 60fps render loop reads (so keystrokes don't re-run the effect),
   // and `dirty` is bumped whenever it changes so reduced-motion redraws.
   const [search, setSearch] = useState("");
+  // Latch so the "search" interaction is emitted once per search session — on
+  // the empty→non-empty transition — not per keystroke. Reset whenever the box
+  // empties (see the effect below), so a fresh search re-emits.
+  const searchEmittedRef = useRef(false);
   const searchLower = search.trim().toLowerCase();
   const matchIds = useMemo(() => {
     if (!searchLower) {return null;}
@@ -260,6 +272,14 @@ export function ConceptGraphView({
   useEffect(() => {
     setSearch("");
   }, [assistantId]);
+  // Reset the "search started" latch whenever the box empties — by keystroke,
+  // the clear button, Escape, or an assistant switch — so the next search
+  // re-emits its start event.
+  useEffect(() => {
+    if (!search) {
+      searchEmittedRef.current = false;
+    }
+  }, [search]);
   // Top matches for the results list under the search box: most-connected first,
   // capped so the dropdown stays scannable. The head is also the Enter target.
   const searchResults = useMemo(() => {
@@ -802,14 +822,18 @@ export function ConceptGraphView({
           // Click a node → open its concept page in the detail drawer.
           const n = layout.nodes.find((nn) => nn.id === hit);
           if (n) {
-            setOpenNode({ id: n.id, label: n.label, updatedAtMs: n.updatedAtMs });
+            openNodeDetail({
+              id: n.id,
+              label: n.label,
+              updatedAtMs: n.updatedAtMs,
+            });
           }
         } else {
           setFocusLabel(null);
         }
       }
     },
-    [hitTest, layout.nodes],
+    [hitTest, layout.nodes, openNodeDetail],
   );
 
   // Hover is only ever rewritten by moves inside the container, so without
@@ -909,7 +933,15 @@ export function ConceptGraphView({
               <input
                 type="text"
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  // Emit once when a search session begins (empty → typed).
+                  if (value && !searchEmittedRef.current) {
+                    emitMemoryEvent("search");
+                    searchEmittedRef.current = true;
+                  }
+                  setSearch(value);
+                }}
                 onKeyDown={(e) => {
                   if (e.key === "Escape") {
                     setSearch("");
@@ -961,7 +993,7 @@ export function ConceptGraphView({
                       type="button"
                       onClick={() => {
                         focusOn(node.id);
-                        setOpenNode({
+                        openNodeDetail({
                           id: node.id,
                           label: node.label,
                           updatedAtMs: node.updatedAtMs,
