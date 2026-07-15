@@ -30,7 +30,7 @@
  * - `clearConsentForUser`   — delete device keys + legacy active keys
  */
 import { removeLocalSetting, getLocalBool, setLocalBool } from "@/utils/local-settings";
-import { setDiagnosticsReportingGate } from "@/lib/consent/diagnostics-consent";
+import { applyExplicitDiagnosticsChoice } from "@/lib/consent/diagnostics-consent";
 import { useOnboardingStore } from "@/domains/onboarding/onboarding-store";
 import { patchConsent, type UserConsent } from "@/domains/account/profile";
 
@@ -302,6 +302,101 @@ export function resolveServerConsent(
 // Unified write API
 // ---------------------------------------------------------------------------
 
+/**
+ * The single internal write path for user-initiated consent: store updates,
+ * per-user device keys, the diagnostics gate chokepoint, and the server
+ * PATCH. `saveConsent` and `savePreferenceToggle` are thin argument-shapers
+ * over it.
+ *
+ * `legal` is present only for a consent-screen save; that acceptance is an
+ * explicit review of the current terms, so currency and hydration are
+ * authoritative without a live session. A lone toggle write earns version
+ * currency only with a live platform session to record it against — offline
+ * it would stamp a currency the user never reviewed terms for. A share field
+ * is written only when its toggle was actually shown (`undefined` = absent =
+ * nothing persisted anywhere for that axis).
+ */
+function writeConsent(
+  fields: {
+    legal?: { tos: boolean; privacy: boolean };
+    shareAnalytics?: boolean;
+    shareDiagnostics?: boolean;
+  },
+  opts: { userId: string | null; hasPlatformSession: boolean },
+): void {
+  const { legal, shareAnalytics, shareDiagnostics } = fields;
+  const store = useOnboardingStore.getState();
+
+  if (legal) {
+    store.setTosAccepted(legal.tos);
+    store.setPrivacyConsent(legal.privacy);
+    persistConsentForUser(opts.userId, legal.tos, legal.privacy);
+  }
+  if (shareAnalytics !== undefined) {
+    store.setShareAnalytics(shareAnalytics);
+  }
+  if (shareDiagnostics !== undefined) {
+    // Opt-out: the effective reporting gate equals the preference — an
+    // explicit "off" closes it, "on" opens it. Routed through the diagnostics
+    // chokepoint, the gate key's single writer. An absent choice leaves the
+    // gate (and any explicit device opt-out) untouched.
+    applyExplicitDiagnosticsChoice(shareDiagnostics, store.setShareDiagnostics);
+  }
+
+  // A consent screen settles both share axes as current — never-asked has
+  // nothing to re-review, so it must not bounce the user to review-terms —
+  // and is authoritative hydration: route guards may trust the flags without
+  // waiting for a session sync. A settings toggle marks only its own axis,
+  // and only with a live session.
+  if (legal) {
+    store.setAnalyticsConsentCurrent(true);
+    store.setDiagnosticsConsentCurrent(true);
+    store.setConsentHydrated(true);
+  } else if (opts.hasPlatformSession) {
+    if (shareAnalytics !== undefined) {
+      store.setAnalyticsConsentCurrent(true);
+    }
+    if (shareDiagnostics !== undefined) {
+      store.setDiagnosticsConsentCurrent(true);
+    }
+  }
+
+  // The versioned diagnostics ack ("confirmed under the current version") is
+  // earned by a consent-screen review, or by a toggle change made with a live
+  // session to record it against. Analytics has no device ack.
+  if (shareDiagnostics !== undefined && (legal || opts.hasPlatformSession)) {
+    persistToggleConsent(opts.userId, { diagnosticsCurrent: true });
+  }
+
+  if (opts.hasPlatformSession) {
+    void patchConsent({
+      ...(legal
+        ? {
+            tos_accepted_version: legal.tos ? TOS_CONSENT_VERSION : "",
+            privacy_policy_accepted_version: legal.privacy
+              ? PRIVACY_CONSENT_VERSION
+              : "",
+            ai_data_sharing_accepted_version: legal.privacy
+              ? PRIVACY_CONSENT_VERSION
+              : "",
+          }
+        : {}),
+      ...(shareAnalytics !== undefined
+        ? {
+            share_analytics: shareAnalytics,
+            share_analytics_accepted_version: ANALYTICS_CONSENT_VERSION,
+          }
+        : {}),
+      ...(shareDiagnostics !== undefined
+        ? {
+            share_diagnostics: shareDiagnostics,
+            share_diagnostics_accepted_version: DIAGNOSTICS_CONSENT_VERSION,
+          }
+        : {}),
+    }).catch(() => {});
+  }
+}
+
 export function saveConsent(opts: {
   userId: string | null;
   tos: boolean;
@@ -321,48 +416,18 @@ export function saveConsent(opts: {
   shareDiagnostics: boolean | null;
   hasPlatformSession: boolean;
 }): void {
-  const store = useOnboardingStore.getState();
-  store.setTosAccepted(opts.tos);
-  store.setPrivacyConsent(opts.privacy);
-  if (opts.shareAnalytics !== null) {
-    store.setShareAnalytics(opts.shareAnalytics);
-  }
-  if (opts.shareDiagnostics !== null) {
-    store.setShareDiagnostics(opts.shareDiagnostics);
-    // Only an explicit choice writes the gate; null leaves the existing
-    // gate (and any explicit device opt-out) untouched.
-    setDiagnosticsReportingGate(opts.shareDiagnostics);
-  }
-  store.setAnalyticsConsentCurrent(true);
-  store.setDiagnosticsConsentCurrent(true);
-  // An explicit user acceptance is authoritative hydration — route guards may
-  // trust the flags without waiting for a session sync.
-  store.setConsentHydrated(true);
-
-  persistConsentForUser(opts.userId, opts.tos, opts.privacy);
-  persistToggleConsent(opts.userId, {
-    ...(opts.shareDiagnostics !== null ? { diagnosticsCurrent: true } : {}),
-  });
-
-  if (opts.hasPlatformSession) {
-    void patchConsent({
-      tos_accepted_version: opts.tos ? TOS_CONSENT_VERSION : "",
-      privacy_policy_accepted_version: opts.privacy ? PRIVACY_CONSENT_VERSION : "",
-      ai_data_sharing_accepted_version: opts.privacy ? PRIVACY_CONSENT_VERSION : "",
+  writeConsent(
+    {
+      legal: { tos: opts.tos, privacy: opts.privacy },
       ...(opts.shareAnalytics !== null
-        ? {
-            share_analytics: opts.shareAnalytics,
-            share_analytics_accepted_version: ANALYTICS_CONSENT_VERSION,
-          }
+        ? { shareAnalytics: opts.shareAnalytics }
         : {}),
       ...(opts.shareDiagnostics !== null
-        ? {
-            share_diagnostics: opts.shareDiagnostics,
-            share_diagnostics_accepted_version: DIAGNOSTICS_CONSENT_VERSION,
-          }
+        ? { shareDiagnostics: opts.shareDiagnostics }
         : {}),
-    }).catch(() => {});
-  }
+    },
+    { userId: opts.userId, hasPlatformSession: opts.hasPlatformSession },
+  );
 }
 
 export function savePreferenceToggle(
@@ -370,37 +435,10 @@ export function savePreferenceToggle(
   value: boolean,
   opts: { userId: string | null; hasPlatformSession: boolean },
 ): void {
-  const store = useOnboardingStore.getState();
-  const { userId, hasPlatformSession } = opts;
-  // The on/off value is always device-persisted (the store setter writes the
-  // device key), but the version-currency ack ("confirmed under the current
-  // terms version") is only earned with a live platform session to record it
-  // against — offline it would stamp a currency the user never reviewed terms
-  // for.
-  if (field === "share_analytics") {
-    store.setShareAnalytics(value);
-    if (hasPlatformSession) {
-      store.setAnalyticsConsentCurrent(true);
-    }
-  } else {
-    store.setShareDiagnostics(value);
-    // Opt-out: the effective gate equals the preference — an explicit "off"
-    // closes it, anything else keeps it open. The version-currency ack below
-    // is separate: it is only earned with a live session to record it against.
-    setDiagnosticsReportingGate(value);
-    if (hasPlatformSession) {
-      store.setDiagnosticsConsentCurrent(true);
-      persistToggleConsent(userId, { diagnosticsCurrent: true });
-    }
-  }
-
-  if (hasPlatformSession) {
-    void patchConsent({
-      [field]: value,
-      [`${field}_accepted_version`]:
-        field === "share_analytics"
-          ? ANALYTICS_CONSENT_VERSION
-          : DIAGNOSTICS_CONSENT_VERSION,
-    }).catch(() => {});
-  }
+  writeConsent(
+    field === "share_analytics"
+      ? { shareAnalytics: value }
+      : { shareDiagnostics: value },
+    opts,
+  );
 }

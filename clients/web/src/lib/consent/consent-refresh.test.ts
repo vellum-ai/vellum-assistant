@@ -41,7 +41,8 @@ const applyResolvedDiagnosticsConsent = mock(
 );
 mock.module("@/lib/consent/diagnostics-consent", () => ({
   applyResolvedDiagnosticsConsent,
-  setDiagnosticsReportingGate: mock(() => {}),
+  applyExplicitDiagnosticsChoice: mock(() => {}),
+  failCloseDiagnosticsGateUntilFirstSync: mock(() => {}),
 }));
 
 let currentUser: { id: string } | null = { id: "u1" };

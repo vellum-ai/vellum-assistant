@@ -74,9 +74,8 @@ import {
 import { useOnboardingStore } from "@/domains/onboarding/onboarding-store";
 import {
   applyResolvedDiagnosticsConsent,
-  setDiagnosticsReportingGate,
+  failCloseDiagnosticsGateUntilFirstSync,
 } from "@/lib/consent/diagnostics-consent";
-import { getDeviceSetting } from "@/utils/device-settings";
 import {
   clearOrganization,
   useOrganizationStore,
@@ -467,13 +466,11 @@ async function syncUserScopedState(nextUserId: string | null): Promise<void> {
 
   const consent = restoreConsentForUser(nextUserId);
   const store = useOnboardingStore.getState();
-  // Consent fetch failed for a platform user and this device has never
-  // resolved a diagnostics gate: fail closed until a successful sync can
-  // reveal a server-side explicit opt-out — hydration alone must not let the
-  // opt-out default open the gate. Every successful sync path writes the
-  // gate, so this conservative value never outlives the outage.
-  if (nextUserId && getDeviceSetting("diagnosticsReporting", "") === "") {
-    setDiagnosticsReportingGate(false);
+  // Consent fetch failed for a platform user: a device that has never
+  // resolved a diagnostics gate fails closed until a successful sync can
+  // reveal a server-side explicit opt-out.
+  if (nextUserId) {
+    failCloseDiagnosticsGateUntilFirstSync();
   }
   store.setTosAccepted(consent.tos);
   store.setPrivacyConsent(consent.privacy);
