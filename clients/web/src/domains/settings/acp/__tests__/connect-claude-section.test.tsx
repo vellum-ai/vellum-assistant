@@ -49,7 +49,7 @@ const pollConnectClaudeStatus = mock(
 const exchangeConnectClaude = mock(
   async (_assistantId: string, _code: string, _state: string) => {},
 );
-mock.module("../connect-claude-api", () => ({
+mock.module("@/hooks/connect-claude-api", () => ({
   startConnectClaude,
   pollConnectClaudeStatus,
   exchangeConnectClaude,

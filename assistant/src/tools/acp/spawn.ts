@@ -2,11 +2,32 @@ import { basename } from "node:path";
 
 import { resolveAgentWithAutoInstall } from "../../acp/auto-install.js";
 import { getAcpSessionManager } from "../../acp/index.js";
-import { prepareAgentEnv } from "../../acp/prepare-agent-env.js";
+import {
+  ACP_CLAUDE_OAUTH_MISSING_CODE,
+  prepareAgentEnv,
+} from "../../acp/prepare-agent-env.js";
 import { formatResolveFailure } from "../../acp/resolve-agent.js";
 import { claudeResumeHint } from "../../acp/resume-hint.js";
+import { FailedDependencyError } from "../../runtime/routes/errors.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
 import { getSendToClient } from "./context.js";
+
+/**
+ * Recover the stable `acp_claude_oauth_missing` marker off a `prepareAgentEnv`
+ * failure so the tool result can carry it as a structured `errorCode` instead
+ * of the client re-parsing the human message string.
+ */
+function acpSpawnErrorCode(err: unknown): string | undefined {
+  if (
+    err instanceof FailedDependencyError &&
+    typeof err.details === "object" &&
+    err.details !== null &&
+    (err.details as { code?: unknown }).code === ACP_CLAUDE_OAUTH_MISSING_CODE
+  ) {
+    return ACP_CLAUDE_OAUTH_MISSING_CODE;
+  }
+  return undefined;
+}
 
 export async function executeAcpSpawn(
   input: Record<string, unknown>,
@@ -53,7 +74,8 @@ export async function executeAcpSpawn(
     agentConfig = await prepareAgentEnv(resolved.agent);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    return { content: msg, isError: true };
+    const errorCode = acpSpawnErrorCode(err);
+    return { content: msg, isError: true, ...(errorCode ? { errorCode } : {}) };
   }
 
   try {

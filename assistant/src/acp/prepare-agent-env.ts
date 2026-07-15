@@ -37,6 +37,16 @@ const ACP_SPAWN_TOOL = "acp_spawn";
 const ACP_SERVICE = "acp";
 
 /**
+ * Stable, machine-readable marker carried on the `FailedDependencyError.details`
+ * when a `claude-agent-acp` spawn is missing `CLAUDE_CODE_OAUTH_TOKEN`. Threaded
+ * through the tool result / error payload as a structured field so clients can
+ * offer the inline "Connect Claude Code" flow instead of re-parsing the human
+ * message string. Kept in lockstep with the web literal in
+ * `clients/web/src/domains/chat/transcript/acp-connect-affordance.tsx`.
+ */
+export const ACP_CLAUDE_OAUTH_MISSING_CODE = "acp_claude_oauth_missing";
+
+/**
  * Ensure an `acp/<field>` credential has metadata that allows the
  * `acp_spawn` tool to read it, but only for legacy/unmanaged cases:
  *
@@ -171,10 +181,14 @@ export async function prepareAgentEnv(
       );
     }
     if (!env.CLAUDE_CODE_OAUTH_TOKEN) {
+      // Carry the stable marker as structured `details` IN ADDITION to the
+      // CLI-friendly message so the client can offer the inline Connect flow
+      // without re-parsing the human text.
       throw new FailedDependencyError(
         "claude-agent-acp requires CLAUDE_CODE_OAUTH_TOKEN. " +
           "Run: assistant credentials set --service acp --field claude_oauth_token <token> " +
           "(or set it under acp.agents.<id>.env in config.json).",
+        { code: ACP_CLAUDE_OAUTH_MISSING_CODE },
       );
     }
   } else if (adapterCommand === "codex-acp") {

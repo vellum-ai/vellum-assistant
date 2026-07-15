@@ -163,6 +163,13 @@ export function applyToolResult(
      */
     activityMetadata?: ToolActivityMetadata;
     /**
+     * Stable machine-readable error classification from the tool_result event
+     * (only set when `isError`). Persisted on the tool call so surfaces can
+     * branch on a known failure (e.g. `acp_claude_oauth_missing`) after the
+     * turn ends.
+     */
+    errorCode?: string;
+    /**
      * Server-stamped completion time (ms). Keeps the final duration on the
      * same clock as the daemon-stamped `startedAt`; falls back to the local
      * clock for older daemons that omit it.
@@ -229,6 +236,7 @@ export function applyToolResult(
     ...(opts.activityMetadata !== undefined
       ? { activityMetadata: opts.activityMetadata }
       : {}),
+    ...(opts.errorCode !== undefined ? { errorCode: opts.errorCode } : {}),
     completedAt: opts.completedAt ?? Date.now(),
     // The final result supersedes the live stream tail; drop it to free memory
     // and so renderers prefer the complete `result`.

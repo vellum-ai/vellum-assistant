@@ -52,6 +52,14 @@ export interface ToolExecutionResult {
   content: string;
   /** When true, the agent loop treats `content` as an error and may surface it / retry. */
   isError: boolean;
+  /**
+   * Stable, machine-readable classification for an error result (e.g.
+   * `acp_claude_oauth_missing`). Threaded to the client on the `tool_result`
+   * event so surfaces can render a structured affordance for a known failure
+   * instead of re-parsing the human `content` string. Only meaningful when
+   * `isError` is true.
+   */
+  errorCode?: string;
   /** Optional short status message for client display (e.g. `"truncated"`, `"timed out"`). */
   status?: string;
   /**
