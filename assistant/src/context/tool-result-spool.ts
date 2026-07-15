@@ -45,7 +45,9 @@ function isSpoolEligible(
   tr: ToolResultContent,
   toolName: string | undefined,
 ): boolean {
-  if (!isTruncationEligible(tr, toolName)) return false;
+  if (!isTruncationEligible(tr, toolName)) {
+    return false;
+  }
   if (
     toolName !== undefined &&
     (FILE_READ_TOOL_NAMES.has(toolName) ||
@@ -53,7 +55,9 @@ function isSpoolEligible(
   ) {
     return false;
   }
-  if (tr.content.includes(AX_TREE_TAG)) return false;
+  if (tr.content.includes(AX_TREE_TAG)) {
+    return false;
+  }
   return true;
 }
 

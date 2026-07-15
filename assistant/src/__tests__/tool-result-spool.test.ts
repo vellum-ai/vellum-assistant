@@ -127,10 +127,18 @@ describe("spoolAndStubOversizedToolResults", () => {
     const count = spoolAndStubOversizedToolResults(blocks, {
       conversationDir: convDir,
       toolNameById: (id) => {
-        if (id === "tu_skill") return "skill_load";
-        if (id === "tu_read") return "file_read";
-        if (id === "tu_host_read") return "host_file_read";
-        if (id === "tu_web_fetch") return "web_fetch";
+        if (id === "tu_skill") {
+          return "skill_load";
+        }
+        if (id === "tu_read") {
+          return "file_read";
+        }
+        if (id === "tu_host_read") {
+          return "host_file_read";
+        }
+        if (id === "tu_web_fetch") {
+          return "web_fetch";
+        }
         return undefined;
       },
     });
