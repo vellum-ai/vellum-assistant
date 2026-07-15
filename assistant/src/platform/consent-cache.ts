@@ -29,6 +29,7 @@
 import { getConfigReadOnly } from "../config/loader.js";
 import { getLogger } from "../util/logger.js";
 import { VellumPlatformClient } from "./client.js";
+import { arePlatformFeaturesEnabled } from "./feature-gate.js";
 
 const log = getLogger("consent-cache");
 
@@ -109,6 +110,17 @@ export function getCachedShareDiagnosticsVersion(): string {
  */
 export async function refreshConsentCache(): Promise<void> {
   legacyOptOut = getConfigReadOnly().legacyTelemetryOptOut === true;
+
+  // Platform features disabled is a PERMANENT condition (config-level), not a
+  // cold-cache transient: telemetry can never ship, so confirmed-off keeps the
+  // record-time gates closed and the outbox from accumulating rows that no
+  // flush will ever drain.
+  if (!arePlatformFeaturesEnabled()) {
+    setCachedShareAnalytics(false);
+    setCachedShareDiagnostics(false);
+    setCachedShareDiagnosticsVersion("");
+    return;
+  }
 
   const client = await VellumPlatformClient.create();
   if (!client) {

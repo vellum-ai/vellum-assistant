@@ -58,8 +58,11 @@ const lastRecorded = new Map<string, string>();
  * delivered row. Clearing it means a later re-opt-in (in the same process,
  * unchanged config) re-records the full current snapshot rather than skipping
  * memoized keys — consumers that expect a complete snapshot after re-opt-in
- * stay correct. An unknown consent state records normally — the record-time
- * drop is a courtesy for known opt-outs only, never a reason to lose data.
+ * stay correct. An UNKNOWN consent state skips entirely (no record, no memo,
+ * no clear): unlike outbox events, a snapshot is re-derivable state, so
+ * deferring it loses nothing — while recording it would either memoize a row
+ * a later opt-out purge invalidates, or (without the memo) double-record on
+ * every boot.
  *
  * Retry-friendly when opted in: `recordConfigSettingEvent` returns false when
  * the telemetry DB is momentarily unavailable, and the memo is only advanced
@@ -69,7 +72,11 @@ const lastRecorded = new Map<string, string>();
  * retries on the next invocation.
  */
 export function recordConfigSettingSnapshot(config: AssistantConfig): void {
-  if (getRawShareAnalytics() === false) {
+  const consent = getRawShareAnalytics();
+  if (consent === "unknown") {
+    return;
+  }
+  if (consent === false) {
     lastRecorded.clear();
     return;
   }
@@ -91,6 +98,14 @@ export function recordConfigSettingSnapshot(config: AssistantConfig): void {
 }
 
 let snapshotTimer: ReturnType<typeof setInterval> | null = null;
+let bootRetryTimer: ReturnType<typeof setTimeout> | null = null;
+
+// The boot-time snapshot races the first consent refresh (fire-and-forget in
+// the monitor's startup), so consent is usually still "unknown" on the first
+// call and the snapshot is skipped. Retry on a short timer until consent
+// resolves rather than waiting a full hourly interval for the per-boot
+// assertion.
+const BOOT_RETRY_INTERVAL_MS = 60_000;
 
 function recordSnapshotFromConfig(): void {
   try {
@@ -100,6 +115,19 @@ function recordSnapshotFromConfig(): void {
   } catch (err) {
     log.warn({ err }, "Config-setting snapshot failed (non-fatal)");
   }
+}
+
+function recordBootSnapshotOnceConsentKnown(): void {
+  if (getRawShareAnalytics() === "unknown") {
+    bootRetryTimer = setTimeout(
+      recordBootSnapshotOnceConsentKnown,
+      BOOT_RETRY_INTERVAL_MS,
+    );
+    bootRetryTimer.unref?.();
+    return;
+  }
+  bootRetryTimer = null;
+  recordSnapshotFromConfig();
 }
 
 /**
@@ -116,7 +144,7 @@ export function startConfigSnapshotReporter(): void {
   if (snapshotTimer) {
     return;
   }
-  recordSnapshotFromConfig();
+  recordBootSnapshotOnceConsentKnown();
   snapshotTimer = setInterval(
     recordSnapshotFromConfig,
     CONFIG_SNAPSHOT_INTERVAL_MS,
@@ -128,6 +156,10 @@ export function stopConfigSnapshotReporter(): void {
   if (snapshotTimer) {
     clearInterval(snapshotTimer);
     snapshotTimer = null;
+  }
+  if (bootRetryTimer) {
+    clearTimeout(bootRetryTimer);
+    bootRetryTimer = null;
   }
 }
 

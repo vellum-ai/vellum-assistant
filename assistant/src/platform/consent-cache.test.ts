@@ -93,6 +93,22 @@ describe("consent-cache", () => {
     expect(getCachedShareAnalytics()).toBe(false);
   });
 
+  test("platform features disabled → confirmed false, not unknown", async () => {
+    // A config-level platform opt-out is permanent, not a cold cache: no
+    // flush will ever drain the outbox, so record-time gates must stay
+    // closed (confirmed false) instead of accumulating rows forever.
+    __setCachedShareAnalyticsForTest(true);
+    process.env.VELLUM_DISABLE_PLATFORM = "1";
+    try {
+      await refreshConsentCache();
+    } finally {
+      delete process.env.VELLUM_DISABLE_PLATFORM;
+    }
+    expect(getRawShareAnalytics()).toBe(false);
+    expect(getRawShareDiagnostics()).toBe(false);
+    expect(getCachedShareDiagnosticsVersion()).toBe("");
+  });
+
   test("becomes true after a successful fetch reporting shareAnalytics: true", async () => {
     mockClient = makeClient(makeConsent({ shareAnalytics: true }));
     await refreshConsentCache();
