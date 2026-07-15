@@ -412,13 +412,13 @@
       "name": "virlo",
       "source": {
         "source": "github",
-        "repo": "vellum-ai/virlo-integrations",
+        "repo": "Virlo-AI/virlo-integrations",
         "path": "integrations/vellum",
-        "ref": "f98d182fdbd153f9a5161d0565dfd693429c4a1d"
+        "ref": "e398cfd8a48316b9378e08efe4b42ad3dc42197e"
       },
       "description": "Real-time short-form video intelligence across TikTok, YouTube Shorts, and Instagram Reels, powered by Virlo Content Research Agents.",
       "category": "marketing",
-      "homepage": "https://github.com/vellum-ai/virlo-integrations/tree/main/integrations/vellum",
+      "homepage": "https://github.com/Virlo-AI/virlo-integrations/tree/main/integrations/vellum",
       "license": "MIT",
       "icon": "📱"
     },
