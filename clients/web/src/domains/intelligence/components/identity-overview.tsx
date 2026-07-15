@@ -893,7 +893,15 @@ function OverviewBento({
           gridArea={section.key}
           cardStyle={
             section.key === "schedules"
-              ? { alignSelf: "start", minHeight: personalityRowHeight }
+              ? {
+                  // The card's `h-full` class resolves against the full
+                  // two-row grid area — inline `auto` restores content
+                  // sizing so `alignSelf: start` + the min-height (one
+                  // personality-row) actually govern the height.
+                  alignSelf: "start",
+                  height: "auto",
+                  minHeight: personalityRowHeight,
+                }
               : undefined
           }
         />
