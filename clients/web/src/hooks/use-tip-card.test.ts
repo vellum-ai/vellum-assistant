@@ -7,6 +7,12 @@
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { act, cleanup, renderHook } from "@testing-library/react";
+import {
+  createElement,
+  Fragment,
+  useLayoutEffect,
+  type ReactNode,
+} from "react";
 
 const emitTipEvent = mock(() => {});
 mock.module("@/utils/tips-telemetry", () => ({ emitTipEvent }));
@@ -136,6 +142,44 @@ describe("useTipCard selection and impressions", () => {
     expect(second.result.current.tip?.id).toBe(FIRST_TIP_ID);
     expect(emitTipEvent).toHaveBeenCalledTimes(1);
     expect(tipRecordsStorage.load()[FIRST_TIP_ID]?.shownCount).toBe(1);
+  });
+
+  test("skips the impression when a banner registers via layout effect in the same commit", () => {
+    stampAgedFirstSeen();
+
+    // Mirrors ChatBody: a sibling whose layout effect registers the banner in
+    // the same commit whose render selected a tip — that render still saw
+    // bannerVisible === false, so only the effect-time store read can catch it.
+    function BannerRegistrar() {
+      const bannerEligible =
+        useClientFeatureFlagStore().stringFlags.proactiveTips === "on";
+      useLayoutEffect(() => {
+        if (!bannerEligible) {
+          return;
+        }
+        const { registerVisibleBanner, unregisterVisibleBanner } =
+          useBannerVisibilityStore.getState();
+        registerVisibleBanner();
+        return unregisterVisibleBanner;
+      }, [bannerEligible]);
+      return null;
+    }
+
+    const { result } = renderHook(() => useTipCard(), {
+      wrapper: ({ children }: { children: ReactNode }) =>
+        createElement(Fragment, null, createElement(BannerRegistrar), children),
+    });
+    expect(result.current.tip).toBeNull();
+
+    // One batch: the flag flip makes the hook select a tip while the banner
+    // registers during the same commit's layout phase.
+    act(() => {
+      setFlag("on");
+    });
+
+    expect(result.current.tip).toBeNull();
+    expect(tipRecordsStorage.load()[FIRST_TIP_ID]).toBeUndefined();
+    expect(emitTipEvent).not.toHaveBeenCalled();
   });
 
   test("excludes gated tips whose requirements fail and includes them when met", () => {

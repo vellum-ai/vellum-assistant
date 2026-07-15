@@ -18,7 +18,10 @@ import {
 import { useSupportsPluginsSurface } from "@/lib/backwards-compat/plugins-surface";
 import { isElectron } from "@/runtime/is-electron";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
-import { useBannerVisible } from "@/stores/banner-visibility-store";
+import {
+  useBannerVisibilityStore,
+  useBannerVisible,
+} from "@/stores/banner-visibility-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { TIPS_CATALOG, type Tip } from "@/utils/tips-catalog";
 import {
@@ -171,6 +174,11 @@ export function useTipCard(): UseTipCardResult {
   // double-count: a tip already shown within the window is skipped.
   useEffect(() => {
     if (tipId === null) {
+      return;
+    }
+    // Layout effects flush before passive effects, so this read sees a banner
+    // registered in this commit that the render's `bannerVisible` missed.
+    if (useBannerVisibilityStore.getState().visibleBannerCount > 0) {
       return;
     }
     const shownAt = Date.now();
