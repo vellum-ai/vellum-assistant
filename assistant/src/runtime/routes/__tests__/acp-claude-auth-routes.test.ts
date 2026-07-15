@@ -175,6 +175,24 @@ describe("acp_claude_auth_start", () => {
     // The flow is now tracked as pending.
     expect(getStatus(result.state)).toEqual({ status: "pending" });
   });
+
+  test("flag OFF + local (non-containerized) also fails closed (403, no loopback bind)", async () => {
+    // The flag is the feature kill switch: a direct API call on a local host
+    // must not bind the loopback server or mint a token while the feature is off.
+    isConnectEnabledMock.mockReturnValue(false);
+
+    let thrown: { statusCode?: number; message?: string } | undefined;
+    try {
+      await startHandler({});
+    } catch (err) {
+      thrown = err as { statusCode?: number; message?: string };
+    }
+
+    expect(thrown).toBeDefined();
+    expect(thrown!.statusCode).toBe(403);
+    expect(thrown!.message).toMatch(/not enabled/i);
+    expect(prepareOAuth2FlowMock).not.toHaveBeenCalled();
+  });
 });
 
 // ---------------------------------------------------------------------------

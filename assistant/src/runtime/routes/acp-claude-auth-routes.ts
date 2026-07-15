@@ -110,30 +110,31 @@ function markFlow(state: string, status: FlowStatus, error?: string): void {
 // ---------------------------------------------------------------------------
 
 /**
- * Route entry point. Locally the daemon captures the redirect on a loopback;
- * on a containerized (cloud) host it can't bind a loopback the user's browser
- * reaches, so it falls back to the manual `code#state` paste path.
+ * Route entry point. The whole feature is gated behind
+ * `acp-claude-oauth-connect` and fails closed when the flag is off, so the flag
+ * is a true kill switch: a direct API call can't bind the loopback server or
+ * mint a token while the feature is dark (the UI already hides both surfaces).
  *
- * The manual path performs Claude subscription inference OFF the user's device,
- * which is the ToS-sensitive pattern documented in
- * `.private/acp-claude-code-tos-memo.md` — so it is flag-gated and fails closed
- * (a clear error, never a broken loopback attempt) when the flag is off.
+ * Locally the daemon captures the redirect on a loopback; on a containerized
+ * (cloud) host it can't bind a loopback the user's browser reaches, so it falls
+ * back to the manual `code#state` paste path. The manual path performs Claude
+ * subscription inference OFF the user's device, the ToS-sensitive pattern
+ * documented in `.private/acp-claude-code-tos-memo.md`.
  */
 async function handleStartAuth(
   _args: RouteHandlerArgs,
 ): Promise<StartResponse> {
   cleanupExpiredFlows();
 
-  if (getIsContainerized()) {
-    if (!isAcpClaudeOauthConnectEnabled(loadConfig())) {
-      throw new ForbiddenError(
-        "Connect Claude is not enabled for this workspace.",
-      );
-    }
-    return handleStartManualAuth();
+  if (!isAcpClaudeOauthConnectEnabled(loadConfig())) {
+    throw new ForbiddenError(
+      "Connect Claude is not enabled for this workspace.",
+    );
   }
 
-  return handleStartLocalAuth();
+  return getIsContainerized()
+    ? handleStartManualAuth()
+    : handleStartLocalAuth();
 }
 
 async function handleStartLocalAuth(): Promise<StartResponse> {
