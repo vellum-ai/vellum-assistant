@@ -46,6 +46,11 @@ mock.module("@/generated/api/client.gen", () => ({ client: {} }));
 const setDeviceBoolMock = mock((_name: string, _value: boolean) => {});
 mock.module("@/utils/device-settings", () => ({
   setDeviceBool: setDeviceBoolMock,
+  // The real diagnostics-consent chokepoint runs against this mock; provide
+  // its read surface (only reached on unknown inputs, never for the explicit
+  // choices these tests exercise).
+  getDeviceBool: (_name: string, fallback: boolean) => fallback,
+  getDeviceSetting: (_name: string, fallback: string) => fallback,
 }));
 
 import {

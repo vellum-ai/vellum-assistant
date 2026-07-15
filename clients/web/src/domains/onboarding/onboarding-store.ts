@@ -100,8 +100,8 @@ const useOnboardingStoreBase = create<OnboardingStore>()((set) => ({
     set({ shareDiagnostics: value });
     // Writes only the saved preference. The effective reporting gate
     // (`device:diagnostics_reporting`) — which actually drives the Sentry
-    // clients via the `sentry-control.ts` watcher — is written separately by
-    // the consent chokepoint (`setDiagnosticsReportingGate`).
+    // clients via the `sentry-control.ts` watcher — is written solely by the
+    // consent chokepoints in `lib/consent/diagnostics-consent.ts`.
     persistShareChoice(KEY_SHARE_DIAGNOSTICS, value);
   },
   setTosAccepted: (value) => {
