@@ -74,6 +74,8 @@ interface FakeConversation {
   callSessionId: string | undefined;
   forcePromptSideEffects: boolean;
   currentRequestId: string | undefined;
+  currentActiveSurfaceId?: string | undefined;
+  currentPage?: string | undefined;
   isProcessing: () => boolean;
   hasQueuedMessages?: () => boolean;
   waitForIdle: (options: WaitForIdleCall) => Promise<boolean>;
@@ -120,6 +122,8 @@ function makeFakeConversation(opts: {
     callSessionId: undefined,
     forcePromptSideEffects: false,
     currentRequestId: undefined,
+    currentActiveSurfaceId: undefined,
+    currentPage: undefined,
     isProcessing: () => opts.processing,
     hasQueuedMessages: opts.hasQueuedMessages,
     waitForIdle: (options) => {
@@ -373,6 +377,46 @@ describe("startVoiceTurn surface-resume metadata", () => {
 
     const echo = broadcasts.find((m) => m.type === "user_message_echo");
     expect(echo?.text).toBe("what's the weather");
+  });
+
+  test("a resume restores activeSurfaceId and clears a stale currentPage", async () => {
+    const fake = makeFakeConversation({ processing: false });
+    fakeConversation = fake.conversation;
+    // A prior turn left a page live; the agent loop clears
+    // `currentActiveSurfaceId` between turns but not `currentPage`. The mock
+    // starts with `currentActiveSurfaceId` already undefined.
+    fake.conversation.currentPage = "settings.html";
+
+    await startVoiceTurn({
+      ...makeTurnOptions(),
+      content: "[User action on dynamic_page surface: submit]",
+      requestId: "surface-request-page",
+      activeSurfaceId: "surface-app-1",
+      // The surface action carries no page — the resume must clear the stale one.
+    });
+
+    // The resumed surface is restored, paired with its own (undefined) page
+    // rather than the prior turn's stale `settings.html`.
+    expect(fake.conversation.currentActiveSurfaceId).toBe("surface-app-1");
+    expect(fake.conversation.currentPage).toBeUndefined();
+  });
+
+  test("a normal turn leaves activeSurfaceId/currentPage untouched", async () => {
+    const fake = makeFakeConversation({ processing: false });
+    fakeConversation = fake.conversation;
+    fake.conversation.currentActiveSurfaceId = "prior-surface";
+    fake.conversation.currentPage = "prior.html";
+
+    await startVoiceTurn({
+      ...makeTurnOptions(),
+      content: "what's the weather",
+    });
+
+    // No `activeSurfaceId` on a normal STT turn → the guarded assignment is
+    // skipped and the fields keep their per-turn defaults (the agent loop, not
+    // the bridge, owns resetting them).
+    expect(fake.conversation.currentActiveSurfaceId).toBe("prior-surface");
+    expect(fake.conversation.currentPage).toBe("prior.html");
   });
 });
 
