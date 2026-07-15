@@ -25,8 +25,7 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import { setConfig } from "../../../../../__tests__/helpers/set-config.js";
-import { migrateAddMemoryV3Selections } from "../../../../../persistence/migrations/268-add-memory-v3-selections.js";
-import { migrateMemoryV3SelectionsMessageIdAndSections } from "../../../../../persistence/migrations/283-memory-v3-selections-message-id-and-sections.js";
+import { ensureMemoryV3SelectionsSchema } from "../../../../../persistence/migrations/338-move-memory-v3-selections-to-memory-db.js";
 import * as schema from "../../../../../persistence/schema/index.js";
 
 const realFlags = {
@@ -41,16 +40,20 @@ let storeMockActive = false;
 let liveEnabled = false;
 
 let testSqlite: Database;
+// Selection rows live on the dedicated memory connection, resolved via
+// `getMemorySqlite` — stubbed to a second in-memory DB carrying the relocated
+// table's schema. The fork-source fallback still reads `messages` from main.
+let memorySqlite: Database;
 let testDb = makeDb();
 function makeDb() {
   testSqlite = new Database(":memory:");
   testSqlite.exec("PRAGMA journal_mode=WAL");
   const db = drizzle(testSqlite, { schema });
-  migrateAddMemoryV3Selections(db);
-  migrateMemoryV3SelectionsMessageIdAndSections(db);
   // The fork-source fallback reads `messages.metadata.forkSourceMessageId`; the
   // inspector store touches only these two columns, so a minimal table suffices.
   testSqlite.exec(`CREATE TABLE messages (id TEXT PRIMARY KEY, metadata TEXT)`);
+  memorySqlite = new Database(":memory:");
+  ensureMemoryV3SelectionsSchema(memorySqlite);
   return db;
 }
 
@@ -66,7 +69,7 @@ function seed(
   }>,
   messageId: string | null = null,
 ): void {
-  const stmt = testSqlite.query(
+  const stmt = memorySqlite.query(
     `INSERT INTO memory_v3_selections
        (conversation_id, turn, slug, source, pinned, created_at,
         message_id, section_ordinal, section_title)
@@ -118,6 +121,8 @@ mock.module("../../../../../persistence/db-connection.js", () => ({
     storeMockActive
       ? testSqlite
       : realDb.getSqliteFrom(db as Parameters<typeof realDb.getSqliteFrom>[0]),
+  getMemorySqlite: () =>
+    storeMockActive ? memorySqlite : realDb.getMemorySqlite(),
 }));
 
 mock.module("../page-content.js", () => ({

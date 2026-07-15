@@ -20,6 +20,7 @@ import type { MemoryV3SelectionLog } from "../../../../api/responses/memory-v3-s
 import { getConfig } from "../../../../config/loader.js";
 import { isMemoryV3Live } from "../../../../config/memory-v3-gate.js";
 import { getDb, getSqliteFrom } from "../../../../persistence/db-connection.js";
+import { memorySqliteOrNull } from "../memory-db.js";
 import { getWorkspaceDir } from "../paths.js";
 import { readPage } from "../v2/page-store.js";
 import { capabilityOrDiskBody } from "./capabilities.js";
@@ -46,7 +47,11 @@ interface SelectionRow {
 const SELECTION_COLUMNS = `turn, slug, source, pinned, section_ordinal, section_title`;
 
 function rowsForTurn(conversationId: string, turn: number): SelectionRow[] {
-  return getSqliteFrom(getDb())
+  const raw = memorySqliteOrNull("rowsForTurn");
+  if (!raw) {
+    return [];
+  }
+  return raw
     .query(
       /*sql*/ `
       SELECT ${SELECTION_COLUMNS} FROM memory_v3_selections
@@ -59,8 +64,12 @@ function rowsForTurn(conversationId: string, turn: number): SelectionRow[] {
 
 function rowsForMessageIds(messageIds: string[]): SelectionRow[] {
   if (messageIds.length === 0) return [];
+  const raw = memorySqliteOrNull("rowsForMessageIds");
+  if (!raw) {
+    return [];
+  }
   const placeholders = messageIds.map(() => "?").join(", ");
-  return getSqliteFrom(getDb())
+  return raw
     .query(
       /*sql*/ `
       SELECT ${SELECTION_COLUMNS} FROM memory_v3_selections
@@ -249,18 +258,21 @@ function isSelectionSource(source: string): source is SelectionSource {
 }
 
 export function summarizeSelections(conversationId: string): SelectionSummary {
-  const rows = getSqliteFrom(getDb())
-    .query(
-      /*sql*/ `
+  const raw = memorySqliteOrNull("summarizeSelections");
+  const rows = raw
+    ? (raw
+        .query(
+          /*sql*/ `
       SELECT turn, slug, source FROM memory_v3_selections
       WHERE conversation_id = ?
     `,
-    )
-    .all(conversationId) as Array<{
-    turn: number;
-    slug: string;
-    source: string;
-  }>;
+        )
+        .all(conversationId) as Array<{
+        turn: number;
+        slug: string;
+        source: string;
+      }>)
+    : [];
 
   const bySource = Object.fromEntries(
     SELECTION_SOURCES.map((source) => [source, 0]),

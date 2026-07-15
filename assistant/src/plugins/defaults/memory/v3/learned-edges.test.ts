@@ -1,18 +1,23 @@
 /**
  * Tests for the learned-edge lane (`learned-edges.ts`).
  *
- * `computeLearnedEdgeGraph` takes the db handle directly (no module mocks):
- * each test seeds an in-memory SQLite db with `memory_v3_selections` rows
- * (via the real migration) and asserts the NPMI association graph. Rows
+ * `computeLearnedEdgeGraph` reads `memory_v3_selections` over the dedicated
+ * memory connection: each test installs an in-memory SQLite db into the
+ * `memory` singleton slot (where the accessor resolves its connection), seeds
+ * it with selection rows, and asserts the NPMI association graph. Rows
  * sharing a `(conversation_id, created_at)` form one selector call.
  */
 
 import { Database } from "bun:sqlite";
-import { beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
-import { migrateAddMemoryV3Selections } from "../../../../persistence/migrations/268-add-memory-v3-selections.js";
+import {
+  clearStoredDb,
+  setStoredDb,
+} from "../../../../persistence/db-singleton.js";
+import { ensureMemoryV3SelectionsSchema } from "../../../../persistence/migrations/338-move-memory-v3-selections-to-memory-db.js";
 import * as schema from "../../../../persistence/schema/index.js";
 import {
   computeLearnedEdgeGraph,
@@ -23,12 +28,15 @@ const HALF_LIFE_MS = 1_000_000;
 const NOW = 100_000;
 
 let sqlite: Database;
-let db: ReturnType<typeof drizzle<typeof schema>>;
 
 beforeEach(() => {
   sqlite = new Database(":memory:");
-  db = drizzle(sqlite, { schema });
-  migrateAddMemoryV3Selections(db);
+  ensureMemoryV3SelectionsSchema(sqlite);
+  setStoredDb("memory", drizzle(sqlite, { schema }), () => sqlite.close());
+});
+
+afterEach(() => {
+  clearStoredDb("memory");
 });
 
 let nextTurn = 0;
@@ -44,25 +52,22 @@ function seedCall(slugs: string[], createdAt = NOW, conv = "conv-1"): void {
 }
 
 function graphOf(overrides: Partial<LearnedEdgesOptions> = {}) {
-  return computeLearnedEdgeGraph(
-    { db },
-    {
-      halfLifeMs: HALF_LIFE_MS,
-      minCount: 2,
-      npmiFloor: 0.2,
-      maxPerPage: 6,
-      now: NOW,
-      windowMs: NOW,
-      knownSlugs: new Set([
-        "page-a",
-        "page-b",
-        "page-c",
-        "page-d",
-        "skills/widget",
-      ]),
-      ...overrides,
-    },
-  );
+  return computeLearnedEdgeGraph({
+    halfLifeMs: HALF_LIFE_MS,
+    minCount: 2,
+    npmiFloor: 0.2,
+    maxPerPage: 6,
+    now: NOW,
+    windowMs: NOW,
+    knownSlugs: new Set([
+      "page-a",
+      "page-b",
+      "page-c",
+      "page-d",
+      "skills/widget",
+    ]),
+    ...overrides,
+  });
 }
 
 const peersOf = (

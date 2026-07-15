@@ -445,6 +445,8 @@ import { migrateBackfillTelemetryEventsOutbox } from "./migrations/334-backfill-
 import { migrateCollapseMemoryEmbedBacklog } from "./migrations/335-collapse-memory-embed-backlog.js";
 import { migrateMoveMemoryV2ActivationLogsToMemoryDb } from "./migrations/336-move-memory-v2-activation-logs-to-memory-db.js";
 import { migrateMoveMemoryRecallLogsToMemoryDb } from "./migrations/337-move-memory-recall-logs-to-memory-db.js";
+import { migrateMoveMemoryV3SelectionsToMemoryDb } from "./migrations/338-move-memory-v3-selections-to-memory-db.js";
+import { migrateMoveActivationSessionsToMemoryDb } from "./migrations/339-move-activation-sessions-to-memory-db.js";
 import type { MigrationStep } from "./migrations/run-migrations.js";
 
 export const migrationSteps: MigrationStep[] = [
@@ -1377,5 +1379,18 @@ export const migrationSteps: MigrationStep[] = [
       "migrateMemoryRecallLogsQueryContext",
       "migrateDeletePrivateConversations",
     ],
+  },
+  {
+    name: "migrateMoveMemoryV3SelectionsToMemoryDb",
+    run: migrateMoveMemoryV3SelectionsToMemoryDb,
+    dependsOn: [
+      "migrateAddMemoryV3Selections",
+      "migrateMemoryV3SelectionsMessageIdAndSections",
+    ],
+  },
+  {
+    name: "migrateMoveActivationSessionsToMemoryDb",
+    run: migrateMoveActivationSessionsToMemoryDb,
+    dependsOn: ["createActivationSessionsTable"],
   },
 ];
