@@ -20,21 +20,20 @@ const ITEMS: SegmentControlItem<RecencyWindow>[] = [
 /**
  * Segmented "All · Month · Week" control that picks the recency window the graph
  * emphasizes: concepts updated outside the window ghost out (like non-matches of
- * the search lens), so "what did it learn recently?" pops. Marked
- * `data-graph-control` so clicks don't start an orbit drag.
+ * the search lens), so "what did it learn recently?" pops. The caller's
+ * positioning wrapper carries `data-graph-control` so clicks don't start an
+ * orbit drag.
  */
 export function RecencyLens({ value, onChange }: RecencyLensProps) {
   return (
-    <div data-graph-control>
-      <SegmentControl<RecencyWindow>
-        ariaLabel="Recency window"
-        items={ITEMS}
-        value={value}
-        onChange={onChange}
-        // Labeled mode defaults to full width with flex-1 segments; keep it
-        // compact (sized to its content) for the floating graph overlay.
-        className="!w-auto [&>*]:!flex-none"
-      />
-    </div>
+    <SegmentControl<RecencyWindow>
+      ariaLabel="Recency window"
+      items={ITEMS}
+      value={value}
+      onChange={onChange}
+      // Labeled mode defaults to full width with flex-1 segments; keep it
+      // compact (sized to its content) for the floating graph overlay.
+      className="!w-auto [&>*]:!flex-none"
+    />
   );
 }
