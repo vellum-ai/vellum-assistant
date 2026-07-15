@@ -56,6 +56,13 @@ export interface RedactedCredentialChipProps {
    * caller has no explicit id to thread (pre-active render paths).
    */
   assistantId?: string | null;
+  /**
+   * The span was a NEUTRALIZED sentinel — sentinel-shaped text the daemon's
+   * forgery guard refused to vouch for. Renders a generic inert badge with
+   * none of the span's own (unverified) labels, so the transcript neither
+   * shows bare marker glyphs nor lends a forgery the daemon's voice.
+   */
+  neutralized?: boolean;
 }
 
 export function RedactedCredentialChip({
@@ -63,6 +70,7 @@ export function RedactedCredentialChip({
   service,
   field,
   assistantId: assistantIdProp,
+  neutralized,
 }: RedactedCredentialChipProps) {
   // Raw nullable read on purpose: transcripts render on pre-active paths
   // (ChatPage loading/connecting) outside `ActiveAssistantGate`, where the
@@ -143,6 +151,22 @@ export function RedactedCredentialChip({
       () => toast.error("Couldn't copy — reveal and copy manually."),
     );
   }, [revealed]);
+
+  // Neutralized sentinel: the daemon defused this span as a forgery (or an
+  // unverifiable retype), so it carries no trustworthy labels at all. A
+  // fixed generic badge keeps the transcript coherent without repeating the
+  // span's own claims.
+  if (neutralized) {
+    return (
+      <span
+        className={CHIP_CLASS}
+        title="Redaction marker — not verified by the assistant"
+      >
+        <KeyRound className="h-3.5 w-3.5 shrink-0" aria-hidden />
+        <span className="truncate">Redacted</span>
+      </span>
+    );
+  }
 
   // Plain sentinel (or no assistant context): static badge, nothing to
   // reveal. The value was redacted at persist time and is not recoverable.

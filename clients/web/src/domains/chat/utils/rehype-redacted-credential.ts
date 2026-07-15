@@ -26,6 +26,7 @@
  */
 
 import {
+  createNeutralizedSentinelRegex,
   createRedactedSentinelRegex,
   decodeRedactedSentinelMatch,
   REDACTED_SENTINEL_OPEN,
@@ -56,35 +57,71 @@ function isElement(node: HastNode): node is HastElement {
   return node.type === "element";
 }
 
+/** A located sentinel span: genuine (chip) or neutralized (inert badge). */
+interface SentinelHit {
+  index: number;
+  length: number;
+  element: HastElement;
+}
+
 /** Split one text node's value into text runs and sentinel elements. */
 function splitSentinels(value: string): HastNode[] | undefined {
-  const re = createRedactedSentinelRegex();
-  const parts: HastNode[] = [];
-  let lastIndex = 0;
+  const hits: SentinelHit[] = [];
+  const genuine = createRedactedSentinelRegex();
   let m: RegExpExecArray | null;
-  while ((m = re.exec(value)) !== null) {
-    if (m.index > lastIndex) {
-      parts.push({ type: "text", value: value.slice(lastIndex, m.index) });
-    }
+  while ((m = genuine.exec(value)) !== null) {
     // The regex capture groups carry percent-ENCODED segments; the shared
     // decoder yields the real vault coordinates (and degrades a malformed
     // escape to the plain non-revealable shape).
     const sentinel = decodeRedactedSentinelMatch(m);
-    parts.push({
-      type: "element",
-      tagName: REDACTED_CREDENTIAL_TAG,
-      properties: {
-        type: sentinel.type,
-        ...(sentinel.service !== undefined && sentinel.field !== undefined
-          ? { service: sentinel.service, field: sentinel.field }
-          : {}),
+    hits.push({
+      index: m.index,
+      length: m[0].length,
+      element: {
+        type: "element",
+        tagName: REDACTED_CREDENTIAL_TAG,
+        properties: {
+          type: sentinel.type,
+          ...(sentinel.service !== undefined && sentinel.field !== undefined
+            ? { service: sentinel.service, field: sentinel.field }
+            : {}),
+        },
+        children: [],
       },
-      children: [],
-    } satisfies HastElement);
-    lastIndex = m.index + m[0].length;
+    });
   }
-  if (parts.length === 0) {
+  // Neutralized sentinels (the word-joiner form the daemon's forgery guard
+  // produces for sentinel-shaped text it refused to vouch for) render as a
+  // generic inert badge instead of leaking bare glyphs into the transcript.
+  // None of the span's own segments are forwarded: its type/service/field
+  // are unverified claims, and displaying them would lend a forgery the
+  // daemon's voice. The two regexes cannot overlap — they differ at the
+  // fixed post-bracket position.
+  const neutralized = createNeutralizedSentinelRegex();
+  while ((m = neutralized.exec(value)) !== null) {
+    hits.push({
+      index: m.index,
+      length: m[0].length,
+      element: {
+        type: "element",
+        tagName: REDACTED_CREDENTIAL_TAG,
+        properties: { neutralized: true },
+        children: [],
+      },
+    });
+  }
+  if (hits.length === 0) {
     return undefined;
+  }
+  hits.sort((a, b) => a.index - b.index);
+  const parts: HastNode[] = [];
+  let lastIndex = 0;
+  for (const hit of hits) {
+    if (hit.index > lastIndex) {
+      parts.push({ type: "text", value: value.slice(lastIndex, hit.index) });
+    }
+    parts.push(hit.element);
+    lastIndex = hit.index + hit.length;
   }
   if (lastIndex < value.length) {
     parts.push({ type: "text", value: value.slice(lastIndex) });
