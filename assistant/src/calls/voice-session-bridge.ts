@@ -826,12 +826,18 @@ export async function startVoiceTurn(
 
   // Hook into conversation to intercept confirmation_request and secret_request events.
   // Voice auto-denies/auto-allows/auto-resolves these since there's no interactive UI.
-  const autoDeny = !isGuardian;
-  const autoAllow = isGuardian;
   let lastError: string | null = null;
   conversation.updateClient(async (msg: ServerMessage) => {
     if (msg.type === "confirmation_request") {
-      if (autoDeny) {
+      // Broadcast the request BEFORE resolving it: resolution synchronously
+      // broadcasts `interaction_resolved` (handleConfirmationResponse →
+      // prompter → pending-interactions), and attached clients (e.g. the
+      // web app behind a live-voice room) clear their approval card only on
+      // that event — resolving first would put `interaction_resolved`
+      // before `confirmation_request` on the wire, leaving an orphaned card
+      // whose Allow/Deny buttons 404.
+      broadcastMessage(msg);
+      if (!isGuardian) {
         // Non-guardian voice callers have no interactive approval UI.
         // The pre-exec gate (tool-approval-handler.ts) handles grant
         // consumption with retry for tool execution confirmations, but
@@ -872,7 +878,6 @@ export async function startVoiceTurn(
             conversation.handleConfirmationResponse(msg.requestId, "allow", {
               decisionContext: `Permission approved for "${msg.toolName}": guardian pre-approved via scoped grant.`,
             });
-            broadcastMessage(msg);
             return;
           }
         } catch (err) {
@@ -886,25 +891,34 @@ export async function startVoiceTurn(
           { turnId, toolName: msg.toolName },
           "Auto-denying confirmation request for non-guardian voice turn (no matching scoped grant)",
         );
+        // A local live-voice session (vellum channel) belongs to the device
+        // owner's own authenticated client, so a non-guardian turn there
+        // means guardian trust could not be resolved (fresh install,
+        // gateway unreachable) — tell the model verification failed rather
+        // than implying the owner lacks guardian access.
         conversation.handleConfirmationResponse(msg.requestId, "deny", {
-          decisionContext: `Permission denied for "${msg.toolName}": this voice call does not have interactive approval capabilities. Side-effect tools are not available for non-guardian voice callers. In your next assistant reply, explain briefly that this action requires guardian-level access and cannot be performed during this call.`,
+          decisionContext:
+            turnChannelContext.userMessageChannel === "vellum"
+              ? `Permission denied for "${msg.toolName}": the caller's permissions could not be verified for this voice session, so side-effect tools are unavailable. In your next assistant reply, briefly say you could not verify permissions for this action right now and suggest retrying or completing it in text chat.`
+              : `Permission denied for "${msg.toolName}": this voice call does not have interactive approval capabilities. Side-effect tools are not available for non-guardian voice callers. In your next assistant reply, explain briefly that this action requires guardian-level access and cannot be performed during this call.`,
         });
-        broadcastMessage(msg);
         return;
       }
-      if (autoAllow) {
-        log.info(
-          { turnId, toolName: msg.toolName },
-          "Auto-approving confirmation request for guardian voice turn",
-        );
-        conversation.handleConfirmationResponse(msg.requestId, "allow", {
-          decisionContext: `Permission approved for "${msg.toolName}": this is a verified guardian voice call.`,
-        });
-        broadcastMessage(msg);
-        return;
-      }
-    } else if (msg.type === "secret_request") {
-      // Voice calls have no secret-entry UI, so resolve immediately.
+      log.info(
+        { turnId, toolName: msg.toolName },
+        "Auto-approving confirmation request for guardian voice turn",
+      );
+      conversation.handleConfirmationResponse(msg.requestId, "allow", {
+        decisionContext: `Permission approved for "${msg.toolName}": this is a verified guardian voice call.`,
+      });
+      return;
+    }
+    if (msg.type === "secret_request") {
+      // Defense-in-depth: SecretPrompter.prompt fails fast with
+      // `unsupported_channel` on voice turns (supportsDynamicUi is forced
+      // off above), so a secret_request should never reach this handler.
+      // Resolve immediately anyway in case an emitter bypasses the
+      // prompter's channel check or races a capability install.
       log.info(
         { turnId, service: msg.service, field: msg.field },
         "Auto-resolving secret request for voice turn (no secret-entry UI)",

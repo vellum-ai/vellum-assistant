@@ -250,6 +250,10 @@ describe("LiveVoiceSession archive and metrics events", () => {
       assistantMessageChannel: "vellum",
       userMessageInterface: "macos",
       assistantMessageInterface: "macos",
+      // Pins the full production control prompt, including the no-UI rule
+      // (voice turns are non-interactive — everything is conveyed in speech).
+      voiceControlPrompt:
+        "You are speaking in a local live voice session. Keep replies brief and conversational. You cannot display cards, forms, or any on-screen UI during the call — convey everything in speech.",
     });
     callbacks?.assistant_text_delta?.(makeTextDelta("Hello there."));
     callbacks?.message_complete?.(makeMessageComplete());
