@@ -48,13 +48,17 @@ bun add -g @zed-industries/codex-acp               # codex
 
 ## Claude setup
 
-The `claude-agent-acp` adapter requires a Claude OAuth token. Store it once in the credential store and every spawn injects it as `CLAUDE_CODE_OAUTH_TOKEN` automatically:
+The `claude-agent-acp` adapter requires a Claude **OAuth token** (`sk-ant-oat…`), NOT an API key (`sk-ant-api…`). Every spawn injects the stored token as `CLAUDE_CODE_OAUTH_TOKEN` automatically. The write path rejects an API key in this field, so never direct a user to paste an `sk-ant-api…` key here.
+
+**Primary: the in-app Connect Claude Code flow.** Point the user to Settings → Models & Services → Connect Claude Code, or the inline Connect affordance shown when a spawn is missing the token. It mints and stores the OAuth token for them — one click on desktop (loopback), one paste on cloud — so the token never enters the conversation or the workspace config.
+
+**Fallback (environments without the UI):** the user runs `claude setup-token` on a machine where they are logged in to Claude, then stores the result via the secure prompt:
 
 ```bash
-assistant credentials set --service acp --field claude_oauth_token <token>
+assistant credentials prompt --service acp --field claude_oauth_token --label "Claude OAuth Token"
 ```
 
-When the token is missing, do NOT ask the user to paste it into chat. Collect it via the secure prompt instead: `assistant credentials prompt --service acp --field claude_oauth_token --label "Claude OAuth Token"`. That prompts the user through a secure UI so the token never enters the conversation or the workspace config. Users generate the token by running `claude setup-token` on a machine where they are logged in to Claude.
+Do NOT ask the user to paste the token into chat — the secure prompt keeps it out of the conversation and the workspace config.
 
 ## Codex setup
 
