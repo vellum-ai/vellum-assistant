@@ -1,7 +1,7 @@
 /**
  * Verifies that the cumulative `PromptResponse.usage` payload enriches the
  * emitted `acp_session_usage` event with the reported model and cache-read/
- * write token totals (fields PR 6 later persists).
+ * write token totals.
  */
 
 import { describe, expect, mock, test } from "bun:test";
