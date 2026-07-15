@@ -1,9 +1,8 @@
 import { describe, expect, test } from "bun:test";
 
 import { VELLUM_MANAGED_CONNECTION_NAME } from "../../providers/vellum-model-routing.js";
-import { resolveCallSiteConfig } from "../llm-resolver.js";
 import { completeCustomProfile } from "../profile-materialization.js";
-import { LLMConfigBase, LLMSchema, ProfileEntry } from "../schemas/llm.js";
+import { LLMConfigBase, ProfileEntry } from "../schemas/llm.js";
 
 const fullDefault = LLMConfigBase.parse({
   provider: "anthropic",
@@ -208,90 +207,4 @@ describe("completeCustomProfile", () => {
     expect(completed.thinking).not.toBe(fullDefault.thinking);
     expect(completed.contextWindow).not.toBe(fullDefault.contextWindow);
   });
-});
-
-// Equivalence with the live deep-merge resolver: on a profile-less call site
-// with no activeProfile, the custom profile is the only profile layer above
-// `llm.default`, which is exactly the standalone meaning materialization
-// bakes in. Partial and completed forms must resolve identically — this is
-// the contract that lets migration 128 rewrite profiles without changing
-// behavior under the current resolver, and lets the M6 resolver treat the
-// completed form as the profile's full meaning.
-//
-// (Deliberately NOT covered: a partial profile layered above other profiles
-// — e.g. mainAgent activeProfile above the balanced call-site layer — where
-// omitted fields inherit from the mid layer today. That context-dependent
-// meaning is unrepresentable as a single complete profile; the standalone
-// reading is the one that ships. See the M6 plan, Behavior changes #4.)
-describe("completeCustomProfile — resolver equivalence", () => {
-  const PARTIALS: Record<string, ProfileEntry> = {
-    empty: {},
-    "model only, served by default provider": { model: "claude-fable-5" },
-    "model only, implies another provider": { model: "gpt-5.5" },
-    "sampling only": { temperature: 0.3 },
-    "explicit null sampling": { temperature: null },
-    "nested thinking fragment": { thinking: { enabled: false } },
-    "tokens and effort": { maxTokens: 1234, effort: "low" },
-    "explicit cross-provider without connection": {
-      provider: "openai",
-      model: "gpt-5.4",
-    },
-    "complete profile": {
-      provider: "openai",
-      model: "gpt-5.4",
-      provider_connection: "openai-personal",
-      maxTokens: 9000,
-      effort: "high",
-      temperature: 0.1,
-      topP: 0.5,
-    },
-    "metadata alongside config": {
-      model: "gpt-5.5",
-      label: "My GPT",
-      description: "d",
-      status: "active",
-    },
-  };
-
-  // Run the whole matrix against two defaults: the schema-typical null
-  // sampling, and a default with non-null temperature/topP — the latter is
-  // what catches sampling-inheritance regressions (null defaults make those
-  // cases pass vacuously).
-  const DEFAULTS: Record<string, LLMConfigBase> = {
-    "null sampling": fullDefault,
-    "non-null sampling": LLMConfigBase.parse({
-      ...fullDefault,
-      temperature: 0.7,
-      topP: 0.9,
-    }),
-  };
-
-  const resolveWith = (dflt: LLMConfigBase, profile: ProfileEntry) => {
-    const llm = LLMSchema.parse({
-      default: dflt,
-      profiles: { "custom-x": { source: "user", ...profile } },
-    });
-    return resolveCallSiteConfig("vision", llm, {
-      overrideProfile: "custom-x",
-      // The equivalence contract is a legacy-cascade property by definition:
-      // materialization pins what the MERGE produced. Under
-      // override-or-default semantics a partial profile falls back instead
-      // of merging (pinned by llm-resolver-override-or-default.test.ts).
-      resolutionSemantics: "legacy-merge",
-    });
-  };
-
-  for (const [defaultName, dflt] of Object.entries(DEFAULTS)) {
-    for (const [name, partial] of Object.entries(PARTIALS)) {
-      test(`partial and completed resolve identically (${defaultName} default): ${name}`, () => {
-        const completed = completeCustomProfile(dflt, {
-          source: "user",
-          ...partial,
-        });
-        expect(resolveWith(dflt, completed)).toEqual(
-          resolveWith(dflt, partial),
-        );
-      });
-    }
-  }
 });

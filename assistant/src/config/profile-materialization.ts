@@ -10,18 +10,18 @@ import type { LLMConfigBase, ProfileEntry } from "./schemas/llm.js";
 
 /**
  * Materializes a partial custom profile into a complete, standalone
- * override: what `resolveCallSiteConfig` produces when this profile is the
- * only profile layer above `llm.default`. Replicates the deep-merge
- * resolver's non-obvious rules exactly:
+ * override by filling absent fields from `dflt` (the workspace's default
+ * base config — the legacy raw `llm.default` blob when one is still on
+ * disk, otherwise `LLMConfigBase` schema defaults). Single-winner
+ * resolution never merges one profile's fields into another, so a custom
+ * profile must carry its own provider and model to be a usable selection
+ * target — materialization is what completes it. Rules:
  *
- * - Non-null default `temperature`/`topP` ARE inherited — winning-profile
- *   scoping only blocks one profile's sampling from leaking under another;
- *   `llm.default`'s base sampling stands when no profile opts in. Null
- *   defaults are skipped (same resolved result, no noise). `logitBias` is
- *   NEVER inherited — the resolver deletes non-profile values post-merge.
- * - A model-only profile gets the provider `withImpliedProviders` would
- *   stamp: the default provider when it serves the model, else the model's
- *   catalog owner.
+ * - Non-null base `temperature`/`topP` ARE inherited; null values are
+ *   skipped (same resolved result, no noise). `logitBias` is NEVER
+ *   inherited — it is profile-opt-in only.
+ * - A model-only profile gets the provider the catalog implies: the base
+ *   provider when it serves the model, else the model's catalog owner.
  *
  * Mix profiles (no config fields, schema-enforced) and managed profiles
  * (bodies owned by the code catalog) pass through untouched. Idempotent,

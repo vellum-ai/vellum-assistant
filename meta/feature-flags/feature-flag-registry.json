@@ -393,14 +393,6 @@
       "label": "Summarize Up To Here",
       "description": "Show the per-message Summarize up to here action and enable the conversation summarize endpoint",
       "defaultEnabled": false
-    },
-    {
-      "id": "override-or-default-resolution",
-      "scope": "assistant",
-      "key": "override-or-default-resolution",
-      "label": "Override-or-Default Profile Resolution",
-      "description": "Resolve inference profiles as single complete overrides (or the call site's default intent through the default provider) instead of the legacy deep-merge cascade. Ships enabled; disable as a kill switch to restore merge semantics.",
-      "defaultEnabled": true
     }
   ]
 }

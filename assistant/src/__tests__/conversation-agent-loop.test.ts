@@ -43,11 +43,10 @@ const disabledCatalogDefaultProfiles: Record<string, unknown> = {
 
 /**
  * Seed the workspace `llm` config for real. `setConfig` replaces the top-level
- * key wholesale, so every call carries the mainAgent call-site tweak: it
- * applies under BOTH resolution semantics (the legacy cascade layers it over
- * llm.default; override-or-default applies it over the winner), so the small
- * context window that the overflow/compaction tests depend on holds
- * regardless of the override-or-default-resolution flag.
+ * key wholesale, so every call carries the mainAgent call-site tweak — it
+ * applies over the winning profile, so the small context window that the
+ * overflow/compaction tests depend on holds regardless of which profile wins
+ * selection.
  */
 function seedLlmConfig(options?: {
   profiles?: Record<string, unknown>;
@@ -947,13 +946,21 @@ beforeEach(() => {
 describe("session-agent-loop", () => {
   describe("user-prompt-submit hook failures", () => {
     test("passes the effective profile to hooks even when it was already announced", async () => {
+      // Both profiles are complete (provider + model) so each is a usable
+      // winner: the conversation's pinned "balanced" must win selection over
+      // the workspace-active "quality".
       seedLlmConfig({
         profiles: {
           balanced: {
             label: "Balanced",
+            provider: "fireworks",
             model: "accounts/fireworks/models/glm-5p2",
           },
-          quality: { label: "Quality", model: "claude-opus-4-8" },
+          quality: {
+            label: "Quality",
+            provider: "anthropic",
+            model: "claude-opus-4-8",
+          },
         },
         activeProfile: "quality",
       });

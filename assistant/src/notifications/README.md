@@ -550,6 +550,6 @@ from the unified `llm` block. Override defaults by setting either of:
 | `llm.callSites.notificationDecision` | object | _(unset)_ | Provider/model/effort/etc. override for the decision engine call site      |
 | `llm.callSites.preferenceExtraction` | object | _(unset)_ | Provider/model/effort/etc. override for the preference extractor call site |
 
-When a call site override is unset, the resolver falls back to `llm.default`.
+When a call site override is unset, the resolver falls back to the shipped call-site default profile.
 
 The notification pipeline is always active -- signals are processed and dispatched as soon as the daemon is running. The audit trail (events, decisions, deliveries) is written for every signal.

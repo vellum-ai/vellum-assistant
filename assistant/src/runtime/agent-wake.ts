@@ -70,8 +70,6 @@ import type {
 import type { InterfaceId } from "../channels/types.js";
 import { resolveEffectiveContextWindow } from "../config/llm-context-resolution.js";
 import {
-  isOverrideOrDefaultResolutionEnabled,
-  resolveDefaultProfileKey,
   resolveProfilelessModelKey,
   selectWinningProfile,
 } from "../config/llm-resolver.js";
@@ -439,7 +437,9 @@ async function defaultResolveTarget(
     await import("../daemon/conversation-store.js");
   try {
     const existing = getConversation(conversationId);
-    if (!existing) return null;
+    if (!existing) {
+      return null;
+    }
     if (existing.archivedAt != null) {
       log.info(
         { conversationId },
@@ -589,7 +589,9 @@ function inspectWakeOutput(
   let hasVisibleText = false;
   const toolUseNames: string[] = [];
   for (const msg of tailMessages) {
-    if (msg.role !== "assistant") continue;
+    if (msg.role !== "assistant") {
+      continue;
+    }
     const blocks = Array.isArray(msg.content) ? msg.content : [];
     for (const block of blocks) {
       if (block.type === "text" && typeof block.text === "string") {
@@ -749,21 +751,14 @@ export async function wakeAgentForOpportunity(
       overrideProfile,
       forceOverrideProfile,
     });
-    // Same winner-selection sourcing as the agent loop's key: under
-    // override-or-default semantics a hand-mirrored chain would disagree
-    // with dispatch (a non-forced override now wins on every call site).
+    // Same winner-selection sourcing as the agent loop's key: a hand-mirrored
+    // chain would disagree with dispatch (a non-forced override wins on every
+    // call site).
     const modelProfileKey =
-      (isOverrideOrDefaultResolutionEnabled()
-        ? selectWinningProfile(callSite, config.llm, {
-            ...(overrideProfile != null ? { overrideProfile } : {}),
-            selectionSeed: conversationId,
-          }).profileName
-        : ((forceOverrideProfile || callSite === "mainAgent"
-            ? overrideProfile
-            : undefined) ??
-          resolveDefaultProfileKey(callSite, config.llm) ??
-          overrideProfile ??
-          resolveDefaultProfileKey("mainAgent", config.llm))) ??
+      selectWinningProfile(callSite, config.llm, {
+        ...(overrideProfile != null ? { overrideProfile } : {}),
+        selectionSeed: conversationId,
+      }).profileName ??
       resolveProfilelessModelKey(callSite, config.llm, {
         ...(overrideProfile != null ? { overrideProfile } : {}),
         ...(forceOverrideProfile ? { forceOverrideProfile: true } : {}),
@@ -1123,7 +1118,9 @@ export async function wakeAgentForOpportunity(
     // and renames `text_delta` → `assistant_text_delta`; bypassing it
     // would ship malformed wire frames.
     const goLive = (currentHistory: Message[]): void => {
-      if (mode === "live") return;
+      if (mode === "live") {
+        return;
+      }
       if (!surfaceInjected) {
         if (!opts.suppressWakeSurface) {
           const tailStart = baselineLength + wakeHintMessageCount;
@@ -1186,7 +1183,9 @@ export async function wakeAgentForOpportunity(
       currentHistory: Message[],
     ): Promise<void> => {
       const start = baselineLength + wakeHintMessageCount + persistedTailIndex;
-      if (start >= currentHistory.length) return;
+      if (start >= currentHistory.length) {
+        return;
+      }
       const newMessages = currentHistory.slice(start);
       for (const msg of newMessages) {
         conversation.messages.push(msg);
@@ -1207,9 +1206,13 @@ export async function wakeAgentForOpportunity(
     let wakeToolScopeRestored = false;
     let restoreWakeToolScope: (() => void) | null = null;
     const restoreWakeAllowedTools = (): void => {
-      if (wakeToolScopeRestored) return;
+      if (wakeToolScopeRestored) {
+        return;
+      }
       wakeToolScopeRestored = true;
-      if (!restoreWakeToolScope) return;
+      if (!restoreWakeToolScope) {
+        return;
+      }
       try {
         restoreWakeToolScope();
       } catch (err) {
@@ -1220,7 +1223,9 @@ export async function wakeAgentForOpportunity(
       }
     };
     const applyWakeAllowedTools = (): boolean => {
-      if (!opts.allowedTools) return true;
+      if (!opts.allowedTools) {
+        return true;
+      }
       try {
         restoreWakeToolScope = scopeWakeAllowedTools(
           conversation,
@@ -1342,7 +1347,9 @@ export async function wakeAgentForOpportunity(
       const priorTurnTrust = conversation.currentTurnTrustContext;
       conversation.currentCallSite = callSite;
       conversation.currentTurnOverrideProfile = overrideProfile;
-      if (opts.clientless) conversation.hasNoClient = true;
+      if (opts.clientless) {
+        conversation.hasNoClient = true;
+      }
       // Per-turn guardian elevation for the wake's tools, set after the pre-run
       // reads so a pre-run failure can't leak it; restored in the finally.
       if (opts.trustContext) {
