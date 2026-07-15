@@ -381,7 +381,14 @@ export async function runCompile(
 
   // An app without src/main.tsx has nothing to build — report a diagnostic
   // instead of letting the source scan below throw on the missing directory.
+  // When a source tree exists but the entrypoint is gone, also clear stale
+  // dist/ so serve/publish surface the failure instead of old compiled
+  // output; a directory with no src/ at all (e.g. a retired single-file app)
+  // is left untouched.
   if (!existsSync(entryPoint)) {
+    if (existsSync(srcDir) && existsSync(distDir)) {
+      rmSync(distDir, { recursive: true, force: true });
+    }
     return {
       ok: false,
       errors: [
