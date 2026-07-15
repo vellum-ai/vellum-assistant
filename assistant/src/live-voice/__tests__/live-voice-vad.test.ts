@@ -417,8 +417,8 @@ describe("LiveVoiceSession server VAD", () => {
     await waitFor(() => releaseDeltaSend !== undefined);
     await waitFor(() => streamTtsAudio.mock.calls.length === 1);
 
-    // User speaks while the tts_audio frame is queued but unsent: no audio
-    // has reached the client, so the turn must not be treated as audible.
+    // A short blip while the tts_audio frame is queued but unsent: the
+    // sustained-speech guard is not met, so nothing cancels yet.
     await session.handleBinaryAudio(LOUD_CHUNK);
     await flushAsyncCallbacks();
     expect(countType(frames, "turn_cancelled")).toBe(0);
@@ -445,7 +445,7 @@ describe("LiveVoiceSession server VAD", () => {
     await waitFor(() => abort.mock.calls.length === 1);
   });
 
-  test("speech while the turn is still thinking emits speech_started but does not cancel", async () => {
+  test("sustained speech while the turn is still thinking aborts the pre-TTS turn", async () => {
     let callbacks: VoiceTurnCallbacks | undefined;
     const abort = mock();
     const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
@@ -466,11 +466,72 @@ describe("LiveVoiceSession server VAD", () => {
     await session.handleBinaryAudio(LOUD_CHUNK);
     await waitFor(() => frames.some((frame) => frame.type === "thinking"));
 
-    // No TTS audio has been forwarded yet — the turn is still "thinking".
+    // No assistant_text_delta yet — the turn is still pre-TTS "thinking".
+    // Sustained speech over the unspoken reply meets the barge-in guard and
+    // cancels the in-flight turn before it ever starts talking (JARVIS-1266).
+    await session.handleBinaryAudio(SUSTAINED_LOUD_CHUNK);
+    await waitFor(() =>
+      frames.some((frame) => frame.type === "turn_cancelled"),
+    );
+
+    const types = frameTypes(frames);
+    const bargeInSpeechStartedIndex = types.lastIndexOf("speech_started");
+    const turnCancelledIndex = types.indexOf("turn_cancelled");
+    expect(bargeInSpeechStartedIndex).toBeGreaterThan(-1);
+    expect(bargeInSpeechStartedIndex).toBeLessThan(turnCancelledIndex);
+    expect(countType(frames, "turn_cancelled")).toBe(1);
+    expect(frames[turnCancelledIndex]).toMatchObject({
+      type: "turn_cancelled",
+      turnId: "live-turn-1",
+    });
+    await waitFor(() => abort.mock.calls.length === 1);
+
+    // The aborted thinking turn never produced audio and never completes:
+    // no orphaned/late assistant response lands after the interrupt.
+    expect(countType(frames, "tts_audio")).toBe(0);
+    expect(
+      frames.some(
+        (frame) => frame.type === "tts_done" && frame.turnId === "live-turn-1",
+      ),
+    ).toBe(false);
+
+    // The barge-in speech was captured from onset into the next utterance,
+    // which starts its own turn. Exactly one startVoiceTurn per real utterance
+    // (the bridge emits one user_message_echo per call) — no double echo.
+    await waitFor(() => startVoiceTurn.mock.calls.length === 2);
+    expect(startVoiceTurn.mock.calls[1]?.[0]).toMatchObject({
+      content: "second question",
+    });
+    expect(countType(frames, "utterance_end")).toBe(2);
+  });
+
+  test("a brief blip while thinking arms the guard but does not cancel", async () => {
+    let callbacks: VoiceTurnCallbacks | undefined;
+    const abort = mock();
+    const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
+      callbacks ??= options.callbacks;
+      return { turnId: "bridge-turn", abort };
+    });
+    const streamTtsAudio = mock(async (options: LiveVoiceTtsOptions) => {
+      options.onAudioChunk(makeTtsChunk("assistant audio"));
+      return makeTtsResult("assistant audio");
+    });
+    const { frames, session } = createHarness({
+      finals: ["first question", "second question"],
+      startVoiceTurn,
+      streamTtsAudio,
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => frames.some((frame) => frame.type === "thinking"));
+
+    // A short blip (well under bargeInMinSpeechMs) while the turn is still
+    // "thinking": the sustained-speech guard arms but does not trip, so a
+    // cough or noise cannot kill the in-flight agent loop.
     await session.handleBinaryAudio(LOUD_CHUNK);
     await flushAsyncCallbacks();
 
-    expect(countType(frames, "speech_started")).toBe(2);
     expect(countType(frames, "turn_cancelled")).toBe(0);
     expect(abort).not.toHaveBeenCalled();
 
@@ -483,6 +544,7 @@ describe("LiveVoiceSession server VAD", () => {
       ),
     );
     expect(countType(frames, "turn_cancelled")).toBe(0);
+    expect(abort).not.toHaveBeenCalled();
   });
 
   test("runs two VAD turns back-to-back on one session", async () => {
