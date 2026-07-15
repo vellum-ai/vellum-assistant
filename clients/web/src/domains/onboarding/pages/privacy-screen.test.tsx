@@ -35,8 +35,7 @@ mock.module("@/domains/onboarding/funnel-events", () => ({
   emitOnboardingFunnelStepCompleted: emitFunnelStepCompletedMock,
   getOnboardingFunnelSessionId: () => "session-1",
   ONBOARDING_FUNNEL_STEPS: { privacyTos: "privacy_tos" },
-  ONBOARDING_FUNNEL_VARIANTS: { control: "control", paredDown: "pared_down" },
-  resolveOnboardingFunnelVariant: () => "control",
+  ONBOARDING_FUNNEL_VARIANTS: { control: "control" },
 }));
 
 mock.module("@/runtime/is-electron", () => ({ isElectron: () => true }));

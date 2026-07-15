@@ -12,7 +12,6 @@ import {
     getOnboardingFunnelSessionId,
     ONBOARDING_FUNNEL_STEPS,
     ONBOARDING_FUNNEL_VARIANTS,
-    resolveOnboardingFunnelVariant,
 } from "@/domains/onboarding/funnel-events";
 import { onboardingDestinationAfterConsent } from "@/domains/onboarding/onboarding-destination";
 import { isLocalMode } from "@/lib/local-mode";
@@ -34,7 +33,6 @@ export function PrivacyScreen() {
   const userId = useAuthStore.use.user()?.id ?? null;
   const electron = isElectron();
   const isNative = useIsNativePlatform();
-  const preferredFunnelVariant = ONBOARDING_FUNNEL_VARIANTS.control;
   const [shareDiagnostics, setShareDiagnosticsReal] = useShareDiagnostics();
   const [tosAccepted, setTosAcceptedReal] = useTosAccepted();
   const [privacyConsent, setPrivacyConsentReal] = usePrivacyConsent();
@@ -66,10 +64,9 @@ export function PrivacyScreen() {
     // until the user opts in via settings or review-terms.
     saveConsent({ userId, tos: tosAccepted, privacy: privacyConsent, shareAnalytics: null, shareDiagnostics, hasPlatformSession });
     if (!isNative) {
-      const variant = resolveOnboardingFunnelVariant(preferredFunnelVariant);
       emitOnboardingFunnelStepCompleted(ONBOARDING_FUNNEL_STEPS.privacyTos, {
         userId,
-        variant,
+        variant: ONBOARDING_FUNNEL_VARIANTS.control,
       });
     }
 
@@ -94,7 +91,6 @@ export function PrivacyScreen() {
     isNative,
     isPreview,
     navigate,
-    preferredFunnelVariant,
     searchParams,
     shareDiagnostics,
     tosAccepted,
