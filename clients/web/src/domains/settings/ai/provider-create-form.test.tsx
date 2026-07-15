@@ -50,6 +50,7 @@ let createConnectionCalls: CreateConnectionCall[] = [];
 let createdConnection: ProviderConnection;
 let createResponseOk = true;
 let createResponseStatus = 200;
+let createResponseJson: unknown = null;
 let toastSuccessCalls: string[] = [];
 const initialLifecycleState = useAssistantLifecycleStore.getState();
 
@@ -74,6 +75,9 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
     createConnectionCalls.push(opts);
     return Promise.resolve({
       data: createResponseOk ? createdConnection : undefined,
+      // Mirrors the generated client: the error body arrives pre-parsed on
+      // `error`; the Response body is consumed and cannot be re-read.
+      error: createResponseOk ? undefined : createResponseJson,
       response: { ok: createResponseOk, status: createResponseStatus },
     });
   },
@@ -217,6 +221,7 @@ beforeEach(() => {
   createdConnection = makeConnection("anthropic-personal");
   createResponseOk = true;
   createResponseStatus = 200;
+  createResponseJson = null;
   toastSuccessCalls = [];
   useAssistantLifecycleStore.setState(initialLifecycleState, true);
 });
@@ -483,6 +488,37 @@ describe("ProviderCreateForm submit sequence", () => {
 
     await waitFor(() => {
       expect(toastSuccessCalls).toEqual(["Provider connected"]);
+    });
+  });
+
+  test("a 400 validation failure renders the daemon's field-specific message", async () => {
+    createResponseOk = false;
+    createResponseStatus = 400;
+    createResponseJson = {
+      error: { message: "Invalid base_url: must be a valid http(s) URL" },
+    };
+
+    render(
+      <ModalWrapper>
+        <ProviderCreateForm
+          assistantId={ASSISTANT_ID}
+          existingNames={[]}
+          defaultProviderType="anthropic"
+          onCreated={() => {}}
+          onCancel={() => {}}
+        />
+      </ModalWrapper>,
+    );
+
+    fireEvent.change(getInputByPlaceholder("Enter your API key"), {
+      target: { value: "sk-test-123" },
+    });
+    fireEvent.click(getButton("Add"));
+
+    await waitFor(() => {
+      expect(document.body.textContent).toContain(
+        "Invalid base_url: must be a valid http(s) URL",
+      );
     });
   });
 

@@ -50,9 +50,7 @@ export function parseCredentialRef(
   return { service: parts[1], field: parts.slice(2).join("/") };
 }
 
-export function connectionSaveErrorMessage(
-  status: number | undefined,
-): string {
+export function connectionSaveErrorMessage(status: number | undefined): string {
   switch (status) {
     case 409:
       return "A provider with these settings already exists.";
@@ -63,6 +61,28 @@ export function connectionSaveErrorMessage(
     default:
       return "Failed to save provider. Please try again.";
   }
+}
+
+/**
+ * Extract the daemon's error-envelope message for 400 validation responses,
+ * which are field-specific and actionable ("Invalid base_url: …"). Reads the
+ * generated SDK's already-parsed `error` field — the client consumes the
+ * response body, so re-reading `response.json()` would throw. Other statuses
+ * intentionally fall back to the generic status-mapped copy so internal
+ * identifiers never leak into the provider-first UI.
+ */
+export function validationErrorMessage(
+  status: number | undefined,
+  sdkError: unknown,
+): string | undefined {
+  if (status !== 400) {
+    return undefined;
+  }
+  const inner = (sdkError as { error?: { message?: unknown } } | null)?.error;
+  const message = inner?.message;
+  return typeof message === "string" && message.length > 0
+    ? message
+    : undefined;
 }
 
 export function providerConnectionDisplayName(
