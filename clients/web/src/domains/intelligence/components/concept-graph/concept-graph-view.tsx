@@ -925,6 +925,18 @@ export function ConceptGraphView({
   }, [layout.nodes]);
   const hasLearned = useMemo(() => layout.edges.some((e) => e.kind === "learned"), [layout.edges]);
   const hasLinks = useMemo(() => layout.edges.some((e) => e.kind !== "learned"), [layout.edges]);
+  // The Link/Learned toggles only render when both kinds are present. If a
+  // refetch leaves only one kind, the controls disappear — so clear any active
+  // filter, otherwise a previously-hidden kind stays hidden with no way to
+  // restore it. Mirrors the recency-window reset.
+  useEffect(() => {
+    if (
+      !(hasLinks && hasLearned) &&
+      (!edgeFilter.link || !edgeFilter.learned)
+    ) {
+      setEdgeFilter({ link: true, learned: true });
+    }
+  }, [hasLinks, hasLearned, edgeFilter]);
 
   // The intro banner shows over a supported graph (empty or populated), never
   // over the loading / error / unsupported states.
