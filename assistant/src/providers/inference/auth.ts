@@ -84,7 +84,7 @@ export function deriveAuthForProvider(
 export type ResolvedAuth =
   | { kind: "header"; headers: Record<string, string>; baseUrl?: string }
   | { kind: "runtime_proxy"; route: string }
-  | { kind: "none" };
+  | { kind: "none"; baseUrl?: string };
 
 // ---------------------------------------------------------------------------
 // Valid provider identifiers — derived from PROVIDER_CATALOG

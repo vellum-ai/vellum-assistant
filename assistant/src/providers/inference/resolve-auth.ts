@@ -84,7 +84,15 @@ export async function resolveAuth(
     }
 
     case "none":
-      return { ok: true, resolved: { kind: "none" } };
+      // Keyless endpoints still need their custom baseUrl threaded through
+      // (LM Studio / vLLM openai-compatible servers).
+      return {
+        ok: true,
+        resolved: {
+          kind: "none",
+          ...(safeBaseUrl ? { baseUrl: safeBaseUrl } : {}),
+        },
+      };
 
     case "oauth_subscription": {
       // Extract the credential prefix from the credential key.
