@@ -156,13 +156,9 @@ const HOVER_TINT_PERCENT = 22;
 
 interface IdentityOverviewProps {
   assistantId: string;
-  onOpenThread?: (message: string) => void;
 }
 
-export function IdentityOverview({
-  assistantId,
-  onOpenThread,
-}: IdentityOverviewProps) {
+export function IdentityOverview({ assistantId }: IdentityOverviewProps) {
   const queryClient = useQueryClient();
   const {
     components,
@@ -207,10 +203,6 @@ export function IdentityOverview({
   const handleAvatarChange = useCallback(() => {
     invalidateAvatar();
   }, [invalidateAvatar]);
-
-  const handleGenerateWithAI = useCallback(() => {
-    onOpenThread?.("I'd like to create a custom AI-generated avatar.");
-  }, [onOpenThread]);
 
   const sections = buildIdentitySections({
     supportsPlugins,
@@ -263,7 +255,6 @@ export function IdentityOverview({
         customImageUrl={customImageUrl}
         onSaveCharacter={handleAvatarChange}
         onUploadImage={handleAvatarChange}
-        onGenerateWithAI={onOpenThread ? handleGenerateWithAI : undefined}
         assistantName={identityQuery.data?.identity?.name || "Assistant"}
         onRenameSubmit={handleRename}
         isRenaming={isRenaming}
