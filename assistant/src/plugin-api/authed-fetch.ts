@@ -16,6 +16,7 @@ import type { CredentialInjectionTemplate } from "../tools/credentials/policy-ty
 import {
   resolveById,
   resolveCredentialRef,
+  type ResolvedCredential,
 } from "../tools/credentials/resolve.js";
 import {
   AUTHED_FETCH_CAPABILITY,
@@ -60,6 +61,45 @@ export class AuthedFetchError extends Error {
 // ---------------------------------------------------------------------------
 // Implementation
 // ---------------------------------------------------------------------------
+
+/**
+ * Server-side use mirrors CredentialBroker.serverUseById: capability must
+ * allow authedFetch, and domain-scoped (browser) credentials are rejected.
+ */
+function assertCredentialUsableForAuthedFetch(
+  resolved: ResolvedCredential,
+): void {
+  if (!isToolAllowed(AUTHED_FETCH_CAPABILITY, resolved.metadata.allowedTools)) {
+    const tools = resolved.metadata.allowedTools ?? [];
+    throw new AuthedFetchError(
+      "POLICY_DENIED",
+      `Credential ${resolved.service}/${resolved.field} does not allow "${AUTHED_FETCH_CAPABILITY}".` +
+        (tools.length === 0
+          ? " No tools are currently allowed — update allowed_tools via `assistant credentials set`."
+          : ` Allowed tools: ${tools.join(", ")}.`),
+    );
+  }
+
+  const domains = resolved.metadata.allowedDomains ?? [];
+  if (domains.length > 0) {
+    throw new AuthedFetchError(
+      "POLICY_DENIED",
+      `Credential ${resolved.service}/${resolved.field} has domain restrictions ` +
+        `(${domains.join(", ")}) and cannot be used server-side. ` +
+        "Remove domain restrictions or use a separate credential without domain policy.",
+    );
+  }
+}
+
+function isMetadataUsableForAuthedFetch(meta: {
+  allowedTools?: string[];
+  allowedDomains?: string[];
+}): boolean {
+  if (!isToolAllowed(AUTHED_FETCH_CAPABILITY, meta.allowedTools ?? [])) {
+    return false;
+  }
+  return (meta.allowedDomains ?? []).length === 0;
+}
 
 function resolveRequestUrl(input: RequestInfo | URL): URL {
   if (input instanceof URL) {
@@ -110,6 +150,11 @@ function collectTemplates(credentialPin?: string): {
   for (const meta of listCredentialMetadata()) {
     const tpls = meta.injectionTemplates ?? [];
     if (tpls.length === 0) {
+      continue;
+    }
+    // Exclude credentials that cannot authorize this path so they cannot
+    // shadow a usable match (ambiguous / policy-denied on a bad candidate).
+    if (!isMetadataUsableForAuthedFetch(meta)) {
       continue;
     }
     credentialIds.push(meta.credentialId);
@@ -210,16 +255,7 @@ export async function authedFetch(
     );
   }
 
-  if (!isToolAllowed(AUTHED_FETCH_CAPABILITY, resolved.metadata.allowedTools)) {
-    const tools = resolved.metadata.allowedTools ?? [];
-    throw new AuthedFetchError(
-      "POLICY_DENIED",
-      `Credential ${resolved.service}/${resolved.field} does not allow "${AUTHED_FETCH_CAPABILITY}".` +
-        (tools.length === 0
-          ? " No tools are currently allowed — update allowed_tools via `assistant credentials set`."
-          : ` Allowed tools: ${tools.join(", ")}.`),
-    );
-  }
+  assertCredentialUsableForAuthedFetch(resolved);
 
   const secret = await getSecureKeyAsync(resolved.storageKey);
   if (!secret) {

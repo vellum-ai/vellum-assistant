@@ -88,6 +88,7 @@ function makeResolved(
     service?: string;
     field?: string;
     allowedTools?: string[];
+    allowedDomains?: string[];
   } = {},
 ): ResolvedCredential {
   const service = options.service ?? "acme";
@@ -98,7 +99,7 @@ function makeResolved(
     service,
     field,
     allowedTools,
-    allowedDomains: [],
+    allowedDomains: options.allowedDomains ?? [],
     createdAt: Date.now(),
     updatedAt: Date.now(),
     injectionTemplates: templates,
@@ -160,7 +161,7 @@ describe("authedFetch", () => {
     expect(capturedHeaders?.get("Authorization")).toBe("Bearer secret-token");
   });
 
-  test("denies when allowedTools does not include authedFetch", async () => {
+  test("skips credentials without authedFetch when auto-matching", async () => {
     const tpl = makeTemplate("api.acme.test");
     const resolved = makeResolved("cred-1", [tpl], { allowedTools: ["bash"] });
     registerCredential(resolved, "secret-token");
@@ -171,10 +172,73 @@ describe("authedFetch", () => {
 
     await expect(authedFetch("https://api.acme.test/v1")).rejects.toMatchObject(
       {
-        code: "POLICY_DENIED",
+        code: "NO_CREDENTIAL",
         name: "AuthedFetchError",
       },
     );
+  });
+
+  test("denies pinned credential when allowedTools lacks authedFetch", async () => {
+    const tpl = makeTemplate("api.acme.test");
+    const resolved = makeResolved("cred-1", [tpl], { allowedTools: ["bash"] });
+    registerCredential(resolved, "secret-token");
+
+    stubFetch(async () => {
+      throw new Error("fetch must not be called");
+    });
+
+    await expect(
+      authedFetch("https://api.acme.test/v1", undefined, {
+        credential: "cred-1",
+      }),
+    ).rejects.toMatchObject({
+      code: "POLICY_DENIED",
+      name: "AuthedFetchError",
+    });
+  });
+
+  test("denies credentials with allowedDomains (browser-scoped)", async () => {
+    const tpl = makeTemplate("api.acme.test");
+    registerCredential(
+      makeResolved("cred-1", [tpl], {
+        allowedDomains: ["api.acme.test"],
+      }),
+      "secret-token",
+    );
+
+    stubFetch(async () => {
+      throw new Error("fetch must not be called");
+    });
+
+    await expect(
+      authedFetch("https://api.acme.test/v1", undefined, {
+        credential: "cred-1",
+      }),
+    ).rejects.toMatchObject({ code: "POLICY_DENIED" });
+  });
+
+  test("ignores proxy-only sibling when selecting an authedFetch credential", async () => {
+    const tpl = makeTemplate("*.acme.test");
+    registerCredential(
+      makeResolved("cred-proxy", [tpl], {
+        field: "proxy_key",
+        allowedTools: ["bash"],
+      }),
+      "proxy-secret",
+    );
+    registerCredential(
+      makeResolved("cred-fetch", [tpl], { field: "api_key" }),
+      "fetch-secret",
+    );
+
+    let capturedHeaders: Headers | undefined;
+    stubFetch(async (_input, init) => {
+      capturedHeaders = new Headers(init?.headers);
+      return new Response("", { status: 200 });
+    });
+
+    await authedFetch("https://api.acme.test/v1");
+    expect(capturedHeaders?.get("Authorization")).toBe("Bearer fetch-secret");
   });
 
   test("throws AMBIGUOUS_CREDENTIAL when two credentials match", async () => {
