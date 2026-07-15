@@ -864,7 +864,7 @@ export const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
   // subscription-auth pseudo-provider. Cards and pickers render both as
   // providers, so they need display names.
   vellum: "Vellum",
-  chatgpt: "ChatGPT",
+  chatgpt: "ChatGPT Subscription",
   anthropic: "Anthropic",
   openai: "OpenAI",
   gemini: "Google Gemini",

@@ -435,7 +435,7 @@ describe("ProviderCreateForm submit sequence", () => {
       </ModalWrapper>,
     );
 
-    selectDropdownOption("Provider", "ChatGPT");
+    selectDropdownOption("Provider", "ChatGPT Subscription");
 
     // Subscription auth is owned by the OAuth flow: no API key field, no
     // Add button, sign-in affordance present.
