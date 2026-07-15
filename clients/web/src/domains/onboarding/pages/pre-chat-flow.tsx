@@ -7,11 +7,7 @@ import { readIOSAppDownloaded } from "@/hooks/use-ios-app-nudge";
 import { fetchOnboardingRecipe } from "@/domains/onboarding/recipe-client.js";
 import {
   emitOnboardingFunnelStepCompleted,
-  onboardingFunnelVariantFromExperiment,
   ONBOARDING_FUNNEL_STEPS,
-  ONBOARDING_FUNNEL_VARIANTS,
-  readOnboardingFunnelVariant,
-  resolveOnboardingFunnelVariant,
 } from "@/domains/onboarding/funnel-events";
 import { GetIOSAppScreen } from "@/domains/onboarding/screens/get-ios-app-screen.js";
 import { GoogleConnectScreen } from "@/domains/onboarding/screens/google-connect-screen.js";
@@ -85,21 +81,12 @@ export function PreChatFlow() {
   const localMode = isLocalMode();
   const isIOSWeb = useIsIOSWeb();
   const showIOSAppStep = isIOSWeb && !readIOSAppDownloaded();
-  const preChatExperimentArm =
-    useClientFeatureFlagStore.use.stringFlags()
-      .preChatOnboardingExperiment20260606 ?? "control";
   const activationFlowArm =
     useClientFeatureFlagStore.use.stringFlags()
       .experimentActivationFlow20260603 ?? "control";
   const activationFlowEnabled = activationFlowArm === "variant-a";
   const selfIntroGreetingEnabled =
     useClientFeatureFlagStore.use.selfIntroGreeting();
-  const preferredFunnelVariant =
-    onboardingFunnelVariantFromExperiment(preChatExperimentArm);
-  const webFunnelVariant =
-    readOnboardingFunnelVariant() ?? preferredFunnelVariant;
-  const paredDownPrechat =
-    webFunnelVariant === ONBOARDING_FUNNEL_VARIANTS.paredDown;
   const localPlatformAssistantId = localMode
     ? readLocalPlatformAssistantId()
     : null;
@@ -161,15 +148,11 @@ export function PreChatFlow() {
 
   function emitWebFunnelStep(
     step: (typeof ONBOARDING_FUNNEL_STEPS)[keyof typeof ONBOARDING_FUNNEL_STEPS],
-    variant = webFunnelVariant,
   ): void {
     if (isPreview) {
       return;
     }
-    emitOnboardingFunnelStepCompleted(step, {
-      userId,
-      variant: resolveOnboardingFunnelVariant(variant),
-    });
+    emitOnboardingFunnelStepCompleted(step, { userId });
   }
 
   const hasGoogleTool = [...selectedTools].some((id) =>
@@ -179,7 +162,6 @@ export function PreChatFlow() {
   const steps: PreChatStep[] = isNative
     ? resolveNativeSteps()
     : resolveWebSteps({
-        paredDown: paredDownPrechat,
         canOfferPriorAssistants,
         canOfferGoogleStep: isPreview ? false : canOfferGoogleStep,
         hasGoogleTool,
@@ -196,7 +178,7 @@ export function PreChatFlow() {
     }
 
     const context = buildPreChatContext({
-      mode: isNative ? "native" : paredDownPrechat ? "paredDown" : "control",
+      mode: isNative ? "native" : "control",
       recipe: isNative ? null : recipe,
       selectedTools,
       selectedTasks,

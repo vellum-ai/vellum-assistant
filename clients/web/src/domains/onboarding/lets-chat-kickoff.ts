@@ -1,6 +1,6 @@
 /**
  * Hidden kickoff sent on the user's behalf when they hit "Let's chat" at the
- * end of the personality-onboarding flow. It drives the assistant's first
+ * end of the research-onboarding flow. It drives the assistant's first
  * reply but renders no user bubble, so the chat opens with the assistant
  * proactively greeting the user in the persona they just configured.
  *

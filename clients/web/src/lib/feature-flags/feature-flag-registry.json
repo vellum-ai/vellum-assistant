@@ -10,18 +10,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "pre-chat-onboarding-experiment-2026-06-06",
-      "scope": "client",
-      "key": "pre-chat-onboarding-experiment-2026-06-06",
-      "label": "Pre-chat Onboarding Experiment 2026-06-06",
-      "description": "Pre-chat onboarding experiment with control and variant-a arms. Control shows the full funnel; variant-a shows the condensed pared-down flow.",
-      "defaultEnabled": "control",
-      "values": [
-        "control",
-        "variant-a"
-      ]
-    },
-    {
       "id": "experiment-activation-flow-2026-06-03",
       "scope": "both",
       "key": "experiment-activation-flow-2026-06-03",
@@ -312,22 +300,6 @@
       "key": "self-intro-greeting",
       "label": "Self-intro first message",
       "description": "On the first conversation, send a natural self-introduction (e.g. \"Hi Vela, I'm alex. Nice to meet you.\") on the user's behalf and route it through real LLM inference, instead of serving the canned first greeting. Names come from the onboarding context; falls back to the canned greeting when no name is known. Exposed to clients so pre-hatch onboarding can compute the source-of-truth initial message, and to the assistant so older clients can still be gated server-side. See assistant/src/daemon/first-greeting.ts (buildSelfIntroMessage).",
-      "defaultEnabled": false
-    },
-    {
-      "id": "research-onboarding",
-      "scope": "client",
-      "key": "research-onboarding",
-      "label": "Research onboarding (spike)",
-      "description": "Spike: replace pre-chat onboarding with a web-research \"here's what I know about you\" flow, including a Google Calendar \"Let's chat tomorrow\" step shown over the streaming research. Gates the /assistant/onboarding/research route and the research mock harness. Off by default; enable locally via the feature-flags panel.",
-      "defaultEnabled": false
-    },
-    {
-      "id": "personality-onboarding",
-      "scope": "client",
-      "key": "personality-onboarding",
-      "label": "Personality onboarding step (spike)",
-      "description": "Spike: show the \"Create my personality\" trait-slider step in the research-onboarding flow (between the pitch and the integration step). On continue it applies the sliders to the assistant's persona on a throwaway side conversation. When off, the step is skipped entirely. Off by default; enable locally via the feature-flags panel.",
       "defaultEnabled": false
     },
     {

@@ -3,8 +3,8 @@
  * during the flow. Pure input→output: no React, no storage, no navigation —
  * the component owns those side effects and calls this to produce the payload.
  *
- * Three modes share one builder so the context shape can't drift between the
- * web control funnel, the pared-down funnel variant, and the native iOS flow.
+ * Both modes share one builder so the context shape can't drift between the
+ * web control funnel and the native iOS flow.
  */
 import type { OnboardingRecipe } from "@/domains/onboarding/recipe-client.js";
 import {
@@ -14,21 +14,11 @@ import {
 } from "@/domains/onboarding/prechat";
 import { stripOtherPrefix } from "@/domains/onboarding/prechat-tools";
 
-/**
- * Tools implied by connecting Google in the pared-down funnel, which has no
- * tool-selection screen. Kept in sync with the daemon's onboarding contract.
- */
-export const PARED_DOWN_GOOGLE_TOOL_IDS = [
-  "gmail",
-  "google-calendar",
-  "google-drive",
-];
-
 export const ACTIVATION_FLOW_COHORT = "experiment-activation-flow-2026-06-03";
 export const ACTIVATION_RAIL_BOOTSTRAP_TEMPLATE =
   "BOOTSTRAP-ACTIVATION-RAIL.md";
 
-export type PreChatMode = "control" | "paredDown" | "native";
+export type PreChatMode = "control" | "native";
 
 export interface BuildPreChatContextInput {
   mode: PreChatMode;
@@ -81,13 +71,6 @@ export function buildPreChatContext(
   let context: PreChatOnboardingContext;
   if (mode === "native") {
     context = { tools: [], tasks: [], tone: input.tone, googleConnected: false };
-  } else if (mode === "paredDown") {
-    context = {
-      tools: connectedWithCurrentAction ? [...PARED_DOWN_GOOGLE_TOOL_IDS] : [],
-      tasks: recipe?.tasks ?? [],
-      tone: input.tone,
-      googleConnected: connectedWithCurrentAction,
-    };
   } else {
     context = {
       tools: stripOtherPrefix([...input.selectedTools]),
@@ -114,11 +97,7 @@ export function buildPreChatContext(
   const trimmedAssistant = input.assistantName.trim();
   if (trimmedAssistant) context.assistantName = trimmedAssistant;
 
-  if (mode === "paredDown") {
-    if (connectedWithCurrentAction) {
-      context.googleScopes = input.connectedScopes;
-    }
-  } else if (mode === "control") {
+  if (mode === "control") {
     if (connectedWithCurrentAction) {
       context.googleConnected = true;
       context.googleScopes = input.connectedScopes;

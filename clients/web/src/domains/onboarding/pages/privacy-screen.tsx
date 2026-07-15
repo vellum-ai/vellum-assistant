@@ -11,8 +11,6 @@ import {
     emitOnboardingFunnelStepCompleted,
     getOnboardingFunnelSessionId,
     ONBOARDING_FUNNEL_STEPS,
-    onboardingFunnelVariantFromExperiment,
-    resolveOnboardingFunnelVariant,
 } from "@/domains/onboarding/funnel-events";
 import { onboardingDestinationAfterConsent } from "@/domains/onboarding/onboarding-destination";
 import { isLocalMode } from "@/lib/local-mode";
@@ -24,7 +22,6 @@ import {
 import { isElectron } from "@/runtime/is-electron";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import { useAuthStore, useHasPlatformSession } from "@/stores/auth-store";
-import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { saveConsent } from "@/utils/onboarding-cleanup";
 import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
@@ -35,10 +32,6 @@ export function PrivacyScreen() {
   const userId = useAuthStore.use.user()?.id ?? null;
   const electron = isElectron();
   const isNative = useIsNativePlatform();
-  const preChatExperimentArm =
-    useClientFeatureFlagStore.use.stringFlags().preChatOnboardingExperiment20260606 ?? "control";
-  const preferredFunnelVariant =
-    onboardingFunnelVariantFromExperiment(preChatExperimentArm);
   const [shareDiagnostics, setShareDiagnosticsReal] = useShareDiagnostics();
   const [tosAccepted, setTosAcceptedReal] = useTosAccepted();
   const [privacyConsent, setPrivacyConsentReal] = usePrivacyConsent();
@@ -70,10 +63,8 @@ export function PrivacyScreen() {
     // until the user opts in via settings or review-terms.
     saveConsent({ userId, tos: tosAccepted, privacy: privacyConsent, shareAnalytics: null, shareDiagnostics, hasPlatformSession });
     if (!isNative) {
-      const variant = resolveOnboardingFunnelVariant(preferredFunnelVariant);
       emitOnboardingFunnelStepCompleted(ONBOARDING_FUNNEL_STEPS.privacyTos, {
         userId,
-        variant,
       });
     }
 
@@ -98,7 +89,6 @@ export function PrivacyScreen() {
     isNative,
     isPreview,
     navigate,
-    preferredFunnelVariant,
     searchParams,
     shareDiagnostics,
     tosAccepted,
