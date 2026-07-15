@@ -35,6 +35,12 @@ describe("feature flag catalog", () => {
     );
   });
 
+  test("exposes proactive tips as a client string flag defaulted off", () => {
+    expect(CLIENT_STRING_FLAG_DEFAULTS.proactiveTips).toBe("off");
+    expect("proactiveTips" in CLIENT_FLAG_DEFAULTS).toBe(false);
+    expect("proactiveTips" in ASSISTANT_FLAG_DEFAULTS).toBe(false);
+  });
+
   test("does not expose GA empty-state greetings as a feature flag", () => {
     expect("emptyStateDynamicGreetings" in ASSISTANT_FLAG_DEFAULTS).toBe(false);
     expect("emptyStateDynamicGreetings" in CLIENT_FLAG_DEFAULTS).toBe(false);
