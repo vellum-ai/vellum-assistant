@@ -1,39 +1,19 @@
 /**
- * Search the installable plugin catalog in the canonical GitHub source.
+ * Filtering and projection helpers for the installable plugin catalog.
  *
- * The catalog is the set of whitelisted external ecosystem plugins listed in
- * the curated `plugins/marketplace.json` manifest, fetched from the repo at
- * the configured git ref (see {@link ./plugin-marketplace}).
+ * The catalog itself is resolved by {@link ./plugin-catalog-cache}
+ * (`getPluginCatalog`), which is platform-first with a bundled offline
+ * fallback. This module owns the query semantics on top of a resolved
+ * catalog: compile a pattern, filter entries by name, and project a raw
+ * marketplace entry onto the catalog match shape.
  *
  * Entries are filtered by case-insensitive ECMAScript regex against the
  * plugin name. A plain query like `"memory"` matches anywhere in the name;
  * anchors like `"^simple"` work without escaping.
- *
- * Designed for direct programmatic use. The CLI command
- * `assistant plugins search <query>` is a thin wrapper that supplies
- * production deps (`globalThis.fetch`) and formats the result for the
- * terminal; downstream callers may supply their own `fetch` (e.g. a
- * retry-decorated client, or a test fixture).
  */
 
 import type { FetchLike } from "./fetch-like.js";
-import { DEFAULT_PLUGIN_REF } from "./plugin-constants.js";
-import {
-  fetchMarketplaceEntries,
-  type MarketplaceEntry,
-  MarketplaceFetchError,
-} from "./plugin-marketplace.js";
-
-/** Options that control the search. */
-export interface SearchPluginsOptions {
-  /**
-   * ECMAScript regex pattern. Matched case-insensitively against directory
-   * names. Empty string matches everything.
-   */
-  readonly query: string;
-  /** Git ref to list from. Defaults to {@link DEFAULT_PLUGIN_REF}. */
-  readonly ref?: string;
-}
+import type { MarketplaceEntry } from "./plugin-marketplace.js";
 
 /** Dependencies injected by the caller. */
 export interface SearchPluginsDeps {
@@ -64,19 +44,21 @@ export interface PluginSearchMatch {
   /** Short description, when known (external entries only today). */
   readonly description?: string;
   /**
+   * Plugin icon: a curated emoji from the marketplace entry, or an icon URL
+   * served by the platform catalog when the plugin ships a bundled image.
+   */
+  readonly icon?: string;
+  /**
    * Free-form grouping hint from the curated marketplace entry (e.g.
    * `productivity`), or `null` when the entry declares none.
    */
   readonly category: string | null;
+  /** Homepage URL, from the curated marketplace entry when present. */
+  readonly homepage?: string;
+  /** License identifier, from the curated marketplace entry when present. */
+  readonly license?: string;
   /** Discriminated origin, so callers can render/install accordingly. */
   readonly source: PluginMatchSource;
-}
-
-/** Search result envelope. */
-export interface SearchPluginsResult {
-  readonly query: string;
-  readonly ref: string;
-  readonly matches: readonly PluginSearchMatch[];
 }
 
 /** Caller passed a query that doesn't compile as an ECMAScript regex. */
@@ -89,10 +71,9 @@ export class InvalidSearchPatternError extends Error {
 }
 
 /**
- * The catalog source (GitHub) was reachable but refused or could not serve
- * the request right now — rate limiting (HTTP 403 with the rate-limit budget
- * exhausted, or 429) or an upstream 5xx. Distinct from a hard 404 on the
- * plugins prefix (a real "source gone" misconfiguration): a transient
+ * The catalog source was reachable but refused or could not serve the request
+ * right now — rate limiting or an upstream 5xx. Distinct from a hard 404 on
+ * the plugins prefix (a real "source gone" misconfiguration): a transient
  * upstream failure should surface as a retryable "temporarily unavailable"
  * rather than a generic internal error, and is a candidate for serving a
  * stale cached catalog.
@@ -108,31 +89,10 @@ export class PluginCatalogUnavailableError extends Error {
 }
 
 /**
- * Build the catalog at {@link opts.ref} and return the entries whose name
- * matches {@link opts.query} (case-insensitive ECMAScript regex; an empty
- * query matches everything).
- */
-export async function searchPlugins(
-  opts: SearchPluginsOptions,
-  deps: SearchPluginsDeps,
-): Promise<SearchPluginsResult> {
-  const ref = opts.ref ?? DEFAULT_PLUGIN_REF;
-
-  // Compile the matcher up front so an invalid regex fails before we hit
-  // the network — keeps "user typo" cheap to recover from.
-  const matcher = buildMatcher(opts.query);
-
-  const { matches: catalog } = await loadPluginCatalog({ ref }, deps);
-  const matches = catalog.filter((m) => matcher(m.name));
-
-  return { query: opts.query, ref, matches };
-}
-
-/**
  * Validate that {@link query} compiles as a case-insensitive ECMAScript regex,
- * throwing {@link InvalidSearchPatternError} if not. Lets a caching caller
- * (the daemon) reject a malformed query before loading the catalog, so a typo
- * is a cheap deterministic 400 rather than a wasted GitHub request.
+ * throwing {@link InvalidSearchPatternError} if not. Lets a caller reject a
+ * malformed query before loading the catalog, so a typo is a cheap
+ * deterministic error rather than a wasted catalog fetch.
  */
 export function assertValidSearchPattern(query: string): void {
   buildMatcher(query);
@@ -141,8 +101,8 @@ export function assertValidSearchPattern(query: string): void {
 /**
  * Filter a pre-loaded {@link PluginCatalog} by {@link query}, compiling it as
  * a case-insensitive ECMAScript regex (an empty query matches everything).
- * Lets a caching caller (the daemon) reuse one catalog load across many
- * searches. Throws {@link InvalidSearchPatternError} on a malformed pattern.
+ * Lets a caller reuse one catalog load across many searches. Throws
+ * {@link InvalidSearchPatternError} on a malformed pattern.
  */
 export function filterPluginCatalog(
   catalog: PluginCatalog,
@@ -160,70 +120,47 @@ export interface PluginCatalog {
 }
 
 /**
- * Build the full catalog at {@link opts.ref}: every whitelisted external
- * entry in the marketplace manifest, deduped by name.
- *
- * The result is **query-independent** — `searchPlugins` applies the regex
- * filter in memory afterwards. That separation is what lets a long-lived
- * caller (the daemon) cache one catalog load and serve any number of
- * searches from it without re-hitting GitHub (see {@link ./plugin-catalog-cache}).
- */
-export async function loadPluginCatalog(
-  opts: { readonly ref?: string },
-  deps: SearchPluginsDeps,
-): Promise<PluginCatalog> {
-  const ref = opts.ref ?? DEFAULT_PLUGIN_REF;
-
-  const marketplace = await fetchMarketplaceCatalog(deps.fetch, ref);
-
-  const matches: PluginSearchMatch[] = [];
-  const seen = new Set<string>();
-  for (const entry of marketplace) {
-    if (seen.has(entry.name)) continue;
-    matches.push(marketplaceMatch(entry));
-    seen.add(entry.name);
-  }
-
-  matches.sort((a, b) => a.name.localeCompare(b.name));
-
-  return { ref, matches };
-}
-
-/**
  * Project a marketplace entry onto the catalog match shape, building a
  * `github:owner/repo[/path]@ref` locator for display.
+ *
+ * Shared by the platform fetcher and bundled reader so all catalog sources
+ * project entries identically.
  */
-function marketplaceMatch(entry: MarketplaceEntry): PluginSearchMatch {
+export function marketplaceMatch(entry: MarketplaceEntry): PluginSearchMatch {
   const { repo, path, ref } = entry.source;
   const locator = `github:${repo}${path ? `/${path}` : ""}@${ref}`;
   return {
     name: entry.name,
     path: locator,
     description: entry.description,
+    icon: entry.icon,
     category: entry.category ?? null,
+    homepage: entry.homepage,
+    license: entry.license,
     source: { kind: "github", repo, path, ref },
   };
 }
 
 /**
- * Fetch the marketplace entries, mapping a transient upstream failure to
- * {@link PluginCatalogUnavailableError} so the cache can serve a stale catalog
- * and the route can surface a retryable 503. A missing manifest is a normal
- * empty catalog; a hard failure (malformed or invalid manifest) propagates
- * as-is, since the catalog is the source of truth for installable plugins.
+ * Project raw marketplace entries onto catalog matches: dedupe by name
+ * (first occurrence wins), map via {@link marketplaceMatch}, and return
+ * sorted alphabetically by name.
+ *
+ * Shared by every catalog source (platform fetcher, bundled reader) so they
+ * dedupe, project, and order entries identically.
  */
-async function fetchMarketplaceCatalog(
-  fetchFn: FetchLike,
-  ref: string,
-): Promise<readonly MarketplaceEntry[]> {
-  try {
-    return await fetchMarketplaceEntries({ fetch: fetchFn }, { ref });
-  } catch (err) {
-    if (err instanceof MarketplaceFetchError && err.transient) {
-      throw new PluginCatalogUnavailableError(err.message, err.status ?? 503);
-    }
-    throw err;
+export function projectMarketplaceEntries(
+  entries: Iterable<MarketplaceEntry>,
+): PluginSearchMatch[] {
+  const matches: PluginSearchMatch[] = [];
+  const seen = new Set<string>();
+  for (const entry of entries) {
+    if (seen.has(entry.name)) continue;
+    seen.add(entry.name);
+    matches.push(marketplaceMatch(entry));
   }
+  matches.sort((a, b) => a.name.localeCompare(b.name));
+  return matches;
 }
 
 function buildMatcher(query: string): (name: string) => boolean {

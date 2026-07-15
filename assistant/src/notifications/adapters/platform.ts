@@ -9,7 +9,7 @@
  * with `{ skipped: "flag_off" }` when the flag is OFF — no action needed
  * from the daemon).
  *
- * Guardian-sensitive notifications (approval requests, escalation alerts)
+ * Guardian-sensitive notifications (approval requests, access requests)
  * are annotated with `targetGuardianPrincipalId` so the platform can
  * scope APNs fan-out to guardian-bound devices, mirroring the macOS adapter.
  */

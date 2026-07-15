@@ -24,7 +24,6 @@ interface PlatformStatusResult {
   available: boolean;
   organizationId: string | null;
   userId: string | null;
-  velayTunnel: { connected: boolean; publicUrl: string | null } | null;
 }
 
 interface PlatformCreditsResult {
@@ -87,14 +86,6 @@ export function registerPlatformCommand(program: Command): void {
               `Organization ID: ${result.organizationId || "(not set)"}`,
             );
             log.info(`User ID: ${result.userId || "(not set)"}`);
-            if (result.velayTunnel !== null) {
-              const tunnelState = result.velayTunnel.connected
-                ? `connected${result.velayTunnel.publicUrl ? ` (${result.velayTunnel.publicUrl})` : ""}`
-                : "disconnected";
-              log.info(`Velay tunnel: ${tunnelState}`);
-            } else {
-              log.info(`Velay tunnel: (gateway not running)`);
-            }
           }
         },
       );

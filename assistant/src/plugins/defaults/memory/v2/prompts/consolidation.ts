@@ -260,6 +260,8 @@ For entries with timestamp < \`${CUTOFF_PLACEHOLDER}\`, ask both questions in pa
 
 > **B. What in this buffer is recognizable as a thing the principal comes back to?** *(Inclusion-first. List everything that fits a spawn trigger, then spawn each. Don't ask "have I earned this article?" — that's gatekeep-shaped and wrong.)*
 
+**Buffer entries may carry \`[[slug]]\` wikilink hints** — pages that were in context when the fact was saved. Read hinted pages first when planning where an entry lands; correction entries usually hint the exact page carrying the stale fact. Hints are advisory, not routing: verify the fact belongs where the hint points (pages get renamed and merged between passes), and a hint to an existing page never substitutes for the spawn check — a recognizable new thing near a hinted parent still means spawn the stub and edge it to the hinted page.
+
 **Default spawn triggers — if any are present, the answer is "spawn the stub":**
 
 - **named objects** — a specific physical artifact, a digital asset, a recurring document → \`concepts/objects/<slug>.md\`
@@ -661,6 +663,8 @@ For entries with timestamp < \`${CUTOFF_PLACEHOLDER}\`, ask both questions in pa
 > **A. Which EVENT articles does this create or extend?** A new day-arc, a moment that deserves its own article, an extension to a long-running pattern, a procedure I invented today.
 
 > **B. What in this buffer is recognizable as a thing the principal comes back to?** *(Inclusion-first. List everything that fits a spawn trigger, then spawn each. Don't ask "have I earned this article?" — that's gatekeep-shaped and wrong.)*
+
+**Buffer entries may carry \`[[slug]]\` wikilink hints** — pages that were in context when the fact was saved. Read hinted pages first when planning where an entry lands; correction entries usually hint the exact page carrying the stale fact. Hints are advisory, not routing: verify the fact belongs where the hint points (pages get renamed and merged between passes), and a hint to an existing page never substitutes for the spawn check — a recognizable new thing near a hinted parent still means spawn the child, set \`main:\`, and link it from the hinted page.
 
 **Default spawn triggers — if any are present, the answer is "spawn the stub":** named objects · named phrases · named people · named events · active projects · named places · services / infrastructure · substances / habits / health things · rules / protocols / disciplines · landmark day-narratives (used sparingly).
 

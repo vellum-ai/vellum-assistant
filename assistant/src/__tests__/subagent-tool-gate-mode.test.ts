@@ -72,10 +72,10 @@ mock.module("../daemon/conversation-skill-tools.js", () => ({
 // Imports after mocks are in place
 // ---------------------------------------------------------------------------
 
+import type { Conversation } from "../daemon/conversation.js";
 import {
   createResolveToolsCallback,
   createToolExecutor,
-  type SkillProjectionContext,
   type ToolSetupContext,
 } from "../daemon/conversation-tool-setup.js";
 import {
@@ -95,15 +95,14 @@ function makeToolDef(name: string): ToolDefinition {
 }
 
 function makeProjectionCtx(
-  overrides: Partial<SkillProjectionContext> = {},
-): SkillProjectionContext {
+  overrides: Partial<Conversation> = {},
+): Conversation {
   return {
     skillProjectionState: new Map(),
     skillProjectionCache: {} as SkillProjectionCache,
-    coreToolNames: new Set(["remember", "tool_b"]),
     toolsDisabledDepth: 0,
     ...overrides,
-  };
+  } as unknown as Conversation;
 }
 
 function makeSetupCtx(
@@ -238,10 +237,9 @@ describe("createResolveToolsCallback — toolContextPin", () => {
 
   /** Execution-gate ctx shaped like a clientless fork-retrospective wake. */
   function clientlessExecutionCtx(
-    overrides: Partial<SkillProjectionContext> = {},
-  ): SkillProjectionContext {
+    overrides: Partial<Conversation> = {},
+  ): Conversation {
     return makeProjectionCtx({
-      coreToolNames: new Set(CLIENT_GATED_DEFS.map((d) => d.name)),
       hasNoClient: true,
       subagentAllowedTools: new Set(["remember"]),
       subagentToolGateMode: "execution",

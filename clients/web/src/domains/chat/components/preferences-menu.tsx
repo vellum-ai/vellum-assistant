@@ -1,6 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
 import {
-    ChartColumn,
     ChevronDown,
     ChevronUp,
     Gift,
@@ -21,7 +20,6 @@ import {
 } from "@vellumai/design-library";
 
 import { LazyBoundary } from "@/components/lazy-boundary";
-import { ThemeToggle } from "@/components/theme-toggle";
 import { organizationsBillingSummaryRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
@@ -126,6 +124,12 @@ export function PreferencesMenu({
             side="top"
             align="start"
             sideOffset={8}
+            tabIndex={-1}
+            onOpenAutoFocus={(event) => {
+              const content = event.currentTarget as HTMLElement | null;
+              event.preventDefault();
+              content?.focus();
+            }}
             className="w-64 rounded-lg p-4"
           >
             {content}
@@ -184,10 +188,6 @@ function PreferencesMenuContent({
 
   return (
     <>
-      <ThemeToggle className="px-2 py-0" />
-
-      <div className="my-2 border-t border-[var(--border-subtle)]" />
-
       {showBillingRows && effectiveBalance !== null ? (
         <div className="my-2">
           <CreditsCard
@@ -210,15 +210,6 @@ function PreferencesMenuContent({
           }}
         />
       ) : null}
-
-      <PanelItem
-        icon={ChartColumn}
-        label="Usage"
-        onSelect={() => {
-          onClose();
-          navigate(routes.logs.usage);
-        }}
-      />
 
       {(platformGate === "full" || isElectron()) && (
         <PanelItem

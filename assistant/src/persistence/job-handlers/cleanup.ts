@@ -5,7 +5,7 @@ import { getLogsDbPath } from "../../util/logs-db-path.js";
 import { runAsyncSqlite } from "../db-async-query.js";
 import { getDb } from "../db-connection.js";
 import { enqueueMemoryJob, type MemoryJob } from "../jobs-store.js";
-import { rawAll, rawLogsRun, rawRun } from "../raw-query.js";
+import { rawAll, rawLogsRun, rawRun, rawTelemetryRun } from "../raw-query.js";
 
 const log = getLogger("memory-jobs-worker");
 
@@ -38,8 +38,13 @@ export async function pruneOldLlmRequestLogsJob(
         ? rawRetention
         : config.memory.cleanup.llmRequestLogRetentionMs;
 
-  // null means "keep forever" — skip pruning entirely
-  if (retentionMs === null || retentionMs === undefined) return;
+  // null/0 means "keep forever" — skip pruning entirely. 0 is excluded (not
+  // just null) to match the scheduler in maybeEnqueueScheduledCleanupJobs,
+  // which no longer enqueues a retention-0 prune; guarding here too ensures a
+  // job left pending from before that fix does not wipe every log on its next
+  // run.
+  if (retentionMs === null || retentionMs === undefined || retentionMs <= 0)
+    return;
 
   const cutoffMs = Math.floor(Date.now() - retentionMs);
   if (!Number.isFinite(cutoffMs)) return;
@@ -104,9 +109,10 @@ export async function pruneOldToolInvocationsJob(
       ? rawRetention
       : config.auditLog.retentionDays;
 
-  // 0 means disabled. rotateToolInvocations no-ops on this too, but
-  // short-circuit so we don't dispatch a pointless async query.
-  if (!retentionDays) return;
+  // 0 (or any non-positive window) means disabled — keep forever. Guarding
+  // <= 0 mirrors the LLM-log prune and short-circuits before dispatching a
+  // pointless async query (rotateToolInvocations no-ops on this too).
+  if (retentionDays <= 0) return;
 
   await rotateToolInvocations(retentionDays);
 }
@@ -143,7 +149,8 @@ function parseDeletedCount(stdout: string | undefined): number {
  * Tables with onDelete cascade on conversation FK (memory_segments,
  * conversation_keys, channel_inbound_events, message_runs, call_sessions,
  * external_conversation_bindings) are handled automatically. Tables without
- * cascade (messages, tool_invocations, llm_request_logs, skill_loaded_events)
+ * cascade (messages, tool_invocations, plus llm_request_logs and
+ * conversation-scoped telemetry_events rows on their dedicated connections)
  * are deleted explicitly before removing the conversation row.
  */
 export function pruneOldConversationsJob(
@@ -157,8 +164,10 @@ export function pruneOldConversationsJob(
       ? job.payload.retentionDays
       : config.memory.cleanup.conversationRetentionDays;
 
-  // 0 means disabled
-  if (retentionDays === 0) return;
+  // 0 (or any non-positive window) means disabled — keep forever. Guarding
+  // <= 0 mirrors the LLM-log prune so a stray non-positive window can never
+  // produce a cutoff at/after `now` that deletes live conversations.
+  if (retentionDays <= 0) return;
 
   const cutoffMs = Date.now() - retentionDays * 86_400_000;
 
@@ -184,11 +193,21 @@ export function pruneOldConversationsJob(
       );
       if (still.length === 0) return;
 
-      // Non-cascading tables. llm_request_logs lives in the dedicated logs
-      // connection, so it is deleted there (outside this main-DB transaction).
+      // Non-cascading tables. llm_request_logs and conversation-scoped
+      // telemetry_events rows live in the dedicated logs/telemetry
+      // connections, so they are deleted there (outside this main-DB
+      // transaction). Both run before the main-DB deletes: a failure leaves
+      // the conversation row in place so the prune retries — unshipped
+      // telemetry events must never outlive their pruned conversation and
+      // flush later.
       rawLogsRun(
         "cleanup:pruneOldConversations:logs",
         `DELETE FROM llm_request_logs WHERE conversation_id = ?`,
+        id,
+      );
+      rawTelemetryRun(
+        "cleanup:pruneOldConversations:telemetry",
+        `DELETE FROM telemetry_events WHERE conversation_id = ?`,
         id,
       );
       rawRun(
@@ -199,11 +218,6 @@ export function pruneOldConversationsJob(
       rawRun(
         "cleanup:pruneOldConversations:messages",
         `DELETE FROM messages WHERE conversation_id = ?`,
-        id,
-      );
-      rawRun(
-        "cleanup:pruneOldConversations:skills",
-        `DELETE FROM skill_loaded_events WHERE conversation_id = ?`,
         id,
       );
       // Conversation row deletion cascades to remaining dependent tables

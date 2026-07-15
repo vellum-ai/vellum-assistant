@@ -1,17 +1,24 @@
 /**
- * Listening-state waves for the voice room: layered sine waves that rise from
- * the bottom edge of the screen as the user speaks — the visual language of
- * energy coming *in* (the user's voice arriving), the counterpart to the
- * assistant's outward `responding` pulse on the avatar.
+ * Listening-state waves for the voice room: layered sine waves that swell as
+ * the user speaks — the visual language of energy coming *in* (the user's
+ * voice arriving), the counterpart to the assistant's outward `responding`
+ * pulse on the avatar. `placement` anchors the band: `top` sweeps in from the
+ * ceiling edge (both looks — above the centerpiece, leaving it clear), `bottom`
+ * rises from the floor edge, `center` is a symmetric band around the middle.
  *
  * The waves always drift horizontally (a slow CSS loop); the user's live mic
  * amplitude drives how high they rise and how bright they are, written
  * imperatively to `--voice-amp` from a requestAnimationFrame loop — never React
- * state, matching `voice-avatar.tsx`. Purely decorative; the cyan→indigo accent
- * is a fixed constant (like the listening sonar), not a theme token.
+ * state, matching `voice-avatar.tsx`. The polled amplitude is near-instant RMS
+ * (see `createAmplitudeSmoother`), so the loop runs it through a VU-meter-style
+ * attack/release smoother before writing — raw, it jerks the waves' large
+ * vertical travel every frame. Purely decorative; the cyan→indigo accent is a
+ * fixed constant (like the listening sonar), not a theme token.
  */
 
 import { useEffect, useRef } from "react";
+
+import { createAmplitudeSmoother } from "./voice-motion";
 
 // Wave geometry is authored in a fixed viewBox; the path spans two viewBox
 // widths so a `-1200px` horizontal drift loops seamlessly (each wave's cycle
@@ -59,19 +66,30 @@ export type VoiceWaveStyle = "fill" | "line";
 /**
  * Color language: `aurora` is the fixed cyan→indigo accent (matches the
  * listening sonar); `accent` tints the waves from the assistant's avatar color
- * (`--avatar-accent`).
+ * (`--avatar-accent`); `tone` follows the room foreground (`--room-fg`) so the
+ * waves read on any solid avatar-color background (the color look).
  */
-export type VoiceWavePalette = "aurora" | "accent";
+export type VoiceWavePalette = "aurora" | "accent" | "tone";
+
+/**
+ * Where the wave band sits: `top` sweeps in from the ceiling edge (both room
+ * looks — the voice arriving above the centered eyes / avatar, leaving the
+ * centerpiece clear), `bottom` rises from the floor edge, `center` swells
+ * symmetrically around the middle of the screen.
+ */
+export type VoiceWavePlacement = "bottom" | "top" | "center";
 
 export function VoiceListeningWaves({
   getAmplitude,
   waveStyle = "fill",
   palette = "aurora",
+  placement = "bottom",
 }: {
   /** Mic amplitude source (0–1), polled in a rAF loop. */
   getAmplitude: () => number;
   waveStyle?: VoiceWaveStyle;
   palette?: VoiceWavePalette;
+  placement?: VoiceWavePlacement;
 }) {
   const ref = useRef<HTMLDivElement | null>(null);
   const getAmplitudeRef = useRef(getAmplitude);
@@ -84,11 +102,17 @@ export function VoiceListeningWaves({
     if (!node) {
       return;
     }
+    // Rise quickly with speech onset (~80 ms) but settle gently (~350 ms), so
+    // the band swells and subsides instead of twitching with raw RMS.
+    const smoother = createAmplitudeSmoother({ attackMs: 80, releaseMs: 350 });
     let raf = 0;
     let lastWritten = "";
-    const tick = () => {
-      const amp = Math.min(1, Math.max(0, getAmplitudeRef.current()));
-      const next = amp.toFixed(3);
+    let lastTime = performance.now();
+    const tick = (now: number) => {
+      const dt = now - lastTime;
+      lastTime = now;
+      const target = Math.min(1, Math.max(0, getAmplitudeRef.current()));
+      const next = smoother.step(target, dt).toFixed(3);
       if (next !== lastWritten) {
         lastWritten = next;
         node.style.setProperty("--voice-amp", next);
@@ -101,22 +125,40 @@ export function VoiceListeningWaves({
 
   const buildPath = waveStyle === "line" ? wavePathLine : wavePathFill;
 
+  const layers = () =>
+    WAVE_LAYERS.map((layer) => (
+      <svg
+        key={layer.modifier}
+        className={`voice-wave voice-wave--${layer.modifier}`}
+        viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
+        preserveAspectRatio="none"
+      >
+        <path d={buildPath(layer.amplitude, layer.cycles, layer.phase)} />
+      </svg>
+    ));
+
+  const className = `voice-listening-waves voice-listening-waves--${waveStyle} voice-listening-waves--${palette} voice-listening-waves--${placement}`;
+
+  // Center: the wave fill hugs the bottom edge of its box, so a merely
+  // centered box would still read low. Mirror the band into two halves that
+  // meet at the midline — the fill hugs the center line from above and below,
+  // its wavy edges rippling outward — for a waveform that is visually centered.
+  if (placement === "center") {
+    return (
+      <div ref={ref} className={className} aria-hidden>
+        <div className="voice-listening-waves__half voice-listening-waves__half--top">
+          {layers()}
+        </div>
+        <div className="voice-listening-waves__half voice-listening-waves__half--bottom">
+          {layers()}
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div
-      ref={ref}
-      className={`voice-listening-waves voice-listening-waves--${waveStyle} voice-listening-waves--${palette}`}
-      aria-hidden
-    >
-      {WAVE_LAYERS.map((layer) => (
-        <svg
-          key={layer.modifier}
-          className={`voice-wave voice-wave--${layer.modifier}`}
-          viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
-          preserveAspectRatio="none"
-        >
-          <path d={buildPath(layer.amplitude, layer.cycles, layer.phase)} />
-        </svg>
-      ))}
+    <div ref={ref} className={className} aria-hidden>
+      {layers()}
     </div>
   );
 }

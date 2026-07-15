@@ -209,6 +209,25 @@ describe("runBackgroundJob", () => {
     expect(opts.toolGateMode).toBeUndefined();
   });
 
+  test("threads skipPromptIndexing as skipUserMessageIndexing when set", async () => {
+    await runBackgroundJob(baseOpts({ skipPromptIndexing: true }));
+
+    expect(processMessageCalls).toHaveLength(1);
+    expect(processMessageCalls[0].options).toMatchObject({
+      skipUserMessageIndexing: true,
+    });
+  });
+
+  test("omits skipUserMessageIndexing when skipPromptIndexing is unset (prompts index by default)", async () => {
+    await runBackgroundJob(baseOpts());
+
+    expect(processMessageCalls).toHaveLength(1);
+    const opts = processMessageCalls[0].options as {
+      skipUserMessageIndexing?: unknown;
+    };
+    expect(opts.skipUserMessageIndexing).toBeUndefined();
+  });
+
   test("generic exception: returns ok=false with errorKind=exception and emits activity.failed with dedupeKey", async () => {
     processMessageImpl = async () => {
       throw new Error("boom");
@@ -260,6 +279,9 @@ describe("runBackgroundJob", () => {
     expect(result.errorKind).toBe("model_provider");
     expect(result.error?.message).toContain("provider_error");
     expect(result.conversationId).toBe(STUB_CONVERSATION_ID);
+    // The stable classified code rides the result so callers can branch on
+    // the failure class without parsing the error message.
+    expect(result.failureCode).toBe("provider_error");
 
     expect(emitCalls).toHaveLength(1);
     expect(emitCalls[0].sourceEventName).toBe("activity.failed");

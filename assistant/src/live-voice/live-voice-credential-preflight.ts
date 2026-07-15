@@ -17,6 +17,7 @@ import {
 } from "../calls/telephony-tts-capability.js";
 import { getConfig } from "../config/loader.js";
 import { effectiveSttProvider } from "../config/schemas/stt.js";
+import { managedSpeechAvailable } from "../platform/managed-speech.js";
 import { getProviderEntry } from "../providers/speech-to-text/provider-catalog.js";
 import {
   resolveStreamingTranscriber,
@@ -180,6 +181,24 @@ async function resolveTtsGap(): Promise<GapWithClause | null> {
       },
       clause: `a text-to-speech provider that supports streaming synthesis (the configured "${entry.id}" does not)`,
     };
+  }
+
+  // Managed speech authenticates via the platform connection — full
+  // availability (API key + assistant ID) is the credential, so the
+  // stored-secret loop below would pass half-connected states that
+  // synthesis rejects.
+  if (entry.id === "vellum") {
+    if (!(await managedSpeechAvailable())) {
+      return {
+        gap: {
+          kind: "tts",
+          providerId: entry.id,
+          reason: `TTS provider "${entry.id}" needs a Vellum platform connection for managed speech`,
+        },
+        clause: `a Vellum platform connection for managed speech (run 'assistant platform connect')`,
+      };
+    }
+    return null;
   }
 
   for (const secret of entry.secretRequirements) {

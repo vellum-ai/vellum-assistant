@@ -405,9 +405,9 @@ Runtime detects needs_confirmation
 
 **Conversational approval turn:** When a text message arrives while an approval is pending (e.g., non-Telegram channels or user typing a reply instead of clicking a button), a **conversational approval turn** is run via `runApprovalConversationTurn()` from `approval-conversation-turn.ts`. The conversational engine uses LLM structured output (native `tool_use`) to classify user intent as: `keep_pending` (reply without deciding), `approve_once`, `approve_always`, or `reject`. Non-decision messages receive a natural assistant reply and the run stays pending — no reminder spam. The engine fails closed: any model failure returns `keep_pending` with a deterministic fallback asking the user to try again. Callback/button handling remains deterministic and unchanged. The `channelSupportsRichApprovalUI()` function determines whether to send the structured `promptText` (for rich channels like Telegram) or the `plainTextFallback` string (for all other channels). Currently only `telegram` is classified as a rich channel.
 
-**Guardian-aware routing:** When a guardian binding exists for the channel, the approval flow resolves the sender's actor role (`guardian` vs `non-guardian`). Non-guardian actors have `forcePromptSideEffects` set on the session so all side-effect tools trigger approval prompts regardless of existing allow rules. Approval prompts for non-guardian actions are routed to the guardian's delivery chat (not the requester's chat), and a `channelGuardianApprovalRequest` record is created. When the guardian approves or denies, the decision is applied to the underlying run and the requester's chat is notified of the outcome. Guardian actors follow the standard approval flow. Guardian approval follow-ups also use the conversational engine with role-specific context; `approve_always` is downgraded to `approve_once` for guardian approvals since permanent allow-rules require guardian authority. All guardian state (bindings, challenges, approval requests) is scoped to the `(assistantId, channel)` pair -- the `assistantId` parameter flows through `handleChannelInbound`, `validateAndConsumeVerification`, `isGuardian`, `getGuardianBinding`, and `createApprovalRequest`.
+**Guardian-aware routing:** When a guardian binding exists for the channel, the approval flow resolves the sender's actor role (`guardian` vs `non-guardian`). Non-guardian actors have `forcePromptSideEffects` set on the session so all side-effect tools trigger approval prompts regardless of existing allow rules. Approval prompts for non-guardian actions are routed to the guardian's delivery chat (not the requester's chat), and a guardian request (kind `tool_approval`) is recorded in the gateway-owned `guardian_requests` table via `guardian_requests_create`. When the guardian approves or denies, the decision commits through `guardian_requests_decide`, is applied to the underlying run, and the requester's chat is notified of the outcome. Guardian actors follow the standard approval flow. Guardian approval follow-ups also use the conversational engine with role-specific context; `approve_always` is downgraded to `approve_once` for guardian approvals since permanent allow-rules require guardian authority. All guardian state (bindings, challenges, guardian requests) is scoped to the `(assistantId, channel)` pair -- the `assistantId` parameter flows through `handleChannelInbound`, `validateAndConsumeVerification`, `isGuardian`, and `getGuardianBinding`.
 
-**Proactive expiry sweep:** The runtime runs a periodic sweep every 60 seconds (`sweepExpiredGuardianApprovals`) that finds guardian approval requests past the 30-minute TTL, auto-denies the underlying runs, and notifies both the requester and guardian via the gateway's per-channel `/deliver/<channel>` endpoint. This ensures expired approvals are closed without waiting for follow-up traffic from either party. The sweep is started automatically whenever a run orchestrator is available.
+**Proactive expiry sweep:** The daemon runs a periodic sweep every 60 seconds (`assistant/src/runtime/routes/guardian-expiry-sweep.ts`) that asks the gateway to CAS-expire pending guardian requests past their `expiresAt` (`guardian_requests_sweep_expired`), then fans out card withdrawals and requester expiry notices from the returned rows. This ensures expired approvals are closed without waiting for follow-up traffic from either party.
 
 **Gateway-origin ingress contract:** The JWT token exchanged during gateway-to-runtime authentication proves gateway origin (via the `aud=vellum-daemon` claim). No separate header is required.
 
@@ -422,7 +422,7 @@ Runtime detects needs_confirmation
 | `assistant/src/runtime/routes/channel-routes.ts`        | Integration point: approval interception, actor role resolution, guardian approval routing, deliver-once guard, fail-closed prompt delivery                             |
 | `assistant/src/runtime/channel-verification-service.ts` | Guardian binding lookups: `isGuardian()`, `getGuardianBinding()`                                                                                                        |
 | `assistant/src/memory/delivery-channels.ts`             | `claimRunDelivery()` — in-memory deliver-once guard for terminal reply idempotency                                                                                      |
-| `assistant/src/memory/guardian-approvals.ts`            | CRUD for guardian approval requests: `createApprovalRequest()`, `getPendingApprovalByGuardianChat()`, `updateApprovalDecision()`                                        |
+| `assistant/src/channels/gateway-guardian-requests.ts`   | Typed daemon client for the gateway-owned `guardian_requests` lifecycle (`guardian_requests_create` / `_decide` / `_sweep_expired`)                                     |
 | `assistant/src/runtime/gateway-client.ts`               | `deliverApprovalPrompt()` — sends approval payload to gateway                                                                                                           |
 | `gateway/src/telegram/send.ts`                          | `buildInlineKeyboard()` — renders approval actions as Telegram inline buttons                                                                                           |
 | `gateway/src/telegram/normalize.ts`                     | `callback_query` normalization into `GatewayInboundEvent` (DM-only, drops callbacks without data)                                                                       |
@@ -510,14 +510,8 @@ flowchart TD
 
     POLICY_CHECK -- deny --> DENY_POLICY["Deny: policy_deny"]
     POLICY_CHECK -- allow --> RECORD
-    POLICY_CHECK -- escalate --> RECORD
 
-    RECORD --> ESCALATE_CHECK{"Policy = escalate?"}
-    ESCALATE_CHECK -- Yes --> HAS_BINDING{"Guardian binding<br/>exists?"}
-    HAS_BINDING -- No --> DENY_ESCALATE["Deny: escalate_no_guardian"]
-    HAS_BINDING -- Yes --> CREATE_APPROVAL["Create approval request<br/>+ notify guardian (dual-surface)"]
-
-    ESCALATE_CHECK -- No --> VERIFY_CHECK{"Guardian verify<br/>code?"}
+    RECORD --> VERIFY_CHECK{"Guardian verify<br/>code?"}
     VERIFY_CHECK -- Yes --> VERIFY["Validate challenge<br/>→ create guardian binding"]
     VERIFY_CHECK -- No --> ROLE_RESOLVE["Resolve actor role<br/>(trust-context-resolver)"]
     ROLE_RESOLVE --> APPROVAL_INTERCEPT["Approval interception<br/>+ message processing"]
@@ -565,23 +559,23 @@ sequenceDiagram
     GW-->>Guardian: Confirmation of decision
 ```
 
-The `channelGuardianApprovalRequests` table tracks per-run approval state. Each request records the requester, guardian, tool name, risk level, and decision outcome.
+Approval state lives in the gateway's `guardian_requests` table (kind `tool_approval`), with per-surface card deliveries in `guardian_request_deliveries`. Each request records the requester, guardian, tool name, risk level, and decision outcome; decisions commit atomically via the gateway's `guardian_requests_decide` IPC route.
 
 **Key modules:**
 
-| Module                                                    | Purpose                                                                                                                       |
-| --------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `assistant/src/memory/guardian-approvals.ts`              | CRUD for guardian approval requests                                                                                           |
-| `assistant/src/memory/channel-verification-sessions.ts`   | Guardian binding types and verification challenge persistence                                                                 |
-| `assistant/src/runtime/channel-verification-service.ts`   | Challenge creation/validation, guardian identity checks (`isGuardian()`, `getGuardianBinding()`) -- all accept `assistantId`  |
-| `assistant/src/runtime/trust-context-resolver.ts`         | Actor role classification: guardian / non-guardian / unverified_channel based on binding state + sender identity              |
-| `assistant/src/runtime/routes/inbound-message-handler.ts` | Ingress ACL enforcement, verification-code intercept, escalation creation, actor role resolution                              |
-| `assistant/src/runtime/routes/channel-routes.ts`          | Approval routing to guardian, proactive expiry sweep (`sweepExpiredGuardianApprovals`, `startGuardianExpirySweep`)            |
-| `assistant/src/calls/guardian-dispatch.ts`                | Cross-channel ASK_GUARDIAN dispatch: creates guardian_action_requests, fans out to mac/telegram, manages deliveries           |
-| `assistant/src/calls/guardian-action-sweep.ts`            | Periodic 60s sweep for expired guardian action requests; sends expiry notices to delivery channels                            |
-| `assistant/src/memory/guardian-action-store.ts`           | CRUD for guardian_action_requests and guardian_action_deliveries tables; first-writer-wins resolution via atomic status check |
+| Module                                                    | Purpose                                                                                                                      |
+| --------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `gateway/src/db/guardian-request-store.ts`                | Gateway-side store for `guardian_requests` / `guardian_request_deliveries`; first-writer-wins decision via atomic status CAS |
+| `assistant/src/channels/gateway-guardian-requests.ts`     | Daemon-side client: typed wrappers over the gateway's `guardian_requests_*` IPC routes                                       |
+| `assistant/src/channels/gateway-verification-sessions.ts` | Guardian binding types and verification-session relay to the gateway store                                                   |
+| `assistant/src/runtime/channel-verification-service.ts`   | Challenge creation/validation, guardian identity checks (`isGuardian()`, `getGuardianBinding()`) -- all accept `assistantId` |
+| `assistant/src/runtime/trust-context-resolver.ts`         | Actor role classification: guardian / non-guardian / unverified_channel based on binding state + sender identity             |
+| `assistant/src/runtime/routes/inbound-message-handler.ts` | Ingress ACL enforcement, verification-code intercept, actor role resolution                                                  |
+| `assistant/src/runtime/routes/guardian-expiry-sweep.ts`   | Proactive 60s expiry sweep: gateway CAS-expiry plus card-withdrawal and requester-notice fan-out                             |
+| `assistant/src/calls/guardian-dispatch.ts`                | Cross-channel ASK_GUARDIAN dispatch: creates gateway guardian requests, fans out to mac/telegram, records deliveries         |
+| `assistant/src/calls/guardian-action-sweep.ts`            | Expiry notice delivery to guardian destinations (vellum conversation message or direct channel reply)                        |
 
-### Ingress Membership and Escalation
+### Ingress Membership
 
 The ingress membership system extends the guardian security model to support controlled cross-user access. External users interact with the assistant through channels (Telegram, WhatsApp) under an invite-based membership system with per-member access policies.
 
@@ -592,50 +586,11 @@ The channel inbound handler (`inbound-message-handler.ts`) enforces an access co
 1. When `actorExternalId` is present, the handler looks up the sender in the `contacts` table via `findContactChannel` by `(channelType, externalUserId)` or `(channelType, externalChatId)`.
 2. If no member record exists, the message is denied (`not_a_member`).
 3. If a member exists but is not `active` (e.g., `revoked`, `blocked`), the message is denied.
-4. If the member's `policy` is `deny`, the message is rejected. If `allow`, the message proceeds to normal processing. If `escalate`, the message is held for guardian approval.
+4. If the member's `policy` is `deny`, the message is rejected. If `allow`, the message proceeds to normal processing.
 
 **Invite-based onboarding:** Invite tokens are minted by the gateway via the invite HTTP API and stored SHA-256 hashed on the gateway DB's `ingress_invites` row -- the raw token is returned exactly once at creation time. External users redeem invites by sending the token as a channel message, which atomically creates a member record with `active` status and `allow` policy.
 
-**Relationship to guardian verification:** Guardian verification and ingress contact management are independent systems. Guardian verification establishes who controls the assistant on a channel (the trust anchor for approvals and escalations). Ingress contacts control who can interact with the assistant. Escalation (`policy=escalate`) depends on a guardian binding existing for the channel -- without one, escalated messages are denied (fail-closed).
-
-#### Escalation Data Flow
-
-When a member's policy is `escalate`:
-
-```mermaid
-sequenceDiagram
-    participant Ext as External User
-    participant GW as Gateway
-    participant RT as Runtime (channel-routes)
-    participant DB as SQLite
-    participant Guardian as Guardian (Channel)
-
-    Ext->>GW: Send message via channel
-    GW->>RT: POST /channels/inbound
-    RT->>DB: Look up ingress member -> policy = escalate
-    RT->>DB: Store raw payload (delivery-crud)
-    RT->>DB: Create channel_guardian_approval_request
-    RT->>RT: emitNotificationSignal (escalation alert)
-    RT->>GW: Notify guardian via notification pipeline
-    GW->>Guardian: Deliver escalation notice (Telegram/desktop)
-
-    alt Guardian approves
-        Guardian->>RT: Approve decision
-        RT->>DB: Resolve approval request
-        RT->>DB: Recover stored payload
-        RT->>RT: Process message through agent pipeline
-        RT->>GW: Deliver assistant reply
-        GW->>Ext: Reply via channel
-    else Guardian denies
-        Guardian->>RT: Deny decision
-        RT->>GW: Deliver refusal message
-        GW->>Ext: Refusal via channel
-    end
-```
-
-Escalation alerts are routed through the canonical notification pipeline (`emitNotificationSignal`), which delivers to all configured channels (Telegram push, desktop notification). The guardian can approve or deny from any channel. All decisions write to the same `channel_guardian_approval_requests` table.
-
-If no guardian binding exists for the channel, escalation fails closed -- the message is denied with `escalate_no_guardian`.
+**Relationship to guardian verification:** Guardian verification and ingress contact management are independent systems. Guardian verification establishes who controls the assistant on a channel (the trust anchor for approvals). Ingress contacts control who can interact with the assistant.
 
 #### SQLite Tables
 
@@ -644,7 +599,7 @@ If no guardian binding exists for the channel, escalation fails closed -- the me
 | Table              | Purpose                                                                |
 | ------------------ | ---------------------------------------------------------------------- |
 | `contacts`         | Contact records with role, relationship, and per-contact metadata      |
-| `contact_channels` | Channel bindings per contact with access policy (allow/deny/escalate)  |
+| `contact_channels` | Channel bindings per contact with access policy (allow/deny)           |
 
 **Gateway DB** (`gateway.sqlite` — canonical owner of invites and contact auth/authz):
 
@@ -668,7 +623,7 @@ The gateway declares `contacts` and `contact_channels` tables and exposes them v
 | `assistant/src/contacts/contact-store.ts`                 | Contact and channel lookups (findContactChannel, guardian bindings)        |
 | `assistant/src/contacts/contacts-write.ts`                | Contact and channel identity/info writes (upsert, redemption info mirror — ACL is gateway-owned) |
 | `assistant/src/ipc/routes/invite-ipc-routes.ts`           | `invite_redeemed` info mirror — local contact/channel identity upsert      |
-| `assistant/src/runtime/routes/inbound-message-handler.ts` | ACL enforcement point -- member lookup, policy check, escalation creation  |
+| `assistant/src/runtime/routes/inbound-message-handler.ts` | ACL enforcement point -- member lookup, policy check                       |
 | `gateway/src/db/contact-store.ts`                         | Gateway-side ContactStore — contact/channel reads and invite CRUD          |
 | `gateway/src/ipc/contact-handlers.ts`                     | IPC route handlers for contact reads                                       |
 
@@ -990,8 +945,8 @@ sequenceDiagram
 | `assistant/src/calls/call-store.ts`                              | CRUD operations for call sessions, call events, and pending questions in SQLite via Drizzle ORM                                                                                                                        |
 | `assistant/src/calls/call-domain.ts`                             | Shared domain functions (`startCall`, `getCallStatus`, `cancelCall`, `answerCall`, `relayInstruction`) used by both tools and HTTP routes                                                                              |
 | `assistant/src/calls/guardian-dispatch.ts`                       | Cross-channel dispatch engine: fans out ASK_GUARDIAN questions to mac/telegram, creates server-side guardian conversations, manages deliveries                                                                         |
-| `assistant/src/memory/guardian-action-store.ts`                  | CRUD for guardian action requests and deliveries; first-writer-wins resolution via atomic status check                                                                                                                 |
-| `assistant/src/calls/guardian-action-sweep.ts`                   | Periodic 60s sweep for expired guardian action requests; sends expiry notices to all delivery channels                                                                                                                 |
+| `gateway/src/db/guardian-request-store.ts`                       | Gateway-side store for guardian requests and deliveries; first-writer-wins resolution via atomic status CAS (`guardian_requests_decide`)                                                                               |
+| `assistant/src/calls/guardian-action-sweep.ts`                   | Expiry notices for expired guardian requests, sent to all delivery destinations                                                                                                                                        |
 | `assistant/src/calls/call-domain.ts:createInboundVoiceSession()` | Creates or reuses a voice session for an inbound call keyed by CallSid (idempotent replay protection)                                                                                                                  |
 | `assistant/src/runtime/channel-verification-service.ts`          | Channel verification session lifecycle: create session with six-digit code, find pending sessions, validate and consume on match                                                                                       |
 | `assistant/src/calls/call-state-machine.ts`                      | Deterministic state transition validator with allowed-transition table and terminal-state enforcement                                                                                                                  |
@@ -1043,22 +998,22 @@ The `validateTransition(current, next)` function is called by `updateCallSession
 
 When the LLM emits `[ASK_GUARDIAN: question]` during a voice call, the controller creates a pending question and calls `dispatchGuardianQuestion()` on the guardian dispatch engine. The dispatch engine handles the full cross-channel fan-out:
 
-1. **Request creation**: A `guardian_action_request` row is created with a unique 6-character hex request code, the question text, a `pending` status, and an expiry timestamp.
+1. **Request creation**: A `guardian_requests` row (kind `pending_question`) is created gateway-side via `guardian_requests_create` with a unique 6-character hex request code, the question text, a `pending` status, and an expiry timestamp.
 
 2. **Delivery fan-out via notification pipeline**: The guardian dispatch calls `emitNotificationSignal()` and uses the same notification decision + broadcaster path as every other producer.
    - **Vellum**: Conversation pairing happens in the notification broadcaster. The resulting `notification_conversation_created` event surfaces the conversation in the desktop UI.
    - **Telegram**: Delivery is handled by channel adapters selected by the notification decision and guarded by configured bindings.
-   - Guardian dispatch records `guardian_action_deliveries` from pipeline delivery results. It also uses the per-dispatch `onConversationCreated` callback so vellum delivery rows are created as soon as conversation pairing occurs (without waiting for slower channels).
+   - Guardian dispatch records `guardian_request_deliveries` (through the `guardian-delivery-recorder.ts` single write sink) from pipeline delivery results. It also uses the per-dispatch `onConversationCreated` callback so vellum delivery rows are created as soon as conversation pairing occurs (without waiting for slower channels).
 
-3. **Answer resolution**: The first channel to respond wins. Answer resolution uses an atomic `WHERE status = 'pending'` check on the `guardian_action_requests` table -- only the first writer succeeds in transitioning the request to `answered` status. The winning answer text and responding channel are recorded on the request row.
+3. **Answer resolution**: The first channel to respond wins. Decisions commit via the gateway's `guardian_requests_decide` route, which performs an atomic `WHERE status = 'pending'` compare-and-set on the `guardian_requests` table -- only the first writer succeeds in transitioning the request to a decided status. The winning answer text and deciding identity are recorded on the request row.
 
 4. **Stale responses**: Channels that lose the race (respond after another channel has already answered) receive a "already answered" notice informing them that the question was resolved by another channel.
 
 5. **Request-code disambiguation**: When a guardian has multiple pending requests across concurrent calls, they prefix their answer with the 6-character hex request code to indicate which question they are answering. This allows unambiguous routing even when questions arrive on the same channel in quick succession.
 
-6. **Expiry sweep**: The `guardian-action-sweep.ts` module runs a periodic 60-second interval sweep. It finds requests that have passed their expiry timestamp and transitions them to `expired` status. Expiry notices are sent to all delivery channels associated with the expired request.
+6. **Expiry sweep**: The daemon's `guardian-expiry-sweep.ts` runs a periodic 60-second sweep that asks the gateway to CAS-expire pending requests past their expiry timestamp (`guardian_requests_sweep_expired`). Expiry notices are sent to all delivery destinations associated with each expired request (`guardian-action-sweep.ts`).
 
-7. **Separation from channel guardian approvals**: Guardian action requests are SEPARATE from `channelGuardianApprovalRequests` (the existing channel tool-approval system). The channel guardian approval system handles tool-use permission grants (approve/deny a specific tool invocation). Guardian action requests handle free-form questions from voice calls that require human input to continue the conversation.
+7. **One store, many kinds**: Voice questions share the gateway's `guardian_requests` store with every other guardian request, distinguished by `kind` — `tool_approval` and `tool_grant_request` rows gate specific tool invocations, `pending_question` rows carry free-form questions from voice calls that require human input to continue the conversation, and `access_request` rows gate unknown-sender access.
 
 #### macOS Notification + Deep-Link Flow
 
@@ -1066,7 +1021,7 @@ When a guardian question is dispatched while the macOS app is backgrounded, the 
 
 ### SQLite Tables
 
-All five tables live in `$VELLUM_WORKSPACE_DIR/data/db/assistant.db` alongside existing tables:
+The three call tables live in `$VELLUM_WORKSPACE_DIR/data/db/assistant.db` alongside existing tables; guardian requests and their deliveries live in the gateway DB (the assistant-side copies were dropped by gateway migration m0016):
 
 - **`call_sessions`** — One row per call (inbound or outbound). Tracks conversation association, provider info (Twilio CallSid), phone numbers, task description (null for inbound calls), status lifecycle (`initiated` -> `ringing` -> `in_progress` -> `waiting_on_user` -> `completed`/`failed`), and timestamps. For inbound calls, the session is keyed by CallSid via `createInboundVoiceSession()` with idempotent replay protection. Foreign key to `conversations(id)` with cascade delete.
 
@@ -1074,9 +1029,9 @@ All five tables live in `$VELLUM_WORKSPACE_DIR/data/db/assistant.db` alongside e
 
 - **`call_pending_questions`** — Tracks questions the AI asks the user during a call (via the `[ASK_GUARDIAN: ...]` pattern). Status lifecycle: `pending` -> `answered`/`expired`/`cancelled`. Foreign key to `call_sessions(id)` with cascade delete.
 
-- **`guardian_action_requests`** — Cross-channel guardian consultation requests. One row per ASK_GUARDIAN question from a voice call. Tracks question text, request code (6-char hex), status lifecycle (`pending` -> `answered`/`expired`/`cancelled`), answer text, which channel answered, and expiry timestamp.
+- **`guardian_requests`** (gateway DB) — Guardian requests of every kind, including one row per ASK_GUARDIAN question from a voice call (kind `pending_question`). Tracks question/activity text, request code (6-char hex), status lifecycle (`pending` -> `approved`/`denied`/`expired`/`cancelled`), answer text, deciding identity, and expiry timestamp.
 
-- **`guardian_action_deliveries`** — Per-channel delivery tracking for guardian action requests. One row per (request, channel) pair. Tracks delivery status (`pending` -> `sent` -> `answered`/`expired`/`cancelled`), destination conversation/chat IDs, and response timestamps.
+- **`guardian_request_deliveries`** (gateway DB) — Per-surface delivery tracking for guardian requests. One row per (request, surface) pair. Tracks delivery status, destination channel, and destination conversation/chat/message IDs — the addressing that lets a delivered card be withdrawn or matched to an inbound reaction/reply.
 
 ### Gateway Twilio Webhook Ingress
 

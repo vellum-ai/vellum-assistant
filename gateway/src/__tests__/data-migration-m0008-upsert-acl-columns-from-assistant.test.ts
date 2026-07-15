@@ -298,6 +298,40 @@ describe("m0008-upsert-acl-columns-from-assistant", () => {
     expect(ch.last_interaction).toBe(4243);
   });
 
+  test("coerces an assistant escalate policy to deny on both upsert paths", async () => {
+    // Update path: existing gateway row.
+    seedGatewayContact({ id: "c-esc", display_name: "gw", role: "contact", principal_id: null });
+    seedGatewayChannel({
+      id: "ch-esc-upd",
+      contactId: "c-esc",
+      type: "telegram",
+      address: "esc-existing",
+      policy: "allow",
+    });
+    seedAssistantContact({ id: "c-esc" });
+    seedAssistantChannel({
+      id: "ch-esc-upd",
+      contact_id: "c-esc",
+      type: "telegram",
+      address: "esc-existing",
+      policy: "escalate",
+    });
+    // Insert path: channel the gateway lacks.
+    seedAssistantChannel({
+      id: "ch-esc-ins",
+      contact_id: "c-esc",
+      type: "telegram",
+      address: "esc-new",
+      policy: "escalate",
+    });
+
+    const result = await m0008Up();
+    expect(result).toBe("done");
+
+    expect(gwChannelByAddress("telegram", "esc-existing")!.policy).toBe("deny");
+    expect(gwChannelByAddress("telegram", "esc-new")!.policy).toBe("deny");
+  });
+
   test("inserts a contact + channel the gateway lacks with full ACL", async () => {
     seedAssistantContact({
       id: "c2",

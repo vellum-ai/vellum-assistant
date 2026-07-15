@@ -241,7 +241,7 @@ export function toTrustContext(
   ctx: ActorTrustContext,
   conversationExternalId: string,
 ): TrustContext {
-  const canonicalGuardianExternalUserId = ctx.guardianBindingMatch
+  const normalizedGuardianExternalUserId = ctx.guardianBindingMatch
     ?.guardianExternalUserId
     ? (canonicalizeInboundIdentity(
         ctx.actorMetadata.channel,
@@ -254,7 +254,7 @@ export function toTrustContext(
     guardianChatId:
       ctx.guardianBindingMatch?.guardianDeliveryChatId ??
       (ctx.trustClass === "guardian" ? conversationExternalId : undefined),
-    guardianExternalUserId: canonicalGuardianExternalUserId,
+    guardianExternalUserId: normalizedGuardianExternalUserId,
     guardianPrincipalId: ctx.guardianPrincipalId,
     requesterIdentifier: ctx.actorMetadata.identifier,
     requesterDisplayName: ctx.actorMetadata.displayName,

@@ -2,6 +2,7 @@ import { config as dotenvConfig } from "dotenv";
 
 import { reconcileCallsOnStartup } from "../calls/call-recovery.js";
 import { TwilioVoiceProvider } from "../calls/twilio-provider.js";
+import { expireInteractionBoundGuardianRequests } from "../channels/gateway-guardian-requests.js";
 import { initFeatureFlagOverrides } from "../config/assistant-feature-flags.js";
 import { setIngressPublicBaseUrl, validateEnv } from "../config/env.js";
 import {
@@ -11,7 +12,6 @@ import {
 } from "../config/loader.js";
 import { seedInferenceProfiles } from "../config/seed-inference-profiles.js";
 import { reconcileFlagGatedProfiles } from "../config/sync-gated-profiles.js";
-import { expireAllPendingCanonicalRequests } from "../contacts/canonical-guardian-store.js";
 import { startCes } from "../credential-execution/ces-runtime.js";
 import { refreshManagedConnectionCache } from "../credential-execution/managed-catalog.js";
 import { startHeartbeatService } from "../heartbeat/heartbeat-service.js";
@@ -359,8 +359,11 @@ export async function runDaemon(): Promise<void> {
       );
     }
 
-    // Expire stale pending canonical guardian requests left over from before
-    // this process started.  Two categories are cleaned up:
+    // Expire stale pending guardian requests left over from before this
+    // process started. Daemon-keyed by design: interaction-bound kinds die
+    // with THIS process's in-memory pendingInteractions map, so the daemon
+    // triggers the gateway op at its own boot — the gateway never runs it
+    // on its own restart. Two categories are cleaned up:
     //
     // 1. Interaction-bound kinds (tool_approval, pending_question) — their
     //    in-memory pending-interaction session references are gone, so they
@@ -369,11 +372,22 @@ export async function runDaemon(): Promise<void> {
     //    kinds (access_request, tool_grant_request) that expired while the
     //    daemon was stopped are transitioned so dedup logic doesn't return
     //    stale rows.
-    const expiredCount = expireAllPendingCanonicalRequests();
-    if (expiredCount > 0) {
-      log.info(
-        { event: "startup_expired_stale_requests", expiredCount },
-        `Expired ${expiredCount} stale canonical request(s) from previous process`,
+    //
+    // Startup must not block on the gateway (daemon startup philosophy):
+    // on failure the periodic sweep still reaps time-expired rows, and
+    // decide paths reject interaction-bound strays via pendingInteractions.
+    try {
+      const expiredCount = await expireInteractionBoundGuardianRequests();
+      if (expiredCount > 0) {
+        log.info(
+          { event: "startup_expired_stale_requests", expiredCount },
+          `Expired ${expiredCount} stale guardian request(s) from previous process`,
+        );
+      }
+    } catch (err) {
+      log.warn(
+        { err },
+        "Startup guardian-request expiry failed — continuing in degraded mode",
       );
     }
 

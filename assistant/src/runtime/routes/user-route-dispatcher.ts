@@ -1,10 +1,20 @@
 /**
  * File-based route dispatcher for user-defined HTTP endpoints.
  *
- * Maps requests under the `/x/*` path prefix to handler modules in the
- * workspace routes directory (`$VELLUM_WORKSPACE_DIR/routes/`). Each handler file
- * exports named functions for HTTP methods (GET, POST, PUT, etc.) using
- * the standard Web API Request/Response signature.
+ * Maps requests under the `/x/*` path prefix to handler modules resolved from
+ * the filesystem at request time. Two locations back the surface:
+ *
+ * - `$VELLUM_WORKSPACE_DIR/routes/<path>` — workspace routes, served at
+ *   `/x/<path>`.
+ * - `$VELLUM_WORKSPACE_DIR/plugins/<name>/routes/<path>` — a plugin's routes,
+ *   served in that plugin's namespace at `/x/plugins/<name>/<path>`. The
+ *   `plugins/<name>/` prefix is reserved for this: a request there resolves
+ *   only against the named plugin's `routes/` directory (never the workspace
+ *   `routes/plugins/…` tree) so plugins can't collide with workspace routes or
+ *   each other.
+ *
+ * Each handler file exports named functions for HTTP methods (GET, POST, PUT,
+ * etc.) using the standard Web API Request/Response signature.
  *
  * Handlers receive a second `context` argument with runtime singletons
  * (event hub, assistant ID, etc.) that would otherwise be unreachable
@@ -13,16 +23,19 @@
  *
  * Modules are lazily loaded on first request and cached by file path +
  * mtime. When a file changes on disk, the next request reloads it via
- * Bun's dynamic `import()` with a cache-busting query parameter.
+ * Bun's dynamic `import()` with a cache-busting query parameter. A request
+ * whose file does not exist 404s — nothing is registered ahead of time.
  */
 
-import { existsSync, statSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { statSync } from "node:fs";
 
 import { getLogger } from "../../util/logger.js";
-import { getWorkspaceRoutesDir } from "../../util/platform.js";
 import type { AssistantEventHub } from "../assistant-event-hub.js";
 import { httpError } from "../http-errors.js";
+import {
+  resolveHandlerFile,
+  resolveRouteLocation,
+} from "./user-route-resolution.js";
 
 const log = getLogger("user-routes");
 
@@ -116,9 +129,6 @@ interface CachedModule {
 /** Default per-request timeout for user-defined route handlers (30 seconds). */
 const DEFAULT_HANDLER_TIMEOUT_MS = 30_000;
 
-/** Supported file extensions for handler modules. */
-const HANDLER_EXTENSIONS = [".ts", ".js"] as const;
-
 export class UserRouteDispatcher {
   private moduleCache = new Map<string, CachedModule>();
   private handlerTimeoutMs: number;
@@ -145,8 +155,10 @@ export class UserRouteDispatcher {
       return httpError("BAD_REQUEST", "Path traversal is not allowed", 400);
     }
 
-    const routesDir = getWorkspaceRoutesDir();
-    const filePath = this.resolveHandlerFile(routesDir, routePath);
+    const location = resolveRouteLocation(routePath);
+    const filePath = location
+      ? resolveHandlerFile(location.routesDir, location.subPath)
+      : null;
 
     if (!filePath) {
       return httpError(
@@ -169,46 +181,6 @@ export class UserRouteDispatcher {
     }
 
     return this.executeHandler(handler, request, routePath);
-  }
-
-  /**
-   * Resolve a route path to a handler file on disk.
-   *
-   * Checks for direct file matches first (`<path>.ts`, `<path>.js`),
-   * then falls back to index files (`<path>/index.ts`, `<path>/index.js`).
-   *
-   * Returns the absolute path to the handler file, or null if not found.
-   */
-  private resolveHandlerFile(
-    routesDir: string,
-    routePath: string,
-  ): string | null {
-    const basePath = join(routesDir, routePath);
-    const resolved = resolve(basePath);
-
-    // Ensure the resolved path is within the routes directory to prevent
-    // any path traversal that slipped through the initial check.
-    if (!resolved.startsWith(resolve(routesDir))) {
-      return null;
-    }
-
-    // Direct file match: routes/<path>.ts or routes/<path>.js
-    for (const ext of HANDLER_EXTENSIONS) {
-      const candidate = `${resolved}${ext}`;
-      if (existsSync(candidate)) {
-        return candidate;
-      }
-    }
-
-    // Index file convention: routes/<path>/index.ts or routes/<path>/index.js
-    for (const ext of HANDLER_EXTENSIONS) {
-      const candidate = join(resolved, `index${ext}`);
-      if (existsSync(candidate)) {
-        return candidate;
-      }
-    }
-
-    return null;
   }
 
   /**

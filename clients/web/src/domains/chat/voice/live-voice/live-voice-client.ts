@@ -61,9 +61,7 @@ export const RETRYABLE_LIVE_VOICE_CLOSE_CODES: ReadonlySet<number> = new Set([
 
 /** Reason a live-voice session failed, surfaced via the `error` event. */
 export type LiveVoiceClientErrorReason =
-  | "connection-failed"
-  | "protocol-error"
-  | "timeout";
+  "connection-failed" | "protocol-error" | "timeout";
 
 export interface LiveVoiceClientError {
   readonly reason: LiveVoiceClientErrorReason;
@@ -137,6 +135,16 @@ export interface LiveVoiceConnectArgs {
    * (push-to-talk).
    */
   turnDetection?: LiveVoiceTurnDetectionMode;
+  /**
+   * Per-session "pause before reply" (ms) sent on the `start` frame. Omitted
+   * lets the daemon use its configured default.
+   */
+  silenceThresholdMs?: number;
+  /**
+   * Per-session "interrupt sensitivity" (ms of sustained speech to barge in)
+   * sent on the `start` frame. Omitted lets the daemon use its default.
+   */
+  bargeInMinSpeechMs?: number;
 }
 
 /** Factory so tests can inject a mock WebSocket. Defaults to the global. */
@@ -164,6 +172,13 @@ export class LiveVoiceChannelClient {
   private connectTimeout: ReturnType<typeof setTimeout> | null = null;
   private conversationId: string | undefined;
   private turnDetection: LiveVoiceTurnDetectionMode | undefined;
+  private silenceThresholdMs: number | undefined;
+  private bargeInMinSpeechMs: number | undefined;
+  // Set once an assistant running daemon code older than the `update_config`
+  // frame rejects it with `unknown_type`. We then stop sending config updates
+  // for this session so an older assistant is neither killed nor spammed by the
+  // voice-room settings (version-skew forward-compat).
+  private configUpdatesUnsupported = false;
 
   private readonly listeners: {
     [E in LiveVoiceClientEventName]: Set<LiveVoiceClientEventHandler<E>>;
@@ -224,11 +239,15 @@ export class LiveVoiceChannelClient {
     assistantId,
     conversationId,
     turnDetection,
+    silenceThresholdMs,
+    bargeInMinSpeechMs,
   }: LiveVoiceConnectArgs): Promise<void> {
     if (this.state !== "idle") return;
     this.state = "connecting";
     this.conversationId = conversationId;
     this.turnDetection = turnDetection;
+    this.silenceThresholdMs = silenceThresholdMs;
+    this.bargeInMinSpeechMs = bargeInMinSpeechMs;
 
     let url: string;
     try {
@@ -247,7 +266,10 @@ export class LiveVoiceChannelClient {
     try {
       ws = this.webSocketFactory(url);
     } catch (err) {
-      this.fail("connection-failed", messageOf(err, "Failed to open live-voice WebSocket"));
+      this.fail(
+        "connection-failed",
+        messageOf(err, "Failed to open live-voice WebSocket"),
+      );
       return;
     }
     this.ws = ws;
@@ -261,7 +283,10 @@ export class LiveVoiceChannelClient {
 
     this.connectTimeout = setTimeout(() => {
       if (this.state === "connecting") {
-        this.fail("timeout", `Live-voice connection timed out after ${this.connectTimeoutMs}ms`);
+        this.fail(
+          "timeout",
+          `Live-voice connection timed out after ${this.connectTimeoutMs}ms`,
+        );
       }
     }, this.connectTimeoutMs);
   }
@@ -280,6 +305,30 @@ export class LiveVoiceChannelClient {
   /** Interrupt assistant speech for barge-in. */
   interrupt(): void {
     this.sendControlFrame("interrupt");
+  }
+
+  /**
+   * Retune the running session's turn-detection knobs ("pause before reply" /
+   * "interrupt sensitivity") without reconnecting. No-op unless the session is
+   * active; each field is optional. The daemon applies changes from the next
+   * utterance.
+   */
+  updateConfig(config: {
+    silenceThresholdMs?: number;
+    bargeInMinSpeechMs?: number;
+  }): void {
+    if (this.state !== "active" || this.configUpdatesUnsupported) return;
+    this.trySend(
+      JSON.stringify({
+        type: "update_config",
+        ...(config.silenceThresholdMs !== undefined
+          ? { silenceThresholdMs: config.silenceThresholdMs }
+          : {}),
+        ...(config.bargeInMinSpeechMs !== undefined
+          ? { bargeInMinSpeechMs: config.bargeInMinSpeechMs }
+          : {}),
+      }),
+    );
   }
 
   /**
@@ -312,6 +361,12 @@ export class LiveVoiceChannelClient {
       audio: LIVE_VOICE_AUDIO_FORMAT,
       ...(this.conversationId ? { conversationId: this.conversationId } : {}),
       ...(this.turnDetection ? { turnDetection: this.turnDetection } : {}),
+      ...(this.silenceThresholdMs !== undefined
+        ? { silenceThresholdMs: this.silenceThresholdMs }
+        : {}),
+      ...(this.bargeInMinSpeechMs !== undefined
+        ? { bargeInMinSpeechMs: this.bargeInMinSpeechMs }
+        : {}),
     };
     this.trySend(JSON.stringify(startFrame));
   }
@@ -372,6 +427,20 @@ export class LiveVoiceChannelClient {
         this.emit("archived", frame);
         return;
       case "error":
+        // An assistant running daemon code older than a client frame we sent
+        // rejects it with `unknown_type`. The only frame we send optimistically
+        // is `update_config` (the voice-room settings), so this is a
+        // forward-compat no-op, not a session failure: latch it off and keep
+        // the session alive. Mirrors the `unknown_frame` handling below for the
+        // reverse (newer-server) direction.
+        if (frame.code === "unknown_type") {
+          this.configUpdatesUnsupported = true;
+          console.warn(
+            "live-voice: assistant rejected update_config (unknown_type); " +
+              "in-session settings changes won't apply until it is upgraded",
+          );
+          return;
+        }
         // A recoverable mid-session error leaves the transport open; the
         // session controller decides whether the session survives. (`in`
         // narrows past LiveVoiceInvalidJsonFrame, which is never recoverable.)
@@ -412,7 +481,10 @@ export class LiveVoiceChannelClient {
       this.state === "connecting" &&
       !RETRYABLE_LIVE_VOICE_CLOSE_CODES.has(event.code)
     ) {
-      this.fail("connection-failed", "Live-voice WebSocket closed before ready");
+      this.fail(
+        "connection-failed",
+        "Live-voice WebSocket closed before ready",
+      );
       return;
     }
     this.teardown();

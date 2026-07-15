@@ -38,21 +38,20 @@ mock.module("../runtime/guardian-reply-router.js", () => ({
   routeGuardianReply: routeGuardianReplyMock,
 }));
 
-mock.module("../contacts/canonical-guardian-store.js", () => ({
-  createCanonicalGuardianRequest: () => ({
-    id: "canonical-id",
+mock.module("../channels/gateway-guardian-requests.js", () => ({
+  createGuardianRequest: async (params: Record<string, unknown>) => ({
+    ...params,
     requestCode: "ABC123",
   }),
-  generateCanonicalRequestCode: () => "ABC123",
-  listPendingCanonicalGuardianRequestsByDestinationConversation: (
-    conversationId: string,
-    sourceChannel?: string,
-  ) => listPendingByDestinationMock(conversationId, sourceChannel),
-  listCanonicalGuardianRequests: (filters?: Record<string, unknown>) =>
+  listGuardianRequestsOrEmpty: async (filters?: Record<string, unknown>) =>
     listCanonicalMock(filters),
-  listPendingRequestsByConversationScope: (conversationId: string) => {
+  expireGuardianRequest: async () => {},
+  listPendingRequestsByScopeOrEmpty: async (conversationId: string) => {
     const byDest = listPendingByDestinationMock(conversationId);
-    const bySrc = listCanonicalMock({ status: "pending", conversationId });
+    const bySrc = listCanonicalMock({
+      status: "pending",
+      sourceConversationId: conversationId,
+    });
     const seen = new Set<string>();
     const result: Array<{ id: string; kind?: string }> = [];
     for (const r of [...bySrc, ...byDest]) {
@@ -138,7 +137,7 @@ const _testAuthContext: AuthContext = {
   policyEpoch: 1,
 };
 
-describe("handleSendMessage canonical guardian reply interception", () => {
+describe("handleSendMessage guardian reply interception", () => {
   beforeEach(() => {
     routeGuardianReplyMock.mockClear();
     listPendingByDestinationMock.mockClear();

@@ -154,7 +154,7 @@ jobs:
           done
 
       - name: Sync feature flag registry
-        run: bun run meta/feature-flags/sync-bundled-copies.ts
+        run: bun run meta/sync-bundled-copies.ts
 
       - name: Lint
         run: bun run lint
@@ -188,7 +188,7 @@ jobs:
         working-directory: gateway
 
       - name: Sync feature flag registry
-        run: bun run meta/feature-flags/sync-bundled-copies.ts
+        run: bun run meta/sync-bundled-copies.ts
 
       - name: Lint
         run: bun run lint
@@ -1899,7 +1899,7 @@ jobs:
         with:
           node-version-file: .nvmrc
       - name: Sync feature flag registry
-        run: bun run meta/feature-flags/sync-bundled-copies.ts
+        run: bun run meta/sync-bundled-copies.ts
       - name: Stamp dev version
         run: jq --arg v "${{ needs.compute-version.outputs.version }}" '.version = $v' ${{ matrix.package }}/package.json > ${{ matrix.package }}/package.json.tmp && mv ${{ matrix.package }}/package.json.tmp ${{ matrix.package }}/package.json
       - name: Install package dependencies

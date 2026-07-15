@@ -130,7 +130,7 @@ Run \`assistant contacts prompt --help\` for full option details.`,
 Channels represent external communication endpoints linked to contacts —
 phone numbers, Telegram IDs, email addresses, etc. Each channel has a
 status (active, pending, revoked, blocked, unverified) and a policy
-(allow, deny, escalate) that controls how the assistant handles messages
+(allow, deny) that controls how the assistant handles messages
 from that channel.
 
 Examples:
@@ -148,7 +148,7 @@ Examples:
             },
             {
               flags: "--policy <policy>",
-              description: "New channel policy: allow, deny, or escalate",
+              description: "New channel policy: allow or deny",
             },
             {
               flags: "--reason <reason>",
@@ -168,7 +168,7 @@ channel record. When --status is "blocked", --reason is mapped to
 blockedReason. The --reason flag is ignored for other status values.
 
 Valid --status values: active, revoked, blocked
-Valid --policy values: allow, deny, escalate
+Valid --policy values: allow, deny
 
 Examples:
   $ assistant contacts channels update-status abc-123 --status revoked --reason "No longer needed" --json

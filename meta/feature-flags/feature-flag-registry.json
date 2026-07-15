@@ -179,14 +179,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "coding-agents-panel",
-      "scope": "client",
-      "key": "coding-agents-panel",
-      "label": "Coding Agents Panel",
-      "description": "Gate native macOS Coding Agents panel entry points and inline ACP session deep links.",
-      "defaultEnabled": false
-    },
-    {
       "id": "compaction-playground",
       "scope": "assistant",
       "key": "compaction-playground",
@@ -311,7 +303,7 @@
       "scope": "assistant",
       "key": "memory-concept-graph",
       "label": "Memory concept graph",
-      "description": "Gates the Obsidian-style memory concept graph on the assistant identity page and the backend-agnostic /memory-graph + /memory-graph-node routes that feed it. When off, the identity page shows the skills constellation instead. Only produces a graph on memory-v3 backends. Default off.",
+      "description": "Gates the Obsidian-style memory concept graph on its own Memory tab (/assistant/memory) and the backend-agnostic /memory-graph + /memory-graph-node routes that feed it. When off, the Memory tab is hidden; the identity page keeps the skills constellation. Only produces a graph on memory-v3 backends. Default off.",
       "defaultEnabled": false
     },
     {
@@ -409,6 +401,14 @@
       "label": "Override-or-Default Profile Resolution",
       "description": "Resolve inference profiles as single complete overrides (or the call site's default intent through the default provider) instead of the legacy deep-merge cascade. Ships enabled; disable as a kill switch to restore merge semantics.",
       "defaultEnabled": true
+    },
+    {
+      "id": "chat-credential-reveal",
+      "scope": "assistant",
+      "key": "chat-credential-reveal",
+      "label": "Chat Credential Reveal",
+      "description": "Persist chat secret redactions as sentinel markers instead of the legacy HTML marker, enriched with the vault identity when the value byte-matches a credential revealed this turn. Render support in clients is unconditional; this flag gates only the daemon persist format.",
+      "defaultEnabled": false
     }
   ]
 }

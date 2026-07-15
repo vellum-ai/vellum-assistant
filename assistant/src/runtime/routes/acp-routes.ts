@@ -20,7 +20,7 @@ import {
 import type { AcpSessionState } from "../../acp/types.js";
 import { getConfig } from "../../config/loader.js";
 import type { ServerMessage } from "../../daemon/message-protocol.js";
-import { createCanonicalRequestForConfirmation } from "../../permissions/confirmation-canonical-request.js";
+import { createGuardianRequestForConfirmation } from "../../permissions/confirmation-guardian-request.js";
 import type { UserDecision } from "../../permissions/types.js";
 import { getDb } from "../../persistence/db-connection.js";
 import { rawChanges } from "../../persistence/raw-query.js";
@@ -114,7 +114,9 @@ function awaitRouteApproval(args: {
       decision: UserDecision,
       state: "approved" | "rejected" | "cancelled",
     ) => {
-      if (settled) return;
+      if (settled) {
+        return;
+      }
       settled = true;
       clearTimeout(timer);
       signal?.removeEventListener("abort", onAbort);
@@ -173,9 +175,9 @@ function awaitRouteApproval(args: {
     };
     broadcastMessage(confirmationMsg, conversationId);
 
-    // Promote the confirmation to a canonical guardian request so channel
+    // Promote the confirmation to a guardian request so channel
     // guardian decisions (reactions, buttons, text) can resolve it.
-    void createCanonicalRequestForConfirmation(confirmationMsg, conversationId);
+    void createGuardianRequestForConfirmation(confirmationMsg, conversationId);
   });
 }
 
@@ -476,7 +478,9 @@ function deleteSession({ pathParams }: RouteHandlerArgs) {
       );
     }
   } catch (err) {
-    if (err instanceof ConflictError) throw err;
+    if (err instanceof ConflictError) {
+      throw err;
+    }
     // Not registered in memory, but a resume may be in flight (id reserved
     // while awaiting env preparation). Its history row must survive until
     // the resume lands - the later terminal upsert would resurrect a
@@ -687,9 +691,13 @@ export const ROUTES: RouteDefinition[] = [
 // ---------------------------------------------------------------------------
 
 function parseLimit(raw: string | null | undefined): number {
-  if (raw == null) return DEFAULT_SESSION_LIMIT;
+  if (raw == null) {
+    return DEFAULT_SESSION_LIMIT;
+  }
   const n = Number(raw);
-  if (!Number.isFinite(n) || n <= 0) return DEFAULT_SESSION_LIMIT;
+  if (!Number.isFinite(n) || n <= 0) {
+    return DEFAULT_SESSION_LIMIT;
+  }
   return Math.min(Math.floor(n), MAX_SESSION_LIMIT);
 }
 
@@ -746,11 +754,15 @@ function listMergedSessions(opts: {
     .all();
 
   for (const row of historyRows) {
-    if (merged.has(row.id)) continue;
+    if (merged.has(row.id)) {
+      continue;
+    }
     let eventLog: unknown[] = [];
     try {
       const parsed = JSON.parse(row.eventLogJson) as unknown;
-      if (Array.isArray(parsed)) eventLog = parsed;
+      if (Array.isArray(parsed)) {
+        eventLog = parsed;
+      }
     } catch (err) {
       log.warn(
         { id: row.id, err },

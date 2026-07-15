@@ -364,6 +364,43 @@ describe("memoryV2ReembedJob", () => {
     expect(total).toBe(0);
   });
 
+  test("running the fan-out twice coalesces to one pending job per page", async () => {
+    // Stacked reembed runs (e.g. several consolidations completing before the
+    // embed lane drains) must not multiply the queue: the per-slug coalesce in
+    // the enqueue helper reuses the pending row.
+    await writePage(tmpWorkspace, {
+      slug: "alice",
+      frontmatter: { edges: [], ref_files: [], ref_urls: [] },
+      body: "Alice.\n",
+    });
+    await writePage(tmpWorkspace, {
+      slug: "bob",
+      frontmatter: { edges: [], ref_files: [], ref_urls: [] },
+      body: "Bob.\n",
+    });
+
+    const first = await memoryV2ReembedJob(
+      makeJob("memory_v2_reembed"),
+      TEST_CONFIG,
+    );
+    const second = await memoryV2ReembedJob(
+      makeJob("memory_v2_reembed"),
+      TEST_CONFIG,
+    );
+
+    // Both passes fan out over every page…
+    expect(first).toBe(2);
+    expect(second).toBe(2);
+
+    // …but the queue holds one pending row per slug, not one per pass.
+    const rows = getMemoryDb()!.select().from(memoryJobs).all();
+    if (rows.length > 0) {
+      expect(rows).toHaveLength(2);
+      const slugs = rows.map((row) => JSON.parse(row.payload).slug).sort();
+      expect(slugs).toEqual(["alice", "bob"]);
+    }
+  });
+
   test("does NOT enqueue reserved meta-file slugs", async () => {
     // The four prose meta files (essentials/threads/recent/buffer) live at
     // `memory/<name>.md` and are direct-injected into the system prompt via

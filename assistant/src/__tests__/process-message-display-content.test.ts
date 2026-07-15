@@ -5,6 +5,7 @@ const addMessageCalls: Array<{
   role: string;
   content: string;
   metadata?: Record<string, unknown>;
+  skipIndexing?: boolean;
 }> = [];
 
 let activeConversation: unknown;
@@ -66,13 +67,14 @@ mock.module("../persistence/conversation-crud.js", () => ({
     conversationId: string,
     role: string,
     content: string,
-    options?: { metadata?: Record<string, unknown> },
+    options?: { metadata?: Record<string, unknown>; skipIndexing?: boolean },
   ) => {
     addMessageCalls.push({
       conversationId,
       role,
       content,
       metadata: options?.metadata,
+      skipIndexing: options?.skipIndexing,
     });
     return { id: `persisted-${addMessageCalls.length}` };
   },
@@ -226,6 +228,7 @@ function makeTestConversation() {
       metadata?: Record<string, unknown>;
       displayContent?: string;
       clientMessageId?: string;
+      skipIndexing?: boolean;
     }) =>
       persistQueuedMessageBody(messagingCtx, {
         ...options,
@@ -505,5 +508,38 @@ describe("processMessage displayContent", () => {
 
     const conversation = await expectEmptyDisplayContentHonored(modelContent);
     expect(conversation.forceCompact).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("processMessage skipUserMessageIndexing", () => {
+  beforeEach(() => {
+    addMessageCalls.length = 0;
+    activeConversation = undefined;
+    resolveSlashForTest = (content) => ({ kind: "passthrough", content });
+  });
+
+  test("threads skipIndexing to the initial user-message save", async () => {
+    const conversation = makeTestConversation();
+    activeConversation = conversation;
+
+    await processMessage("conv-display-content", "kickoff prompt body", {
+      skipUserMessageIndexing: true,
+    });
+
+    expect(addMessageCalls).toHaveLength(1);
+    expect(addMessageCalls[0]!.role).toBe("user");
+    expect(addMessageCalls[0]!.skipIndexing).toBe(true);
+    // The turn itself still runs — only the save's indexing is skipped.
+    expect(conversation.runAgentLoop).toHaveBeenCalledTimes(1);
+  });
+
+  test("default save is indexed (no skipIndexing option)", async () => {
+    const conversation = makeTestConversation();
+    activeConversation = conversation;
+
+    await processMessage("conv-display-content", "ordinary message", {});
+
+    expect(addMessageCalls).toHaveLength(1);
+    expect(addMessageCalls[0]!.skipIndexing).toBeUndefined();
   });
 });

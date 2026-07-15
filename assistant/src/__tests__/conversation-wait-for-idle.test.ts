@@ -163,26 +163,6 @@ mock.module("../agent/loop.js", () => ({
   },
 }));
 
-mock.module("../contacts/canonical-guardian-store.js", () => ({
-  listPendingCanonicalGuardianRequestsByDestinationConversation: () => [],
-  listCanonicalGuardianRequests: () => [],
-  listPendingRequestsByConversationScope: () => [],
-  createCanonicalGuardianRequest: () => ({
-    id: "mock-cg-id",
-    code: "MOCK",
-    status: "pending",
-  }),
-  getCanonicalGuardianRequest: () => null,
-  getCanonicalGuardianRequestByCode: () => null,
-  updateCanonicalGuardianRequest: () => {},
-  resolveCanonicalGuardianRequest: () => {},
-  createCanonicalGuardianDelivery: () => ({ id: "mock-cgd-id" }),
-  listCanonicalGuardianDeliveries: () => [],
-  listPendingCanonicalGuardianRequestsByDestinationChat: () => [],
-  updateCanonicalGuardianDelivery: () => {},
-  generateCanonicalRequestCode: () => "MOCK-CODE",
-}));
-
 // ---------------------------------------------------------------------------
 // Import Conversation AFTER mocks
 // ---------------------------------------------------------------------------

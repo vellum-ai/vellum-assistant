@@ -12,6 +12,8 @@ import type {
  * buildCliProgram() in the local environment.
  */
 const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
+  "apps",
+  "apps list",
   "attachment",
   "attachment register",
   "attachment lookup",
@@ -121,6 +123,7 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "db status",
   "db repair",
   "gateway",
+  "gateway status",
   "gateway logs",
   "gateway logs tail",
   "image-generation",

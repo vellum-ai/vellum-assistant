@@ -78,6 +78,14 @@ describe("IntelligenceLayout — section pages", () => {
     expect(container.querySelector("h1")?.textContent).toBe("Plugins");
   });
 
+  test("the memory page renders as a section with the back chevron", () => {
+    const { container } = renderLayoutAt("/assistant/memory");
+    expect(container.querySelector("h1")?.textContent).toBe("Memory");
+    expect(container.querySelector("a")?.getAttribute("href")).toBe(
+      "/assistant/identity",
+    );
+  });
+
   test("on mobile, registers the section label as the top-bar title", () => {
     isMobileRef.value = true;
     renderLayoutAt("/assistant/workspace");

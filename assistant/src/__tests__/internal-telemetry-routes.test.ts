@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 
 // Toggle for the share_analytics opt-out the real store consults. The store
 // module is intentionally NOT mocked here — it has its own DB-backed tests, and
@@ -28,16 +28,28 @@ mock.module("../telemetry/watchdog-direct-emit.js", () => ({
   },
 }));
 
-import { getDb } from "../persistence/db-connection.js";
+import * as dbConnection from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
-import { authFallbackEvents } from "../persistence/schema/index.js";
 import { GATEWAY_PRINCIPALS } from "../runtime/auth/route-policy.js";
-import { RouteError } from "../runtime/routes/errors.js";
+import {
+  RouteError,
+  ServiceUnavailableError,
+} from "../runtime/routes/errors.js";
 import { ROUTES } from "../runtime/routes/internal-telemetry-routes.js";
 import type { RouteHandlerArgs } from "../runtime/routes/types.js";
-import { queryUnreportedAuthFallbackEvents } from "../security/auth-fallback-events-store.js";
+import {
+  discardPendingTelemetryOutboxEvents,
+  queryTelemetryOutboxBatch,
+} from "../telemetry/telemetry-events-outbox.js";
+import type { AuthFallbackTelemetryEvent } from "../telemetry/types.js";
 
 await initializeDb();
+
+function pendingAuthFallbackPayloads(): AuthFallbackTelemetryEvent[] {
+  return queryTelemetryOutboxBatch("auth_fallback", 100).map(
+    (r) => JSON.parse(r.payload) as AuthFallbackTelemetryEvent,
+  );
+}
 
 const route = ROUTES.find(
   (r) => r.operationId === "internal_telemetry_auth_fallback",
@@ -64,7 +76,7 @@ const VALID_BODY = {
 describe("internal-telemetry-routes: auth-fallback", () => {
   beforeEach(() => {
     shareAnalytics = true;
-    getDb().delete(authFallbackEvents).run();
+    discardPendingTelemetryOutboxEvents("auth_fallback");
   });
 
   test("route is locked to service-token callers (GATEWAY_PRINCIPALS + internal.write)", () => {
@@ -75,26 +87,40 @@ describe("internal-telemetry-routes: auth-fallback", () => {
     expect(route?.policy?.requiredScopes).toEqual(["internal.write"]);
   });
 
-  test("valid batch is persisted with snake_case → camelCase mapping", () => {
+  test("valid batch is persisted to the outbox as a wire auth_fallback event", () => {
     const result = call(VALID_BODY);
     expect(result).toEqual({ recorded: 1 });
 
-    const rows = queryUnreportedAuthFallbackEvents(0, undefined, 100);
-    expect(rows.length).toBe(1);
-    expect(rows[0]).toMatchObject({
+    const payloads = pendingAuthFallbackPayloads();
+    expect(payloads.length).toBe(1);
+    expect(payloads[0]).toMatchObject({
+      type: "auth_fallback",
       guard: "edge",
       path: "/v1/messages",
-      failureKind: "missing_authorization",
+      failure_kind: "missing_authorization",
       count: 5,
-      windowStart: 1000,
-      windowEnd: 2000,
+      window_start: 1000,
+      window_end: 2000,
     });
   });
 
   test("returns skipped and persists nothing under the opt-out", () => {
     shareAnalytics = false;
     expect(call(VALID_BODY)).toEqual({ skipped: true });
-    expect(queryUnreportedAuthFallbackEvents(0, undefined, 100).length).toBe(0);
+    expect(pendingAuthFallbackPayloads().length).toBe(0);
+  });
+
+  test("throws 503 when consent is on but the telemetry DB is unavailable, so the gateway re-queues", () => {
+    const spy = spyOn(dbConnection, "getTelemetryDb").mockReturnValue(null);
+    try {
+      expect(() => call(VALID_BODY)).toThrow(ServiceUnavailableError);
+    } finally {
+      spy.mockRestore();
+    }
+    expect(pendingAuthFallbackPayloads().length).toBe(0);
+
+    // Once the DB is back the same batch records normally.
+    expect(call(VALID_BODY)).toEqual({ recorded: 1 });
   });
 
   test("rejects a malformed body without persisting", () => {
@@ -106,7 +132,7 @@ describe("internal-telemetry-routes: auth-fallback", () => {
         counts: [{ guard: "edge", path: "/x", failure_kind: "y", count: 0 }],
       }),
     ).toThrow(RouteError);
-    expect(queryUnreportedAuthFallbackEvents(0, undefined, 100).length).toBe(0);
+    expect(pendingAuthFallbackPayloads().length).toBe(0);
   });
 });
 

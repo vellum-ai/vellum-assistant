@@ -107,6 +107,14 @@ type ProcessMessageOptions = ConversationCreateOptions & {
    * are not presented to the model). Ignored when `allowedTools` is absent.
    */
   toolGateMode?: SubagentToolGateMode;
+  /**
+   * Persist the inbound user message without indexing it — no memory
+   * segments, no embeddings, no lexical-index entry. Threaded from
+   * `runBackgroundJob` for machine-authored kickoff prompts (e.g. memory
+   * consolidation) whose static instruction text must not enter memory or
+   * search. Every other message in the turn indexes normally.
+   */
+  skipUserMessageIndexing?: boolean;
 };
 
 function buildEventEmitter(
@@ -624,6 +632,7 @@ export async function processMessage(
     requestId,
     metadata: persistMetadata,
     displayContent: options?.displayContent,
+    ...(options?.skipUserMessageIndexing ? { skipIndexing: true } : {}),
   });
   publishConversationMessagesChanged(conversationId);
 

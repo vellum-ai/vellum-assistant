@@ -40,6 +40,9 @@ import {
     getLiveVoiceInputAmplitude,
     isLiveVoiceSessionActive,
     releaseLiveVoiceTurn,
+    setLiveVoiceEntryOrigin,
+    setLiveVoiceMuted,
+    stopLiveVoiceResponse,
     useIsLiveVoiceSessionOwnedBy,
     useLiveVoiceStore,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
@@ -163,6 +166,31 @@ export interface ChatComposerProps {
   onCancelEdit?: () => void;
 }
 
+/**
+ * Viewport-space center of the on-screen assistant avatar the live-voice room
+ * grows its entrance from — the last on-screen `[data-voice-origin]` element
+ * (the greeting avatar on a fresh chat, the latest-turn avatar in a
+ * conversation). `null` when none is visible (falls back to the tapped button,
+ * then screen-center).
+ */
+function measureVoiceOriginAvatar(): { x: number; y: number } | null {
+  if (typeof document === "undefined") return null;
+  let best: DOMRect | null = null;
+  for (const node of document.querySelectorAll("[data-voice-origin]")) {
+    const rect = node.getBoundingClientRect();
+    if (rect.width === 0 && rect.height === 0) continue;
+    const onScreen =
+      rect.bottom > 0 &&
+      rect.top < window.innerHeight &&
+      rect.right > 0 &&
+      rect.left < window.innerWidth;
+    // Keep the last on-screen one in DOM order (the most recent avatar).
+    if (onScreen) best = rect;
+  }
+  if (!best) return null;
+  return { x: best.left + best.width / 2, y: best.top + best.height / 2 };
+}
+
 export function ChatComposer({
   placeholder = "What would you like to do?",
   onSubmit,
@@ -259,6 +287,11 @@ export function ChatComposer({
   // global live-voice store but must never swap its row.
   const ownsLiveVoiceSession = useIsLiveVoiceSessionOwnedBy(conversationId);
   const isLiveVoiceActive = showVoiceInput && ownsLiveVoiceSession;
+  // Mic mute state (controller-published) for the voice bar's toggle.
+  const liveVoiceMuted = useLiveVoiceStore.use.muted();
+  // Hands-free sessions get the turn-scoped ■ stop; a manual (version-skew
+  // fallback) session must not — its interrupt ends the whole session.
+  const liveVoiceHandsFree = useLiveVoiceStore.use.handsFree();
   // Whether the session has any speech transcript to show. A boolean
   // *presence* subscription, not the text itself: zustand only re-renders
   // when the selected value changes identity, so per-delta transcript
@@ -297,30 +330,47 @@ export function ChatComposer({
   // `voice-mode` flag off this path is unreachable and the app-editing variant
   // (no voice entry point) never renders the card.
   const [firstRunCardOpen, setFirstRunCardOpen] = useState(false);
+  // Where the user tapped to start — captured at click so the room's entrance
+  // grows from the on-screen control, not screen-center. Stashed here because
+  // the first-run card path defers the actual start to its own handler.
+  const liveVoiceEntryOriginRef = useRef<{ x: number; y: number } | null>(null);
   const startLiveVoiceSession = useCallback(() => {
     if (!assistantId) {
       return;
     }
+    // Grow the room's entrance from the assistant avatar the user sees — the
+    // empty-state greeting avatar, or the latest-turn avatar below the most
+    // recent response (both tagged `data-voice-origin`). Fall back to the
+    // tapped voice button, then to screen-center (null).
+    const origin =
+      measureVoiceOriginAvatar() ?? liveVoiceEntryOriginRef.current;
+    // Publish the origin BEFORE starting; the controller carries it across its
+    // start-time `reset()` (see the live-voice store's `entryOrigin`).
+    setLiveVoiceEntryOrigin(origin);
     useLiveVoiceStore.getState().starter?.(assistantId, conversationId ?? null);
   }, [assistantId, conversationId]);
-  const handleLiveVoiceStart = useCallback(() => {
-    if (!assistantId) {
-      return;
-    }
-    // First-run preferences card — shown on every platform EXCEPT Capacitor
-    // iOS. On the iOS shell a dismissible pre-prompt before the live-voice
-    // `getUserMedia` permission alert violates `docs/CAPACITOR.md` § OS
-    // permission requests (Apple HIG / App Store Review 5.1.1(iv)) and the
-    // `voice/live-voice/pcm-capture.ts` caller contract, which require any
-    // pre-permission UI to lead directly to the system alert. On iOS we
-    // therefore start directly (same as the returning-user path) so the OS
-    // alert is reached without an intervening dismissible modal.
-    if (!useVoicePrefsStore.getState().firstRunSeen && !isNativeIOS()) {
-      setFirstRunCardOpen(true);
-      return;
-    }
-    startLiveVoiceSession();
-  }, [assistantId, startLiveVoiceSession]);
+  const handleLiveVoiceStart = useCallback(
+    (origin?: { x: number; y: number }) => {
+      if (!assistantId) {
+        return;
+      }
+      liveVoiceEntryOriginRef.current = origin ?? null;
+      // First-run preferences card — shown on the first-ever voice entry on
+      // EVERY platform, the Capacitor iOS shell included (web↔iOS parity for the
+      // welcome card). On iOS the card renders locked (`nonDismissible`, see its
+      // render below), which keeps it compliant with `docs/CAPACITOR.md` § OS
+      // permission requests: the card precedes the live-voice `getUserMedia`
+      // alert, and a locked pre-prompt whose only action leads straight to that
+      // alert is the sanctioned pattern (Apple HIG / App Store Review 5.1.1(iv))
+      // — a *dismissible* pre-prompt is the disallowed one.
+      if (!useVoicePrefsStore.getState().firstRunSeen) {
+        setFirstRunCardOpen(true);
+        return;
+      }
+      startLiveVoiceSession();
+    },
+    [assistantId, startLiveVoiceSession],
+  );
   const handleFirstRunStart = useCallback(() => {
     useVoicePrefsStore.getState().markFirstRunSeen();
     setFirstRunCardOpen(false);
@@ -443,11 +493,17 @@ export function ChatComposer({
       {firstRunCardOpen && (
         // First voice-mode entry only — the card commits prefs + starts via
         // `handleFirstRunStart`; a plain dismiss cancels without consuming the
-        // first run, so it returns on the next entry.
+        // first run, so it returns on the next entry. On Capacitor iOS the card
+        // is locked (no ✕ / backdrop / Escape): it precedes the live-voice
+        // `getUserMedia` alert, so per `docs/CAPACITOR.md` § OS permission
+        // requests the pre-prompt must lead straight to that alert — its only
+        // action is "Start talking", and there is no card-level cancel (backing
+        // out means denying the OS mic prompt, or ✕ once the room opens).
         <VoiceFirstRunCard
           assistantId={assistantId}
           onStart={handleFirstRunStart}
           onDismiss={() => setFirstRunCardOpen(false)}
+          nonDismissible={isNativeIOS()}
         />
       )}
       {/* Composer-owned draft/attachment notices (self-sourced), above the
@@ -729,8 +785,13 @@ export function ChatComposer({
               <VoiceComposerBar
                 state={liveVoiceState}
                 getAmplitude={getLiveVoiceInputAmplitude}
+                muted={liveVoiceMuted}
+                onToggleMute={() => setLiveVoiceMuted(!liveVoiceMuted)}
                 onEnd={endLiveVoiceSession}
                 onSend={releaseLiveVoiceTurn}
+                // Turn-scoped stop is hands-free-only; a manual session's
+                // interrupt ends the whole session (✕ owns that).
+                onStop={liveVoiceHandsFree ? stopLiveVoiceResponse : undefined}
               />
             ) : (
               <div className="flex items-center justify-between gap-1 px-2 pb-2">

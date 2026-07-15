@@ -11,9 +11,9 @@ describe("LiveVoiceVadConfigSchema", () => {
     const parsed = LiveVoiceVadConfigSchema.parse({});
     expect(parsed).toEqual({
       speechEnergyThreshold: 800,
-      silenceThresholdMs: 800,
+      silenceThresholdMs: 1200,
       maxTurnDurationMs: 30_000,
-      bargeInMinSpeechMs: 60,
+      bargeInMinSpeechMs: 250,
     });
   });
 
@@ -64,22 +64,40 @@ describe("LiveVoiceConfigSchema", () => {
       mode: "open-mic",
       vad: {
         speechEnergyThreshold: 800,
-        silenceThresholdMs: 800,
+        silenceThresholdMs: 1200,
         maxTurnDurationMs: 30_000,
-        bargeInMinSpeechMs: 60,
+        bargeInMinSpeechMs: 250,
       },
       maxSessionDurationSeconds: 1800,
+      // Off by default: voice turns carry only their transcript, no audio
+      // artifacts on the conversation messages (JARVIS-1283).
+      archiveAudio: false,
     });
+  });
+
+  test("archiveAudio can be enabled", () => {
+    expect(
+      LiveVoiceConfigSchema.parse({ archiveAudio: true }).archiveAudio,
+    ).toBe(true);
+  });
+
+  test("rejects a non-boolean archiveAudio", () => {
+    const result = LiveVoiceConfigSchema.safeParse({ archiveAudio: "yes" });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const msgs = result.error.issues.map((i) => i.message);
+      expect(msgs.some((m) => m.includes("liveVoice.archiveAudio"))).toBe(true);
+    }
   });
 
   test("accepts overrides", () => {
     const parsed = LiveVoiceConfigSchema.parse({
       mode: "ptt",
-      vad: { silenceThresholdMs: 1200 },
+      vad: { silenceThresholdMs: 900 },
       maxSessionDurationSeconds: 600,
     });
     expect(parsed.mode).toBe("ptt");
-    expect(parsed.vad.silenceThresholdMs).toBe(1200);
+    expect(parsed.vad.silenceThresholdMs).toBe(900);
     // Unspecified vad fields still get defaults
     expect(parsed.vad.speechEnergyThreshold).toBe(800);
     expect(parsed.vad.maxTurnDurationMs).toBe(30_000);

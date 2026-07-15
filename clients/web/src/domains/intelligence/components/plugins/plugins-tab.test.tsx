@@ -21,7 +21,7 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
-import { MemoryRouter } from "react-router";
+import { MemoryRouter, useLocation } from "react-router";
 import { PLUGIN_INSTALL_ERROR } from "@/domains/intelligence/plugins/constants";
 import type { CategoryInfo } from "@/domains/intelligence/skills/use-skill-categories";
 import type {
@@ -198,20 +198,33 @@ function catalog(overrides: Partial<CatalogMatch> = {}): CatalogMatch {
   };
 }
 
-function renderTab(props: { plugin?: string } = {}) {
+function renderTab(props: { plugin?: string; success?: boolean } = {}) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0 } },
   });
-  const entry = props.plugin
-    ? `/assistant/plugins?plugin=${encodeURIComponent(props.plugin)}`
-    : "/assistant/plugins";
+  const params = new URLSearchParams();
+  if (props.plugin) {
+    params.set("plugin", props.plugin);
+  }
+  if (props.success) {
+    params.set("success", "true");
+  }
+  const query = params.toString();
+  const entry = query ? `/assistant/plugins?${query}` : "/assistant/plugins";
   return render(
     <MemoryRouter initialEntries={[entry]}>
       <QueryClientProvider client={client}>
         <PluginsTab assistantId={ASSISTANT_ID} />
       </QueryClientProvider>
+      <LocationProbe />
     </MemoryRouter>,
   );
+}
+
+/** Surfaces the live URL search string so tests can assert param changes. */
+function LocationProbe() {
+  const location = useLocation();
+  return <div data-testid="location-search">{location.search}</div>;
 }
 
 /** Click the Status option whose visible label matches (popover portal). */
@@ -392,6 +405,33 @@ describe("PluginsTab", () => {
     await waitFor(() => expect(toastSuccessSpy).toHaveBeenCalledTimes(1));
     expect(toastSuccessSpy.mock.calls[0]?.[0]).toContain("apollo-bot-brain");
     expect(toastErrorSpy).not.toHaveBeenCalled();
+  });
+
+  test("confirms an external install via ?success=true and strips the flag", async () => {
+    installedPlugins = [installed({ name: "coffee-aficionado" })];
+
+    renderTab({ plugin: "coffee-aficionado", success: true });
+
+    await waitFor(() => expect(toastSuccessSpy).toHaveBeenCalledTimes(1));
+    expect(toastSuccessSpy.mock.calls[0]?.[0]).toContain("coffee-aficionado");
+    expect(toastErrorSpy).not.toHaveBeenCalled();
+
+    // `success` is stripped (so a refresh won't re-toast); `plugin` stays so the
+    // installed plugin's detail is still what's open.
+    await waitFor(() => {
+      const search = screen.getByTestId("location-search").textContent ?? "";
+      expect(search).not.toContain("success");
+      expect(search).toContain("plugin=coffee-aficionado");
+    });
+  });
+
+  test("does not toast on a normal deep-link without ?success", async () => {
+    installedPlugins = [installed({ name: "coffee-aficionado" })];
+
+    renderTab({ plugin: "coffee-aficionado" });
+
+    await screen.findByTestId("location-search");
+    expect(toastSuccessSpy).not.toHaveBeenCalled();
   });
 
   test("a failed inline install surfaces an error toast", async () => {

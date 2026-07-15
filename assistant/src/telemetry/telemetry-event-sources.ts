@@ -9,29 +9,30 @@
  * which sources its reporter instance is constructed with.
  */
 
-import { queryUnreportedOnboardingEvents } from "../onboarding/onboarding-events-store.js";
-import { queryUnreportedLifecycleEvents } from "../persistence/lifecycle-events-store.js";
 import { queryUnreportedUsageEvents } from "../persistence/llm-usage-store.js";
 import {
   getCachedShareDiagnostics,
   getCachedShareDiagnosticsVersion,
 } from "../platform/consent-cache.js";
-import { queryUnreportedAuthFallbackEvents } from "../security/auth-fallback-events-store.js";
 import type { UsageAttributionProfileSource } from "../usage/types.js";
 import { getLogger } from "../util/logger.js";
 import { APP_VERSION } from "../version.js";
 import {
-  type ActivationStepName,
-  buildActivationDaemonEventId,
-} from "./activation-funnel.js";
-import { queryUnreportedConfigSettingEvents } from "./config-setting-events-store.js";
-import { queryUnreportedSkillLoadedEvents } from "./skill-loaded-events-store.js";
+  deleteTelemetryOutboxEvents,
+  discardPendingTelemetryOutboxEvents,
+  queryDistinctOutboxEventNames,
+  queryTelemetryOutboxBatch,
+} from "./telemetry-events-outbox.js";
 import { queryUnreportedToolExecutedEvents } from "./tool-executed-events-store.js";
 import { isDiagnosticsConsentVersionEligible } from "./trace-collection-policy.js";
 import { queryUnreportedTurnEvents } from "./turn-events-store.js";
 import { assembleBoundedTurnTrace, isTurnSettled } from "./turn-trace-store.js";
-import type { TelemetryEvent, TurnTelemetryClientInfo } from "./types.js";
-import { queryUnreportedWatchdogEvents } from "./watchdog-events-store.js";
+import type {
+  OutboxTelemetryEventName,
+  TelemetryEvent,
+  TurnTelemetryClientInfo,
+} from "./types.js";
+import { OUTBOX_TELEMETRY_EVENT_NAMES } from "./types.js";
 
 const log = getLogger("usage-telemetry");
 
@@ -45,6 +46,13 @@ export interface TelemetryCursor {
 export interface TelemetryEventSourceBatch {
   /** Wire events for the rows reportable this cycle, in cursor order. */
   events: TelemetryEvent[];
+  /**
+   * Row ids backing `events`, set by ack-mode sources so the reporter can
+   * acknowledge (delete) exactly the shipped rows. These are ROW ids, not
+   * wire `daemon_event_id`s — the onboarding source overrides
+   * `daemon_event_id` for activation rows, so the two can differ.
+   */
+  rowIds?: string[];
   /** Cursor of the last reportable row; null when nothing is reportable. */
   lastCursor: TelemetryCursor | null;
   /**
@@ -72,6 +80,17 @@ export interface TelemetryEventSource {
     afterId: string | undefined,
     limit: number,
   ): TelemetryEventSourceBatch;
+  /**
+   * Delete-on-flush mode. Both operations are required together: `acknowledge`
+   * deletes the rows behind {@link TelemetryEventSourceBatch.rowIds} after a
+   * 2xx from the ingest endpoint, and `discardPending` drops all pending rows
+   * on an opted-out flush (watermark writes are meaningless for ack-mode
+   * sources, so they never touch `flush_checkpoints`).
+   */
+  ack?: {
+    acknowledge(rowIds: string[]): void;
+    discardPending(): void;
+  };
 }
 
 /** The `flush_checkpoints` keys holding a source's compound cursor. */
@@ -113,37 +132,133 @@ function simpleSource<Row extends { id: string; createdAt: number }>(
   };
 }
 
-// ---------------------------------------------------------------------------
-// Wire-mapping helpers
-// ---------------------------------------------------------------------------
+/**
+ * Query one outbox event name and parse each stored payload into its wire
+ * event, accumulating into `events`/`rowIds`. A row whose payload does not
+ * parse to an object is collected into `corruptIds` for immediate purge: an
+ * early empty-batch return in the reporter would otherwise strand it at the
+ * head of the queue forever. Shared by {@link outboxSource} and the
+ * orphan-drain source.
+ */
+function collectOutboxName(
+  name: string,
+  limit: number,
+  into: { events: TelemetryEvent[]; rowIds: string[]; corruptIds: string[] },
+): { queried: number } {
+  const rows = queryTelemetryOutboxBatch(name, limit);
+  for (const row of rows) {
+    let event: TelemetryEvent | null = null;
+    try {
+      const parsed = JSON.parse(row.payload) as unknown;
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        event = parsed as TelemetryEvent;
+      }
+    } catch {
+      // Fall through to the purge below.
+    }
+    if (event) {
+      into.events.push(event);
+      into.rowIds.push(row.id);
+    } else {
+      into.corruptIds.push(row.id);
+      log.warn(
+        { name, rowId: row.id, payloadLength: row.payload.length },
+        "Telemetry outbox: unparseable payload — purging row",
+      );
+    }
+  }
+  return { queried: rows.length };
+}
 
 /**
- * Parse a stored `watchdog_events.detail` JSON text column into the object the
- * platform expects. Returns null for a null column or an unparseable/corrupted
- * blob (mirroring the turn `client` metadata parse: a bad blob emits null
- * rather than failing the batch). A non-object (e.g. a bare number or string)
- * also resolves to null, since the platform serializer treats `detail` as a
- * JSON object bag.
+ * Build an ack-mode source over the generic `telemetry_events` outbox for one
+ * event name. `collect` ignores the cursor args — acknowledged rows are
+ * deleted, so the head of the queue is always the next batch.
  */
-function parseWatchdogDetail(
-  raw: string | null,
-): Record<string, unknown> | null {
-  if (!raw) {
-    return null;
-  }
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-      return parsed as Record<string, unknown>;
-    }
-    return null;
-  } catch {
-    log.warn(
-      { rawDetail: raw.slice(0, 200) },
-      "Telemetry watchdog: failed to parse detail; emitting null",
-    );
-    return null;
-  }
+export function outboxSource(
+  name: OutboxTelemetryEventName,
+): TelemetryEventSource {
+  return {
+    id: name,
+    collect(_afterCreatedAt, _afterId, limit) {
+      const acc = {
+        events: [] as TelemetryEvent[],
+        rowIds: [] as string[],
+        corruptIds: [] as string[],
+      };
+      const { queried } = collectOutboxName(name, limit, acc);
+      if (acc.corruptIds.length > 0) {
+        deleteTelemetryOutboxEvents(acc.corruptIds);
+      }
+      return {
+        events: acc.events,
+        rowIds: acc.rowIds,
+        lastCursor: null,
+        fullBatch: queried === limit,
+      };
+    },
+    ack: {
+      acknowledge: (rowIds) => deleteTelemetryOutboxEvents(rowIds),
+      discardPending: () => discardPendingTelemetryOutboxEvents(name),
+    },
+  };
+}
+
+/** Source id of the synthetic orphan-drain source (not a wire event type). */
+export const ORPHAN_OUTBOX_DRAIN_SOURCE_ID = "__orphan_outbox_drain";
+
+/**
+ * Synthetic ack-mode source that drains outbox rows whose `name` is no longer a
+ * current outbox event type — e.g. rows recorded before the platform removed or
+ * renamed a type, still pending on a client that has since upgraded. The
+ * derived per-type sources ({@link OUTBOX_TELEMETRY_EVENT_NAMES}) never query
+ * those names, so without this the rows would sit in the outbox forever.
+ *
+ * Draining is send-then-ack: the platform skips an unknown event type but still
+ * returns 2xx, after which the row is deleted. This is safe against a stale
+ * local wire copy — a name merely missing from a lagging wire still ships and
+ * lands rather than being purged and lost — and rides `share_analytics` like
+ * every other outbox event (no outbox type is diagnostics-gated at flush).
+ */
+export function orphanOutboxDrainSource(): TelemetryEventSource {
+  const known = new Set<string>(OUTBOX_TELEMETRY_EVENT_NAMES);
+  const orphanNames = (): string[] =>
+    queryDistinctOutboxEventNames().filter((name) => !known.has(name));
+  return {
+    id: ORPHAN_OUTBOX_DRAIN_SOURCE_ID,
+    collect(_afterCreatedAt, _afterId, limit) {
+      const acc = {
+        events: [] as TelemetryEvent[],
+        rowIds: [] as string[],
+        corruptIds: [] as string[],
+      };
+      for (const name of orphanNames()) {
+        if (acc.events.length >= limit) {
+          break;
+        }
+        collectOutboxName(name, limit - acc.events.length, acc);
+      }
+      if (acc.corruptIds.length > 0) {
+        deleteTelemetryOutboxEvents(acc.corruptIds);
+      }
+      return {
+        events: acc.events,
+        rowIds: acc.rowIds,
+        lastCursor: null,
+        // Conservative: never signals more-behind, so orphan draining spreads
+        // across flush cycles instead of monopolizing one. Rare by nature.
+        fullBatch: false,
+      };
+    },
+    ack: {
+      acknowledge: (rowIds) => deleteTelemetryOutboxEvents(rowIds),
+      discardPending: () => {
+        for (const name of orphanNames()) {
+          discardPendingTelemetryOutboxEvents(name);
+        }
+      },
+    },
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -363,93 +478,6 @@ const turnSource: TelemetryEventSource = {
   },
 };
 
-const lifecycleSource = simpleSource(
-  "lifecycle",
-  (afterCreatedAt, afterId, limit) =>
-    queryUnreportedLifecycleEvents(afterCreatedAt, afterId, limit),
-  (e): TelemetryEvent => ({
-    type: "lifecycle",
-    daemon_event_id: e.id,
-    event_name: e.eventName,
-    recorded_at: e.createdAt,
-    // Lifecycle events carry no record-time version column — stamp the
-    // running binary's `APP_VERSION`. Adding the record-time column to
-    // `lifecycle_events` (#18112) is a separate follow-up that mirrors
-    // `llm_usage_events`.
-    assistant_version: APP_VERSION,
-  }),
-);
-
-const onboardingSource = simpleSource(
-  "onboarding",
-  (afterCreatedAt, afterId, limit) =>
-    queryUnreportedOnboardingEvents(afterCreatedAt, afterId, limit),
-  (e): TelemetryEvent => ({
-    type: "onboarding",
-    // Wire-only override for activation rows: a deterministic id keyed
-    // on funnel_version/session/step lets dbt collapse a moment that
-    // fires more than once. Key on the ROW's stored `funnelVersion`
-    // (not the binary's current constant) so rows recorded under an
-    // older version — flushed offline or after an upgrade — keep a
-    // stable id and still collapse with already-ingested rows. The
-    // SQLite watermark cursor still uses `e.id`/`e.createdAt`, so this
-    // override is checkpoint-safe.
-    daemon_event_id:
-      e.sessionId && e.stepName && e.funnelVersion
-        ? buildActivationDaemonEventId(
-            e.sessionId,
-            e.stepName as ActivationStepName,
-            e.funnelVersion,
-          )
-        : e.id,
-    recorded_at: e.createdAt,
-    screen: e.screen,
-    ...(e.toolsJson ? { tools: JSON.parse(e.toolsJson) } : {}),
-    ...(e.tasksJson ? { tasks: JSON.parse(e.tasksJson) } : {}),
-    ...(e.tone ? { tone: e.tone } : {}),
-    ...(e.googleConnected != null
-      ? { google_connected: e.googleConnected }
-      : {}),
-    ...(e.googleScopesJson
-      ? { google_scopes: JSON.parse(e.googleScopesJson) }
-      : {}),
-    ...(e.abVariant ? { ab_variant: e.abVariant } : {}),
-    // Activation funnel fields — only present on activation rows.
-    ...(e.sessionId ? { session_id: e.sessionId } : {}),
-    ...(e.stepName ? { step_name: e.stepName } : {}),
-    ...(e.stepIndex != null ? { step_index: e.stepIndex } : {}),
-    ...(e.completedAt ? { completed_at: e.completedAt } : {}),
-    ...(e.funnelVersion ? { funnel_version: e.funnelVersion } : {}),
-    // Onboarding events carry no record-time version column — stamp the
-    // running binary's `APP_VERSION`. Adding one (mirroring
-    // `llm_usage_events`) is a known follow-up.
-    assistant_version: APP_VERSION,
-  }),
-);
-
-const authFallbackSource = simpleSource(
-  "auth_fallback",
-  (afterCreatedAt, afterId, limit) =>
-    queryUnreportedAuthFallbackEvents(afterCreatedAt, afterId, limit),
-  (e): TelemetryEvent => ({
-    type: "auth_fallback",
-    daemon_event_id: e.id,
-    recorded_at: e.createdAt,
-    guard: e.guard,
-    path: e.path,
-    failure_kind: e.failureKind,
-    count: e.count,
-    window_start: e.windowStart,
-    window_end: e.windowEnd,
-    // Aggregated counts forwarded by the gateway carry no record-time
-    // binary version; stamp the running binary's `APP_VERSION` so the
-    // wire value is concrete rather than an explicit null that would
-    // override the envelope under the platform's per-event-wins
-    // contract.
-    assistant_version: APP_VERSION,
-  }),
-);
-
 const toolExecutedSource = simpleSource(
   "tool_executed",
   (afterCreatedAt, afterId, limit) =>
@@ -479,67 +507,6 @@ const toolExecutedSource = simpleSource(
   }),
 );
 
-const skillLoadedSource = simpleSource(
-  "skill_loaded",
-  (afterCreatedAt, afterId, limit) =>
-    queryUnreportedSkillLoadedEvents(afterCreatedAt, afterId, limit),
-  (e): TelemetryEvent => ({
-    type: "skill_loaded",
-    daemon_event_id: e.id,
-    recorded_at: e.createdAt,
-    skill_name: e.skillName,
-    skill_updated_at: e.skillUpdatedAt,
-    conversation_id: e.conversationId,
-    provider: e.provider,
-    model: e.model,
-    inference_profile: e.inferenceProfile,
-    inference_profile_source:
-      e.inferenceProfileSource as UsageAttributionProfileSource | null,
-    // `skill_loaded_events` has no record-time version column — same
-    // upload-time APP_VERSION stamping as the other non-llm_usage
-    // event types.
-    assistant_version: APP_VERSION,
-  }),
-);
-
-const watchdogSource = simpleSource(
-  "watchdog",
-  (afterCreatedAt, afterId, limit) =>
-    queryUnreportedWatchdogEvents(afterCreatedAt, afterId, limit),
-  (e): TelemetryEvent => ({
-    type: "watchdog",
-    daemon_event_id: e.id,
-    recorded_at: e.createdAt,
-    check_name: e.checkName,
-    value: e.value,
-    // `detail` is stored as JSON text; parse defensively so a
-    // corrupted blob never fails the batch flush. A parse failure
-    // emits null rather than dropping the event.
-    detail: parseWatchdogDetail(e.detail),
-    // `watchdog_events` has no record-time version column — same
-    // upload-time APP_VERSION stamping as the other non-llm_usage
-    // event types.
-    assistant_version: APP_VERSION,
-  }),
-);
-
-const configSettingSource = simpleSource(
-  "config_setting",
-  (afterCreatedAt, afterId, limit) =>
-    queryUnreportedConfigSettingEvents(afterCreatedAt, afterId, limit),
-  (e): TelemetryEvent => ({
-    type: "config_setting",
-    daemon_event_id: e.id,
-    recorded_at: e.createdAt,
-    config_key: e.configKey,
-    config_value: e.configValue,
-    // `config_setting_events` has no record-time version column —
-    // same upload-time APP_VERSION stamping as the other
-    // non-llm_usage event types.
-    assistant_version: APP_VERSION,
-  }),
-);
-
 /**
  * Watermark key namespace of the tool_executed source — referenced by the
  * absent-watermark init that runs at daemon startup.
@@ -547,21 +514,47 @@ const configSettingSource = simpleSource(
 export const TOOL_EXECUTED_SOURCE_ID = toolExecutedSource.id;
 
 /**
- * Every telemetry event source, in payload order. The order is part of the
- * observable wire behavior (events of different types appear in this order
- * within one batch), so keep it stable. This is the test/reference list;
- * production reporters run the daemon/monitor partitions below.
+ * Watermark-flushed sources — the high-volume events on their own SQLite
+ * tables (`WATERMARK_TELEMETRY_EVENT_NAMES`), read forward by a `(createdAt,
+ * id)` cursor rather than the generic outbox.
  */
-export const ALL_TELEMETRY_EVENT_SOURCES: readonly TelemetryEventSource[] = [
+const WATERMARK_TELEMETRY_EVENT_SOURCES: readonly TelemetryEventSource[] = [
   usageSource,
   turnSource,
-  lifecycleSource,
-  onboardingSource,
-  authFallbackSource,
   toolExecutedSource,
-  skillLoadedSource,
-  watchdogSource,
-  configSettingSource,
+];
+
+/**
+ * Per-outbox-event flush-source override. The default for every outbox event is
+ * the plain {@link outboxSource}; list only the exceptions here. A new outbox
+ * event type therefore needs no edit — it flushes through `outboxSource`
+ * automatically. There are currently no exceptions: every outbox event,
+ * including `onboarding_research`, flushes through the default source and is
+ * gated only by the `share_analytics` consent enforced at record time.
+ */
+const OUTBOX_SOURCE_FACTORY: Partial<
+  Record<
+    OutboxTelemetryEventName,
+    (name: OutboxTelemetryEventName) => TelemetryEventSource
+  >
+> = {};
+
+/**
+ * Every telemetry event source, in payload order (watermark sources first, then
+ * outbox events in wire-contract order). Derived from the wire contract via
+ * {@link OUTBOX_TELEMETRY_EVENT_NAMES}, so a new event type gets a flush source
+ * with no edit here. Intra-batch ordering is not load-bearing downstream
+ * (events are typed and deduped on `daemon_event_id`, not positional). This is
+ * the test/reference list; production reporters run the daemon/monitor
+ * partitions below.
+ */
+export const ALL_TELEMETRY_EVENT_SOURCES: readonly TelemetryEventSource[] = [
+  ...WATERMARK_TELEMETRY_EVENT_SOURCES,
+  ...OUTBOX_TELEMETRY_EVENT_NAMES.map((name) =>
+    (OUTBOX_SOURCE_FACTORY[name] ?? outboxSource)(name),
+  ),
+  // Not a wire event type — drains rows for types the wire no longer declares.
+  orphanOutboxDrainSource(),
 ];
 
 /**

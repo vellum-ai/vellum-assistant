@@ -73,16 +73,11 @@ const KNOWN_BROKEN_FILES = new Set<string>([]);
 // and feature-flag-registry-bundled.test.ts fails. Running the sync here is
 // idempotent and cheap (two file copies).
 function syncFeatureFlagRegistry(): void {
-  const syncScript = join(
-    "..",
-    "meta",
-    "feature-flags",
-    "sync-bundled-copies.ts",
-  );
+  const syncScript = join("..", "meta", "sync-bundled-copies.ts");
   if (!existsSync(syncScript)) {
     return;
   }
-  Bun.spawnSync(["bun", "run", "meta/feature-flags/sync-bundled-copies.ts"], {
+  Bun.spawnSync(["bun", "run", "meta/sync-bundled-copies.ts"], {
     cwd: join(process.cwd(), ".."),
     stdout: "ignore",
     stderr: "ignore",

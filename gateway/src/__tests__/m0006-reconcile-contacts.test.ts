@@ -161,6 +161,7 @@ function seedAssistantChannel(opts: {
   contactId: string;
   type?: string;
   status?: string;
+  policy?: string;
 }): void {
   fakeAssistantDb.channels.set(opts.id, {
     id: opts.id,
@@ -170,7 +171,7 @@ function seedAssistantChannel(opts: {
     is_primary: 0,
     external_chat_id: null,
     status: opts.status ?? "active",
-    policy: "allow",
+    policy: opts.policy ?? "allow",
     verified_at: null,
     verified_via: null,
     invite_id: null,
@@ -239,6 +240,19 @@ describe("m0006-reconcile-contacts-from-assistant", () => {
     expect(ch.type).toBe("telegram");
     expect(ch.address).toBe("addr-ch1");
     expect(ch.status).toBe("active");
+  });
+
+  test("coerces an assistant escalate policy to deny on import", async () => {
+    seedAssistantContact({ id: "c-esc" });
+    seedAssistantChannel({ id: "ch-esc", contactId: "c-esc", policy: "escalate" });
+
+    const result = await m0006Up();
+
+    expect(result).toBe("done");
+    const ch = getGatewayDb().$client
+      .prepare("SELECT policy FROM contact_channels WHERE id = ?")
+      .get("ch-esc") as { policy: string };
+    expect(ch.policy).toBe("deny");
   });
 
   test("no-op when gateway already has all contacts + channels", async () => {

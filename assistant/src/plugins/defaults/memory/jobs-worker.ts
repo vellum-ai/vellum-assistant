@@ -57,7 +57,11 @@ import { getLogger } from "./logging.js";
 import { sweepOrphanMemoryRetrospectiveConversations } from "./memory-retrospective-startup-cleanup.js";
 import { getWorkspaceDir } from "./paths.js";
 import { hasPkbBufferContent } from "./pkb-schedule.js";
-import { countBufferLines } from "./v2/consolidation-job.js";
+import {
+  type ConsolidationFailureKind,
+  countBufferLines,
+  readConsolidationFailureState,
+} from "./v2/consolidation-job.js";
 import { spawnMemoryWorkerProcess } from "./worker-control.js";
 
 const log = getLogger("memory-jobs-worker");
@@ -661,7 +665,10 @@ function recordCleanupEnqueued(kind: CleanupJobKind, nowMs: number): void {
  * Enqueue periodic cleanup jobs, each on a cadence equal to its own retention
  * window. A job that keeps data for N is re-enqueued at most once per N:
  * pruning that retains LLM logs for 1h runs hourly, pruning that retains
- * conversations for 30d runs every 30d. Each job's throttle is tracked
+ * conversations for 30d runs every 30d. A non-positive window disables its job
+ * (`conversationRetentionDays`/`auditLog.retentionDays` of 0, or
+ * `llmRequestLogRetentionMs` of `null`/0) — a 0 window would otherwise make the
+ * cadence 0 and busy-loop the enqueue. Each job's throttle is tracked
  * independently in cleanup-schedule-state (and persisted via checkpoints so the
  * cadence survives restarts), and enqueue is deduped in jobs-store, so repeated
  * calls remain safe.
@@ -704,8 +711,14 @@ export function maybeEnqueueScheduledCleanupJobs(
     );
   }
 
+  // A retention of `null` or `0` disables LLM-request-log pruning (keep
+  // forever). `0` must be excluded here, not just `null`: the cadence interval
+  // equals the retention window, so `isDue("llm_request_logs", 0)` reduces to
+  // `nowMs - lastEnqueue >= 0` — always true — which would re-enqueue the prune
+  // on every idle/drain tick and spin a sqlite3 subprocess many times a second.
   if (
     cleanup.llmRequestLogRetentionMs !== null &&
+    cleanup.llmRequestLogRetentionMs > 0 &&
     isDue("llm_request_logs", cleanup.llmRequestLogRetentionMs)
   ) {
     const jobId = enqueuePruneOldLlmRequestLogsJob(
@@ -815,6 +828,70 @@ function memoryBufferLineCount(): number {
   return countBufferLines(join(getWorkspaceDir(), "memory", "buffer.md"));
 }
 
+// Failure backoff for automatic consolidation enqueues. A failed run never
+// trims the buffer, so without backoff the size trigger re-enqueues a
+// fast-failing run on every worker poll (~1.5s), each iteration persisting a
+// full background conversation. Two curves, selected by the most recent
+// failure's kind (see `ConsolidationFailureState`):
+//   - transient (network blip, model hiccup, timeout): 5min doubling,
+//     capped at 30min — transient failures never meaningfully delay
+//     consolidation;
+//   - billing (non-retryable PROVIDER_BILLING): 1h doubling, capped at
+//     max(6h, the configured interval) — retrying can't succeed until the
+//     account is funded.
+// Manual "run now" enqueues go through the routes layer, not this schedule,
+// and are never gated.
+const CONSOLIDATION_TRANSIENT_BACKOFF_BASE_MS = 5 * 60 * 1000;
+const CONSOLIDATION_TRANSIENT_BACKOFF_CAP_MS = 30 * 60 * 1000;
+const CONSOLIDATION_BILLING_BACKOFF_BASE_MS = 60 * 60 * 1000;
+const CONSOLIDATION_BILLING_BACKOFF_MIN_CAP_MS = 6 * 60 * 60 * 1000;
+
+/**
+ * Backoff window after `consecutiveFailures` failed consolidation runs.
+ * Billing: `min(1h * 2^(n-1), max(6h, intervalMs))`. Transient:
+ * `min(5min * 2^(n-1), 30min)`.
+ */
+export function consolidationFailureBackoffMs(
+  kind: ConsolidationFailureKind,
+  consecutiveFailures: number,
+  intervalMs: number,
+): number {
+  if (kind === "billing") {
+    const capMs = Math.max(
+      CONSOLIDATION_BILLING_BACKOFF_MIN_CAP_MS,
+      intervalMs,
+    );
+    return Math.min(
+      CONSOLIDATION_BILLING_BACKOFF_BASE_MS * 2 ** (consecutiveFailures - 1),
+      capMs,
+    );
+  }
+  return Math.min(
+    CONSOLIDATION_TRANSIENT_BACKOFF_BASE_MS * 2 ** (consecutiveFailures - 1),
+    CONSOLIDATION_TRANSIENT_BACKOFF_CAP_MS,
+  );
+}
+
+/**
+ * Milliseconds until the consolidation failure backoff expires; `0` when no
+ * failure state is recorded or the window has already elapsed.
+ */
+function consolidationBackoffRemainingMs(
+  intervalMs: number,
+  nowMs: number,
+): number {
+  const state = readConsolidationFailureState();
+  if (state === null) {
+    return 0;
+  }
+  const backoffMs = consolidationFailureBackoffMs(
+    state.kind,
+    state.consecutiveFailures,
+    intervalMs,
+  );
+  return Math.max(0, state.lastFailureAt + backoffMs - nowMs);
+}
+
 export function maybeEnqueueGraphMaintenanceJobs(
   config: AssistantConfig,
   nowMs = Date.now(),
@@ -888,6 +965,20 @@ export function maybeEnqueueGraphMaintenanceJobs(
       // The checkpoint advances so the next check fires after the regular
       // interval. Manual "Run now" is unaffected (routes layer, not schedule).
       if (jobType === consolidateEntry.jobType) {
+        // Failure backoff: skip WITHOUT advancing the checkpoint so the
+        // enqueue fires on the first tick after the window elapses instead
+        // of a full interval later.
+        const backoffRemainingMs = consolidationBackoffRemainingMs(
+          intervalMs,
+          nowMs,
+        );
+        if (backoffRemainingMs > 0) {
+          log.debug(
+            { backoffRemainingMs },
+            "Scheduled consolidation skipped: failure backoff active",
+          );
+          continue;
+        }
         if (memoryBufferLineCount() < MIN_BUFFER_LINES_FOR_CONSOLIDATION) {
           log.debug(
             "Scheduled consolidation skipped: buffer under minimum line threshold",
@@ -916,6 +1007,9 @@ export function maybeEnqueueGraphMaintenanceJobs(
   // interval elapses), so it dedupes against an already-active consolidate job
   // instead — otherwise it would re-enqueue on every worker tick while the
   // buffer stays over threshold, flooding the queue with redundant LLM work.
+  // The failure backoff gates it too: a failed run never trims the buffer, so
+  // the size trigger alone would re-fire a failing run on every tick. A
+  // backoff skip leaves the checkpoint alone.
   const maxLines = config.memory.v2.consolidation_max_buffer_lines;
   if (
     v2Active &&
@@ -924,11 +1018,22 @@ export function maybeEnqueueGraphMaintenanceJobs(
     !hasActiveJobOfType(consolidateEntry.jobType)
   ) {
     if (memoryBufferLineCount() >= maxLines) {
-      enqueueMemoryJob(
-        consolidateEntry.jobType,
-        AUTOMATIC_CONSOLIDATION_JOB_PAYLOAD,
+      const backoffRemainingMs = consolidationBackoffRemainingMs(
+        consolidateEntry.intervalMs,
+        nowMs,
       );
-      setMemoryCheckpoint(consolidateEntry.key, String(nowMs));
+      if (backoffRemainingMs > 0) {
+        log.debug(
+          { backoffRemainingMs },
+          "Size-triggered consolidation skipped: failure backoff active",
+        );
+      } else {
+        enqueueMemoryJob(
+          consolidateEntry.jobType,
+          AUTOMATIC_CONSOLIDATION_JOB_PAYLOAD,
+        );
+        setMemoryCheckpoint(consolidateEntry.key, String(nowMs));
+      }
     }
   }
 

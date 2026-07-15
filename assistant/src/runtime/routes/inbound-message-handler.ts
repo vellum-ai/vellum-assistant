@@ -111,7 +111,6 @@ import { enforceAdmissionPolicy } from "./inbound-stages/admission-policy.js";
 import { processChannelMessageInBackground } from "./inbound-stages/background-dispatch.js";
 import { handleBootstrapIntercept } from "./inbound-stages/bootstrap-intercept.js";
 import { handleEditIntercept } from "./inbound-stages/edit-intercept.js";
-import { handleEscalationIntercept } from "./inbound-stages/escalation-intercept.js";
 import { handleGuardianActivationIntercept } from "./inbound-stages/guardian-activation-intercept.js";
 import { handleGuardianReplyIntercept } from "./inbound-stages/guardian-reply-intercept.js";
 import {
@@ -420,7 +419,7 @@ export async function handleChannelInbound({
   // notification, and a stranger's reaction creates no conversation/binding.
   // The interceptor drops strangers, records known contacts' reactions as
   // transcript signals, and routes a guardian's reaction on an approval card
-  // through the canonical guardian decision pipeline. Reactions never drive an
+  // through the guardian decision pipeline. Reactions never drive an
   // agent turn.
   if (isSlackReactionEvent(body)) {
     return handleSlackReactionIntercept({
@@ -823,7 +822,7 @@ export async function handleChannelInbound({
     const floorSenderId = canonicalSenderId ?? rawSenderId;
     if (isCallbackInteraction) {
       if (floorSenderId) {
-        handshakeInProgress = isApprovalHandshakeInProgress({
+        handshakeInProgress = await isApprovalHandshakeInProgress({
           canonicalAssistantId,
           sourceChannel,
           actorExternalId: floorSenderId,
@@ -973,28 +972,6 @@ export async function handleChannelInbound({
     };
   }
 
-  // ── Ingress escalation ──
-  const escalationResponse = await handleEscalationIntercept({
-    resolvedMember,
-    canonicalAssistantId,
-    sourceChannel,
-    sourceInterface,
-    conversationExternalId,
-    externalMessageId,
-    conversationId: result.conversationId,
-    eventId: result.eventId,
-    content: trimmedContent,
-    attachmentIds,
-    sourceMetadata: body.sourceMetadata,
-    actorDisplayName: body.actorDisplayName,
-    actorExternalId: body.actorExternalId,
-    actorUsername: body.actorUsername,
-    replyCallbackUrl: body.replyCallbackUrl,
-    canonicalSenderId,
-    rawSenderId,
-  });
-  if (escalationResponse) return escalationResponse;
-
   const metadataHintsRaw = sourceMetadata?.hints;
   const metadataHints = Array.isArray(metadataHintsRaw)
     ? metadataHintsRaw.filter(
@@ -1046,12 +1023,11 @@ export async function handleChannelInbound({
   });
   if (bootstrapResponse) return bootstrapResponse;
 
-  // Legacy voice guardian action interception removed — all guardian reply
-  // routing now flows through the canonical router below (routeGuardianReply),
-  // which handles request code matching, callback parsing, and NL classification
-  // against canonical_guardian_requests.
+  // All guardian reply routing flows through the guardian reply router below
+  // (routeGuardianReply), which handles request code matching, callback
+  // parsing, and NL classification against the gateway's guardian_requests.
 
-  // ── Canonical guardian reply router ──
+  // ── Guardian reply router ──
   const guardianReplyResult = await handleGuardianReplyIntercept({
     isDuplicate: result.duplicate,
     trimmedContent,
@@ -1826,12 +1802,12 @@ function isBackfilledSlackGuardianMessage(
 ): boolean {
   const rawSenderId = message.sender?.id?.trim();
   if (!rawSenderId || !guardianExternalUserId) return false;
-  const canonicalSender =
+  const normalizedSender =
     canonicalizeInboundIdentity("slack", rawSenderId) ?? rawSenderId;
-  const canonicalGuardian =
+  const normalizedGuardian =
     canonicalizeInboundIdentity("slack", guardianExternalUserId) ??
     guardianExternalUserId.trim();
-  return canonicalSender === canonicalGuardian;
+  return normalizedSender === normalizedGuardian;
 }
 
 const SLACK_ASSISTANT_THREAD_PLACEHOLDER_TEXT = "New Assistant Thread";

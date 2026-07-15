@@ -18,7 +18,9 @@
  *
  * Exclusions: dot-entries anywhere (`.disabled`, `.git`, …), `node_modules`
  * anywhere (vendored deps change only through install flows, which recycle
- * the plugin directory), and — at the plugin root only — the runtime-owned
+ * the plugin directory), generated app build output ({@link
+ * GENERATED_APP_BUILD_DIR}, so the watcher's own compile does not re-trigger a
+ * pass), and — at the plugin root only — the runtime-owned
  * {@link PRESERVED_ENTRIES} (`data/`, `config.json`, `install-meta.json`),
  * none of which are importable source. Symlinked entries inside the tree are
  * neither watched nor followed (see {@link walkPluginTree}); a symlinked
@@ -30,7 +32,11 @@
 
 import { realpathSync, statSync } from "node:fs";
 
-import { PRESERVED_ENTRIES, walkPluginTree } from "./plugin-tree-walk.js";
+import {
+  GENERATED_APP_BUILD_DIR,
+  PRESERVED_ENTRIES,
+  walkPluginTree,
+} from "./plugin-tree-walk.js";
 
 /** Directory names skipped at any depth. */
 const EXCLUDED_DIRS_ANYWHERE = new Set(["node_modules"]);
@@ -76,7 +82,7 @@ export function snapshotPluginSource(pluginDir: string): SourceSnapshot {
   walkPluginTree(
     realRoot,
     {
-      excludeRootEntries: PRESERVED_ENTRIES,
+      excludeRootEntries: [...PRESERVED_ENTRIES, GENERATED_APP_BUILD_DIR],
       excludeDirsAnywhere: EXCLUDED_DIRS_ANYWHERE,
       excludeDotEntries: true,
       bestEffort: true,

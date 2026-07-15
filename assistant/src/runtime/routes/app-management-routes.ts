@@ -6,8 +6,11 @@ import { randomBytes } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
+  mkdtempSync,
   readdirSync,
   readFileSync,
+  rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { stat, unlink } from "node:fs/promises";
@@ -18,25 +21,27 @@ import { z } from "zod";
 
 import {
   type AppDefinition,
+  type AppOrigin,
   createApp,
   createAppRecord,
   deleteApp,
   deleteAppRecord,
-  getApp,
+  type EnumeratedApp,
   getAppDirPath,
   getAppPreview,
-  isMultifileApp,
+  isPluginAppId,
   listApps,
   listAppsByConversation,
+  listPluginApps,
   queryAppRecords,
-  resolveAppDir,
-  resolveEffectiveAppHtml,
+  resolveAppSource,
+  resolveEffectiveAppHtmlFromDir,
   updateApp,
   updateAppRecord,
 } from "../../apps/app-store.js";
 import { createSharedAppLink } from "../../apps/shared-app-links-store.js";
 import { packageApp } from "../../bundler/app-bundler.js";
-import { compileApp } from "../../bundler/app-compiler.js";
+import { compileApp, runCompile } from "../../bundler/app-compiler.js";
 import { scanBundle } from "../../bundler/bundle-scanner.js";
 import type { SignatureJson } from "../../bundler/bundle-signer.js";
 import { verifyBundleSignature } from "../../bundler/signature-verifier.js";
@@ -75,7 +80,7 @@ function getSharedAppsDir(): string {
 // Extracted business logic
 // ---------------------------------------------------------------------------
 
-function listAppsFiltered(apps?: AppDefinition[]): Array<{
+interface AppListItem {
   id: string;
   name: string;
   description?: string;
@@ -84,21 +89,44 @@ function listAppsFiltered(apps?: AppDefinition[]): Array<{
   updatedAt: number;
   version: string;
   contentId: string;
-}> {
-  return (apps ?? listApps()).map((a) => {
-    const version = a.version ?? "1.0.0";
-    const contentId = computeContentId(a.name);
-    return {
-      id: a.id,
-      name: a.name,
-      description: a.description,
-      icon: a.icon,
-      createdAt: a.createdAt,
-      updatedAt: a.updatedAt,
-      version,
-      contentId,
-    };
-  });
+  /** "workspace" or "plugin:<name>" — identifies where the app comes from. */
+  origin: string;
+}
+
+function workspaceAppItem(a: AppDefinition): AppListItem {
+  return {
+    id: a.id,
+    name: a.name,
+    description: a.description,
+    icon: a.icon,
+    createdAt: a.createdAt,
+    updatedAt: a.updatedAt,
+    version: a.version ?? "1.0.0",
+    contentId: computeContentId(a.name),
+    origin: "workspace",
+  };
+}
+
+function pluginAppItem(app: EnumeratedApp): AppListItem {
+  // Plugin apps carry no stored timestamps; use the source dir mtime so the
+  // library can still order them sensibly.
+  let mtime = 0;
+  try {
+    mtime = statSync(app.sourcePath).mtimeMs;
+  } catch {
+    // Directory vanished between enumeration and stat — leave mtime at 0.
+  }
+  const pluginName =
+    app.origin.kind === "plugin" ? app.origin.pluginName : "unknown";
+  return {
+    id: app.id,
+    name: app.name,
+    createdAt: mtime,
+    updatedAt: mtime,
+    version: "1.0.0",
+    contentId: computeContentId(app.name),
+    origin: `plugin:${pluginName}`,
+  };
 }
 
 function getAppDataResult(
@@ -507,9 +535,17 @@ async function importBundle(
 function handleListApps({ queryParams }: RouteHandlerArgs) {
   const conversationId = queryParams?.conversationId;
   if (conversationId) {
-    return { apps: listAppsFiltered(listAppsByConversation(conversationId)) };
+    // Conversation scoping is a workspace-app concept; plugin apps are not
+    // associated with conversations, so they are omitted from this view.
+    return {
+      apps: listAppsByConversation(conversationId).map(workspaceAppItem),
+    };
   }
-  return { apps: listAppsFiltered() };
+  const apps: AppListItem[] = [
+    ...listApps().map(workspaceAppItem),
+    ...listPluginApps().map(pluginAppItem),
+  ];
+  return { apps };
 }
 
 async function handleOpenBundle({ body }: RouteHandlerArgs) {
@@ -607,6 +643,7 @@ function handleQueryAppData({ pathParams, queryParams }: RouteHandlerArgs) {
 
 function handleMutateAppData({ pathParams, body }: RouteHandlerArgs) {
   const appId = pathParams?.id as string;
+  assertNotPluginApp(appId, "modify a plugin app's data");
   const method = (body?.method as string) ?? "create";
   const result = getAppDataResult(
     method,
@@ -617,33 +654,131 @@ function handleMutateAppData({ pathParams, body }: RouteHandlerArgs) {
   return { success: true, result };
 }
 
+/**
+ * Wire-format provenance tag for an app, matching what `apps_list` reports:
+ * `"workspace"` for user-created apps, `"plugin:<name>"` for plugin-bundled
+ * ones. Clients read it to hide the mutation actions (delete, share, deploy)
+ * the daemon rejects for plugin apps.
+ */
+function appOriginWire(origin: AppOrigin): string {
+  return origin.kind === "plugin" ? `plugin:${origin.pluginName}` : "workspace";
+}
+
+/**
+ * Compile a multi-file plugin app on open, without touching its `dist/`.
+ *
+ * A plugin app's real `dist/` is owned by the monitor process
+ * (`plugin-source-watch`), which builds it on install and on every source
+ * change. But a just-installed app can be opened before the monitor's first
+ * pass lands, which would otherwise render the "not compiled yet" fallback.
+ * Building in place here would both write into the read-only plugin tree and
+ * race the monitor's `rm -rf dist` + write. Instead we compile into a private
+ * temp dir and return the self-contained HTML from there, leaving `dist/`
+ * ownership solely with the monitor. Returns `null` if the build fails, so the
+ * caller falls back to the standard fallback HTML.
+ */
+async function compilePluginAppHtmlEphemeral(
+  appId: string,
+  sourceDir: string,
+): Promise<string | null> {
+  // `resolveAppSource` classifies any app without a root index.html as
+  // multi-file, even a malformed one with no src/ (or one whose source was
+  // removed before the monitor built dist/). Building that would make the
+  // compiler throw, so skip it and let the caller serve the standard fallback
+  // rather than surfacing a 500 from a plain open.
+  if (!existsSync(join(sourceDir, "src"))) {
+    return null;
+  }
+  const tmpRoot = mkdtempSync(join(tmpdir(), "vellum-plugin-app-"));
+  try {
+    const result = await runCompile(sourceDir, join(tmpRoot, "dist"));
+    if (!result.ok) {
+      log.warn(
+        { appId, errors: result.errors },
+        "Ephemeral compile failed on plugin app open",
+      );
+      return null;
+    }
+    // resolveEffectiveAppHtmlFromDir reads `<tmpRoot>/dist/index.html` and
+    // inlines its JS/CSS, yielding a self-contained page.
+    return resolveEffectiveAppHtmlFromDir(tmpRoot, 2);
+  } catch (err) {
+    // The compiler reports build failures via `ok: false`; a thrown error is
+    // unexpected (e.g. a filesystem fault mid-build) and must still degrade to
+    // the fallback instead of a 500.
+    log.warn({ appId, err }, "Ephemeral compile threw on plugin app open");
+    return null;
+  } finally {
+    rmSync(tmpRoot, { recursive: true, force: true });
+  }
+}
+
 async function handleOpenApp({ pathParams }: RouteHandlerArgs) {
   const appId = pathParams?.id as string;
-  const app = getApp(appId);
-  if (!app) {
+  const source = resolveAppSource(appId);
+  if (!source) {
     throw new NotFoundError(`App not found: ${appId}`);
   }
 
-  if (isMultifileApp(app)) {
-    const appDir = getAppDirPath(appId);
-    const distIndex = join(appDir, "dist", "index.html");
-    if (!existsSync(distIndex)) {
-      const result = await compileApp(appDir);
-      if (!result.ok) {
+  const result = {
+    appId: source.id,
+    dirName: source.dirName,
+    name: source.name,
+    origin: appOriginWire(source.origin),
+  };
+
+  // Multi-file apps auto-compile on open when their dist/ is missing so a
+  // freshly installed app renders immediately instead of the "not compiled
+  // yet" fallback.
+  if (
+    source.formatVersion === 2 &&
+    !existsSync(join(source.sourceDir, "dist", "index.html"))
+  ) {
+    if (source.origin.kind === "workspace") {
+      // Workspace apps own their dist/ and are only compiled in this (daemon)
+      // process, so building in place is safe.
+      const compiled = await compileApp(source.sourceDir);
+      if (!compiled.ok) {
         log.warn(
-          { appId, errors: result.errors },
+          { appId, errors: compiled.errors },
           "Auto-compile failed on app open",
         );
       }
+    } else {
+      // Plugin apps: compile off to the side (see helper) rather than write
+      // into the plugin tree or race the monitor.
+      const html = await compilePluginAppHtmlEphemeral(appId, source.sourceDir);
+      if (html !== null) {
+        return { ...result, html };
+      }
+      // Build failed — fall through to the standard fallback HTML.
     }
   }
-  const html = resolveEffectiveAppHtml(app);
-  const { dirName } = resolveAppDir(app.id);
-  return { appId: app.id, dirName, name: app.name, html };
+
+  const html = resolveEffectiveAppHtmlFromDir(
+    source.sourceDir,
+    source.formatVersion,
+  );
+  return { ...result, html };
+}
+
+/**
+ * Reject a mutation targeting a plugin-bundled app. Plugin apps are owned by
+ * their plugin and are read-only over this surface — their source is not
+ * user-editable and their lifecycle is the plugin's.
+ */
+function assertNotPluginApp(appId: string, action: string): void {
+  if (isPluginAppId(appId)) {
+    throw new BadRequestError(
+      `Plugin-bundled apps are read-only; cannot ${action}. This app is owned by its plugin.`,
+    );
+  }
 }
 
 function handleDeleteApp({ pathParams, headers }: RouteHandlerArgs) {
-  deleteApp(pathParams?.id as string);
+  const appId = pathParams?.id as string;
+  assertNotPluginApp(appId, "delete a plugin app");
+  deleteApp(appId);
   publishAppsChanged(getOriginClientId(headers));
   return { success: true };
 }
@@ -656,6 +791,7 @@ function handleGetPreview({ pathParams }: RouteHandlerArgs) {
 
 function handleUpdatePreview({ pathParams, body }: RouteHandlerArgs) {
   const appId = pathParams?.id as string;
+  assertNotPluginApp(appId, "update a plugin app's preview");
   if (!body?.preview) {
     throw new BadRequestError("preview is required");
   }
@@ -665,6 +801,7 @@ function handleUpdatePreview({ pathParams, body }: RouteHandlerArgs) {
 
 async function handleBundle({ pathParams }: RouteHandlerArgs) {
   const appId = pathParams?.id as string;
+  assertNotPluginApp(appId, "bundle a plugin app");
   const result = await packageApp(appId);
   return {
     type: "bundle_app_response",
@@ -676,6 +813,7 @@ async function handleBundle({ pathParams }: RouteHandlerArgs) {
 
 async function handleShareCloud({ pathParams }: RouteHandlerArgs) {
   const appId = pathParams?.id as string;
+  assertNotPluginApp(appId, "share a plugin app");
   const result = await packageApp(appId);
   const bundleData = readFileSync(result.bundlePath);
   const { shareToken } = createSharedAppLink(bundleData, result.manifest);
@@ -721,6 +859,7 @@ export const ROUTES: RouteDefinition[] = [
           updatedAt: z.number(),
           version: z.string(),
           contentId: z.string(),
+          origin: z.string(),
         }),
       ),
     }),
@@ -951,6 +1090,7 @@ export const ROUTES: RouteDefinition[] = [
       dirName: z.string(),
       name: z.string(),
       html: z.string(),
+      origin: z.string(),
     }),
   },
   {

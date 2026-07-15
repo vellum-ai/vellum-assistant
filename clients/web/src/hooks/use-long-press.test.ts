@@ -221,6 +221,44 @@ describe("useLongPress", () => {
     expect(callback).not.toHaveBeenCalled();
   });
 
+  test("ignoreInteractiveTarget arms on a role=button target", async () => {
+    const callback = mock(() => {});
+    const { result } = renderHook(() =>
+      useLongPress(callback, 100, { ignoreInteractiveTarget: true }),
+    );
+
+    const row = document.createElement("div");
+    row.setAttribute("role", "button");
+    result.current.onTouchStart(makeTouchEvent(100, 200, row));
+
+    await new Promise((r) => setTimeout(r, 150));
+
+    expect(callback).toHaveBeenCalledTimes(1);
+  });
+
+  test("ignoreInteractiveTarget still honors shouldSkip for nested controls", async () => {
+    const callback = mock(() => {});
+    const { result } = renderHook(() =>
+      useLongPress(callback, 100, {
+        ignoreInteractiveTarget: true,
+        shouldSkip: (target) => Boolean(target?.closest("button, a")),
+      }),
+    );
+
+    // A nested real button (e.g. the trailing actions ellipsis) is skipped.
+    const button = document.createElement("button");
+    result.current.onTouchStart(makeTouchEvent(100, 200, button));
+    await new Promise((r) => setTimeout(r, 150));
+    expect(callback).not.toHaveBeenCalled();
+
+    // The row `role="button"` div (not a real button) still arms.
+    const row = document.createElement("div");
+    row.setAttribute("role", "button");
+    result.current.onTouchStart(makeTouchEvent(100, 200, row));
+    await new Promise((r) => setTimeout(r, 150));
+    expect(callback).toHaveBeenCalledTimes(1);
+  });
+
   test("fires when the touch target is a plain non-interactive element", async () => {
     const callback = mock(() => {});
     const { result } = renderHook(() => useLongPress(callback, 100));

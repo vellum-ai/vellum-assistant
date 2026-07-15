@@ -73,6 +73,10 @@ Some routes are IPC-only (defined in `src/ipc/routes/`, not in the shared array)
 
 The module-level dependency-injection pattern (`registerFooDeps()`) used by some IPC routes is a known antipattern. New IPC-only routes should avoid it.
 
+## Telemetry wire contract
+
+Telemetry event types are defined by a platform-generated wire contract (`src/telemetry/telemetry-wire.generated.ts`) that `src/telemetry/types.ts` layers over, with pre-flush validation against it. Adding a new event type starts platform-side, not here. The mechanics, the drift guards, and the cross-repo ordering are documented next to the code they govern: see [`src/telemetry/AGENTS.md`](src/telemetry/AGENTS.md).
+
 ## Code comments
 
 When writing or updating comments, **do not reference code that has been removed.** Comments should describe the current state of the codebase, not narrate its history. Avoid phrases like "no longer does X", "previously used Y", or "was removed in PR Z" — future readers should not need to understand past implementations to understand the current code.

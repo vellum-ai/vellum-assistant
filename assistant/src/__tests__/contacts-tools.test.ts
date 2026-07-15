@@ -25,8 +25,9 @@ mock.module("../config/env.js", () => ({
 let searchContactsOverride: unknown[] | null = null;
 
 // Skill tools call cliIpcCall instead of the gateway HTTP.
-// Mock the IPC client to dispatch contact reads/merge to the real store
-// (backed by the test DB) without needing a running IPC server.
+// Mock the IPC client to dispatch contact reads to the real store (backed by
+// the test DB) and serve `merge_contacts` as a fake gateway relay, without
+// needing a running IPC server.
 mock.module("../ipc/cli-client.js", () => ({
   cliIpcCall: async (method: string, params?: Record<string, unknown>) => {
     const store = await import("../contacts/contact-store.js");
@@ -45,9 +46,25 @@ mock.module("../ipc/cli-client.js", () => ({
       return { ok: true, result: { ok: true, contact } };
     }
     if (method === "merge_contacts") {
+      // Fake gateway relay: the daemon route relays merges to the gateway
+      // merge core, which validates and mirrors back into the assistant DB.
+      // Emulate that against the fixture DB via the mirror write path.
       const { keepId, mergeId } = body as { keepId: string; mergeId: string };
-      const contact = store.mergeContacts(keepId, mergeId);
-      return { ok: true, result: { ok: true, contact } };
+      // The tool pre-validates both contacts via getContact, so the fake only
+      // needs the survivor row (for keepDisplayName).
+      const keep = store.getContact(keepId);
+      if (!keep) {
+        return { ok: false, error: `Contact "${keepId}" not found` };
+      }
+      store.mergeContactMirror({
+        keepContactId: keepId,
+        mergeContactId: mergeId,
+        keepDisplayName: keep.displayName,
+      });
+      return {
+        ok: true,
+        result: { ok: true, contact: store.getContact(keepId) },
+      };
     }
     return { ok: false, error: `Unknown IPC method: ${method}` };
   },
@@ -80,14 +97,6 @@ beforeAll(() => {
       const path = url.pathname;
 
       try {
-        if (path === "/v1/contacts/merge" && req.method === "POST") {
-          const mergeRoute = ROUTES.find(
-            (r) => r.operationId === "merge_contacts",
-          )!;
-          const body = (await req.json()) as Record<string, unknown>;
-          const result = mergeRoute.handler({ body });
-          return Response.json(result);
-        }
         if (path === "/v1/contacts" && req.method === "GET") {
           const listRoute = ROUTES.find(
             (r) => r.operationId === "listContacts",

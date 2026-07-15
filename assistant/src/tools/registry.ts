@@ -28,13 +28,6 @@ const DEFAULT_TOOL_OWNER: OwnerInfo = Object.freeze({
   id: "default",
 });
 
-// Flips true once initializeTools() has registered the core manifest tools
-// (the read-only baseline: file_read/web_fetch/etc.). Only ever goes
-// false→true, so a true reading is stable for the process lifetime; callers
-// that must not run before the baseline exists gate on it via
-// {@link areCoreToolsInitialized}.
-let coreToolsInitialized = false;
-
 // Cached promise for the one-time tool-registry initialization. `initializeTools`
 // returns this so repeated calls (across entry points, or an eventual
 // getter-triggered ensure) run the underlying work exactly once. Cleared by the
@@ -192,17 +185,6 @@ export async function resolveTool(name: string): Promise<Tool | undefined> {
  */
 export function getTool(name: string): Tool | undefined {
   return tools.get(name);
-}
-
-/**
- * True once {@link initializeTools} has registered the core manifest tools.
- * Callers that must not run before the read-only baseline
- * (`file_read`/`web_fetch`/etc.) exists — e.g. the scheduler deferring
- * boot-time workflow triggers — gate on this. It only ever flips false→true,
- * so a true reading is stable for the process lifetime.
- */
-export function areCoreToolsInitialized(): boolean {
-  return coreToolsInitialized;
 }
 
 export function getAllTools(): Tool[] {
@@ -659,23 +641,37 @@ export function getMcpToolDefinitions(): Tool[] {
 }
 
 /**
- * Return tool definitions for all currently registered plugin-origin tools.
- * Used by the session resolver to dynamically pick up plugin tools that were
- * registered after session creation — e.g. a plugin installed at runtime and
- * activated on a subsequent turn (see `plugins/mtime-cache.ts`). Mirrors
+ * Return tool definitions for every registered plugin-origin tool, INCLUDING
+ * tools from workspace-disabled plugins. This does NOT apply the `.disabled`
+ * sentinel gate — the caller owns the scoping decision. Use this when a
+ * conversation's explicit `enabledPlugins` scope is the authority (a plugin the
+ * conversation explicitly enabled must surface its tools even when it is
+ * disabled at the workspace level; see `getEffectiveEnabledPluginSet`). Callers
+ * that report the workspace-level *available* surface want
+ * {@link getPluginToolDefinitions} instead.
+ */
+export function getAllPluginToolDefinitions(): Tool[] {
+  return Array.from(tools.values()).filter(
+    (t) => ownersByName.get(t.name)?.kind === "plugin",
+  );
+}
+
+/**
+ * Return tool definitions for currently registered plugin-origin tools, minus
+ * those contributed by a workspace-disabled plugin. Used by the session
+ * resolver to dynamically pick up plugin tools that were registered after
+ * session creation — e.g. a plugin installed at runtime and activated on a
+ * subsequent turn (see `plugins/mtime-cache.ts`). Mirrors
  * {@link getMcpToolDefinitions} so a plugin install behaves like `mcp reload`.
+ *
+ * The `.disabled` sentinel is filtered at read time so `assistant plugins
+ * disable <name>` takes effect on the next turn without a daemon restart,
+ * mirroring `getHooksFor` (plugins/registry.ts).
  */
 export function getPluginToolDefinitions(): Tool[] {
-  return Array.from(tools.values()).filter((t) => {
+  return getAllPluginToolDefinitions().filter((t) => {
     const owner = ownersByName.get(t.name);
-    if (owner?.kind !== "plugin") {
-      return false;
-    }
-    // Filter out tools contributed by disabled plugins at read time so
-    // `assistant plugins disable <name>` takes effect on the next turn
-    // without a daemon restart. Mirrors the `.disabled` sentinel filtering
-    // in `getHooksFor` (plugins/registry.ts).
-    return !isPluginDisabled(owner.id);
+    return owner !== undefined && !isPluginDisabled(owner.id);
   });
 }
 
@@ -1074,7 +1070,6 @@ async function runToolInitialization(): Promise<void> {
   for (const tool of explicitTools) {
     registerTool(tool);
   }
-  coreToolsInitialized = true;
 
   log.info({ count: tools.size }, "Tools initialized");
 
@@ -1090,7 +1085,7 @@ async function runToolInitialization(): Promise<void> {
   //
   // Imported dynamically because the loader imports back from this module
   // (registerWorkspaceTools / removeCoreToolViaWorkspace); a static import
-  // here would create a registry ↔ loader cycle.
+  // here would create a registry ↔ loader cycle that `lint:circular` flags.
   const { loadWorkspaceTools } = await import("./workspace-tools/loader.js");
   await loadWorkspaceTools();
 
@@ -1112,8 +1107,7 @@ async function runToolInitialization(): Promise<void> {
  * Re-registers the core manifest tools synchronously (the async workspace /
  * plugin reconciles are NOT re-run, so their file-backed tools drop out of
  * the baseline). `registerTool` reuses the finalized instances memoized on
- * first init, so restored tools keep their identity. A no-op restore when
- * init never ran in this process — nothing to re-register yet.
+ * first init, so restored tools keep their identity.
  */
 export function __resetRegistryForTesting(): void {
   tools.clear();
@@ -1130,10 +1124,8 @@ export function __resetRegistryForTesting(): void {
   // the freshly reset registry rather than returning the previous settled run.
   toolsInitPromise = null;
 
-  if (coreToolsInitialized) {
-    for (const tool of explicitTools) {
-      registerTool(tool);
-    }
+  for (const tool of explicitTools) {
+    registerTool(tool);
   }
 }
 

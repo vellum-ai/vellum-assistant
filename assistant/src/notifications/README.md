@@ -314,13 +314,13 @@ Connected channels are resolved at signal emission time by `getConnectedChannels
 
 ## Conversation Materialization
 
-The system uses a single conversation materialization path for **all** notifications -- there are no legacy bypass paths or dual-broadcast mechanisms. Every notification, including guardian questions and ingress escalation alerts, flows through `emitNotificationSignal()`:
+The system uses a single conversation materialization path for **all** notifications -- there are no legacy bypass paths or dual-broadcast mechanisms. Every notification, including guardian questions and access-request alerts, flows through `emitNotificationSignal()`:
 
 1. `emitNotificationSignal()` evaluates the signal and dispatches to channels.
 2. `NotificationBroadcaster` pairs each delivery with a conversation via `pairDeliveryWithConversation()`, executing the per-channel conversation action (start_new or reuse_existing).
 3. For vellum deliveries, the broadcaster merges `conversationId` into `deepLinkMetadata` and emits `notification_conversation_created` only when a new conversation was created (not on reuse).
 
-Guardian dispatch follows this same path and uses the optional `onConversationCreated` callback to attach guardian-delivery bookkeeping to the canonical vellum conversation.
+Guardian dispatch follows this same path and uses the optional `onConversationCreated` callback to attach guardian-delivery bookkeeping to the paired vellum conversation.
 
 ### Conversation Pairing Invariant
 
@@ -377,7 +377,7 @@ When the decision engine routes multiple guardian questions to the **same** conv
 
 ### How Request Codes Work
 
-Each `guardian_action_request` is assigned a unique 6-character hex code (e.g. `A1B2C3`) at creation time by `generateRequestCode()` in `guardian-action-store.ts`. The code is included in the notification copy delivered to the guardian.
+Each guardian request is assigned a unique 6-character hex code (e.g. `A1B2C3`) at creation time, generated gateway-side during `guardian_requests_create` (`generateRequestCode()` in `gateway/src/db/guardian-request-store.ts`). The code is included in the notification copy delivered to the guardian.
 
 ### Disambiguation Flow
 

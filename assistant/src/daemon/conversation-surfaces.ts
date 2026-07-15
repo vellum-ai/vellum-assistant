@@ -17,6 +17,7 @@ import {
   resolveEffectiveAppHtml,
   updateApp,
 } from "../apps/app-store.js";
+import { getVoiceResumeHandler } from "../live-voice/live-voice-resume-registry.js";
 import { recordActivationEvent } from "../onboarding/onboarding-events-store.js";
 import {
   getMessages,
@@ -1825,6 +1826,18 @@ function completeSurfaceFromAction(
   markSurfaceCompleted(ctx, surfaceId, summary);
 }
 
+// One-shot interactive surfaces auto-complete once their action message is
+// accepted (they never accept further actions). Shared by the text-dispatch
+// path and the voice-resume branch in handleSurfaceAction.
+const ONE_SHOT_SURFACE_TYPES = [
+  "choice",
+  "oauth_connect",
+  "form",
+  "confirmation",
+  "file_upload",
+  "task_preferences",
+];
+
 export async function handleSurfaceAction(
   ctx: SurfaceConversationContext,
   surfaceId: string,
@@ -2369,6 +2382,55 @@ export async function handleSurfaceAction(
     "Surface action follow-up: preparing to send message to model",
   );
 
+  // A live-voice session owns this conversation: resume the follow-up as a
+  // SPOKEN turn on that session instead of an unspoken text run that never
+  // reaches TTS (JARVIS-1287). OAuth connect carries no attachments; if any are
+  // present, fall through to the text path (voice resume has no attachment
+  // pipeline). This branch mirrors the one-shot completion, accumulated-state
+  // cleanup, prompt echo, and pending-action delete of the text path below.
+  const voiceResumeHandler = getVoiceResumeHandler(ctx.conversationId);
+  if (voiceResumeHandler && pendingAttachments.length === 0) {
+    maybeEmitActivationMoment(ctx, surfaceId);
+    const requestedCompletionSummary =
+      getRequestedSurfaceCompletionSummary(mergedData);
+    if (
+      requestedCompletionSummary ||
+      ONE_SHOT_SURFACE_TYPES.includes(pending.surfaceType)
+    ) {
+      const completionSummary = requestedCompletionSummary ?? summary;
+      broadcastMessage({
+        type: "ui_surface_complete",
+        conversationId: ctx.conversationId,
+        surfaceId,
+        summary: completionSummary,
+        submittedData: mergedDataForText,
+      });
+      markSurfaceCompleted(ctx, surfaceId, completionSummary);
+    }
+    if (accumulatedState && Object.keys(accumulatedState).length > 0) {
+      ctx.accumulatedSurfaceState.delete(surfaceId);
+    }
+    // The resumed turn's own turn-start (startVoiceTurn) broadcasts the
+    // user_message_echo for the resume content, so this path does not pre-echo
+    // — otherwise a relayed-prompt click would render two user bubbles.
+    if (!retainPending) {
+      ctx.pendingSurfaceActions.delete(surfaceId);
+    }
+    // The voice-resume turn creates its own turn/events, so the tracking id
+    // minted for the (unused) text dispatch would otherwise linger.
+    ctx.surfaceActionRequestIds.delete(requestId);
+    log.info(
+      { surfaceId, actionId, conversationId: ctx.conversationId },
+      "Surface action follow-up: resuming as spoken live-voice turn",
+    );
+    voiceResumeHandler.resumeWithText(content, {
+      activeSurfaceId: surfaceId,
+      ...(displayContent ? { displayContent } : {}),
+      ...(sourceActorPrincipalId ? { sourceActorPrincipalId } : {}),
+    });
+    return;
+  }
+
   const result = ctx.enqueueMessage({
     content,
     attachments: pendingAttachments,
@@ -2395,14 +2457,6 @@ export async function handleSurfaceAction(
   // One-shot interactive surfaces — auto-complete now that the message has
   // been accepted. Deferred until after rejection check so the surface stays
   // active and retryable if the queue was full.
-  const ONE_SHOT_SURFACE_TYPES = [
-    "choice",
-    "oauth_connect",
-    "form",
-    "confirmation",
-    "file_upload",
-    "task_preferences",
-  ];
   if (
     requestedCompletionSummary ||
     ONE_SHOT_SURFACE_TYPES.includes(pending.surfaceType)

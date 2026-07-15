@@ -29,7 +29,7 @@ import {
   type DrizzleDb,
   getSqliteFrom,
 } from "../../../../persistence/db-connection.js";
-import { enqueueMemoryJob } from "../../../../persistence/jobs-store.js";
+import { upsertEmbedConceptPageJob } from "../../../../persistence/jobs-store.js";
 import { extractText, userMessage } from "../llm-helpers.js";
 import { getLogger } from "../logging.js";
 import { deletePage, listPages, slugify, writePage } from "./page-store.js";
@@ -464,18 +464,19 @@ export function collapseEdges(
 /**
  * Enqueue an `embed_concept_page` job for each newly-written slug. The handler
  * is implemented separately — we just stage the queue here so the embeddings
- * are ready by the time activation needs them.
+ * are ready by the time activation needs them. Coalesces per slug: an already
+ * pending embed for the same slug is reused rather than duplicated.
  *
  * The `memory_jobs` queue lives in the dedicated memory database
- * (`assistant-memory.db`), not the main DB. `enqueueMemoryJob` targets it by
- * default, so we pass no DB override here: the migration's `database` handle is
- * the *main* DB (the v1 graph source read by `gatherV1State`) and must not
- * receive `memory_jobs` writes — doing so silently drops the jobs into a table
- * that doesn't exist there.
+ * (`assistant-memory.db`), not the main DB. `upsertEmbedConceptPageJob`
+ * targets it by default, so we pass no DB override here: the migration's
+ * `database` handle is the *main* DB (the v1 graph source read by
+ * `gatherV1State`) and must not receive `memory_jobs` writes — doing so
+ * silently drops the jobs into a table that doesn't exist there.
  */
 export function enqueueEmbeds(slugs: string[]): number {
   for (const slug of slugs) {
-    enqueueMemoryJob("embed_concept_page", { slug });
+    upsertEmbedConceptPageJob({ slug });
   }
   return slugs.length;
 }

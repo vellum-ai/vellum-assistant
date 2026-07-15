@@ -1,7 +1,8 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { TouchEvent as ReactTouchEvent } from "react";
 
 import { haptic } from "@/utils/haptics";
+import { useEdgeSwipeArbiterStore } from "@/stores/edge-swipe-arbiter-store";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -107,6 +108,23 @@ export function useSwipeToReveal({
   const [offset, setOffset] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
   const [revealedSide, setRevealedSide] = useState<RevealSide>("none");
+
+  // While this row is revealed it owns the next horizontal swipe: swiping it
+  // back toward centre must close it, not open the edge drawer. The drawer
+  // arms across a wide activation band (see `use-edge-swipe`'s
+  // ACTIVATION_ZONE_VW_RATIO), so a rightward close-swipe starts inside that
+  // band and would otherwise open the drawer. Registering with the shared
+  // arbiter suppresses the drawer until the row closes — the same
+  // single-owner mechanism back-swipe pages and the attachment preview use.
+  // Keyed on `revealedSide` so the count stays balanced even if the row
+  // unmounts while still open (the cleanup unregisters on the way out).
+  const registerOpenRow = useEdgeSwipeArbiterStore.use.registerOpenRow();
+  const unregisterOpenRow = useEdgeSwipeArbiterStore.use.unregisterOpenRow();
+  useEffect(() => {
+    if (revealedSide === "none") {return;}
+    registerOpenRow();
+    return unregisterOpenRow;
+  }, [revealedSide, registerOpenRow, unregisterOpenRow]);
 
   const gesture = useRef<{
     touchId: number;

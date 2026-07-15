@@ -8,12 +8,10 @@
 
 import {
   type HostProxyCapability,
-  type InterfaceId,
   supportsHostProxy,
 } from "../channels/types.js";
 import { getIsPlatform } from "../config/env-registry.js";
 import { getConfig } from "../config/loader.js";
-import type { LLMCallSite } from "../config/schemas/llm.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
 import { getBindingByConversation } from "../persistence/external-conversation-store.js";
@@ -24,6 +22,7 @@ import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { registerConversationSender } from "../tools/browser/browser-screencast.js";
 import type { ToolExecutor } from "../tools/executor.js";
 import {
+  getAllPluginToolDefinitions,
   getMcpToolDefinitions,
   getPluginToolDefinitions,
   getTool,
@@ -57,10 +56,8 @@ import {
   type UsageAttributionSnapshot,
 } from "../usage/attribution.js";
 import { getLogger } from "../util/logger.js";
-import {
-  projectSkillTools,
-  type SkillProjectionCache,
-} from "./conversation-skill-tools.js";
+import type { Conversation } from "./conversation.js";
+import { projectSkillTools } from "./conversation-skill-tools.js";
 import { surfaceProxyResolver } from "./conversation-surfaces.js";
 import {
   isDoordashCommand,
@@ -72,11 +69,7 @@ import { FALLBACK_TURN_TRUST, resolveTrustClass } from "./trust-context.js";
 
 const log = getLogger("conversation-tool-setup");
 
-import type {
-  SubagentToolGateMode,
-  ToolSetupContext,
-  WakeToolContextPin,
-} from "./tool-setup-types.js";
+import type { ToolSetupContext } from "./tool-setup-types.js";
 export type {
   SubagentToolGateMode,
   ToolSetupContext,
@@ -479,83 +472,6 @@ export function createProxyApprovalCallback(
  */
 export const DEFAULT_PREACTIVATED_SKILL_IDS = ["notifications", "subagent"];
 
-/**
- * Subset of Conversation state that the resolveTools callback reads at each
- * agent turn. Properties are read lazily from this reference.
- */
-export interface SkillProjectionContext {
-  preactivatedSkillIds?: string[];
-  readonly skillProjectionState: Map<string, string>;
-  readonly skillProjectionCache: SkillProjectionCache;
-  readonly coreToolNames: Set<string>;
-  allowedToolNames?: Set<string>;
-  /**
-   * Durable copy of the full tool set resolved on the most recent turn, used
-   * by read-only inventory queries. Set alongside {@link allowedToolNames}
-   * but, unlike that per-turn execution gate, never cleared at turn teardown.
-   */
-  lastResolvedToolNames?: Set<string>;
-  /** When > 0, the resolveTools callback returns no tools at all. */
-  toolsDisabledDepth: number;
-  /** Channel capabilities — read lazily per turn for conditional tool filtering. */
-  readonly channelCapabilities?: {
-    channel: string;
-    supportsDynamicUi: boolean;
-    clientOS?: string;
-  };
-  /** True when no client is connected (HTTP-only). */
-  readonly hasNoClient?: boolean;
-  /** When set, only tools in this set are included in the resolved tool list (subagent delegation). */
-  subagentAllowedTools?: Set<string>;
-  /**
-   * How {@link subagentAllowedTools} is enforced — see
-   * {@link SubagentToolGateMode}. Absent means `"wire"`.
-   */
-  subagentToolGateMode?: SubagentToolGateMode;
-  /**
-   * When set (execution-gate-mode wakes), tool-definition resolution reads
-   * `hasNoClient` / `transportInterface` / `channelCapabilities` exclusively
-   * from this pin instead of the live conversation — see
-   * {@link WakeToolContextPin}.
-   */
-  readonly toolContextPin?: WakeToolContextPin;
-  /** True when the current turn is restricted to disk-pressure cleanup-safe tools. */
-  diskPressureCleanupModeActive?: boolean;
-  /** True when this conversation belongs to a subagent spawned by SubagentManager. */
-  readonly isSubagent?: boolean;
-  /**
-   * The interface id of the connected client driving the current turn (e.g.
-   * "macos", "chrome-extension"). Used to gate host tools by per-capability
-   * `supportsHostProxy(transport, capability)` so that interfaces which only
-   * support a subset of the host proxy set (e.g. chrome-extension supports
-   * `host_browser` but not `host_bash`/`host_file`) do not leak unsupported
-   * host tools into the LLM tool definitions.
-   */
-  readonly transportInterface?: InterfaceId;
-  /** Per-turn override profile. */
-  currentTurnOverrideProfile?: string;
-  /**
-   * The conversation's per-chat plugin scope (mirrors
-   * {@link Conversation.enabledPlugins}). `null`/absent means no per-chat
-   * restriction; otherwise plugin-owned tools and skills are intersected with
-   * the effective set (the scope unioned with the always-on first-party
-   * defaults) via {@link getEffectiveEnabledPluginSet}. Read per turn so a
-   * mid-conversation scope change is picked up.
-   */
-  readonly enabledPlugins?: string[] | null;
-  /**
-   * Conversation id for `skill_loaded` telemetry. Absent (e.g. minimal test
-   * contexts) disables telemetry recording in the skill projection.
-   */
-  readonly conversationId?: string;
-  /**
-   * The LLM call site driving the current turn (see
-   * {@link ToolSetupContext.currentCallSite}) — read per turn so skill_loaded
-   * telemetry attributes the provider/model/profile the turn actually ran on.
-   */
-  currentCallSite?: LLMCallSite;
-}
-
 // ── Conditional tool sets ────────────────────────────────────────────
 
 const UI_SURFACE_TOOL_NAMES = new Set(["ui_show", "ui_update", "ui_dismiss"]);
@@ -645,7 +561,7 @@ export const SUBAGENT_ONLY_TOOL_NAMES = new Set<string>([
  */
 export function isToolActiveForContext(
   name: string,
-  ctx: SkillProjectionContext,
+  ctx: Conversation,
 ): boolean {
   // Execution-gate-mode wakes pin the client-context inputs so the wire tool
   // surface matches the SOURCE conversation's live turns rather than the
@@ -779,7 +695,7 @@ export function isToolActiveForContext(
  */
 export function createResolveToolsCallback(
   toolDefs: ToolDefinition[],
-  ctx: SkillProjectionContext,
+  ctx: Conversation,
 ): ((history: Message[]) => ToolDefinition[]) | undefined {
   if (toolDefs.length === 0) {
     return undefined;
@@ -841,25 +757,27 @@ export function createResolveToolsCallback(
     // is picked up without recreating the conversation.
     void loadPluginTools();
 
-    // Re-read plugin tool definitions from the registry each turn. Plugin
-    // tools share core's context filter + allowlist path, so combine them
-    // with the core snapshot before filtering.
-    const currentPluginDefs = getPluginToolDefinitions();
-
-    // Scope plugin tools to the conversation's per-chat plugin set. `null`
-    // leaves the list unchanged (no per-chat restriction); otherwise keep only
-    // tools whose owning plugin id is in the set, mirroring the
-    // `subagentAllowedTools` intersection below. Ownership lives in the registry
-    // (queried via getToolOwner), not on the Tool object.
-    const scopedPluginDefs =
-      effectiveEnabledPluginSet === null
-        ? currentPluginDefs
-        : currentPluginDefs.filter((d) => {
-            const ownerId = getToolOwner(d.name)?.id;
-            return (
-              ownerId !== undefined && effectiveEnabledPluginSet.has(ownerId)
-            );
-          });
+    // Read every registered plugin tool each turn (so runtime installs/edits
+    // are picked up) and let one filter decide visibility, making the two
+    // precedence rules explicit side by side. Plugin tools share core's context
+    // filter + allowlist path, so combine them with the core snapshot before
+    // filtering. Ownership lives in the registry (getToolOwner), not on the Tool.
+    //
+    //   - No per-chat scope (null): keep tools whose plugin is not disabled at
+    //     the workspace level (the `.disabled` sentinel gate).
+    //   - Explicit per-chat scope: the scope is the sole authority (rule 1 >
+    //     rule 2, see getEffectiveEnabledPluginSet) — keep tools the scope
+    //     enables, so a chat can re-enable a workspace-disabled plugin for
+    //     itself while a plugin the scope omits stays hidden.
+    const scopedPluginDefs = getAllPluginToolDefinitions().filter((d) => {
+      const ownerId = getToolOwner(d.name)?.id;
+      if (ownerId === undefined) {
+        return false;
+      }
+      return effectiveEnabledPluginSet === null
+        ? !isPluginDisabled(ownerId)
+        : effectiveEnabledPluginSet.has(ownerId);
+    });
 
     // Filter core + plugin tools based on current conversation context so that
     // tools irrelevant to this turn (e.g. UI tools when no client is connected)
@@ -952,7 +870,31 @@ export function createResolveToolsCallback(
     // any degraded-mode narrowing below — `allowedToolNames` is the per-turn
     // execution gate (cleared at teardown and restricted under disk pressure),
     // whereas this snapshot answers "what tools does this conversation have".
-    ctx.lastResolvedToolNames = turnAllowed;
+    // Reuse the definitions already resolved this turn (base + appended skill
+    // defs); only active-skill names that carry no appended definition (the
+    // cached skill-projection path returns names without defs) fall back to a
+    // registry lookup for their metadata.
+    const resolvedDefsByName = new Map<string, ToolDefinition>();
+    for (const def of allBaseDefs) {
+      resolvedDefsByName.set(def.name, def);
+    }
+    for (const def of projection.toolDefinitions) {
+      resolvedDefsByName.set(def.name, def);
+    }
+    ctx.registeredToolDefinitions = Array.from(turnAllowed)
+      .sort((a, b) => a.localeCompare(b))
+      .map((name) => {
+        const known = resolvedDefsByName.get(name);
+        if (known !== undefined) {
+          return known;
+        }
+        const tool = getTool(name);
+        return {
+          name,
+          description: tool?.description ?? "",
+          input_schema: tool?.input_schema ?? {},
+        };
+      });
     if (ctx.diskPressureCleanupModeActive === true) {
       const cleanupDefs = allBaseDefs.filter((d) =>
         isDiskPressureCleanupToolName(d.name),

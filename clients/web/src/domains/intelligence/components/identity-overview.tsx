@@ -11,6 +11,7 @@
 
 import { useQueryClient } from "@tanstack/react-query";
 import {
+  Brain,
   CalendarClock,
   FolderOpen,
   Puzzle,
@@ -61,6 +62,7 @@ const SECTION_ICONS: Record<string, LucideIcon> = {
   personality: Sparkles,
   schedules: CalendarClock,
   skills: Zap,
+  memory: Brain,
   plugins: Puzzle,
   workspace: FolderOpen,
   contacts: Users,
@@ -90,6 +92,7 @@ const BENTO_MIN_H = 480;
 /** Sections rendered as compact mini cards in the bottom strip. */
 const MINI_SECTION_KEYS = [
   "skills",
+  "memory",
   "plugins",
   "workspace",
   "contacts",
@@ -103,6 +106,7 @@ const MINI_SECTION_KEYS = [
 const CARD_HOVER_LINES: Record<string, string> = {
   personality: "Go ahead — tweak my soul",
   skills: "Everything I know how to do",
+  memory: "Everything I remember",
   plugins: "My add-ons — extra superpowers",
   schedules: "What I do on repeat",
   workspace: "All the files that power me",
@@ -170,6 +174,7 @@ export function IdentityOverview({
   const identityQuery = useAssistantIdentityDetails(assistantId);
   const supportsPlugins = useSupportsPluginsSurface();
   const showChannels = useAssistantFeatureFlagStore.use.channelTrustFloors();
+  const showMemory = useAssistantFeatureFlagStore.use.memoryConceptGraph();
   const stats = useIdentitySectionStats(assistantId, {
     supportsPlugins,
     showChannels,
@@ -207,7 +212,11 @@ export function IdentityOverview({
     onOpenThread?.("I'd like to create a custom AI-generated avatar.");
   }, [onOpenThread]);
 
-  const sections = buildIdentitySections({ supportsPlugins, showChannels });
+  const sections = buildIdentitySections({
+    supportsPlugins,
+    showChannels,
+    showMemory,
+  });
   const isLoading = isAvatarLoading || identityQuery.isLoading;
   const avatarHex = resolveAvatarHex(components, traits);
 

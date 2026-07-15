@@ -22,6 +22,7 @@ interface IntelligenceSection {
 const CHROME_SECTIONS: readonly IntelligenceSection[] = [
   { label: "Plugins", to: routes.plugins },
   { label: "Skills", to: routes.skills.root },
+  { label: "Memory", to: routes.memory },
   { label: "Workspace", to: routes.workspace },
   { label: "Contacts", to: routes.contacts.root },
   { label: "Channels", to: routes.channels },
@@ -39,9 +40,9 @@ function sectionForPath(pathname: string): IntelligenceSection | null {
  * Shared layout for the "About Assistant" pages. The overview
  * (`/assistant/identity`) and the personality page render full-bleed —
  * they own their avatar-tinted stage chrome — while every other section
- * (Plugins, Skills, Workspace, Contacts, Channels) renders inside the
- * standard page shell with a back button to the overview where the old
- * tab bar used to be.
+ * (Plugins, Skills, Memory, Workspace, Contacts, Channels) renders inside
+ * the standard page shell with a back button to the overview where the
+ * old tab bar used to be.
  *
  * Mounted as a pathless layout route in `routes.tsx` so the child routes
  * keep their existing URL paths (`/assistant/identity`, etc.) while

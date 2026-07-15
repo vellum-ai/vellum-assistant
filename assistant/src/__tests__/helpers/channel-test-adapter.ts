@@ -61,6 +61,16 @@ mock.module("../../daemon/approval-generators.js", () => ({
   createApprovalConversationGenerator: () => undefined,
 }));
 
+// The inbound pipeline creates guardian requests and delivery rows through
+// the gateway client; tests here have no live gateway, so serve that surface
+// from the in-memory bridge fake (seed/inspect/reset via its `bridgeState`).
+import { gatewayGuardianRequestsStoreBridge } from "./gateway-guardian-requests-store-bridge.js";
+
+mock.module(
+  "../../channels/gateway-guardian-requests.js",
+  () => gatewayGuardianRequestsStoreBridge,
+);
+
 import type { TrustClass, TrustVerdict } from "@vellumai/gateway-client";
 
 import { isChannelId } from "../../channels/types.js";

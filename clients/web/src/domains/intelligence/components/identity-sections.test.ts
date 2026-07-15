@@ -1,7 +1,8 @@
 /**
  * Gating behavior of the overview's drill-down section list: Plugins only
- * appears on plugin-capable assistants, Channels only behind the
- * channel-trust-floors flag, and the stable sections keep their order.
+ * appears on plugin-capable assistants, Memory only behind the
+ * memory-concept-graph flag, Channels only behind the channel-trust-floors
+ * flag, and the stable sections keep their order.
  */
 import { describe, expect, test } from "bun:test";
 
@@ -12,10 +13,13 @@ const keys = (gates: Parameters<typeof buildIdentitySections>[0]) =>
 
 describe("buildIdentitySections", () => {
   test("includes every section when all gates are open", () => {
-    expect(keys({ supportsPlugins: true, showChannels: true })).toEqual([
+    expect(
+      keys({ supportsPlugins: true, showChannels: true, showMemory: true }),
+    ).toEqual([
       "personality",
       "schedules",
       "skills",
+      "memory",
       "plugins",
       "workspace",
       "contacts",
@@ -24,7 +28,9 @@ describe("buildIdentitySections", () => {
   });
 
   test("hides Plugins on assistants without the plugin routes", () => {
-    expect(keys({ supportsPlugins: false, showChannels: true })).toEqual([
+    expect(
+      keys({ supportsPlugins: false, showChannels: true, showMemory: false }),
+    ).toEqual([
       "personality",
       "schedules",
       "skills",
@@ -34,8 +40,16 @@ describe("buildIdentitySections", () => {
     ]);
   });
 
+  test("hides Memory while memory-concept-graph is off", () => {
+    expect(
+      keys({ supportsPlugins: true, showChannels: true, showMemory: false }),
+    ).not.toContain("memory");
+  });
+
   test("hides Channels while channel-trust-floors is off", () => {
-    expect(keys({ supportsPlugins: true, showChannels: false })).toEqual([
+    expect(
+      keys({ supportsPlugins: true, showChannels: false, showMemory: false }),
+    ).toEqual([
       "personality",
       "schedules",
       "skills",

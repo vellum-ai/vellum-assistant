@@ -26,6 +26,7 @@ import {
 } from "../calls/voice-triage-escalate.js";
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getConfig } from "../config/loader.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
 import { ensureConversationExists } from "../persistence/conversation-crud.js";
 import {
   listProviderIds,
@@ -54,6 +55,12 @@ import {
   type LiveVoiceTurnSeedMarks,
 } from "./live-voice-metrics.js";
 import {
+  registerVoiceResumeHandler,
+  unregisterVoiceResumeHandler,
+  type VoiceResumeHandler,
+  type VoiceResumeOptions,
+} from "./live-voice-resume-registry.js";
+import {
   type LiveVoiceSession as LiveVoiceSessionContract,
   type LiveVoiceSessionCloseReason,
   type LiveVoiceSessionFactoryContext,
@@ -66,6 +73,7 @@ import type {
 } from "./live-voice-tts.js";
 import {
   type LiveVoiceClientFrame,
+  type LiveVoiceClientUpdateConfigFrame,
   LiveVoiceProtocolErrorCode,
   type LiveVoiceServerFramePayload,
 } from "./protocol.js";
@@ -92,10 +100,12 @@ const SERVER_VAD_PRE_ROLL_MAX_CHUNKS = 25;
 // provider keeps its own, longer, finalize fallback).
 const FINALIZE_GRACE_MS = 1_000;
 // Consecutive speech (ms) required before speech during assistant playback
-// flushes it (speech_started) and cancels the turn, so a cough or noise blip
-// cannot kill a reply mid-sentence. Mirrors the liveVoice.vad.bargeInMinSpeechMs
-// schema default; 0 disables the guard for instant barge-in.
-const DEFAULT_BARGE_IN_MIN_SPEECH_MS = 60;
+// flushes it (speech_started) and cancels the turn, so a cough, a filler word,
+// or the assistant's own TTS bleeding through imperfect browser echo
+// cancellation cannot kill a reply mid-sentence. Mirrors the
+// liveVoice.vad.bargeInMinSpeechMs schema default; 0 disables the guard for
+// instant barge-in.
+const DEFAULT_BARGE_IN_MIN_SPEECH_MS = 250;
 // At most this many TTS segment jobs are open (provider stream started,
 // frames not yet fully emitted) per turn: the emitting job plus one
 // prefetching job. The prefetch buffers its chunks in memory until promoted;
@@ -305,7 +315,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // Energy gate for server-VAD speech classification; undefined defers to
   // DEFAULT_SPEECH_ENERGY_THRESHOLD.
   private readonly speechEnergyThreshold: number | undefined;
-  private readonly bargeInMinSpeechMs: number;
+  // Mutable so a mid-session `update_config` frame can retune "interrupt
+  // sensitivity" live (see applyConfigUpdate).
+  private bargeInMinSpeechMs: number;
   // Sustained-speech barge-in guard, armed at speech onset while the
   // assistant turn is audibly speaking: consecutive speech-chunk duration
   // accumulates until it reaches bargeInMinSpeechMs, then the deferred
@@ -361,6 +373,15 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   /** The cycle whose grace timer is armed (only the newest release has one). */
   private finalizeGraceCycle: UtteranceCycle | null = null;
   private readonly finalizeGraceMs: number;
+  // Registered in the registry so the HTTP surface-action path can resume a
+  // yielded interactive surface as a SPOKEN turn on this session (JARVIS-1287).
+  private readonly voiceResumeHandler: VoiceResumeHandler;
+  // A resume requested while an assistant turn was still in flight; dispatched
+  // once the active turn settles (see flushPendingResume).
+  private pendingResume: {
+    content: string;
+    opts?: VoiceResumeOptions;
+  } | null = null;
 
   constructor(
     context: LiveVoiceSessionFactoryContext,
@@ -378,6 +399,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     this.createTurnId = options.createTurnId ?? randomUUID;
     this.conversationId =
       context.startFrame.conversationId ?? context.sessionId;
+    this.voiceResumeHandler = {
+      resumeWithText: (content, opts) => this.resumeWithText(content, opts),
+    };
+    registerVoiceResumeHandler(this.conversationId, this.voiceResumeHandler);
     this.metricsClock = options.metricsClock ?? Date.now;
     this.metrics = new LiveVoiceMetricsCollector({
       sessionId: context.sessionId,
@@ -385,12 +410,23 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       ...(options.metricsClock ? { clock: options.metricsClock } : {}),
     });
     this.speechEnergyThreshold = options.speechEnergyThreshold;
+    // Precedence for the two sensitivity knobs: per-session start-frame
+    // override (the client's user setting) > daemon `liveVoice.vad` config
+    // (seeded into `options` by the factory) > in-code default.
     this.bargeInMinSpeechMs =
-      options.bargeInMinSpeechMs ?? DEFAULT_BARGE_IN_MIN_SPEECH_MS;
+      context.startFrame.bargeInMinSpeechMs ??
+      options.bargeInMinSpeechMs ??
+      DEFAULT_BARGE_IN_MIN_SPEECH_MS;
     this.finalizeGraceMs = options.finalizeGraceMs ?? FINALIZE_GRACE_MS;
+    const turnDetectorConfig: TurnDetectorConfig = {
+      ...(options.turnDetectorConfig ?? {}),
+      ...(context.startFrame.silenceThresholdMs !== undefined
+        ? { silenceThresholdMs: context.startFrame.silenceThresholdMs }
+        : {}),
+    };
     this.turnDetector =
       context.startFrame.turnDetection === "server_vad"
-        ? new MediaTurnDetector(options.turnDetectorConfig ?? {}, {
+        ? new MediaTurnDetector(turnDetectorConfig, {
             onTurnStart: () => this.handleVadSpeechStart(),
             onTurnEnd: (reason) => this.handleVadUtteranceEnd(reason),
           })
@@ -460,6 +496,25 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         return;
       case "start":
         return;
+      case "update_config":
+        this.applyConfigUpdate(frame);
+        return;
+    }
+  }
+
+  /**
+   * Apply a mid-session `update_config` frame: retune the live turn detector's
+   * pause ("pause before reply") and/or the barge-in guard ("interrupt
+   * sensitivity") without reconnecting. Each field is optional and independent;
+   * changes take effect from the next utterance. A no-op on manual (non-
+   * server_vad) sessions, which have no turn detector.
+   */
+  private applyConfigUpdate(frame: LiveVoiceClientUpdateConfigFrame): void {
+    if (frame.silenceThresholdMs !== undefined) {
+      this.turnDetector?.setSilenceThresholdMs(frame.silenceThresholdMs);
+    }
+    if (frame.bargeInMinSpeechMs !== undefined) {
+      this.bargeInMinSpeechMs = frame.bargeInMinSpeechMs;
     }
   }
 
@@ -474,6 +529,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
 
     const shouldEmitSessionEndMetrics = this.state !== "failed";
     this.state = "closed";
+    unregisterVoiceResumeHandler(this.conversationId, this.voiceResumeHandler);
     this.turnDetector?.dispose();
     this.stopSessionTranscriber();
     await this.cancelAssistantTurn("session_closed");
@@ -641,6 +697,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     if (this.isClosed || this.state === "failed") {
       return;
     }
+
+    // A resume deferred behind the finished turn takes the freed slot before a
+    // fresh utterance is armed (no-op when there's nothing pending).
+    this.flushPendingResume();
 
     const current = this.currentUtterance;
     if (current && !current.completed) {
@@ -1455,6 +1515,19 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       return;
     }
 
+    await this.launchAssistantTurn(utterance, content);
+  }
+
+  // Build the ActiveAssistantTurn for a released utterance and drive its model
+  // leg. Shared by the STT path (startAssistantTurnIfReady) and the spoken
+  // surface-resume path (startResumeTurn) so both run identical turn machinery.
+  private async launchAssistantTurn(
+    utterance: UtteranceCycle,
+    content: string,
+    // Only set on the surface-resume path; the STT path leaves it undefined so
+    // no active-surface context is injected into an ordinary spoken turn.
+    activeSurfaceId?: string,
+  ): Promise<void> {
     utterance.assistantTurnStarted = true;
     const token = Symbol("live-voice-assistant-turn");
     const turnId = this.ensureTurnId(utterance);
@@ -1506,9 +1579,113 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
             overrideProfile: FRONT_DOOR_PROFILE,
             routingLeg: "front-door",
             frontDoor: true,
+            ...(activeSurfaceId !== undefined ? { activeSurfaceId } : {}),
           }
-        : { content },
+        : {
+            content,
+            ...(activeSurfaceId !== undefined ? { activeSurfaceId } : {}),
+          },
     );
+  }
+
+  /**
+   * Resume a yielded interactive surface as a SPOKEN turn. The HTTP surface-
+   * action path calls this (via the resume registry) once the user completes a
+   * surface the voice turn raised, so the follow-up reply is synthesized to
+   * audio through this session's TTS pipeline instead of running silently
+   * through the text pipeline (JARVIS-1287).
+   *
+   * If a turn is still in flight the resume is deferred (pendingResume) and
+   * dispatched once that turn settles — never rejected with CONVERSATION_BUSY.
+   */
+  resumeWithText(content: string, opts?: VoiceResumeOptions): void {
+    const trimmed = content.trim();
+    if (
+      this.isClosed ||
+      this.state === "failed" ||
+      !this.startVoiceTurn ||
+      trimmed.length === 0
+    ) {
+      return;
+    }
+    if (this.activeAssistantTurn) {
+      this.pendingResume = { content: trimmed, opts };
+      return;
+    }
+    void this.startResumeTurn(trimmed, opts).catch((err) => {
+      log.error(
+        { err, conversationId: this.conversationId },
+        "live-voice resume turn failed",
+      );
+    });
+  }
+
+  private async startResumeTurn(
+    content: string,
+    opts?: VoiceResumeOptions,
+  ): Promise<void> {
+    if (this.isClosed || this.state === "failed" || !this.startVoiceTurn) {
+      return;
+    }
+    if (this.activeAssistantTurn) {
+      this.pendingResume = { content, opts };
+      return;
+    }
+    // A synthetic utterance carrying only the resume text: it is not
+    // this.currentUtterance (which holds the server-VAD armed next utterance),
+    // so the armed transcriber is untouched. finalizeAssistantTurn works on
+    // turn.utterance and tolerates the empty audio buffers.
+    const utterance: UtteranceCycle = {
+      phase: "transcriber_closed",
+      released: true,
+      assistantTurnStarted: false,
+      completed: false,
+      finalizeRequested: false,
+      transcriber: null,
+      pendingAudioChunks: [],
+      pendingAudioBytes: 0,
+      finalTranscriptSegments: [content],
+      turnId: null,
+      userMessageId: null,
+      userAudioChunks: [],
+      metricsTurnStarted: false,
+      metricsTurnFinished: false,
+      stashedMetricsMarks: {
+        firstAudioAtMs: null,
+        firstPartialAtMs: null,
+        speechStartAtMs: null,
+        utteranceEndAtMs: null,
+        finalTranscriptAtMs: null,
+      },
+    };
+    await this.launchAssistantTurn(utterance, content, opts?.activeSurfaceId);
+  }
+
+  // Dispatch a resume deferred behind an in-flight turn, once that turn has
+  // settled. Null out pendingResume before dispatch so a re-entrant settle
+  // cannot double-fire the same resume.
+  private flushPendingResume(): void {
+    const deferred = this.pendingResume;
+    this.pendingResume = null;
+    if (
+      deferred &&
+      !this.activeAssistantTurn &&
+      !this.isClosed &&
+      this.state !== "failed"
+    ) {
+      void this.startResumeTurn(deferred.content, deferred.opts).catch(
+        (err) => {
+          log.error(
+            { err, conversationId: this.conversationId },
+            "live-voice deferred resume turn failed",
+          );
+        },
+      );
+    } else if (deferred) {
+      // Could not dispatch now (turn still active / session gone); keep it for
+      // the next settle point rather than dropping it.
+      this.pendingResume = deferred;
+    }
   }
 
   /**
@@ -1531,6 +1708,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       overrideProfile?: string;
       routingLeg?: VoiceRoutingLeg;
       frontDoor?: boolean;
+      // Present only on the primary surface-resume leg — never on the escalated
+      // continuation leg, so the active-surface context stays turn-scoped.
+      activeSurfaceId?: string;
     },
   ): Promise<void> {
     if (!this.startVoiceTurn) {
@@ -1605,6 +1785,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
           ? { overrideProfile: leg.overrideProfile }
           : {}),
         ...(leg.routingLeg != null ? { routingLeg: leg.routingLeg } : {}),
+        ...(leg.activeSurfaceId != null
+          ? { activeSurfaceId: leg.activeSurfaceId }
+          : {}),
         callbacks: {
           assistant_text_delta: (msg) => {
             if (!this.isForwardingAssistantText(token)) {
@@ -1880,6 +2063,14 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
           }
         }
 
+        // Now that the active turn is actually cleared, dispatch a resume that
+        // arrived mid-turn. `finalizeAssistantTurn` runs its own flush too, but
+        // this path finalizes with `clearActive: false`, so at that point the
+        // slot was still taken and the flush re-stashed. `scheduleRearmAfterTurn`
+        // below no-ops in manual (no-`turnDetector`) sessions, so without this
+        // flush the deferred resume would never start there (JARVIS-1287).
+        this.flushPendingResume();
+
         // Re-arm only after the terminal tts_done frame so a slow or failing
         // next transcriber cannot block or precede turn completion. A
         // cancelled turn re-arms through cancelAssistantTurn instead.
@@ -2071,9 +2262,13 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     if (activeTurn?.token !== token) {
       return;
     }
-    activeTurn.assistantAudioChunks.push(
-      Buffer.from(chunk.dataBase64, "base64"),
-    );
+    // Only retain the assistant TTS audio when it will be archived (see
+    // collectUserAudio); the mime/sample-rate are cheap and left unconditional.
+    if (this.archiveAudio) {
+      activeTurn.assistantAudioChunks.push(
+        Buffer.from(chunk.dataBase64, "base64"),
+      );
+    }
     activeTurn.assistantAudioMimeType = chunk.contentType;
     activeTurn.assistantAudioSampleRate = chunk.sampleRate;
     job.frames = job.frames.then(async () => {
@@ -2113,7 +2308,12 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   }
 
   private collectUserAudio(utterance: UtteranceCycle, chunk: Buffer): void {
-    utterance.userAudioChunks.push(Buffer.from(chunk));
+    // Only retain the raw audio when it will actually be archived — otherwise
+    // buffering a whole turn's PCM is dead memory. The first-audio metric is
+    // independent of archiving, so it stays unconditional.
+    if (this.archiveAudio) {
+      utterance.userAudioChunks.push(Buffer.from(chunk));
+    }
     this.markUtteranceMetric(utterance, "firstAudioAtMs", (turnId) =>
       this.metrics.markFirstAudio(turnId),
     );
@@ -2281,6 +2481,11 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     if (options.rearm ?? true) {
       this.scheduleRearmAfterTurn();
     }
+
+    // A surface-resume that arrived mid-turn waits here: the just-cleared
+    // active turn frees the slot, so dispatch it now. rearmAfterTurn also
+    // flushes (covers the manual path where scheduleRearmAfterTurn no-ops).
+    this.flushPendingResume();
   }
 
   private async archiveBufferedAudio(input: {
@@ -2508,7 +2713,8 @@ export function createLiveVoiceSession(
   // unchanged. Optional-chained
   // because hand-built test configs may predate the liveVoice namespace;
   // absent config falls through to the in-code defaults.
-  const vadConfig = getConfig().liveVoice?.vad;
+  const liveVoiceConfig = getConfig().liveVoice;
+  const vadConfig = liveVoiceConfig?.vad;
   return new LiveVoiceSession(context, {
     ...options,
     turnDetectorConfig:
@@ -2532,9 +2738,16 @@ export function createLiveVoiceSession(
       options.streamTtsAudio === undefined
         ? defaultStreamLiveVoiceTtsAudio
         : options.streamTtsAudio,
+    // Off by default (see the `liveVoice.archiveAudio` schema): voice turns
+    // persist only their transcribed text, so the recorded audio never lands
+    // as an attachment on the conversation messages. Enable via config for
+    // playback/debugging. An explicit option (incl. `null`) always wins — the
+    // test seam and any future caller override.
     archiveAudio:
       options.archiveAudio === undefined
-        ? defaultArchiveLiveVoiceAudio
+        ? liveVoiceConfig?.archiveAudio
+          ? defaultArchiveLiveVoiceAudio
+          : null
         : options.archiveAudio,
     emitMetrics: options.emitMetrics ?? true,
   });
@@ -2575,8 +2788,49 @@ async function defaultStartVoiceTurn(
       options.conversationId,
     );
   }
+  // Stamp the turn with the guardian's trust context — the same resolution the
+  // text-send route runs for a local vellum principal. A local live-voice
+  // session only exists for the guardian's own authenticated client (the
+  // gateway pins the `/v1/live-voice` upgrade to the bound guardian), but the
+  // live-voice ingress bypasses the send-message route, so without this stamp
+  // the turn resolved to the fail-closed `unknown` trust class and every
+  // sensitive tool was denied. Resolution stays fail-closed: a gateway miss /
+  // missing binding leaves the context unset (`unknown`), never a blind grant.
+  const trustContext = await resolveLocalLiveVoiceTrustContext(
+    options.conversationId,
+  );
   const { startVoiceTurn } = await import("../calls/voice-session-bridge.js");
-  return startVoiceTurn(options);
+  return startVoiceTurn({
+    ...options,
+    ...(trustContext ? { trustContext } : {}),
+  });
+}
+
+/**
+ * Resolve the local guardian's {@link TrustContext} for a live-voice turn, or
+ * `undefined` when it cannot be established (no vellum guardian binding, or
+ * the gateway is unreachable) — the turn then runs under the fail-closed
+ * `unknown` capability set, exactly as an unstamped turn does.
+ */
+async function resolveLocalLiveVoiceTrustContext(
+  conversationId: string,
+): Promise<TrustContext | undefined> {
+  const { findLocalGuardianPrincipalId } =
+    await import("../runtime/local-actor-identity.js");
+  const { resolveLocalPrincipalTrustContext } =
+    await import("../runtime/local-principal-trust.js");
+  const guardianPrincipalId = await findLocalGuardianPrincipalId();
+  if (!guardianPrincipalId) {
+    return undefined;
+  }
+  const trustContext = await resolveLocalPrincipalTrustContext({
+    actorPrincipalId: guardianPrincipalId,
+    sourceChannel: "vellum",
+    conversationExternalId: conversationId,
+  });
+  // Only stamp a positive guardian resolution; the resolver's own
+  // fail-closed `unknown` carries no more information than no stamp.
+  return trustContext.trustClass === "guardian" ? trustContext : undefined;
 }
 
 async function defaultStreamLiveVoiceTtsAudio(

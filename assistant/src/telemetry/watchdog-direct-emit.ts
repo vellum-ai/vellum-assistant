@@ -1,7 +1,7 @@
 /**
  * Direct (unbuffered) emit of a single `watchdog` telemetry event.
  *
- * The usual watchdog path persists to the SQLite `watchdog_events` table and
+ * The usual watchdog path persists to the SQLite `telemetry_events` outbox and
  * lets {@link ./usage-telemetry-reporter} batch and upload it later. That
  * durable buffer is the right default — it survives restarts and dedupes on
  * `daemon_event_id`. But it is the wrong tool for a check that fires *because*
@@ -25,6 +25,7 @@ import { arePlatformFeaturesEnabled } from "../platform/feature-gate.js";
 import { getDeviceId } from "../util/device-id.js";
 import { getLogger } from "../util/logger.js";
 import { APP_VERSION } from "../version.js";
+import { validateWireEvents } from "./telemetry-wire-validation.js";
 import type { WatchdogTelemetryEvent } from "./types.js";
 
 const log = getLogger("watchdog-direct-emit");
@@ -62,6 +63,11 @@ export async function emitWatchdogEventDirect(
       detail,
       assistant_version: APP_VERSION,
     };
+
+    // Pre-flush wire validation — observability only: warns when the server
+    // would silently drop the event; the POST proceeds unchanged.
+    validateWireEvents([event], log);
+
     const organizationId = getPlatformOrganizationId() || undefined;
     const userId = getPlatformUserId() || undefined;
     const resp = await client.fetch(TELEMETRY_INGEST_PATH, {

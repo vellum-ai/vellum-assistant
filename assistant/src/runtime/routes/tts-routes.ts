@@ -161,12 +161,14 @@ async function handleSynthesizeCliTts({ body }: RouteHandlerArgs) {
   const useCase: TtsUseCase =
     (body.useCase as TtsUseCase | undefined) ?? "message-playback";
   const voiceId =
-    body.voiceId && typeof body.voiceId === "string"
-      ? body.voiceId
-      : undefined;
+    body.voiceId && typeof body.voiceId === "string" ? body.voiceId : undefined;
 
   try {
-    const result = await synthesizeText({ text: sanitizedText, useCase, voiceId });
+    const result = await synthesizeText({
+      text: sanitizedText,
+      useCase,
+      voiceId,
+    });
     return {
       audioBase64: Buffer.from(result.audio).toString("base64"),
       contentType: result.contentType,
@@ -273,7 +275,9 @@ export const ROUTES: RouteDefinition[] = [
     }),
     responseBody: z.object({
       audioBase64: z.string().describe("Base64-encoded audio bytes"),
-      contentType: z.string().describe("MIME type of the audio (e.g. audio/mpeg)"),
+      contentType: z
+        .string()
+        .describe("MIME type of the audio (e.g. audio/mpeg)"),
     }),
     handler: handleSynthesizeCliTts,
   },

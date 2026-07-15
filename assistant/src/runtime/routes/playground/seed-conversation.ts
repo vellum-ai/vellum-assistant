@@ -16,7 +16,10 @@ import type { Message } from "../../../providers/types.js";
 import { BadRequestError } from "../errors.js";
 import type { RouteDefinition } from "../types.js";
 import { assertPlaygroundEnabled } from "./guard.js";
-import { addPlaygroundMessage, createPlaygroundConversation } from "./helpers.js";
+import {
+  addPlaygroundMessage,
+  createPlaygroundConversation,
+} from "./helpers.js";
 
 /**
  * Title prefix applied to every seeded-playground conversation. Exported so
@@ -89,9 +92,7 @@ export const ROUTES: RouteDefinition[] = [
       }
 
       for (const msg of messages) {
-        const contentJson = JSON.stringify([
-          { type: "text", text: msg.text },
-        ]);
+        const contentJson = JSON.stringify([{ type: "text", text: msg.text }]);
         await addPlaygroundMessage(conversationId, msg.role, contentJson, {
           skipIndexing: true,
         });

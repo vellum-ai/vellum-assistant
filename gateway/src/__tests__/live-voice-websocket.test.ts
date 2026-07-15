@@ -13,12 +13,38 @@ import {
 import { CURRENT_POLICY_EPOCH } from "../auth/policy.js";
 import { initSigningKey, mintToken } from "../auth/token-service.js";
 import type { GatewayConfig } from "../config.js";
-import {
-  createLiveVoiceWebsocketHandler,
-  getLiveVoiceWebsocketHandlers,
-  type LiveVoiceSocketData,
-} from "../http/routes/live-voice-websocket.js";
+import type { LiveVoiceSocketData } from "../http/routes/live-voice-websocket.js";
 import { setVelayBridgeAuthHeader } from "../velay/bridge-auth.js";
+
+// The bound-guardian platform user id, shared by the velay mock and the velay
+// tests (their attested caller must match it to authenticate).
+const VELAY_USER_ID = "11111111-1111-1111-1111-111111111111";
+
+// The live-voice upgrade pins actor tokens to the bound guardian. Mock the
+// binding lookup (set BEFORE importing the module under test) so the actor
+// path is testable without gateway DB state; the default binding matches
+// `mintEdgeToken`'s default principal.
+let mockFindVellumGuardian = mock(
+  async (): Promise<{ principalId: string } | null> => ({
+    principalId: "test-user",
+  }),
+);
+mock.module("../auth/guardian-bootstrap.js", () => ({
+  findVellumGuardian: () => mockFindVellumGuardian(),
+}));
+
+// The managed/velay path cross-checks the attested caller against the stored
+// `platform_user_id`. Default the credential to `VELAY_USER_ID` so the velay
+// success cases match; negative cases override this mock.
+let mockReadCredential = mock(
+  async (_key: string): Promise<string | undefined> => VELAY_USER_ID,
+);
+mock.module("../credential-reader.js", () => ({
+  readCredential: (key: string) => mockReadCredential(key),
+}));
+
+const { createLiveVoiceWebsocketHandler, getLiveVoiceWebsocketHandlers } =
+  await import("../http/routes/live-voice-websocket.js");
 
 const TEST_SIGNING_KEY = Buffer.from("test-signing-key-at-least-32-bytes-long");
 initSigningKey(TEST_SIGNING_KEY);
@@ -128,10 +154,17 @@ function createFakeUpstreamWs() {
   };
 }
 
+// Reset both mocks to their success defaults — file-scoped so per-test
+// overrides never leak into later describes.
+beforeEach(() => {
+  mockFindVellumGuardian = mock(async () => ({ principalId: "test-user" }));
+  mockReadCredential = mock(async () => VELAY_USER_ID);
+});
+
 describe("createLiveVoiceWebsocketHandler", () => {
   const TEST_TOKEN = mintEdgeToken();
 
-  test("upgrades when token query parameter is a valid actor edge token", () => {
+  test("upgrades when token query parameter is a valid actor edge token", async () => {
     const config = makeConfig();
     const handler = createLiveVoiceWebsocketHandler(config);
     const req = new Request(
@@ -139,7 +172,7 @@ describe("createLiveVoiceWebsocketHandler", () => {
       { headers: { upgrade: "websocket" } },
     );
     const server = makeFakeServer();
-    const res = handler(req, server);
+    const res = await handler(req, server);
 
     expect(res).toBeUndefined();
     expect(server.upgrade).toHaveBeenCalledTimes(1);
@@ -153,7 +186,7 @@ describe("createLiveVoiceWebsocketHandler", () => {
     });
   });
 
-  test("upgrades when Authorization header is a valid actor edge token", () => {
+  test("upgrades when Authorization header is a valid actor edge token", async () => {
     const handler = createLiveVoiceWebsocketHandler(makeConfig());
     const req = new Request("http://localhost:7830/v1/live-voice", {
       headers: {
@@ -162,40 +195,40 @@ describe("createLiveVoiceWebsocketHandler", () => {
       },
     });
     const server = makeFakeServer();
-    const res = handler(req, server);
+    const res = await handler(req, server);
 
     expect(res).toBeUndefined();
     expect(server.upgrade).toHaveBeenCalledTimes(1);
   });
 
-  test("returns 401 when auth is required and no token is provided", () => {
+  test("returns 401 when auth is required and no token is provided", async () => {
     const handler = createLiveVoiceWebsocketHandler(makeConfig());
     const req = new Request("http://localhost:7830/v1/live-voice", {
       headers: { upgrade: "websocket" },
     });
     const server = makeFakeServer();
-    const res = handler(req, server);
+    const res = await handler(req, server);
 
     expect(res).toBeInstanceOf(Response);
     expect(res!.status).toBe(401);
     expect(server.upgrade).not.toHaveBeenCalled();
   });
 
-  test("returns 401 when token is invalid", () => {
+  test("returns 401 when token is invalid", async () => {
     const handler = createLiveVoiceWebsocketHandler(makeConfig());
     const req = new Request(
       "http://localhost:7830/v1/live-voice?token=bad-token",
       { headers: { upgrade: "websocket" } },
     );
     const server = makeFakeServer();
-    const res = handler(req, server);
+    const res = await handler(req, server);
 
     expect(res).toBeInstanceOf(Response);
     expect(res!.status).toBe(401);
     expect(server.upgrade).not.toHaveBeenCalled();
   });
 
-  test("returns 401 when token lacks an actor principal", () => {
+  test("returns 401 when token lacks an actor principal", async () => {
     const serviceToken = mintServiceEdgeToken();
     const handler = createLiveVoiceWebsocketHandler(makeConfig());
     const req = new Request(
@@ -203,56 +236,109 @@ describe("createLiveVoiceWebsocketHandler", () => {
       { headers: { upgrade: "websocket" } },
     );
     const server = makeFakeServer();
-    const res = handler(req, server);
+    const res = await handler(req, server);
 
     expect(res).toBeInstanceOf(Response);
     expect(res!.status).toBe(401);
     expect(server.upgrade).not.toHaveBeenCalled();
   });
 
-  test("allows unauthenticated upgrade when runtime proxy auth is disabled", () => {
+  test("allows unauthenticated upgrade when runtime proxy auth is disabled", async () => {
     const config = makeConfig({ runtimeProxyRequireAuth: false });
     const handler = createLiveVoiceWebsocketHandler(config);
     const req = new Request("http://localhost:7830/v1/live-voice", {
       headers: { upgrade: "websocket" },
     });
     const server = makeFakeServer();
-    const res = handler(req, server);
+    const res = await handler(req, server);
 
     expect(res).toBeUndefined();
     expect(server.upgrade).toHaveBeenCalledTimes(1);
   });
 
-  test("returns 426 when upgrade header is not websocket", () => {
+  test("returns 426 when upgrade header is not websocket", async () => {
     const handler = createLiveVoiceWebsocketHandler(makeConfig());
     const req = new Request(
       `http://localhost:7830/v1/live-voice?token=${TEST_TOKEN}`,
     );
     const server = makeFakeServer();
-    const res = handler(req, server);
+    const res = await handler(req, server);
 
     expect(res).toBeInstanceOf(Response);
     expect(res!.status).toBe(426);
     expect(server.upgrade).not.toHaveBeenCalled();
   });
 
-  test("returns 500 when Bun.serve upgrade fails", () => {
+  test("returns 500 when Bun.serve upgrade fails", async () => {
     const handler = createLiveVoiceWebsocketHandler(makeConfig());
     const req = new Request(
       `http://localhost:7830/v1/live-voice?token=${TEST_TOKEN}`,
       { headers: { upgrade: "websocket" } },
     );
     const server = makeFakeServer(false);
-    const res = handler(req, server);
+    const res = await handler(req, server);
 
     expect(res).toBeInstanceOf(Response);
     expect(res!.status).toBe(500);
+  });
+
+  // Guardian pinning: live voice is a guardian-only surface (the daemon stamps
+  // each voice turn with the guardian's trust context on that basis), so a
+  // valid actor token whose principal is not the bound guardian must not
+  // upgrade.
+  test("returns 403 when the actor token is valid but not the bound guardian", async () => {
+    mockFindVellumGuardian = mock(async () => ({
+      principalId: "someone-else",
+    }));
+    const handler = createLiveVoiceWebsocketHandler(makeConfig());
+    const req = new Request(
+      `http://localhost:7830/v1/live-voice?token=${TEST_TOKEN}`,
+      { headers: { upgrade: "websocket" } },
+    );
+    const server = makeFakeServer();
+    const res = await handler(req, server);
+
+    expect(res).toBeInstanceOf(Response);
+    expect(res!.status).toBe(403);
+    expect(server.upgrade).not.toHaveBeenCalled();
+  });
+
+  test("returns 403 when no guardian binding exists", async () => {
+    mockFindVellumGuardian = mock(async () => null);
+    const handler = createLiveVoiceWebsocketHandler(makeConfig());
+    const req = new Request(
+      `http://localhost:7830/v1/live-voice?token=${TEST_TOKEN}`,
+      { headers: { upgrade: "websocket" } },
+    );
+    const server = makeFakeServer();
+    const res = await handler(req, server);
+
+    expect(res).toBeInstanceOf(Response);
+    expect(res!.status).toBe(403);
+    expect(server.upgrade).not.toHaveBeenCalled();
+  });
+
+  test("returns 503 when the guardian binding lookup fails", async () => {
+    mockFindVellumGuardian = mock(async () => {
+      throw new Error("gateway db unavailable");
+    });
+    const handler = createLiveVoiceWebsocketHandler(makeConfig());
+    const req = new Request(
+      `http://localhost:7830/v1/live-voice?token=${TEST_TOKEN}`,
+      { headers: { upgrade: "websocket" } },
+    );
+    const server = makeFakeServer();
+    const res = await handler(req, server);
+
+    expect(res).toBeInstanceOf(Response);
+    expect(res!.status).toBe(503);
+    expect(server.upgrade).not.toHaveBeenCalled();
   });
 });
 
 describe("createLiveVoiceWebsocketHandler — velay-attested managed auth", () => {
   const TEST_TOKEN = mintEdgeToken();
-  const VELAY_USER_ID = "11111111-1111-1111-1111-111111111111";
+  // VELAY_USER_ID is declared at module scope (shared with the credential mock).
   const VELAY_ORG_ID = "22222222-2222-2222-2222-222222222222";
   const originalIsPlatform = process.env.IS_PLATFORM;
 
@@ -289,46 +375,91 @@ describe("createLiveVoiceWebsocketHandler — velay-attested managed auth", () =
     }
   });
 
-  test("managed mode + valid X-Velay-* headers with bridge proof authorizes the upgrade", () => {
+  test("managed mode + valid X-Velay-* headers with bridge proof authorizes the upgrade", async () => {
     setPlatform(true);
     const handler = createLiveVoiceWebsocketHandler(makeConfig());
     const server = makeFakeServer();
-    const res = handler(makeVelayReq(), server);
+    const res = await handler(makeVelayReq(), server);
 
     expect(res).toBeUndefined();
     expect(server.upgrade).toHaveBeenCalledTimes(1);
   });
 
-  test("managed mode + spoofed X-Velay-* headers without bridge proof is rejected", () => {
+  // Guardian pinning on the velay path: the attested caller must match the
+  // stored platform_user_id, or the daemon's guardian stamp would be unbacked.
+  test("managed mode + bridge proof but velay user is not the bound guardian is rejected", async () => {
+    setPlatform(true);
+    mockReadCredential = mock(
+      async () => "99999999-9999-9999-9999-999999999999",
+    );
+    const handler = createLiveVoiceWebsocketHandler(makeConfig());
+    const server = makeFakeServer();
+    const res = await handler(makeVelayReq(), server);
+
+    expect(res).toBeInstanceOf(Response);
+    expect(res!.status).toBe(403);
+    expect(server.upgrade).not.toHaveBeenCalled();
+  });
+
+  test("managed mode + bridge proof but no platform_user_id stored is rejected", async () => {
+    setPlatform(true);
+    mockReadCredential = mock(async () => undefined);
+    const handler = createLiveVoiceWebsocketHandler(makeConfig());
+    const server = makeFakeServer();
+    const res = await handler(makeVelayReq(), server);
+
+    expect(res).toBeInstanceOf(Response);
+    expect(res!.status).toBe(403);
+    expect(server.upgrade).not.toHaveBeenCalled();
+  });
+
+  test("managed mode + bridge proof but platform_user_id lookup fails returns 503", async () => {
+    setPlatform(true);
+    mockReadCredential = mock(async () => {
+      throw new Error("credential store unavailable");
+    });
+    const handler = createLiveVoiceWebsocketHandler(makeConfig());
+    const server = makeFakeServer();
+    const res = await handler(makeVelayReq(), server);
+
+    expect(res).toBeInstanceOf(Response);
+    expect(res!.status).toBe(503);
+    expect(server.upgrade).not.toHaveBeenCalled();
+  });
+
+  test("managed mode + spoofed X-Velay-* headers without bridge proof is rejected", async () => {
     setPlatform(true);
     const handler = createLiveVoiceWebsocketHandler(makeConfig());
     const server = makeFakeServer();
-    const res = handler(makeVelayReq(undefined, { bridgeAuth: false }), server);
+    const res = await handler(
+      makeVelayReq(undefined, { bridgeAuth: false }),
+      server,
+    );
 
     expect(res).toBeInstanceOf(Response);
     expect(res!.status).toBe(401);
     expect(server.upgrade).not.toHaveBeenCalled();
   });
 
-  test("managed mode without velay headers and without actor JWT is rejected", () => {
+  test("managed mode without velay headers and without actor JWT is rejected", async () => {
     setPlatform(true);
     const handler = createLiveVoiceWebsocketHandler(makeConfig());
     const req = new Request("http://localhost:7830/v1/live-voice", {
       headers: { upgrade: "websocket" },
     });
     const server = makeFakeServer();
-    const res = handler(req, server);
+    const res = await handler(req, server);
 
     expect(res).toBeInstanceOf(Response);
     expect(res!.status).toBe(401);
     expect(server.upgrade).not.toHaveBeenCalled();
   });
 
-  test("managed mode with X-Velay-Actor other than 'user' is rejected", () => {
+  test("managed mode with X-Velay-Actor other than 'user' is rejected", async () => {
     setPlatform(true);
     const handler = createLiveVoiceWebsocketHandler(makeConfig());
     const server = makeFakeServer();
-    const res = handler(
+    const res = await handler(
       makeVelayReq({
         "x-velay-user-id": VELAY_USER_ID,
         "x-velay-org-id": VELAY_ORG_ID,
@@ -342,11 +473,11 @@ describe("createLiveVoiceWebsocketHandler — velay-attested managed auth", () =
     expect(server.upgrade).not.toHaveBeenCalled();
   });
 
-  test("managed mode missing org id falls through and is rejected", () => {
+  test("managed mode missing org id falls through and is rejected", async () => {
     setPlatform(true);
     const handler = createLiveVoiceWebsocketHandler(makeConfig());
     const server = makeFakeServer();
-    const res = handler(
+    const res = await handler(
       makeVelayReq({
         "x-velay-user-id": VELAY_USER_ID,
         "x-velay-actor": "user",
@@ -359,18 +490,18 @@ describe("createLiveVoiceWebsocketHandler — velay-attested managed auth", () =
     expect(server.upgrade).not.toHaveBeenCalled();
   });
 
-  test("local mode does NOT trust X-Velay-* headers even with bridge proof", () => {
+  test("local mode does NOT trust X-Velay-* headers even with bridge proof", async () => {
     setPlatform(false);
     const handler = createLiveVoiceWebsocketHandler(makeConfig());
     const server = makeFakeServer();
-    const res = handler(makeVelayReq(), server);
+    const res = await handler(makeVelayReq(), server);
 
     expect(res).toBeInstanceOf(Response);
     expect(res!.status).toBe(401);
     expect(server.upgrade).not.toHaveBeenCalled();
   });
 
-  test("managed mode still accepts a valid actor edge JWT (no velay headers)", () => {
+  test("managed mode still accepts a valid actor edge JWT (no velay headers)", async () => {
     setPlatform(true);
     const handler = createLiveVoiceWebsocketHandler(makeConfig());
     const req = new Request(
@@ -378,7 +509,7 @@ describe("createLiveVoiceWebsocketHandler — velay-attested managed auth", () =
       { headers: { upgrade: "websocket" } },
     );
     const server = makeFakeServer();
-    const res = handler(req, server);
+    const res = await handler(req, server);
 
     expect(res).toBeUndefined();
     expect(server.upgrade).toHaveBeenCalledTimes(1);
@@ -407,7 +538,7 @@ describe("getLiveVoiceWebsocketHandlers", () => {
     globalThis.WebSocket = OriginalWebSocket;
   });
 
-  test("open targets the runtime live voice websocket with a service token", () => {
+  test("open targets the runtime live voice websocket with a service token", async () => {
     const ws = createFakeDownstreamWs({
       wsType: "live-voice",
       config: makeConfig({
@@ -426,7 +557,7 @@ describe("getLiveVoiceWebsocketHandlers", () => {
     expect(parsed.searchParams.get("token")).toMatch(/^ey/);
   });
 
-  test("buffers downstream text and binary messages before upstream opens", () => {
+  test("buffers downstream text and binary messages before upstream opens", async () => {
     const ws = createFakeDownstreamWs({
       wsType: "live-voice",
       config: makeConfig(),
@@ -441,7 +572,7 @@ describe("getLiveVoiceWebsocketHandlers", () => {
     expect(fakeUpstream.sent).toEqual([]);
   });
 
-  test("flushes buffered messages on upstream open", () => {
+  test("flushes buffered messages on upstream open", async () => {
     const ws = createFakeDownstreamWs({
       wsType: "live-voice",
       config: makeConfig(),
@@ -459,7 +590,7 @@ describe("getLiveVoiceWebsocketHandlers", () => {
     expect(ws.data.pendingMessages).toBeUndefined();
   });
 
-  test("forwards downstream binary audio frames without JSON conversion", () => {
+  test("forwards downstream binary audio frames without JSON conversion", async () => {
     const ws = createFakeDownstreamWs({
       wsType: "live-voice",
       config: makeConfig(),
@@ -475,7 +606,7 @@ describe("getLiveVoiceWebsocketHandlers", () => {
     expect(fakeUpstream.sent[0]).toBe(binaryFrame);
   });
 
-  test("forwards upstream text and binary frames to the downstream socket", () => {
+  test("forwards upstream text and binary frames to the downstream socket", async () => {
     const ws = createFakeDownstreamWs({
       wsType: "live-voice",
       config: makeConfig(),
@@ -490,7 +621,7 @@ describe("getLiveVoiceWebsocketHandlers", () => {
     expect(Array.from(ws.sent[1] as Uint8Array)).toEqual([5, 6]);
   });
 
-  test("closes downstream with 1008 on pending buffer overflow", () => {
+  test("closes downstream with 1008 on pending buffer overflow", async () => {
     const ws = createFakeDownstreamWs({
       wsType: "live-voice",
       config: makeConfig(),
@@ -505,7 +636,7 @@ describe("getLiveVoiceWebsocketHandlers", () => {
     expect(ws.closes).toEqual([{ code: 1008, reason: "Buffer overflow" }]);
   });
 
-  test("downstream close clears pending messages and closes connecting upstream", () => {
+  test("downstream close clears pending messages and closes connecting upstream", async () => {
     const ws = createFakeDownstreamWs({
       wsType: "live-voice",
       config: makeConfig(),
@@ -521,7 +652,7 @@ describe("getLiveVoiceWebsocketHandlers", () => {
     ]);
   });
 
-  test("upstream close and error events close the downstream socket", () => {
+  test("upstream close and error events close the downstream socket", async () => {
     const ws = createFakeDownstreamWs({
       wsType: "live-voice",
       config: makeConfig(),
@@ -539,7 +670,7 @@ describe("getLiveVoiceWebsocketHandlers", () => {
 });
 
 describe("live voice gateway boundary", () => {
-  test("handler does not import assistant package files", () => {
+  test("handler does not import assistant package files", async () => {
     const source = readFileSync(
       new URL("../http/routes/live-voice-websocket.ts", import.meta.url),
       "utf8",
@@ -549,7 +680,7 @@ describe("live voice gateway boundary", () => {
     expect(source).not.toContain('from "assistant/');
   });
 
-  test("gateway index routes live voice websocket upgrades before the runtime proxy", () => {
+  test("gateway index routes live voice websocket upgrades before the runtime proxy", async () => {
     const source = readFileSync(
       new URL("../index.ts", import.meta.url),
       "utf8",
@@ -578,7 +709,7 @@ describe("live voice gateway boundary", () => {
     expect(source).toContain("handleSttStreamWs(req, server)");
   });
 
-  test("gateway websocket lifecycle dispatches live voice socket data", () => {
+  test("gateway websocket lifecycle dispatches live voice socket data", async () => {
     const source = readFileSync(
       new URL("../index.ts", import.meta.url),
       "utf8",
@@ -650,7 +781,7 @@ describe("createLiveVoiceWebsocketHandler — revocation", () => {
 
     const handler = createLiveVoiceWebsocketHandler(makeConfig());
     const server = makeFakeServer();
-    const res = handler(
+    const res = await handler(
       new Request(`http://127.0.0.1:7830/v1/live-voice?token=${jwt}`, {
         headers: { upgrade: "websocket" },
       }),

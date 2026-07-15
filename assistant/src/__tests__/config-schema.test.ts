@@ -452,7 +452,7 @@ describe("AssistantConfigSchema", () => {
     }
   });
 
-  test("accepts memory.cleanup.llmRequestLogRetentionMs: 0 (prune immediately)", () => {
+  test("accepts memory.cleanup.llmRequestLogRetentionMs: 0 (disables pruning)", () => {
     const result = AssistantConfigSchema.safeParse({
       memory: { cleanup: { llmRequestLogRetentionMs: 0 } },
     });
@@ -896,11 +896,12 @@ describe("AssistantConfigSchema", () => {
       mode: "open-mic",
       vad: {
         speechEnergyThreshold: 800,
-        silenceThresholdMs: 800,
+        silenceThresholdMs: 1200,
         maxTurnDurationMs: 30000,
-        bargeInMinSpeechMs: 60,
+        bargeInMinSpeechMs: 250,
       },
       maxSessionDurationSeconds: 1800,
+      archiveAudio: false,
     });
   });
 

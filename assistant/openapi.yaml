@@ -606,6 +606,8 @@ paths:
                           type: string
                         contentId:
                           type: string
+                        origin:
+                          type: string
                       required:
                         - id
                         - name
@@ -613,6 +615,7 @@ paths:
                         - updatedAt
                         - version
                         - contentId
+                        - origin
                       additionalProperties: false
                 required:
                   - apps
@@ -831,11 +834,14 @@ paths:
                     type: string
                   html:
                     type: string
+                  origin:
+                    type: string
                 required:
                   - appId
                   - dirName
                   - name
                   - html
+                  - origin
                 additionalProperties: false
   /v1/apps/{id}/preview:
     get:
@@ -5822,6 +5828,7 @@ paths:
                   ok:
                     type: boolean
                   contact:
+                    description: Merged (surviving) contact
                     type: object
                     properties:
                       id:
@@ -5926,10 +5933,8 @@ paths:
                       - updatedAt
                       - channels
                     additionalProperties: false
-                    description: Merged contact
                 required:
                   - ok
-                  - contact
                 additionalProperties: false
   /v1/contacts/prompt:
     post:
@@ -9541,7 +9546,9 @@ paths:
     post:
       operationId: credentials_reveal_post
       summary: Reveal a credential's plaintext value
-      description: Return the raw plaintext value of a stored credential. Blocked in untrusted shell mode.
+      description:
+        Return the raw plaintext value of a stored credential. Blocked in untrusted shell mode. With forChat,
+        returns a chat-safe redaction sentinel instead of the plaintext.
       tags:
         - credentials
       requestBody:
@@ -9560,6 +9567,17 @@ paths:
                 id:
                   description: Credential UUID for lookup by ID
                   type: string
+                forChat:
+                  description:
+                    Return the credential's redaction sentinel (renders as a click-to-reveal chip in chat) instead of the
+                    plaintext. Requires the chat-credential-reveal feature flag.
+                  type: boolean
+                revealNonce:
+                  description:
+                    Conversation-bound reveal nonce from the tool-shell environment. Scopes any recorded chat-redaction
+                    authority (plaintext proof or forChat mint) to the conversation whose tool executed this reveal;
+                    without it the reveal succeeds but records no authority.
+                  type: string
       responses:
         "200":
           description: Successful response
@@ -9570,7 +9588,7 @@ paths:
                 properties:
                   value:
                     type: string
-                    description: The plaintext credential value
+                    description: The plaintext credential value (or its redaction sentinel when forChat is set)
                 required:
                   - value
                 additionalProperties: false
@@ -11171,6 +11189,23 @@ paths:
                   type: array
                   items:
                     type: string
+                attachments:
+                  description: File attachments
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      filename:
+                        type: string
+                      content_type:
+                        type: string
+                      content:
+                        type: string
+                        description: Base64-encoded file content
+                    required:
+                      - filename
+                      - content_type
+                      - content
                 reply_to:
                   description: Reply-to email ID
                   type: string
@@ -11554,6 +11589,27 @@ paths:
                 required:
                   - lines
                   - truncated
+                additionalProperties: false
+  /v1/gateway/status:
+    get:
+      operationId: gateway_status_get
+      summary: Get gateway status
+      description:
+        Reports the gateway's public tunnel status. `tunnel` holds the active public URL when a tunnel is connected
+        and is omitted otherwise. Errors with 503 when the gateway is not running. The tunnel only matters for routing
+        inbound Twilio webhooks and live voice/audio WebSockets.
+      tags:
+        - gateway
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tunnel:
+                    type: string
                 additionalProperties: false
   /v1/groups:
     get:
@@ -21926,7 +21982,9 @@ paths:
     get:
       operationId: platform_status_get
       summary: Get platform deployment context and connection status
-      description: Aggregates platform context, credentials, assistant ID, webhook secret, and Velay tunnel status.
+      description:
+        Aggregates platform context, credentials, assistant ID, and webhook secret. Velay tunnel status is reported
+        separately by gateway_status.
       tags:
         - platform
       responses:
@@ -21961,21 +22019,6 @@ paths:
                     anyOf:
                       - type: string
                       - type: "null"
-                  velayTunnel:
-                    anyOf:
-                      - type: object
-                        properties:
-                          connected:
-                            type: boolean
-                          publicUrl:
-                            anyOf:
-                              - type: string
-                              - type: "null"
-                        required:
-                          - connected
-                          - publicUrl
-                        additionalProperties: false
-                      - type: "null"
                 required:
                   - isPlatform
                   - baseUrl
@@ -21986,7 +22029,6 @@ paths:
                   - available
                   - organizationId
                   - userId
-                  - velayTunnel
                 additionalProperties: false
   /v1/playground/seed-conversation:
     post:
@@ -23110,7 +23152,10 @@ paths:
           required: false
           schema:
             type: string
-          description: Optional git ref to list the catalog at. Defaults to the CLI's `DEFAULT_PLUGIN_REF` (typically `main`).
+          description:
+            Accepted for backward compatibility. The catalog is resolved from the Vellum platform (or the bundled
+            manifest when platform features are disabled); this ref does not select a git revision — it is echoed back
+            and used as the cache key. Defaults to the CLI's `DEFAULT_PLUGIN_REF` (typically `main`).
       responses:
         "200":
           description: Successful response
@@ -23138,6 +23183,11 @@ paths:
                           description: "Human-readable origin: a `github:owner/repo@ref` locator for the external plugin."
                         description:
                           description: Short description, when known (external entries only today).
+                          type: string
+                        icon:
+                          description:
+                            "Plugin icon: a curated emoji from the marketplace entry, or an icon URL served by the platform catalog
+                            when the plugin ships a bundled image."
                           type: string
                         category:
                           anyOf:
@@ -29046,6 +29096,105 @@ paths:
                         type: boolean
                         const: true
                         description: Event skipped due to usage data collection being disabled
+                    required:
+                      - skipped
+                    additionalProperties: false
+  /v1/telemetry/onboarding-research:
+    post:
+      operationId: telemetry_onboardingresearch_post
+      summary: Record onboarding-research event
+      description:
+        'Record the settled result of an onboarding "research me" web-search turn (claims, suggestions, and
+        plugin picks). Client-orchestrated: the web client reports this once it has observed the turn complete. Gated on
+        share_diagnostics consent (in addition to share_analytics) since the payload carries the model''s raw inferred
+        claims about the user.'
+      tags:
+        - telemetry
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                conversation_id:
+                  anyOf:
+                    - type: string
+                    - type: "null"
+                status:
+                  type: string
+                  enum:
+                    - done
+                    - error
+                claims:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      claim:
+                        type: string
+                      confidence:
+                        type: string
+                        enum:
+                          - confident
+                          - maybe
+                          - guessing
+                      sources:
+                        type: array
+                        items:
+                          type: string
+                    required:
+                      - claim
+                      - confidence
+                      - sources
+                suggestions:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      suggestion:
+                        type: string
+                      prompt:
+                        type: string
+                    required:
+                      - suggestion
+                      - prompt
+                plugins:
+                  type: array
+                  items:
+                    type: string
+                installed_plugins:
+                  type: array
+                  items:
+                    type: string
+              required:
+                - conversation_id
+                - status
+                - claims
+                - suggestions
+                - plugins
+                - installed_plugins
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      id:
+                        type: string
+                        description: Event ID
+                    required:
+                      - id
+                    additionalProperties: false
+                  - type: object
+                    properties:
+                      skipped:
+                        type: boolean
+                        const: true
+                        description: "Event skipped: usage data collection or diagnostics consent is disabled/ineligible"
                     required:
                       - skipped
                     additionalProperties: false

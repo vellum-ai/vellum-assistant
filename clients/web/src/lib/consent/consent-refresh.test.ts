@@ -34,7 +34,6 @@ const FLOOR_CLEAR_MS = 5 * 60_000;
 
 type Resolved = {
   shareDiagnostics: boolean | null;
-  diagnosticsVersionCurrent: boolean;
   hasServerRecord: boolean;
 };
 const applyResolvedDiagnosticsConsent = mock(
@@ -117,7 +116,6 @@ describe("refreshDiagnosticsConsent", () => {
     const resolved = applyResolvedDiagnosticsConsent.mock.calls[0]![0];
     expect(resolved).toMatchObject({
       shareDiagnostics: false,
-      diagnosticsVersionCurrent: true,
       hasServerRecord: true,
     });
   });

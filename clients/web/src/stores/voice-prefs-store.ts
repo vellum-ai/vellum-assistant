@@ -28,6 +28,56 @@ import { createSelectors } from "@/utils/create-selectors";
 // State + Actions
 // ---------------------------------------------------------------------------
 
+/**
+ * "Interrupt sensitivity" — how easily the user's speech cuts off the
+ * assistant mid-reply. Higher sensitivity interrupts sooner (less sustained
+ * speech required); lower is more forgiving of coughs, filler words, and the
+ * assistant's own TTS bleeding through imperfect echo cancellation. Maps to the
+ * daemon's `bargeInMinSpeechMs` — note the mapping is *inverse* (more sensitive
+ * ⇒ fewer ms). See {@link INTERRUPT_SENSITIVITY_TO_MS}.
+ */
+export type InterruptSensitivity = "low" | "medium" | "high";
+
+/** Default "pause before reply" (ms) — mirrors the daemon `liveVoice.vad.silenceThresholdMs` default. */
+export const DEFAULT_PAUSE_BEFORE_REPLY_MS = 1200;
+/** Bounds for the "pause before reply" slider (ms); stays inside the daemon's accepted range. */
+export const MIN_PAUSE_BEFORE_REPLY_MS = 500;
+export const MAX_PAUSE_BEFORE_REPLY_MS = 3000;
+
+/** Default interrupt sensitivity — the ms value mirrors the daemon `bargeInMinSpeechMs` default (250). */
+export const DEFAULT_INTERRUPT_SENSITIVITY: InterruptSensitivity = "medium";
+
+/**
+ * Interrupt-sensitivity level → sustained-speech ms sent as `bargeInMinSpeechMs`.
+ * Inverse: a *higher* sensitivity needs *less* speech to barge in.
+ */
+export const INTERRUPT_SENSITIVITY_TO_MS: Record<InterruptSensitivity, number> =
+  {
+    high: 100,
+    medium: 250,
+    low: 600,
+  };
+
+/** Resolve an interrupt-sensitivity level to the `bargeInMinSpeechMs` it sends. */
+export function interruptSensitivityToMs(level: InterruptSensitivity): number {
+  return INTERRUPT_SENSITIVITY_TO_MS[level];
+}
+
+/**
+ * Clamp a "pause before reply" value to the supported range and round to a
+ * whole millisecond, so neither the slider nor a stale persisted value can send
+ * an out-of-range `silenceThresholdMs` the daemon would reject.
+ */
+export function clampPauseBeforeReplyMs(ms: number): number {
+  if (!Number.isFinite(ms)) return DEFAULT_PAUSE_BEFORE_REPLY_MS;
+  return Math.round(
+    Math.min(
+      MAX_PAUSE_BEFORE_REPLY_MS,
+      Math.max(MIN_PAUSE_BEFORE_REPLY_MS, ms),
+    ),
+  );
+}
+
 export interface VoicePrefsState {
   /** Whether the user-side transcript is shown in the voice UI. */
   showUserTranscript: boolean;
@@ -35,6 +85,25 @@ export interface VoicePrefsState {
   showAssistantTranscript: boolean;
   /** True once the user has seen the first-run voice experience. */
   firstRunSeen: boolean;
+  /**
+   * Trailing-silence duration (ms) after the user stops speaking before the
+   * assistant replies — the "pause before reply" setting. Sent as the session's
+   * `silenceThresholdMs`. A longer pause tolerates mid-thought pauses without
+   * the assistant jumping in.
+   *
+   * `null` means the user hasn't set a preference — the session omits the
+   * override so the daemon's configured `liveVoice.vad.silenceThresholdMs`
+   * governs (never silently clobbering a self-hosted workspace's config). The
+   * UI still shows {@link DEFAULT_PAUSE_BEFORE_REPLY_MS} as the resting value.
+   */
+  pauseBeforeReplyMs: number | null;
+  /**
+   * How easily the user can interrupt the assistant mid-reply. `null` means no
+   * preference set — the daemon's configured `bargeInMinSpeechMs` governs (see
+   * {@link pauseBeforeReplyMs}); the UI shows
+   * {@link DEFAULT_INTERRUPT_SENSITIVITY} as the resting value.
+   */
+  interruptSensitivity: InterruptSensitivity | null;
 }
 
 export interface VoicePrefsActions {
@@ -42,6 +111,8 @@ export interface VoicePrefsActions {
   setShowAssistantTranscript: (next: boolean) => void;
   /** Flip `firstRunSeen` to true on first observation. No-op afterwards. */
   markFirstRunSeen: () => void;
+  setPauseBeforeReplyMs: (next: number) => void;
+  setInterruptSensitivity: (next: InterruptSensitivity) => void;
 }
 
 export type VoicePrefsStore = VoicePrefsState & VoicePrefsActions;
@@ -54,6 +125,10 @@ const INITIAL_STATE: VoicePrefsState = {
   showUserTranscript: false,
   showAssistantTranscript: false,
   firstRunSeen: false,
+  // Unset until the user picks a value — see the field docs. Omitting the
+  // override lets the daemon's configured VAD defaults stand.
+  pauseBeforeReplyMs: null,
+  interruptSensitivity: null,
 };
 
 // ---------------------------------------------------------------------------
@@ -76,6 +151,12 @@ const useVoicePrefsStoreBase = create<VoicePrefsStore>()(
           set({ firstRunSeen: true });
         }
       },
+      setPauseBeforeReplyMs: (next: number) =>
+        set({
+          pauseBeforeReplyMs: clampPauseBeforeReplyMs(next),
+        }),
+      setInterruptSensitivity: (next: InterruptSensitivity) =>
+        set({ interruptSensitivity: next }),
     }),
     {
       name: VOICE_PREFS_STORE_KEY,
@@ -84,6 +165,8 @@ const useVoicePrefsStoreBase = create<VoicePrefsStore>()(
         showUserTranscript: state.showUserTranscript,
         showAssistantTranscript: state.showAssistantTranscript,
         firstRunSeen: state.firstRunSeen,
+        pauseBeforeReplyMs: state.pauseBeforeReplyMs,
+        interruptSensitivity: state.interruptSensitivity,
       }),
     },
   ),

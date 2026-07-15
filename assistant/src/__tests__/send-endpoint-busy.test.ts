@@ -10,10 +10,6 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../config/env.js", () => ({ isHttpAuthDisabled: () => true }));
 
-import {
-  createCanonicalGuardianRequest,
-  getCanonicalGuardianRequest,
-} from "../contacts/canonical-guardian-store.js";
 import type { Conversation } from "../daemon/conversation.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import {
@@ -39,15 +35,18 @@ let _approvalGenerator: unknown;
 
 mock.module("../daemon/conversation-registry.js", () => ({
   findConversation: () => {
-    if (!_conversationFactory) return undefined;
+    if (!_conversationFactory) {
+      return undefined;
+    }
     return _conversationFactory();
   },
 }));
 
 mock.module("../daemon/conversation-store.js", () => ({
   getOrCreateConversation: async (..._args: unknown[]) => {
-    if (!_conversationFactory)
+    if (!_conversationFactory) {
       throw new Error("_conversationFactory not set in test");
+    }
     return _conversationFactory();
   },
 }));
@@ -85,6 +84,18 @@ mock.module("../ipc/gateway-client.js", () => ({
     throw new Error(`Unexpected ipcCall in test: ${method}`);
   },
 }));
+
+// Guardian decisions read and CAS through the gateway client; serve that
+// surface from the in-memory sim the tests seed.
+import {
+  bridgeState,
+  gatewayGuardianRequestsStoreBridge,
+} from "./helpers/gateway-guardian-requests-store-bridge.js";
+
+mock.module(
+  "../channels/gateway-guardian-requests.js",
+  () => gatewayGuardianRequestsStoreBridge,
+);
 
 import { __resetGuardianDeliveryCacheForTest } from "../contacts/guardian-delivery-reader.js";
 import { getDb } from "../persistence/db-connection.js";
@@ -293,8 +304,7 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
     db.run("DELETE FROM messages");
     db.run("DELETE FROM conversations");
     db.run("DELETE FROM conversation_keys");
-    db.run("DELETE FROM canonical_guardian_deliveries");
-    db.run("DELETE FROM canonical_guardian_requests");
+    bridgeState.reset();
     db.run("DELETE FROM contact_channels");
     db.run("DELETE FROM contacts");
     pendingInteractions.clear();
@@ -418,12 +428,12 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
       conversationId,
       kind: "confirmation",
     });
-    createCanonicalGuardianRequest({
+    bridgeState.seedRequest({
       id: requestId,
       kind: "tool_approval",
       sourceType: "desktop",
       sourceChannel: "vellum",
-      conversationId,
+      sourceConversationId: conversationId,
       toolName: "call_start",
       guardianPrincipalId: "test-principal-id",
       status: "pending",
@@ -477,12 +487,12 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
       conversationId,
       kind: "confirmation",
     });
-    createCanonicalGuardianRequest({
+    bridgeState.seedRequest({
       id: requestId,
       kind: "tool_approval",
       sourceType: "voice",
       sourceChannel: "slack",
-      conversationId,
+      sourceConversationId: conversationId,
       toolName: "call_start",
       status: "pending",
       guardianPrincipalId: "test-principal-id",
@@ -544,12 +554,12 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
       conversationId,
       kind: "confirmation",
     });
-    createCanonicalGuardianRequest({
+    bridgeState.seedRequest({
       id: requestId,
       kind: "tool_approval",
       sourceType: "desktop",
       sourceChannel: "vellum",
-      conversationId,
+      sourceConversationId: conversationId,
       toolName: "call_start",
       status: "pending",
       guardianPrincipalId: "test-principal-id",
@@ -603,12 +613,12 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
       conversationId,
       kind: "confirmation",
     });
-    createCanonicalGuardianRequest({
+    bridgeState.seedRequest({
       id: requestId,
       kind: "tool_approval",
       sourceType: "desktop",
       sourceChannel: "vellum",
-      conversationId,
+      sourceConversationId: conversationId,
       toolName: "call_start",
       status: "pending",
       guardianPrincipalId: "test-principal-id",
@@ -662,12 +672,12 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
       conversationId,
       kind: "confirmation",
     });
-    createCanonicalGuardianRequest({
+    bridgeState.seedRequest({
       id: requestId,
       kind: "tool_approval",
       sourceType: "desktop",
       sourceChannel: "vellum",
-      conversationId,
+      sourceConversationId: conversationId,
       toolName: "call_start",
       status: "pending",
       guardianPrincipalId: "test-principal-id",
@@ -719,12 +729,12 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
       conversationId,
       kind: "confirmation",
     });
-    createCanonicalGuardianRequest({
+    bridgeState.seedRequest({
       id: requestId,
       kind: "tool_approval",
       sourceType: "desktop",
       sourceChannel: "vellum",
-      conversationId,
+      sourceConversationId: conversationId,
       toolName: "call_start",
       status: "pending",
       guardianPrincipalId: "test-principal-id",
@@ -947,12 +957,12 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
     await stopServer();
   });
 
-  test("auto-deny resolves canonical guardian request so stale records do not cause pending_interaction_not_found", async () => {
-    const conversationKey = "conv-auto-deny-canonical";
+  test("auto-deny resolves the guardian request so stale records do not cause pending_interaction_not_found", async () => {
+    const conversationKey = "conv-auto-deny-guardian";
     const { conversationId } = getOrCreateConversation(conversationKey);
-    const requestId = "req-auto-deny-canonical";
+    const requestId = "req-auto-deny-guardian";
 
-    // Step 1: Create a pending approval conversation with a canonical request.
+    // Step 1: Create a pending approval conversation with a guardian request.
     const { conversation, denyAllPendingConfirmationsMock } =
       makePendingApprovalConversation(requestId, false);
 
@@ -960,12 +970,12 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
       conversationId,
       kind: "confirmation",
     });
-    createCanonicalGuardianRequest({
+    bridgeState.seedRequest({
       id: requestId,
       kind: "tool_approval",
       sourceType: "desktop",
       sourceChannel: "vellum",
-      conversationId,
+      sourceConversationId: conversationId,
       toolName: "bash",
       guardianPrincipalId: "test-principal-id",
       status: "pending",
@@ -977,7 +987,7 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
 
     // Step 2: Send a non-approval message to trigger auto-deny of the
     // pending confirmation. "do something else" is not an approval phrase,
-    // so tryConsumeCanonicalGuardianReply won't consume it, and the
+    // so tryConsumeGuardianReply won't consume it, and the
     // auto-deny path will fire.
     const res = await fetch(messagesUrl(), {
       method: "POST",
@@ -992,12 +1002,12 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
     expect(res.status).toBe(202);
     expect(denyAllPendingConfirmationsMock).toHaveBeenCalledTimes(1);
 
-    // Step 3: Verify the canonical guardian request was resolved to "denied".
+    // Step 3: Verify the guardian request was resolved to "denied".
     // Without the fix, this would remain "pending", causing
     // pending_interaction_not_found errors on subsequent "yes" messages.
-    const canonicalRequest = getCanonicalGuardianRequest(requestId);
-    expect(canonicalRequest).toBeDefined();
-    expect(canonicalRequest!.status).toBe("denied");
+    const guardianRequest = bridgeState.getRequest(requestId);
+    expect(guardianRequest).toBeDefined();
+    expect(guardianRequest!.status).toBe("denied");
 
     await stopServer();
   });

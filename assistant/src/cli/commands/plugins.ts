@@ -53,6 +53,16 @@ const loadModule = createRequire(import.meta.url);
 
 /** Lazy accessors: each getter loads its implementation module on first use. */
 const libs = {
+  get catalogCache() {
+    return loadModule(
+      "../lib/plugin-catalog-cache.js",
+    ) as typeof import("../lib/plugin-catalog-cache.js");
+  },
+  get catalogLocal() {
+    return loadModule(
+      "../lib/plugin-catalog-local.js",
+    ) as typeof import("../lib/plugin-catalog-local.js");
+  },
   get diff() {
     return loadModule(
       "../lib/diff-plugin.js",
@@ -149,10 +159,39 @@ export function registerPluginsCommand(program: Command): void {
             let result;
             let untrusted = false;
             if (!direct && !usesMarketplaceGit) {
-              result = await libs.installPlatform.installPluginViaPlatform(
-                { name: nameOrUrl, force: opts.force },
-                { fetch: globalThis.fetch.bind(globalThis) },
-              );
+              // Platform-managed install serves a verified tarball from the
+              // pinned commit. With platform features disabled (air-gapped /
+              // self-hosted) there is no platform to call, so resolve the pin
+              // from the bundled catalog and install through the GitHub path.
+              if (libs.catalogLocal.arePlatformFeaturesEnabled()) {
+                result = await libs.installPlatform.installPluginViaPlatform(
+                  { name: nameOrUrl, force: opts.force },
+                  { fetch: globalThis.fetch.bind(globalThis) },
+                );
+              } else {
+                const source =
+                  libs.catalogLocal.resolveBundledPluginSource(nameOrUrl);
+                if (!source) {
+                  console.error(
+                    `Plugin "${nameOrUrl}" is not in the bundled marketplace catalog.`,
+                  );
+                  process.exitCode = 1;
+                  return;
+                }
+                result = await libs.installGitHub.installPlugin(
+                  {
+                    name: nameOrUrl,
+                    force: opts.force,
+                    trustedSource: {
+                      owner: source.owner,
+                      repo: source.repo,
+                      rootPath: source.path,
+                      ref: source.ref,
+                    },
+                  },
+                  { fetch: globalThis.fetch.bind(globalThis) },
+                );
+              }
             } else {
               const installOpts = direct
                 ? resolveDirectInstallOptions(nameOrUrl, opts)
@@ -435,10 +474,13 @@ export function registerPluginsCommand(program: Command): void {
       subcommand(plugins, "search").action(
         async (query: string, opts: { json?: boolean }) => {
           try {
-            const result = await libs.search.searchPlugins(
-              { query },
+            libs.search.assertValidSearchPattern(query);
+            const catalog = await libs.catalogCache.getPluginCatalog(
+              DEFAULT_PLUGIN_REF,
               { fetch: globalThis.fetch.bind(globalThis) },
             );
+            const matches = libs.search.filterPluginCatalog(catalog, query);
+            const result = { query, ref: catalog.ref, matches };
 
             if (opts.json) {
               process.stdout.write(JSON.stringify(result, null, 2) + "\n");
@@ -477,6 +519,13 @@ export function registerPluginsCommand(program: Command): void {
           } catch (err) {
             if (err instanceof libs.search.InvalidSearchPatternError) {
               console.error(err.message);
+              process.exitCode = 1;
+              return;
+            }
+            if (err instanceof libs.search.PluginCatalogUnavailableError) {
+              console.error(
+                "The plugin catalog is temporarily unavailable. Try again shortly.",
+              );
               process.exitCode = 1;
               return;
             }

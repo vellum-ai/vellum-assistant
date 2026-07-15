@@ -16,7 +16,7 @@ const r = <const T extends string>(path: T): T => path;
 
 const dyn = (parent: string, id: string): string => `${parent}/${id}`;
 const LOCAL_ADMIN_ORIGIN = "http://localhost:3000";
-const LOGS_USAGE_PATH = r("/assistant/logs/usage");
+const SETTINGS_BILLING_PATH = r("/assistant/settings/billing");
 
 /**
  * Search param the chat transcript reads on load to scroll to and highlight a
@@ -85,15 +85,6 @@ export const routes = {
     `${dyn(r("/assistant/conversations"), conversationId)}/inspect`,
   logs: {
     root: r("/assistant/logs"),
-    usage: LOGS_USAGE_PATH,
-    usageForSchedule: (scheduleId: string) => {
-      const params = new URLSearchParams({
-        range: "7d",
-        groupBy: "schedule",
-        scheduleId,
-      });
-      return `${LOGS_USAGE_PATH}?${params.toString()}`;
-    },
     emails: r("/assistant/logs/emails"),
     systemEvents: r("/assistant/logs/system-events"),
   },
@@ -145,6 +136,7 @@ export const routes = {
    * sections so it inherits the shared drill-down chrome.
    */
   personality: r("/assistant/personality"),
+  memory: r("/assistant/memory"),
   plugins: r("/assistant/plugins"),
   /**
    * Skills surface — the list plus a dedicated per-skill detail page.
@@ -184,15 +176,20 @@ export const routes = {
     integrations: r("/assistant/settings/integrations"),
     credentials: r("/assistant/settings/credentials"),
     notifications: r("/assistant/settings/notifications"),
-    keyboardShortcuts: r("/assistant/settings/keyboard-shortcuts"),
-    sounds: r("/assistant/settings/sounds"),
     voice: r("/assistant/settings/voice"),
-    devices: r("/assistant/settings/devices"),
     privacy: r("/assistant/settings/privacy"),
-    security: r("/assistant/settings/security"),
-    archive: r("/assistant/settings/archive"),
     bookmarks: r("/assistant/settings/bookmarks"),
-    billing: r("/assistant/settings/billing"),
+    billing: SETTINGS_BILLING_PATH,
+    billingUsage: `${SETTINGS_BILLING_PATH}?tab=usage`,
+    usageForSchedule: (scheduleId: string) => {
+      const params = new URLSearchParams({
+        tab: "usage",
+        range: "7d",
+        groupBy: "schedule",
+        scheduleId,
+      });
+      return `${SETTINGS_BILLING_PATH}?${params.toString()}`;
+    },
     community: r("/assistant/settings/community"),
     debug: r("/assistant/settings/debug"),
     developer: r("/assistant/settings/developer"),
@@ -228,6 +225,7 @@ export const routes = {
 const ABOUT_ASSISTANT_PATHS: readonly string[] = [
   routes.identity,
   routes.personality,
+  routes.memory,
   routes.plugins,
   routes.skills.root,
   routes.workspace,

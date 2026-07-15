@@ -1,10 +1,12 @@
 /**
  * Introduction-card decision tests (LUM-2670).
  *
- * Exercises the four access-request outcomes through the canonical decision
+ * Exercises the four access-request outcomes through the guardian decision
  * primitive: trust (direct, binding-strength-aware), verify_code (handshake),
  * leave_unverified, and block — plus the bot coercion (JARVIS-774) and the
- * kind scoping of introduction actions.
+ * kind scoping of introduction actions. Each outcome commits as the
+ * `aclOutcome` of one atomic `guardian_requests_decide` call; a failed decide
+ * leaves the request pending and retryable (nothing to reopen).
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
@@ -42,49 +44,6 @@ mock.module("../runtime/gateway-client.js", () => ({
   },
 }));
 
-// Member-write relay: record calls instead of hitting gateway IPC.
-const activateCalls: Array<Record<string, unknown>> = [];
-const seedCalls: Array<Record<string, unknown>> = [];
-const blockCalls: Array<Record<string, unknown>> = [];
-let activateOutcome: { status: "activated" | "refused" } = {
-  status: "activated",
-};
-let blockOutcome = { revoked: true };
-mock.module("../contacts/member-write-relay.js", () => ({
-  activateMemberChannel: async (params: Record<string, unknown>) => {
-    activateCalls.push(params);
-    return activateOutcome.status === "activated"
-      ? { status: "activated", memberId: "member-1", member: null }
-      : { status: "refused" };
-  },
-  seedUnverifiedMemberChannel: async (params: Record<string, unknown>) => {
-    seedCalls.push(params);
-  },
-  blockSenderChannel: async (params: Record<string, unknown>) => {
-    blockCalls.push(params);
-    return blockOutcome;
-  },
-}));
-
-// Verification sessions: record mints instead of writing session state. The
-// resolver mints via the gateway session client.
-const sessionMints: Array<Record<string, unknown>> = [];
-mock.module("../runtime/channel-verification-service.js", () => ({
-  CHALLENGE_TTL_MS: 10 * 60 * 1000,
-}));
-mock.module("../channels/gateway-verification-sessions.js", () => ({
-  createOutboundSession: async (params: Record<string, unknown>) => {
-    sessionMints.push(params);
-    return {
-      sessionId: "session-1",
-      secret: "123456",
-      challengeHash: "hash",
-      expiresAt: Date.now() + 600_000,
-      ttlSeconds: 600,
-    };
-  },
-}));
-
 // Card withdrawal is a cosmetic projection — record calls, skip the real
 // surface round-trips.
 const withdrawCalls: Array<Record<string, unknown>> = [];
@@ -94,33 +53,27 @@ mock.module("../approvals/guardian-card-withdrawal.js", () => ({
   },
 }));
 
-import { applyCanonicalGuardianDecision } from "../approvals/guardian-decision-primitive.js";
+import { createGuardianGatewaySim } from "./guardian-gateway-sim.js";
+
+const sim = createGuardianGatewaySim();
+mock.module("../channels/gateway-guardian-requests.js", () => sim.module);
+
+import { applyGuardianDecision } from "../approvals/guardian-decision-primitive.js";
 import type { ActorContext } from "../approvals/guardian-request-resolvers.js";
-import {
-  createCanonicalGuardianRequest,
-  getCanonicalGuardianRequest,
-} from "../contacts/canonical-guardian-store.js";
-import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { serializeRequesterSignals } from "../runtime/introduction-policy.js";
 
+// The resolver enriches decisions with contact display names from the local
+// contacts DB; the guardian requests themselves live in the gateway sim.
 await initializeDb();
 
 const TEST_PRINCIPAL_ID = "guardian-principal";
 
 function resetState(): void {
-  const db = getDb();
-  db.run("DELETE FROM canonical_guardian_deliveries");
-  db.run("DELETE FROM canonical_guardian_requests");
+  sim.reset();
   emitSignalCalls.length = 0;
   deliverReplyCalls.length = 0;
-  activateCalls.length = 0;
-  seedCalls.length = 0;
-  blockCalls.length = 0;
-  sessionMints.length = 0;
   withdrawCalls.length = 0;
-  activateOutcome = { status: "activated" };
-  blockOutcome = { revoked: true };
 }
 
 function desktopGuardian(): ActorContext {
@@ -136,11 +89,10 @@ function makeAccessRequest(params: {
   sourceChannel?: string;
   signals?: { isBot?: boolean; isStranger?: boolean; isRestricted?: boolean };
 }) {
-  return createCanonicalGuardianRequest({
+  return sim.seedRequest({
     kind: "access_request",
-    sourceType: "channel",
     sourceChannel: params.sourceChannel ?? "slack",
-    conversationId: "access-req-conv",
+    sourceConversationId: "access-req-conv",
     requesterExternalUserId: "U-REQUESTER",
     requesterChatId: "C-CHAT",
     guardianPrincipalId: TEST_PRINCIPAL_ID,
@@ -150,6 +102,10 @@ function makeAccessRequest(params: {
       : undefined,
     expiresAt: Date.now() + 60_000,
   });
+}
+
+function outcomesOfType(type: string): Array<Record<string, unknown>> {
+  return sim.state.appliedOutcomes.filter((o) => o.type === type);
 }
 
 describe("introduction card decisions", () => {
@@ -162,17 +118,18 @@ describe("introduction card decisions", () => {
       signals: { isStranger: false, isRestricted: false },
     });
 
-    const result = await applyCanonicalGuardianDecision({
+    const result = await applyGuardianDecision({
       requestId: req.id,
       action: "trust",
       actorContext: desktopGuardian(),
     });
 
     expect(result.applied).toBe(true);
-    expect(getCanonicalGuardianRequest(req.id)?.status).toBe("approved");
-    expect(activateCalls).toHaveLength(1);
-    expect(activateCalls[0].verifiedVia).toBe("manual");
-    expect(sessionMints).toHaveLength(0);
+    expect(sim.getRequest(req.id)?.status).toBe("approved");
+    const activations = outcomesOfType("activate_member");
+    expect(activations).toHaveLength(1);
+    expect(activations[0].verifiedVia).toBe("manual");
+    expect(outcomesOfType("mint_outbound_session")).toHaveLength(0);
   });
 
   // Regression (ladder honesty): trust-anyway on an external must record
@@ -184,35 +141,48 @@ describe("introduction card decisions", () => {
       signals: { isStranger: true },
     });
 
-    const result = await applyCanonicalGuardianDecision({
+    const result = await applyGuardianDecision({
       requestId: req.id,
       action: "trust",
       actorContext: desktopGuardian(),
     });
 
     expect(result.applied).toBe(true);
-    expect(activateCalls).toHaveLength(1);
-    expect(activateCalls[0].verifiedVia).toBe("manual_channel_claim");
-    expect(activateCalls[0].verifiedVia).not.toBe("challenge");
+    const activations = outcomesOfType("activate_member");
+    expect(activations).toHaveLength(1);
+    expect(activations[0].verifiedVia).toBe("manual_channel_claim");
+    expect(activations[0].verifiedVia).not.toBe("challenge");
     // No verification session — direct trust never mints a handshake.
-    expect(sessionMints).toHaveLength(0);
+    expect(outcomesOfType("mint_outbound_session")).toHaveLength(0);
   });
 
-  test("verify_code on an external mints a verification session", async () => {
+  test("verify_code on an external mints a verification session atomically", async () => {
     const req = makeAccessRequest({
       sourceChannel: "slack",
       signals: { isStranger: true },
     });
 
-    const result = await applyCanonicalGuardianDecision({
+    const result = await applyGuardianDecision({
       requestId: req.id,
       action: "verify_code",
       actorContext: desktopGuardian(),
     });
 
     expect(result.applied).toBe(true);
-    expect(sessionMints).toHaveLength(1);
-    expect(activateCalls).toHaveLength(0);
+    if (!result.applied) return;
+    const mints = outcomesOfType("mint_outbound_session");
+    expect(mints).toHaveLength(1);
+    expect(mints[0]).toMatchObject({
+      channel: "slack",
+      expectedExternalUserId: "U-REQUESTER",
+      expectedChatId: "C-CHAT",
+      identityBindingStatus: "bound",
+      destinationAddress: "C-CHAT",
+      verificationPurpose: "trusted_contact",
+    });
+    expect(outcomesOfType("activate_member")).toHaveLength(0);
+    // The desktop guardian receives the minted secret inline.
+    expect(result.resolverReplyText).toContain(sim.state.mintedSecret);
   });
 
   test("handshake approval on a bot is coerced to direct trust (JARVIS-774)", async () => {
@@ -223,17 +193,18 @@ describe("introduction card decisions", () => {
         signals: { isBot: true, isStranger: false, isRestricted: false },
       });
 
-      const result = await applyCanonicalGuardianDecision({
+      const result = await applyGuardianDecision({
         requestId: req.id,
         action,
         actorContext: desktopGuardian(),
       });
 
       expect(result.applied).toBe(true);
-      expect(sessionMints).toHaveLength(0);
-      expect(activateCalls).toHaveLength(1);
+      expect(outcomesOfType("mint_outbound_session")).toHaveLength(0);
+      const activations = outcomesOfType("activate_member");
+      expect(activations).toHaveLength(1);
       // A Slack workspace bot is workspace-vouched → manual provenance.
-      expect(activateCalls[0].verifiedVia).toBe("manual");
+      expect(activations[0].verifiedVia).toBe("manual");
     }
   });
 
@@ -242,43 +213,45 @@ describe("introduction card decisions", () => {
       resetState();
       const req = makeAccessRequest({ sourceChannel: "slack" });
 
-      const result = await applyCanonicalGuardianDecision({
+      const result = await applyGuardianDecision({
         requestId: req.id,
         action,
         actorContext: desktopGuardian(),
       });
 
       expect(result.applied).toBe(true);
-      expect(getCanonicalGuardianRequest(req.id)?.status).toBe("denied");
-      expect(seedCalls).toHaveLength(1);
-      expect(blockCalls).toHaveLength(0);
-      expect(activateCalls).toHaveLength(0);
+      expect(sim.getRequest(req.id)?.status).toBe("denied");
+      expect(outcomesOfType("seed_unverified")).toHaveLength(1);
+      expect(outcomesOfType("block")).toHaveLength(0);
+      expect(outcomesOfType("activate_member")).toHaveLength(0);
     }
   });
 
   test("block revokes the sender's channel and resolves to denied", async () => {
     const req = makeAccessRequest({ sourceChannel: "slack" });
 
-    const result = await applyCanonicalGuardianDecision({
+    const result = await applyGuardianDecision({
       requestId: req.id,
       action: "block",
       actorContext: desktopGuardian(),
     });
 
     expect(result.applied).toBe(true);
-    expect(getCanonicalGuardianRequest(req.id)?.status).toBe("denied");
-    expect(blockCalls).toHaveLength(1);
-    expect(blockCalls[0].externalUserId).toBe("U-REQUESTER");
-    expect(seedCalls).toHaveLength(0);
+    expect(sim.getRequest(req.id)?.status).toBe("denied");
+    const blocks = outcomesOfType("block");
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0].externalUserId).toBe("U-REQUESTER");
+    expect(blocks[0].reason).toBe("introduction_block");
+    expect(outcomesOfType("seed_unverified")).toHaveLength(0);
     // The terminal decision projects onto the delivered cards.
     expect(withdrawCalls).toHaveLength(1);
   });
 
-  test("block failure surfaces as a resolver failure (fail closed)", async () => {
-    blockOutcome = { revoked: false };
+  test("block persist failure leaves the request pending and retryable (fail closed)", async () => {
+    sim.state.outcomeError = new Error("gateway block write failed");
     const req = makeAccessRequest({ sourceChannel: "slack" });
 
-    const result = await applyCanonicalGuardianDecision({
+    const result = await applyGuardianDecision({
       requestId: req.id,
       action: "block",
       actorContext: desktopGuardian(),
@@ -290,19 +263,19 @@ describe("introduction card decisions", () => {
     }
     expect(result.resolverFailed).toBe(true);
     expect(result.resolverFailureReason).toBe("block_persist_failed");
-    // The request is reopened: a failed block must not leave a `denied` row
-    // that permanently suppresses re-prompts without the revoke landing.
-    expect(getCanonicalGuardianRequest(req.id)?.status).toBe("pending");
-    // The reopened request keeps its cards — withdrawing them would strip
+    // The gateway transaction rolled back: no `denied` row ever existed to
+    // suppress re-prompts without the revoke landing.
+    expect(sim.getRequest(req.id)?.status).toBe("pending");
+    // The pending request keeps its cards — withdrawing them would strip
     // the guardian's only button path to retry.
     expect(withdrawCalls).toHaveLength(0);
   });
 
-  test("refused trust activation surfaces as a resolver failure (fail closed)", async () => {
-    activateOutcome = { status: "refused" };
+  test("trust activation failure leaves the request pending and retryable (fail closed)", async () => {
+    sim.state.outcomeError = new Error("gateway refused the activation");
     const req = makeAccessRequest({ sourceChannel: "slack" });
 
-    const result = await applyCanonicalGuardianDecision({
+    const result = await applyGuardianDecision({
       requestId: req.id,
       action: "trust",
       actorContext: desktopGuardian(),
@@ -313,18 +286,44 @@ describe("introduction card decisions", () => {
       return;
     }
     expect(result.resolverFailed).toBe(true);
-    expect(result.resolverFailureReason).toBe("trust_activation_refused");
-    // The request is reopened: the sender is not actually trusted.
-    expect(getCanonicalGuardianRequest(req.id)?.status).toBe("pending");
+    expect(result.resolverFailureReason).toBe("trust_activation_failed");
+    // Nothing committed: the sender is not trusted and the request stays
+    // decidable.
+    expect(sim.getRequest(req.id)?.status).toBe("pending");
     expect(withdrawCalls).toHaveLength(0);
   });
 
+  test("block without a channel identity aborts before any status write", async () => {
+    const req = sim.seedRequest({
+      kind: "access_request",
+      sourceChannel: "vellum",
+      sourceConversationId: "access-req-conv",
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
+      expiresAt: Date.now() + 60_000,
+    });
+
+    const result = await applyGuardianDecision({
+      requestId: req.id,
+      action: "block",
+      actorContext: desktopGuardian(),
+    });
+
+    expect(result.applied).toBe(true);
+    if (!result.applied) {
+      return;
+    }
+    expect(result.resolverFailed).toBe(true);
+    expect(result.resolverFailureReason).toBe("block_missing_channel_identity");
+    // No decide was ever attempted.
+    expect(sim.state.decideCalls).toHaveLength(0);
+    expect(sim.getRequest(req.id)?.status).toBe("pending");
+  });
+
   test("introduction actions are rejected for non-access-request kinds", async () => {
-    const req = createCanonicalGuardianRequest({
+    const req = sim.seedRequest({
       kind: "tool_approval",
-      sourceType: "channel",
       sourceChannel: "telegram",
-      conversationId: "conv-1",
+      sourceConversationId: "conv-1",
       guardianPrincipalId: TEST_PRINCIPAL_ID,
       toolName: "shell",
       inputDigest: "sha256:abc",
@@ -337,7 +336,7 @@ describe("introduction card decisions", () => {
       "leave_unverified",
       "block",
     ] as const) {
-      const result = await applyCanonicalGuardianDecision({
+      const result = await applyGuardianDecision({
         requestId: req.id,
         action,
         actorContext: desktopGuardian(),
@@ -349,6 +348,6 @@ describe("introduction card decisions", () => {
       expect(result.reason).toBe("invalid_action");
     }
     // The request is untouched by the rejected actions.
-    expect(getCanonicalGuardianRequest(req.id)?.status).toBe("pending");
+    expect(sim.getRequest(req.id)?.status).toBe("pending");
   });
 });

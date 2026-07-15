@@ -50,6 +50,11 @@ import {
   type SttStreamSocketData,
 } from "./http/routes/stt-stream-websocket.js";
 import {
+  createSpeechRelayUpgradeHandler,
+  getSpeechRelayWebsocketHandlers,
+  type SpeechRelaySocketData,
+} from "./http/routes/speech-relay-websocket.js";
+import {
   createLiveVoiceWebsocketHandler,
   getLiveVoiceWebsocketHandlers,
   type LiveVoiceSocketData,
@@ -193,6 +198,7 @@ import { GatewayIpcServer } from "./ipc/server.js";
 import { contactRoutes } from "./ipc/contact-handlers.js";
 import { inviteRoutes } from "./ipc/invite-handlers.js";
 import { verificationSessionRoutes } from "./ipc/verification-session-handlers.js";
+import { guardianRequestRoutes } from "./ipc/guardian-request-handlers.js";
 import { featureFlagRoutes } from "./ipc/feature-flag-handlers.js";
 import { admissionPolicyRoutes } from "./ipc/admission-policy-handlers.js";
 import { channelPermissionRoutes } from "./ipc/channel-permission-handlers.js";
@@ -283,6 +289,14 @@ function isLiveVoiceSocketData(data: unknown): data is LiveVoiceSocketData {
     !!data &&
     typeof data === "object" &&
     (data as { wsType?: unknown }).wsType === "live-voice"
+  );
+}
+
+function isSpeechRelaySocketData(data: unknown): data is SpeechRelaySocketData {
+  return (
+    !!data &&
+    typeof data === "object" &&
+    (data as { wsType?: unknown }).wsType === "speech-relay"
   );
 }
 
@@ -502,9 +516,20 @@ async function main() {
   });
   const handleSttStreamWs = createSttStreamWebsocketHandler(config);
   const handleLiveVoiceWs = createLiveVoiceWebsocketHandler(config);
+  const handleSpeechRelaySttWs = createSpeechRelayUpgradeHandler(
+    config,
+    "stt",
+    { credentials: credentialCache },
+  );
+  const handleSpeechRelayTtsWs = createSpeechRelayUpgradeHandler(
+    config,
+    "tts",
+    { credentials: credentialCache },
+  );
   const twilioMediaStreamWebsocketHandlers = getMediaStreamWebsocketHandlers();
   const sttStreamWebsocketHandlers = getSttStreamWebsocketHandlers();
   const liveVoiceWebsocketHandlers = getLiveVoiceWebsocketHandlers();
+  const speechRelayWebsocketHandlers = getSpeechRelayWebsocketHandlers();
   const { handler: handleWhatsAppWebhook, dedupCache: whatsappDedupCache } =
     createWhatsAppWebhookHandler(config, {
       credentials: credentialCache,
@@ -1716,6 +1741,10 @@ async function main() {
           liveVoiceWebsocketHandlers.open(ws as never);
           return;
         }
+        if (isSpeechRelaySocketData(ws.data)) {
+          void speechRelayWebsocketHandlers.open(ws as never);
+          return;
+        }
         closeUnknownSocket(ws, "open");
       },
       message(ws, message) {
@@ -1731,6 +1760,10 @@ async function main() {
           liveVoiceWebsocketHandlers.message(ws as never, message);
           return;
         }
+        if (isSpeechRelaySocketData(ws.data)) {
+          speechRelayWebsocketHandlers.message(ws as never, message);
+          return;
+        }
         closeUnknownSocket(ws, "message");
       },
       close(ws, code, reason) {
@@ -1744,6 +1777,10 @@ async function main() {
         }
         if (isLiveVoiceSocketData(ws.data)) {
           liveVoiceWebsocketHandlers.close(ws as never, code, reason);
+          return;
+        }
+        if (isSpeechRelaySocketData(ws.data)) {
+          speechRelayWebsocketHandlers.close(ws as never, code, reason);
           return;
         }
         log.error(
@@ -1944,7 +1981,21 @@ async function main() {
     }
 
     if (url.pathname === "/v1/live-voice") {
-      const upgradeResult = handleLiveVoiceWs(req, server);
+      const upgradeResult = await handleLiveVoiceWs(req, server);
+      if (upgradeResult !== undefined) return upgradeResult;
+      return undefined as unknown as Response;
+    }
+
+    // Managed-speech relay: daemon-only egress to velay. NOT in
+    // VELAY_ALLOWED_PATHS — velay's inbound tunnel must never reach it.
+    if (url.pathname === "/v1/speech/stt/stream") {
+      const upgradeResult = await handleSpeechRelaySttWs(req, server);
+      if (upgradeResult !== undefined) return upgradeResult;
+      return undefined as unknown as Response;
+    }
+
+    if (url.pathname === "/v1/speech/tts/stream") {
+      const upgradeResult = await handleSpeechRelayTtsWs(req, server);
       if (upgradeResult !== undefined) return upgradeResult;
       return undefined as unknown as Response;
     }
@@ -2583,6 +2634,7 @@ async function main() {
     ...contactRoutes,
     ...inviteRoutes,
     ...verificationSessionRoutes,
+    ...guardianRequestRoutes,
     ...slackThreadRoutes,
     ...thresholdRoutes,
     ...admissionPolicyRoutes,

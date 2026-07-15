@@ -242,7 +242,7 @@ export function handleDeleteMemory(
     return {
       success: false,
       message:
-        "No memory found matching that content. Use `vellum memory list` to find the exact text first.",
+        "No memory found matching that content. Use `assistant memory nodes list` to find the exact text first.",
     };
   }
 
@@ -317,7 +317,7 @@ export function handleUpdateMemory(
     return {
       success: false,
       message:
-        "No memory found matching old_content. Use `vellum memory list` to find the exact text first.",
+        "No memory found matching old_content. Use `assistant memory nodes list` to find the exact text first.",
     };
   }
 

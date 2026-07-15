@@ -5,6 +5,7 @@ import { Command } from "commander";
 import { initFeatureFlagOverrides } from "../config/assistant-feature-flags.js";
 import { getWorkspaceDir } from "../util/platform.js";
 import { APP_VERSION } from "../version.js";
+import { registerAppsCommand } from "./commands/apps.js";
 import { registerAttachmentCommand } from "./commands/attachment.js";
 import { registerAuditCommand } from "./commands/audit.js";
 import { registerAuthCommand } from "./commands/auth.js";
@@ -54,6 +55,7 @@ import { registerUsageCommand } from "./commands/usage.js";
 import { registerWatchersCommand } from "./commands/watchers.js";
 import { registerWebhooksCommand } from "./commands/webhooks.js";
 import { red } from "./lib/cli-colors.js";
+import { registerGlobalJsonOption } from "./lib/global-json-option.js";
 import { log } from "./logger.js";
 
 /**
@@ -101,6 +103,7 @@ Examples:
 
   registerDefaultAction(program);
 
+  registerAppsCommand(program);
   registerAttachmentCommand(program);
   registerAuditCommand(program);
   registerAuthCommand(program);
@@ -148,6 +151,10 @@ Examples:
   registerUsageCommand(program);
   registerWatchersCommand(program);
   registerWebhooksCommand(program);
+
+  // Every command accepts `--json` — see registerGlobalJsonOption. Must run
+  // after all commands are registered so the whole tree is covered.
+  registerGlobalJsonOption(program);
 
   // Fail fast when no assistant workspace exists on disk. The workspace is
   // created by `vellum hatch` and must be present for any command to work.

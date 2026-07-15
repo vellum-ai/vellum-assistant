@@ -327,16 +327,10 @@ export function ChatLayout() {
     consumeSidebarCollapse();
   }, [sidebarCollapseRequested, consumeSidebarCollapse]);
 
-  // The full-screen voice room takes over the viewport, so the sidebar reads as
-  // collapsed and the chat body blurs while it is visible. This override is
-  // EPHEMERAL — it is OR'd into the rendered collapsed value (`sideMenuCollapsed`
-  // below) rather than routed through `setCollapsed`, so it never touches the
-  // persistence effect above. Keeping it out of the persisted `collapsed` state
-  // means a reload / tab-close while the room is open cannot write the forced
-  // value to `localStorage`: on exit the override drops and the sidebar returns
-  // to exactly the user's persisted value.
+  // Voice-room visibility. The room is a full-viewport takeover on every
+  // platform (mounted at layout scope below): it covers the header and
+  // sidebar, and ending the session is the only way out of it.
   const voiceRoomVisible = useIsVoiceRoomVisible();
-  const sideMenuCollapsed = collapsed || voiceRoomVisible;
 
   const drawerVisible = isMobile && drawerOpen;
 
@@ -383,10 +377,16 @@ export function ChatLayout() {
   // past threshold. Suppressed whenever a back-swipe owner is active (a pushed
   // page under this layout) so a single left-edge swipe resolves to exactly one
   // action — back-navigation on detail pages, open-menu at the stack root.
+  // Also suppressed while a swipe-action row is revealed anywhere under the
+  // layout (e.g. a library card showing Pin/Delete): swiping the open row back
+  // toward centre must close it, matching the iOS table-row model where the
+  // open row owns the gesture and the enclosing container yields.
   const backSwipeOwnerCount = useEdgeSwipeArbiterStore.use.backOwnerCount();
+  const openRowCount = useEdgeSwipeArbiterStore.use.openRowCount();
   useEdgeSwipeDrawer({
     panelRef: drawerRef,
-    enabled: isMobile && !drawerOpen && backSwipeOwnerCount === 0,
+    enabled:
+      isMobile && !drawerOpen && backSwipeOwnerCount === 0 && openRowCount === 0,
     onDragStart: () => setDrawerDragging(true),
     onOpen: () => {
       // Same as the button path: swiping the drawer in over a focused
@@ -728,9 +728,9 @@ export function ChatLayout() {
     />
   );
 
-  // Blur + freeze the chat body under the voice room. The room is an opaque
-  // overlay, so this mainly matters for the header strip peeking around it and
-  // to stop stray interaction with the covered chat.
+  // Blur + freeze the chat body under the voice room, a full-viewport
+  // takeover. The room is an opaque overlay, so this mainly matters for the
+  // fade transition and to stop stray interaction with the covered chat.
   const mainRoomClass = voiceRoomVisible
     ? "pointer-events-none blur-sm opacity-40 transition-[filter,opacity]"
     : "";
@@ -741,7 +741,7 @@ export function ChatLayout() {
         <ChatLayoutHeader
           isMobile={isMobile}
           drawerOpen={drawerOpen}
-          collapsed={sideMenuCollapsed}
+          collapsed={collapsed}
           sidebarWidth={sidebarWidth}
           toggleSidebar={toggleSidebar}
           topBarCenter={topBarCenter}
@@ -802,7 +802,14 @@ export function ChatLayout() {
                   the only part of it that shows around the full-bleed menu,
                   and a mismatched background renders as tinted strips along
                   the notch / home-indicator edges on iOS. No border — the
-                  sheet covers the full screen, so there is no edge to draw. */}
+                  sheet covers the full screen, so there is no edge to draw.
+                  No bottom padding either: the SideMenu root clips its
+                  children (`overflow-hidden`), so a bottom inset places the
+                  clip boundary at the home-indicator line and guillotines
+                  the floating action pills' drop shadows into a visible
+                  hard edge in light mode. The menu runs full-bleed to the
+                  physical bottom edge and the pills offset themselves by
+                  the safe-area inset instead. */}
               <aside
                 id="chat-side-menu"
                 className="relative flex h-full w-full flex-col shadow-xl"
@@ -811,8 +818,6 @@ export function ChatLayout() {
                   zIndex: 50,
                   paddingTop:
                     "var(--safe-area-inset-top, env(safe-area-inset-top, 0px))",
-                  paddingBottom:
-                    "var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px))",
                   paddingLeft:
                     "var(--safe-area-inset-left, env(safe-area-inset-left, 0px))",
                 }}
@@ -848,14 +853,14 @@ export function ChatLayout() {
             aria-label="Navigation"
           >
             {renderSideMenu({
-              collapsed: sideMenuCollapsed,
+              collapsed,
               variant: "rail",
               width: sidebarWidth,
               onWidthChange: handleSidebarWidthChange,
             })}
           </aside>
           <main
-            className={`flex min-w-0 flex-1 min-h-0 flex-col overflow-hidden ${mainRoomClass}`}
+            className={`relative flex min-w-0 flex-1 min-h-0 flex-col overflow-hidden ${mainRoomClass}`}
           >
             <Outlet />
           </main>
@@ -868,11 +873,10 @@ export function ChatLayout() {
           overlay; it never remounts the chat, so a suggestion click's
           navigate + `?prompt=` auto-send isn't raced by a remount. */}
       {isFocused ? <ResearchResultsOverlay /> : null}
-      {/* Full-screen live-voice room — a purely additive overlay mounted at
-          layout scope, next to the other full-viewport overlays. Self-gates on
-          `useIsVoiceRoomVisible()` (the exact complement of the title-bar
-          session pill); the composer's voice bar and transcript render
-          underneath, hidden by it. */}
+      {/* Live-voice room — a full-viewport takeover mounted at layout scope,
+          next to the other full-viewport overlays. Self-gates on
+          `useIsVoiceRoomVisible()` (which excludes pop-outs); the composer's
+          voice bar and transcript render underneath, hidden by it. */}
       <VoiceRoom />
       {/* First step of the focused flow: the gcal "Let's chat tomorrow" page,
           shown over the streaming research output until connect/skip. Self-gates

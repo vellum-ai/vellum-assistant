@@ -23,6 +23,12 @@ import {
   ConversationMessageSchema,
 } from "../../api/responses/conversation-message.js";
 import {
+  decideGuardianRequest,
+  expireGuardianRequest,
+  listGuardianRequestsOrEmpty,
+  listPendingRequestsByScopeOrEmpty,
+} from "../../channels/gateway-guardian-requests.js";
+import {
   CHANNEL_IDS,
   INTERFACE_IDS,
   isInteractiveInterface,
@@ -35,11 +41,6 @@ import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-fl
 import { getEffectiveProfiles } from "../../config/default-profile-catalog.js";
 import { isHttpAuthDisabled } from "../../config/env.js";
 import { getConfig } from "../../config/loader.js";
-import {
-  listCanonicalGuardianRequests,
-  listPendingRequestsByConversationScope,
-  resolveCanonicalGuardianRequest,
-} from "../../contacts/canonical-guardian-store.js";
 import {
   mergeConsecutiveAssistantMessages,
   mergeToolResultsIntoAssistantMessages,
@@ -409,12 +410,14 @@ function buildSlackHistoryMessage(
   };
 }
 
-function collectCanonicalGuardianRequestHintIds(
+async function collectGuardianRequestHintIds(
   conversationId: string,
   sourceChannel: string,
   conversation: Conversation,
-): string[] {
-  const requests = listPendingRequestsByConversationScope(
+): Promise<string[]> {
+  // Degrades to no hints on gateway failure: the reply scope then blocks
+  // (see the caller) and the message falls through to the normal send path.
+  const requests = await listPendingRequestsByScopeOrEmpty(
     conversationId,
     sourceChannel,
   );
@@ -429,12 +432,12 @@ function collectCanonicalGuardianRequestHintIds(
 }
 
 /**
- * Expire orphaned canonical guardian requests for a conversation.
+ * Expire orphaned guardian requests for a conversation.
  *
  * After the in-memory auto-deny loop runs, there may still be "pending"
- * canonical requests in the DB that have no corresponding in-memory
+ * guardian requests in the gateway that have no corresponding in-memory
  * pending interaction (e.g. the prompter timed out and resolved the
- * confirmation directly without syncing canonical status). This sweep
+ * confirmation directly without syncing the request status). This sweep
  * catches those stragglers so they don't get falsely matched by the
  * guardian reply router on subsequent messages.
  *
@@ -443,13 +446,16 @@ function collectCanonicalGuardianRequestHintIds(
  * in their source conversation. Additionally skips requests that still
  * have a live in-memory pending interaction.
  *
- * Uses `listCanonicalGuardianRequests` (not `listPendingRequestsByConversationScope`)
- * so that time-expired requests (past their `expiresAt`) are also caught
- * instead of being silently filtered out.
+ * Uses the plain list (not `listPendingRequestsByScope`) so time-expired
+ * requests (past their `expiresAt`) are also caught instead of being
+ * silently filtered out. Sweep posture on gateway failure: log and skip —
+ * the next send or the periodic sweep retries.
  */
-function expireOrphanedCanonicalRequests(conversationId: string): void {
-  const sourceScoped = listCanonicalGuardianRequests({
-    conversationId,
+async function expireOrphanedGuardianRequests(
+  conversationId: string,
+): Promise<void> {
+  const sourceScoped = await listGuardianRequestsOrEmpty({
+    sourceConversationId: conversationId,
     status: "pending",
     kind: "tool_approval",
   });
@@ -461,13 +467,18 @@ function expireOrphanedCanonicalRequests(conversationId: string): void {
       continue;
     }
 
-    resolveCanonicalGuardianRequest(req.id, "pending", {
-      status: "expired",
-    });
+    try {
+      await expireGuardianRequest(req.id);
+    } catch (err) {
+      log.warn(
+        { err, requestId: req.id, conversationId },
+        "Orphaned guardian request expiry skipped — gateway unreachable",
+      );
+    }
   }
 }
 
-async function tryConsumeCanonicalGuardianReply(params: {
+async function tryConsumeGuardianReply(params: {
   conversationId: string;
   sourceChannel: string;
   sourceInterface: string;
@@ -508,15 +519,15 @@ async function tryConsumeCanonicalGuardianReply(params: {
     return { consumed: false };
   }
 
-  const pendingRequestHintIds = collectCanonicalGuardianRequestHintIds(
+  const pendingRequestHintIds = await collectGuardianRequestHintIds(
     conversationId,
     sourceChannel,
     conversation,
   );
   // An empty hint set is `blocked`, not absence: the in-memory staleness
-  // filter in collectCanonicalGuardianRequestHintIds found no live requests,
-  // so the router must not fall back to identity/DB lookup (which rediscovered
-  // stale canonical requests). A non-empty set scopes resolution to it.
+  // filter in collectGuardianRequestHintIds found no live requests, so the
+  // router must not fall back to identity/DB lookup (which rediscovered
+  // stale guardian requests). A non-empty set scopes resolution to it.
   const pendingScope: GuardianPendingScope =
     pendingRequestHintIds.length > 0
       ? { mode: "scoped", requestIds: pendingRequestHintIds }
@@ -1909,7 +1920,6 @@ export async function handleSendMessage(
             tone: body.onboarding!.tone,
             googleConnected: body.onboarding!.googleConnected,
             googleScopes: body.onboarding!.googleScopes,
-            priorAssistants: body.onboarding!.priorAssistants,
           });
         } catch (err) {
           log.warn({ err }, "Failed to record onboarding telemetry event");
@@ -1972,7 +1982,6 @@ export async function handleSendMessage(
         tone: body.onboarding!.tone,
         googleConnected: body.onboarding!.googleConnected,
         googleScopes: body.onboarding!.googleScopes,
-        priorAssistants: body.onboarding!.priorAssistants,
       });
     } catch (err) {
       log.warn({ err }, "Failed to record onboarding telemetry event");
@@ -1995,11 +2004,11 @@ export async function handleSendMessage(
   const verifiedActorPrincipalId =
     conversation.trustContext?.guardianPrincipalId ?? undefined;
 
-  // Try to consume the message as a canonical guardian approval/rejection reply.
+  // Try to consume the message as a guardian approval/rejection reply.
   // On failure, degrade to the existing queue/auto-deny path rather than
   // surfacing a 500 — mirrors the handler's catch-and-fallback.
   try {
-    const inlineReplyResult = await tryConsumeCanonicalGuardianReply({
+    const inlineReplyResult = await tryConsumeGuardianReply({
       conversationId: mapping.conversationId,
       sourceChannel,
       sourceInterface,
@@ -2087,7 +2096,7 @@ export async function handleSendMessage(
     if (body.hidden !== true) {
       try {
         // Supersede interactions left pending by the in-flight turn: auto-deny
-        // confirmations (with canonical/client sync) and steer to the enqueued
+        // confirmations (with gateway/client sync) and steer to the enqueued
         // message if an ask_question is parked. Centralized so the CLI signal
         // path (signals/user-message.ts) gets identical handling.
         supersedePendingInteractionsOnEnqueue(
@@ -2095,9 +2104,9 @@ export async function handleSendMessage(
           requestId,
         );
 
-        // Expire any orphaned canonical requests that survived without a
+        // Expire any orphaned guardian requests that survived without a
         // matching in-memory pending interaction (e.g. prompter timeouts).
-        expireOrphanedCanonicalRequests(mapping.conversationId);
+        await expireOrphanedGuardianRequests(mapping.conversationId);
       } catch (err) {
         log.warn(
           { err, conversationId: mapping.conversationId },
@@ -2134,10 +2143,19 @@ export async function handleSendMessage(
           state: "denied" as const,
           source: "auto_deny" as const,
         });
-        // Sync canonical guardian request status so stale "pending" DB
-        // records don't get matched by later guardian reply routing.
-        resolveCanonicalGuardianRequest(interaction.requestId, "pending", {
+        // Sync the gateway request status so stale "pending" records don't
+        // get matched by later guardian reply routing. Fire-and-forget: the
+        // in-memory denial is authoritative here; a CAS miss (already
+        // decided elsewhere) or a lost sync is reaped by the orphan sweep.
+        void decideGuardianRequest({
+          id: interaction.requestId,
+          expectedStatus: "pending",
           status: "denied",
+        }).catch((err) => {
+          log.warn(
+            { err, requestId: interaction.requestId },
+            "Auto-deny guardian request status sync failed",
+          );
         });
       }
     }
@@ -2145,9 +2163,9 @@ export async function handleSendMessage(
     pendingInteractions.removeByConversation(mapping.conversationId);
   }
 
-  // Expire any orphaned canonical requests that survived without a
+  // Expire any orphaned guardian requests that survived without a
   // matching in-memory pending interaction (e.g. prompter timeouts).
-  expireOrphanedCanonicalRequests(mapping.conversationId);
+  await expireOrphanedGuardianRequests(mapping.conversationId);
 
   // Conversation is idle — persist and fire agent loop immediately
   conversation.setTurnChannelContext({

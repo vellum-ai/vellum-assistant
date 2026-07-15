@@ -59,7 +59,11 @@ const STATUS_CODE_MAP: Record<number, string> = {
 };
 
 function throwDomainError(error: string, status: number): never {
-  throw new RouteError(error, STATUS_CODE_MAP[status] ?? "INTERNAL_ERROR", status);
+  throw new RouteError(
+    error,
+    STATUS_CODE_MAP[status] ?? "INTERNAL_ERROR",
+    status,
+  );
 }
 
 // ── Handlers ──────────────────────────────────────────────────────────────────

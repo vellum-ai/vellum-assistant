@@ -97,9 +97,12 @@ export async function memoryV2MigrateJob(
 
 /**
  * Job handler: enqueue an `embed_concept_page` job per concept-page slug.
+ * Each enqueue coalesces with an already-pending job for the same slug, so
+ * stacked reembed runs converge on at most one pending embed per page.
  *
- * Returns the total number of jobs enqueued. Callers (and tests) use the
- * return value to assert progress without inspecting the job table directly.
+ * Returns the number of pages fanned out (enqueue attempts, not necessarily
+ * fresh rows). Callers (and tests) use the return value to assert progress
+ * without inspecting the job table directly.
  *
  * Note on meta files: `essentials.md` / `threads.md` / `recent.md` /
  * `buffer.md` are direct-injected into the system prompt every turn via

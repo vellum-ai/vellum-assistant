@@ -9,14 +9,21 @@
  * assistant-avatar React Query graph — irrelevant to room chrome, and stubbed
  * so the exit control's independence from avatar readiness is testable).
  *
- * Exit is the load-bearing behavior: the ✕ control and the global Escape key
- * both end the session, the control renders even with no assistant resolved,
- * and the key listeners are removed on unmount (no leaks).
+ * Exit is the load-bearing behavior: the room is a full-app takeover with no
+ * minimize — ending the session is the only way out, via the ✕ control (which
+ * renders even with no assistant resolved) or Escape, and the key listener is
+ * removed on unmount (no leaks).
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+} from "@testing-library/react";
 
 import type { MainView } from "@/stores/viewer-store";
 import { routes } from "@/utils/routes";
@@ -30,6 +37,7 @@ import {
   type LiveVoiceSessionState,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
 import { useConversationStore } from "@/stores/conversation-store";
+import { useVoicePrefsStore } from "@/stores/voice-prefs-store";
 
 const OWNING_CONVERSATION_ID = "conv-owning";
 const OTHER_CONVERSATION_ID = "conv-other";
@@ -74,20 +82,109 @@ mock.module("@/domains/chat/voice/voice-room/voice-listening-waves", () => ({
   VoiceListeningWaves: () => <div data-testid="listening-waves" />,
 }));
 
-// The room reads the session avatar to tint the waves to the assistant color;
-// stub the hook so these tests don't need the assistant-avatar React Query
-// graph (the room-chrome behavior is independent of avatar data).
+// The room resolves its look (color-with-eyes vs the ambient void) and the
+// wave accent from the session avatar; stub the hook — with mutable data so
+// look tests can exercise both — to avoid the assistant-avatar React Query
+// graph.
+let mockAvatarData: {
+  components: unknown;
+  traits: unknown;
+  customImageUrl: string | null;
+} = { components: null, traits: null, customImageUrl: null };
 mock.module("@/hooks/use-assistant-avatar", () => ({
-  useAssistantAvatar: () => ({
-    components: null,
-    traits: null,
-    customImageUrl: null,
-  }),
+  useAssistantAvatar: () => ({ ...mockAvatarData }),
   avatarQueryKey: (id: string) => ["assistantAvatar", id],
 }));
 
+/** Minimal character components: one body/eye/color of each. */
+const CHARACTER_COMPONENTS = {
+  bodyShapes: [
+    {
+      id: "sprout",
+      svgPath: "M0 0 L10 0 L10 10 Z",
+      viewBox: { width: 10, height: 10 },
+    },
+  ],
+  eyeStyles: [
+    {
+      id: "curious",
+      paths: [{ svgPath: "M0 0 L10 0 L10 10 Z", color: "#FFFFFF" }],
+    },
+  ],
+  colors: [{ id: "green", hex: "#4C9B50" }],
+};
+
+// Stub the OAuth connect surface (pulls the managed-oauth + generated-SDK
+// graph) so the room-slot tests assert only the wiring: that the room renders
+// the pending card and routes its action to `handleSurfaceAction`.
+mock.module("@/domains/chat/components/surfaces/oauth-connect-surface", () => ({
+  OAuthConnectSurface: ({
+    surface,
+    assistantId,
+    onAction,
+  }: {
+    surface: { surfaceId: string; data?: { providerKey?: string } };
+    assistantId?: string | null;
+    onAction: (surfaceId: string, actionId: string, data?: unknown) => void;
+  }) => (
+    <button
+      type="button"
+      data-testid="room-connect-card"
+      data-assistant={assistantId ?? ""}
+      data-provider={surface.data?.providerKey ?? ""}
+      onClick={() => onAction(surface.surfaceId, "connect", { ok: true })}
+    >
+      connect
+    </button>
+  ),
+}));
+
+const handleSurfaceActionSpy = mock(async () => {});
+mock.module("@/domains/chat/surface-actions", () => ({
+  handleSurfaceAction: handleSurfaceActionSpy,
+}));
+
 // Imported after the mocks so the room picks up the mocked modules.
-const { VoiceRoom } = await import("@/domains/chat/voice/voice-room/voice-room");
+const { VoiceRoom } =
+  await import("@/domains/chat/voice/voice-room/voice-room");
+const { useChatSessionStore } =
+  await import("@/domains/chat/chat-session-store");
+const { attachSurface } =
+  await import("@/domains/chat/utils/stream-updaters/surface-updaters");
+const { completeSurface } =
+  await import("@/domains/chat/utils/stream-updaters/surface-updaters");
+
+type TestSurface = Parameters<typeof attachSurface>[1];
+
+/** Build an `oauth_connect` surface for the transcript snapshot. */
+function connectSurface(
+  surfaceId = "surface-oauth-1",
+  providerKey = "google",
+): TestSurface {
+  return {
+    surfaceId,
+    surfaceType: "oauth_connect",
+    title: "Connect Gmail",
+    data: { providerKey },
+  } as TestSurface;
+}
+
+/** Seed the transcript snapshot with a single assistant message + surface. */
+function seedTranscriptSurface(surface: TestSurface, completed = false): void {
+  let messages = attachSurface([], surface, "assistant-msg-1");
+  if (completed) {
+    messages = completeSurface(messages, surface.surfaceId);
+  }
+  useChatSessionStore.setState({
+    snapshot: {
+      messages,
+      seq: null,
+      hasMore: false,
+      oldestTimestamp: null,
+      oldestMessageId: null,
+    },
+  });
+}
 
 const controls = makeControlsSpies();
 
@@ -105,6 +202,7 @@ beforeEach(() => {
   mockSearch = "";
   mockMainView = "chat";
   mockIsMobile = false;
+  mockAvatarData = { components: null, traits: null, customImageUrl: null };
   controls.stop.mockClear();
   controls.release.mockClear();
   controls.interrupt.mockClear();
@@ -112,12 +210,75 @@ beforeEach(() => {
   useConversationStore
     .getState()
     .setActiveConversationId(OWNING_CONVERSATION_ID);
+  // Captions default off; individual tests flip them through the room control.
+  useVoicePrefsStore.setState({
+    showUserTranscript: false,
+    showAssistantTranscript: false,
+  });
+  handleSurfaceActionSpy.mockClear();
+  useChatSessionStore.setState({
+    snapshot: null,
+    dismissedSurfaceIds: new Set(),
+  });
 });
 
 afterEach(() => {
   cleanup();
   useLiveVoiceStore.getState().reset();
   useConversationStore.getState().reset();
+});
+
+const connectCard = () => screen.queryByTestId("room-connect-card");
+
+describe("VoiceRoom — OAuth connect card", () => {
+  test("renders a reachable connect card when a pending oauth_connect surface exists", () => {
+    startOwnedSession("listening");
+    seedTranscriptSurface(connectSurface("surface-oauth-1", "google"));
+    render(<VoiceRoom />);
+
+    const card = connectCard();
+    expect(card).not.toBeNull();
+    // The room's live-voice assistant id threads through to the card.
+    expect(card?.getAttribute("data-assistant")).toBe(ASSISTANT_ID);
+    expect(card?.getAttribute("data-provider")).toBe("google");
+  });
+
+  test("routes the card action to handleSurfaceAction", () => {
+    startOwnedSession("listening");
+    seedTranscriptSurface(connectSurface("surface-oauth-1", "google"));
+    render(<VoiceRoom />);
+
+    fireEvent.click(connectCard()!);
+    expect(handleSurfaceActionSpy).toHaveBeenCalledTimes(1);
+    expect(handleSurfaceActionSpy).toHaveBeenCalledWith(
+      "surface-oauth-1",
+      "connect",
+      { ok: true },
+    );
+  });
+
+  test("renders no card when the surface is already completed", () => {
+    startOwnedSession("listening");
+    seedTranscriptSurface(connectSurface(), true);
+    render(<VoiceRoom />);
+    expect(connectCard()).toBeNull();
+  });
+
+  test("renders no card when there is no pending surface", () => {
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+    expect(connectCard()).toBeNull();
+  });
+
+  test("renders no card for a dismissed surface", () => {
+    startOwnedSession("listening");
+    seedTranscriptSurface(connectSurface("surface-oauth-1"));
+    useChatSessionStore.setState({
+      dismissedSurfaceIds: new Set(["surface-oauth-1"]),
+    });
+    render(<VoiceRoom />);
+    expect(connectCard()).toBeNull();
+  });
 });
 
 const roomDialog = () =>
@@ -170,7 +331,7 @@ describe("VoiceRoom — visibility", () => {
 describe("VoiceRoom — listening waves", () => {
   const waves = () => screen.queryByTestId("listening-waves");
 
-  test("mounts the bottom waves while listening (energy coming in)", () => {
+  test("mounts the listening waves while listening (energy coming in)", () => {
     startOwnedSession("listening");
     render(<VoiceRoom />);
     expect(roomDialog()).not.toBeNull();
@@ -200,27 +361,6 @@ describe("VoiceRoom — exit", () => {
     expect(controls.stop).toHaveBeenCalledTimes(1);
   });
 
-  test("Escape ends the session via controls.stop", () => {
-    startOwnedSession("listening");
-    render(<VoiceRoom />);
-    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
-    expect(controls.stop).toHaveBeenCalledTimes(1);
-  });
-
-  test("Escape ends the session even when an editable element holds focus (global exit)", () => {
-    startOwnedSession("listening");
-    render(<VoiceRoom />);
-    // The room can open while the composer textarea still owns focus; Escape is
-    // a global exit and must fire regardless of the editable target guard.
-    const input = document.createElement("input");
-    document.body.appendChild(input);
-    input.dispatchEvent(
-      new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
-    );
-    expect(controls.stop).toHaveBeenCalledTimes(1);
-    input.remove();
-  });
-
   test("the exit control renders even with no assistant resolved", () => {
     startOwnedSession("listening");
     useLiveVoiceStore.setState({ assistantId: null });
@@ -228,8 +368,43 @@ describe("VoiceRoom — exit", () => {
     expect(exitButton()).not.toBeNull();
     expect(screen.getByTestId("voice-avatar").textContent).toBe("no-assistant");
   });
+});
 
-  test("key listeners are removed on unmount — no stray Escape teardown", () => {
+describe("VoiceRoom — no way out but ending the session", () => {
+  test("no minimize control renders", () => {
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+    expect(
+      screen.queryByRole("button", { name: "Minimize voice room" }),
+    ).toBeNull();
+  });
+
+  test("Escape ends the session, same as ✕", () => {
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    });
+    expect(controls.stop).toHaveBeenCalledTimes(1);
+  });
+
+  test("Escape ends the session even when an editable element holds focus (global key)", () => {
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+    // The room can open while the composer textarea still owns focus; the key
+    // is global and must fire regardless of the editable target guard.
+    const input = document.createElement("input");
+    document.body.appendChild(input);
+    act(() => {
+      input.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      );
+    });
+    expect(controls.stop).toHaveBeenCalledTimes(1);
+    input.remove();
+  });
+
+  test("the key listener is removed on unmount — no stray Escape handling", () => {
     startOwnedSession("listening");
     const { unmount } = render(<VoiceRoom />);
     unmount();
@@ -238,10 +413,280 @@ describe("VoiceRoom — exit", () => {
   });
 });
 
-describe("VoiceRoom — no push-to-talk affordance (hands-free)", () => {
+describe("VoiceRoom — settings gear", () => {
+  // The captions toggle + pause slider now live in the settings-gear popover
+  // (see voice-room-settings-menu.test.tsx for their behavior). The room just
+  // renders the gear in place of the old direct captions button.
+  test("renders the voice-settings gear, not a bare captions button", () => {
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+    expect(
+      screen.getByRole("button", { name: "Voice settings" }),
+    ).toBeDefined();
+    expect(screen.queryByRole("button", { name: "Show captions" })).toBeNull();
+  });
+});
+
+describe("VoiceRoom — mute toggle", () => {
+  test("mute drives the registered setMuted control", () => {
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+    fireEvent.click(screen.getByRole("button", { name: "Mute microphone" }));
+    expect(controls.setMuted).toHaveBeenCalledWith(true);
+  });
+
+  test("muted: offers unmute", () => {
+    startOwnedSession("listening");
+    useLiveVoiceStore.setState({ muted: true });
+    render(<VoiceRoom />);
+    const toggle = screen.getByRole("button", { name: "Unmute microphone" });
+    expect(toggle.getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(toggle);
+    expect(controls.setMuted).toHaveBeenCalledWith(false);
+  });
+});
+
+describe("VoiceRoom — stop response", () => {
+  const stopButton = () =>
+    screen.queryByRole("button", { name: "Stop assistant response" });
+
+  test("■ renders while speaking hands-free and drives the interrupt control", () => {
+    startOwnedSession("speaking");
+    useLiveVoiceStore.setState({ handsFree: true });
+    render(<VoiceRoom />);
+    fireEvent.click(stopButton()!);
+    expect(controls.interrupt).toHaveBeenCalledTimes(1);
+    expect(controls.stop).not.toHaveBeenCalled();
+  });
+
+  test("no ■ outside speaking, or for a manual (fallback) session", () => {
+    startOwnedSession("listening");
+    useLiveVoiceStore.setState({ handsFree: true });
+    const { unmount } = render(<VoiceRoom />);
+    expect(stopButton()).toBeNull();
+    unmount();
+
+    // Manual session (version-skew fallback): interrupt would end the whole
+    // session, so the room must not offer the turn-scoped control.
+    startOwnedSession("speaking");
+    useLiveVoiceStore.setState({ handsFree: false });
+    render(<VoiceRoom />);
+    expect(stopButton()).toBeNull();
+  });
+});
+
+describe("VoiceRoom — connect feedback", () => {
+  test("shows the connecting label while the session connects", () => {
+    startOwnedSession("connecting");
+    render(<VoiceRoom />);
+    expect(screen.getByTestId("voice-room-connect-label").textContent).toBe(
+      "Connecting…",
+    );
+  });
+
+  test("relabels to Reconnecting… while retrying a dropped connection", () => {
+    startOwnedSession("connecting");
+    useLiveVoiceStore.getState().setReconnecting(true);
+    render(<VoiceRoom />);
+    expect(screen.getByTestId("voice-room-connect-label").textContent).toBe(
+      "Reconnecting…",
+    );
+  });
+
+  test("no connect label once listening", () => {
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+    expect(screen.queryByTestId("voice-room-connect-label")).toBeNull();
+  });
+});
+
+describe("VoiceRoom — audio-aware status label (JARVIS-1279)", () => {
+  // The sr-only aria-live region uses the "…"-suffixed state labels, distinct
+  // from the caption's un-suffixed text (e.g. "Thinking" vs "Thinking…").
+  test("announces Thinking… (not Speaking…) during a silent mid-turn speaking phase", () => {
+    startOwnedSession("speaking");
+    // A mid-turn tool run: still `speaking`, but audio has stopped flowing.
+    useLiveVoiceStore.setState({ assistantAudioActive: false });
+    render(<VoiceRoom />);
+    expect(screen.getByText("Thinking…")).toBeTruthy();
+    expect(screen.queryByText("Speaking…")).toBeNull();
+  });
+
+  test("announces Speaking… while audio is actually flowing", () => {
+    // seedLiveVoiceSession marks a `speaking` session audio-active.
+    startOwnedSession("speaking");
+    render(<VoiceRoom />);
+    expect(screen.getByText("Speaking…")).toBeTruthy();
+  });
+});
+
+describe("VoiceRoom — full-app takeover", () => {
+  test("the room is a modal full-viewport overlay", () => {
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+    const dialog = roomDialog()!;
+    expect(dialog.getAttribute("aria-modal")).toBe("true");
+    expect(dialog.className).toContain("fixed inset-0");
+  });
+});
+
+describe("VoiceRoom — looks (color-with-eyes vs ambient void)", () => {
+  const eyes = () => screen.queryByTestId("voice-room-eyes");
+
+  test("a character avatar gets the color-with-eyes look", () => {
+    mockAvatarData = {
+      components: CHARACTER_COMPONENTS,
+      traits: { bodyShape: "sprout", eyeStyle: "curious", color: "green" },
+      customImageUrl: null,
+    };
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+    expect(eyes()).not.toBeNull();
+    // The eyes replace the void look's centered avatar; the mic waveform
+    // still shows while listening (centered, behind the eyes).
+    expect(screen.queryByTestId("voice-avatar")).toBeNull();
+    expect(screen.getByTestId("listening-waves")).toBeTruthy();
+    // The exit control stays available regardless of look.
+    expect(exitButton()).not.toBeNull();
+  });
+
+  test("the color look shows no waveform outside listening", () => {
+    mockAvatarData = {
+      components: CHARACTER_COMPONENTS,
+      traits: { bodyShape: "sprout", eyeStyle: "curious", color: "green" },
+      customImageUrl: null,
+    };
+    startOwnedSession("speaking");
+    render(<VoiceRoom />);
+    expect(eyes()).not.toBeNull();
+    expect(screen.queryByTestId("listening-waves")).toBeNull();
+  });
+
+  test("a default character (no traits) gets first-component eyes", () => {
+    mockAvatarData = {
+      components: CHARACTER_COMPONENTS,
+      traits: null,
+      customImageUrl: null,
+    };
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+    expect(eyes()).not.toBeNull();
+  });
+
+  test("a custom-image avatar keeps the ambient-void look", () => {
+    mockAvatarData = {
+      components: CHARACTER_COMPONENTS,
+      traits: null,
+      customImageUrl: "blob:custom-avatar",
+    };
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+    expect(eyes()).toBeNull();
+    expect(screen.getByTestId("voice-avatar")).toBeTruthy();
+    expect(screen.getByTestId("listening-waves")).toBeTruthy();
+  });
+
+  test("an unresolved avatar (still loading) keeps the ambient-void look", () => {
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+    expect(eyes()).toBeNull();
+    expect(screen.getByTestId("voice-avatar")).toBeTruthy();
+  });
+});
+
+describe("VoiceRoom — state caption (shared across looks)", () => {
+  const caption = () => screen.queryByTestId("voice-state-caption");
+
+  function renderCharacterLook(state: LiveVoiceSessionState) {
+    mockAvatarData = {
+      components: CHARACTER_COMPONENTS,
+      traits: { bodyShape: "sprout", eyeStyle: "curious", color: "green" },
+      customImageUrl: null,
+    };
+    startOwnedSession(state);
+    render(<VoiceRoom />);
+  }
+
+  // The void look (custom-image / unresolved avatar) carries the centered
+  // avatar, not the eyes, but shares the same caption in the same beat.
+  function renderVoidLook(state: LiveVoiceSessionState) {
+    mockAvatarData = {
+      components: CHARACTER_COMPONENTS,
+      traits: null,
+      customImageUrl: "blob:custom-avatar",
+    };
+    startOwnedSession(state);
+    render(<VoiceRoom />);
+  }
+
+  test("shows the state caption below the eyes by default (captions off)", () => {
+    renderCharacterLook("listening");
+    expect(caption()?.textContent).toBe("Listening");
+  });
+
+  test("stands the caption down when the assistant transcript is enabled", () => {
+    useVoicePrefsStore.setState({ showAssistantTranscript: true });
+    renderCharacterLook("speaking");
+    expect(caption()).toBeNull();
+  });
+
+  test("keeps the caption when only the user transcript is enabled", () => {
+    // The user transcript floats *above* the eyes, so it never fills the
+    // caption's lower space — enabling it alone must not blank the caption.
+    useVoicePrefsStore.setState({ showUserTranscript: true });
+    renderCharacterLook("listening");
+    expect(caption()?.textContent).toBe("Listening");
+  });
+
+  test("the void look shows the same caption below the custom avatar (parity)", () => {
+    renderVoidLook("speaking");
+    // Void look — the centered avatar, not the eyes — still names the beat.
+    expect(screen.getByTestId("voice-avatar")).toBeTruthy();
+    expect(screen.queryByTestId("voice-room-eyes")).toBeNull();
+    expect(caption()?.textContent).toBe("Speaking");
+  });
+
+  test("the void look stands its caption down for the assistant transcript too", () => {
+    useVoicePrefsStore.setState({ showAssistantTranscript: true });
+    renderVoidLook("speaking");
+    expect(caption()).toBeNull();
+  });
+});
+
+describe("VoiceRoom — void-look responding rings", () => {
+  const rings = () => screen.queryByTestId("voice-responding-rings");
+
+  function renderVoidLook(state: LiveVoiceSessionState) {
+    mockAvatarData = {
+      components: CHARACTER_COMPONENTS,
+      traits: null,
+      customImageUrl: "blob:custom-avatar",
+    };
+    startOwnedSession(state);
+    render(<VoiceRoom />);
+  }
+
+  test("emits the same concentric rings behind the custom avatar while responding", () => {
+    renderVoidLook("speaking");
+    // The custom avatar (not the eyes) is the centerpiece, but it radiates the
+    // color look's rings — parity with the eyes' responding treatment.
+    expect(screen.getByTestId("voice-avatar")).toBeTruthy();
+    expect(screen.queryByTestId("voice-room-eyes")).toBeNull();
+    expect(rings()).toBeTruthy();
+  });
+
+  test("shows no rings outside responding (energy going out only while speaking)", () => {
+    renderVoidLook("listening");
+    expect(rings()).toBeNull();
+  });
+});
+
+describe("VoiceRoom — no push-to-talk / manual-release affordance (hands-free)", () => {
   // Sessions are hands-free (server-VAD): the user just speaks, so the room
-  // offers no push-to-talk control. Space is not intercepted and there is no
-  // tappable "Speak" orb — only Escape / ✕ are wired (see the exit suite).
+  // offers no push-to-talk control and no manual "send now" — the controller's
+  // `release` seam is a no-op for hands-free sessions, so such a control would
+  // be dead (PR #37913 review). Space and Enter are not intercepted; a focused
+  // room control keeps its native Enter activation.
   test("Space does not release the current turn while listening", () => {
     startOwnedSession("listening");
     render(<VoiceRoom />);
@@ -256,9 +701,23 @@ describe("VoiceRoom — no push-to-talk affordance (hands-free)", () => {
     expect(event.defaultPrevented).toBe(false);
   });
 
-  test("there is no tappable Speak orb", () => {
+  test("Enter is not intercepted while listening — no dead send-now shortcut", () => {
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+    const event = new KeyboardEvent("keydown", {
+      key: "Enter",
+      cancelable: true,
+    });
+    window.dispatchEvent(event);
+    expect(controls.release).not.toHaveBeenCalled();
+    // No preventDefault: a focused room control keeps native Enter activation.
+    expect(event.defaultPrevented).toBe(false);
+  });
+
+  test("there is no tappable Speak orb and no Send now control", () => {
     startOwnedSession("listening");
     render(<VoiceRoom />);
     expect(screen.queryByRole("button", { name: "Speak" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Send now/ })).toBeNull();
   });
 });

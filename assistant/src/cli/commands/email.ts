@@ -14,6 +14,7 @@ import {
   cliIpcCallStream,
   exitFromIpcResult,
 } from "../../ipc/cli-client.js";
+import { guessMimeType } from "../../util/mime-type.js";
 import { readStdinSync } from "../../util/read-stdin.js";
 import { applyCommandHelp, subcommand } from "../lib/cli-command-help.js";
 import { registerCommand } from "../lib/register-command.js";
@@ -402,7 +403,11 @@ Examples:
       // imperatively to the declaratively-registered options.
       const send = subcommand(email, "send");
       const collect = (val: string, prev: string[]) => [...prev, val];
-      for (const flags of ["--cc <address>", "--bcc <address>"]) {
+      for (const flags of [
+        "--cc <address>",
+        "--bcc <address>",
+        "--attach <path>",
+      ]) {
         const option = send.options.find((o) => o.flags === flags);
         if (!option) {
           throw new Error(
@@ -422,6 +427,7 @@ Examples:
             html?: string;
             cc?: string[];
             bcc?: string[];
+            attach?: string[];
             replyTo?: string;
           },
           cmd: Command,
@@ -472,6 +478,31 @@ Examples:
             }
           }
 
+          // Read attachments and base64-encode their content for the JSON
+          // wire to the platform proxy.
+          let attachments:
+            | { filename: string; content_type: string; content: string }[]
+            | undefined;
+          if (opts.attach && opts.attach.length > 0) {
+            attachments = [];
+            for (const path of opts.attach) {
+              try {
+                const data = readFileSync(path);
+                attachments.push({
+                  filename: basename(path),
+                  content_type: guessMimeType(path),
+                  content: data.toString("base64"),
+                });
+              } catch (err) {
+                log.error(
+                  `Failed to read --attach ${path}: ${err instanceof Error ? err.message : String(err)}`,
+                );
+                process.exitCode = 1;
+                return;
+              }
+            }
+          }
+
           const params: Record<string, unknown> = { to, text };
           if (opts.subject) {
             params.subject = opts.subject;
@@ -484,6 +515,9 @@ Examples:
           }
           if (opts.bcc && opts.bcc.length > 0) {
             params.bcc = opts.bcc;
+          }
+          if (attachments && attachments.length > 0) {
+            params.attachments = attachments;
           }
           if (opts.replyTo) {
             params.reply_to = opts.replyTo;

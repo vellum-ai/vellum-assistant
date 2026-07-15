@@ -10,7 +10,7 @@ Cut a new release. Releases are a **two-step** process:
 1. **Branch cut → staging bake**: `create-release-branch.yml` computes the version from the bump type, deletes any stale `release/v<X.Y.Z>` branch, cuts a fresh one from `main` HEAD with the version-bump commit, and pushes it. That push triggers a `Release` run on the branch which is a **staging** deploy (push-triggered and main-dispatched `Release` runs are always staging).
 2. **Production**: dispatching `release.yml` **on the `release/v<X.Y.Z>` branch** runs the full production release — tag, GitHub Release, DMG sign/notarize/publish, npm packages, Docker Hub images, iOS TestFlight, platform dependency bump, and the merge-back of the release branch to `main`.
 
-The scheduled Tue/Fri 9am ET cut performs step 1 automatically; a human performs step 2 after the staging bake is green. A `release/v<X.Y.Z>` branch with no corresponding GitHub Release means a cut was never promoted — re-running step 1 refreshes it from current `main`.
+The scheduled Tue/Fri 8:52am ET cut performs step 1 automatically; a human performs step 2 after the staging bake is green. A `release/v<X.Y.Z>` branch with no corresponding GitHub Release means a cut was never promoted — re-running step 1 refreshes it from current `main`.
 
 The user may pass `$ARGUMENTS` as the bump type for step 1: `patch`, `minor`, `major`, or `hotfix` (patch cut from the latest release tag's commit instead of `main`, pushed `[skip ci]` for manual cherry-picks). Default to `patch`.
 

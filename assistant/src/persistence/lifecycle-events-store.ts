@@ -1,10 +1,6 @@
-import { and, asc, eq, gt, or } from "drizzle-orm";
-import { v4 as uuid } from "uuid";
-
-import { getCachedShareAnalytics } from "../platform/consent-cache.js";
-import { getTelemetryMainDb } from "../telemetry/telemetry-main-db.js";
-import { getDb } from "./db-connection.js";
-import { lifecycleEvents } from "./schema.js";
+import { recordTelemetryEvent } from "../telemetry/telemetry-events-outbox.js";
+import type { LifecycleTelemetryEvent } from "../telemetry/types.js";
+import { APP_VERSION } from "../version.js";
 
 export interface LifecycleEvent {
   id: string;
@@ -12,57 +8,33 @@ export interface LifecycleEvent {
   createdAt: number;
 }
 
-/** Record a lifecycle event (e.g. app_open, hatch). Returns null when usage data collection is disabled. */
-export function recordLifecycleEvent(eventName: string): LifecycleEvent | null {
-  if (!getCachedShareAnalytics()) {
-    return null;
-  }
-  const db = getDb();
-  const event: LifecycleEvent = {
-    id: uuid(),
-    eventName,
-    createdAt: Date.now(),
+/**
+ * Wire shape of one lifecycle event, for callers that insert outbox rows via
+ * raw SQL (conversation-crud's clearAll audit path). Mirrors the shape
+ * `recordTelemetryEvent` stamps — the shared `LifecycleTelemetryEvent` type
+ * keeps them in sync.
+ */
+export function buildLifecycleTelemetryEvent(
+  id: string,
+  eventName: string,
+  createdAt: number,
+): LifecycleTelemetryEvent {
+  return {
+    type: "lifecycle",
+    daemon_event_id: id,
+    event_name: eventName,
+    recorded_at: createdAt,
+    assistant_version: APP_VERSION,
   };
-  db.insert(lifecycleEvents)
-    .values({
-      id: event.id,
-      eventName: event.eventName,
-      createdAt: event.createdAt,
-    })
-    .run();
-  return event;
 }
 
 /**
- * Query lifecycle events that haven't been reported to telemetry yet.
- * Uses a compound cursor (createdAt + id) for reliable watermarking.
+ * Record a lifecycle event (e.g. app_open, hatch) into the `telemetry_events`
+ * outbox. Consent gating and degraded-mode `null` are `recordTelemetryEvent`'s.
  */
-export function queryUnreportedLifecycleEvents(
-  afterCreatedAt: number,
-  afterId: string | undefined,
-  limit: number,
-): LifecycleEvent[] {
-  const db = getTelemetryMainDb();
-  const rows = db
-    .select({
-      id: lifecycleEvents.id,
-      eventName: lifecycleEvents.eventName,
-      createdAt: lifecycleEvents.createdAt,
-    })
-    .from(lifecycleEvents)
-    .where(
-      afterId
-        ? or(
-            gt(lifecycleEvents.createdAt, afterCreatedAt),
-            and(
-              eq(lifecycleEvents.createdAt, afterCreatedAt),
-              gt(lifecycleEvents.id, afterId),
-            ),
-          )
-        : gt(lifecycleEvents.createdAt, afterCreatedAt),
-    )
-    .orderBy(asc(lifecycleEvents.createdAt), asc(lifecycleEvents.id))
-    .limit(limit)
-    .all();
-  return rows;
+export function recordLifecycleEvent(eventName: string): LifecycleEvent | null {
+  const recorded = recordTelemetryEvent("lifecycle", {
+    event_name: eventName,
+  });
+  return recorded ? { ...recorded, eventName } : null;
 }

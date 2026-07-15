@@ -20,11 +20,14 @@ export interface IdentitySectionGates {
   supportsPlugins: boolean;
   /** The `channel-trust-floors` flag exposes the Channels surface. */
   showChannels: boolean;
+  /** The `memory-concept-graph` flag exposes the Memory surface. */
+  showMemory: boolean;
 }
 
 export function buildIdentitySections({
   supportsPlugins,
   showChannels,
+  showMemory,
 }: IdentitySectionGates): IdentitySection[] {
   const sections: IdentitySection[] = [
     {
@@ -46,6 +49,14 @@ export function buildIdentitySections({
       to: routes.skills.root,
     },
   ];
+  if (showMemory) {
+    sections.push({
+      key: "memory",
+      label: "Memory",
+      description: "What I remember",
+      to: routes.memory,
+    });
+  }
   if (supportsPlugins) {
     sections.push({
       key: "plugins",
