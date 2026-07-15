@@ -8,6 +8,7 @@ import { beforeEach, describe, expect, test } from "bun:test";
 
 import { recordOnboardingResearchEvent } from "../onboarding/onboarding-research-events-store.js";
 import {
+  pendingOutboxRows,
   resetOutboxTable,
   setShareAnalytics,
   setShareDiagnostics,
@@ -16,8 +17,12 @@ import {
   ALL_TELEMETRY_EVENT_SOURCES,
   DAEMON_TELEMETRY_EVENT_SOURCES,
   MONITOR_TELEMETRY_EVENT_SOURCES,
+  ORPHAN_OUTBOX_DRAIN_SOURCE_ID,
+  orphanOutboxDrainSource,
 } from "./telemetry-event-sources.js";
+import { insertTelemetryOutboxEvents } from "./telemetry-events-outbox.js";
 import { telemetryEventSchema } from "./telemetry-wire.generated.js";
+import type { TelemetryEvent } from "./types.js";
 import {
   OUTBOX_TELEMETRY_EVENT_NAMES,
   WATERMARK_TELEMETRY_EVENT_NAMES,
@@ -26,7 +31,8 @@ import {
 describe("telemetry event source partition", () => {
   test("the full source list carries every event type in payload order", () => {
     // Watermark sources first (their ids are the table names, not the wire
-    // discriminants), then outbox events in wire-contract order.
+    // discriminants), then outbox events in wire-contract order, then the
+    // synthetic orphan-drain source last.
     expect(ALL_TELEMETRY_EVENT_SOURCES.map((s) => s.id)).toEqual([
       "usage",
       "turns",
@@ -38,6 +44,7 @@ describe("telemetry event source partition", () => {
       "watchdog",
       "config_setting",
       "onboarding_research",
+      ORPHAN_OUTBOX_DRAIN_SOURCE_ID,
     ]);
   });
 
@@ -45,7 +52,8 @@ describe("telemetry event source partition", () => {
     // The derivation's core guarantee: a new wire event type can't silently go
     // unflushed. Every discriminant in the generated contract is either
     // watermark-flushed or (by default) outbox-backed, never both, never
-    // neither — and the counts line up with one source per type.
+    // neither — and, ignoring the synthetic orphan-drain source, the counts
+    // line up with one source per type.
     const wireTypes = new Set(
       telemetryEventSchema.options.map((o) => o.shape.type.value),
     );
@@ -55,7 +63,10 @@ describe("telemetry event source partition", () => {
     ];
     expect(new Set(partitioned)).toEqual(wireTypes);
     expect(partitioned.length).toBe(wireTypes.size); // disjoint: no double-count
-    expect(ALL_TELEMETRY_EVENT_SOURCES.length).toBe(wireTypes.size);
+    const perTypeSources = ALL_TELEMETRY_EVENT_SOURCES.filter(
+      (s) => s.id !== ORPHAN_OUTBOX_DRAIN_SOURCE_ID,
+    );
+    expect(perTypeSources.length).toBe(wireTypes.size);
   });
 
   test("every watermark name is a real wire discriminant", () => {
@@ -140,5 +151,61 @@ describe("onboarding_research source: flushes via the default outbox source", ()
 
     const batch = onboardingResearchSource().collect(0, undefined, 100);
     expect(batch.events).toHaveLength(1);
+  });
+});
+
+describe("orphan-drain source", () => {
+  beforeEach(() => {
+    resetOutboxTable();
+    setShareAnalytics(true);
+  });
+
+  function insertOutboxRow(name: string, id: string): void {
+    insertTelemetryOutboxEvents([
+      {
+        id,
+        name,
+        createdAt: 1,
+        event: {
+          type: name,
+          daemon_event_id: id,
+          recorded_at: 1,
+          assistant_version: "1.2.3",
+        } as unknown as TelemetryEvent,
+      },
+    ]);
+  }
+
+  test("drains rows for a type no longer in the wire contract, then self-heals on ack", () => {
+    // A row whose name isn't a current outbox event type — e.g. recorded before
+    // the platform removed the type. No per-type source queries it.
+    const orphanName = "removed_legacy_event";
+    insertOutboxRow(orphanName, "orphan-row-1");
+
+    const source = orphanOutboxDrainSource();
+    const batch = source.collect(0, undefined, 500);
+    expect(batch.events).toHaveLength(1);
+    expect((batch.events[0] as { type: string }).type).toBe(orphanName);
+    expect(batch.rowIds).toEqual(["orphan-row-1"]);
+
+    // Send-then-ack: the reporter deletes the row after a 2xx, so it self-heals.
+    source.ack?.acknowledge(batch.rowIds ?? []);
+    expect(pendingOutboxRows(orphanName)).toHaveLength(0);
+  });
+
+  test("ignores rows for a current outbox event type", () => {
+    // Known types drain through their own per-type source, not this one.
+    const knownName = OUTBOX_TELEMETRY_EVENT_NAMES[0];
+    insertOutboxRow(knownName, "known-row-1");
+    const batch = orphanOutboxDrainSource().collect(0, undefined, 500);
+    expect(batch.events).toHaveLength(0);
+  });
+
+  test("is registered in the monitor partition", () => {
+    expect(
+      MONITOR_TELEMETRY_EVENT_SOURCES.some(
+        (s) => s.id === ORPHAN_OUTBOX_DRAIN_SOURCE_ID,
+      ),
+    ).toBe(true);
   });
 });
