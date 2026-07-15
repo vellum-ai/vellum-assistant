@@ -136,19 +136,6 @@ describe("getEnvFlagOverridesForScope", () => {
     }
   });
 
-  test("still boolean-coerces booleanish Vite env values for boolean flags", () => {
-    (globalThis as Record<string, unknown>).window = undefined;
-    process.env.VITE_VELLUM_FLAG_HOME_TAB = "on";
-    try {
-      resetEnvOverridesCache();
-      const result = getEnvFlagOverridesForScope("client");
-      expect(result.bool.homeTab).toBe(true);
-      expect(result.str).not.toHaveProperty("homeTab");
-    } finally {
-      delete process.env.VITE_VELLUM_FLAG_HOME_TAB;
-    }
-  });
-
   test("matches string-flag env arms case-insensitively and stores the canonical arm", () => {
     (globalThis as Record<string, unknown>).window = undefined;
     process.env.VITE_VELLUM_FLAG_PROACTIVE_TIPS = "ON";
@@ -183,14 +170,16 @@ describe("getEnvFlagOverridesForScope", () => {
 
   test("boolean flags keep case-insensitive env coercion", () => {
     (globalThis as Record<string, unknown>).window = undefined;
-    process.env.VITE_VELLUM_FLAG_HOME_TAB = "ON";
-    try {
-      resetEnvOverridesCache();
-      const result = getEnvFlagOverridesForScope("client");
-      expect(result.bool.homeTab).toBe(true);
-      expect(result.str).not.toHaveProperty("homeTab");
-    } finally {
-      delete process.env.VITE_VELLUM_FLAG_HOME_TAB;
+    for (const raw of ["on", "ON"]) {
+      process.env.VITE_VELLUM_FLAG_HOME_TAB = raw;
+      try {
+        resetEnvOverridesCache();
+        const result = getEnvFlagOverridesForScope("client");
+        expect(result.bool.homeTab).toBe(true);
+        expect(result.str).not.toHaveProperty("homeTab");
+      } finally {
+        delete process.env.VITE_VELLUM_FLAG_HOME_TAB;
+      }
     }
   });
 
