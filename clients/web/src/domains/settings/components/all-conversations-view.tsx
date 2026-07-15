@@ -28,11 +28,11 @@ import type { Conversation } from "@/types/conversation-types";
 import { invalidateConversationQueries } from "@/utils/conversation-cache";
 import { toast } from "@vellumai/design-library";
 import { Button } from "@vellumai/design-library/components/button";
-import { Input } from "@vellumai/design-library/components/input";
 import {
-  SegmentControl,
-  type SegmentControlItem,
-} from "@vellumai/design-library/components/segment-control";
+  Dropdown,
+  type DropdownOption,
+} from "@vellumai/design-library/components/dropdown";
+import { Input } from "@vellumai/design-library/components/input";
 
 export interface AllConversationsViewProps {
   assistantId: string;
@@ -42,7 +42,7 @@ export interface AllConversationsViewProps {
   onOpenConversation: (conversationId: string) => void;
 }
 
-const FILTER_ITEMS: SegmentControlItem<ConversationFilter>[] = [
+const FILTER_ITEMS: DropdownOption<ConversationFilter>[] = [
   { value: "all", label: "All" },
   { value: "active", label: "Active" },
   { value: "archived", label: "Archived" },
@@ -236,25 +236,16 @@ export function AllConversationsView({
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      <div className="mb-4 flex shrink-0 items-center justify-between gap-4">
-        {title ? (
-          <h1 className="text-title-large text-[var(--content-default)]">
-            {title}
-          </h1>
-        ) : (
-          <span />
-        )}
-        <SegmentControl<ConversationFilter>
-          ariaLabel="Filter conversations"
-          value={filter}
-          onChange={setFilter}
-          items={FILTER_ITEMS}
-        />
-      </div>
+      {title ? (
+        <h1 className="mb-4 shrink-0 text-title-large text-[var(--content-default)]">
+          {title}
+        </h1>
+      ) : null}
 
-      <div className="mb-6 shrink-0">
+      <div className="mb-6 flex shrink-0 items-center gap-2">
         <Input
           fullWidth
+          wrapperClassName="min-w-0 flex-1"
           type="text"
           placeholder="Search conversations"
           value={searchText}
@@ -262,6 +253,14 @@ export function AllConversationsView({
             setSearchText(e.target.value)
           }
           leftIcon={<Search size={16} />}
+        />
+        <Dropdown<ConversationFilter>
+          aria-label="Filter conversations"
+          value={filter}
+          onChange={setFilter}
+          options={FILTER_ITEMS}
+          menuAlign="end"
+          className="w-36 shrink-0"
         />
       </div>
 
