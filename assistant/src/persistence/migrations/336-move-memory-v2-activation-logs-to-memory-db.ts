@@ -1,15 +1,10 @@
 import type { Database } from "bun:sqlite";
 
 import { getMemoryDbPath } from "../../util/memory-db-path.js";
+import type { DrizzleDb } from "../db-connection.js";
 import {
-  type DrizzleDb,
-  getMemorySqlite,
-  getSqliteFrom,
-} from "../db-connection.js";
-import {
-  drainStagedTable,
   type RelocationSpec,
-  stageTableForRelocation,
+  runMemoryTableRelocation,
 } from "./helpers/relocation.js";
 
 /**
@@ -80,40 +75,16 @@ export function ensureActivationLogsSchema(memoryRaw: Database): void {
  * `plugins/defaults/memory/memory-v2-activation-log-store.ts` read/write it
  * over the dedicated memory connection.
  *
- * Like migration 326 the move is incremental: create the table (and indexes)
- * on the memory connection, rename any populated
- * `main.memory_v2_activation_logs` aside to
- * `memory_v2_activation_logs__relocating`, then drain it in awaited batches
- * (see `helpers/relocation.ts`) per {@link ACTIVATION_LOGS_RELOCATION}.
- *
  * Registered with `dependsOn` on migrations 234 (creator) and 256 (whose
  * backfill reads this table from `main`), so the move never outruns either
  * on a database where they are still pending.
- *
- * Throws (rather than returning) if the memory database cannot be opened, so
- * the runner records the step as failed instead of applied and retries it on
- * a later boot — never renaming the source aside without a target to write
- * to. The throw is caught per-step by the runner, so startup is not aborted.
  */
 export async function migrateMoveMemoryV2ActivationLogsToMemoryDb(
   database: DrizzleDb,
 ): Promise<void> {
-  const memoryRaw = getMemorySqlite();
-  if (!memoryRaw) {
-    throw new Error(
-      "memory database unavailable — deferring memory_v2_activation_logs relocation",
-    );
-  }
-
-  ensureActivationLogsSchema(memoryRaw);
-
-  const raw = getSqliteFrom(database);
-  const needsDrain = stageTableForRelocation(
-    raw,
-    ACTIVATION_LOGS_RELOCATION.table,
+  await runMemoryTableRelocation(
+    database,
+    ACTIVATION_LOGS_RELOCATION,
+    ensureActivationLogsSchema,
   );
-
-  if (needsDrain) {
-    await drainStagedTable(raw, ACTIVATION_LOGS_RELOCATION);
-  }
 }

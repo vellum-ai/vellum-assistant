@@ -1,15 +1,10 @@
 import type { Database } from "bun:sqlite";
 
 import { getMemoryDbPath } from "../../util/memory-db-path.js";
+import type { DrizzleDb } from "../db-connection.js";
 import {
-  type DrizzleDb,
-  getMemorySqlite,
-  getSqliteFrom,
-} from "../db-connection.js";
-import {
-  drainStagedTable,
   type RelocationSpec,
-  stageTableForRelocation,
+  runMemoryTableRelocation,
 } from "./helpers/relocation.js";
 
 /**
@@ -75,36 +70,15 @@ export function ensureMemoryV3SelectionsSchema(memoryRaw: Database): void {
  * housing it with the other high-churn memory state keeps the main DB and its
  * WAL out of that write path.
  *
- * Like migration 326 the move is incremental: create the table (and indexes)
- * on the memory connection, rename any populated `main.memory_v3_selections`
- * aside to `memory_v3_selections__relocating`, then drain it in awaited
- * batches per {@link MEMORY_V3_SELECTIONS_RELOCATION}. On a fresh install the
- * main-side table created by migration 268 is empty, so staging just drops it.
- *
- * Throws (rather than returning) if the memory database cannot be opened, so
- * the runner records the step as failed instead of applied and retries it on
- * a later boot — never renaming the source aside without a target to write
- * to. The throw is caught per-step by the runner, so startup is not aborted.
+ * On a fresh install the main-side table created by migration 268 is empty,
+ * so staging just drops it.
  */
 export async function migrateMoveMemoryV3SelectionsToMemoryDb(
   database: DrizzleDb,
 ): Promise<void> {
-  const memoryRaw = getMemorySqlite();
-  if (!memoryRaw) {
-    throw new Error(
-      "memory database unavailable — deferring memory_v3_selections relocation",
-    );
-  }
-
-  ensureMemoryV3SelectionsSchema(memoryRaw);
-
-  const raw = getSqliteFrom(database);
-  const needsDrain = stageTableForRelocation(
-    raw,
-    MEMORY_V3_SELECTIONS_RELOCATION.table,
+  await runMemoryTableRelocation(
+    database,
+    MEMORY_V3_SELECTIONS_RELOCATION,
+    ensureMemoryV3SelectionsSchema,
   );
-
-  if (needsDrain) {
-    await drainStagedTable(raw, MEMORY_V3_SELECTIONS_RELOCATION);
-  }
 }

@@ -1,15 +1,10 @@
 import type { Database } from "bun:sqlite";
 
 import { getMemoryDbPath } from "../../util/memory-db-path.js";
+import type { DrizzleDb } from "../db-connection.js";
 import {
-  type DrizzleDb,
-  getMemorySqlite,
-  getSqliteFrom,
-} from "../db-connection.js";
-import {
-  drainStagedTable,
   type RelocationSpec,
-  stageTableForRelocation,
+  runMemoryTableRelocation,
 } from "./helpers/relocation.js";
 
 /**
@@ -104,36 +99,16 @@ export function ensureRecallLogsSchema(memoryRaw: Database): void {
  * `plugins/defaults/memory/memory-recall-log-store.ts` read/write it over the
  * dedicated memory connection.
  *
- * Like migration 326 the move is incremental: create the table (and indexes)
- * on the memory connection, rename any populated `main.memory_recall_logs`
- * aside to `memory_recall_logs__relocating`, then drain it in awaited batches
- * (see `helpers/relocation.ts`) per {@link RECALL_LOGS_RELOCATION}.
- *
  * Registered with `dependsOn` on migrations 194 (creator) and 211
  * (`query_context` column), so the move never outruns either on a database
  * where they are still pending.
- *
- * Throws (rather than returning) if the memory database cannot be opened, so
- * the runner records the step as failed instead of applied and retries it on
- * a later boot — never renaming the source aside without a target to write
- * to. The throw is caught per-step by the runner, so startup is not aborted.
  */
 export async function migrateMoveMemoryRecallLogsToMemoryDb(
   database: DrizzleDb,
 ): Promise<void> {
-  const memoryRaw = getMemorySqlite();
-  if (!memoryRaw) {
-    throw new Error(
-      "memory database unavailable — deferring memory_recall_logs relocation",
-    );
-  }
-
-  ensureRecallLogsSchema(memoryRaw);
-
-  const raw = getSqliteFrom(database);
-  const needsDrain = stageTableForRelocation(raw, RECALL_LOGS_RELOCATION.table);
-
-  if (needsDrain) {
-    await drainStagedTable(raw, RECALL_LOGS_RELOCATION);
-  }
+  await runMemoryTableRelocation(
+    database,
+    RECALL_LOGS_RELOCATION,
+    ensureRecallLogsSchema,
+  );
 }
