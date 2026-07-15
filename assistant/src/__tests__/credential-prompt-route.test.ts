@@ -529,6 +529,90 @@ describe("credentials/prompt route", () => {
     );
   });
 
+  describe("ACP token-type format guard", () => {
+    /**
+     * A prompt that collects a mismatched ACP token type must be rejected
+     * before persisting, routing the user to the correct field rather than
+     * silently storing an API key under the OAuth field (the original bug).
+     */
+    test("rejects an Anthropic API key collected for the ACP OAuth field", async () => {
+      // GIVEN the secure prompt returns an sk-ant-api… key
+      secretResult = { value: "sk-ant-api03-abc123", delivery: "store" };
+
+      // WHEN it is collected for acp/claude_oauth_token
+      const result = (await promptRoute!.handler({
+        body: {
+          service: "acp",
+          field: "claude_oauth_token",
+          label: "Claude OAuth Token",
+        },
+      })) as PromptResponse;
+
+      // THEN it fails with a field-routing error and nothing is persisted
+      expect(result.ok).toBe(false);
+      expect(result.error).toContain("anthropic_api_key");
+      expect(result.service).toBe("acp");
+      expect(result.field).toBe("claude_oauth_token");
+      expect(secureKeyWrites).toEqual([]);
+      expect(capturedMetadata).toBeUndefined();
+    });
+
+    test("rejects a Claude OAuth token collected for the ACP API-key field", async () => {
+      // GIVEN the secure prompt returns an sk-ant-oat… token
+      secretResult = { value: "sk-ant-oat01-abc123", delivery: "store" };
+
+      // WHEN it is collected for acp/anthropic_api_key
+      const result = (await promptRoute!.handler({
+        body: {
+          service: "acp",
+          field: "anthropic_api_key",
+          label: "Anthropic API Key",
+        },
+      })) as PromptResponse;
+
+      // THEN it fails with a field-routing error and nothing is persisted
+      expect(result.ok).toBe(false);
+      expect(result.error).toContain("claude_oauth_token");
+      expect(secureKeyWrites).toEqual([]);
+    });
+
+    test("stores a correctly-paired ACP credential", async () => {
+      // GIVEN the secure prompt returns an sk-ant-api… key
+      secretResult = { value: "sk-ant-api03-abc123", delivery: "store" };
+
+      // WHEN it is collected for the matching acp/anthropic_api_key field
+      const result = (await promptRoute!.handler({
+        body: {
+          service: "acp",
+          field: "anthropic_api_key",
+          label: "Anthropic API Key",
+        },
+      })) as PromptResponse;
+
+      // THEN it is persisted to secure storage
+      expect(result.ok).toBe(true);
+      expect(secureKeyWrites).toEqual([
+        { key: "acp:anthropic_api_key", value: "sk-ant-api03-abc123" },
+      ]);
+    });
+
+    test("leaves an unrelated service untouched by the ACP guard", async () => {
+      // GIVEN the prompt returns a token-shaped value for a non-ACP service
+      secretResult = { value: "sk-ant-oat01-abc123", delivery: "store" };
+
+      // WHEN it is collected for github/api_token
+      const result = (await promptRoute!.handler({
+        body: { service: "github", field: "api_token", label: "GitHub Token" },
+      })) as PromptResponse;
+
+      // THEN the guard does not fire and the value is persisted
+      expect(result.ok).toBe(true);
+      expect(secureKeyWrites).toEqual([
+        { key: "github:api_token", value: "sk-ant-oat01-abc123" },
+      ]);
+    });
+  });
+
   test("forwards provided allowed-tools/-domains to credential metadata", async () => {
     /**
      * When the caller does supply policy flags they must reach the metadata

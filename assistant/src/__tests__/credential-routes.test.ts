@@ -308,6 +308,97 @@ describe("credentials routes", () => {
       await expect(call).rejects.toBeInstanceOf(BadRequestError);
       expect(secureStore.size).toBe(0);
     });
+
+    describe("ACP token-type format guard", () => {
+      /**
+       * The original bug: an Anthropic API key (sk-ant-api…) stored in the ACP
+       * OAuth field caused a 401. The write path now rejects a mismatched ACP
+       * token type with a message routing the user to the correct field.
+       */
+      test("rejects an Anthropic API key under the ACP OAuth field", async () => {
+        // WHEN an sk-ant-api… key is stored under acp/claude_oauth_token
+        let caught: unknown;
+        try {
+          await setRoute!.handler({
+            body: {
+              service: "acp",
+              field: "claude_oauth_token",
+              value: "sk-ant-api03-abc123",
+            },
+          });
+        } catch (err) {
+          caught = err;
+        }
+
+        // THEN it is a BadRequestError routing to the API-key field, and
+        // nothing is persisted
+        expect(caught).toBeInstanceOf(BadRequestError);
+        expect((caught as Error).message).toContain("anthropic_api_key");
+        expect(secureStore.size).toBe(0);
+      });
+
+      test("rejects a Claude OAuth token under the ACP API-key field", async () => {
+        // WHEN an sk-ant-oat… token is stored under acp/anthropic_api_key
+        let caught: unknown;
+        try {
+          await setRoute!.handler({
+            body: {
+              service: "acp",
+              field: "anthropic_api_key",
+              value: "sk-ant-oat01-abc123",
+            },
+          });
+        } catch (err) {
+          caught = err;
+        }
+
+        // THEN it is a BadRequestError routing to the OAuth field
+        expect(caught).toBeInstanceOf(BadRequestError);
+        expect((caught as Error).message).toContain("claude_oauth_token");
+        expect(secureStore.size).toBe(0);
+      });
+
+      test("stores correctly-paired ACP credentials", async () => {
+        // WHEN each ACP token is stored under its matching field
+        await setRoute!.handler({
+          body: {
+            service: "acp",
+            field: "anthropic_api_key",
+            value: "sk-ant-api03-abc123",
+          },
+        });
+        await setRoute!.handler({
+          body: {
+            service: "acp",
+            field: "claude_oauth_token",
+            value: "sk-ant-oat01-abc123",
+          },
+        });
+
+        // THEN both are persisted unchanged
+        expect(secureStore.get("acp:anthropic_api_key")).toBe(
+          "sk-ant-api03-abc123",
+        );
+        expect(secureStore.get("acp:claude_oauth_token")).toBe(
+          "sk-ant-oat01-abc123",
+        );
+      });
+
+      test("leaves an unrelated service untouched by the ACP guard", async () => {
+        // WHEN a token-shaped value is stored under a non-ACP service
+        const result = (await setRoute!.handler({
+          body: {
+            service: "github",
+            field: "api_token",
+            value: "sk-ant-oat01-abc123",
+          },
+        })) as SetResponse;
+
+        // THEN the guard does not fire and the value is persisted
+        expect(result.service).toBe("github");
+        expect(secureStore.get("github:api_token")).toBe("sk-ant-oat01-abc123");
+      });
+    });
   });
 
   describe("credentials_list", () => {

@@ -17,6 +17,10 @@
 import { z } from "zod";
 
 import {
+  AcpCredentialFormatError,
+  assertAcpCredentialFormat,
+} from "../../acp/acp-credentials.js";
+import {
   fetchManagedCatalog,
   type ManagedCredentialDescriptor,
 } from "../../credential-execution/managed-catalog.js";
@@ -384,6 +388,17 @@ async function handleCredentialsSet({ body }: RouteHandlerArgs) {
   const normalizedValue = normalizeSecretValue(value);
   if (normalizedValue.length === 0) {
     throw new BadRequestError("value is required");
+  }
+
+  // Reject a mismatched ACP token type (e.g. an API key in the OAuth field)
+  // as a clean 400 that routes the user to the correct field.
+  try {
+    assertAcpCredentialFormat(service, field, normalizedValue);
+  } catch (err) {
+    if (err instanceof AcpCredentialFormatError) {
+      throw new BadRequestError(err.message);
+    }
+    throw err;
   }
 
   assertMetadataWritable();
