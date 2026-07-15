@@ -6,62 +6,66 @@ import { Typography } from "@vellumai/design-library/components/typography";
 import { Loader2 } from "lucide-react";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
+import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import { useConnectClaude } from "@/hooks/use-connect-claude";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 
 // ---------------------------------------------------------------------------
-// Connect Claude Code section
+// Inline "Connect Claude Code" affordance for a failed ACP spawn
 // ---------------------------------------------------------------------------
 //
-// Settings surface for the ACP "Connect Claude" OAuth flow. Gated behind the
-// `acp-claude-oauth-connect` flag. Desktop is one-click (loopback poll); the
-// cloud is one-paste (manual exchange). See `useConnectClaude`.
+// When an `acp_spawn` fails because the `claude-agent-acp` OAuth token is
+// missing, the daemon tags the tool result with a structured `errorCode` marker
+// (see `ACP_CLAUDE_OAUTH_MISSING_CODE` in
+// `assistant/src/acp/prepare-agent-env.ts`). The transcript renders this inline
+// affordance so the user can complete the OAuth flow in one round-trip instead
+// of reading dead error text and running a CLI prompt. Gated behind the
+// `acp-claude-oauth-connect` flag; when the flag is off the component renders
+// nothing and the tool call keeps its plain error rendering.
 
-export function ConnectClaudeSection() {
-  const enabled = useAssistantFeatureFlagStore.use.acpClaudeOauthConnect();
-  if (!enabled) {
-    return null;
-  }
-  return <ConnectClaudeSectionInner />;
+/**
+ * Stable marker the daemon sets on a missing-token `acp_spawn` tool result.
+ * Mirror of the daemon literal `ACP_CLAUDE_OAUTH_MISSING_CODE`; the two are a
+ * wire contract and must stay in sync.
+ */
+export const ACP_CLAUDE_OAUTH_MISSING_CODE = "acp_claude_oauth_missing";
+
+/** True when a tool call is a missing-token ACP spawn failure. */
+export function toolCallNeedsClaudeConnect(tc: ChatMessageToolCall): boolean {
+  return tc.isError === true && tc.errorCode === ACP_CLAUDE_OAUTH_MISSING_CODE;
 }
 
-function ConnectClaudeSectionInner() {
+export function AcpConnectAffordance() {
+  const enabled = useAssistantFeatureFlagStore.use.acpClaudeOauthConnect();
+  if (!enabled) {
+    // Flag off → fall back to the plain error rendering.
+    return null;
+  }
+  return <AcpConnectAffordanceInner />;
+}
+
+function AcpConnectAffordanceInner() {
   const assistantId = useActiveAssistantId();
-  const { phase, error, connect, submitPastedCode, reset } =
+  const { phase, error, connect, submitPastedCode } =
     useConnectClaude(assistantId);
   const [pastedCode, setPastedCode] = useState("");
 
-  function handleReset() {
-    reset();
-    setPastedCode("");
-  }
-
   return (
-    <div className="space-y-3 rounded-lg border border-[var(--border-base)] p-4">
-      <div className="space-y-1">
-        <Typography
-          variant="title-small"
-          as="p"
-          className="text-[var(--content-default)]"
-        >
-          Connect Claude Code
-        </Typography>
-        <Typography
-          variant="body-small-default"
-          as="p"
-          className="text-[var(--content-tertiary)]"
-        >
-          Sign in with your Claude account so your assistant can run Claude Code
-          agents without pasting an API key.
-        </Typography>
-      </div>
+    <div
+      className="mt-2 space-y-3 rounded-lg border border-[var(--border-base)] p-3"
+      data-testid="acp-connect-affordance"
+    >
+      <Typography
+        variant="body-small-default"
+        as="p"
+        className="text-[var(--content-secondary)]"
+      >
+        Connect Claude Code to run this agent — sign in with your Claude account
+        so no API key is needed.
+      </Typography>
 
       {phase === "idle" || phase === "error" ? (
-        <Button
-          variant="outlined"
-          size="compact"
-          onClick={() => void connect()}
-        >
+        <Button variant="outlined" size="compact" onClick={() => void connect()}>
           Connect Claude Code
         </Button>
       ) : null}
@@ -70,18 +74,16 @@ function ConnectClaudeSectionInner() {
       {phase === "awaiting_capture" ? (
         <BusyRow label="Waiting for Claude sign-in to complete..." />
       ) : null}
-      {phase === "exchanging" ? (
-        <BusyRow label="Completing sign-in..." />
-      ) : null}
+      {phase === "exchanging" ? <BusyRow label="Completing sign-in..." /> : null}
 
       {phase === "awaiting_paste" ? (
-        <div className="space-y-3">
+        <div className="space-y-2">
           <Typography
             variant="body-small-default"
             as="p"
-            className="text-[var(--content-secondary)]"
+            className="text-[var(--content-tertiary)]"
           >
-            After signing in, copy the code Claude shows you and paste it below.
+            After signing in, paste the code Claude shows you.
           </Typography>
           <Input
             value={pastedCode}
@@ -108,7 +110,7 @@ function ConnectClaudeSectionInner() {
           as="p"
           className="text-[var(--system-positive-strong)]"
         >
-          Claude Code connected.
+          Claude Code connected. Ask again to run the agent.
         </Typography>
       ) : null}
 
@@ -116,16 +118,10 @@ function ConnectClaudeSectionInner() {
         <Typography
           variant="body-small-default"
           as="p"
-          className="text-(--system-negative-strong)"
+          className="text-[var(--system-negative-strong)]"
         >
           {error}
         </Typography>
-      ) : null}
-
-      {phase === "connected" ? (
-        <Button variant="ghost" size="compact" onClick={handleReset}>
-          Connect a different account
-        </Button>
       ) : null}
     </div>
   );

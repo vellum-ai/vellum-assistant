@@ -12,6 +12,8 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { FailedDependencyError } from "../../runtime/routes/errors.js";
+
 // ---------------------------------------------------------------------------
 // Stubs — wired BEFORE importing the helper via dynamic import.
 // ---------------------------------------------------------------------------
@@ -100,7 +102,8 @@ mock.module("../../tools/credentials/broker.js", () => ({
   },
 }));
 
-const { prepareAgentEnv } = await import("../prepare-agent-env.js");
+const { prepareAgentEnv, ACP_CLAUDE_OAUTH_MISSING_CODE } =
+  await import("../prepare-agent-env.js");
 
 beforeEach(() => {
   metadataStore.clear();
@@ -202,6 +205,34 @@ describe("prepareAgentEnv — claude-agent-acp gating", () => {
     await expect(
       prepareAgentEnv({ command: "claude-agent-acp", args: [] }),
     ).rejects.toThrow("CLAUDE_CODE_OAUTH_TOKEN");
+  });
+
+  test("enriches the missing-token error with the acp_claude_oauth_missing marker AND keeps the CLI message", async () => {
+    let caught: unknown;
+    try {
+      await prepareAgentEnv({ command: "claude-agent-acp", args: [] });
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeInstanceOf(FailedDependencyError);
+    // Structured marker survives as `details` for the client to branch on.
+    expect((caught as FailedDependencyError).details).toEqual({
+      code: ACP_CLAUDE_OAUTH_MISSING_CODE,
+    });
+    // Human, CLI-friendly message is not lost.
+    expect((caught as Error).message).toContain("CLAUDE_CODE_OAUTH_TOKEN");
+  });
+
+  test("does NOT attach the marker when a token is present (happy path unchanged)", async () => {
+    seedVaultToken("vault-marker-absent");
+
+    const prepared = await prepareAgentEnv({
+      command: "claude-agent-acp",
+      args: [],
+    });
+
+    expect(prepared.env?.CLAUDE_CODE_OAUTH_TOKEN).toBe("vault-marker-absent");
   });
 
   test("gates on the resolved command BASENAME (alias to /custom/path/claude-agent-acp still gets the token)", async () => {

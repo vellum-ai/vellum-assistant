@@ -2197,6 +2197,7 @@ export async function handleToolResult(
     approvalReason: event.approvalReason,
     riskThreshold: event.riskThreshold,
     activityMetadata: event.activityMetadata,
+    errorCode: event.errorCode,
     completedAt,
   });
 

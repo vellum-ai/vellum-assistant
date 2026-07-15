@@ -131,6 +131,14 @@ export const ToolResultEventSchema = z.object({
   riskThreshold: z.string().optional(),
   activityMetadata: ToolActivityMetadataSchema.optional(),
   /**
+   * Stable, machine-readable classification for an error result (only set when
+   * `isError`). Lets a client branch on a known failure — e.g.
+   * `acp_claude_oauth_missing`, which renders an inline "Connect Claude Code"
+   * affordance — instead of pattern-matching the human `result` string. Absent
+   * on streams from older daemons and for results with no structured code.
+   */
+  errorCode: z.string().optional(),
+  /**
    * Unix ms when the daemon finished executing the tool. Pairs with
    * `ToolUseStartEvent.startedAt` so clients can render a final duration that
    * stays on the daemon's clock, matching the live elapsed-time counter and

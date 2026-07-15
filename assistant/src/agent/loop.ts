@@ -285,6 +285,8 @@ export type AgentEvent =
       approvalReason?: string;
       riskThreshold?: string;
       activityMetadata?: ToolActivityMetadata;
+      /** Stable machine-readable error classification (see `ToolExecutionResult.errorCode`). */
+      errorCode?: string;
       /**
        * Set when the loop synthesizes this result for a tool_use that never
        * executed (a "Cancelled by user" block on abort). The daemon still
@@ -692,6 +694,7 @@ export type LoopToolExecutor = (
   approvalReason?: string;
   riskThreshold?: string;
   activityMetadata?: ToolActivityMetadata;
+  errorCode?: string;
 }>;
 
 /**
@@ -2269,6 +2272,7 @@ export class AgentLoop {
             approvalReason: result.approvalReason,
             riskThreshold: result.riskThreshold,
             activityMetadata: result.activityMetadata,
+            errorCode: result.errorCode,
           });
         }
 

@@ -34,6 +34,10 @@ import {
   groupContentBlocks,
   isSubagentSpawnCall,
 } from "@/domains/chat/transcript/message-content";
+import {
+  AcpConnectAffordance,
+  toolCallNeedsClaudeConnect,
+} from "@/domains/chat/transcript/acp-connect-affordance";
 import { parseInlineSurfaces } from "@/domains/chat/utils/parse-inline-surfaces";
 import { useSmoothStreamText } from "@/domains/chat/hooks/use-smooth-stream-text";
 import { useSupportsRedactedCredentialChips } from "@/lib/backwards-compat/use-supports-redacted-credential-chips";
@@ -581,6 +585,12 @@ export function TranscriptMessageBody({
     );
   };
 
+  // A missing-token ACP spawn renders its plain error card plus this inline
+  // Connect affordance (flag-gated inside the component). Null when no tool call
+  // in the group carries the marker, so unrelated failures are unaffected.
+  const renderAcpConnectAffordance = (toolCalls: ChatMessageToolCall[]) =>
+    toolCalls.some(toolCallNeedsClaudeConnect) ? <AcpConnectAffordance /> : null;
+
   const renderInlineBackgroundTaskCards = (
     toolCalls: ChatMessageToolCall[],
   ) => {
@@ -683,6 +693,7 @@ export function TranscriptMessageBody({
           {renderInlineWorkflowCards(groupToolCalls)}
           {renderInlineAcpRunCards(groupToolCalls)}
           {renderInlineBackgroundTaskCards(groupToolCalls)}
+          {renderAcpConnectAffordance(groupToolCalls)}
         </Fragment>
       );
     }
@@ -734,6 +745,7 @@ export function TranscriptMessageBody({
           {renderInlineWorkflowCards(groupToolCalls)}
           {renderInlineAcpRunCards(groupToolCalls)}
           {renderInlineBackgroundTaskCards(groupToolCalls)}
+          {renderAcpConnectAffordance(groupToolCalls)}
         </Fragment>
       );
     }
