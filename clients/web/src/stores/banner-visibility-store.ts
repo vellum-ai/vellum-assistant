@@ -1,3 +1,7 @@
+import { create } from "zustand";
+
+import { createSelectors } from "@/utils/create-selectors";
+
 /**
  * Zustand store tracking whether a composer nudge banner is currently
  * rendered. Contract for mutual exclusivity: a sidebar tip must never render
@@ -13,33 +17,19 @@
  *
  * Reference: {@link https://zustand.docs.pmnd.rs/}
  */
-
-import { create } from "zustand";
-
-import { createSelectors } from "@/utils/create-selectors";
-
-// ---------------------------------------------------------------------------
-// State & Actions
-// ---------------------------------------------------------------------------
-
-export interface BannerVisibilityState {
+interface BannerVisibilityState {
   /** Number of currently mounted nudge banner overlays. */
   visibleBannerCount: number;
 }
 
-export interface BannerVisibilityActions {
+interface BannerVisibilityActions {
   registerVisibleBanner: () => void;
   unregisterVisibleBanner: () => void;
 }
 
-export type BannerVisibilityStore = BannerVisibilityState &
-  BannerVisibilityActions;
-
-// ---------------------------------------------------------------------------
-// Store
-// ---------------------------------------------------------------------------
-
-const useBannerVisibilityStoreBase = create<BannerVisibilityStore>()((set) => ({
+const useBannerVisibilityStoreBase = create<
+  BannerVisibilityState & BannerVisibilityActions
+>()((set) => ({
   visibleBannerCount: 0,
 
   registerVisibleBanner: () =>
@@ -54,14 +44,6 @@ export const useBannerVisibilityStore = createSelectors(
   useBannerVisibilityStoreBase,
 );
 
-// ---------------------------------------------------------------------------
-// Derivation
-// ---------------------------------------------------------------------------
-
-/** Pure predicate — true while any nudge banner is mounted. */
-export const isBannerVisible = (visibleBannerCount: number) =>
-  visibleBannerCount > 0;
-
-/** Reactive read for components (e.g. tip surfaces). */
+/** Reactive read for tip surfaces — true while any nudge banner is mounted. */
 export const useBannerVisible = () =>
-  isBannerVisible(useBannerVisibilityStore.use.visibleBannerCount());
+  useBannerVisibilityStore.use.visibleBannerCount() > 0;

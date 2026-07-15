@@ -111,13 +111,20 @@ function isStringFlag(def: FlagDefinition | undefined): boolean {
   return typeof def?.defaultEnabled === "string";
 }
 
-function parseEnvValue(flagKey: string, raw: string): boolean | string {
-  // String-valued flags take the env value verbatim — arms like "on"/"off"
-  // are variant names, not booleans.
-  if (isStringFlag(FLAG_KEY_TO_DEF.get(flagKey))) {
-    return raw;
-  }
+function parseEnvValue(
+  flagKey: string,
+  raw: string,
+): boolean | string | undefined {
+  const def = FLAG_KEY_TO_DEF.get(flagKey);
   const lower = raw.toLowerCase();
+  // Arms like "on"/"off" are variant names, not booleans — match declared
+  // arms case-insensitively; a value matching no arm is dropped as invalid.
+  if (isStringFlag(def)) {
+    if (!def?.values) {
+      return raw;
+    }
+    return def.values.find((arm) => arm.toLowerCase() === lower);
+  }
   if (TRUTHY.has(lower)) {
     return true;
   }
@@ -142,7 +149,10 @@ function computeEnvFlagOverrides(): Record<string, boolean | string> {
       const flagKey = upperSnakeToKebab(key.slice(VITE_FLAG_PREFIX.length));
       const raw = env[key as keyof ImportMetaEnv];
       if (raw != null) {
-        overrides[flagKey] = parseEnvValue(flagKey, raw);
+        const value = parseEnvValue(flagKey, raw);
+        if (value !== undefined) {
+          overrides[flagKey] = value;
+        }
       }
     }
   }

@@ -1,8 +1,6 @@
 /**
  * Tests that `useChatBannerSlots` builds the main banner slot from the nudge
- * flags. Banner *visibility* is mirrored into the shared store by `ChatBody`
- * (which owns the actual mount conditions), not by this hook — see
- * `chat-body.test.tsx`.
+ * state: any active nudge flag yields a slot node, none yields null.
  *
  * The banner components and queued drawer are stubbed via `mock.module` so
  * the test stays focused on the slot construction logic.

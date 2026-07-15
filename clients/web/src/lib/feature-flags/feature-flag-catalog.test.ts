@@ -149,6 +149,51 @@ describe("getEnvFlagOverridesForScope", () => {
     }
   });
 
+  test("matches string-flag env arms case-insensitively and stores the canonical arm", () => {
+    (globalThis as Record<string, unknown>).window = undefined;
+    process.env.VITE_VELLUM_FLAG_PROACTIVE_TIPS = "ON";
+    try {
+      resetEnvOverridesCache();
+      expect(getEnvFlagOverridesForScope("client").str.proactiveTips).toBe(
+        "on",
+      );
+
+      process.env.VITE_VELLUM_FLAG_PROACTIVE_TIPS = "On";
+      resetEnvOverridesCache();
+      expect(getEnvFlagOverridesForScope("client").str.proactiveTips).toBe(
+        "on",
+      );
+    } finally {
+      delete process.env.VITE_VELLUM_FLAG_PROACTIVE_TIPS;
+    }
+  });
+
+  test("drops string-flag env values that match no declared arm", () => {
+    (globalThis as Record<string, unknown>).window = undefined;
+    process.env.VITE_VELLUM_FLAG_PROACTIVE_TIPS = "bogus";
+    try {
+      resetEnvOverridesCache();
+      const result = getEnvFlagOverridesForScope("client");
+      expect(result.str).not.toHaveProperty("proactiveTips");
+      expect(result.bool).not.toHaveProperty("proactiveTips");
+    } finally {
+      delete process.env.VITE_VELLUM_FLAG_PROACTIVE_TIPS;
+    }
+  });
+
+  test("boolean flags keep case-insensitive env coercion", () => {
+    (globalThis as Record<string, unknown>).window = undefined;
+    process.env.VITE_VELLUM_FLAG_HOME_TAB = "ON";
+    try {
+      resetEnvOverridesCache();
+      const result = getEnvFlagOverridesForScope("client");
+      expect(result.bool.homeTab).toBe(true);
+      expect(result.str).not.toHaveProperty("homeTab");
+    } finally {
+      delete process.env.VITE_VELLUM_FLAG_HOME_TAB;
+    }
+  });
+
   test("maps boolean-coerced window overrides back onto on/off string flags", () => {
     (globalThis as Record<string, unknown>).window = {
       __VELLUM_FLAG_OVERRIDES__: { "proactive-tips": true },
