@@ -11,7 +11,7 @@ import {
     emitOnboardingFunnelStepCompleted,
     getOnboardingFunnelSessionId,
     ONBOARDING_FUNNEL_STEPS,
-    onboardingFunnelVariantFromExperiment,
+    ONBOARDING_FUNNEL_VARIANTS,
     resolveOnboardingFunnelVariant,
 } from "@/domains/onboarding/funnel-events";
 import { onboardingDestinationAfterConsent } from "@/domains/onboarding/onboarding-destination";
@@ -24,7 +24,6 @@ import {
 import { isElectron } from "@/runtime/is-electron";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import { useAuthStore, useHasPlatformSession } from "@/stores/auth-store";
-import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { saveConsent } from "@/utils/onboarding-cleanup";
 import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
@@ -35,10 +34,7 @@ export function PrivacyScreen() {
   const userId = useAuthStore.use.user()?.id ?? null;
   const electron = isElectron();
   const isNative = useIsNativePlatform();
-  const preChatExperimentArm =
-    useClientFeatureFlagStore.use.stringFlags().preChatOnboardingExperiment20260606 ?? "control";
-  const preferredFunnelVariant =
-    onboardingFunnelVariantFromExperiment(preChatExperimentArm);
+  const preferredFunnelVariant = ONBOARDING_FUNNEL_VARIANTS.control;
   const [shareDiagnostics, setShareDiagnosticsReal] = useShareDiagnostics();
   const [tosAccepted, setTosAcceptedReal] = useTosAccepted();
   const [privacyConsent, setPrivacyConsentReal] = usePrivacyConsent();
