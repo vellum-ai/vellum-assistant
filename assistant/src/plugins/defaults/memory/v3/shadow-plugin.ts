@@ -526,8 +526,8 @@ export function attributeSelections(result: OrchestrateResult): SelectionRow[] {
 
 /**
  * Write the attributed selection rows to `memory_v3_selections` over the
- * dedicated memory connection. Best-effort: an unavailable memory database
- * drops the turn's log rows rather than affecting the turn.
+ * dedicated memory connection. Best-effort: an unavailable memory database or
+ * a failed write drops the turn's log rows rather than affecting the turn.
  */
 export function writeSelections(
   conversationId: string,
@@ -537,33 +537,37 @@ export function writeSelections(
   if (rows.length === 0) {
     return;
   }
-  const raw = memorySqliteOrNull("writeSelections");
-  if (!raw) {
-    return;
-  }
-  // PK is (conversation_id, turn, slug); OR REPLACE keeps the write
-  // idempotent if the same turn is observed twice (e.g. a retried turn).
-  // `message_id` is written NULL here (the assistant message does not exist at
-  // injection time) and stamped at turn end by
-  // `backfillMemoryV3SelectionMessageId`.
-  const stmt = raw.query(/*sql*/ `
-    INSERT OR REPLACE INTO memory_v3_selections (
-      conversation_id, turn, slug, source, pinned, created_at,
-      message_id, section_ordinal, section_title
-    ) VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?)
-  `);
-  const now = Date.now();
-  for (const row of rows) {
-    stmt.run(
-      conversationId,
-      turn,
-      row.slug,
-      row.source,
-      row.pinned,
-      now,
-      row.sectionOrdinal,
-      row.sectionTitle,
-    );
+  try {
+    const raw = memorySqliteOrNull("writeSelections");
+    if (!raw) {
+      return;
+    }
+    // PK is (conversation_id, turn, slug); OR REPLACE keeps the write
+    // idempotent if the same turn is observed twice (e.g. a retried turn).
+    // `message_id` is written NULL here (the assistant message does not exist
+    // at injection time) and stamped at turn end by
+    // `backfillMemoryV3SelectionMessageId`.
+    const stmt = raw.query(/*sql*/ `
+      INSERT OR REPLACE INTO memory_v3_selections (
+        conversation_id, turn, slug, source, pinned, created_at,
+        message_id, section_ordinal, section_title
+      ) VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?)
+    `);
+    const now = Date.now();
+    for (const row of rows) {
+      stmt.run(
+        conversationId,
+        turn,
+        row.slug,
+        row.source,
+        row.pinned,
+        now,
+        row.sectionOrdinal,
+        row.sectionTitle,
+      );
+    }
+  } catch (err) {
+    log.warn({ err }, "failed to write memory-v3 selections; continuing");
   }
 }
 
@@ -580,16 +584,23 @@ export function backfillMemoryV3SelectionMessageId(
   conversationId: string,
   assistantMessageId: string,
 ): void {
-  const raw = memorySqliteOrNull("backfillMemoryV3SelectionMessageId");
-  if (!raw) {
-    return;
+  try {
+    const raw = memorySqliteOrNull("backfillMemoryV3SelectionMessageId");
+    if (!raw) {
+      return;
+    }
+    raw
+      .query(
+        /*sql*/ `UPDATE memory_v3_selections SET message_id = ?
+                 WHERE conversation_id = ? AND message_id IS NULL`,
+      )
+      .run(assistantMessageId, conversationId);
+  } catch (err) {
+    log.warn(
+      { err },
+      "failed to backfill memory-v3 selection messageId; continuing",
+    );
   }
-  raw
-    .query(
-      /*sql*/ `UPDATE memory_v3_selections SET message_id = ?
-               WHERE conversation_id = ? AND message_id IS NULL`,
-    )
-    .run(assistantMessageId, conversationId);
 }
 
 /**
