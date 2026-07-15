@@ -16,10 +16,13 @@
 
 import { z } from "zod";
 
+import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
+import { getConfig } from "../../config/loader.js";
 import {
   fetchManagedCatalog,
   type ManagedCredentialDescriptor,
 } from "../../credential-execution/managed-catalog.js";
+import { buildForChatSentinel } from "../../daemon/chat-credential-redaction.js";
 import { syncManualTokenConnection } from "../../oauth/manual-token-connection.js";
 import {
   disconnectOAuthProvider,
@@ -48,6 +51,7 @@ import {
 } from "../../tools/credentials/metadata-store.js";
 import type { CredentialInjectionTemplate } from "../../tools/credentials/policy-types.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
+import { recordForChatMint } from "../for-chat-mint-registry.js";
 import { recordRevealSuccess } from "../reveal-success-registry.js";
 import { InjectionTemplateSchema } from "./credential-prompt-routes.js";
 import { BadRequestError, InternalError } from "./errors.js";
@@ -302,6 +306,16 @@ async function handleCredentialsReveal({ body, headers }: RouteHandlerArgs) {
     throw new BadRequestError("Request body is required");
   }
 
+  const forChat = (body as { forChat?: unknown }).forChat === true;
+  if (
+    forChat &&
+    !isAssistantFeatureFlagEnabled("chat-credential-reveal", getConfig())
+  ) {
+    throw new BadRequestError(
+      "--for-chat requires the chat-credential-reveal feature flag",
+    );
+  }
+
   const lookup = resolveCredentialLookup(body);
   const { value: secret, unreachable } = await getSecureKeyResultAsync(
     lookup.storageKey,
@@ -316,27 +330,80 @@ async function handleCredentialsReveal({ body, headers }: RouteHandlerArgs) {
     throw new BadRequestError("Credential not found");
   }
 
+  // Recording gate shared by both registries below: only a DIRECT tool-shell
+  // CLI invocation may create authority. The `local` principal is the
+  // identity a CLI invocation arrives with over the unix-socket IPC
+  // (verified by the adapters, never caller-supplied), but the principal
+  // check alone is not enough: in local mode the gateway derives `local`
+  // from the verified JWT sub and forwards it for web calls too, stamping
+  // `x-vellum-proxy-server: ipc` — a header a direct CLI never sends — so
+  // proxied Settings-row/chat-chip reveals are excluded.
+  const directLocalInvocation =
+    headers?.["x-vellum-principal-type"] === "local" &&
+    headers?.["x-vellum-proxy-server"] !== "ipc";
+
+  if (forChat) {
+    // Both lookup forms resolve service+field (or throw); the narrow check
+    // keeps the sentinel's vault coordinates provably non-empty.
+    if (!lookup.service || !lookup.field) {
+      throw new BadRequestError(
+        "Credential identity could not be resolved for --for-chat",
+      );
+    }
+    // Chat-safe reveal: return the enriched redaction sentinel instead of
+    // the plaintext. The caller (the model, echoing a tool result) can
+    // paste this into its reply to render a click-to-reveal chip without
+    // the secret ever entering model context or the conversation stream.
+    // The persist-path forgery guard re-mints it on identity match — see
+    // guardForChatSentinels in chat-credential-redaction.ts. No plaintext
+    // reaches the tool, so no reveal-success proof is recorded: that
+    // registry authorizes plaintext-echo swaps, and retaining the secret
+    // for a path that never emits it would widen retention for nothing.
+    const sentinel = buildForChatSentinel({
+      service: lookup.service,
+      field: lookup.field,
+      value: secret,
+    });
+    // Record the mint AFTER the reveal provably succeeded. This registry —
+    // not any parse of the requested shell command — is what authorizes the
+    // persist guard to re-mint a sentinel with this identity: a command
+    // that merely quotes or comments out a reveal invocation never reaches
+    // this route, so it never allowlists anything. The mint is scoped to
+    // the originating conversation (reveal is a high-risk, approval-gated
+    // command — one conversation's approval must not let a concurrent
+    // conversation re-mint the identity) and, like the plaintext proof
+    // below, records only for a direct tool-shell invocation. No
+    // conversation id → no mint: outside a conversation there is no
+    // transcript for a chip to live in.
+    const conversationId = (body as { conversationId?: unknown })
+      .conversationId;
+    if (
+      directLocalInvocation &&
+      typeof conversationId === "string" &&
+      conversationId.length > 0
+    ) {
+      recordForChatMint({
+        service: lookup.service,
+        field: lookup.field,
+        sentinel,
+        conversationId,
+      });
+    }
+    return { value: sentinel };
+  }
+
   // Ground truth for the chat-credential-reveal persist seams: this route
   // is the only place a reveal legitimately reads plaintext, so a success
   // recorded here is the proof the agent loop requires before promoting
   // staged reveal candidates (a shell command can "succeed" without ever
   // reaching this handler — `… || true`, or an echo of the command text).
-  // Proof is recorded ONLY for the `local` principal on a DIRECT (not
-  // gateway-proxied) call — the identity a tool shell's CLI invocation
-  // arrives with over the unix-socket IPC (verified by the adapters, never
-  // caller-supplied). The principal check alone is not enough: in local
-  // mode the gateway derives `local` from the verified JWT sub and
-  // forwards it for web calls too, but it always stamps
-  // `x-vellum-proxy-server: ipc` — a header a direct CLI never sends — so
-  // proxied Settings-row/chat-chip reveals are excluded here. Recording a
-  // UI reveal would let a click promote a staged ref in a concurrent turn
-  // whose command merely echoed (or was denied) the invocation. An
-  // unproven ref degrades to a plain sentinel — the safe direction. Both
-  // lookup branches populate service/field; the guard only satisfies the
-  // loose `CredentialLookup` type.
+  // Recording a proxied UI reveal would let a click promote a staged ref
+  // in a concurrent turn whose command merely echoed (or was denied) the
+  // invocation. An unproven ref degrades to a plain sentinel — the safe
+  // direction. Both lookup branches populate service/field; the guard only
+  // satisfies the loose `CredentialLookup` type.
   if (
-    headers?.["x-vellum-principal-type"] === "local" &&
-    headers?.["x-vellum-proxy-server"] !== "ipc" &&
+    directLocalInvocation &&
     lookup.service !== undefined &&
     lookup.field !== undefined
   ) {

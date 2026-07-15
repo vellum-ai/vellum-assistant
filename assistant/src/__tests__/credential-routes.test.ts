@@ -25,6 +25,15 @@ mock.module("../runtime/auth/route-policy.js", () => ({
   ACTOR_PRINCIPALS: [],
 }));
 
+let chatCredentialRevealFlag = false;
+mock.module("../config/assistant-feature-flags.js", () => ({
+  isAssistantFeatureFlagEnabled: (key: string) =>
+    key === "chat-credential-reveal" && chatCredentialRevealFlag,
+}));
+mock.module("../config/loader.js", () => ({
+  getConfig: () => ({}),
+}));
+
 mock.module("../security/credential-key.js", () => ({
   credentialKey: (service: string, field: string) => `${service}:${field}`,
 }));
@@ -109,6 +118,10 @@ mock.module("../credential-execution/managed-catalog.js", () => ({
 }));
 
 import {
+  forChatMintsSince,
+  resetForChatMintRegistryForTest,
+} from "../runtime/for-chat-mint-registry.js";
+import {
   _resetRevealSuccessRegistryForTest,
   currentRevealSuccessWatermark,
   openRevealProofWindow,
@@ -143,6 +156,8 @@ describe("credentials routes", () => {
     disconnectedProviders = [];
     credentialIdCounter = 0;
     _resetRevealSuccessRegistryForTest();
+    resetForChatMintRegistryForTest();
+    chatCredentialRevealFlag = false;
   });
 
   describe("credentials_reveal", () => {
@@ -253,6 +268,86 @@ describe("credentials routes", () => {
       expect(
         revealedValueSince(watermark, "vercel", "api_token"),
       ).toBeUndefined();
+    });
+  });
+
+  describe("credentials_reveal --for-chat", () => {
+    test("rejects forChat when the chat-credential-reveal flag is off", async () => {
+      secureStore.set("vercel:api_token", SECRET_VALUE);
+      await expect(
+        revealRoute!.handler({
+          body: { service: "vercel", field: "api_token", forChat: true },
+          headers: { "x-vellum-principal-type": "local" },
+        }),
+      ).rejects.toThrow("chat-credential-reveal feature flag");
+    });
+
+    test("a direct local forChat reveal returns the sentinel, records the mint, and no plaintext proof", async () => {
+      chatCredentialRevealFlag = true;
+      secureStore.set("vercel:api_token", SECRET_VALUE);
+      openRevealProofWindow();
+      const watermark = currentRevealSuccessWatermark();
+
+      const result = (await revealRoute!.handler({
+        body: {
+          service: "vercel",
+          field: "api_token",
+          forChat: true,
+          conversationId: "conv-1",
+        },
+        headers: { "x-vellum-principal-type": "local" },
+      })) as { value: string };
+
+      expect(result.value).toBe(
+        "\u3014redacted:Credential:vercel:api_token\u3015",
+      );
+      expect(result.value).not.toContain(SECRET_VALUE);
+      expect(forChatMintsSince(0, "conv-1")).toEqual([
+        {
+          service: "vercel",
+          field: "api_token",
+          sentinel: result.value,
+          conversationId: "conv-1",
+        },
+      ]);
+      // The channel never returns plaintext to the tool, so the plaintext
+      // proof registry must not retain the secret for it.
+      expect(
+        revealedValueSince(watermark, "vercel", "api_token"),
+      ).toBeUndefined();
+    });
+
+    test("a gateway-proxied forChat reveal returns the sentinel but records no mint", async () => {
+      chatCredentialRevealFlag = true;
+      secureStore.set("vercel:api_token", SECRET_VALUE);
+
+      const result = (await revealRoute!.handler({
+        body: {
+          service: "vercel",
+          field: "api_token",
+          forChat: true,
+          conversationId: "conv-1",
+        },
+        headers: {
+          "x-vellum-principal-type": "local",
+          "x-vellum-proxy-server": "ipc",
+        },
+      })) as { value: string };
+
+      expect(result.value).toContain("\u3014redacted:");
+      expect(forChatMintsSince(0, "conv-1")).toEqual([]);
+    });
+
+    test("a forChat reveal without a conversation id records no mint", async () => {
+      chatCredentialRevealFlag = true;
+      secureStore.set("vercel:api_token", SECRET_VALUE);
+
+      await revealRoute!.handler({
+        body: { service: "vercel", field: "api_token", forChat: true },
+        headers: { "x-vellum-principal-type": "local" },
+      });
+
+      expect(forChatMintsSince(0, "conv-1")).toEqual([]);
     });
   });
 

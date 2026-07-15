@@ -359,7 +359,7 @@ export function registerCredentialsCommand(program: Command): void {
       subcommand(credential, "reveal").action(
         async (
           id: string | undefined,
-          opts: { service?: string; field?: string },
+          opts: { service?: string; field?: string; forChat?: boolean },
           cmd: Command,
         ) => {
           if (!opts.service && !opts.field && !id) {
@@ -376,6 +376,12 @@ export function registerCredentialsCommand(program: Command): void {
               service: opts.service,
               field: opts.field,
               id,
+              // The conversation id (from the shell tool's env) scopes the
+              // route-recorded mint: only this conversation's persist guard
+              // may re-mint the returned sentinel's identity.
+              ...(opts.forChat
+                ? { forChat: true, conversationId: tryResolveConversationId() }
+                : {}),
             },
           });
 

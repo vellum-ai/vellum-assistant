@@ -9546,7 +9546,9 @@ paths:
     post:
       operationId: credentials_reveal_post
       summary: Reveal a credential's plaintext value
-      description: Return the raw plaintext value of a stored credential. Blocked in untrusted shell mode.
+      description:
+        Return the raw plaintext value of a stored credential. Blocked in untrusted shell mode. With forChat,
+        returns a chat-safe redaction sentinel instead of the plaintext.
       tags:
         - credentials
       requestBody:
@@ -9565,6 +9567,16 @@ paths:
                 id:
                   description: Credential UUID for lookup by ID
                   type: string
+                forChat:
+                  description:
+                    Return the credential's redaction sentinel (renders as a click-to-reveal chip in chat) instead of the
+                    plaintext. Requires the chat-credential-reveal feature flag.
+                  type: boolean
+                conversationId:
+                  description:
+                    "Originating conversation for a forChat reveal. Scopes the recorded mint: only this conversation's persist
+                    guard may re-mint the returned sentinel's identity."
+                  type: string
       responses:
         "200":
           description: Successful response
@@ -9575,7 +9587,7 @@ paths:
                 properties:
                   value:
                     type: string
-                    description: The plaintext credential value
+                    description: The plaintext credential value (or its redaction sentinel when forChat is set)
                 required:
                   - value
                 additionalProperties: false
