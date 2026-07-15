@@ -246,6 +246,16 @@ export interface VoiceTurnOptions {
    * a normal STT turn with no active surface (left at the per-turn default).
    */
   activeSurfaceId?: string;
+  /**
+   * Page to pair with `activeSurfaceId` for a surface-resume turn. Threaded
+   * into `conversation.currentPage` alongside `activeSurfaceId` so
+   * `buildActiveSurfaceContext` injects the right page — parity with the text
+   * path, which sets `currentPage` every turn. `runAgentLoop` clears
+   * `currentActiveSurfaceId` at turn end but not `currentPage`, so a resume
+   * must set it (to `undefined` when the surface action carries no page) to
+   * avoid pairing the resumed surface with a stale page from a prior turn.
+   */
+  currentPage?: string;
 }
 
 export interface VoiceTurnHandle {
@@ -1003,8 +1013,12 @@ export async function startVoiceTurn(
       // `dynamic_page`/app the user acted on (parity with the text path's
       // `currentActiveSurfaceId`). Guarded so a normal STT turn leaves the field
       // at its per-turn default (reset to undefined by the agent loop).
+      // `currentPage` is set alongside because the agent loop does not reset it
+      // between turns, so a resume must pair the surface with its own page
+      // (undefined when the action carries none) rather than a stale one.
       if (opts.activeSurfaceId !== undefined) {
         conversation.currentActiveSurfaceId = opts.activeSurfaceId;
+        conversation.currentPage = opts.currentPage;
       }
       await conversation.runAgentLoop(persistedContent, messageId, {
         onEvent: (msg: ServerMessage) => {
