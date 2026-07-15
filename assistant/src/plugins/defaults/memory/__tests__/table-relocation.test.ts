@@ -28,6 +28,10 @@ const { MEMORY_JOBS_RELOCATION } =
   await import("../../../../persistence/migrations/298-move-memory-jobs-to-memory-db.js");
 const { INJECTION_EVENTS_RELOCATION } =
   await import("../../../../persistence/migrations/326-move-injection-events-to-memory-db.js");
+const { ACTIVATION_LOGS_RELOCATION } =
+  await import("../../../../persistence/migrations/336-move-memory-v2-activation-logs-to-memory-db.js");
+const { RECALL_LOGS_RELOCATION } =
+  await import("../../../../persistence/migrations/337-move-memory-recall-logs-to-memory-db.js");
 
 await initializeDb();
 
@@ -174,6 +178,120 @@ describe("memory_v2_injection_events drain", () => {
     expect(kept).toEqual([
       { id: 1, slug: "fresh-a" },
       { id: 2, slug: "fresh-b" },
+    ]);
+  });
+});
+
+describe("memory_v2_activation_logs drain", () => {
+  test("copies every row, drops staging", async () => {
+    const sqlite = getSqlite();
+    const memory = getMemorySqlite()!;
+
+    // Clean slate: empty live table, fresh populated staging table.
+    memory.exec(`DELETE FROM memory_v2_activation_logs`);
+    sqlite.exec(
+      `DROP TABLE IF EXISTS main."memory_v2_activation_logs__relocating"`,
+    );
+    sqlite.exec(/*sql*/ `
+      CREATE TABLE main."memory_v2_activation_logs__relocating" (
+        id TEXT PRIMARY KEY,
+        conversation_id TEXT NOT NULL,
+        message_id TEXT,
+        turn INTEGER NOT NULL,
+        mode TEXT NOT NULL,
+        concepts_json TEXT NOT NULL,
+        skills_json TEXT NOT NULL,
+        config_json TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      )
+    `);
+
+    const insert = sqlite.prepare(
+      `INSERT INTO main."memory_v2_activation_logs__relocating"
+         (id, conversation_id, message_id, turn, mode,
+          concepts_json, skills_json, config_json, created_at)
+       VALUES (?, 'conv-1', ?, ?, 'router', '[]', '[]', '{}', ?)`,
+    );
+    insert.run("act-1", "msg-1", 1, 1_000);
+    insert.run("act-2", null, 2, 2_000);
+
+    await drainStagedTable(sqlite, ACTIVATION_LOGS_RELOCATION);
+
+    // Staging dropped; the full-copy spec preserved every row and column.
+    expect(existsInMain("memory_v2_activation_logs__relocating")).toBe(false);
+    const kept = memory
+      .query<
+        { id: string; message_id: string | null; turn: number },
+        []
+      >(`SELECT id, message_id, turn FROM memory_v2_activation_logs ORDER BY id`)
+      .all();
+    expect(kept).toEqual([
+      { id: "act-1", message_id: "msg-1", turn: 1 },
+      { id: "act-2", message_id: null, turn: 2 },
+    ]);
+  });
+});
+
+describe("memory_recall_logs drain", () => {
+  test("copies every row, NULL-fills query_context on a pre-211 source, drops staging", async () => {
+    const sqlite = getSqlite();
+    const memory = getMemorySqlite()!;
+
+    // Clean slate: empty live table, fresh populated staging table shaped
+    // like a legacy source that predates the query_context column.
+    memory.exec(`DELETE FROM memory_recall_logs`);
+    sqlite.exec(`DROP TABLE IF EXISTS main."memory_recall_logs__relocating"`);
+    sqlite.exec(/*sql*/ `
+      CREATE TABLE main."memory_recall_logs__relocating" (
+        id TEXT PRIMARY KEY,
+        conversation_id TEXT NOT NULL,
+        message_id TEXT,
+        enabled INTEGER NOT NULL,
+        degraded INTEGER NOT NULL,
+        provider TEXT,
+        model TEXT,
+        degradation_json TEXT,
+        semantic_hits INTEGER NOT NULL,
+        merged_count INTEGER NOT NULL,
+        selected_count INTEGER NOT NULL,
+        tier1_count INTEGER NOT NULL,
+        tier2_count INTEGER NOT NULL,
+        hybrid_search_latency_ms INTEGER NOT NULL,
+        sparse_vector_used INTEGER NOT NULL,
+        injected_tokens INTEGER NOT NULL,
+        latency_ms INTEGER NOT NULL,
+        top_candidates_json TEXT NOT NULL,
+        injected_text TEXT,
+        reason TEXT,
+        created_at INTEGER NOT NULL
+      )
+    `);
+
+    const insert = sqlite.prepare(
+      `INSERT INTO main."memory_recall_logs__relocating"
+         (id, conversation_id, message_id, enabled, degraded, semantic_hits,
+          merged_count, selected_count, tier1_count, tier2_count,
+          hybrid_search_latency_ms, sparse_vector_used, injected_tokens,
+          latency_ms, top_candidates_json, created_at)
+       VALUES (?, 'conv-1', ?, 1, 0, 3, 2, 1, 1, 0, 100, 0, 300, 150, '[]', ?)`,
+    );
+    insert.run("rec-1", "msg-1", 1_000);
+    insert.run("rec-2", null, 2_000);
+
+    await drainStagedTable(sqlite, RECALL_LOGS_RELOCATION);
+
+    // Staging dropped; both rows copied with the absent legacy column
+    // NULL-filled.
+    expect(existsInMain("memory_recall_logs__relocating")).toBe(false);
+    const kept = memory
+      .query<
+        { id: string; message_id: string | null; query_context: string | null },
+        []
+      >(`SELECT id, message_id, query_context FROM memory_recall_logs ORDER BY id`)
+      .all();
+    expect(kept).toEqual([
+      { id: "rec-1", message_id: "msg-1", query_context: null },
+      { id: "rec-2", message_id: null, query_context: null },
     ]);
   });
 });
