@@ -18,6 +18,7 @@ import { useMemo, useState } from "react";
 
 import {
   type ConversationFilter,
+  bucketSources,
   filterBySearch,
   filterByState,
   isBucketLoading,
@@ -49,7 +50,7 @@ export function useAllConversationsData(
   // The archived bucket renders from the archived list alone, so the active
   // lists stay unfetched until a filter needs them — they can drain a large
   // backlog, and the archived deep link (`?tab=archive`) must not wait on it.
-  const needsActive = filter !== "archived";
+  const { needsActive, needsArchived } = bucketSources(filter);
 
   const {
     conversations: active,
@@ -97,9 +98,16 @@ export function useAllConversationsData(
   const loading = isBucketLoading(filter, { activeLoading, archivedLoading });
   const error = isFatalError(filter, { activeError, archivedError });
 
+  // `refetch()` starts a query even when it's disabled, so retrying has to
+  // respect the same bucket gating the queries do — otherwise Retry on an
+  // archived failure kicks off the active fetch `needsActive` just avoided.
   const refetch = () => {
-    refetchActive();
-    refetchArchived();
+    if (needsActive) {
+      refetchActive();
+    }
+    if (needsArchived) {
+      refetchArchived();
+    }
   };
 
   return {

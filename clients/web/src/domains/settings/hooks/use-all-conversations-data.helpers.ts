@@ -93,6 +93,23 @@ export function mergeConversations(
 }
 
 /**
+ * Which lists the selected bucket renders from.
+ *
+ * Drives query enablement and retry from one place: a bucket must never fetch
+ * a source it doesn't show, and `refetch()` starts a query even when it's
+ * disabled, so the two would otherwise drift.
+ */
+export function bucketSources(filter: ConversationFilter): {
+  needsActive: boolean;
+  needsArchived: boolean;
+} {
+  return {
+    needsActive: filter !== "archived",
+    needsArchived: filter !== "active",
+  };
+}
+
+/**
  * Whether the selected bucket is still waiting on a source it renders from.
  *
  * A bucket blocks only on its own source: making the archived view wait on the
@@ -116,12 +133,12 @@ export function isBucketLoading(
 }
 
 /**
- * Whether the selected bucket's source failed.
+ * Whether a source the selected bucket renders from failed.
  *
  * Filtering a list that never loaded yields an empty one, which the view
- * renders as "you have none" instead of offering a retry — so a bucket is
- * fatal on its own source's failure. `all` still needs both sources down: one
- * healthy list renders useful content there.
+ * renders as "you have none" instead of offering a retry. `all` promises every
+ * conversation, so either source failing makes it wrong rather than partial —
+ * it fails on either, mirroring the sources it waits on in `isBucketLoading`.
  */
 export function isFatalError(
   filter: ConversationFilter,
@@ -133,7 +150,7 @@ export function isFatalError(
   if (filter === "archived") {
     return archivedError;
   }
-  return activeError && archivedError;
+  return activeError || archivedError;
 }
 
 /**

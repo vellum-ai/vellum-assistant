@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  bucketSources,
   filterBySearch,
   filterByState,
   isBucketLoading,
@@ -200,6 +201,29 @@ describe("filterByState", () => {
   });
 });
 
+describe("bucketSources", () => {
+  test("'archived' needs only the archived list", () => {
+    expect(bucketSources("archived")).toEqual({
+      needsActive: false,
+      needsArchived: true,
+    });
+  });
+
+  test("'active' needs only the active lists", () => {
+    expect(bucketSources("active")).toEqual({
+      needsActive: true,
+      needsArchived: false,
+    });
+  });
+
+  test("'all' needs both", () => {
+    expect(bucketSources("all")).toEqual({
+      needsActive: true,
+      needsArchived: true,
+    });
+  });
+});
+
 describe("isBucketLoading", () => {
   test("'archived' doesn't wait on the active lists", () => {
     // The active backlog can be large; archived rows are already renderable.
@@ -260,15 +284,17 @@ describe("isFatalError", () => {
     ).toBe(false);
   });
 
-  test("'all' needs both sources down", () => {
+  test("'all' is fatal when either source fails", () => {
+    // "All conversations" is a completeness claim: rendering whichever list
+    // loaded would present a partial view as the whole set.
     expect(isFatalError("all", { activeError: true, archivedError: false })).toBe(
-      false,
+      true,
     );
     expect(isFatalError("all", { activeError: false, archivedError: true })).toBe(
-      false,
-    );
-    expect(isFatalError("all", { activeError: true, archivedError: true })).toBe(
       true,
+    );
+    expect(isFatalError("all", { activeError: false, archivedError: false })).toBe(
+      false,
     );
   });
 });
