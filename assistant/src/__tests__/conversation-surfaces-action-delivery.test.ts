@@ -21,7 +21,10 @@ import type {
   UiSurfaceShow,
 } from "../daemon/message-protocol.js";
 import type { UserMessageAttachment } from "../daemon/message-types/shared.js";
-import type { VoiceResumeHandler } from "../live-voice/live-voice-resume-registry.js";
+import type {
+  VoiceResumeHandler,
+  VoiceResumeOptions,
+} from "../live-voice/live-voice-resume-registry.js";
 
 interface ProcessMessageCall {
   content: string;
@@ -523,7 +526,7 @@ describe("surface action delivery to assistant", () => {
 
     const resumeCalls: Array<{
       content: string;
-      opts?: { displayContent?: string; sourceActorPrincipalId?: string };
+      opts?: VoiceResumeOptions;
     }> = [];
     const handler: VoiceResumeHandler = {
       resumeWithText: (content, opts) => resumeCalls.push({ content, opts }),
@@ -551,6 +554,9 @@ describe("surface action delivery to assistant", () => {
 
       // Routed to the spoken resume, not the silent text pipeline.
       expect(resumeCalls).toHaveLength(1);
+      // The accepted surface is threaded so the resumed turn re-injects its
+      // active-surface context (parity with the text path's activeSurfaceId).
+      expect(resumeCalls[0].opts?.activeSurfaceId).toBe(surfaceId);
       expect(ctx.processMessageCalls).toHaveLength(0);
       // The one-shot surface still completes and the pending guard is cleared.
       expect(ctx.pendingSurfaceActions.has(surfaceId)).toBe(false);
@@ -560,6 +566,53 @@ describe("surface action delivery to assistant", () => {
             msg.type === "ui_surface_complete" && msg.surfaceId === surfaceId,
         ),
       ).toBe(true);
+    } finally {
+      unregisterVoiceResumeHandler(ctx.conversationId, handler);
+    }
+  });
+
+  test("relayed-prompt voice resume emits no pre-echo (single user bubble comes from the resume turn)", async () => {
+    const sent: ServerMessage[] = [];
+    const ctx = makeContext(sent);
+
+    const resumeCalls: Array<{
+      content: string;
+      opts?: VoiceResumeOptions;
+    }> = [];
+    const handler: VoiceResumeHandler = {
+      resumeWithText: (content, opts) => resumeCalls.push({ content, opts }),
+    };
+    registerVoiceResumeHandler(ctx.conversationId, handler);
+
+    try {
+      const surfaceId = "card-relay-1";
+      ctx.pendingSurfaceActions.set(surfaceId, { surfaceType: "card" });
+      ctx.surfaceState.set(surfaceId, {
+        surfaceType: "card",
+        data: { title: "Ready?" } as SurfaceData,
+        actions: [
+          {
+            id: "relay_prompt",
+            label: "Do it",
+            data: { prompt: "Do the thing" },
+          },
+        ],
+      });
+
+      await handleSurfaceAction(ctx, surfaceId, "relay_prompt");
+
+      // Routed to the spoken resume with the relayed prompt as content.
+      expect(resumeCalls).toHaveLength(1);
+      expect(resumeCalls[0].content).toBe("Do the thing");
+      expect(resumeCalls[0].opts?.activeSurfaceId).toBe(surfaceId);
+      expect(ctx.processMessageCalls).toHaveLength(0);
+
+      // The resume turn's own startVoiceTurn broadcasts the single
+      // user_message_echo, so handleSurfaceAction must not pre-echo here —
+      // otherwise the click renders two user bubbles.
+      expect(
+        broadcastedMessages.filter((msg) => msg.type === "user_message_echo"),
+      ).toHaveLength(0);
     } finally {
       unregisterVoiceResumeHandler(ctx.conversationId, handler);
     }

@@ -175,6 +175,29 @@ describe("LiveVoiceSession surface resume", () => {
     await session.close("client_end");
   });
 
+  test("resumeWithText threads activeSurfaceId into the voice turn", async () => {
+    const { frames, session, startVoiceTurn } = createSessionHarness();
+    await session.start();
+
+    const handler = getVoiceResumeHandler(CONVERSATION_ID);
+    handler?.resumeWithText("Thanks for connecting Google.", {
+      activeSurfaceId: "surf-oauth-1",
+    });
+
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+
+    expect(startVoiceTurn).toHaveBeenCalledTimes(1);
+    // The resumed surface reaches the bridge so its active-surface context is
+    // re-injected into the spoken turn.
+    expect(startVoiceTurn.mock.calls[0]?.[0]).toMatchObject({
+      conversationId: CONVERSATION_ID,
+      content: "Thanks for connecting Google.",
+      activeSurfaceId: "surf-oauth-1",
+    });
+
+    await session.close("client_end");
+  });
+
   test("unregisters the resume handler on close", async () => {
     const { session } = createSessionHarness();
     await session.start();
