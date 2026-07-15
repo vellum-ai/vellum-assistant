@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 
-import { setOverridesForTesting } from "../../__tests__/feature-flag-test-helpers.js";
 import { resolveModelIntent } from "../../providers/model-intents.js";
 import { CALL_SITE_DEFAULTS } from "../call-site-defaults.js";
 import {
@@ -177,7 +176,7 @@ describe("resolver integration", () => {
     }
   });
 
-  test("a disabled managed default falls through to the custom-* profile", () => {
+  test("a disabled managed default does not divert resolution to the custom-* clone", () => {
     const llm = LLMSchema.parse({
       profiles: {
         balanced: { source: "managed", status: "disabled" },
@@ -189,18 +188,15 @@ describe("resolver integration", () => {
         },
       },
     });
-    // Legacy cascade: the disabled stub falls through to the custom-* hop.
-    setOverridesForTesting({ "override-or-default-resolution": false });
-    expect(resolveDefaultProfileKey("mainAgent", llm)).toBe("custom-balanced");
-    const resolved = resolveCallSiteConfig("mainAgent", llm);
-    expect(resolved.model).toBe("claude-sonnet-4-6");
-    // Override-or-default: the hop is gone — the fallback anchor is the
-    // code-owned intent, and a legacy disabled stub does not suppress it.
-    setOverridesForTesting({});
+    // The fallback anchor is the code-owned intent: a legacy disabled stub
+    // does not suppress it, and the user-mutable custom-* clone never
+    // captures the call site.
     expect(resolveDefaultProfileKey("mainAgent", llm)).toBe("balanced");
-    expect(resolveCallSiteConfig("mainAgent", llm).model).not.toBe(
-      "claude-sonnet-4-6",
+    const resolved = resolveCallSiteConfig("mainAgent", llm);
+    expect(resolved.model).toBe(
+      CODE_DEFAULT_PROFILE_ENTRIES.balanced.model as string,
     );
+    expect(resolved.model).not.toBe("claude-sonnet-4-6");
   });
 });
 
