@@ -17,8 +17,6 @@ import {
   useContext,
   type ReactNode,
 } from "react";
-import { motion, useReducedMotion } from "motion/react";
-
 import { cn } from "@vellumai/design-library";
 
 import { useElementSize, type StageSize } from "@/hooks/use-element-size";
@@ -41,9 +39,9 @@ const DEFAULT_STAGE_BG = "#17191C";
  */
 const IMAGE_BOTTOM_MARGIN = 24;
 /** Custom-image circle sizing against the stage's smaller dimension. */
-const IMAGE_TARGET_FRACTION = 0.3;
-const IMAGE_MIN_PX = 140;
-const IMAGE_MAX_PX = 260;
+const IMAGE_TARGET_FRACTION = 0.2;
+const IMAGE_MIN_PX = 96;
+const IMAGE_MAX_PX = 160;
 
 export interface AssistantStageValue {
   stage: StageSize;
@@ -93,7 +91,6 @@ export function AssistantStage({
   className,
 }: AssistantStageProps) {
   const { ref, size } = useElementSize();
-  const reduce = useReducedMotion();
 
   const bg = resolveAvatarHex(components, traits) ?? DEFAULT_STAGE_BG;
   const tone = toneForBg(bg);
@@ -108,8 +105,6 @@ export function AssistantStage({
     ),
   );
   const imageRestTop = size.h - imageSize - IMAGE_BOTTOM_MARGIN;
-  const imageStartY = 0.4 * size.h - (imageRestTop + imageSize / 2);
-  const playImageEntrance = entrance && !reduce;
   const bottomReserve = showEyes
     ? Math.round(EYES_VISIBLE_FRACTION * Math.min(size.w, size.h)) + 16
     : showImage
@@ -133,8 +128,10 @@ export function AssistantStage({
           entrance={entrance}
         />
       )}
+      {/* Custom images render fully static — the entrance drop-in is a
+          character move; a photo just sits in place. */}
       {showImage && customImageUrl && (
-        <motion.div
+        <div
           aria-hidden="true"
           className="pointer-events-none absolute z-[2] overflow-hidden rounded-full ring-4 ring-white/25"
           style={{
@@ -142,15 +139,7 @@ export function AssistantStage({
             top: imageRestTop,
             width: imageSize,
             height: imageSize,
-            transformOrigin: "center",
           }}
-          initial={playImageEntrance ? { y: imageStartY, scale: 0.35 } : false}
-          animate={playImageEntrance ? { y: 0, scale: 1 } : { y: 0, scale: 1 }}
-          transition={
-            playImageEntrance
-              ? { duration: 1, ease: "easeInOut" }
-              : { duration: 0 }
-          }
         >
           <img
             src={customImageUrl}
@@ -158,7 +147,7 @@ export function AssistantStage({
             className="h-full w-full object-cover"
             draggable={false}
           />
-        </motion.div>
+        </div>
       )}
 
       <AssistantStageContext.Provider value={{ stage: size, tone, bottomReserve }}>
