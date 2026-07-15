@@ -66,7 +66,7 @@ function parseTimestamp(raw: string): number | null {
 export const tipRecordsStorage = createStorageAccessor<
   Record<string, TipRecord>
 >({
-  key: "app.tips.records",
+  key: "device:tips:records",
   scope: "device",
   parse: parseTipRecords,
   serialize: JSON.stringify,
@@ -75,7 +75,7 @@ export const tipRecordsStorage = createStorageAccessor<
 
 /** Master switch — the Settings "show tips" toggle writes here. */
 export const tipsEnabledStorage = createStorageAccessor<boolean>({
-  key: "app.tips.enabled",
+  key: "device:tips:enabled",
   scope: "device",
   parse: parseBool,
   serialize: String,
@@ -84,7 +84,7 @@ export const tipsEnabledStorage = createStorageAccessor<boolean>({
 
 /** Epoch ms of the first time the tips feature observed this user. 0 = not yet. */
 export const tipsFirstSeenAtStorage = createStorageAccessor<number>({
-  key: "app.tips.firstSeenAt",
+  key: "device:tips:first_seen_at",
   scope: "device",
   parse: parseTimestamp,
   serialize: String,
