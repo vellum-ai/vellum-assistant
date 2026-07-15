@@ -2,6 +2,11 @@
  * Selects the active (not completed, not dismissed) `oauth_connect` surface
  * from the live transcript, for rendering inside the voice room.
  *
+ * Backwards-compat fallback: only assistants that can still raise
+ * `oauth_connect` mid-call need the room's copy of the card — see
+ * `lib/backwards-compat/use-supports-noninteractive-voice-turns.ts` (the
+ * canonical writeup); delete this module together with that gate.
+ *
  * The voice room is a `fixed inset-0 z-50` modal over a blurred, pointer-events
  * disabled transcript, so an `oauth_connect` card attached to a transcript
  * message is invisible and unclickable during a live session — the user can
@@ -45,12 +50,20 @@ function findActiveConnectSurface(
 /**
  * The active pending `oauth_connect` surface to render in the voice room, or
  * `null` when the assistant hasn't asked to connect anything.
+ *
+ * `enabled: false` short-circuits the selector to `null` without scanning the
+ * transcript — the chat session store updates on every streaming token during
+ * a call, so a gated room must not pay the reverse messages×surfaces scan per
+ * update just to discard the result. The flag keeps the hook unconditionally
+ * callable (rules of hooks) while making the disabled path free.
  */
-export function useActiveConnectSurface(): Surface | null {
+export function useActiveConnectSurface(enabled: boolean): Surface | null {
   return useChatSessionStore((state) =>
-    findActiveConnectSurface(
-      state.snapshot?.messages ?? [],
-      state.dismissedSurfaceIds,
-    ),
+    enabled
+      ? findActiveConnectSurface(
+          state.snapshot?.messages ?? [],
+          state.dismissedSurfaceIds,
+        )
+      : null,
   );
 }

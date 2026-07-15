@@ -662,7 +662,7 @@ export function DoctorPanel() {
           {/* Messages area */}
           <div className="relative min-h-0 flex-1">
           <div ref={scrollContainerRef} className="h-full overflow-y-auto">
-            <div className="mx-auto max-w-2xl space-y-3">
+            <div className="mx-auto max-w-3xl space-y-3">
               {entries.map((entry) => {
                 switch (entry.kind) {
                   case "user":
@@ -798,7 +798,7 @@ export function DoctorPanel() {
                   }
                 }
               }}
-              className="mx-auto w-full max-w-2xl shrink-0 overflow-hidden rounded-[10px] bg-[var(--surface-lift)] shadow-sm ring-1 ring-transparent focus-within:ring-[var(--ring)]"
+              className="mx-auto w-full max-w-3xl shrink-0 overflow-hidden rounded-[10px] bg-[var(--surface-lift)] shadow-sm ring-1 ring-transparent focus-within:ring-[var(--ring)]"
             >
               <textarea
                 ref={inputRef}

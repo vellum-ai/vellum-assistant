@@ -12,6 +12,7 @@ const SETTINGS_TABS = [
   "Billing",
   "Archive",
   "Schedules",
+  "Debug",
   "Developer",
 ] as const;
 

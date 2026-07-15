@@ -90,7 +90,7 @@ export const inferenceHelp: CliCommandHelp = {
   description: "LLM inference operations",
   helpText: `
 The inference command group sends requests to your configured LLM provider.
-The provider is resolved from your assistant config (llm.default.provider).
+The provider is resolved from your assistant config (llm.defaultProvider).
 
 Examples:
   $ assistant inference send "What is the capital of France?"
@@ -545,7 +545,7 @@ export const llmHelp: CliCommandHelp = {
   helpText: `
 The llm command group is a shorthand for 'assistant inference send'. It sends
 requests to your configured LLM provider, resolved from your assistant config
-(llm.default.provider). For profile session management, use 'assistant inference session'.
+(llm.defaultProvider). For profile session management, use 'assistant inference session'.
 
 Examples:
   $ assistant llm send "What is the capital of France?"

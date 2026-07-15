@@ -10,20 +10,11 @@
  * (heartbeat, filing, scheduler) pass an explicit `callSite` so
  * `RetryProvider` resolves their per-call config from `llm.callSites.<id>`.
  */
-import { beforeAll, describe, expect, mock, test } from "bun:test";
-
-import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
-import { setConfig } from "./helpers/set-config.js";
-
-// Legacy-shaped fixtures (llm.default-centric resolution): pinned to the
-// flag-off cascade. Override-or-default (flag-on) semantics are pinned by
-// llm-resolver-override-or-default.test.ts and its companion suites.
-beforeAll(() => {
-  setOverridesForTesting({ "override-or-default-resolution": false });
-});
+import { describe, expect, mock, test } from "bun:test";
 
 import { CompactionCircuit } from "../agent/compaction-circuit.js";
 import type { Message, ProviderResponse } from "../providers/types.js";
+import { setConfig } from "./helpers/set-config.js";
 
 // Use an object wrapper so TypeScript doesn't narrow the captured type to
 // `undefined` based on the initial assignment in the test setup.
@@ -61,15 +52,17 @@ mock.module("../providers/inference/connections.js", () => ({
   }),
 }));
 
-// Seed the workspace config for real. `llm.default.provider_connection` pins
-// the connection-aware resolver path to the inline `anthropic-conn` fixture,
-// and disabling the catalog `balanced` default makes resolution land on
-// `llm.default`. Memory is disabled so no memory subsystem work runs inside
-// these turns.
+// Seed the workspace config for real. The main-agent call-site tweak applies
+// last over the winning profile, so it fully pins the provider/connection/
+// model these tests run under. Memory is disabled so no memory subsystem work
+// runs inside these turns.
 setConfig("llm", {
-  default: { provider_connection: "anthropic-conn" },
-  profiles: {
-    balanced: { source: "managed", status: "disabled" },
+  callSites: {
+    mainAgent: {
+      provider: "anthropic",
+      provider_connection: "anthropic-conn",
+      model: "claude-opus-4-6",
+    },
   },
 });
 setConfig("memory", { enabled: false, v2: { enabled: false } });

@@ -21,7 +21,8 @@ import type {
   DefaultProviderStatus,
   ProviderConnection,
 } from "@/generated/daemon/types.gen";
-import { PROVIDER_DISPLAY_NAMES } from "@/assistant/llm-model-catalog";
+import { VELLUM_CONNECTION_PROVIDER } from "@/domains/settings/ai/constants";
+import { providerConnectionDisplayName } from "@/domains/settings/ai/provider-editor-constants";
 import { captureError } from "@/lib/sentry/capture-error";
 import { useSupportsDefaultProviderSettings } from "@/lib/backwards-compat/default-provider-settings";
 import { ProviderEditorContent } from "@/domains/settings/ai/provider-editor-modal";
@@ -44,39 +45,6 @@ const DEFAULT_PROVIDER_ELIGIBLE: Record<DefaultProviderId, true> = {
 
 function isDefaultProviderId(provider: string): provider is DefaultProviderId {
   return provider in DEFAULT_PROVIDER_ELIGIBLE;
-}
-
-/**
- * Extracts the daemon's error-envelope message (`{ error: { message } }`,
- * per the runtime's http-errors adapter) from a generated-SDK `error` field.
- */
-function errorEnvelopeMessage(error: unknown): string | undefined {
-  if (typeof error !== "object" || error === null) {
-    return undefined;
-  }
-  const inner = (error as { error?: unknown }).error;
-  if (typeof inner !== "object" || inner === null) {
-    return undefined;
-  }
-  const message = (inner as { message?: unknown }).message;
-  return typeof message === "string" && message.length > 0
-    ? message
-    : undefined;
-}
-
-function formatAuthSummary(auth: ProviderConnection["auth"]): string {
-  switch (auth.type) {
-    case "api_key":
-      return `API key · ${auth.credential}`;
-    case "oauth_subscription":
-      return "ChatGPT Subscription";
-    case "platform":
-      return "Managed proxy";
-    case "none":
-      return "None (local)";
-    default:
-      return auth.type;
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -121,7 +89,17 @@ export function ManageProvidersModal({
     enabled: isOpen && supportsDefaultProvider,
   });
 
-  const connections = useMemo(() => data?.connections ?? [], [data]);
+  const connections = useMemo(() => {
+    const fetchedConnections = data?.connections ?? [];
+    return [
+      ...fetchedConnections.filter(
+        (connection) => connection.provider === VELLUM_CONNECTION_PROVIDER,
+      ),
+      ...fetchedConnections.filter(
+        (connection) => connection.provider !== VELLUM_CONNECTION_PROVIDER,
+      ),
+    ];
+  }, [data]);
 
   function handleDefaultChanged() {
     void queryClient.invalidateQueries({
@@ -302,32 +280,28 @@ function ManageProvidersModalInner({
       return next;
     });
     try {
-      const { error, response } =
-        await inferenceProviderconnectionsByNameDelete({
-          path: { assistant_id: assistantId, name },
-        });
+      const { response } = await inferenceProviderconnectionsByNameDelete({
+        path: { assistant_id: assistantId, name },
+      });
       if (response?.ok || response?.status === 404) {
         // 404 means already gone — still remove from local list.
         onConnectionDeleted(name);
       } else if (response?.status === 409) {
-        // The daemon's guard names what blocks the delete (default provider,
-        // referencing profiles) and the fix — render it verbatim.
         setRowErrors((prev) => ({
           ...prev,
           [name]:
-            errorEnvelopeMessage(error) ??
-            "Connection is in use by one or more profiles. Remove those references first.",
+            "This provider is in use by a profile or as the default provider. Update those settings before deleting it.",
         }));
       } else {
         setRowErrors((prev) => ({
           ...prev,
-          [name]: "Failed to delete connection. Please try again.",
+          [name]: "Failed to delete provider. Please try again.",
         }));
       }
     } catch {
       setRowErrors((prev) => ({
         ...prev,
-        [name]: "Failed to delete connection. Please try again.",
+        [name]: "Failed to delete provider. Please try again.",
       }));
     } finally {
       setDeleting((prev) => {
@@ -341,10 +315,9 @@ function ManageProvidersModalInner({
   return (
     <Modal.Content size="md">
       <Modal.Header>
-        <Modal.Title>Provider Connections</Modal.Title>
+        <Modal.Title>Providers</Modal.Title>
         <Modal.Description>
-          Manage inference provider connections. Each connection binds a name to
-          a provider and auth configuration.
+          Manage the model providers your assistant can use.
         </Modal.Description>
       </Modal.Header>
 
@@ -364,7 +337,7 @@ function ManageProvidersModalInner({
             as="p"
             className="py-4 text-center text-(--system-negative-strong)"
           >
-            Failed to load connections. Please try again.
+            Failed to load providers. Please try again.
           </Typography>
         ) : connections.length === 0 ? (
           <Typography
@@ -372,7 +345,7 @@ function ManageProvidersModalInner({
             as="p"
             className="py-4 text-center text-(--content-tertiary)"
           >
-            No connections yet. Create one to get started.
+            No providers yet. Add one to get started.
           </Typography>
         ) : (
           <div className="space-y-1">
@@ -389,7 +362,7 @@ function ManageProvidersModalInner({
               return (
                 <div key={conn.name}>
                   <div className="flex items-center gap-3 rounded-lg px-2 py-2">
-                    {/* Connection info */}
+                    {/* Provider info */}
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
                         <Typography
@@ -397,12 +370,12 @@ function ManageProvidersModalInner({
                           as="span"
                           className="text-(--content-default)"
                         >
-                          {conn.label ?? conn.name}
+                          {providerConnectionDisplayName(conn)}
                         </Typography>
                         {isManaged && (
                           <Tag
                             tone="positive"
-                            title="Managed by Platform — auth is locked, but you can rename this connection."
+                            title="Managed by Platform — you can rename this provider, but not edit it."
                           >
                             Platform
                           </Tag>
@@ -410,22 +383,12 @@ function ManageProvidersModalInner({
                         {isDefault && (
                           <Tag
                             tone="info"
-                            title="Built-in profiles (Balanced, Quality, Speed) run through this connection."
+                            title="Built-in profiles (Balanced, Quality, Speed) use this provider."
                           >
                             Default
                           </Tag>
                         )}
                       </div>
-                      <Typography
-                        variant="body-medium-lighter"
-                        as="p"
-                        className="mt-0.5 text-(--content-tertiary)"
-                      >
-                        {conn.label ? `${conn.name} · ` : ""}
-                        {PROVIDER_DISPLAY_NAMES[conn.provider] ?? conn.provider}
-                        {" · "}
-                        {formatAuthSummary(conn.auth)}
-                      </Typography>
                     </div>
 
                     {/* Actions */}
@@ -437,7 +400,7 @@ function ManageProvidersModalInner({
                           disabled={!eligibleForDefault || isSettingDefault}
                           title={
                             eligibleForDefault
-                              ? "Run the built-in profiles through this connection."
+                              ? "Use this provider for the built-in profiles."
                               : "Built-in profiles can't run on this provider."
                           }
                           onClick={() => handleSetDefault(conn)}
@@ -461,13 +424,13 @@ function ManageProvidersModalInner({
                         variant="ghost"
                         size="compact"
                         iconOnly={<Trash2 />}
-                        aria-label={`Delete ${conn.name}`}
+                        aria-label={`Delete ${providerConnectionDisplayName(conn)}`}
                         disabled={isManaged || isDefault || isDeleting}
                         title={
                           isManaged
-                            ? "Managed connections cannot be deleted"
+                            ? "The Vellum provider cannot be removed"
                             : isDefault
-                              ? "This connection serves your default provider. Set another connection as default first."
+                              ? "This is your default provider. Set another provider as default first."
                               : undefined
                         }
                         onClick={() => void handleDelete(conn.name)}
@@ -494,7 +457,7 @@ function ManageProvidersModalInner({
 
       <Modal.Footer className="justify-between">
         <Button variant="outlined" size="compact" onClick={onNewClick}>
-          + New Connection
+          + Add Provider
         </Button>
         <Button variant="outlined" size="compact" onClick={onClose}>
           Done

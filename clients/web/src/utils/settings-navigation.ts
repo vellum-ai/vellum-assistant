@@ -17,7 +17,6 @@ import {
   CreditCard,
   KeyRound,
   Mic,
-  Settings,
   Users,
   Puzzle,
   ShieldCheck,
@@ -42,8 +41,7 @@ export const PANEL_IDS = [
   "billing",
   "community",
   "assistant-status",
-  "assistant-debug",
-  "advanced",
+  "debug",
   "developer",
 ] as const;
 
@@ -80,20 +78,19 @@ export const SETTINGS_SIDEBAR: SidebarItem[] = [
   { id: "bookmarks", label: "Bookmarks", href: routes.settings.bookmarks, icon: Bookmark },
   { id: "billing", label: "Billing & Usage", href: routes.settings.billing, icon: CreditCard },
   { id: "community", label: "Community", href: routes.settings.community, icon: Users },
-  { id: "assistant-debug", label: "Debug", href: routes.settings.debug, icon: Bug },
-  { id: "advanced", label: "Advanced", href: routes.settings.advanced, icon: Settings },
+  { id: "debug", label: "Debug", href: routes.settings.debug, icon: Bug },
   { id: "developer", label: "Developer", href: routes.settings.developer, icon: Code },
 ];
 
 const SETTINGS_TAB_ID_ALIASES: Record<string, PanelId> = {
-  developer: "assistant-debug",
-  debug: "assistant-debug",
+  // General, Terminal, and Doctor are in-page tabs on the Debug page, so the
+  // "developer" and legacy "advanced" client tab names resolve there.
+  developer: "debug",
+  advanced: "debug",
   model: "model",
   privacy: "privacy",
   // Two-factor auth moved from the retired Security tab onto General.
   security: "assistant-status",
-  // Archive is an in-page tab on the Advanced page.
-  archive: "advanced",
   // Self-hosted assistant management has no settings page; land on General.
   devices: "assistant-status",
   "self-hosted assistants": "assistant-status",
@@ -110,6 +107,9 @@ const SETTINGS_TAB_ROUTE_ALIASES: Record<string, string> = {
   "keyboard shortcuts": `${routes.settings.general}?preferences=open`,
   // Sounds is an in-page tab on the Voice & Sounds page.
   sounds: `${routes.settings.voice}?tab=sounds`,
+  // Archive is an in-page tab on the Debug page; the bare Debug route opens
+  // General, so the archive alias carries the ?tab= param.
+  archive: `${routes.settings.debug}?tab=archive`,
 };
 
 function normalizeSettingsTabName(tab: string): string {

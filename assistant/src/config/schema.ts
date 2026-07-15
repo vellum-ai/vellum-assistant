@@ -60,135 +60,101 @@ import { ToolsConfigSchema } from "./schemas/tools.js";
 import { WorkflowsConfigSchema } from "./schemas/workflows.js";
 import { WorkspaceGitConfigSchema } from "./schemas/workspace-git.js";
 
-export const AssistantConfigSchema = z
-  .object({
-    services: ServicesSchema.default(ServicesSchema.parse({})),
-    memory: MemoryConfigSchema.default(MemoryConfigSchema.parse({})),
-    monitoring: MonitoringConfigSchema.default(
-      MonitoringConfigSchema.parse({}),
+export const AssistantConfigSchema = z.object({
+  services: ServicesSchema.default(ServicesSchema.parse({})),
+  memory: MemoryConfigSchema.default(MemoryConfigSchema.parse({})),
+  monitoring: MonitoringConfigSchema.default(MonitoringConfigSchema.parse({})),
+  migrations: MigrationsConfigSchema.default(MigrationsConfigSchema.parse({})),
+  dataDir: z
+    .string({ error: "dataDir must be a string" })
+    .default(getDataDir())
+    .describe("Directory for storing assistant data (database, logs, etc.)"),
+  timeouts: TimeoutConfigSchema.default(TimeoutConfigSchema.parse({})),
+  rateLimit: RateLimitConfigSchema.default(RateLimitConfigSchema.parse({})),
+  secretDetection: SecretDetectionConfigSchema.default(
+    SecretDetectionConfigSchema.parse({}),
+  ),
+  auditLog: AuditLogConfigSchema.default(AuditLogConfigSchema.parse({})),
+  logFile: LogFileConfigSchema.default(
+    LogFileConfigSchema.parse({ dir: getDataDir() + "/logs" }),
+  ),
+  // Unified LLM configuration block. The unique source of truth for
+  // provider/model/maxTokens/effort/speed/temperature/thinking/contextWindow
+  // and pricing overrides for every call site in the assistant.
+  //
+  // Default values live on each leaf inside `LLMSchema` (see
+  // `schemas/llm.ts`), so `LLMSchema.parse({})` returns a fully-populated
+  // object. This matches the pattern used by sibling schemas above and
+  // ensures the loader's leaf-deletion recovery path can repair a partially
+  // invalid `llm` block without falling back to `cloneDefaultConfig()`.
+  llm: LLMSchema.default(LLMSchema.parse({})),
+  llmRequestLogs: LlmRequestLogsConfigSchema,
+  filing: FilingConfigSchema.default(FilingConfigSchema.parse({})),
+  heartbeat: HeartbeatConfigSchema.default(HeartbeatConfigSchema.parse({})),
+  hostBrowser: HostBrowserConfigSchema.default(
+    HostBrowserConfigSchema.parse({}),
+  ),
+  conversations: ConversationsConfigSchema.default(
+    ConversationsConfigSchema.parse({}),
+  ),
+  journal: JournalConfigSchema.default(JournalConfigSchema.parse({})),
+  backup: BackupConfigSchema.default(BackupConfigSchema.parse({})),
+  mcp: McpConfigSchema.default(McpConfigSchema.parse({})),
+  acp: AcpConfigSchema.default(AcpConfigSchema.parse({})),
+  skills: SkillsConfigSchema.default(SkillsConfigSchema.parse({})),
+  workspaceGit: WorkspaceGitConfigSchema.default(
+    WorkspaceGitConfigSchema.parse({}),
+  ),
+  compaction: CompactionConfigSchema.default(CompactionConfigSchema.parse({})),
+  compactionLogs: CompactionLogsConfigSchema,
+  twilio: TwilioConfigSchema.default(TwilioConfigSchema.parse({})),
+  calls: CallsConfigSchema.default(CallsConfigSchema.parse({})),
+  liveVoice: LiveVoiceConfigSchema.default(LiveVoiceConfigSchema.parse({})),
+  whatsapp: WhatsAppConfigSchema.default(WhatsAppConfigSchema.parse({})),
+  telegram: TelegramConfigSchema.default(TelegramConfigSchema.parse({})),
+  slack: SlackConfigSchema.default(SlackConfigSchema.parse({})),
+  a2a: A2AConfigSchema.default(A2AConfigSchema.parse({})),
+  ingress: IngressConfigSchema,
+  platform: PlatformConfigSchema.default(PlatformConfigSchema.parse({})),
+  daemon: DaemonConfigSchema.default(DaemonConfigSchema.parse({})),
+  notifications: NotificationsConfigSchema.default(
+    NotificationsConfigSchema.parse({}),
+  ),
+  ui: UiConfigSchema.default(UiConfigSchema.parse({})),
+  tools: ToolsConfigSchema.default(ToolsConfigSchema.parse({})),
+  workflows: WorkflowsConfigSchema.default(WorkflowsConfigSchema.parse({})),
+  // Per-plugin config blocks keyed by plugin name. The schema is intentionally
+  // permissive — each plugin's manifest supplies its own validator which the
+  // plugin bootstrap (`external-plugins-bootstrap.ts`) runs against the raw
+  // block under `plugins.<name>` before handing the parsed result to the
+  // plugin's `init()`. Keeping this open here means adding a new plugin does
+  // not require a core-schema change, while invalid configs still surface
+  // through the plugin's own validator at bootstrap.
+  plugins: z
+    .record(z.string(), z.unknown())
+    .optional()
+    .describe(
+      "Per-plugin configuration keyed by plugin name. Validated downstream by each plugin's manifest.config validator at bootstrap.",
     ),
-    migrations: MigrationsConfigSchema.default(
-      MigrationsConfigSchema.parse({}),
+  legacyTelemetryOptOut: z
+    .boolean()
+    .optional()
+    .describe(
+      "Fail-closed telemetry marker: set for a workspace that had an explicit local usage-data opt-out before telemetry moved to platform share_analytics consent. While set, usage telemetry stays disabled regardless of platform consent.",
     ),
-    dataDir: z
-      .string({ error: "dataDir must be a string" })
-      .default(getDataDir())
-      .describe("Directory for storing assistant data (database, logs, etc.)"),
-    timeouts: TimeoutConfigSchema.default(TimeoutConfigSchema.parse({})),
-    rateLimit: RateLimitConfigSchema.default(RateLimitConfigSchema.parse({})),
-    secretDetection: SecretDetectionConfigSchema.default(
-      SecretDetectionConfigSchema.parse({}),
+  legacyDiagnosticsOptOut: z
+    .boolean()
+    .optional()
+    .describe(
+      "Fail-closed diagnostics marker: set for a workspace that had an explicit local sendDiagnostics opt-out before crash reporting moved to platform share_diagnostics consent. While set, Sentry stays disabled regardless of platform consent.",
     ),
-    auditLog: AuditLogConfigSchema.default(AuditLogConfigSchema.parse({})),
-    logFile: LogFileConfigSchema.default(
-      LogFileConfigSchema.parse({ dir: getDataDir() + "/logs" }),
-    ),
-    // Unified LLM configuration block. The unique source of truth for
-    // provider/model/maxTokens/effort/speed/temperature/thinking/contextWindow
-    // and pricing overrides for every call site in the assistant.
-    //
-    // Default values live on each leaf inside `LLMSchema` (see
-    // `schemas/llm.ts`), so `LLMSchema.parse({})` returns a fully-populated
-    // object. This matches the pattern used by sibling schemas above and
-    // ensures the loader's leaf-deletion recovery path can repair a partially
-    // invalid `llm` block without falling back to `cloneDefaultConfig()`.
-    llm: LLMSchema.default(LLMSchema.parse({})),
-    llmRequestLogs: LlmRequestLogsConfigSchema,
-    filing: FilingConfigSchema.default(FilingConfigSchema.parse({})),
-    heartbeat: HeartbeatConfigSchema.default(HeartbeatConfigSchema.parse({})),
-    hostBrowser: HostBrowserConfigSchema.default(
-      HostBrowserConfigSchema.parse({}),
-    ),
-    conversations: ConversationsConfigSchema.default(
-      ConversationsConfigSchema.parse({}),
-    ),
-    journal: JournalConfigSchema.default(JournalConfigSchema.parse({})),
-    backup: BackupConfigSchema.default(BackupConfigSchema.parse({})),
-    mcp: McpConfigSchema.default(McpConfigSchema.parse({})),
-    acp: AcpConfigSchema.default(AcpConfigSchema.parse({})),
-    skills: SkillsConfigSchema.default(SkillsConfigSchema.parse({})),
-    workspaceGit: WorkspaceGitConfigSchema.default(
-      WorkspaceGitConfigSchema.parse({}),
-    ),
-    compaction: CompactionConfigSchema.default(
-      CompactionConfigSchema.parse({}),
-    ),
-    compactionLogs: CompactionLogsConfigSchema,
-    twilio: TwilioConfigSchema.default(TwilioConfigSchema.parse({})),
-    calls: CallsConfigSchema.default(CallsConfigSchema.parse({})),
-    liveVoice: LiveVoiceConfigSchema.default(LiveVoiceConfigSchema.parse({})),
-    whatsapp: WhatsAppConfigSchema.default(WhatsAppConfigSchema.parse({})),
-    telegram: TelegramConfigSchema.default(TelegramConfigSchema.parse({})),
-    slack: SlackConfigSchema.default(SlackConfigSchema.parse({})),
-    a2a: A2AConfigSchema.default(A2AConfigSchema.parse({})),
-    ingress: IngressConfigSchema,
-    platform: PlatformConfigSchema.default(PlatformConfigSchema.parse({})),
-    daemon: DaemonConfigSchema.default(DaemonConfigSchema.parse({})),
-    notifications: NotificationsConfigSchema.default(
-      NotificationsConfigSchema.parse({}),
-    ),
-    ui: UiConfigSchema.default(UiConfigSchema.parse({})),
-    tools: ToolsConfigSchema.default(ToolsConfigSchema.parse({})),
-    workflows: WorkflowsConfigSchema.default(WorkflowsConfigSchema.parse({})),
-    // Per-plugin config blocks keyed by plugin name. The schema is intentionally
-    // permissive — each plugin's manifest supplies its own validator which the
-    // plugin bootstrap (`external-plugins-bootstrap.ts`) runs against the raw
-    // block under `plugins.<name>` before handing the parsed result to the
-    // plugin's `init()`. Keeping this open here means adding a new plugin does
-    // not require a core-schema change, while invalid configs still surface
-    // through the plugin's own validator at bootstrap.
-    plugins: z
-      .record(z.string(), z.unknown())
-      .optional()
-      .describe(
-        "Per-plugin configuration keyed by plugin name. Validated downstream by each plugin's manifest.config validator at bootstrap.",
-      ),
-    legacyTelemetryOptOut: z
-      .boolean()
-      .optional()
-      .describe(
-        "Fail-closed telemetry marker: set for a workspace that had an explicit local usage-data opt-out before telemetry moved to platform share_analytics consent. While set, usage telemetry stays disabled regardless of platform consent.",
-      ),
-    legacyDiagnosticsOptOut: z
-      .boolean()
-      .optional()
-      .describe(
-        "Fail-closed diagnostics marker: set for a workspace that had an explicit local sendDiagnostics opt-out before crash reporting moved to platform share_diagnostics consent. While set, Sentry stays disabled regardless of platform consent.",
-      ),
-    maxStepsPerSession: z
-      .number({ error: "maxStepsPerSession must be a number" })
-      .int("maxStepsPerSession must be an integer")
-      .min(1, "maxStepsPerSession must be >= 1")
-      .max(200, "maxStepsPerSession must be <= 200")
-      .default(50)
-      .describe("Maximum number of computer-use steps per session"),
-  })
-  .superRefine((config, ctx) => {
-    const llmContextWindow = config.llm?.default?.contextWindow;
-    if (
-      llmContextWindow?.targetBudgetRatio != null &&
-      llmContextWindow?.compactThreshold != null &&
-      llmContextWindow.targetBudgetRatio >= llmContextWindow.compactThreshold
-    ) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["llm", "default", "contextWindow", "targetBudgetRatio"],
-        message:
-          "llm.default.contextWindow.targetBudgetRatio must be less than llm.default.contextWindow.compactThreshold",
-      });
-    }
-    if (
-      llmContextWindow?.targetBudgetRatio != null &&
-      llmContextWindow?.summaryBudgetRatio != null &&
-      llmContextWindow.targetBudgetRatio <= llmContextWindow.summaryBudgetRatio
-    ) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["llm", "default", "contextWindow", "targetBudgetRatio"],
-        message:
-          "llm.default.contextWindow.targetBudgetRatio must be greater than llm.default.contextWindow.summaryBudgetRatio",
-      });
-    }
-  });
+  maxStepsPerSession: z
+    .number({ error: "maxStepsPerSession must be a number" })
+    .int("maxStepsPerSession must be an integer")
+    .min(1, "maxStepsPerSession must be >= 1")
+    .max(200, "maxStepsPerSession must be <= 200")
+    .default(50)
+    .describe("Maximum number of computer-use steps per session"),
+});
 
 export type AssistantConfig = z.infer<typeof AssistantConfigSchema>;
