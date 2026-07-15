@@ -91,6 +91,10 @@ import {
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import { _resetStreamStateForTesting } from "../runtime/assistant-stream-state.js";
 import {
+  recordForChatMint,
+  resetForChatMintRegistryForTest,
+} from "../runtime/for-chat-mint-registry.js";
+import {
   _resetRevealSuccessRegistryForTest,
   recordRevealSuccess,
 } from "../runtime/reveal-success-registry.js";
@@ -167,6 +171,7 @@ const REVEAL_TOOL_RESULT = {
 beforeEach(() => {
   _resetStreamStateForTesting();
   _resetRevealSuccessRegistryForTest();
+  resetForChatMintRegistryForTest();
   pendingStoreReads.length = 0;
 });
 
@@ -568,5 +573,94 @@ describe("live tool output chunk redaction", () => {
     const streamedChunks = outputChunks(events).join("");
     expect(streamedChunks).not.toContain(SYNTHETIC_OPAQUE_CREDENTIAL);
     expect(streamedChunks).toContain('<redacted type="Credential" />');
+  });
+});
+
+describe("for-chat re-mint authority (two legs: staged AND executed)", () => {
+  const FOR_CHAT_SENTINEL = "\u3014redacted:Credential:openai:api_key\u3015";
+
+  const FOR_CHAT_TOOL_USE = {
+    type: "tool_use",
+    id: "toolu_forchat",
+    name: "bash",
+    input: {
+      command:
+        "assistant credentials reveal --for-chat --service openai --field api_key",
+    },
+  } as Extract<AgentEvent, { type: "tool_use" }>;
+
+  const FOR_CHAT_TOOL_RESULT = {
+    type: "tool_result",
+    toolUseId: "toolu_forchat",
+    content: FOR_CHAT_SENTINEL,
+    isError: false,
+  } as Extract<AgentEvent, { type: "tool_result" }>;
+
+  test("staged by this run + route-minted: the echoed sentinel re-mints on the live wire", async () => {
+    const events: ServerMessage[] = [];
+    const state = createEventHandlerState();
+    const deps = createMockDeps(events);
+
+    await dispatchAgentEvent(state, deps, FOR_CHAT_TOOL_USE);
+    // The route records the mint while the tool executes (no plaintext
+    // proof — the for-chat channel never returns the secret).
+    recordForChatMint({
+      service: "openai",
+      field: "api_key",
+      sentinel: FOR_CHAT_SENTINEL,
+    });
+    await dispatchAgentEvent(state, deps, FOR_CHAT_TOOL_RESULT);
+
+    await dispatchAgentEvent(state, deps, {
+      type: "text_delta",
+      text: `Here it is: ${FOR_CHAT_SENTINEL} — click to reveal.`,
+    } as Extract<AgentEvent, { type: "text_delta" }>);
+
+    expect(streamedText(events)).toContain(FOR_CHAT_SENTINEL);
+    expect(streamedText(events)).not.toContain("\u2060");
+  });
+
+  test("a mint alone — identity never staged by this run — neutralizes (env-override redirect grants nothing)", async () => {
+    // Simulates the redirect attack: another conversation's shell command
+    // overrode the CLI env so ITS executed reveal recorded a mint while
+    // this run never staged the identity. The mint passes the watermark
+    // check but fails the staging leg, so the echoed sentinel neutralizes
+    // like any forgery.
+    const events: ServerMessage[] = [];
+    const state = createEventHandlerState();
+    const deps = createMockDeps(events);
+
+    recordForChatMint({
+      service: "openai",
+      field: "api_key",
+      sentinel: FOR_CHAT_SENTINEL,
+    });
+
+    await dispatchAgentEvent(state, deps, {
+      type: "text_delta",
+      text: `forged: ${FOR_CHAT_SENTINEL}!`,
+    } as Extract<AgentEvent, { type: "text_delta" }>);
+
+    expect(streamedText(events)).not.toContain(FOR_CHAT_SENTINEL);
+    expect(streamedText(events)).toContain("\u3014\u2060redacted:");
+  });
+
+  test("staging alone — a quoted command that never executed — neutralizes", async () => {
+    const events: ServerMessage[] = [];
+    const state = createEventHandlerState();
+    const deps = createMockDeps(events);
+
+    // Staged (the parse cannot tell a quoted invocation from a real one)…
+    await dispatchAgentEvent(state, deps, FOR_CHAT_TOOL_USE);
+    await dispatchAgentEvent(state, deps, FOR_CHAT_TOOL_RESULT);
+    // …but the route never ran, so no mint exists.
+
+    await dispatchAgentEvent(state, deps, {
+      type: "text_delta",
+      text: `quoted: ${FOR_CHAT_SENTINEL}`,
+    } as Extract<AgentEvent, { type: "text_delta" }>);
+
+    expect(streamedText(events)).not.toContain(FOR_CHAT_SENTINEL);
+    expect(streamedText(events)).toContain("\u3014\u2060redacted:");
   });
 });

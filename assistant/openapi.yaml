@@ -9572,11 +9572,6 @@ paths:
                     Return the credential's redaction sentinel (renders as a click-to-reveal chip in chat) instead of the
                     plaintext. Requires the chat-credential-reveal feature flag.
                   type: boolean
-                conversationId:
-                  description:
-                    "Originating conversation for a forChat reveal. Scopes the recorded mint: only this conversation's persist
-                    guard may re-mint the returned sentinel's identity."
-                  type: string
       responses:
         "200":
           description: Successful response

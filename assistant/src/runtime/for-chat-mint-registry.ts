@@ -20,14 +20,19 @@
  * and a tampered type label can't survive because the replacement is the
  * daemon's own original mint.
  *
- * Scope: per conversation, per turn. `credentials reveal` is a high-risk
- * command (gateway approval gate), so an approval granted in one
- * conversation must not let a CONCURRENT conversation's model re-mint the
- * same identity without its own executed-and-approved reveal — mints are
- * therefore recorded with the originating conversation id (forwarded by
- * the CLI from the shell tool's `__CONVERSATION_ID` env) and reads filter
- * on it. A reveal executed outside any conversation records nothing: there
- * is no chat transcript for a chip to live in.
+ * Scope: records are deliberately NOT tagged with a conversation id. Any
+ * conversation identity available to the route (a body field, a CLI env
+ * forward like `__CONVERSATION_ID`) is caller-controlled — a shell command
+ * can override the env for its `assistant` subprocess and redirect the mint
+ * to a conversation that never ran the reveal. Conversation scoping is
+ * instead enforced by the CONSUMER from trusted daemon-side context: the
+ * agent loop only accepts a mint whose identity its own run STAGED from the
+ * actual `tool_use` command it dispatched (see `turnForChatMints` in
+ * `conversation-agent-loop-handlers.ts`), so one conversation's executed
+ * reveal can never authorize another that merely names the identity.
+ * `credentials reveal` is a high-risk, approval-gated command; both legs —
+ * this registry (executed) and the run's own staging (requested here) —
+ * must agree before a span re-mints.
  */
 
 /** A successful `--for-chat` reveal: identity plus the minted sentinel. */
@@ -36,12 +41,6 @@ export interface ForChatMint {
   field: string;
   /** The canonical sentinel the reveal route returned for this credential. */
   sentinel: string;
-  /**
-   * The conversation whose reveal command produced this mint (from the
-   * `__CONVERSATION_ID` env the shell tool sets, forwarded by the CLI).
-   * Re-minting is scoped to this conversation only.
-   */
-  conversationId: string;
 }
 
 interface MintRecord extends ForChatMint {
@@ -80,24 +79,19 @@ export function recordForChatMint(mint: ForChatMint): void {
 }
 
 /**
- * Mints recorded after `watermark` for `conversationId`, deduplicated by
- * identity (latest wins — re-revealing the same credential re-mints the
- * same canonical sentinel). Mints from other conversations are never
- * returned: each conversation's re-mint allowlist is earned by its own
- * executed reveal.
+ * Mints recorded after `watermark`, deduplicated by identity (latest wins —
+ * re-revealing the same credential re-mints the same canonical sentinel).
+ * Callers MUST intersect the result with their own trusted staging context
+ * before treating a mint as re-mint authority — see the module doc.
  */
-export function forChatMintsSince(
-  watermark: number,
-  conversationId: string,
-): ForChatMint[] {
+export function forChatMintsSince(watermark: number): ForChatMint[] {
   const byIdentity = new Map<string, ForChatMint>();
   for (const r of records) {
-    if (r.seq > watermark && r.conversationId === conversationId) {
+    if (r.seq > watermark) {
       byIdentity.set(`${r.service}\u0000${r.field}`, {
         service: r.service,
         field: r.field,
         sentinel: r.sentinel,
-        conversationId: r.conversationId,
       });
     }
   }

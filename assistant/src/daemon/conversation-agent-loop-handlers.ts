@@ -68,6 +68,7 @@ import {
   currentForChatMintWatermark,
   forChatMintsSince,
 } from "../runtime/for-chat-mint-registry.js";
+import { credentialKey } from "../security/credential-key.js";
 import {
   closeRevealProofWindow,
   currentRevealSuccessWatermark,
@@ -457,6 +458,17 @@ export interface EventHandlerState {
    */
   readonly forChatMintWatermark: number;
   /**
+   * `credentialKey`-formatted identities of every reveal invocation THIS run
+   * staged from its own `tool_use` commands (`credentialKey` format). The
+   * conversation-scoping leg of re-mint authority: registry mints are
+   * global (a mint's request body carries no trustworthy conversation
+   * identity — see the registry module doc), so `turnForChatMints` accepts
+   * only mints whose identity this run itself requested. Staging parses
+   * the command the daemon actually dispatched — trusted context a
+   * subprocess env override can never rewrite.
+   */
+  readonly stagedRevealIdentities: Set<string>;
+  /**
    * In-flight priming of {@link liveRevealGuardEntries}. The dispatcher
    * awaits this before processing a `text_delta` (and before the
    * end-of-message guard flush) so a fast reveal echo can never race the
@@ -573,6 +585,7 @@ export function createEventHandlerState(): EventHandlerState {
     liveRevealGuardEntries: [],
     candidateRemintAuthorities: [],
     forChatMintWatermark: currentForChatMintWatermark(),
+    stagedRevealIdentities: new Set(),
     liveRevealGuardPriming: undefined,
   };
 }
@@ -645,18 +658,13 @@ async function resolvedRevealCandidatesForState(
  * still redact; the stream guard remains a wire-level layer, persistence
  * the redaction boundary.
  */
-function primeLiveRevealGuard(
-  state: EventHandlerState,
-  conversationId: string,
-): void {
+function primeLiveRevealGuard(state: EventHandlerState): void {
   const priming = chatRevealCandidates(state)
     .then((candidates) => {
       if (candidates !== undefined && candidates.length > 0) {
         state.liveRevealGuardEntries = buildLiveRevealGuardEntries(candidates);
-        state.candidateRemintAuthorities = remintAuthoritiesFromCandidates(
-          candidates,
-          conversationId,
-        );
+        state.candidateRemintAuthorities =
+          remintAuthoritiesFromCandidates(candidates);
       }
     })
     .catch((err: unknown) => {
@@ -693,22 +701,27 @@ async function awaitLiveRevealGuardReady(
 }
 
 /**
- * `--for-chat` mints the reveal route recorded during this run FOR THIS
- * CONVERSATION — route-recorded authority for re-minting sentinel
- * identities (see the registry module). Scoping by conversation matters:
- * reveal is a high-risk, approval-gated command, so a concurrent
- * conversation's approved mint must never let this conversation's model
- * manufacture the same chip. Read fresh at each guard site rather than
- * cached: the route records a mint while the reveal tool is still
+ * `--for-chat` mints authorized for THIS run: recorded by the reveal route
+ * after this run's watermark AND matching an identity this run itself
+ * staged from its own `tool_use` commands. Both legs are load-bearing —
+ * the registry proves a reveal EXECUTED (a quoted/commented-out invocation
+ * never reaches the route), while the staging set scopes authority to the
+ * conversation that actually requested it (registry records carry no
+ * trustworthy conversation identity, so without this leg one
+ * conversation's approved reveal could authorize a concurrent
+ * conversation's forged sentinel). Read fresh at each guard site rather
+ * than cached: the route records a mint while the reveal tool is still
  * executing, so by the time the model echoes the sentinel back the
  * registry is already current — no priming race like the async candidate
  * fetch has.
  */
-function turnForChatMints(
-  state: EventHandlerState,
-  deps: EventHandlerDeps,
-): ForChatMint[] {
-  return forChatMintsSince(state.forChatMintWatermark, deps.ctx.conversationId);
+function turnForChatMints(state: EventHandlerState): ForChatMint[] {
+  if (state.stagedRevealIdentities.size === 0) {
+    return [];
+  }
+  return forChatMintsSince(state.forChatMintWatermark).filter((mint) =>
+    state.stagedRevealIdentities.has(credentialKey(mint.service, mint.field)),
+  );
 }
 
 /**
@@ -716,14 +729,8 @@ function turnForChatMints(
  * route-recorded `--for-chat` mints plus the candidate-derived authorities
  * primed behind the dispatcher barrier alongside the swap entries.
  */
-function liveRemintAuthorities(
-  state: EventHandlerState,
-  deps: EventHandlerDeps,
-): ForChatMint[] {
-  return [
-    ...turnForChatMints(state, deps),
-    ...state.candidateRemintAuthorities,
-  ];
+function liveRemintAuthorities(state: EventHandlerState): ForChatMint[] {
+  return [...turnForChatMints(state), ...state.candidateRemintAuthorities];
 }
 
 /**
@@ -734,13 +741,12 @@ function liveRemintAuthorities(
  */
 function persistRemintAuthorities(
   state: EventHandlerState,
-  deps: EventHandlerDeps,
   candidates: readonly ResolvedRevealCandidate[] | undefined,
 ): ForChatMint[] {
   return [
-    ...turnForChatMints(state, deps),
+    ...turnForChatMints(state),
     ...(candidates !== undefined && candidates.length > 0
-      ? remintAuthoritiesFromCandidates(candidates, deps.ctx.conversationId)
+      ? remintAuthoritiesFromCandidates(candidates)
       : []),
   ];
 }
@@ -1012,7 +1018,7 @@ async function flushAccumulatedContent(
     state.toolActivityMetadata,
     revealCandidates,
     await resolvedRevealCandidatesForState(state),
-    persistRemintAuthorities(state, deps, revealCandidates),
+    persistRemintAuthorities(state, revealCandidates),
   );
   // Pair the seq with the exact content snapshot taken above: deltas that
   // arrive while the write is in flight bump `lastPersistedContentSeq`
@@ -1315,7 +1321,7 @@ function handleTextDelta(
     const guarded = drainSentinelGuardedText(
       state.pendingSentinelGuardBuffer + drained.emitText,
       state.liveRevealGuardEntries,
-      liveRemintAuthorities(state, deps),
+      liveRemintAuthorities(state),
     );
     state.pendingSentinelGuardBuffer = guarded.bufferedRemainder;
     if (guarded.emitText.length > 0) {
@@ -1423,6 +1429,19 @@ export function handleToolUse(
         // retains plaintext only while some tool's proof is pending.
         proofWindowToken: openRevealProofWindow(),
       });
+      // The conversation-scoping leg of `--for-chat` re-mint authority:
+      // record which identities THIS run's own commands named. Retained for
+      // the whole run (unlike the staging entry, which handleToolResult
+      // consumes) — the model echoes the sentinel back only after the tool
+      // completes. Parse-only, so by itself this authorizes nothing; a
+      // registry mint (an executed reveal) must also exist.
+      for (const ref of refs) {
+        if (ref.service !== undefined && ref.field !== undefined) {
+          state.stagedRevealIdentities.add(
+            credentialKey(ref.service, ref.field),
+          );
+        }
+      }
     }
   }
   const startedAt = Date.now();
@@ -1916,7 +1935,7 @@ export async function handleToolResult(
     closeRevealProofWindow(stagedReveal.proofWindowToken);
     if (provenRefs.length > 0) {
       state.revealCandidateRefs.push(...provenRefs);
-      primeLiveRevealGuard(state, deps.ctx.conversationId);
+      primeLiveRevealGuard(state);
     }
   }
 
@@ -2591,7 +2610,7 @@ export async function handleMessageComplete(
       text: neutralizeAndSwapLiveRevealValues(
         trailingLiveText,
         state.liveRevealGuardEntries,
-        liveRemintAuthorities(state, deps),
+        liveRemintAuthorities(state),
       ),
       conversationId: deps.ctx.conversationId,
       messageId: state.lastAssistantMessageId,
@@ -2664,7 +2683,7 @@ export async function handleMessageComplete(
       state.toolActivityMetadata,
       finalRevealCandidates,
       await resolvedRevealCandidatesForState(state),
-      persistRemintAuthorities(state, deps, finalRevealCandidates),
+      persistRemintAuthorities(state, finalRevealCandidates),
     ),
     state.currentThinkingTimestamps,
   );

@@ -1119,7 +1119,6 @@ describe("--for-chat (daemon-minted sentinel channel)", () => {
     service: "openai",
     field: "api_key",
     sentinel: CANONICAL,
-    conversationId: "conv-1",
   };
 
   test("collectRevealRefsFromCommand carries no --for-chat signal — executed mints are the only authority", () => {
@@ -1243,7 +1242,7 @@ describe("plain-reveal re-mint authorities (retyped sentinel after a proven reve
     value: "hunter2-manual-token-value",
   };
   const CANONICAL = buildForChatSentinel(CANDIDATE);
-  const AUTHORITIES = remintAuthoritiesFromCandidates([CANDIDATE], "conv-1");
+  const AUTHORITIES = remintAuthoritiesFromCandidates([CANDIDATE]);
 
   test("remintAuthoritiesFromCandidates builds one canonical authority per identity", () => {
     // Encoding-variant candidates share an identity and must not produce
@@ -1253,12 +1252,11 @@ describe("plain-reveal re-mint authorities (retyped sentinel after a proven reve
       CANDIDATE,
       { ...CANDIDATE, value: "hunter2-manual\\ntoken" },
     ];
-    expect(remintAuthoritiesFromCandidates(variants, "conv-9")).toEqual([
+    expect(remintAuthoritiesFromCandidates(variants)).toEqual([
       {
         service: "test",
         field: "qa_token",
         sentinel: CANONICAL,
-        conversationId: "conv-9",
       },
     ]);
   });
@@ -1303,70 +1301,39 @@ describe("plain-reveal re-mint authorities (retyped sentinel after a proven reve
 describe("for-chat mint registry", () => {
   test("returns only mints recorded after the captured watermark", () => {
     resetForChatMintRegistryForTest();
-    recordForChatMint({
-      service: "old",
-      field: "f",
-      sentinel: "s0",
-      conversationId: "conv-1",
-    });
+    recordForChatMint({ service: "old", field: "f", sentinel: "s0" });
     const watermark = currentForChatMintWatermark();
-    expect(forChatMintsSince(watermark, "conv-1")).toEqual([]);
-    recordForChatMint({
-      service: "openai",
-      field: "api_key",
-      sentinel: "s1",
-      conversationId: "conv-1",
-    });
-    expect(forChatMintsSince(watermark, "conv-1")).toEqual([
-      {
-        service: "openai",
-        field: "api_key",
-        sentinel: "s1",
-        conversationId: "conv-1",
-      },
+    expect(forChatMintsSince(watermark)).toEqual([]);
+    recordForChatMint({ service: "openai", field: "api_key", sentinel: "s1" });
+    expect(forChatMintsSince(watermark)).toEqual([
+      { service: "openai", field: "api_key", sentinel: "s1" },
     ]);
     // A turn that started before the first mint sees both identities.
-    expect(forChatMintsSince(0, "conv-1")).toHaveLength(2);
+    expect(forChatMintsSince(0)).toHaveLength(2);
     resetForChatMintRegistryForTest();
   });
 
-  test("never returns another conversation's mints", () => {
-    // Reveal is approval-gated per conversation: an identity minted for
-    // conversation A must not let a concurrent conversation B re-mint the
-    // same chip without its own executed reveal.
+  test("records carry no conversation identity — scoping is the consumer's staging set", () => {
+    // Any conversation id available to the route is caller-controlled (a
+    // shell command can override the CLI subprocess env), so the registry
+    // stores none. The agent loop intersects these global records with the
+    // identities its own run staged from its actual tool_use commands —
+    // one conversation's executed reveal never authorizes another that
+    // merely names the identity.
     resetForChatMintRegistryForTest();
-    recordForChatMint({
-      service: "openai",
-      field: "api_key",
-      sentinel: "s1",
-      conversationId: "conv-a",
-    });
-    expect(forChatMintsSince(0, "conv-b")).toEqual([]);
-    expect(forChatMintsSince(0, "conv-a")).toHaveLength(1);
+    recordForChatMint({ service: "openai", field: "api_key", sentinel: "s1" });
+    expect(forChatMintsSince(0)).toEqual([
+      { service: "openai", field: "api_key", sentinel: "s1" },
+    ]);
     resetForChatMintRegistryForTest();
   });
 
   test("dedupes by identity with the latest sentinel winning", () => {
     resetForChatMintRegistryForTest();
-    recordForChatMint({
-      service: "svc",
-      field: "f",
-      sentinel: "first",
-      conversationId: "conv-1",
-    });
-    recordForChatMint({
-      service: "svc",
-      field: "f",
-      sentinel: "second",
-      conversationId: "conv-1",
-    });
-    expect(forChatMintsSince(0, "conv-1")).toEqual([
-      {
-        service: "svc",
-        field: "f",
-        sentinel: "second",
-        conversationId: "conv-1",
-      },
+    recordForChatMint({ service: "svc", field: "f", sentinel: "first" });
+    recordForChatMint({ service: "svc", field: "f", sentinel: "second" });
+    expect(forChatMintsSince(0)).toEqual([
+      { service: "svc", field: "f", sentinel: "second" },
     ]);
     resetForChatMintRegistryForTest();
   });

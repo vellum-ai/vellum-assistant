@@ -368,25 +368,17 @@ async function handleCredentialsReveal({ body, headers }: RouteHandlerArgs) {
     // not any parse of the requested shell command — is what authorizes the
     // persist guard to re-mint a sentinel with this identity: a command
     // that merely quotes or comments out a reveal invocation never reaches
-    // this route, so it never allowlists anything. The mint is scoped to
-    // the originating conversation (reveal is a high-risk, approval-gated
-    // command — one conversation's approval must not let a concurrent
-    // conversation re-mint the identity) and, like the plaintext proof
-    // below, records only for a direct tool-shell invocation. No
-    // conversation id → no mint: outside a conversation there is no
-    // transcript for a chip to live in.
-    const conversationId = (body as { conversationId?: unknown })
-      .conversationId;
-    if (
-      directLocalInvocation &&
-      typeof conversationId === "string" &&
-      conversationId.length > 0
-    ) {
+    // this route, so it never allowlists anything. Like the plaintext proof
+    // below, the mint records only for a direct tool-shell invocation. No
+    // conversation identity is read from the request — anything the caller
+    // could send here (body field, env-forwarded id) is caller-controlled;
+    // conversation scoping happens at the CONSUMER against the run's own
+    // staged reveal identities (see the registry module doc).
+    if (directLocalInvocation) {
       recordForChatMint({
         service: lookup.service,
         field: lookup.field,
         sentinel,
-        conversationId,
       });
     }
     return { value: sentinel };

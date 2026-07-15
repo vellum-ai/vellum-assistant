@@ -289,12 +289,7 @@ describe("credentials routes", () => {
       const watermark = currentRevealSuccessWatermark();
 
       const result = (await revealRoute!.handler({
-        body: {
-          service: "vercel",
-          field: "api_token",
-          forChat: true,
-          conversationId: "conv-1",
-        },
+        body: { service: "vercel", field: "api_token", forChat: true },
         headers: { "x-vellum-principal-type": "local" },
       })) as { value: string };
 
@@ -302,12 +297,11 @@ describe("credentials routes", () => {
         "\u3014redacted:Credential:vercel:api_token\u3015",
       );
       expect(result.value).not.toContain(SECRET_VALUE);
-      expect(forChatMintsSince(0, "conv-1")).toEqual([
+      expect(forChatMintsSince(0)).toEqual([
         {
           service: "vercel",
           field: "api_token",
           sentinel: result.value,
-          conversationId: "conv-1",
         },
       ]);
       // The channel never returns plaintext to the tool, so the plaintext
@@ -322,12 +316,7 @@ describe("credentials routes", () => {
       secureStore.set("vercel:api_token", SECRET_VALUE);
 
       const result = (await revealRoute!.handler({
-        body: {
-          service: "vercel",
-          field: "api_token",
-          forChat: true,
-          conversationId: "conv-1",
-        },
+        body: { service: "vercel", field: "api_token", forChat: true },
         headers: {
           "x-vellum-principal-type": "local",
           "x-vellum-proxy-server": "ipc",
@@ -335,19 +324,19 @@ describe("credentials routes", () => {
       })) as { value: string };
 
       expect(result.value).toContain("\u3014redacted:");
-      expect(forChatMintsSince(0, "conv-1")).toEqual([]);
+      expect(forChatMintsSince(0)).toEqual([]);
     });
 
-    test("a forChat reveal without a conversation id records no mint", async () => {
+    test("a forChat reveal with no principal header records no mint (fails closed)", async () => {
       chatCredentialRevealFlag = true;
       secureStore.set("vercel:api_token", SECRET_VALUE);
 
-      await revealRoute!.handler({
+      const result = (await revealRoute!.handler({
         body: { service: "vercel", field: "api_token", forChat: true },
-        headers: { "x-vellum-principal-type": "local" },
-      });
+      })) as { value: string };
 
-      expect(forChatMintsSince(0, "conv-1")).toEqual([]);
+      expect(result.value).toContain("\u3014redacted:");
+      expect(forChatMintsSince(0)).toEqual([]);
     });
   });
 

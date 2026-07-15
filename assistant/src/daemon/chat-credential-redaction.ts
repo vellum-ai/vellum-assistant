@@ -532,11 +532,12 @@ export function buildForChatSentinel(candidate: {
  * the echo would have produced. Unproven identities still neutralize.
  *
  * Deduped by identity: encoding-variant candidates share a service:field
- * and must not produce duplicate authorities.
+ * and must not produce duplicate authorities. Conversation scoping is
+ * inherent — candidates live in per-run state that only this
+ * conversation's own proven reveals populate.
  */
 export function remintAuthoritiesFromCandidates(
   candidates: readonly ResolvedRevealCandidate[],
-  conversationId: string,
 ): ForChatMint[] {
   const byIdentity = new Map<string, ForChatMint>();
   for (const candidate of candidates) {
@@ -548,7 +549,6 @@ export function remintAuthoritiesFromCandidates(
       service: candidate.service,
       field: candidate.field,
       sentinel: buildForChatSentinel(candidate),
-      conversationId,
     });
   }
   return [...byIdentity.values()];
