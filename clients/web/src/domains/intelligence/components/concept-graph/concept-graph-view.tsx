@@ -215,6 +215,9 @@ export function ConceptGraphView({
   // so a pointer can hit-test edges for the "why are these connected?" tooltip.
   const projectedEdgesRef = useRef<ProjectedEdge[]>([]);
   const colorsRef = useRef<Colors>({ content: "#e5e7eb", tertiary: "#8792a0" });
+  // Set by search jump-to. While non-null the render loop eases the camera each
+  // frame to center this concept, then clears it once the view has settled.
+  const focusTargetRef = useRef<string | null>(null);
 
   // Bumped only when the focused node changes, so the DOM tooltip re-renders.
   // The canvas itself never needs React state.
@@ -257,6 +260,17 @@ export function ConceptGraphView({
   useEffect(() => {
     setSearch("");
   }, [assistantId]);
+  // Top matches for the results list under the search box: most-connected first,
+  // capped so the dropdown stays scannable. The head is also the Enter target.
+  const searchResults = useMemo(() => {
+    if (!matchIds || matchIds.size === 0) {
+      return [];
+    }
+    return layout.nodes
+      .filter((n) => matchIds.has(n.id))
+      .sort((a, b) => b.degree - a.degree)
+      .slice(0, 8);
+  }, [matchIds, layout.nodes]);
 
   // Recency time-lens: "All · Month · Week" narrows the graph to concepts
   // updated within the window — older ones ghost like non-search-matches, so
@@ -319,6 +333,14 @@ export function ConceptGraphView({
     v.dirty = true;
   }, []);
 
+  // Fly the camera to center a concept (search jump-to). The render loop reads
+  // focusTargetRef each frame and eases yaw/pitch/zoom toward it.
+  const focusOn = useCallback((id: string) => {
+    focusTargetRef.current = id;
+    view.current.lastInteractAt = performance.now();
+    view.current.dirty = true;
+  }, []);
+
   useEffect(() => {
     if (!ready) {return;}
     const canvas = canvasRef.current;
@@ -366,9 +388,48 @@ export function ConceptGraphView({
       const colors = colorsRef.current;
       const nowMs = Date.now();
 
+      const focusId = focusTargetRef.current;
       const idle = !v.dragging && t - v.lastInteractAt > IDLE_RESUME_MS;
-      if (idle && !reduceMotion) {
+      // Suppress the idle drift while flying to a searched concept, or it fights
+      // the ease and the target never settles.
+      if (idle && !reduceMotion && !focusId) {
         v.yaw += AUTO_YAW_PER_SEC * dt;
+      }
+
+      // Search jump-to: ease the camera to bring the target node front-and-center
+      // (yaw/pitch face it, zoom pushes in), then clear the target once settled.
+      // Reduced motion snaps instantly (k=1). Runs before the reduced-motion
+      // static-frame skip so it keeps stepping the ease.
+      if (focusId) {
+        const target = nodes.find((n) => n.id === focusId);
+        if (!target) {
+          focusTargetRef.current = null;
+        } else {
+          const nx = target.x - VIRTUAL_CENTER.x;
+          const ny = target.y - VIRTUAL_CENTER.y;
+          const nz = target.z;
+          const targetYaw = -Math.atan2(nx, nz);
+          const r = Math.hypot(nx, nz);
+          const targetPitch = Math.max(
+            -PITCH_CLAMP,
+            Math.min(PITCH_CLAMP, Math.atan2(ny, r)),
+          );
+          const targetZoom = Math.min(MAX_ZOOM, 1.6);
+          const k = reduceMotion ? 1 : 0.15;
+          let dY = targetYaw - v.yaw;
+          dY = Math.atan2(Math.sin(dY), Math.cos(dY));
+          v.yaw += dY * k;
+          v.pitch += (targetPitch - v.pitch) * k;
+          v.zoom += (targetZoom - v.zoom) * k;
+          v.dirty = true;
+          if (
+            Math.abs(dY) < 0.01 &&
+            Math.abs(targetPitch - v.pitch) < 0.01 &&
+            Math.abs(targetZoom - v.zoom) < 0.02
+          ) {
+            focusTargetRef.current = null;
+          }
+        }
       }
 
       // With reduced motion there is no auto-rotation, so the scene is static
@@ -830,10 +891,12 @@ export function ConceptGraphView({
         {/* Keep the box visible whenever a search is active, even if the graph
             shrank below the threshold (e.g. a refetch) — otherwise an active
             filter would ghost nodes with no way to clear it short of remount. */}
+        {/* z-20 keeps the results dropdown above the recency lens (top-14,
+            z-10) so its top rows stay clickable while a search is active. */}
         {layout.nodes.length > SEARCH_MIN_NODES || search ? (
           <div
             data-graph-control
-            className={`absolute top-4 z-10 ${onToggleFullscreen ? "left-16" : "left-4"}`}
+            className={`absolute top-4 z-20 ${onToggleFullscreen ? "left-16" : "left-4"}`}
           >
             <div
               className="flex items-center gap-1.5 rounded-full px-2.5 py-1"
@@ -850,6 +913,9 @@ export function ConceptGraphView({
                 onKeyDown={(e) => {
                   if (e.key === "Escape") {
                     setSearch("");
+                  } else if (e.key === "Enter" && searchResults.length > 0) {
+                    e.preventDefault();
+                    focusOn(searchResults[0].id);
                   }
                 }}
                 placeholder="Search concepts…"
@@ -877,6 +943,39 @@ export function ConceptGraphView({
                 </>
               ) : null}
             </div>
+
+            {/* Results under the box: click (or Enter on the top row) flies the
+                camera to center that concept and opens its detail drawer. */}
+            {search && searchResults.length > 0 ? (
+              <ul
+                className="mt-1.5 flex max-h-56 w-52 list-none flex-col overflow-y-auto rounded-xl py-1"
+                style={{
+                  backgroundColor:
+                    "color-mix(in srgb, var(--surface-base) 92%, transparent)",
+                  border: "1px solid var(--border-base)",
+                }}
+              >
+                {searchResults.map((node) => (
+                  <li key={node.id}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        focusOn(node.id);
+                        setOpenNode({
+                          id: node.id,
+                          label: node.label,
+                          updatedAtMs: node.updatedAtMs,
+                        });
+                      }}
+                      className="block w-full truncate px-3 py-1 text-left text-[12px] hover:bg-[color-mix(in_srgb,var(--content-tertiary)_14%,transparent)]"
+                      style={{ color: "var(--content-default)" }}
+                    >
+                      {node.label}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
           </div>
         ) : null}
 
