@@ -1,18 +1,21 @@
 /**
  * Versioned, per-user consent persistence.
  *
- * Consent flags live in `device:consent:{tos,privacy,share_analytics,share_diagnostics}:v<VERSION>:<userId>`.
+ * Consent flags live in `device:consent:{tos,privacy,share_diagnostics}:v<VERSION>:<userId>`.
  * The `device:` prefix survives logout; the userId makes them per-user;
  * the version lets us force re-consent by bumping the relevant version
- * constant. The four consent axes version independently — ToS, the privacy
- * checkbox (privacy policy + AI data sharing), share-analytics, and
- * share-diagnostics — so any one can be re-reviewed without forcing the
- * others. Bumping the privacy policy, in particular, must not re-prompt the
- * two data-capture toggles, so those carry their own frozen versions.
+ * constant. The consent axes version independently — ToS, the privacy
+ * checkbox (privacy policy + AI data sharing), and share-diagnostics — so any
+ * one can be re-reviewed without forcing the others. Bumping the privacy
+ * policy, in particular, must not re-prompt diagnostics capture consent, so
+ * it carries its own frozen version.
  *
- * The `share_analytics`/`share_diagnostics` ack keys record the version under
- * which the toggle was last confirmed (its currency), independent of the
- * on/off value which lives in the unversioned `device:share_analytics` key.
+ * The `share_diagnostics` ack key records the version under which the toggle
+ * was last confirmed (its currency), independent of the on/off value which
+ * lives in the unversioned `device:share_diagnostics` key. Analytics has no
+ * device ack: it is opt-out and its toggle is never shown during onboarding,
+ * so there is no versioned acknowledgment to preserve — server-side version
+ * stamps are written directly at choice time.
  *
  * The onboarding Zustand store holds the in-memory state (`tosAccepted`,
  * `privacyConsent`). This module handles the durable device-key layer
@@ -21,13 +24,12 @@
  * - `resolveServerConsent` — compare server consent versions against the ToS/privacy versions
  * - `saveConsent`          — unified write: store + device keys + server sync
  * - `savePreferenceToggle` — single-field write for settings page toggles
- * - `restoreConsentForUser` — read device keys, return {tos, privacy, toggle acks}
+ * - `restoreConsentForUser` — read device keys, return {tos, privacy, diagnostics ack}
  * - `persistConsentForUser` — write tos/privacy device keys
- * - `persistToggleConsent`  — write versioned share-toggle ack keys
+ * - `persistToggleConsent`  — write the versioned diagnostics ack key
  * - `clearConsentForUser`   — delete device keys + legacy active keys
  */
 import { removeLocalSetting, getLocalBool, setLocalBool } from "@/utils/local-settings";
-import { setDeviceBool } from "@/utils/device-settings";
 import { setDiagnosticsReportingGate } from "@/lib/consent/diagnostics-consent";
 import { useOnboardingStore } from "@/domains/onboarding/onboarding-store";
 import { patchConsent, type UserConsent } from "@/domains/account/profile";
@@ -53,12 +55,11 @@ export const DIAGNOSTICS_CONSENT_VERSION = "2026-06-18";
 const LEGACY_AI_PRIVACY_CONSENT_VERSION = "2026-06-08";
 
 // Version stamp embedded in each field's device-cache key. ToS, the privacy
-// checkbox (privacy policy + AI data sharing), and each share toggle track
-// their own version constant.
+// checkbox (privacy policy + AI data sharing), and the diagnostics toggle
+// track their own version constant. Analytics has no device ack key.
 const CONSENT_KEY_VERSION = {
   tos: TOS_CONSENT_VERSION,
   privacy: PRIVACY_CONSENT_VERSION,
-  share_analytics: ANALYTICS_CONSENT_VERSION,
   share_diagnostics: DIAGNOSTICS_CONSENT_VERSION,
 } as const;
 
@@ -72,14 +73,32 @@ function legacyPrivacyConsentKey(userId: string): string {
   return `device:consent:ai:v${LEGACY_AI_PRIVACY_CONSENT_VERSION}:${userId}`;
 }
 
+// Analytics device acks are no longer read or written (analytics is opt-out
+// and its toggle is never shown during onboarding — server version stamps are
+// written at choice time instead). Delete any stale keys, whatever version
+// they were stamped under, so they don't linger.
+function removeStaleAnalyticsAckKeys(userId: string): void {
+  const prefix = "device:consent:share_analytics:v";
+  const suffix = `:${userId}`;
+  const stale: string[] = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (key && key.startsWith(prefix) && key.endsWith(suffix)) {
+      stale.push(key);
+    }
+  }
+  for (const key of stale) {
+    removeLocalSetting(key);
+  }
+}
+
 export function restoreConsentForUser(
   userId: string | null,
-): { tos: boolean; privacy: boolean; analyticsCurrent: boolean; diagnosticsCurrent: boolean } {
+): { tos: boolean; privacy: boolean; diagnosticsCurrent: boolean } {
   if (typeof window === "undefined" || !userId) {
-    return { tos: false, privacy: false, analyticsCurrent: false, diagnosticsCurrent: false };
+    return { tos: false, privacy: false, diagnosticsCurrent: false };
   }
   try {
-    const analyticsCurrent = getLocalBool(consentKey("share_analytics", userId), false);
     const diagnosticsCurrent = getLocalBool(consentKey("share_diagnostics", userId), false);
     const tos = getLocalBool(consentKey("tos", userId), false);
     const privacy = getLocalBool(consentKey("privacy", userId), false);
@@ -92,8 +111,11 @@ export function restoreConsentForUser(
     if (getLocalBool(legacyPrivacyConsentKey(userId), false)) {
       removeLocalSetting(legacyPrivacyConsentKey(userId));
     }
+    removeStaleAnalyticsAckKeys(userId);
 
-    if (tos || privacy) return { tos, privacy, analyticsCurrent, diagnosticsCurrent };
+    if (tos || privacy) {
+      return { tos, privacy, diagnosticsCurrent };
+    }
 
     // One-time migration: users who accepted before the per-user device
     // key change still have consent in the legacy vellum: active keys.
@@ -107,12 +129,12 @@ export function restoreConsentForUser(
     const legacyPrivacy = getLocalBool("vellum:onboarding:aiDataConsent", false);
     if (legacyTos || legacyPrivacy) {
       persistConsentForUser(userId, legacyTos, false);
-      return { tos: legacyTos, privacy: false, analyticsCurrent, diagnosticsCurrent };
+      return { tos: legacyTos, privacy: false, diagnosticsCurrent };
     }
 
-    return { tos: false, privacy: false, analyticsCurrent, diagnosticsCurrent };
+    return { tos: false, privacy: false, diagnosticsCurrent };
   } catch {
-    return { tos: false, privacy: false, analyticsCurrent: false, diagnosticsCurrent: false };
+    return { tos: false, privacy: false, diagnosticsCurrent: false };
   }
 }
 
@@ -132,13 +154,10 @@ export function persistConsentForUser(
 
 export function persistToggleConsent(
   userId: string | null,
-  acks: { analyticsCurrent?: boolean; diagnosticsCurrent?: boolean },
+  acks: { diagnosticsCurrent?: boolean },
 ): void {
   if (typeof window === "undefined" || !userId) return;
   try {
-    if (acks.analyticsCurrent !== undefined) {
-      setLocalBool(consentKey("share_analytics", userId), acks.analyticsCurrent);
-    }
     if (acks.diagnosticsCurrent !== undefined) {
       setLocalBool(consentKey("share_diagnostics", userId), acks.diagnosticsCurrent);
     }
@@ -156,7 +175,7 @@ export function clearConsentForUser(userId: string | null): void {
     removeLocalSetting(consentKey("tos", userId));
     removeLocalSetting(consentKey("privacy", userId));
     removeLocalSetting(legacyPrivacyConsentKey(userId));
-    removeLocalSetting(consentKey("share_analytics", userId));
+    removeStaleAnalyticsAckKeys(userId);
     removeLocalSetting(consentKey("share_diagnostics", userId));
   } catch {
     // Storage unavailable.
@@ -322,7 +341,6 @@ export function saveConsent(opts: {
 
   persistConsentForUser(opts.userId, opts.tos, opts.privacy);
   persistToggleConsent(opts.userId, {
-    ...(opts.shareAnalytics !== null ? { analyticsCurrent: true } : {}),
     ...(opts.shareDiagnostics !== null ? { diagnosticsCurrent: true } : {}),
   });
 
@@ -354,20 +372,18 @@ export function savePreferenceToggle(
 ): void {
   const store = useOnboardingStore.getState();
   const { userId, hasPlatformSession } = opts;
-  // The on/off value is always device-persisted, but the version-currency ack
-  // ("confirmed under the current terms version") is only earned with a live
-  // platform session to record it against — offline it would stamp a currency
-  // the user never reviewed terms for.
+  // The on/off value is always device-persisted (the store setter writes the
+  // device key), but the version-currency ack ("confirmed under the current
+  // terms version") is only earned with a live platform session to record it
+  // against — offline it would stamp a currency the user never reviewed terms
+  // for.
   if (field === "share_analytics") {
     store.setShareAnalytics(value);
-    setDeviceBool("shareAnalytics", value);
     if (hasPlatformSession) {
       store.setAnalyticsConsentCurrent(true);
-      persistToggleConsent(userId, { analyticsCurrent: true });
     }
   } else {
     store.setShareDiagnostics(value);
-    setDeviceBool("shareDiagnostics", value);
     // Opt-out: the effective gate equals the preference — an explicit "off"
     // closes it, anything else keeps it open. The version-currency ack below
     // is separate: it is only earned with a live session to record it against.
@@ -381,7 +397,10 @@ export function savePreferenceToggle(
   if (hasPlatformSession) {
     void patchConsent({
       [field]: value,
-      [`${field}_accepted_version`]: CONSENT_KEY_VERSION[field],
+      [`${field}_accepted_version`]:
+        field === "share_analytics"
+          ? ANALYTICS_CONSENT_VERSION
+          : DIAGNOSTICS_CONSENT_VERSION,
     }).catch(() => {});
   }
 }

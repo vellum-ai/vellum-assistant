@@ -486,31 +486,48 @@ describe("resolveServerConsent", () => {
 });
 
 describe("persistToggleConsent + restoreConsentForUser round-trip", () => {
-  test("round-trips both ack keys", () => {
-    persistToggleConsent("user-1", { analyticsCurrent: true, diagnosticsCurrent: true });
+  test("round-trips the diagnostics ack key", () => {
+    persistToggleConsent("user-1", { diagnosticsCurrent: true });
+    expect(localStorage.getItem(diagnosticsKey("user-1"))).toBe("true");
     const r = restoreConsentForUser("user-1");
-    expect(r.analyticsCurrent).toBe(true);
     expect(r.diagnosticsCurrent).toBe(true);
   });
 
-  test("only writes the provided field", () => {
-    persistToggleConsent("user-1", { analyticsCurrent: true });
-    expect(localStorage.getItem(analyticsKey("user-1"))).toBe("true");
+  test("writes nothing when no ack is provided", () => {
+    persistToggleConsent("user-1", {});
     expect(localStorage.getItem(diagnosticsKey("user-1"))).toBeNull();
     const r = restoreConsentForUser("user-1");
-    expect(r.analyticsCurrent).toBe(true);
     expect(r.diagnosticsCurrent).toBe(false);
   });
 
   test("no-ops without a userId", () => {
-    persistToggleConsent(null, { analyticsCurrent: true });
-    expect(localStorage.getItem(analyticsKey("user-1"))).toBeNull();
+    persistToggleConsent(null, { diagnosticsCurrent: true });
+    expect(localStorage.getItem(diagnosticsKey("user-1"))).toBeNull();
   });
 
-  test("restore returns false for both with no userId", () => {
+  test("restore returns false with no userId", () => {
     const r = restoreConsentForUser(null);
-    expect(r.analyticsCurrent).toBe(false);
     expect(r.diagnosticsCurrent).toBe(false);
+  });
+
+  test("restore deletes stale analytics ack keys of any version without promoting them", () => {
+    // Analytics device acks are dead (analytics is opt-out; no versioned
+    // acknowledgment exists) — restore removes them for the current user,
+    // whatever version they were stamped under, and leaves other users' keys.
+    localStorage.setItem(analyticsKey("user-1"), "true");
+    localStorage.setItem(
+      "device:consent:share_analytics:v2026-01-01:user-1",
+      "true",
+    );
+    localStorage.setItem(analyticsKey("user-2"), "true");
+
+    restoreConsentForUser("user-1");
+
+    expect(localStorage.getItem(analyticsKey("user-1"))).toBeNull();
+    expect(
+      localStorage.getItem("device:consent:share_analytics:v2026-01-01:user-1"),
+    ).toBeNull();
+    expect(localStorage.getItem(analyticsKey("user-2"))).toBe("true");
   });
 
   test("cleans up the legacy 'ai' key without satisfying the current privacy version", () => {
@@ -595,7 +612,7 @@ describe("saveConsent", () => {
     expect(body.ai_data_sharing_accepted_version).toBe(PRIVACY_CONSENT_VERSION);
   });
 
-  test("sets both currency flags and writes both ack keys", () => {
+  test("sets both currency flags and writes the diagnostics ack key only", () => {
     saveConsent({
       userId: "user-1",
       tos: true,
@@ -606,7 +623,8 @@ describe("saveConsent", () => {
     });
     expect(storeState.setAnalyticsConsentCurrent).toHaveBeenCalledWith(true);
     expect(storeState.setDiagnosticsConsentCurrent).toHaveBeenCalledWith(true);
-    expect(localStorage.getItem(analyticsKey("user-1"))).toBe("true");
+    // Analytics has no device ack — its version stamp is server-side only.
+    expect(localStorage.getItem(analyticsKey("user-1"))).toBeNull();
     expect(localStorage.getItem(diagnosticsKey("user-1"))).toBe("true");
   });
 
@@ -698,11 +716,13 @@ describe("saveConsent", () => {
 });
 
 describe("savePreferenceToggle", () => {
-  test("stamps the analytics version and sets its flag only", () => {
+  test("stamps the analytics version server-side and sets its flag only (no device ack)", () => {
     savePreferenceToggle("share_analytics", true, { userId: "user-1", hasPlatformSession: true });
+    expect(storeState.setShareAnalytics).toHaveBeenCalledWith(true);
     expect(storeState.setAnalyticsConsentCurrent).toHaveBeenCalledWith(true);
     expect(storeState.setDiagnosticsConsentCurrent).not.toHaveBeenCalled();
-    expect(localStorage.getItem(analyticsKey("user-1"))).toBe("true");
+    // Analytics has no device ack key; the version stamp lives server-side.
+    expect(localStorage.getItem(analyticsKey("user-1"))).toBeNull();
     expect(localStorage.getItem(diagnosticsKey("user-1"))).toBeNull();
     const body = patchConsentMock.mock.calls[0][0];
     expect(body.share_analytics).toBe(true);
@@ -720,9 +740,9 @@ describe("savePreferenceToggle", () => {
 
   test("offline persists the on/off value but skips the currency stamp, ack key, and server patch", () => {
     savePreferenceToggle("share_analytics", true, { userId: "user-1", hasPlatformSession: false });
-    // The chosen value is still recorded device-locally...
+    // The chosen value is still recorded (the store setter persists the
+    // device key)...
     expect(storeState.setShareAnalytics).toHaveBeenCalledWith(true);
-    expect(setDeviceBoolMock).toHaveBeenCalledWith("shareAnalytics", true);
     // ...but no version-currency is stamped without a session to record against.
     expect(storeState.setAnalyticsConsentCurrent).not.toHaveBeenCalled();
     expect(localStorage.getItem(analyticsKey("user-1"))).toBeNull();
@@ -731,7 +751,7 @@ describe("savePreferenceToggle", () => {
 
   test("an offline diagnostics opt-out still closes the reporting gate (opt-out follows the preference)", () => {
     savePreferenceToggle("share_diagnostics", false, { userId: "user-1", hasPlatformSession: false });
-    expect(setDeviceBoolMock).toHaveBeenCalledWith("shareDiagnostics", false);
+    expect(storeState.setShareDiagnostics).toHaveBeenCalledWith(false);
     expect(setDeviceBoolMock).toHaveBeenCalledWith("diagnosticsReporting", false);
     expect(storeState.setDiagnosticsConsentCurrent).not.toHaveBeenCalled();
     expect(patchConsentMock).not.toHaveBeenCalled();
@@ -744,8 +764,9 @@ describe("savePreferenceToggle", () => {
 });
 
 describe("clearConsentForUser", () => {
-  test("clears both toggle ack keys", () => {
-    persistToggleConsent("user-1", { analyticsCurrent: true, diagnosticsCurrent: true });
+  test("clears the diagnostics ack key and any stale analytics ack keys", () => {
+    persistToggleConsent("user-1", { diagnosticsCurrent: true });
+    localStorage.setItem(analyticsKey("user-1"), "true");
     clearConsentForUser("user-1");
     expect(localStorage.getItem(analyticsKey("user-1"))).toBeNull();
     expect(localStorage.getItem(diagnosticsKey("user-1"))).toBeNull();

@@ -40,6 +40,10 @@ export function PrivacyScreen() {
   const preferredFunnelVariant =
     onboardingFunnelVariantFromExperiment(preChatExperimentArm);
   const [shareDiagnostics, setShareDiagnosticsReal] = useShareDiagnostics();
+  // Never-asked (null) displays as on — diagnostics is opt-out — and the
+  // toggle is on screen, so Start records the displayed value as an explicit
+  // choice.
+  const shareDiagnosticsChecked = shareDiagnostics ?? true;
   const [tosAccepted, setTosAcceptedReal] = useTosAccepted();
   const [privacyConsent, setPrivacyConsentReal] = usePrivacyConsent();
   const hasPlatformSession = useHasPlatformSession();
@@ -68,7 +72,7 @@ export function PrivacyScreen() {
 
     // Analytics isn't asked here — the server keeps share_analytics null
     // until the user opts in via settings or review-terms.
-    saveConsent({ userId, tos: tosAccepted, privacy: privacyConsent, shareAnalytics: null, shareDiagnostics, hasPlatformSession });
+    saveConsent({ userId, tos: tosAccepted, privacy: privacyConsent, shareAnalytics: null, shareDiagnostics: shareDiagnosticsChecked, hasPlatformSession });
     if (!isNative) {
       const variant = resolveOnboardingFunnelVariant(preferredFunnelVariant);
       emitOnboardingFunnelStepCompleted(ONBOARDING_FUNNEL_STEPS.privacyTos, {
@@ -100,7 +104,7 @@ export function PrivacyScreen() {
     navigate,
     preferredFunnelVariant,
     searchParams,
-    shareDiagnostics,
+    shareDiagnosticsChecked,
     tosAccepted,
     userId,
   ]);
@@ -136,7 +140,7 @@ export function PrivacyScreen() {
           electron={electron}
           showAnalytics={false}
           shareAnalytics={false}
-          shareDiagnostics={shareDiagnostics}
+          shareDiagnostics={shareDiagnosticsChecked}
           onShareAnalyticsChange={noop}
           onShareDiagnosticsChange={setShareDiagnostics}
           className="mt-8 w-full"
