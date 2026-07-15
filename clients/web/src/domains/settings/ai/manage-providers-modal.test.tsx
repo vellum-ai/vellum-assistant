@@ -302,6 +302,29 @@ describe("default marker", () => {
 });
 
 describe("card titles", () => {
+  test("renders Vellum first regardless of API order", async () => {
+    connectionsState = [
+      makeConnection({ name: "anthropic-personal", provider: "anthropic" }),
+      makeConnection({
+        name: "vellum",
+        provider: "vellum",
+        label: "Vellum",
+        auth: { type: "platform" },
+        isManaged: true,
+      }),
+      makeConnection({ name: "openai-personal", provider: "openai" }),
+    ];
+
+    const result = renderModal();
+    await waitForRow(result, "Vellum");
+
+    const providerList = rowFor(result, "Vellum")?.parentElement;
+    const titles = Array.from(providerList?.children ?? []).map(
+      (row) => row.querySelector("span")?.textContent,
+    );
+    expect(titles).toEqual(["Vellum", "Anthropic", "OpenAI"]);
+  });
+
   test("titles a ChatGPT subscription row distinctly from OpenAI API-key rows", async () => {
     // GIVEN unlabeled ChatGPT subscription and OpenAI API-key providers
     connectionsState = [

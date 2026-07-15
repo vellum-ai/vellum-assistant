@@ -21,6 +21,7 @@ import type {
   DefaultProviderStatus,
   ProviderConnection,
 } from "@/generated/daemon/types.gen";
+import { VELLUM_CONNECTION_PROVIDER } from "@/domains/settings/ai/constants";
 import { providerConnectionDisplayName } from "@/domains/settings/ai/provider-editor-constants";
 import { captureError } from "@/lib/sentry/capture-error";
 import { useSupportsDefaultProviderSettings } from "@/lib/backwards-compat/default-provider-settings";
@@ -88,7 +89,17 @@ export function ManageProvidersModal({
     enabled: isOpen && supportsDefaultProvider,
   });
 
-  const connections = useMemo(() => data?.connections ?? [], [data]);
+  const connections = useMemo(() => {
+    const fetchedConnections = data?.connections ?? [];
+    return [
+      ...fetchedConnections.filter(
+        (connection) => connection.provider === VELLUM_CONNECTION_PROVIDER,
+      ),
+      ...fetchedConnections.filter(
+        (connection) => connection.provider !== VELLUM_CONNECTION_PROVIDER,
+      ),
+    ];
+  }, [data]);
 
   function handleDefaultChanged() {
     void queryClient.invalidateQueries({
