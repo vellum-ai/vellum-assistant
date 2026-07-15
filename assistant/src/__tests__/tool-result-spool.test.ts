@@ -110,13 +110,14 @@ describe("spoolAndStubOversizedToolResults", () => {
     expect(messages).toBe(history);
   });
 
-  test("skips below-threshold, error, exempt, file_read, host_file_read, marked, and ax-tree results", () => {
+  test("skips below-threshold, error, exempt, file_read, host_file_read, web_fetch, marked, and ax-tree results", () => {
     const blocks = [
       makeToolResult(SHORT, "tu_short"),
       makeToolResult(LONG, "tu_err", true),
       makeToolResult(LONG, "tu_skill"),
       makeToolResult(LONG, "tu_read"),
       makeToolResult(LONG, "tu_host_read"),
+      makeToolResult(LONG, "tu_web_fetch"),
       makeToolResult(`${LONG}${TRUNCATION_MARKER}`, "tu_marked"),
       makeToolResult(`<ax-tree>${LONG}</ax-tree>`, "tu_ax"),
       { type: "text" as const, text: LONG },
@@ -129,6 +130,7 @@ describe("spoolAndStubOversizedToolResults", () => {
         if (id === "tu_skill") return "skill_load";
         if (id === "tu_read") return "file_read";
         if (id === "tu_host_read") return "host_file_read";
+        if (id === "tu_web_fetch") return "web_fetch";
         return undefined;
       },
     });
@@ -310,6 +312,41 @@ describe("AgentLoop result-time spooling", () => {
 
     const filePath = getToolResultFilePath(convDir, "tu_1");
     expect(readFileSync(filePath, "utf-8")).toBe(HUGE);
+  });
+
+  test("web_fetch result is sent to the provider in full mid-turn (explicit self-sized read)", async () => {
+    const webFetchTool: ToolDefinition[] = [
+      {
+        name: "web_fetch",
+        description: "Fetch a web page",
+        input_schema: { type: "object", properties: {} },
+      },
+    ];
+    const { provider, calls } = createMockProvider([
+      toolUseResponse("tu_wf", "web_fetch", {}),
+      textResponse("Done."),
+    ]);
+    const loop = new AgentLoop({
+      provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+      tools: webFetchTool,
+      toolExecutor: async () => ({ content: LONG, isError: false }),
+      resolveConversationDir: () => convDir,
+    });
+
+    await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: () => {},
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
+
+    // The second provider call carries the full requested window, not a stub;
+    // the post-turn pass (conversation-turn-finalize) owns truncating it.
+    const sentResult = calls[1].messages[2].content[0] as { content: string };
+    expect(sentResult.content).toBe(LONG);
+    expect(existsSync(join(convDir, TOOL_RESULT_DIR))).toBe(false);
   });
 
   test("without resolveConversationDir the full content is sent and post-turn handles it", async () => {
