@@ -90,7 +90,7 @@ export function TipCard({
             onDontShowAgain();
             navigate(routes.settings.general);
           }}
-          className="cursor-pointer text-[11px] whitespace-nowrap text-[color:var(--content-tertiary)] hover:text-[color:var(--content-secondary)] hover:underline"
+          className="cursor-pointer text-[10px] whitespace-nowrap text-[color:var(--content-tertiary)] hover:text-[color:var(--content-secondary)] hover:underline"
         >
           Don&apos;t show again
         </button>
