@@ -649,6 +649,7 @@ export async function observeTurn(
       prefixCards: lanes.prefixCards,
       needleK: tuning.needleK,
       denseK: tuning.denseK,
+      realConceptPageCount: lanes.realConceptPageCount,
       entityCap: v3.entity.cap,
       replyQueryK: tuning.replyQueryK,
       edgeSeeds: tuning.edgeSeedCount,

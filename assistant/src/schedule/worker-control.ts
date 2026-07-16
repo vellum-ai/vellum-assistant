@@ -22,6 +22,25 @@ import {
 const log = getLogger("schedule-worker-control");
 
 /**
+ * True when an operator explicitly stopped the worker (via
+ * `assistant schedules worker stop`). The liveness watchdog must not respawn it
+ * while this is set, or a manual stop would be silently undone within one tick.
+ * Process-local: it resets to false on daemon restart and is cleared by the
+ * `schedules worker start` route — a restart is treated as a fresh start.
+ */
+let administrativelyStopped = false;
+
+/** Whether the schedule worker has been administratively stopped by an operator. */
+export function isScheduleWorkerAdministrativelyStopped(): boolean {
+  return administrativelyStopped;
+}
+
+/** Set/clear the administratively-stopped flag (set by stop, cleared by start). */
+export function setScheduleWorkerAdministrativelyStopped(value: boolean): void {
+  administrativelyStopped = value;
+}
+
+/**
  * Inspect the PID file to determine whether the schedule worker process is
  * alive. A stale PID file (pointing at a dead process) is cleaned up and
  * reported as not_running.

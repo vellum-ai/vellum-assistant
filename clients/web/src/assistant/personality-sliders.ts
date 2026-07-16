@@ -50,28 +50,33 @@ export function completeSliderValues(
   );
 }
 
-/** Resolves `null` when the sidecar is missing or unreadable; never throws. */
+/**
+ * Resolves `null` only when the sidecar was never persisted (a 404); every
+ * other failure — non-OK response, network error, malformed JSON — throws.
+ * Callers rely on that split: a missing sidecar falls back to neutral
+ * defaults, but a transient read error must degrade to no-stat rather than
+ * overwrite a user's saved dials with an all-centered radar.
+ */
 export async function fetchPersonalitySliders(
   assistantId: string,
 ): Promise<PersonalitySliderValues | null> {
-  try {
-    const { data, error, response } = await workspaceFileGet({
-      path: { assistant_id: assistantId },
-      query: { path: PERSONALITY_SLIDERS_PATH },
-      throwOnError: false,
-    });
-    assertHasResponse(response, error, "Failed to fetch personality sliders");
-    if (!response.ok || !data) {
-      return null;
-    }
-    const parsed: unknown = JSON.parse(data.content);
-    if (!isSliderValues(parsed)) {
-      return null;
-    }
-    return parsed;
-  } catch {
+  const { data, error, response } = await workspaceFileGet({
+    path: { assistant_id: assistantId },
+    query: { path: PERSONALITY_SLIDERS_PATH },
+    throwOnError: false,
+  });
+  assertHasResponse(response, error, "Failed to fetch personality sliders");
+  if (response.status === 404) {
     return null;
   }
+  if (!response.ok || !data) {
+    throw new Error("Failed to fetch personality sliders");
+  }
+  const parsed: unknown = JSON.parse(data.content);
+  if (!isSliderValues(parsed)) {
+    throw new Error("Personality sliders sidecar is malformed");
+  }
+  return parsed;
 }
 
 /** Best-effort write; resolves `false` on failure, never throws. */

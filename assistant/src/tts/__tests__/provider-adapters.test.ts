@@ -1520,6 +1520,24 @@ describe("Deepgram TTS provider adapter", () => {
     }
   });
 
+  test("surfaces a friendly, JSON-free message on a 401 auth failure", async () => {
+    mockFetchError(401, '{"err_code":"INVALID_AUTH","err_msg":"expired"}');
+
+    const provider = createDeepgramProvider();
+
+    try {
+      await provider.synthesize(makeRequest());
+      throw new Error("Expected synthesize to throw");
+    } catch (err) {
+      expect(err).toBeInstanceOf(DeepgramTtsError);
+      const message = (err as DeepgramTtsError).message;
+      expect(message).not.toContain("{");
+      expect(message).not.toContain("INVALID_AUTH");
+      expect(message).toContain("API key");
+      expect(message).toContain("Settings");
+    }
+  });
+
   test("throws DEEPGRAM_TTS_EMPTY_RESPONSE on empty audio body", async () => {
     mockFetchReturning(new Uint8Array(0));
 

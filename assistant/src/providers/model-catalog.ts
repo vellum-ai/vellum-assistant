@@ -1438,6 +1438,18 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
       },
       // Moonshot
       {
+        id: "moonshotai/kimi-k3",
+        displayName: "Kimi K3",
+        contextWindowTokens: 1048576,
+        maxOutputTokens: 131072,
+        supportsThinking: true,
+        adaptiveThinkingOnly: true,
+        supportsCaching: false,
+        supportsVision: true,
+        supportsToolUse: true,
+        pricing: { inputPer1mTokens: 3, outputPer1mTokens: 15 },
+      },
+      {
         id: "moonshotai/kimi-k2.6",
         displayName: "Kimi K2.6",
         contextWindowTokens: 262144,

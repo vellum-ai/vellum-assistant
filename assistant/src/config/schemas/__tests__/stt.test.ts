@@ -41,6 +41,31 @@ describe("SttServiceSchema", () => {
   test("VALID_STT_PROVIDERS includes deepgram", () => {
     expect(VALID_STT_PROVIDERS).toContain("deepgram");
   });
+
+  test("normalizes the openai/whisper aliases to openai-whisper", () => {
+    expect(SttServiceSchema.parse({ provider: "openai" }).provider).toBe(
+      "openai-whisper",
+    );
+    expect(SttServiceSchema.parse({ provider: "whisper" }).provider).toBe(
+      "openai-whisper",
+    );
+    // Case- and whitespace-tolerant.
+    expect(SttServiceSchema.parse({ provider: "  OpenAI  " }).provider).toBe(
+      "openai-whisper",
+    );
+  });
+
+  test("a canonical provider is unchanged by the alias preprocessor", () => {
+    expect(
+      SttServiceSchema.parse({ provider: "openai-whisper" }).provider,
+    ).toBe("openai-whisper");
+  });
+
+  test("rejects an unknown provider with a helpful message", () => {
+    expect(() => SttServiceSchema.parse({ provider: "nope" })).toThrow(
+      /must be one of/,
+    );
+  });
 });
 
 describe("managed mode", () => {
@@ -70,9 +95,9 @@ describe("managed mode", () => {
   });
 
   test("effectiveSttProvider routes provider vellum and managed mode to vellum, preserves BYOK otherwise", () => {
-    expect(
-      effectiveSttProvider({ mode: "your-own", provider: "vellum" }),
-    ).toBe("vellum");
+    expect(effectiveSttProvider({ mode: "your-own", provider: "vellum" })).toBe(
+      "vellum",
+    );
     expect(
       effectiveSttProvider({ mode: "managed", provider: "deepgram" }),
     ).toBe("vellum");

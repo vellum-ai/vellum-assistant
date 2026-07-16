@@ -107,7 +107,7 @@ function extractDeltaText(msg: ServerMessage): string | null {
 
 // ── Default subagent system prompt ──────────────────────────────────────
 
-function buildSubagentSystemPrompt(
+export function buildSubagentSystemPrompt(
   config: SubagentConfig,
   role: SubagentRole,
 ): string {
@@ -126,7 +126,8 @@ function buildSubagentSystemPrompt(
     "## Constraints",
     `- Role: ${role}`,
     "- You cannot spawn nested subagents.",
-    "- Use notify_parent to report important findings or if you are blocked.",
+    "- Use notify_parent to report important findings, or if you are blocked.",
+    '- If the objective needs a capability your role\'s tools do not provide (for example, writing or editing a file, or running a command, with a read-only role), do NOT fabricate a completed result — call notify_parent with urgency "blocked", name the capability you lack (e.g. file_write), and stop.',
   );
   return sections.join("\n");
 }
@@ -152,6 +153,8 @@ export function buildSubagentTerminalMessage(opts: {
   error?: string;
   /** A follow-up turn is still queued, so the current synthesis is a snapshot. */
   deferred?: boolean;
+  /** Tools the subagent attempted but that its role allowlist denied. */
+  deniedTools?: string[];
 }): string {
   const {
     label,
@@ -162,8 +165,18 @@ export function buildSubagentTerminalMessage(opts: {
     finalText,
     error,
     deferred,
+    deniedTools,
   } = opts;
   const prefix = isFork ? "Fork" : "Subagent";
+
+  // When the subagent reached for tools its role does not permit, tell the
+  // parent so it re-spawns with a capable role instead of blindly retrying (a
+  // read-only role produces nothing). Only attached to completed outcomes.
+  const many = (deniedTools?.length ?? 0) > 1;
+  const deniedNote =
+    deniedTools && deniedTools.length > 0
+      ? `\n\nNote: this ${prefix.toLowerCase()} attempted ${deniedTools.join(", ")} but its role does not permit ${many ? "them" : "it"}. If the objective requires ${many ? "those" : "that"}, re-spawn with a role that includes ${many ? "them" : "it"} (e.g. \`coder\`).`
+      : "";
 
   if (outcome === "failed") {
     return (
@@ -180,7 +193,8 @@ export function buildSubagentTerminalMessage(opts: {
       `${trimmed}\n\n` +
       (silent
         ? `(Use these findings internally; do not relay the raw ${prefix.toLowerCase()} output to the user.)`
-        : `(Incorporate this into your reply to the user as appropriate.)`)
+        : `(Incorporate this into your reply to the user as appropriate.)`) +
+      deniedNote
     );
   }
 
@@ -194,7 +208,8 @@ export function buildSubagentTerminalMessage(opts: {
   return (
     `[${prefix} "${label}" completed]\n\n` +
     `${reason}. Use subagent_read with subagent_id "${subagentId}"${lastN} for the latest output.` +
-    (silent ? ` Keep the result internal.` : ``)
+    (silent ? ` Keep the result internal.` : ``) +
+    deniedNote
   );
 }
 
@@ -772,6 +787,9 @@ export class SubagentManager {
       // Capture the trailing assistant text before any release nulls the
       // conversation reference. The fire-and-forget caller ignores the return.
       finalText = extractFinalAssistantText(conversation.messages);
+      // Capture any tools the subagent reached for but its role denied, before a
+      // release nulls the conversation reference, so we can tell the parent.
+      const deniedTools = [...conversation.subagentDeniedToolNames];
       // Copy usage stats from the conversation before sending status (which includes usage).
       managed.state.usage = { ...conversation.usageStats };
       // Only update state + notify if still non-terminal (guards against abort race).
@@ -786,7 +804,12 @@ export class SubagentManager {
         // round-trip. Skipped on the synchronous path — the awaiting caller
         // receives the final text directly.
         if (!managed.synchronous) {
-          this.notifyParentTerminal(managed, "completed", finalText);
+          this.notifyParentTerminal(
+            managed,
+            "completed",
+            finalText,
+            deniedTools,
+          );
         }
       }
     } catch (err) {
@@ -1397,6 +1420,7 @@ export class SubagentManager {
     managed: ManagedSubagent,
     outcome: "completed" | "failed",
     finalText?: string,
+    deniedTools?: string[],
   ): void {
     const { config } = managed.state;
     const isFork = managed.state.isFork;
@@ -1417,6 +1441,7 @@ export class SubagentManager {
       // A queued follow-up turn means the snapshot we hold is stale; defer to a
       // read pointer so the parent picks up the queued turn's output instead.
       deferred: managed.hadEnqueuedMessages === true,
+      deniedTools,
     });
 
     const notification: SubagentNotificationInfo = {

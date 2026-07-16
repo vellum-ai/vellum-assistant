@@ -199,10 +199,16 @@ export function createToolExecutor(
   const rejectNonAllowlistedTool = (
     toolName: string,
   ): ToolExecutionResult | null => {
+    const allowlist = ctx.subagentAllowedTools;
+    // Record any attempt at a tool outside the subagent's role allowlist — in
+    // both wire and execution gate modes — so the parent can be told what the
+    // subagent needed but lacked. Pure observation; the gating is below.
+    if (allowlist !== undefined && !allowlist.has(toolName)) {
+      ctx.subagentDeniedToolNames?.add(toolName);
+    }
     if (ctx.subagentToolGateMode !== "execution") {
       return null;
     }
-    const allowlist = ctx.subagentAllowedTools;
     if (!allowlist || allowlist.has(toolName)) {
       return null;
     }

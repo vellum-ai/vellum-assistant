@@ -94,7 +94,7 @@ const pendingTurnTeardowns = new Map<string, Promise<void>>();
  * when the signal aborts mid-wait. Timer and abort listener are removed on
  * every exit path.
  */
-async function waitForPriorTurnTeardown(
+export async function waitForPriorTurnTeardown(
   teardown: Promise<void>,
   timeoutMs: number,
   signal?: AbortSignal,
@@ -125,6 +125,24 @@ async function waitForPriorTurnTeardown(
       resolve(true);
     });
   });
+}
+
+/**
+ * The pending teardown promise for a conversation's most recent turn, or
+ * `undefined` when no turn is currently tearing down. The live-voice barge-in
+ * path reads this synchronously at interrupt time — before the next utterance's
+ * `startVoiceTurn` overwrites the per-conversation entry — to capture the
+ * interrupted turn's teardown, then awaits it before forking a background
+ * continuation. That guarantees the fork snapshots history only after the
+ * interrupted turn's completed tool calls have settled into it, so a
+ * side-effecting continuation cannot repeat a call the interrupted turn already
+ * ran. It is turn-scoped: it resolves once THIS turn's teardown finishes, and
+ * does not block on any later turn's work.
+ */
+export function getConversationTurnTeardown(
+  conversationId: string,
+): Promise<void> | undefined {
+  return pendingTurnTeardowns.get(conversationId);
 }
 
 // ---------------------------------------------------------------------------

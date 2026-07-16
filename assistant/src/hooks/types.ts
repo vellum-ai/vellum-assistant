@@ -174,6 +174,15 @@ export interface UserPromptSubmitInputContext {
    */
   readonly isHiddenPrompt?: boolean;
   /**
+   * How the triggering message was initiated when it was sent on the
+   * user's behalf by the UI rather than typed by hand (`body.source` on
+   * `POST /v1/messages`, persisted as `metadata.userMessageSource`).
+   * Current value: `"nav_redirect"` — a navigation shortcut redirected the
+   * user into chat with a pre-filled message. Unset for hand-typed
+   * messages.
+   */
+  readonly messageSource?: string;
+  /**
    * The user's original message list, immutable for the hook. Plugins
    * may snapshot or compare against this but MUST NOT mutate it.
    */
