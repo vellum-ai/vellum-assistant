@@ -106,8 +106,9 @@ async function handleCredentialPrompt({ body = {} }: RouteHandlerArgs) {
         message:
           'The inline "Connect Claude Code" card is already available in this ' +
           "conversation for acp/claude_oauth_token. Do not prompt for it here — " +
-          "ask the user to click Connect in that card (it signs in via OAuth, " +
-          "nothing to paste), then retry the spawn.",
+          "ask the user to click Connect in that card to sign in (the card owns " +
+          "the flow: one click on desktop, one paste on cloud), then retry the " +
+          "spawn.",
       };
     }
   }

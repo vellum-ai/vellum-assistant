@@ -176,6 +176,25 @@ export async function prepareAgentEnv(
   const adapterCommand = basename(agentConfig.command);
 
   if (adapterCommand === "claude-agent-acp") {
+    // A config `env` override or a legacy vault entry can hold an Anthropic API
+    // key (`sk-ant-api…`) in this OAuth-only field (e.g. written before the
+    // write-path format guard). The adapter would take it as an OAuth token and
+    // 401 at runtime, so treat any `api_key` value as absent. Drop it BEFORE the
+    // vault read — otherwise a stale API-key override skips the read and shadows
+    // the freshly-stored OAuth token, re-looping the Connect card on every
+    // auto-continue — and again AFTER the read (the vault value itself can be a
+    // legacy key), so the missing-token branch raises the
+    // `acp_claude_oauth_missing` marker instead of spawning a doomed credential.
+    const dropApiKeyOauthToken = () => {
+      if (
+        env.CLAUDE_CODE_OAUTH_TOKEN &&
+        classifyAnthropicToken(env.CLAUDE_CODE_OAUTH_TOKEN) === "api_key"
+      ) {
+        delete env.CLAUDE_CODE_OAUTH_TOKEN;
+      }
+    };
+
+    dropApiKeyOauthToken();
     if (!env.CLAUDE_CODE_OAUTH_TOKEN) {
       await injectCredential(
         env,
@@ -184,19 +203,7 @@ export async function prepareAgentEnv(
         "Claude OAuth token for ACP agent authentication",
       );
     }
-    // A legacy vault entry (or a config `env` override) can hold an Anthropic
-    // API key (`sk-ant-api…`) in this OAuth-only field — written before the
-    // write-path format guard existed. The adapter would take it as an OAuth
-    // token and 401 at runtime, and the presence check below would treat it as
-    // usable, so the repair path never fires. Drop it so the missing-token
-    // branch raises the `acp_claude_oauth_missing` marker (the inline Connect
-    // card) instead of spawning with a doomed credential.
-    if (
-      env.CLAUDE_CODE_OAUTH_TOKEN &&
-      classifyAnthropicToken(env.CLAUDE_CODE_OAUTH_TOKEN) === "api_key"
-    ) {
-      delete env.CLAUDE_CODE_OAUTH_TOKEN;
-    }
+    dropApiKeyOauthToken();
     if (!env.CLAUDE_CODE_OAUTH_TOKEN) {
       // Carry the stable marker as structured `details` so the client renders
       // the inline "Connect Claude Code" card. The message itself is the tool

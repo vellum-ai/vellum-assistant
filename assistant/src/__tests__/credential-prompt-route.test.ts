@@ -599,6 +599,9 @@ describe("credentials/prompt route", () => {
     expect(result.ok).toBe(false);
     expect(result.redirected).toBe(true);
     expect(result.message).toContain("Connect Claude Code");
+    // AND it must not claim "nothing to paste" — the cloud/manual card DOES ask
+    // the user to paste the code/key, so that phrasing misdirects cloud users.
+    expect(result.message).not.toContain("nothing to paste");
 
     // AND no secure prompt was issued and nothing was stored
     expect(capturedSecretParams).toBeUndefined();

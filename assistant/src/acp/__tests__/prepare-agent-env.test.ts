@@ -295,6 +295,26 @@ describe("prepareAgentEnv — claude-agent-acp gating", () => {
     });
   });
 
+  test("a stale API-key config override does NOT shadow a valid vault OAuth token (auto-continue recovers)", async () => {
+    // The loop bug: after the user connects (OAuth token stored in the vault), a
+    // re-spawn still carries the legacy `sk-ant-api…` value in config `env`. If
+    // that override skipped the vault read, the freshly-stored token would never
+    // be used and the Connect card would re-fire forever. The bad override is
+    // dropped BEFORE the read, so the vault OAuth token is picked up and spawn
+    // proceeds instead of looping.
+    seedVaultToken("sk-ant-oat01-freshly-connected");
+
+    const prepared = await prepareAgentEnv({
+      command: "claude-agent-acp",
+      args: [],
+      env: { CLAUDE_CODE_OAUTH_TOKEN: "sk-ant-api03-stale-override" },
+    });
+
+    expect(prepared.env?.CLAUDE_CODE_OAUTH_TOKEN).toBe(
+      "sk-ant-oat01-freshly-connected",
+    );
+  });
+
   test("keeps a valid OAuth token (sk-ant-oat…) usable (not misclassified)", async () => {
     seedVaultToken("sk-ant-oat01-good-token");
 
