@@ -175,3 +175,25 @@ describe("memory-retrospective-state remembered log persistence", () => {
     ]);
   });
 });
+
+describe("fail-soft when the underlying statement fails", () => {
+  // The memory connection is present, but the relocated table is gone (a
+  // corrupt/dropped table, SQLITE_FULL, I/O error, or SQLITE_BUSY after
+  // timeout). The fork copy runs inside the main fork transaction, so it must
+  // degrade like the null-connection case — log a warning and no-op — rather
+  // than throwing out and aborting the user-visible fork. Dropped last so no
+  // later test in this file sees the missing table.
+  test("forkRetrospectiveState no-ops when the target table is missing", () => {
+    getMemorySqlite()!.exec("DROP TABLE memory_retrospective_state");
+
+    expect(() =>
+      forkRetrospectiveState({
+        database: getDb(),
+        sourceConversationId: "conv-parent",
+        forkedConversationId: "conv-child",
+        forkedMessageIds: new Map(),
+        lastCopiedSourceMessageId: null,
+      }),
+    ).not.toThrow();
+  });
+});

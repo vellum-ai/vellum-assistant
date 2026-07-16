@@ -28,7 +28,10 @@
 
 import type { DrizzleDb } from "../../../persistence/db-connection.js";
 import { withSqliteRetry } from "./host-utils.js";
+import { getLogger } from "./logging.js";
 import { memorySqliteOrNull } from "./memory-db.js";
+
+const log = getLogger("memory-retrospective-state");
 
 export interface MemoryRetrospectiveState {
   conversationId: string;
@@ -242,39 +245,40 @@ export function forkRetrospectiveState(args: {
     lastCopiedSourceMessageId,
   } = args;
 
-  const raw = memorySqliteOrNull("forkRetrospectiveState");
-  if (!raw) return;
+  try {
+    const raw = memorySqliteOrNull("forkRetrospectiveState");
+    if (!raw) return;
 
-  const sourceRow = raw
-    .query(
-      /*sql*/ `
+    const sourceRow = raw
+      .query(
+        /*sql*/ `
       SELECT last_processed_message_id, last_run_at, remembered_log
       FROM memory_retrospective_state WHERE conversation_id = ?
     `,
-    )
-    .get(sourceConversationId) as {
-    last_processed_message_id: string;
-    last_run_at: number;
-    remembered_log: string | null;
-  } | null;
-  if (!sourceRow) return;
+      )
+      .get(sourceConversationId) as {
+      last_processed_message_id: string;
+      last_run_at: number;
+      remembered_log: string | null;
+    } | null;
+    if (!sourceRow) return;
 
-  let forkedPointer = "";
-  if (sourceRow.last_processed_message_id !== "") {
-    const mapped = forkedMessageIds.get(sourceRow.last_processed_message_id);
-    if (mapped !== undefined) {
-      forkedPointer = mapped;
-    } else if (lastCopiedSourceMessageId !== null) {
-      // Source pointer is past the fork boundary — everything copied has
-      // already been processed by the source, so clamp to the last copied
-      // message so the fork waits for new post-fork messages.
-      forkedPointer = forkedMessageIds.get(lastCopiedSourceMessageId) ?? "";
+    let forkedPointer = "";
+    if (sourceRow.last_processed_message_id !== "") {
+      const mapped = forkedMessageIds.get(sourceRow.last_processed_message_id);
+      if (mapped !== undefined) {
+        forkedPointer = mapped;
+      } else if (lastCopiedSourceMessageId !== null) {
+        // Source pointer is past the fork boundary — everything copied has
+        // already been processed by the source, so clamp to the last copied
+        // message so the fork waits for new post-fork messages.
+        forkedPointer = forkedMessageIds.get(lastCopiedSourceMessageId) ?? "";
+      }
     }
-  }
 
-  raw
-    .query(
-      /*sql*/ `
+    raw
+      .query(
+        /*sql*/ `
       INSERT INTO memory_retrospective_state
         (conversation_id, last_processed_message_id, last_run_at, remembered_log)
       VALUES (?, ?, ?, ?)
@@ -283,13 +287,16 @@ export function forkRetrospectiveState(args: {
         last_run_at = excluded.last_run_at,
         remembered_log = excluded.remembered_log
     `,
-    )
-    .run(
-      forkedConversationId,
-      forkedPointer,
-      sourceRow.last_run_at,
-      sourceRow.remembered_log,
-    );
+      )
+      .run(
+        forkedConversationId,
+        forkedPointer,
+        sourceRow.last_run_at,
+        sourceRow.remembered_log,
+      );
+  } catch (err) {
+    log.warn({ err }, "failed to fork retrospective state; continuing");
+  }
 }
 
 /**
