@@ -65,11 +65,14 @@ interface SurfaceShapeDoc {
   missingContent?: (data: Record<string, unknown>) => string | null;
 }
 
+/** templateData shape of a task_progress card (shared with channel variants). */
+export const TASK_PROGRESS_TEMPLATE_SHAPE =
+  '{ title, status: "in_progress"|"completed"|"failed", steps: [{ label, status: "pending"|"in_progress"|"completed"|"failed", detail? }] }';
+
 export const SURFACE_SHAPE_DOCS: Record<string, SurfaceShapeDoc> = {
   card: {
     purpose: "structured info card, supports templates like task_progress",
-    shape:
-      '{ title, subtitle?, body, metadata?: [{ label, value }], template?, templateData? }. Template "task_progress" renders a live step tracker — templateData: { title, status: "in_progress"|"completed"|"failed", steps: [{ label, status: "pending"|"in_progress"|"completed"|"failed", detail? }] }; advance it via ui_update as steps finish. Other card templates are documented by the skills that use them',
+    shape: `{ title, subtitle?, body, metadata?: [{ label, value }], template?, templateData? }. Template "task_progress" renders a live step tracker — templateData: ${TASK_PROGRESS_TEMPLATE_SHAPE}; advance it via ui_update as steps finish. Other card templates are documented by the skills that use them`,
   },
   copy_block: {
     purpose: "copyable text with a visible copy button",
