@@ -514,6 +514,49 @@ describe("MediaStreamOutput", () => {
       output.clearBufferedAudio();
       expect(sent).toHaveLength(0);
     });
+
+    test("resolves a drain waiter for an end-of-turn mark already sent to Twilio", async () => {
+      // A mark sent to Twilio is dropped by `clear` and never echoes, so a
+      // pending end-call drain wait must resolve here rather than stall.
+      const { ws, sent } = createMockWs();
+      const output = makeOutput(ws, "MZ-stream-1");
+      output.sendTextToken("", true); // enqueues + sends end-of-turn:1
+      await drain(() => countEvents(sent, "mark") > 0);
+
+      const drained = output.awaitPlaybackDrained();
+      output.clearBufferedAudio();
+      await expect(drained).resolves.toBeUndefined();
+    });
+
+    test("does not resolve a drain waiter for an end-of-turn mark not yet sent", async () => {
+      // Slow synthesis keeps the mark queued locally (not yet sent to Twilio);
+      // clearBufferedAudio preserves it, so it will still play and echo.
+      mockSynthesize.mockImplementation(
+        () =>
+          new Promise((resolve) =>
+            setTimeout(
+              () =>
+                resolve({
+                  audio: makeWavBuffer([1, 2, 3, 4]),
+                  contentType: "audio/wav",
+                }),
+              50,
+            ),
+          ),
+      );
+      const { ws } = createMockWs();
+      const output = makeOutput(ws, "MZ-stream-1");
+      output.sendTextToken("hello world", true); // mark queued behind synthesis
+
+      let resolved = false;
+      void output.awaitPlaybackDrained().then(() => {
+        resolved = true;
+      });
+
+      output.clearBufferedAudio(); // mark not sent yet — must stay pending
+      await drain();
+      expect(resolved).toBe(false);
+    });
   });
 
   describe("cancelPendingSpeech — turn abort", () => {

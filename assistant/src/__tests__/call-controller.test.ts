@@ -989,6 +989,43 @@ describe("call-controller", () => {
     controller.destroy();
   });
 
+  test("a second END_CALL teardown keeps its own safety cap after cancelling the first", async () => {
+    // Cancelling a mid-drain teardown then immediately starting another must
+    // not let the old teardown's continuation clear the new one's cap.
+    mockEndCallListenWindowMs = 30;
+    mockEndCallDrainMaxWaitMs = 40;
+    const turnContents: string[] = [];
+    mockStartVoiceTurn.mockImplementation(
+      async (opts: {
+        content: string;
+        onTextDelta: (t: string) => void;
+        onComplete: () => void;
+      }) => {
+        turnContents.push(opts.content);
+        opts.onTextDelta(
+          turnContents.length === 2 ? "Okay, bye. [END_CALL]" : "Goodbye! [END_CALL]",
+        );
+        opts.onComplete();
+        return { turnId: `run-${turnContents.length}`, abort: () => {} };
+      },
+    );
+    // Both goodbyes' drains never echo — only each teardown's own safety cap
+    // can release it.
+    const { session, relay, controller } = setupController(undefined, {
+      awaitPlaybackDrained: () => new Promise<void>(() => {}),
+    });
+
+    await controller.handleCallerUtterance("That is all"); // teardown A (mid-drain)
+    // Re-engage: cancels A and starts turn 2, which emits END_CALL → teardown B.
+    await controller.handleCallerUtterance("Actually, bye");
+
+    // B must still hang up via its own cap despite A's cancelled continuation.
+    await pollUntil(() => relay.endCalled);
+    expect(getCallSession(session.id)!.status).toBe("completed");
+
+    controller.destroy();
+  });
+
   test("caller re-engagement during the drain phase cancels teardown and defers", async () => {
     mockEndCallListenWindowMs = 30;
     const turnContents: string[] = [];

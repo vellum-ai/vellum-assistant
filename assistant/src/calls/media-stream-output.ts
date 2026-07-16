@@ -341,6 +341,9 @@ export class MediaStreamOutput implements CallTransport {
   /** Incremented per end-of-turn mark enqueued. */
   private enqueuedEndOfTurnSeq = 0;
 
+  /** Highest end-of-turn seq actually sent to Twilio (buffered downstream). */
+  private sentEndOfTurnSeq = 0;
+
   /** Highest end-of-turn seq echoed back by Twilio. */
   private echoedEndOfTurnSeq = 0;
 
@@ -455,10 +458,7 @@ export class MediaStreamOutput implements CallTransport {
     }
     this.state = "closed";
 
-    // Release drain waiters immediately so teardown never leaves one pending.
-    this.releaseAllDrainWaiters();
-
-    // Cancel any in-flight playback
+    // Cancel any in-flight playback (also releases drain waiters).
     this.flushPlaybackQueue();
 
     log.info(
@@ -521,6 +521,10 @@ export class MediaStreamOutput implements CallTransport {
 
     try {
       this.ws.send(JSON.stringify(command));
+      const seq = this.parseEndOfTurnSeq(name);
+      if (seq !== null && seq > this.sentEndOfTurnSeq) {
+        this.sentEndOfTurnSeq = seq;
+      }
     } catch (err) {
       log.error(
         { err, streamSid: this.streamSid },
@@ -535,15 +539,29 @@ export class MediaStreamOutput implements CallTransport {
    * has now been reached (played out to the caller).
    */
   notePlaybackMarkEcho(name: string): void {
-    if (!name.startsWith(`${END_OF_TURN_MARK_PREFIX}:`)) return;
-    const seq = Number(name.slice(END_OF_TURN_MARK_PREFIX.length + 1));
-    if (!Number.isFinite(seq)) return;
+    const seq = this.parseEndOfTurnSeq(name);
+    if (seq === null) {
+      return;
+    }
     // Ignore echoes for marks we never enqueued (stale/forged/out-of-range).
     // Accepting a future seq would advance the high-water mark and make later
     // real turns' awaitPlaybackDrained() resolve before their audio played.
-    if (seq > this.enqueuedEndOfTurnSeq) return;
-    if (seq > this.echoedEndOfTurnSeq) this.echoedEndOfTurnSeq = seq;
+    if (seq > this.enqueuedEndOfTurnSeq) {
+      return;
+    }
+    if (seq > this.echoedEndOfTurnSeq) {
+      this.echoedEndOfTurnSeq = seq;
+    }
     this.resolveDrainWaiters();
+  }
+
+  /** Parse the sequence from an `end-of-turn:<n>` mark name, else null. */
+  private parseEndOfTurnSeq(name: string): number | null {
+    if (!name.startsWith(`${END_OF_TURN_MARK_PREFIX}:`)) {
+      return null;
+    }
+    const seq = Number(name.slice(END_OF_TURN_MARK_PREFIX.length + 1));
+    return Number.isFinite(seq) ? seq : null;
   }
 
   /**
@@ -604,6 +622,14 @@ export class MediaStreamOutput implements CallTransport {
       return;
     }
     this.sendClearCommand();
+    // Twilio drops its buffered audio (and the marks within it) on `clear`, so
+    // any end-of-turn mark already sent will never echo. Treat those as drained
+    // so a pending end-call drain wait resolves instead of stalling on the cap.
+    // Marks still queued locally are preserved and will echo when they play.
+    if (this.sentEndOfTurnSeq > this.echoedEndOfTurnSeq) {
+      this.echoedEndOfTurnSeq = this.sentEndOfTurnSeq;
+      this.resolveDrainWaiters();
+    }
   }
 
   private sendClearCommand(): void {

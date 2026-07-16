@@ -106,6 +106,12 @@ interface PendingGuardianInput {
   timer: ReturnType<typeof setTimeout>;
 }
 
+interface PendingEndCall {
+  cancelled: boolean;
+  /** Settles the teardown's current in-flight wait (drain cap or listen window). */
+  wake: (() => void) | null;
+}
+
 export class CallController {
   private callSessionId: string;
   private transport: CallTransport;
@@ -115,13 +121,12 @@ export class CallController {
   private currentTurnPromise: Promise<void> | null = null;
   private destroyed = false;
   private silenceTimer: ReturnType<typeof setTimeout> | null = null;
-  private endCallListenTimer: ReturnType<typeof setTimeout> | null = null;
-  /** Safety-cap timer for the end-call playback-drain wait. */
-  private endCallDrainCapTimer: ReturnType<typeof setTimeout> | null = null;
-  /** Settles the in-flight end-call wait so cancellation never leaves it hanging. */
-  private endCallWaitResolve: (() => void) | null = null;
-  /** Cancellation token for the in-flight end-call teardown (drain → listen). */
-  private pendingEndCall: { cancelled: boolean } | null = null;
+  /**
+   * Cancellation token for the in-flight end-call teardown (drain → listen).
+   * `wake` settles the teardown's current wait; all wait state lives on the
+   * token so a superseding teardown never clobbers a prior one's timers.
+   */
+  private pendingEndCall: PendingEndCall | null = null;
   /**
    * How many times the caller has re-engaged (spoken) after an END_CALL
    * marker was emitted but before the listen window fired. Each caller
@@ -291,7 +296,7 @@ export class CallController {
     // If the caller speaks while an END_CALL teardown is pending (during the
     // drain wait or the listen window), this is a deferral — the caller is
     // re-engaging after we tried to hang up. Track it so we can cap repeats.
-    if (this.endCallListenTimer || this.pendingEndCall) {
+    if (this.pendingEndCall) {
       this.endCallDeferralCount++;
       // The goodbye's speech was queued while state was idle, so the
       // media-stream barge-in ignored it. Cancel it here so it can't play
@@ -1349,10 +1354,9 @@ export class CallController {
     this.state = "idle";
     this.currentTurnHandle = null;
 
-    if (this.endCallListenTimer) {
-      clearTimeout(this.endCallListenTimer);
-      this.endCallListenTimer = null;
-    }
+    // Cancel any teardown still in flight from a prior END_CALL so it can't
+    // fire or cancel a later run.
+    this.cancelPendingEndCall();
 
     // The call always continues past END_CALL — either flushing queued
     // instructions or waiting for playback drain — so restore in_progress if
@@ -1361,15 +1365,13 @@ export class CallController {
       updateCallSession(this.callSessionId, { status: "in_progress" });
     }
 
-    // Queued instructions mean the call is continuing — flush and skip
-    // teardown. Clear any stale token first so it can't cancel a later run.
+    // Queued instructions mean the call is continuing — flush and skip teardown.
     if (this.pendingInstructions.length > 0) {
-      this.pendingEndCall = null;
       this.flushPendingInstructions();
       return;
     }
 
-    const pending = { cancelled: false };
+    const pending: PendingEndCall = { cancelled: false, wake: null };
     this.pendingEndCall = pending;
     void this.runEndCallTeardown(pending);
   }
@@ -1379,19 +1381,13 @@ export class CallController {
    * the re-engagement listen window, then end the session. Cancellable at
    * every step via the `pending` token (caller re-engagement, destroy).
    */
-  private async runEndCallTeardown(pending: {
-    cancelled: boolean;
-  }): Promise<void> {
+  private async runEndCallTeardown(pending: PendingEndCall): Promise<void> {
     if (this.transport.awaitPlaybackDrained) {
-      await new Promise<void>((resolve) => {
-        this.endCallWaitResolve = resolve;
-        this.endCallDrainCapTimer = setTimeout(
-          resolve,
-          getEndCallDrainMaxWaitMs(),
-        );
+      await this.awaitCancellable(pending, (resolve) => {
+        const cap = setTimeout(resolve, getEndCallDrainMaxWaitMs());
         void this.transport.awaitPlaybackDrained!().then(resolve, resolve);
+        return () => clearTimeout(cap);
       });
-      this.clearEndCallWait();
     }
     if (pending.cancelled || this.destroyed) {
       return;
@@ -1403,11 +1399,10 @@ export class CallController {
       this.endCallDeferralCount > 0 ? 0 : getEndCallListenWindowMs();
     if (listenWindowMs > 0) {
       this.resetSilenceTimer();
-      await new Promise<void>((resolve) => {
-        this.endCallWaitResolve = resolve;
-        this.endCallListenTimer = setTimeout(resolve, listenWindowMs);
+      await this.awaitCancellable(pending, (resolve) => {
+        const timer = setTimeout(resolve, listenWindowMs);
+        return () => clearTimeout(timer);
       });
-      this.clearEndCallWait();
     }
     if (pending.cancelled || this.destroyed) {
       return;
@@ -1416,29 +1411,39 @@ export class CallController {
     this.completeCallFromEndMarker();
   }
 
-  /** Clear the end-call wait's timers and resolver handle. */
-  private clearEndCallWait(): void {
-    if (this.endCallDrainCapTimer) {
-      clearTimeout(this.endCallDrainCapTimer);
-      this.endCallDrainCapTimer = null;
-    }
-    if (this.endCallListenTimer) {
-      clearTimeout(this.endCallListenTimer);
-      this.endCallListenTimer = null;
-    }
-    this.endCallWaitResolve = null;
+  /**
+   * Await a wait that {@link cancelPendingEndCall} can settle early. `arm`
+   * starts the wait and returns a cleanup for its timers. The resolver lives
+   * on the `pending` token (not shared instance state) so a superseding
+   * teardown's wait is never clobbered by a prior teardown's continuation.
+   */
+  private awaitCancellable(
+    pending: PendingEndCall,
+    arm: (resolve: () => void) => () => void,
+  ): Promise<void> {
+    return new Promise<void>((resolve) => {
+      let cleanup: (() => void) | null = null;
+      const done = (): void => {
+        if (pending.wake === done) {
+          pending.wake = null;
+        }
+        cleanup?.();
+        resolve();
+      };
+      pending.wake = done;
+      cleanup = arm(done);
+    });
   }
 
   private cancelPendingEndCall(): void {
-    if (this.pendingEndCall) {
-      this.pendingEndCall.cancelled = true;
-    }
+    const pending = this.pendingEndCall;
     this.pendingEndCall = null;
-    // Settle any in-flight drain/listen wait so runEndCallTeardown unblocks
-    // and returns instead of leaking a pending promise.
-    const resolve = this.endCallWaitResolve;
-    this.clearEndCallWait();
-    resolve?.();
+    if (pending) {
+      pending.cancelled = true;
+      // Settle its in-flight wait so runEndCallTeardown unblocks and returns
+      // instead of leaking a pending promise.
+      pending.wake?.();
+    }
   }
 
   private clearPendingGuardianInputForCallEnd(): boolean {
@@ -1468,6 +1473,9 @@ export class CallController {
   }
 
   private completeCallFromEndMarker(): void {
+    // The teardown has run to completion; drop the token so a later utterance
+    // can't read it as a still-pending end-call.
+    this.pendingEndCall = null;
     if (this.destroyed) return;
 
     const currentSession = getCallSession(this.callSessionId);
