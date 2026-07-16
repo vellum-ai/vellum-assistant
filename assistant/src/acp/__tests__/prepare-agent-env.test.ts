@@ -229,6 +229,14 @@ describe("prepareAgentEnv — claude-agent-acp gating", () => {
     expect(message).toContain("claude setup-token");
     // Keeps the headless CLI fallback available.
     expect(message).toContain("assistant credentials set");
+    // Corrects the earlier "nothing to paste" framing — the cloud (manual) flow
+    // does paste a key, and the model is told not to claim otherwise.
+    expect(message).toContain("does paste a key");
+    // Steers the model toward a terse reply, not meta-narration about the card.
+    expect(message).toContain("ONE short sentence");
+    // Tells the model the task auto-continues after connect (no manual retry).
+    expect(message).toContain("continue automatically");
+    expect(message).toContain("do NOT retry the spawn yourself");
   });
 
   test("does NOT attach the marker when a token is present (happy path unchanged)", async () => {

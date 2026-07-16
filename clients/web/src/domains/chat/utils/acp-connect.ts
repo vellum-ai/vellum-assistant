@@ -11,3 +11,13 @@
  * contract and must stay in sync.
  */
 export const ACP_CLAUDE_OAUTH_MISSING_CODE = "acp_claude_oauth_missing";
+
+/**
+ * Hidden continuation prompt sent on the user's behalf once the inline Connect
+ * card completes, so the assistant picks the task back up without the user
+ * having to type "retry". Delivered as a `hidden` send (no user bubble); the
+ * model reads it and re-invokes `acp_spawn`, which now finds the stored token.
+ */
+export const ACP_CONNECT_CONTINUE_PROMPT =
+  "Claude Code is now connected. Continue with the task I asked for — " +
+  "re-run the Claude Code spawn that was missing the token.";

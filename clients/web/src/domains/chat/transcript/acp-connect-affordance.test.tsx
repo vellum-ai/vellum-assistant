@@ -20,6 +20,8 @@ import {
 } from "@testing-library/react";
 import type { ReactNode } from "react";
 
+import { useInteractionStore } from "@/domains/chat/interaction-store";
+
 let supported = true;
 let alreadyConnected = false;
 // Whether the plain-web sign-in tab is "pop-up blocked": `openUrlInNewTab`
@@ -86,6 +88,7 @@ beforeEach(() => {
   alreadyConnected = false;
   popupBlocked = false;
   startMode = "loopback";
+  useInteractionStore.getState().clearAcpContinue();
 });
 
 afterEach(() => {
@@ -180,5 +183,25 @@ describe("AcpConnectAffordance", () => {
       ).not.toBeNull(),
     );
     expect(screen.getByRole("button", { name: "Save" })).not.toBeNull();
+  });
+
+  test("signals auto-continue once the connect flow completes", async () => {
+    // The card can't send messages itself, so on reaching `connected` it flips
+    // the interaction store's `pendingAcpContinue` flag; the chat view turns
+    // that into a hidden continuation send.
+    startMode = "manual";
+
+    render(<AcpConnectAffordance assistantId="assistant-123" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+
+    const input = await screen.findByPlaceholderText("Paste your key");
+    fireEvent.change(input, { target: { value: "auth-code-123" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    // The exchange resolves → connected → the auto-continue flag is raised.
+    await waitFor(() =>
+      expect(useInteractionStore.getState().pendingAcpContinue).toBe(true),
+    );
   });
 });

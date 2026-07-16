@@ -1,7 +1,7 @@
 import { Button } from "@vellumai/design-library/components/button";
 import { Input } from "@vellumai/design-library/components/input";
 import { Check, Loader2, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { AcpAgentIcon } from "@/domains/chat/components/acp-run-inline-card/acp-agent-icon";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
@@ -90,6 +90,18 @@ function AcpConnectAffordanceInner({ assistantId }: { assistantId: string }) {
       useInteractionStore.getState().dismissAcpConnect();
     }
   }, [alreadyConnected, connection.phase]);
+
+  // When the in-card connect flow completes, signal the chat view to
+  // auto-continue the failed task (via a hidden "retry" send) so the user
+  // doesn't have to re-ask. One-shot — the continuation's own send clears the
+  // card, but guard so a re-render can't re-trigger it.
+  const continuedRef = useRef(false);
+  useEffect(() => {
+    if (connection.phase === "connected" && !continuedRef.current) {
+      continuedRef.current = true;
+      useInteractionStore.getState().requestAcpContinue();
+    }
+  }, [connection.phase]);
 
   if (alreadyConnected && connection.phase === "idle") {
     return null;
@@ -188,7 +200,7 @@ function OneStepCard({
           : phase === "exchanging"
             ? "Completing sign-in..."
             : phase === "connected"
-              ? "Claude Code connected. Ask again to run the agent."
+              ? "Claude Code connected — continuing..."
               : "Sign in — no API key needed";
 
   const subtitleColor =
@@ -319,7 +331,7 @@ function TwoStepCard({
 
         {phase === "connected" ? (
           <p className="text-body-medium-lighter text-[var(--system-positive-strong)]">
-            Claude Code connected. Ask again to run the agent.
+            Claude Code connected — continuing...
           </p>
         ) : null}
       </div>

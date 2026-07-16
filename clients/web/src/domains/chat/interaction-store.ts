@@ -56,6 +56,16 @@ export interface InteractionState {
    */
   pendingAcpConnect: PendingAcpConnectState | null;
 
+  /**
+   * One-shot trigger set when the inline Connect card finishes connecting, so
+   * the assistant auto-continues the failed task without the user typing
+   * "retry". The card can't reach `sendMessage` (it needs top-level context), so
+   * it flips this flag and the chat view (which owns `sendMessage`) fires a
+   * hidden continuation send, then clears it. Non-blocking; not part of
+   * `hasActiveInteraction`.
+   */
+  pendingAcpContinue: boolean;
+
   /** Tool call IDs whose risk level was "unknown" when the user approved
    *  them — triggers the "command not recognized" nudge below their chip. */
   unknownNudgeToolCallIds: Set<string>;
@@ -99,6 +109,8 @@ export interface InteractionActions {
   // ACP Connect Claude prompt
   showAcpConnect: (payload: PendingAcpConnectState) => void;
   dismissAcpConnect: () => void;
+  requestAcpContinue: () => void;
+  clearAcpContinue: () => void;
 
   // Nudge tracking
   addUnknownNudgeToolCallId: (toolCallId: string) => void;
@@ -134,6 +146,7 @@ const INITIAL_STATE: InteractionState = {
   inlineConfirmationToolCallId: null,
 
   pendingAcpConnect: null,
+  pendingAcpContinue: false,
 
   unknownNudgeToolCallIds: new Set<string>(),
 };
@@ -276,6 +289,10 @@ const useInteractionStoreBase = create<InteractionStore>()((set, get) => ({
   showAcpConnect: (payload) => set({ pendingAcpConnect: payload }),
 
   dismissAcpConnect: () => set({ pendingAcpConnect: null }),
+
+  requestAcpContinue: () => set({ pendingAcpContinue: true }),
+
+  clearAcpContinue: () => set({ pendingAcpContinue: false }),
 
   // ----- Nudge tracking -----
   addUnknownNudgeToolCallId: (toolCallId) => {

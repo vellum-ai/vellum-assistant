@@ -190,12 +190,16 @@ export async function prepareAgentEnv(
       throw new FailedDependencyError(
         "claude-agent-acp needs a Claude OAuth token (CLAUDE_CODE_OAUTH_TOKEN), " +
           'which is not set. An inline "Connect Claude Code" card is shown to ' +
-          "the user in the app — tell them to click Connect there to sign in " +
-          "(OAuth, nothing to paste), then retry the spawn. Do NOT tell them to " +
-          "run `claude setup-token`, paste a token, or run credential CLI " +
-          "commands; the card handles it. (Headless only, where no card can " +
-          "appear: `assistant credentials set --service acp --field " +
-          "claude_oauth_token <token>`.)",
+          "the user in the app. Reply with ONE short sentence asking them to " +
+          "click Connect in it and telling them you'll continue automatically " +
+          "once they're connected — do not narrate that a card appeared, " +
+          'describe how the sign-in works, or claim there is "nothing to paste" ' +
+          "(the cloud flow does paste a key). Do NOT tell them to run " +
+          "`claude setup-token`, paste a token in chat, or run credential CLI " +
+          "commands, and do NOT retry the spawn yourself — the card and " +
+          "auto-continue handle it. (Headless only, where no card can appear: " +
+          "`assistant credentials set --service acp --field claude_oauth_token " +
+          "<token>`.)",
         { code: ACP_CLAUDE_OAUTH_MISSING_CODE },
       );
     }
