@@ -29,6 +29,7 @@ import {
   LatencyBreakdownSchema,
   LLMRequestLogEntrySchema,
 } from "../../api/responses/llm-request-log-entry.js";
+import { CALL_SITE_DEFAULTS } from "../../config/call-site-defaults.js";
 import {
   deepMergeOverwrite,
   fillContextDefaultsForMissingKeys,
@@ -46,6 +47,7 @@ import { AssistantConfigSchema } from "../../config/schema.js";
 import { getSchemaAtPath } from "../../config/schema-utils.js";
 import {
   DefaultProviderSchema,
+  type LLMCallSite,
   LLMConfigBase,
   LLMConfigFragment,
   ProfileEntry,
@@ -893,6 +895,53 @@ function stripWireOnlyProfileKeys(patch: unknown): void {
 }
 
 /**
+ * Backfill shipped call-site tuning into NEWLY created `llm.callSites`
+ * entries in a config-write fragment, in place.
+ *
+ * The resolver's tweak layer is `llm.callSites[id] ?? CALL_SITE_DEFAULTS[id]`
+ * — an explicit entry replaces the shipped default wholesale. Workspace
+ * migrations that materialize entries therefore mirror the shipped tuning
+ * exactly (see 090-memory-router-cost-optimized-profile); a client writing a
+ * bare `{ profile }` for a site it has no entry for would silently drop
+ * shipped knobs like `memoryRouter`'s 1M input window or `recall`'s token/
+ * effort bounds. Enforce the same invariant here: when a patch creates an
+ * entry, copy in any shipped tuning key the patch doesn't set itself.
+ *
+ * `profile` is never backfilled — it is the selection discriminator, and
+ * stamping it onto a custom provider/model entry would change winner
+ * selection. Existing on-disk entries are never touched: deep-merge already
+ * preserves their keys, and their values may be deliberate customization.
+ */
+function backfillNewCallSiteEntries(
+  raw: Record<string, unknown>,
+  patch: unknown,
+): void {
+  const patchSites = readPlainObject(
+    readPlainObject(readPlainObject(patch)?.llm)?.callSites,
+  );
+  if (!patchSites) {
+    return;
+  }
+  const rawSites = readPlainObject(readPlainObject(raw.llm)?.callSites);
+  for (const [id, value] of Object.entries(patchSites)) {
+    const entry = readPlainObject(value);
+    if (!entry || rawSites?.[id] != null) {
+      continue;
+    }
+    const shipped = CALL_SITE_DEFAULTS[id as LLMCallSite];
+    if (!shipped) {
+      continue;
+    }
+    for (const [key, shippedValue] of Object.entries(shipped)) {
+      if (key === "profile" || key in entry) {
+        continue;
+      }
+      entry[key] = structuredClone(shippedValue);
+    }
+  }
+}
+
+/**
  * Normalize managed default-profile entries in a config-write fragment, in
  * place, so a `config get` → write round-trip of the enriched wire view is a
  * no-op while genuine edit attempts still reach the invariant guard's
@@ -1368,6 +1417,7 @@ async function handlePatchConfig({ body }: RouteHandlerArgs) {
 
   const raw = loadRawConfig();
   const patch = body as Record<string, unknown>;
+  backfillNewCallSiteEntries(raw, patch);
   deepMergeOverwrite(raw, patch);
 
   await commitConfigWrite(raw, "patch");
