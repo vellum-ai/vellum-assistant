@@ -1315,6 +1315,74 @@ describe("LiveVoiceSession server VAD", () => {
     resolvers[1]?.("");
   });
 
+  test("voice-duplex-handoff on: a new barge-in drops an already-stashed continuation result", async () => {
+    setCachedOverrides({ "voice-duplex-handoff": true }, { fromGateway: true });
+    const resolvers: Array<(result: string) => void> = [];
+    const spawnBackgroundContinuation = mock(
+      (_args: {
+        parentConversationId: string;
+        objective: string;
+        label: string;
+        signal: AbortSignal;
+      }): Promise<string> =>
+        new Promise<string>((resolve) => {
+          resolvers.push(resolve);
+        }),
+    );
+    const calls: VoiceTurnOptions[] = [];
+    const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
+      calls.push(options);
+      if (
+        options.content !== "first question" &&
+        options.content !== "second question"
+      ) {
+        options.callbacks?.assistant_text_delta?.(makeTextDelta("ok"));
+        options.callbacks?.message_complete?.(makeMessageComplete());
+      }
+      return { turnId: `bridge-turn-${calls.length}`, abort: mock() };
+    });
+    const streamTtsAudio = mock(async (options: LiveVoiceTtsOptions) => {
+      options.onAudioChunk(makeTtsChunk("assistant audio"));
+      return makeTtsResult("assistant audio");
+    });
+    const { frames, session } = createHarness({
+      finals: [
+        "first question",
+        "second question",
+        "third question",
+        "fourth question",
+      ],
+      startVoiceTurn,
+      streamTtsAudio,
+      spawnBackgroundContinuation,
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => frames.some((frame) => frame.type === "thinking"));
+
+    // Barge #1 detaches continuation A; it finishes and stashes while it is the
+    // latest detach.
+    await session.handleBinaryAudio(SUSTAINED_LOUD_CHUNK);
+    await waitFor(() => calls.some((c) => c.content === "second question"));
+    await waitFor(() => resolvers.length === 1);
+    resolvers[0]?.("A_RESULT");
+    await flushAsyncCallbacks();
+
+    // Barge #2 is a fresh interruption: it must drop A's already-stashed result
+    // (and detach the newer continuation).
+    await session.handleBinaryAudio(SUSTAINED_LOUD_CHUNK);
+    await waitFor(() => calls.some((c) => c.content === "third question"));
+    await waitFor(() => resolvers.length === 2);
+
+    // The barge #2 follow-up turn carries no stale A result.
+    const followUp = calls.find((c) => c.content === "third question");
+    expect(followUp?.voiceControlPrompt).not.toContain("A_RESULT");
+
+    // Cleanup the still-pending newer continuation.
+    resolvers[1]?.("");
+  });
+
   test("a late assistant_text_delta after a thinking barge-in never reaches the client", async () => {
     let callbacks: VoiceTurnCallbacks | undefined;
     const abort = mock();

@@ -1145,6 +1145,11 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       .trim();
     this.pendingInterruptedRequest =
       interruptedRequest.length > 0 ? interruptedRequest : null;
+    // A fresh interruption supersedes any already-stashed continuation result:
+    // drop it synchronously here so the barge-in follow-up (or any later) turn
+    // can't consume an older answer before this barge-in's own continuation
+    // completes. Cleared even when no continuation ultimately detaches.
+    this.pendingContinuationResult = null;
     turn.abortController.abort();
     this.metrics.markBargeIn(turn.turnId);
     // Capture the interrupted turn's teardown promise synchronously, before the
