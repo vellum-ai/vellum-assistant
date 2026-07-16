@@ -29,7 +29,11 @@ import {
   upsertCredentialMetadata,
 } from "../tools/credentials/metadata-store.js";
 import { getLogger } from "../util/logger.js";
-import { ACP_OAUTH_TOKEN_FIELD, ACP_SERVICE } from "./acp-credentials.js";
+import {
+  ACP_OAUTH_TOKEN_FIELD,
+  ACP_SERVICE,
+  classifyAnthropicToken,
+} from "./acp-credentials.js";
 import type { AcpAgentConfig } from "./types.js";
 
 const log = getLogger("acp:prepare-agent-env");
@@ -179,6 +183,19 @@ export async function prepareAgentEnv(
         "CLAUDE_CODE_OAUTH_TOKEN",
         "Claude OAuth token for ACP agent authentication",
       );
+    }
+    // A legacy vault entry (or a config `env` override) can hold an Anthropic
+    // API key (`sk-ant-api…`) in this OAuth-only field — written before the
+    // write-path format guard existed. The adapter would take it as an OAuth
+    // token and 401 at runtime, and the presence check below would treat it as
+    // usable, so the repair path never fires. Drop it so the missing-token
+    // branch raises the `acp_claude_oauth_missing` marker (the inline Connect
+    // card) instead of spawning with a doomed credential.
+    if (
+      env.CLAUDE_CODE_OAUTH_TOKEN &&
+      classifyAnthropicToken(env.CLAUDE_CODE_OAUTH_TOKEN) === "api_key"
+    ) {
+      delete env.CLAUDE_CODE_OAUTH_TOKEN;
     }
     if (!env.CLAUDE_CODE_OAUTH_TOKEN) {
       // Carry the stable marker as structured `details` so the client renders

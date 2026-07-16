@@ -255,6 +255,59 @@ describe("prepareAgentEnv — claude-agent-acp gating", () => {
     expect(prepared.env?.CLAUDE_CODE_OAUTH_TOKEN).toBe("vault-marker-absent");
   });
 
+  test("routes a legacy API key in the OAuth field to the repairable missing-token path", async () => {
+    // A workspace that stored an `sk-ant-api…` key here before the write-path
+    // format guard existed must not spawn with a doomed credential (a 401 with
+    // no repair). The presence check alone would pass, so the injected value is
+    // classified and an API key is treated as missing → the Connect card fires.
+    seedVaultToken("sk-ant-api03-legacy-bad-value");
+
+    let caught: unknown;
+    try {
+      await prepareAgentEnv({ command: "claude-agent-acp", args: [] });
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeInstanceOf(FailedDependencyError);
+    expect((caught as FailedDependencyError).details).toEqual({
+      code: ACP_CLAUDE_OAUTH_MISSING_CODE,
+    });
+  });
+
+  test("routes an API key supplied via agent.env (config override) to the missing-token path", async () => {
+    // The override wins over the vault, so an API key here would otherwise be
+    // spawned as an OAuth token. It must be classified and repaired the same way.
+    let caught: unknown;
+    try {
+      await prepareAgentEnv({
+        command: "claude-agent-acp",
+        args: [],
+        env: { CLAUDE_CODE_OAUTH_TOKEN: "sk-ant-api03-override-bad" },
+      });
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeInstanceOf(FailedDependencyError);
+    expect((caught as FailedDependencyError).details).toEqual({
+      code: ACP_CLAUDE_OAUTH_MISSING_CODE,
+    });
+  });
+
+  test("keeps a valid OAuth token (sk-ant-oat…) usable (not misclassified)", async () => {
+    seedVaultToken("sk-ant-oat01-good-token");
+
+    const prepared = await prepareAgentEnv({
+      command: "claude-agent-acp",
+      args: [],
+    });
+
+    expect(prepared.env?.CLAUDE_CODE_OAUTH_TOKEN).toBe(
+      "sk-ant-oat01-good-token",
+    );
+  });
+
   test("gates on the resolved command BASENAME (alias to /custom/path/claude-agent-acp still gets the token)", async () => {
     seedVaultToken("vault-FFF");
 
