@@ -434,9 +434,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // before its async teardown; if it has changed by the time the detach would
   // spawn, a stop landed during the gap and the continuation is not started.
   private detachStopGeneration = 0;
-  // Monotonic id assigned to each detached continuation in barge-in order, so a
-  // later-completing OLDER continuation can't overwrite a newer one's stashed
-  // result (see pendingContinuationResultSeq).
+  // Monotonic id assigned to each detached continuation in barge-in order.
+  // Only the latest-started detach (detachSeq === detachSequence) may populate
+  // the pending result, so once a newer barge-in starts, an older continuation
+  // completing (before OR after it) can't surface a stale answer.
   private detachSequence = 0;
   private readonly emitMetrics: boolean;
   private readonly metrics: LiveVoiceMetricsCollector;
@@ -484,10 +485,6 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // starts as context. Consumed (and cleared) when that turn launches; cleared
   // on a hard stop (abortDetachedRuns) so a stale result never surfaces later.
   private pendingContinuationResult: string | null = null;
-  // The detachSequence of the continuation whose result is currently stashed (0
-  // when none). Only a continuation at least as recent may overwrite it, so an
-  // older continuation completing out of order can't clobber a newer answer.
-  private pendingContinuationResultSeq = 0;
   private readonly maxPendingAudioBytes: number;
   // Set on VAD speech onset; consumed when the first speech chunk is routed
   // to an utterance so the metric lands on the right turn.
@@ -1259,19 +1256,18 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         });
         // Fold the completed continuation's answer into the next turn the user
         // starts (never spoken unprompted). Re-check the stop guards after the
-        // await: an interrupt/close during the run must suppress it. A
-        // newer-or-equal detach supersedes any older stash by advancing the
-        // sequence even when it produced no text — so an older continuation
-        // finishing out of order can't surface a stale answer behind a more
-        // recent interruption. Only non-empty text is actually surfaced.
+        // await: an interrupt/close during the run must suppress it. Only the
+        // latest-started detach may populate the result, so once a newer
+        // barge-in has started, an older continuation completing (before or
+        // after it, empty or not) can't surface a stale answer. Only non-empty
+        // text is actually surfaced.
         if (
           !controller.signal.aborted &&
           !this.isClosed &&
           this.detachStopGeneration === stopGeneration &&
-          detachSeq >= this.pendingContinuationResultSeq
+          detachSeq === this.detachSequence
         ) {
           const answer = resultText.trim();
-          this.pendingContinuationResultSeq = detachSeq;
           this.pendingContinuationResult = answer.length > 0 ? answer : null;
         }
       } catch (err) {

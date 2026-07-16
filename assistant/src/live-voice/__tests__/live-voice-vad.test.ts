@@ -1246,7 +1246,7 @@ describe("LiveVoiceSession server VAD", () => {
     expect(resurfaced?.voiceControlPrompt).not.toContain("OLDER_RESULT");
   });
 
-  test("voice-duplex-handoff on: an empty newer continuation supersedes an older stashed result", async () => {
+  test("voice-duplex-handoff on: an older continuation is rejected once a newer detach has started", async () => {
     setCachedOverrides({ "voice-duplex-handoff": true }, { fromGateway: true });
     const resolvers: Array<(result: string) => void> = [];
     const spawnBackgroundContinuation = mock(
@@ -1297,10 +1297,10 @@ describe("LiveVoiceSession server VAD", () => {
     await waitFor(() => calls.some((c) => c.content === "third question"));
     await waitFor(() => resolvers.length === 2);
 
-    // The older continuation stashes a result, then the newer one finishes with
-    // no text and must supersede it — nothing should resurface.
+    // Only the OLDER continuation finishes; the NEWER one is still running. The
+    // older answer must NOT surface, because a newer interruption already
+    // superseded it (rejected without waiting for the newer to complete).
     resolvers[0]?.("OLDER_RESULT");
-    resolvers[1]?.("");
     await flushAsyncCallbacks();
 
     await session.handleBinaryAudio(LOUD_CHUNK);
@@ -1310,6 +1310,9 @@ describe("LiveVoiceSession server VAD", () => {
     expect(resurfaced?.voiceControlPrompt).not.toContain(
       "background you finished",
     );
+
+    // Cleanup the still-pending newer continuation.
+    resolvers[1]?.("");
   });
 
   test("a late assistant_text_delta after a thinking barge-in never reaches the client", async () => {
