@@ -1630,15 +1630,43 @@ describe("MediaStreamOutput", () => {
       expect(resolved).toBe(true);
     });
 
-    test("a higher-seq echo also resolves a waiter", async () => {
+    test("a higher-seq echo (still within enqueued) resolves an earlier waiter", async () => {
       const { ws, sent } = createMockWs();
       const output = makeOutput(ws, "stream-1");
-      output.sendTextToken("", true);
+      output.sendTextToken("", true); // enqueues end-of-turn:1
       await drain(() => countEvents(sent, "mark") > 0);
 
-      const drained = output.awaitPlaybackDrained();
-      output.notePlaybackMarkEcho("end-of-turn:5");
+      const drained = output.awaitPlaybackDrained(); // targets seq 1
+      output.sendTextToken("", true); // enqueues end-of-turn:2
+      await drain(() => countEvents(sent, "mark") >= 2);
+
+      // Echoing seq 2 (which was enqueued) satisfies the seq-1 waiter too.
+      output.notePlaybackMarkEcho("end-of-turn:2");
       await expect(drained).resolves.toBeUndefined();
+    });
+
+    test("ignores an echo for a seq beyond what was enqueued", async () => {
+      // A stale/forged future echo must not advance the high-water mark, or
+      // later real turns would drain immediately before their audio played.
+      const { ws, sent } = createMockWs();
+      const output = makeOutput(ws, "stream-1");
+      output.sendTextToken("", true); // enqueues end-of-turn:1
+      await drain(() => countEvents(sent, "mark") > 0);
+
+      // Out-of-range echo before we ever queued seq 3 — ignored.
+      output.notePlaybackMarkEcho("end-of-turn:3");
+
+      let resolved = false;
+      void output.awaitPlaybackDrained().then(() => {
+        resolved = true;
+      });
+      await drain();
+      expect(resolved).toBe(false); // seq-1 waiter still pending
+
+      // The genuine seq-1 echo resolves it.
+      output.notePlaybackMarkEcho("end-of-turn:1");
+      await drain(() => resolved);
+      expect(resolved).toBe(true);
     });
 
     test("a stale lower-seq echo does not resolve a higher-seq waiter", async () => {

@@ -538,6 +538,10 @@ export class MediaStreamOutput implements CallTransport {
     if (!name.startsWith(`${END_OF_TURN_MARK_PREFIX}:`)) return;
     const seq = Number(name.slice(END_OF_TURN_MARK_PREFIX.length + 1));
     if (!Number.isFinite(seq)) return;
+    // Ignore echoes for marks we never enqueued (stale/forged/out-of-range).
+    // Accepting a future seq would advance the high-water mark and make later
+    // real turns' awaitPlaybackDrained() resolve before their audio played.
+    if (seq > this.enqueuedEndOfTurnSeq) return;
     if (seq > this.echoedEndOfTurnSeq) this.echoedEndOfTurnSeq = seq;
     this.resolveDrainWaiters();
   }
