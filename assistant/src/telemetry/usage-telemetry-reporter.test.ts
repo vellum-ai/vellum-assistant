@@ -570,6 +570,126 @@ describe("UsageTelemetryReporter", () => {
     expect(mockFetch).toHaveBeenCalledTimes(10);
   });
 
+  test("flush summary reports sent/persisted/dropped from the ingest response", async () => {
+    mockQueryUnreportedUsageEvents.mockReturnValue([
+      makeUsageEvent(),
+      makeUsageEvent(),
+      makeUsageEvent(),
+    ]);
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(
+        new Response(
+          '{"accepted":3,"persisted":2,"dropped":{"analytics_opt_out":1}}',
+          { status: 200 },
+        ),
+      ),
+    );
+
+    const reporter = makeReporter();
+    const summary = await reporter.flush();
+
+    expect(summary).toEqual({
+      flushed: true,
+      sent: 3,
+      persisted: 2,
+      dropped: 1,
+    });
+  });
+
+  test("flush summary falls back to persisted=sent when the body omits persisted", async () => {
+    // Older platform returns only `accepted` — assume everything landed.
+    mockQueryUnreportedUsageEvents.mockReturnValue([
+      makeUsageEvent(),
+      makeUsageEvent(),
+    ]);
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response('{"accepted":2}', { status: 200 })),
+    );
+
+    const reporter = makeReporter();
+    const summary = await reporter.flush();
+
+    expect(summary).toEqual({
+      flushed: true,
+      sent: 2,
+      persisted: 2,
+      dropped: 0,
+    });
+  });
+
+  test("flush summary accumulates counts across the batch recursion", async () => {
+    const fullBatch = Array.from({ length: 500 }, (_, i) =>
+      makeUsageEvent({ id: `evt-acc-${i}`, createdAt: 1700000000000 + i }),
+    );
+    // First collect fills a batch (recurse); second returns a short batch (stop).
+    mockQueryUnreportedUsageEvents
+      .mockReturnValueOnce(fullBatch)
+      .mockReturnValue([makeUsageEvent({ id: "evt-acc-tail" })]);
+    // First POST drops 10; second persists its single event.
+    mockFetch
+      .mockImplementationOnce(() =>
+        Promise.resolve(
+          new Response('{"accepted":500,"persisted":490}', { status: 200 }),
+        ),
+      )
+      .mockImplementation(() =>
+        Promise.resolve(new Response('{"persisted":1}', { status: 200 })),
+      );
+
+    const reporter = makeReporter();
+    const summary = await reporter.flush();
+
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    expect(summary).toEqual({
+      flushed: true,
+      sent: 501,
+      persisted: 491,
+      dropped: 10,
+    });
+  });
+
+  test("flush summary reports skip reasons without shipping", async () => {
+    const reporter = makeReporter();
+
+    // nothing-pending: no events across any source.
+    mockQueryUnreportedUsageEvents.mockReturnValue([]);
+    expect(await reporter.flush()).toEqual({
+      flushed: false,
+      reason: "nothing-pending",
+    });
+
+    // opted-out: confirmed share_analytics opt-out.
+    mockGetRawShareAnalytics.mockReturnValue(false);
+    mockQueryUnreportedUsageEvents.mockReturnValue([makeUsageEvent()]);
+    expect(await reporter.flush()).toEqual({
+      flushed: false,
+      reason: "opted-out",
+    });
+    mockGetRawShareAnalytics.mockReturnValue(true);
+
+    // no-credentials: authenticated-only, no platform client resolved.
+    mockPlatformClient = null;
+    expect(await reporter.flush()).toEqual({
+      flushed: false,
+      reason: "no-credentials",
+    });
+
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  test("flush summary reports post-failed on a non-2xx response", async () => {
+    mockQueryUnreportedUsageEvents.mockReturnValue([makeUsageEvent()]);
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response("error", { status: 500 })),
+    );
+
+    const reporter = makeReporter();
+    expect(await reporter.flush()).toEqual({
+      flushed: false,
+      reason: "post-failed",
+    });
+  });
+
   test("stop() performs final flush", async () => {
     const events = [makeUsageEvent()];
     mockQueryUnreportedUsageEvents.mockReturnValue(events);
