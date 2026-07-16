@@ -1,4 +1,5 @@
 import { Heart, Monitor, Moon, Sun } from "lucide-react";
+import { useEffect, useState } from "react";
 
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { ShortcutsSections } from "@/domains/settings/keyboard-shortcuts/shortcuts-sections";
