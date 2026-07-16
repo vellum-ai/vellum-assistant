@@ -55,11 +55,11 @@ export function PrivacyScreen() {
 
   const onStart = useCallback(() => {
     if (isPreview) {
-      // Developer "Replay Onboarding": advance through the sandboxed flow
-      // (privacy → prechat) rather than exiting here. Hatching is intentionally
-      // skipped — it has real side effects and is excluded from the preview
-      // route allowlist in onboardingCompletedMiddleware.
-      void navigate(`${routes.onboarding.prechat}?preview=true`);
+      // Developer "Replay Onboarding": no-op advance. The legacy pre-chat step
+      // that used to follow privacy in the sandboxed preview flow is gone, and
+      // hatching is intentionally excluded from the preview route allowlist in
+      // onboardingCompletedMiddleware (it has real side effects), so there is
+      // nowhere further to advance in preview mode.
       return;
     }
 
