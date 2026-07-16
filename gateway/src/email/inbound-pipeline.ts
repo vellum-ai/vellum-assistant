@@ -9,6 +9,10 @@ import {
   handleCircuitBreakerError,
   processInboundResult,
 } from "../webhook-pipeline.js";
+import {
+  appendFailedEmailAttachmentNotice,
+  ingestEmailAttachments,
+} from "./attachments.js";
 import type { VellumEmailPayload } from "./normalize.js";
 import { normalizeEmailWebhook } from "./normalize.js";
 
@@ -85,7 +89,12 @@ export async function runEmailInboundPipeline(
     return Response.json({ ok: true });
   }
 
-  const { event: gatewayEvent, eventId, recipientAddress } = normalized;
+  const {
+    event: gatewayEvent,
+    eventId,
+    recipientAddress,
+    attachments,
+  } = normalized;
   const senderAddress = gatewayEvent.actor.actorExternalId;
 
   log.info(
@@ -121,7 +130,19 @@ export async function runEmailInboundPipeline(
   const replySubject = `Re: ${vellumPayload.subject ?? "(no subject)"}`;
 
   try {
+    // Ingest inline base64 attachments into the assistant's attachment store
+    // (stored in the conversation workspace) and forward the ids. A transient
+    // upload failure throws into the catch below → 500 so the provider retries.
+    const ingested = await ingestEmailAttachments(config, attachments, log);
+    const attachmentIds =
+      ingested.attachmentIds.length > 0 ? ingested.attachmentIds : undefined;
+    gatewayEvent.message.content = appendFailedEmailAttachmentNotice(
+      gatewayEvent.message.content,
+      ingested.failedAttachmentNames,
+    );
+
     const result = await handleInbound(config, gatewayEvent, {
+      ...(attachmentIds ? { attachmentIds } : {}),
       transportMetadata: buildEmailTransportMetadata({
         senderAddress,
         recipientAddress,

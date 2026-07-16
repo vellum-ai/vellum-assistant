@@ -152,4 +152,59 @@ describe("normalizeEmailWebhook", () => {
     );
     expect(result!.senderAuthenticated).toBeUndefined();
   });
+
+  it("omits attachments when the payload carries none", () => {
+    const result = normalizeEmailWebhook(makePayload());
+    expect(result!.attachments).toBeUndefined();
+  });
+
+  it("parses well-formed attachments", () => {
+    const result = normalizeEmailWebhook(
+      makePayload({
+        attachments: [
+          {
+            filename: "receipt.pdf",
+            contentType: "application/pdf",
+            size: 12345,
+            content: "YmFzZTY0",
+            contentId: "img001@example.com",
+          },
+        ],
+      }),
+    );
+    expect(result!.attachments).toEqual([
+      {
+        filename: "receipt.pdf",
+        contentType: "application/pdf",
+        size: 12345,
+        content: "YmFzZTY0",
+        contentId: "img001@example.com",
+      },
+    ]);
+  });
+
+  it("drops attachments missing required fields but keeps valid ones", () => {
+    const result = normalizeEmailWebhook(
+      makePayload({
+        attachments: [
+          { filename: "no-content.pdf", contentType: "application/pdf" },
+          { contentType: "application/pdf", content: "YmFzZTY0" },
+          {
+            filename: "ok.pdf",
+            contentType: "application/pdf",
+            content: "YmE=",
+          },
+          "not-an-object",
+        ],
+      }),
+    );
+    expect(result!.attachments).toEqual([
+      { filename: "ok.pdf", contentType: "application/pdf", content: "YmE=" },
+    ]);
+  });
+
+  it("omits attachments when the field is not an array", () => {
+    const result = normalizeEmailWebhook(makePayload({ attachments: "nope" }));
+    expect(result!.attachments).toBeUndefined();
+  });
 });
