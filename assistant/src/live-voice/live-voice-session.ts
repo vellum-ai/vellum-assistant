@@ -17,6 +17,7 @@ import type {
 } from "../calls/voice-session-bridge.js";
 import {
   getConversationTurnTeardown,
+  resolveProcessingWaitMs,
   VOICE_NO_SETUP_FLOWS_RULE,
   waitForPriorTurnTeardown,
 } from "../calls/voice-session-bridge.js";
@@ -215,8 +216,8 @@ export interface LiveVoiceSessionOptions {
   getTurnTeardown?: (conversationId: string) => Promise<void> | undefined;
   /**
    * Overrides the bounded wait for the interrupted turn's teardown before the
-   * background continuation forks (test hook). Defaults to
-   * `DETACH_TEARDOWN_SETTLE_TIMEOUT_MS`.
+   * background continuation forks (test hook). Defaults to the bridge's
+   * teardown budget (`resolveProcessingWaitMs`).
    */
   detachTeardownSettleTimeoutMs?: number;
 }
@@ -366,12 +367,18 @@ function buildDuplexContinuationObjective(interruptedRequest: string): string {
 
 // Upper bound on how long a barge-in waits for the interrupted turn's teardown
 // to settle before giving up on the continuation. The teardown settles once the
-// aborted turn's agent loop reaches its `finally` — bounded by the abort-unwind
-// watchdog plus the history/DB flush tail — so a cap just past the watchdog lets
-// a legitimately slow abort still fork, while a genuinely wedged teardown times
-// out. On timeout the fork is SKIPPED (not run against stale history); see
-// detachInterruptedTurn.
-const DETACH_TEARDOWN_SETTLE_TIMEOUT_MS = ABORT_WATCHDOG_MS + 1000;
+// aborted turn's agent loop reaches its `finally`, which can wait out BOTH the
+// abort-unwind watchdog and the turn-boundary commit — so bound the wait by the
+// same budget the bridge uses to wait for a prior turn's teardown
+// (resolveProcessingWaitMs). That lets a legitimately slow abort+commit still
+// fork, while a genuinely wedged teardown times out — and on timeout the fork is
+// SKIPPED (not run against stale history); see detachInterruptedTurn.
+function defaultDetachTeardownSettleTimeoutMs(): number {
+  return resolveProcessingWaitMs(
+    getConfig().workspaceGit?.turnCommitMaxWaitMs ?? 4000,
+    ABORT_WATCHDOG_MS,
+  );
+}
 
 export class LiveVoiceSession implements LiveVoiceSessionContract {
   private readonly context: LiveVoiceSessionFactoryContext;
@@ -491,7 +498,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     this.getTurnTeardown = options.getTurnTeardown ?? null;
     this.detachTeardownSettleTimeoutMs =
       options.detachTeardownSettleTimeoutMs ??
-      DETACH_TEARDOWN_SETTLE_TIMEOUT_MS;
+      defaultDetachTeardownSettleTimeoutMs();
     this.emitMetrics = options.emitMetrics ?? false;
     this.createTurnId = options.createTurnId ?? randomUUID;
     this.conversationId =
