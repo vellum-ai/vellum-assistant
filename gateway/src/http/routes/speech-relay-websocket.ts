@@ -22,6 +22,8 @@
 
 import type { OutgoingHttpHeaders } from "node:http";
 
+import { velayHostForPlatformHost } from "@vellumai/service-contracts/ingress";
+
 import { validateEdgeToken } from "../../auth/token-exchange.js";
 import type { GatewayConfig } from "../../config.js";
 import type { CredentialCache } from "../../credential-cache.js";
@@ -110,17 +112,13 @@ function jsonError(status: number, code: string, detail: string): Response {
 }
 
 /**
- * Map a Vellum platform host onto its environment's velay origin, following
- * the deployment naming convention (`platform.vellum.ai` → `velay.vellum.ai`,
- * `{env}-platform.vellum.ai` → `velay-{env}.vellum.ai`). Returns null for
- * hosts outside that convention (localhost, custom domains).
+ * Map a Vellum platform host onto its environment's velay origin. The
+ * host-naming convention lives in `@vellumai/service-contracts/ingress`,
+ * shared with the web live-voice client; this wrapper adds the scheme.
  */
 export function velayOriginForPlatformHost(host: string): string | null {
-  if (host === "platform.vellum.ai") {
-    return "https://velay.vellum.ai";
-  }
-  const match = /^([a-z0-9-]+)-platform\.vellum\.ai$/.exec(host);
-  return match ? `https://velay-${match[1]}.vellum.ai` : null;
+  const velayHost = velayHostForPlatformHost(host);
+  return velayHost ? `https://${velayHost}` : null;
 }
 
 /**
