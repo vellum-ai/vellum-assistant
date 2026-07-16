@@ -138,6 +138,7 @@ function createHarness(options: {
   viaFactory?: boolean;
   spawnBackgroundContinuation?: LiveVoiceBackgroundContinuationSpawner;
   getTurnTeardown?: (conversationId: string) => Promise<void> | undefined;
+  detachTeardownSettleTimeoutMs?: number;
 }) {
   const sequencer = createLiveVoiceServerFrameSequencer();
   const frames: LiveVoiceServerFrame[] = [];
@@ -191,6 +192,9 @@ function createHarness(options: {
       : {}),
     ...(options.getTurnTeardown
       ? { getTurnTeardown: options.getTurnTeardown }
+      : {}),
+    ...(options.detachTeardownSettleTimeoutMs !== undefined
+      ? { detachTeardownSettleTimeoutMs: options.detachTeardownSettleTimeoutMs }
       : {}),
   };
   const session = options.viaFactory
@@ -908,6 +912,48 @@ describe("LiveVoiceSession server VAD", () => {
     // Teardown settles -> the fork proceeds.
     resolveTeardown?.();
     await waitFor(() => spawnBackgroundContinuation.mock.calls.length === 1);
+  });
+
+  test("voice-duplex-handoff on: the continuation is skipped when the teardown wait times out", async () => {
+    setCachedOverrides({ "voice-duplex-handoff": true }, { fromGateway: true });
+    const spawnBackgroundContinuation = mock(
+      async (_args: {
+        parentConversationId: string;
+        objective: string;
+        label: string;
+        signal: AbortSignal;
+      }) => {},
+    );
+    // A teardown that never settles: the bounded wait times out, and the fork
+    // must be skipped rather than snapshot history that may still be missing the
+    // interrupted turn's completed tool calls.
+    const getTurnTeardown = mock(
+      (_conversationId: string) => new Promise<void>(() => {}),
+    );
+    const streamTtsAudio = mock(async (options: LiveVoiceTtsOptions) => {
+      options.onAudioChunk(makeTtsChunk("assistant audio"));
+      return makeTtsResult("assistant audio");
+    });
+    const { frames, session } = createHarness({
+      finals: ["first question", "second question"],
+      streamTtsAudio,
+      spawnBackgroundContinuation,
+      getTurnTeardown,
+      // Tiny timeout so the bounded wait elapses within the test.
+      detachTeardownSettleTimeoutMs: 10,
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => frames.some((frame) => frame.type === "thinking"));
+    await session.handleBinaryAudio(SUSTAINED_LOUD_CHUNK);
+    await waitFor(() =>
+      frames.some((frame) => frame.type === "turn_cancelled"),
+    );
+    // Wait comfortably past the bounded teardown timeout, then confirm the
+    // detach fell through without forking.
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    expect(spawnBackgroundContinuation).not.toHaveBeenCalled();
   });
 
   test("voice-duplex-handoff on: a client interrupt during the teardown wait skips the continuation", async () => {

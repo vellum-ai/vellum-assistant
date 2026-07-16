@@ -31,6 +31,7 @@ import {
 } from "../calls/voice-triage-escalate.js";
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getConfig } from "../config/loader.js";
+import { ABORT_WATCHDOG_MS } from "../daemon/abort-watchdog.js";
 import { findConversation } from "../daemon/conversation-registry.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
 import { ensureConversationExists } from "../persistence/conversation-crud.js";
@@ -212,6 +213,12 @@ export interface LiveVoiceSessionOptions {
    * promise to exercise the ordering.
    */
   getTurnTeardown?: (conversationId: string) => Promise<void> | undefined;
+  /**
+   * Overrides the bounded wait for the interrupted turn's teardown before the
+   * background continuation forks (test hook). Defaults to
+   * `DETACH_TEARDOWN_SETTLE_TIMEOUT_MS`.
+   */
+  detachTeardownSettleTimeoutMs?: number;
 }
 
 type LiveVoiceUtterancePhase =
@@ -358,11 +365,13 @@ function buildDuplexContinuationObjective(interruptedRequest: string): string {
 }
 
 // Upper bound on how long a barge-in waits for the interrupted turn's teardown
-// to settle before forking the continuation anyway. Teardown normally settles
-// in well under this; the cap keeps the fork from blocking indefinitely on a
-// stuck teardown (the continuation's "don't repeat finished tool calls"
-// objective is the backstop if the snapshot is ever slightly early).
-const DETACH_TEARDOWN_SETTLE_TIMEOUT_MS = 2000;
+// to settle before giving up on the continuation. The teardown settles once the
+// aborted turn's agent loop reaches its `finally` — bounded by the abort-unwind
+// watchdog plus the history/DB flush tail — so a cap just past the watchdog lets
+// a legitimately slow abort still fork, while a genuinely wedged teardown times
+// out. On timeout the fork is SKIPPED (not run against stale history); see
+// detachInterruptedTurn.
+const DETACH_TEARDOWN_SETTLE_TIMEOUT_MS = ABORT_WATCHDOG_MS + 1000;
 
 export class LiveVoiceSession implements LiveVoiceSessionContract {
   private readonly context: LiveVoiceSessionFactoryContext;
@@ -377,6 +386,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   private readonly getTurnTeardown:
     | ((conversationId: string) => Promise<void> | undefined)
     | null;
+  private readonly detachTeardownSettleTimeoutMs: number;
   // Abort handles for background continuations started when a barge-in detached
   // an interrupted turn (voice-duplex-handoff). Each controller is registered
   // synchronously before its spawn, so interrupt()/close() abort a continuation
@@ -479,6 +489,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     this.spawnBackgroundContinuation =
       options.spawnBackgroundContinuation ?? null;
     this.getTurnTeardown = options.getTurnTeardown ?? null;
+    this.detachTeardownSettleTimeoutMs =
+      options.detachTeardownSettleTimeoutMs ??
+      DETACH_TEARDOWN_SETTLE_TIMEOUT_MS;
     this.emitMetrics = options.emitMetrics ?? false;
     this.createTurnId = options.createTurnId ?? randomUUID;
     this.conversationId =
@@ -1158,18 +1171,27 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         // turn-scoped — it waits for THIS turn only (captured at barge-in), not
         // the conversation's overall idle state, so the interrupting turn's own
         // work still proceeds in parallel (conversation.waitForIdle would block
-        // on it and defeat the background handoff). Bounded by the timeout; a
-        // stop landing during the wait aborts the controller, which surfaces as
-        // the rejection swallowed below and is re-checked before the fork.
+        // on it and defeat the background handoff).
         if (teardownWait) {
+          let settled = false;
           try {
-            await waitForPriorTurnTeardown(
+            settled = await waitForPriorTurnTeardown(
               teardownWait,
-              DETACH_TEARDOWN_SETTLE_TIMEOUT_MS,
+              this.detachTeardownSettleTimeoutMs,
               controller.signal,
             );
           } catch {
-            // Aborted mid-wait; the signal re-check below skips the fork.
+            // Aborted mid-wait (stop/interrupt); handled by the skip below.
+          }
+          // Fork only once the teardown has settled. On timeout (false) or
+          // abort (throw) we cannot guarantee the fork would see the interrupted
+          // turn's completed tool calls, so skip the continuation rather than
+          // snapshot stale history and risk repeating a side effect — the bridge
+          // refuses the next turn on an unsettled teardown for the same reason.
+          // The continuation is best-effort, so a rare dropped one is the safe
+          // trade.
+          if (!settled) {
+            return;
           }
         }
         if (controller.signal.aborted || this.isClosed) {
