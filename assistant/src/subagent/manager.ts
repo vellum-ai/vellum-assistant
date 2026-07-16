@@ -107,7 +107,7 @@ function extractDeltaText(msg: ServerMessage): string | null {
 
 // ── Default subagent system prompt ──────────────────────────────────────
 
-function buildSubagentSystemPrompt(
+export function buildSubagentSystemPrompt(
   config: SubagentConfig,
   role: SubagentRole,
 ): string {
@@ -126,7 +126,8 @@ function buildSubagentSystemPrompt(
     "## Constraints",
     `- Role: ${role}`,
     "- You cannot spawn nested subagents.",
-    "- Use notify_parent to report important findings or if you are blocked.",
+    "- Use notify_parent to report important findings, or if you are blocked.",
+    '- If the objective needs a capability your role\'s tools do not provide (for example, writing or editing a file, or running a command, with a read-only role), do NOT fabricate a completed result — call notify_parent with urgency "blocked", name the capability you lack (e.g. file_write), and stop.',
   );
   return sections.join("\n");
 }
