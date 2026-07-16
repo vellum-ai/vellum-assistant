@@ -1,7 +1,8 @@
-import { mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
+
+import { getWorkspaceDir } from "../paths.js";
 
 // ---------------------------------------------------------------------------
 // Mock state. Reset between tests.
@@ -810,7 +811,12 @@ describe("memoryRetrospectiveJob", () => {
   });
 
   test("honors memory.retrospective.promptPath override when set", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "retro-job-prompt-override-"));
+    // Overrides outside the workspace root are rejected, so the fixture must
+    // live under the process workspace.
+    mkdirSync(getWorkspaceDir(), { recursive: true });
+    const dir = mkdtempSync(
+      join(getWorkspaceDir(), "retro-job-prompt-override-"),
+    );
     const overridePath = join(dir, "custom-instruction.md");
     writeFileSync(
       overridePath,

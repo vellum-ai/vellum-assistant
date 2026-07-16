@@ -1,4 +1,4 @@
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
@@ -8,6 +8,7 @@ import {
   type ForkInstructionArgs,
   RETROSPECTIVE_INSTRUCTION_TEMPLATE,
 } from "../memory-retrospective-prompt.js";
+import { getWorkspaceDir } from "../paths.js";
 
 function makeArgs(
   overrides: Partial<ForkInstructionArgs> = {},
@@ -136,7 +137,10 @@ For everything else in your review window, use the \`remember\` tool on facts, p
 });
 
 describe("promptOverridePath", () => {
-  const dir = mkdtempSync(join(tmpdir(), "retro-prompt-override-"));
+  // buildForkInstruction resolves overrides against the process workspace and
+  // rejects anything outside it, so fixtures must live under the workspace.
+  mkdirSync(getWorkspaceDir(), { recursive: true });
+  const dir = mkdtempSync(join(getWorkspaceDir(), "retro-prompt-override-"));
 
   test("override file replaces the bundled body and gets the same substitutions", () => {
     const overridePath = join(dir, "custom-instruction.md");
@@ -176,5 +180,20 @@ describe("promptOverridePath", () => {
       makeArgs({ promptOverridePath: join(dir, "does-not-exist.md") }),
     );
     expect(out).toBe(buildForkInstruction(makeArgs()));
+  });
+
+  test("an override outside the workspace root is rejected and falls back to the bundled rendering", () => {
+    // The persisted fork instruction is readable through the messages API, so
+    // an out-of-workspace override would disclose arbitrary local files.
+    const outside = mkdtempSync(join(tmpdir(), "retro-prompt-outside-"));
+    const overridePath = join(outside, "smuggled.md");
+    writeFileSync(overridePath, "SENSITIVE FILE CONTENTS\n");
+
+    const out = buildForkInstruction(
+      makeArgs({ promptOverridePath: overridePath }),
+    );
+
+    expect(out).toBe(buildForkInstruction(makeArgs()));
+    expect(out).not.toContain("SENSITIVE FILE CONTENTS");
   });
 });

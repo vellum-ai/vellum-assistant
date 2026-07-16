@@ -24,10 +24,11 @@
 // still surface lexical hits, and vice versa.
 
 import { readdir, readFile, realpath, stat } from "node:fs/promises";
-import { extname, isAbsolute, join, relative } from "node:path";
+import { extname, join } from "node:path";
 
 import { embedWithRetry } from "../../../../../persistence/embeddings/embed.js";
 import { getLogger } from "../../logging.js";
+import { isPathInsideRoot } from "../../path-containment.js";
 import { spreadActivation } from "../../v2/activation.js";
 import { getEdgeIndex } from "../../v2/edge-index.js";
 import {
@@ -578,14 +579,6 @@ function termOverlap(
 
 function normalizeExcerpt(excerpt: string): string {
   return excerpt.trim().replace(/\s+/g, " ").toLowerCase();
-}
-
-function isPathInsideRoot(pathToCheck: string, rootRealPath: string): boolean {
-  const pathRelativeToRoot = relative(rootRealPath, pathToCheck);
-  return (
-    pathRelativeToRoot === "" ||
-    (!pathRelativeToRoot.startsWith("..") && !isAbsolute(pathRelativeToRoot))
-  );
 }
 
 function truncateExcerpt(text: string, maxChars: number): string {
