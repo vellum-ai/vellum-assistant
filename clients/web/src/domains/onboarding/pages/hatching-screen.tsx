@@ -234,9 +234,8 @@ export function HatchingScreen() {
           // A local hatch feeds the research/personality flow — now THE default
           // onboarding. The assistant is live, so the research route adopts it
           // (its background hatch resolves the existing local assistant instead
-          // of provisioning a managed one). The legacy pre-chat funnel is
-          // retired; it only remains as a fallback for any non-local hatch that
-          // still lands here.
+          // of provisioning a managed one). Any non-local hatch that lands here
+          // falls through to the same research route below.
           if (useLocalHatch) {
             // Carry the hosting choice through so the research route's
             // background hatch ADOPTS this just-hatched local assistant instead
@@ -258,7 +257,7 @@ export function HatchingScreen() {
             return;
           }
           void navigate(
-            routes.onboarding.prechat,
+            routes.onboarding.research,
             { replace: true },
           );
         })();

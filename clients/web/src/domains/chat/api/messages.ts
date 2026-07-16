@@ -500,9 +500,9 @@ export type PostChatMessageOptions = Pick<
  *     `undefined`). Empty strings ARE preserved on the wire — Swift's
  *     `if let` semantics in `MessageClient.swift` accept any non-nil value
  *     including `""`, so producers that intend to omit the field should
- *     pass `undefined` explicitly. The current caller (`PreChatFlow`)
- *     trims-or-undefined before calling, so the empty-string path is
- *     latent today; if it ever fires, the daemon sees the empty string.
+ *     pass `undefined` explicitly. Current callers trim-or-undefined
+ *     before calling, so the empty-string path is latent today; if it
+ *     ever fires, the daemon sees the empty string.
  */
 export async function postChatMessage(
   assistantId: string,
