@@ -117,6 +117,7 @@ function makeCompletingConversation(): Conversation {
   const messages: unknown[] = [];
   return {
     isProcessing: () => processing,
+    isProcessingStuck: () => false,
     persistUserMessage: (options: { requestId?: string }) => {
       processing = true;
       return { id: options.requestId ?? "msg-1", deduplicated: false };
@@ -167,6 +168,7 @@ function makeHangingConversation(): Conversation {
   }> = [];
   return {
     isProcessing: () => processing,
+    isProcessingStuck: () => false,
     persistUserMessage: (options: { requestId?: string }) => {
       processing = true;
       return { id: options.requestId ?? "msg-1", deduplicated: false };
@@ -245,6 +247,7 @@ function makePendingApprovalConversation(
 
   const conversation = {
     isProcessing: () => processing,
+    isProcessingStuck: () => false,
     persistUserMessage: (options: { requestId?: string }) => ({
       id: options.requestId ?? "msg-1",
       deduplicated: false,

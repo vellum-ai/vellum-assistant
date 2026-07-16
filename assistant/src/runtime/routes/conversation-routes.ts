@@ -174,6 +174,7 @@ import {
 import { buildChannelMetadata } from "./channel-metadata.js";
 import {
   BadRequestError,
+  ConflictError,
   InternalError,
   NotFoundError,
   RouteError,
@@ -2053,6 +2054,26 @@ export async function handleSendMessage(
   }
 
   if (conversation.isProcessing()) {
+    // Guard against a phantom processing flag: the conversation is marked
+    // busy but no live turn is actually running (a prior turn died without
+    // clearing the flag — ATL-1009). Enqueuing behind it would leave the
+    // message queued forever, and the client would eventually surface a
+    // misleading "Assistant did not respond in time." timeout. Reject with a
+    // 409 so the client can tell the user the conversation is wedged and offer
+    // a cancel / new-conversation path instead (ATL-1010). Hidden machine
+    // signals skip this — they are not user-visible and must not raise an
+    // error the user never initiated.
+    if (body.hidden !== true && conversation.isProcessingStuck()) {
+      log.warn(
+        { conversationId: mapping.conversationId },
+        "Rejecting send: conversation has a stuck processing flag with no live turn",
+      );
+      throw new ConflictError(
+        "This conversation is stuck and can't accept new messages. " +
+          "Cancel the current response or start a new conversation.",
+        { reason: "conversation_stuck" },
+      );
+    }
     // Queue the message so it's processed when the current turn completes
     const requestId = uuidv7();
     const enqueueResult = conversation.enqueueMessage({
@@ -3038,6 +3059,16 @@ export const ROUTES: RouteDefinition[] = [
       queued: z.boolean().optional(),
       requestId: z.string().optional(),
     }),
+    additionalResponses: {
+      "409": {
+        description:
+          "The conversation has a stuck processing flag (marked busy with no " +
+          "live turn to drain the queue). Returned with the standard error " +
+          'envelope and `details.reason: "conversation_stuck"`. The client ' +
+          "should prompt the user to cancel the current response or start a " +
+          "new conversation rather than retrying.",
+      },
+    },
     handler: async (args) =>
       handleSendMessage(args, {
         sendMessageDeps: {

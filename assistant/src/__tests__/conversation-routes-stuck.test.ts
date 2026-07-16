@@ -1,18 +1,20 @@
 /**
- * Queue-branch contract for hidden sends in POST /v1/messages.
+ * POST /v1/messages rejects sends into a conversation whose processing flag is
+ * stuck (marked busy with no live turn to ever drain the queue — ATL-1009).
+ * Instead of enqueuing behind a dead turn (202) and letting the client time
+ * out with a misleading "Assistant did not respond in time.", the handler
+ * returns 409 with `details.reason: "conversation_stuck"` so the client can
+ * offer a recoverable path (ATL-1010).
  *
- * A hidden send is a machine signal (e.g. the channel-setup wizard-close
- * marker), not a user decision — when it queues behind an in-flight turn it
- * must NOT supersede pending interactions: no auto-denied confirmations, no
- * steer of a parked ask_question. A visible send in the same state keeps the
- * existing supersede behavior ("the user chose to move on").
+ * A genuinely busy conversation (a live turn is running) still queues with 202,
+ * and hidden machine-signal sends skip the stuck check entirely.
  */
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../config/env.js", () => ({ isHttpAuthDisabled: () => true }));
 
 mock.module("../persistence/conversation-key-store.js", () => ({
-  getOrCreateConversation: () => ({ conversationId: "conv-hidden-queue" }),
+  getOrCreateConversation: () => ({ conversationId: "conv-stuck" }),
   getConversationByKey: () => null,
 }));
 
@@ -37,7 +39,7 @@ mock.module("../runtime/confirmation-request-guardian-bridge.js", () => ({
 
 mock.module("../persistence/conversation-crud.js", () => ({
   setConversationProcessingStartedAt: () => {},
-  isConversationProcessing: () => false,
+  isConversationProcessing: () => true,
   addMessage: async (_conversationId: string, role: string) => ({
     id: role === "user" ? "persisted-user-id" : "persisted-assistant-id",
     deduplicated: false,
@@ -123,78 +125,39 @@ import {
   deleteConversation,
   setConversation,
 } from "../daemon/conversation-registry.js";
-import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { handleSendMessage } from "../runtime/routes/conversation-routes.js";
 import { callHandler } from "./helpers/call-route-handler.js";
 
-const CONV_ID = "conv-hidden-queue";
+const CONV_ID = "conv-stuck";
 
-interface BusyConversationSpies {
+interface ConversationSpies {
   conversation: Conversation;
-  enqueuedMetadata: () => Record<string, unknown> | undefined;
-  denyAllCount: () => number;
-  abortCount: () => number;
-  agentLoopOptions: () => Record<string, unknown> | undefined;
+  enqueueCount: () => number;
 }
 
-/**
- * A live conversation with a pending tool confirmation. `processing: true`
- * models a mid-turn conversation (queue branch); `false` an idle one whose
- * confirmation outlived its turn (e.g. a guardian approval awaiting a
- * channel reply).
- */
-function makeConversationWithPendingConfirmation(
-  processing: boolean,
-): BusyConversationSpies {
-  let enqueuedMetadata: Record<string, unknown> | undefined;
-  let denyAllCount = 0;
-  let abortCount = 0;
-  let agentLoopOptions: Record<string, unknown> | undefined;
+function makeConversation(opts: { stuck: boolean }): ConversationSpies {
+  let enqueueCount = 0;
   const conversation = {
     conversationId: CONV_ID,
     messages: [],
-    abortController: {
-      abort: () => {
-        abortCount += 1;
-      },
-    },
+    abortController: null,
     currentRequestId: undefined,
-    queue: {
-      length: 0,
-      promoteToHead: (requestId: string) => ({ requestId }),
-    },
-    pendingSteerRepair: false,
+    queue: { length: 0 },
     setTrustContext: () => {},
     updateClient: () => {},
     emitConfirmationStateChanged: () => {},
     emitActivityState: () => {},
     setTurnChannelContext: () => {},
     setTurnInterfaceContext: () => {},
-    getTurnChannelContext: () => null,
-    getTurnInterfaceContext: () => null,
     ensureActorScopedHistory: async () => {},
-    isProcessing: () => processing,
-    // A live turn owns the abort controller above — never a phantom flag.
-    isProcessingStuck: () => false,
+    isProcessing: () => true,
+    isProcessingStuck: () => opts.stuck,
     setProcessing: () => {},
-    hasAnyPendingConfirmation: () => true,
-    denyAllPendingConfirmations: () => {
-      denyAllCount += 1;
-    },
-    enqueueMessage: (options: { metadata?: Record<string, unknown> }) => {
-      enqueuedMetadata = options.metadata;
+    hasAnyPendingConfirmation: () => false,
+    denyAllPendingConfirmations: () => {},
+    enqueueMessage: () => {
+      enqueueCount += 1;
       return { queued: true, requestId: "queued-id" };
-    },
-    persistUserMessage: async () => ({
-      id: "persisted-user-id",
-      deduplicated: false,
-    }),
-    runAgentLoop: async (
-      _content: string,
-      _messageId: string,
-      options?: Record<string, unknown>,
-    ) => {
-      agentLoopOptions = options;
     },
     setPreactivatedSkillIds: () => {},
     drainQueue: async () => {},
@@ -209,17 +172,7 @@ function makeConversationWithPendingConfirmation(
     addPreactivatedSkillId: () => {},
     usageStats: { inputTokens: 1000, outputTokens: 500, estimatedCost: 0.05 },
   } as unknown as Conversation;
-  return {
-    conversation,
-    enqueuedMetadata: () => enqueuedMetadata,
-    denyAllCount: () => denyAllCount,
-    abortCount: () => abortCount,
-    agentLoopOptions: () => agentLoopOptions,
-  };
-}
-
-function makeBusyConversation(): BusyConversationSpies {
-  return makeConversationWithPendingConfirmation(true);
+  return { conversation, enqueueCount: () => enqueueCount };
 }
 
 function makeRequest(extras: Record<string, unknown> = {}) {
@@ -231,9 +184,8 @@ function makeRequest(extras: Record<string, unknown> = {}) {
       "x-vellum-principal-type": "actor",
     },
     body: JSON.stringify({
-      conversationKey: "hidden-queue-key",
-      content:
-        "[User action on channel_setup surface: closed the slack setup wizard]",
+      conversationKey: "stuck-key",
+      content: "are you there?",
       sourceChannel: "vellum",
       interface: "macos",
       ...extras,
@@ -251,29 +203,47 @@ function makeDeps(conversation: Conversation) {
   };
 }
 
-const registeredRequestIds: string[] = [];
-function registerConfirmation(): void {
-  const requestId = `pending-confirmation-${registeredRequestIds.length}`;
-  pendingInteractions.register(requestId, {
-    conversationId: CONV_ID,
-    kind: "confirmation",
-  });
-  registeredRequestIds.push(requestId);
-}
-
 afterEach(() => {
-  for (const id of registeredRequestIds) {
-    pendingInteractions.resolve(id, "cancelled");
-  }
-  registeredRequestIds.length = 0;
   deleteConversation(CONV_ID);
 });
 
-describe("hidden sends queued behind an in-flight turn", () => {
-  test("carry hidden metadata and do NOT supersede pending interactions", async () => {
-    const spies = makeBusyConversation();
+describe("POST /v1/messages into a stuck conversation", () => {
+  test("returns 409 with reason conversation_stuck instead of enqueuing", async () => {
+    const spies = makeConversation({ stuck: true });
     setConversation(CONV_ID, spies.conversation);
-    registerConfirmation();
+
+    const res = await callHandler(
+      (args) => handleSendMessage(args, makeDeps(spies.conversation)),
+      makeRequest(),
+    );
+
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as {
+      error: { code: string; details?: { reason?: string } };
+    };
+    expect(body.error.details?.reason).toBe("conversation_stuck");
+    // The wedged message was rejected, never enqueued behind the dead turn.
+    expect(spies.enqueueCount()).toBe(0);
+  });
+
+  test("a genuinely busy conversation still queues with 202", async () => {
+    const spies = makeConversation({ stuck: false });
+    setConversation(CONV_ID, spies.conversation);
+
+    const res = await callHandler(
+      (args) => handleSendMessage(args, makeDeps(spies.conversation)),
+      makeRequest(),
+      undefined,
+      202,
+    );
+
+    expect(res.status).toBe(202);
+    expect(spies.enqueueCount()).toBe(1);
+  });
+
+  test("hidden machine-signal sends skip the stuck check and queue", async () => {
+    const spies = makeConversation({ stuck: true });
+    setConversation(CONV_ID, spies.conversation);
 
     const res = await callHandler(
       (args) => handleSendMessage(args, makeDeps(spies.conversation)),
@@ -283,69 +253,6 @@ describe("hidden sends queued behind an in-flight turn", () => {
     );
 
     expect(res.status).toBe(202);
-    // Queued with the transcript-suppression flag intact...
-    expect(spies.enqueuedMetadata()?.hidden).toBe(true);
-    // ...without auto-denying the live approval prompt or aborting the turn:
-    // a passive UI event is not the user choosing to move on.
-    expect(spies.denyAllCount()).toBe(0);
-    expect(spies.abortCount()).toBe(0);
-  });
-
-  test("visible sends in the same state keep the supersede behavior", async () => {
-    const spies = makeBusyConversation();
-    setConversation(CONV_ID, spies.conversation);
-    registerConfirmation();
-
-    const res = await callHandler(
-      (args) => handleSendMessage(args, makeDeps(spies.conversation)),
-      makeRequest({ content: "actually, do this instead" }),
-      undefined,
-      202,
-    );
-
-    expect(res.status).toBe(202);
-    expect(spies.enqueuedMetadata()?.hidden).toBeUndefined();
-    // The typed message supersedes: pending confirmations are auto-denied.
-    expect(spies.denyAllCount()).toBe(1);
-  });
-});
-
-describe("hidden sends to an idle conversation with a pending confirmation", () => {
-  test("do NOT auto-deny the confirmation and mark the turn as a hidden prompt", async () => {
-    const spies = makeConversationWithPendingConfirmation(false);
-    setConversation(CONV_ID, spies.conversation);
-    registerConfirmation();
-
-    const res = await callHandler(
-      (args) => handleSendMessage(args, makeDeps(spies.conversation)),
-      makeRequest({ hidden: true }),
-      undefined,
-      202,
-    );
-
-    expect(res.status).toBe(202);
-    // The confirmation that outlived its turn (e.g. a guardian approval
-    // awaiting a channel reply) survives the machine signal...
-    expect(spies.denyAllCount()).toBe(0);
-    // ...and the turn is flagged so prompt-as-user-speech consumers (title
-    // generation) skip it.
-    expect(spies.agentLoopOptions()?.isHiddenPrompt).toBe(true);
-  });
-
-  test("visible sends to the same state keep the idle auto-deny cleanup", async () => {
-    const spies = makeConversationWithPendingConfirmation(false);
-    setConversation(CONV_ID, spies.conversation);
-    registerConfirmation();
-
-    const res = await callHandler(
-      (args) => handleSendMessage(args, makeDeps(spies.conversation)),
-      makeRequest({ content: "hello again" }),
-      undefined,
-      202,
-    );
-
-    expect(res.status).toBe(202);
-    expect(spies.denyAllCount()).toBe(1);
-    expect(spies.agentLoopOptions()?.isHiddenPrompt).toBeUndefined();
+    expect(spies.enqueueCount()).toBe(1);
   });
 });

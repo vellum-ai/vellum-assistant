@@ -547,3 +547,54 @@ describe("postChatMessage clientTimezone payload", () => {
     expect(body).not.toHaveProperty("clientTimezone");
   });
 });
+
+describe("postChatMessage stuck-conversation 409", () => {
+  // The daemon rejects a send into a wedged conversation with a 409 carrying
+  // the standard error envelope `{ error: { code, message, details: { reason }}}`.
+  // `postChatMessage` must lift `details.reason` into the client-facing `code`
+  // so callers can map a specific message instead of the generic HTTP status.
+  let originalFetch: typeof fetch;
+  let originalDocument: unknown;
+
+  beforeEach(() => {
+    originalFetch = globalThis.fetch;
+    useAssistantIdentityStore.getState().clearIdentity();
+    originalDocument = (globalThis as { document?: unknown }).document;
+    (globalThis as { document?: unknown }).document = { cookie: "csrftoken=test" };
+    globalThis.fetch = mock(async () => {
+      return new Response(
+        JSON.stringify({
+          error: {
+            code: "CONFLICT",
+            message:
+              "This conversation is stuck and can't accept new messages. " +
+              "Cancel the current response or start a new conversation.",
+            details: { reason: "conversation_stuck" },
+          },
+        }),
+        { status: 409, headers: { "Content-Type": "application/json" } },
+      );
+    }) as unknown as typeof fetch;
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    if (originalDocument === undefined) {
+      delete (globalThis as { document?: unknown }).document;
+    } else {
+      (globalThis as { document?: unknown }).document = originalDocument;
+    }
+    useAssistantIdentityStore.getState().clearIdentity();
+  });
+
+  test("surfaces details.reason as the error code and keeps the human message", async () => {
+    const result = await postChatMessage("asst-1", "K", "are you there?");
+
+    if (result.ok) {
+      throw new Error("expected failure");
+    }
+    expect(result.status).toBe(409);
+    expect(result.error.code).toBe("conversation_stuck");
+    expect(result.error.detail).toContain("stuck");
+  });
+});

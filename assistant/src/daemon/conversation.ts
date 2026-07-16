@@ -272,6 +272,15 @@ export interface ConversationConstructorOptions {
 }
 
 /**
+ * Minimum age of a processing flag before {@link Conversation.isProcessingStuck}
+ * will treat a controller-less flag as a phantom left by a dead turn. Kept well
+ * above the sub-second windows where the canned-greeting / slash-command reply
+ * paths legitimately hold the flag without an abort controller, so a concurrent
+ * send during one of those windows is never misreported as stuck.
+ */
+export const STUCK_PROCESSING_THRESHOLD_MS = 60_000;
+
+/**
  * The rejection value for an aborted {@link Conversation.waitForIdle} wait:
  * the signal's own reason when set, else a plain Error so callers always
  * receive a throwable.
@@ -288,6 +297,13 @@ export class Conversation {
   /** @internal */ messages: Message[] = [];
   /** @internal */ agentLoop: AgentLoop;
   private _processing = false;
+  /**
+   * In-memory mirror of the `processing_started_at` column: the wall-clock ms
+   * at which the current turn set the processing flag, or `null` when idle.
+   * Set alongside the persisted write in {@link setProcessing} so
+   * {@link isProcessingStuck} can age the flag without a DB read.
+   */
+  private _processingStartedAt: number | null = null;
   /**
    * Pending {@link waitForIdle} resolvers, notified from the committed
    * `processing → false` transition inside {@link setProcessing}. Every
@@ -1497,6 +1513,40 @@ export class Conversation {
   }
 
   /**
+   * True when the processing flag is set but no live turn is actually running
+   * — a "phantom" flag left behind when a turn died without clearing it (see
+   * ATL-1009). Such a conversation queues every subsequent send behind a turn
+   * that will never complete, so the caller should reject the send with a
+   * distinct error rather than silently enqueue it forever.
+   *
+   * The signal mirrors {@link abortConversation}'s own stale-flag detection:
+   * `processing === true` with no live (non-aborted) abort controller means no
+   * agent-loop `finally` is ever going to clear the flag. To avoid
+   * misclassifying the sub-second windows where a controller-less path holds
+   * the flag briefly (canned greeting, slash-command replies), the flag must
+   * also have been set at least {@link STUCK_PROCESSING_THRESHOLD_MS} ago. A
+   * genuinely long-running turn keeps a live controller for its whole
+   * duration, so it is never reported stuck regardless of age.
+   */
+  isProcessingStuck(
+    nowMs: number = Date.now(),
+    thresholdMs: number = STUCK_PROCESSING_THRESHOLD_MS,
+  ): boolean {
+    if (!this._processing) {
+      return false;
+    }
+    // A live, un-aborted controller means a turn is really in flight — busy,
+    // not stuck. Queue behind it as usual.
+    if (this.abortController && !this.abortController.signal.aborted) {
+      return false;
+    }
+    if (this._processingStartedAt == null) {
+      return false;
+    }
+    return nowMs - this._processingStartedAt >= thresholdMs;
+  }
+
+  /**
    * Mutate the server-authoritative `processing` flag. Web/Capacitor/CLI
    * caches treat this flag as the source of truth for the avatar streaming
    * ring and thinking indicator, so the `true → false` clear must announce
@@ -1511,7 +1561,10 @@ export class Conversation {
    */
   setProcessing(value: boolean): void {
     const wasProcessing = this._processing;
+    const wasProcessingStartedAt = this._processingStartedAt;
+    const startedAt = value ? Date.now() : null;
     this._processing = value;
+    this._processingStartedAt = startedAt;
     // Persist the cross-process source of truth so out-of-process callers
     // (retrospective CLI, future detached workers) can detect mid-turn state
     // by reading the conversations row directly. If the write fails (e.g.
@@ -1520,12 +1573,10 @@ export class Conversation {
     // memory against a NULL column. Re-throw so callers' existing failure
     // handling still runs.
     try {
-      setConversationProcessingStartedAt(
-        this.conversationId,
-        value ? Date.now() : null,
-      );
+      setConversationProcessingStartedAt(this.conversationId, startedAt);
     } catch (err) {
       this._processing = wasProcessing;
+      this._processingStartedAt = wasProcessingStartedAt;
       throw err;
     }
     if (!value && this.idleWaiters.size > 0) {
