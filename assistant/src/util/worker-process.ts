@@ -273,3 +273,108 @@ export function stopWorkerProcess(pidPath: string): WorkerProcessStatus {
   }
   return current;
 }
+
+// ---------------------------------------------------------------------------
+// Liveness supervisor
+// ---------------------------------------------------------------------------
+
+/**
+ * A liveness supervisor that probes a worker process and respawns it when it
+ * has died, subject to exponential backoff and a suppression hook. Detects
+ * process *death* (via the PID-file probe) — not a worker that is alive but
+ * wedged.
+ */
+export interface WorkerSupervisor {
+  /** Probe liveness; respawn if dead (subject to backoff/suppression). Never throws. */
+  ensureAlive(now?: number): Promise<void>;
+  /**
+   * Stop supervising: no further respawns, and a respawn already in flight is
+   * killed via {@link WorkerSupervisorOptions.killChild} when it resolves.
+   */
+  dispose(): void;
+}
+
+export interface WorkerSupervisorOptions {
+  label: string;
+  probe: () => WorkerProcessStatus;
+  respawn: () => Promise<{ pid: number; alreadyRunning: boolean }>;
+  /**
+   * Kill a child respawned after {@link WorkerSupervisor.dispose} was called
+   * (closes the shutdown race where a respawn was already in flight).
+   */
+  killChild?: (pid: number) => void;
+  /**
+   * When it returns true, `ensureAlive` skips respawning — e.g. an operator
+   * administratively stopped the worker and the watchdog must not undo that.
+   */
+  isSuppressed?: () => boolean;
+  /** Fired after a respawn actually started a new process (not `alreadyRunning`). */
+  onRespawn?: (pid: number) => void;
+  /** Fires once when consecutiveFailures first reaches the threshold. */
+  onPersistentFailure?: (consecutiveFailures: number, err: unknown) => void;
+  minBackoffMs?: number; // default 15_000 (one tick)
+  maxBackoffMs?: number; // default 300_000 (5 min)
+  persistentFailureThreshold?: number; // default 3
+}
+
+export function createWorkerSupervisor(
+  opts: WorkerSupervisorOptions,
+): WorkerSupervisor {
+  let consecutiveFailures = 0;
+  let nextAttemptAt = 0;
+  let inFlight = false;
+  let stopping = false;
+  const minBackoff = opts.minBackoffMs ?? 15_000;
+  const maxBackoff = opts.maxBackoffMs ?? 300_000;
+  const threshold = opts.persistentFailureThreshold ?? 3;
+
+  return {
+    async ensureAlive(now = Date.now()): Promise<void> {
+      if (stopping || inFlight) {
+        return;
+      }
+      // Operator stop wins over the watchdog — never respawn while suppressed.
+      if (opts.isSuppressed?.()) {
+        return;
+      }
+      if (opts.probe().status === "running") {
+        consecutiveFailures = 0;
+        nextAttemptAt = 0;
+        return;
+      }
+      if (now < nextAttemptAt) {
+        return; // in a backoff window after a failed respawn
+      }
+      inFlight = true;
+      try {
+        const { pid, alreadyRunning } = await opts.respawn();
+        consecutiveFailures = 0;
+        nextAttemptAt = 0;
+        if (stopping) {
+          // Disposed mid-respawn: kill the child we just created so it is not
+          // orphaned past shutdown.
+          opts.killChild?.(pid);
+          return;
+        }
+        if (!alreadyRunning) {
+          opts.onRespawn?.(pid);
+        }
+      } catch (err) {
+        consecutiveFailures += 1;
+        const backoff = Math.min(
+          maxBackoff,
+          minBackoff * 2 ** (consecutiveFailures - 1),
+        );
+        nextAttemptAt = now + backoff;
+        if (consecutiveFailures === threshold) {
+          opts.onPersistentFailure?.(consecutiveFailures, err);
+        }
+      } finally {
+        inFlight = false;
+      }
+    },
+    dispose(): void {
+      stopping = true;
+    },
+  };
+}
