@@ -113,7 +113,6 @@ export const routes = {
     hosting: r("/assistant/onboarding/hosting"),
     apiKey: r("/assistant/onboarding/api-key"),
     privacy: r("/assistant/onboarding/privacy"),
-    prechat: r("/assistant/onboarding/prechat"),
     hatching: r("/assistant/onboarding/hatching"),
     // SPIKE — research-onboarding front door. Reachable on demand behind auth
     // alone (no flag; see routes.tsx).

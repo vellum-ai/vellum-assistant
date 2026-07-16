@@ -41,7 +41,7 @@ describe("onboardingCompletedMiddleware", () => {
     expect(next).not.toHaveBeenCalled();
   });
 
-  test("allows local pre-chat after hatch when onboarding is not complete", async () => {
+  test("allows the local research flow after hatch when onboarding is not complete", async () => {
     localStorage.setItem(
       "vellum:local:lockfile",
       JSON.stringify({
@@ -58,7 +58,7 @@ describe("onboardingCompletedMiddleware", () => {
     const next = mock(async () => "ok");
 
     const result = await onboardingCompletedMiddleware(
-      { request: makeRequest(routes.onboarding.prechat) } as Parameters<
+      { request: makeRequest(routes.onboarding.research) } as Parameters<
         typeof onboardingCompletedMiddleware
       >[0],
       next,
