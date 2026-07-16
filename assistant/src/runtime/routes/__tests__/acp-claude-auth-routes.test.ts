@@ -167,6 +167,23 @@ describe("acp_claude_auth_start", () => {
     // The flow is now tracked as pending.
     expect(getStatus(result.state)).toEqual({ status: "pending" });
   });
+
+  test("client `preferManual` forces the manual path on a non-containerized host", async () => {
+    // A browser remote from a self-hosted (non-containerized) assistant can't
+    // reach its loopback, so it opts into the manual paste flow.
+    getIsContainerizedMock.mockReturnValue(false);
+
+    const result = (await startHandler({
+      body: { preferManual: true },
+    })) as StartResult;
+
+    expect(result.mode).toBe("manual");
+    expect(new URL(result.authorize_url).searchParams.get("redirect_uri")).toBe(
+      CLAUDE_MANUAL_REDIRECT_URI,
+    );
+    // Manual path never binds a loopback.
+    expect(prepareOAuth2FlowMock).not.toHaveBeenCalled();
+  });
 });
 
 // ---------------------------------------------------------------------------

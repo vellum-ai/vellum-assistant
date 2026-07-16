@@ -7,6 +7,7 @@
  */
 
 import { client } from "@/generated/daemon/client.gen";
+import { isElectron } from "@/runtime/is-electron";
 
 // The generated client types `url` against known daemon paths; ACP routes are
 // excluded from codegen, so cast to a sibling path to satisfy the type.
@@ -32,10 +33,14 @@ export interface ConnectClaudeStatusResponse {
 export async function startConnectClaude(
   assistantId: string,
 ): Promise<ConnectClaudeStartResponse> {
+  // Loopback only works when the browser is co-located with the assistant (the
+  // desktop shell, whose daemon is local). A plain browser may be talking to a
+  // remote self-hosted assistant whose `localhost` callback it can't reach, so
+  // request the manual paste path unless we're the desktop app.
   const { data, response } = await client.post({
     url: "/v1/assistants/{assistant_id}/acp/claude/auth/start" as KnownDaemonUrl,
     path: { assistant_id: assistantId },
-    body: {} as Record<string, unknown>,
+    body: { preferManual: !isElectron() } as Record<string, unknown>,
   });
   if (!response?.ok) {
     throw new Error(`Failed to start Connect Claude flow: ${response?.status}`);
@@ -66,17 +71,13 @@ export async function pollConnectClaudeStatus(
  * thrown error (e.g. an older daemon without this route) as "unknown" and leave
  * the prompt in place rather than hiding it.
  */
-export async function isClaudeConnected(
-  assistantId: string,
-): Promise<boolean> {
+export async function isClaudeConnected(assistantId: string): Promise<boolean> {
   const { data, response } = await client.get({
     url: "/v1/assistants/{assistant_id}/acp/claude/auth/connected" as KnownDaemonUrl,
     path: { assistant_id: assistantId },
   });
   if (!response?.ok) {
-    throw new Error(
-      `Failed to check Claude connection: ${response?.status}`,
-    );
+    throw new Error(`Failed to check Claude connection: ${response?.status}`);
   }
   return (data as unknown as { connected?: boolean }).connected === true;
 }

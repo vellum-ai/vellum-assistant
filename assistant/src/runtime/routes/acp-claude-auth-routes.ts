@@ -20,7 +20,9 @@
  *   pasted `code#state` (or a raw code + state), exchange it, and store the
  *   Claude OAuth token.
  *
- * The cloud manual path is flag-gated + fail-closed (see `handleStartAuth`).
+ * `handleStartAuth` picks loopback vs. manual: a containerized host, or a client
+ * that sets `preferManual` because its browser can't reach the daemon's
+ * loopback, gets the manual path.
  */
 
 import { z } from "zod";
@@ -111,16 +113,25 @@ function markFlow(state: string, status: FlowStatus, error?: string): void {
 /**
  * Route entry point. Locally the daemon captures the redirect on a loopback; on
  * a containerized (cloud) host it can't bind a loopback the user's browser
- * reaches, so it falls back to the manual `code#state` paste path. The web
- * surfaces are gated on the daemon version (`useSupportsAcpConnect`), so an
- * older daemon that lacks these routes is never asked to serve them.
+ * reaches, so it falls back to the manual `code#state` paste path.
+ *
+ * Loopback only works when the user's browser is co-located with the assistant
+ * (so `http://localhost:<port>/callback` resolves to the daemon's callback
+ * server). That holds for the desktop app but not for a browser talking to a
+ * remote self-hosted assistant, where `getIsContainerized()` is still false —
+ * so the client, which knows whether it is co-located, can request the manual
+ * path via `preferManual`. The web surfaces are gated on the daemon version
+ * (`useSupportsAcpConnect`), so an older daemon that lacks these routes is never
+ * asked to serve them.
  */
-async function handleStartAuth(
-  _args: RouteHandlerArgs,
-): Promise<StartResponse> {
+async function handleStartAuth(args: RouteHandlerArgs): Promise<StartResponse> {
   cleanupExpiredFlows();
 
-  return getIsContainerized()
+  const preferManual = Boolean(
+    (args.body as { preferManual?: boolean } | undefined)?.preferManual,
+  );
+
+  return getIsContainerized() || preferManual
     ? handleStartManualAuth()
     : handleStartLocalAuth();
 }
@@ -294,10 +305,14 @@ export const ROUTES: RouteDefinition[] = [
     description:
       "Return a PKCE authorize URL plus a state token. On a local host (" +
       "`mode: loopback`) the daemon binds a loopback callback and captures the " +
-      "redirect itself; on a containerized host (`mode: manual`) it targets " +
-      "Claude's manual redirect page and the web client posts the pasted " +
-      "`code#state` back to `.../auth/exchange`.",
+      "redirect itself; on a containerized host — or when the client sets " +
+      "`preferManual` because its browser can't reach the daemon's loopback " +
+      "(`mode: manual`) — it targets Claude's manual redirect page and the web " +
+      "client posts the pasted `code#state` back to `.../auth/exchange`.",
     tags: ["acp"],
+    requestBody: z.object({
+      preferManual: z.boolean().optional(),
+    }),
     responseBody: z.object({
       mode: z.enum(["loopback", "manual"]),
       authorize_url: z.string(),

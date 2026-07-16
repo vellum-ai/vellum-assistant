@@ -302,10 +302,20 @@ paths:
       summary: Start Connect Claude OAuth flow
       description:
         "Return a PKCE authorize URL plus a state token. On a local host (`mode: loopback`) the daemon binds a
-        loopback callback and captures the redirect itself; on a containerized host (`mode: manual`) it targets Claude's
+        loopback callback and captures the redirect itself; on a containerized host — or when the client sets
+        `preferManual` because its browser can't reach the daemon's loopback (`mode: manual`) — it targets Claude's
         manual redirect page and the web client posts the pasted `code#state` back to `.../auth/exchange`."
       tags:
         - acp
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                preferManual:
+                  type: boolean
       responses:
         "200":
           description: Successful response
