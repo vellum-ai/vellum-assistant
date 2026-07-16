@@ -31,6 +31,7 @@ import type { TtsProvider, TtsProviderId } from "../tts/types.js";
 import { getLogger } from "../util/logger.js";
 import type { CallAudioFormat } from "./audio-store.js";
 import {
+  getEndCallDrainMaxWaitMs,
   getEndCallListenWindowMs,
   getMaxCallDurationMs,
   getSilenceTimeoutMs,
@@ -115,6 +116,12 @@ export class CallController {
   private destroyed = false;
   private silenceTimer: ReturnType<typeof setTimeout> | null = null;
   private endCallListenTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Safety-cap timer for the end-call playback-drain wait. */
+  private endCallDrainCapTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Settles the in-flight end-call wait so cancellation never leaves it hanging. */
+  private endCallWaitResolve: (() => void) | null = null;
+  /** Cancellation token for the in-flight end-call teardown (drain → listen). */
+  private pendingEndCall: { cancelled: boolean } | null = null;
   /**
    * How many times the caller has re-engaged (spoken) after an END_CALL
    * marker was emitted but before the listen window fired. Each caller
@@ -281,11 +288,15 @@ export class CallController {
     transcript: string,
     speaker?: PromptSpeakerContext,
   ): Promise<void> {
-    // If the caller speaks while an END_CALL listen window is pending,
-    // this is a deferral — the caller is re-engaging after we tried to
-    // hang up. Track it so we can cap repeat deferrals.
-    if (this.endCallListenTimer) {
+    // If the caller speaks while an END_CALL teardown is pending (during the
+    // drain wait or the listen window), this is a deferral — the caller is
+    // re-engaging after we tried to hang up. Track it so we can cap repeats.
+    if (this.endCallListenTimer || this.pendingEndCall) {
       this.endCallDeferralCount++;
+      // The goodbye's speech was queued while state was idle, so the
+      // media-stream barge-in ignored it. Cancel it here so it can't play
+      // over the caller's follow-up or the next turn.
+      this.transport.cancelPendingSpeech?.();
     }
     this.cancelPendingEndCall();
 
@@ -458,7 +469,7 @@ export class CallController {
   destroy(): void {
     this.destroyed = true;
     if (this.silenceTimer) clearTimeout(this.silenceTimer);
-    if (this.endCallListenTimer) clearTimeout(this.endCallListenTimer);
+    this.cancelPendingEndCall();
     if (this.durationTimer) clearTimeout(this.durationTimer);
     if (this.durationWarningTimer) clearTimeout(this.durationWarningTimer);
     if (this.pendingGuardianInput) {
@@ -470,7 +481,6 @@ export class CallController {
       this.durationEndTimer = null;
     }
     this.pendingInstructions = [];
-    this.endCallListenTimer = null;
     this.llmRunVersion++;
     this.abortCurrentTurn();
     this.abortActiveSynthesis();
@@ -1344,41 +1354,91 @@ export class CallController {
       this.endCallListenTimer = null;
     }
 
-    const listenWindowMs = getEndCallListenWindowMs();
-    // After the caller has re-engaged once post-END_CALL, complete
-    // immediately on the next END_CALL. The first deferral gets a
-    // listen window (caller might say "wait, one more thing"); a
-    // second END_CALL means the assistant wants out and the caller
-    // already had their chance to re-engage.
-    const effectiveListenWindowMs =
-      this.endCallDeferralCount > 0 ? 0 : listenWindowMs;
-    const callContinues =
-      this.pendingInstructions.length > 0 || effectiveListenWindowMs > 0;
-    if (clearedPendingGuardianInput && callContinues) {
+    // The call always continues past END_CALL — either flushing queued
+    // instructions or waiting for playback drain — so restore in_progress if
+    // we just cleared a pending guardian consultation for the end.
+    if (clearedPendingGuardianInput) {
       updateCallSession(this.callSessionId, { status: "in_progress" });
     }
 
+    // Queued instructions mean the call is continuing — flush and skip
+    // teardown. Clear any stale token first so it can't cancel a later run.
     if (this.pendingInstructions.length > 0) {
+      this.pendingEndCall = null;
       this.flushPendingInstructions();
       return;
     }
 
-    if (effectiveListenWindowMs <= 0) {
-      this.completeCallFromEndMarker();
+    const pending = { cancelled: false };
+    this.pendingEndCall = pending;
+    void this.runEndCallTeardown(pending);
+  }
+
+  /**
+   * End-of-call teardown: wait for goodbye audio to drain (capped), then run
+   * the re-engagement listen window, then end the session. Cancellable at
+   * every step via the `pending` token (caller re-engagement, destroy).
+   */
+  private async runEndCallTeardown(pending: {
+    cancelled: boolean;
+  }): Promise<void> {
+    if (this.transport.awaitPlaybackDrained) {
+      await new Promise<void>((resolve) => {
+        this.endCallWaitResolve = resolve;
+        this.endCallDrainCapTimer = setTimeout(
+          resolve,
+          getEndCallDrainMaxWaitMs(),
+        );
+        void this.transport.awaitPlaybackDrained!().then(resolve, resolve);
+      });
+      this.clearEndCallWait();
+    }
+    if (pending.cancelled || this.destroyed) {
       return;
     }
 
-    this.resetSilenceTimer();
-    this.endCallListenTimer = setTimeout(() => {
+    // After one deferral, subsequent END_CALL markers skip the listen window
+    // (the caller already had their grace re-engagement).
+    const listenWindowMs =
+      this.endCallDeferralCount > 0 ? 0 : getEndCallListenWindowMs();
+    if (listenWindowMs > 0) {
+      this.resetSilenceTimer();
+      await new Promise<void>((resolve) => {
+        this.endCallWaitResolve = resolve;
+        this.endCallListenTimer = setTimeout(resolve, listenWindowMs);
+      });
+      this.clearEndCallWait();
+    }
+    if (pending.cancelled || this.destroyed) {
+      return;
+    }
+
+    this.completeCallFromEndMarker();
+  }
+
+  /** Clear the end-call wait's timers and resolver handle. */
+  private clearEndCallWait(): void {
+    if (this.endCallDrainCapTimer) {
+      clearTimeout(this.endCallDrainCapTimer);
+      this.endCallDrainCapTimer = null;
+    }
+    if (this.endCallListenTimer) {
+      clearTimeout(this.endCallListenTimer);
       this.endCallListenTimer = null;
-      this.completeCallFromEndMarker();
-    }, effectiveListenWindowMs);
+    }
+    this.endCallWaitResolve = null;
   }
 
   private cancelPendingEndCall(): void {
-    if (!this.endCallListenTimer) return;
-    clearTimeout(this.endCallListenTimer);
-    this.endCallListenTimer = null;
+    if (this.pendingEndCall) {
+      this.pendingEndCall.cancelled = true;
+    }
+    this.pendingEndCall = null;
+    // Settle any in-flight drain/listen wait so runEndCallTeardown unblocks
+    // and returns instead of leaking a pending promise.
+    const resolve = this.endCallWaitResolve;
+    this.clearEndCallWait();
+    resolve?.();
   }
 
   private clearPendingGuardianInputForCallEnd(): boolean {
