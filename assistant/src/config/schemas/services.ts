@@ -128,7 +128,6 @@ export const ServicesSchema = z.object({
   ),
   "web-fetch": WebFetchServiceSchema.default(WebFetchServiceSchema.parse({})),
   stt: SttServiceSchema.default({
-    mode: "your-own" as const,
     provider: "deepgram" as const,
     providers: {},
   }),

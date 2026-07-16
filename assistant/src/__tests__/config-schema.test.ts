@@ -1201,7 +1201,6 @@ describe("AssistantConfigSchema", () => {
 
   test("applies services.tts defaults when not specified", () => {
     const result = AssistantConfigSchema.parse({});
-    expect(result.services.tts.mode).toBe("your-own");
     expect(result.services.tts.provider).toBe("elevenlabs");
     expect(result.services.tts.providers.elevenlabs.voiceId).toBe(
       DEFAULT_ELEVENLABS_VOICE_ID,
@@ -1227,7 +1226,6 @@ describe("AssistantConfigSchema", () => {
       services: { tts: { provider: "fish-audio" } },
     });
     expect(result.services.tts.provider).toBe("fish-audio");
-    expect(result.services.tts.mode).toBe("your-own");
   });
 
   test("accepts deepgram as services.tts.provider", () => {
@@ -1235,7 +1233,6 @@ describe("AssistantConfigSchema", () => {
       services: { tts: { provider: "deepgram" } },
     });
     expect(result.services.tts.provider).toBe("deepgram");
-    expect(result.services.tts.mode).toBe("your-own");
   });
 
   test("accepts valid services.tts.providers.elevenlabs overrides", () => {
@@ -1288,16 +1285,20 @@ describe("AssistantConfigSchema", () => {
     expect(result.services.tts.providers.deepgram.format).toBe("opus");
   });
 
-  test("accepts services.tts.mode = managed", () => {
-    const result = AssistantConfigSchema.safeParse({
+  // Legacy config objects on disk may carry a `mode` key. Parsing must strip
+  // it rather than reject the config — and must not treat it as a managed
+  // selection, which is what migration 130 rewrites to `provider: "vellum"`.
+  test("ignores a legacy tts mode key", () => {
+    const result = AssistantConfigSchema.parse({
       services: { tts: { mode: "managed" } },
     });
-    expect(result.success).toBe(true);
+    expect(result.services.tts).not.toHaveProperty("mode");
+    expect(result.services.tts.provider).toBe("elevenlabs");
   });
 
-  test("accepts tts provider vellum regardless of mode", () => {
+  test("accepts tts provider vellum as an ordinary choice", () => {
     const result = AssistantConfigSchema.safeParse({
-      services: { tts: { mode: "your-own", provider: "vellum" } },
+      services: { tts: { provider: "vellum" } },
     });
     expect(result.success).toBe(true);
   });
@@ -1360,18 +1361,19 @@ describe("AssistantConfigSchema", () => {
     }
   });
 
-  test("services.tts.mode accepts your-own and managed", () => {
-    // Explicit your-own should work
-    const valid = TtsServiceSchema.safeParse({ mode: "your-own" });
-    expect(valid.success).toBe(true);
+  test("services.tts.provider defaults to elevenlabs and rejects unknown ids", () => {
+    const defaulted = TtsServiceSchema.safeParse({});
+    expect(defaulted.success).toBe(true);
+    if (defaulted.success) {
+      expect(defaulted.data.provider).toBe("elevenlabs");
+    }
 
-    // managed is supported; the BYOK provider choice is preserved
-    const managed = TtsServiceSchema.safeParse({ mode: "managed" });
-    expect(managed.success).toBe(true);
-
-    // Any other string should be rejected
-    const invalid2 = TtsServiceSchema.safeParse({ mode: "self-hosted" });
-    expect(invalid2.success).toBe(false);
+    expect(TtsServiceSchema.safeParse({ provider: "vellum" }).success).toBe(
+      true,
+    );
+    expect(TtsServiceSchema.safeParse({ provider: "self-hosted" }).success).toBe(
+      false,
+    );
   });
 
   // ── services.stt config ──────────────────────────────────────────────
@@ -1392,7 +1394,6 @@ describe("AssistantConfigSchema", () => {
     const result = AssistantConfigSchema.parse({
       services: { stt: { provider: "openai-whisper" } },
     });
-    expect(result.services.stt.mode).toBe("your-own");
     expect(result.services.stt.provider).toBe("openai-whisper");
     // providers defaults to empty sparse map
     expect(result.services.stt.providers).toEqual({});
@@ -1403,7 +1404,6 @@ describe("AssistantConfigSchema", () => {
       services: { stt: { provider: "openai-whisper" } },
     });
     expect(result.services.stt.provider).toBe("openai-whisper");
-    expect(result.services.stt.mode).toBe("your-own");
   });
 
   test("accepts valid services.stt.providers.openai-whisper overrides", () => {
@@ -1447,16 +1447,20 @@ describe("AssistantConfigSchema", () => {
     });
   });
 
-  test("accepts services.stt.mode = managed with a provider", () => {
-    const result = AssistantConfigSchema.safeParse({
+  // Legacy config objects on disk may carry a `mode` key. Parsing must strip
+  // it rather than reject the config — and must not treat it as a managed
+  // selection, which is what migration 130 rewrites to `provider: "vellum"`.
+  test("ignores a legacy stt mode key", () => {
+    const result = AssistantConfigSchema.parse({
       services: { stt: { mode: "managed", provider: "deepgram" } },
     });
-    expect(result.success).toBe(true);
+    expect(result.services.stt).not.toHaveProperty("mode");
+    expect(result.services.stt.provider).toBe("deepgram");
   });
 
-  test("accepts stt provider vellum regardless of mode", () => {
+  test("accepts stt provider vellum as an ordinary choice", () => {
     const result = AssistantConfigSchema.safeParse({
-      services: { stt: { mode: "your-own", provider: "vellum" } },
+      services: { stt: { provider: "vellum" } },
     });
     expect(result.success).toBe(true);
   });
@@ -1477,7 +1481,6 @@ describe("AssistantConfigSchema", () => {
       services: { stt: { provider: "deepgram" } },
     });
     expect(result.services.stt.provider).toBe("deepgram");
-    expect(result.services.stt.mode).toBe("your-own");
   });
 
   test("accepts google-gemini as services.stt.provider", () => {
@@ -1485,14 +1488,12 @@ describe("AssistantConfigSchema", () => {
       services: { stt: { provider: "google-gemini" } },
     });
     expect(result.services.stt.provider).toBe("google-gemini");
-    expect(result.services.stt.mode).toBe("your-own");
   });
 
   test("applies services.stt structural defaults when google-gemini provider is explicit", () => {
     const result = AssistantConfigSchema.parse({
       services: { stt: { provider: "google-gemini" } },
     });
-    expect(result.services.stt.mode).toBe("your-own");
     expect(result.services.stt.provider).toBe("google-gemini");
     expect(result.services.stt.providers).toEqual({});
   });
@@ -1536,27 +1537,16 @@ describe("AssistantConfigSchema", () => {
     expect(result.success).toBe(false);
   });
 
-  test("services.stt.mode accepts your-own and managed", () => {
-    // Explicit your-own should work
-    const valid = SttServiceSchema.safeParse({
-      mode: "your-own",
-      provider: "openai-whisper",
-    });
-    expect(valid.success).toBe(true);
-
-    // managed is supported; the BYOK provider choice is preserved
-    const managed = SttServiceSchema.safeParse({
-      mode: "managed",
-      provider: "openai-whisper",
-    });
-    expect(managed.success).toBe(true);
-
-    // Any other string should be rejected
-    const invalid2 = SttServiceSchema.safeParse({
-      mode: "self-hosted",
-      provider: "openai-whisper",
-    });
-    expect(invalid2.success).toBe(false);
+  test("services.stt.provider accepts known ids and rejects unknown ones", () => {
+    expect(
+      SttServiceSchema.safeParse({ provider: "openai-whisper" }).success,
+    ).toBe(true);
+    expect(SttServiceSchema.safeParse({ provider: "vellum" }).success).toBe(
+      true,
+    );
+    expect(
+      SttServiceSchema.safeParse({ provider: "self-hosted" }).success,
+    ).toBe(false);
   });
 
   test("rejects hostBrowser.cdpInspect.desktopAuto.cooldownMs above 300000", () => {

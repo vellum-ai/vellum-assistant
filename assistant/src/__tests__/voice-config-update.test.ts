@@ -120,9 +120,9 @@ describe("voice_config_update — tts_provider", () => {
     expect(result.content).toContain("tts_provider must be one of");
   });
 
-  test("tts_provider resets a stale managed mode", async () => {
-    // A lingering `mode: "managed"` takes precedence over the BYOK provider,
-    // so a provider switch that left it in place would be silently ignored.
+  test("a provider switch away from vellum takes effect over a legacy mode key", async () => {
+    // A raw config may still carry a legacy `mode` key; the schema strips it,
+    // so the provider write alone decides the routing.
     writeConfig({ services: { tts: { mode: "managed", provider: "vellum" } } });
     invalidateConfigCache();
 
@@ -132,12 +132,10 @@ describe("voice_config_update — tts_provider", () => {
     );
 
     expect(result.isError).toBe(false);
-    const tts = (readConfig().services as any).tts;
-    expect(tts.provider).toBe("elevenlabs");
-    expect(tts.mode).toBe("your-own");
+    expect((readConfig().services as any).tts.provider).toBe("elevenlabs");
   });
 
-  test("tts_provider vellum writes the managed pair", async () => {
+  test("tts_provider vellum persists when a platform connection is available", async () => {
     mockManagedSpeechAvailable = true;
 
     const result = await run(
@@ -146,9 +144,7 @@ describe("voice_config_update — tts_provider", () => {
     );
 
     expect(result.isError).toBe(false);
-    const tts = (readConfig().services as any).tts;
-    expect(tts.provider).toBe("vellum");
-    expect(tts.mode).toBe("managed");
+    expect((readConfig().services as any).tts.provider).toBe("vellum");
   });
 
   test("broadcasts ttsProvider to client", async () => {
@@ -372,103 +368,80 @@ describe("voice_config_update — deepgram", () => {
 // Tests: stt_mode / tts_mode
 // ---------------------------------------------------------------------------
 
-describe("voice_config_update — stt_mode / tts_mode", () => {
-  test("persists stt_mode your-own to services.stt.mode with a provider", async () => {
+describe("voice_config_update — stt_provider", () => {
+  test("persists a BYOK provider to services.stt.provider", async () => {
     const result = await run(
-      { setting: "stt_mode", value: "your-own" },
+      { setting: "stt_provider", value: "openai-whisper" },
       makeContext(),
     );
 
     expect(result.isError).toBe(false);
-    const config = readConfig();
-    expect((config.services as any)?.stt?.mode).toBe("your-own");
-    // SttServiceSchema requires `provider` whenever the stt object exists —
-    // a mode-only write would invalidate a sparse config.
-    expect((config.services as any)?.stt?.provider).toBeDefined();
-  });
-
-  test("switching tts_mode to your-own replaces a vellum provider", async () => {
-    writeConfig({
-      services: { tts: { mode: "managed", provider: "vellum" } },
-    });
-    invalidateConfigCache();
-
-    const result = await run(
-      { setting: "tts_mode", value: "your-own" },
-      makeContext(),
+    expect((readConfig().services as any)?.stt?.provider).toBe(
+      "openai-whisper",
     );
-
-    expect(result.isError).toBe(false);
-    const config = readConfig();
-    expect((config.services as any)?.tts?.mode).toBe("your-own");
-    expect((config.services as any)?.tts?.provider).toBe("elevenlabs");
   });
 
-  test("switching stt_mode to your-own replaces a vellum provider", async () => {
-    writeConfig({
-      services: { stt: { mode: "managed", provider: "vellum" } },
-    });
-    invalidateConfigCache();
-
-    const result = await run(
-      { setting: "stt_mode", value: "your-own" },
-      makeContext(),
-    );
-
-    expect(result.isError).toBe(false);
-    const config = readConfig();
-    expect((config.services as any)?.stt?.mode).toBe("your-own");
-    expect((config.services as any)?.stt?.provider).toBe("deepgram");
-  });
-
-  test("persists tts_mode managed when platform connection is available", async () => {
+  test("persists the vellum provider when a platform connection is available", async () => {
     mockManagedSpeechAvailable = true;
 
     const result = await run(
-      { setting: "tts_mode", value: "managed" },
+      { setting: "stt_provider", value: "vellum" },
       makeContext(),
     );
 
     expect(result.isError).toBe(false);
-    const config = readConfig();
-    expect((config.services as any)?.tts?.mode).toBe("managed");
+    expect((readConfig().services as any)?.stt?.provider).toBe("vellum");
   });
 
-  test("rejects managed mode without a platform connection", async () => {
+  test("rejects the vellum provider without a platform connection", async () => {
     mockManagedSpeechAvailable = false;
 
     const result = await run(
-      { setting: "stt_mode", value: "managed" },
+      { setting: "stt_provider", value: "vellum" },
       makeContext(),
     );
 
     expect(result.isError).toBe(true);
     expect(result.content).toContain("assistant platform connect");
-    const config = readConfig();
-    expect((config.services as any)?.stt?.mode).toBeUndefined();
+    expect((readConfig().services as any)?.stt?.provider).toBeUndefined();
   });
 
-  test("rejects invalid mode value", async () => {
+  test("switching away from vellum takes effect", async () => {
+    writeConfig({ services: { stt: { provider: "vellum" } } });
+    invalidateConfigCache();
+
     const result = await run(
-      { setting: "tts_mode", value: "bogus" },
+      { setting: "stt_provider", value: "deepgram" },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    expect((readConfig().services as any)?.stt?.provider).toBe("deepgram");
+  });
+
+  test("rejects an unknown provider", async () => {
+    const result = await run(
+      { setting: "stt_provider", value: "bogus" },
       makeContext(),
     );
 
     expect(result.isError).toBe(true);
-    expect(result.content).toContain("tts_mode must be one of");
+    expect(result.content).toContain("stt_provider must be one of");
   });
 
-  test("does not broadcast mode changes to the desktop client", async () => {
+  test("does not broadcast stt_provider changes to the desktop client", async () => {
     const messages: any[] = [];
     const ctx = makeContext({
       sendToClient: (msg: any) => messages.push(msg),
     });
 
-    const result = await run({ setting: "stt_mode", value: "your-own" }, ctx);
+    const result = await run(
+      { setting: "stt_provider", value: "deepgram" },
+      ctx,
+    );
 
     expect(result.isError).toBe(false);
     expect(messages).toHaveLength(0);
-    expect(result.content).not.toContain("broadcast");
   });
 });
 

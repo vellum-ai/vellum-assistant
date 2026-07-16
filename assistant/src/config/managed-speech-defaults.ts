@@ -2,11 +2,11 @@
  * Managed-speech defaulting on Vellum connection.
  *
  * When the platform connection completes and a speech service has no working
- * BYOK credential, default that service to `mode: "managed"` so a fresh
+ * BYOK credential, default that service to `provider: "vellum"` so a fresh
  * Vellum connection gets voice features with zero configuration. A service
  * whose BYOK credential is already configured is never modified — connecting
  * Vellum must not silently reroute an existing voice setup — and a service
- * already in managed mode is left alone.
+ * already on Vellum is left alone.
  */
 
 import { ttsSecretResolves } from "../calls/telephony-tts-capability.js";
@@ -23,7 +23,6 @@ import {
   saveRawConfig,
   setNestedValue,
 } from "./loader.js";
-import { effectiveTtsProvider } from "./schemas/tts.js";
 
 const log = getLogger("managed-speech-defaults");
 
@@ -53,12 +52,12 @@ async function ttsByokCredentialsResolve(provider: string): Promise<boolean> {
 }
 
 /**
- * Default unconfigured speech services to managed mode.
+ * Default unconfigured speech services to the Vellum provider.
  *
  * Safe to call repeatedly (idempotent) and safe to fire-and-forget: it
  * no-ops unless the platform connection is fully usable, and it only ever
- * flips `mode` from `"your-own"` to `"managed"` for services with no
- * working BYOK credential.
+ * repoints `provider` at `"vellum"` for services with no working BYOK
+ * credential.
  */
 export async function maybeDefaultSpeechToManaged(): Promise<void> {
   try {
@@ -70,20 +69,17 @@ export async function maybeDefaultSpeechToManaged(): Promise<void> {
     const updates: string[] = [];
 
     if (
-      services.stt.mode !== "managed" &&
+      services.stt.provider !== "vellum" &&
       !(await sttByokCredentialResolves(services.stt.provider))
     ) {
-      updates.push("services.stt.mode");
+      updates.push("services.stt.provider");
     }
 
-    if (services.tts.mode !== "managed") {
-      const byokProvider = effectiveTtsProvider({
-        mode: "your-own",
-        provider: services.tts.provider,
-      });
-      if (!(await ttsByokCredentialsResolve(byokProvider))) {
-        updates.push("services.tts.mode");
-      }
+    if (
+      services.tts.provider !== "vellum" &&
+      !(await ttsByokCredentialsResolve(services.tts.provider))
+    ) {
+      updates.push("services.tts.provider");
     }
 
     if (updates.length === 0) {
@@ -92,18 +88,13 @@ export async function maybeDefaultSpeechToManaged(): Promise<void> {
 
     const raw = loadRawConfig();
     for (const path of updates) {
-      setNestedValue(raw, path, "managed");
-    }
-    // SttServiceSchema requires `provider` whenever the stt object exists, so
-    // a sparse config would become invalid if we wrote `mode` alone.
-    if (updates.includes("services.stt.mode")) {
-      setNestedValue(raw, "services.stt.provider", services.stt.provider);
+      setNestedValue(raw, path, "vellum");
     }
     saveRawConfig(raw);
     invalidateConfigCache();
     log.info(
       { defaulted: updates },
-      "Defaulted unconfigured speech services to managed mode after Vellum connection",
+      "Defaulted unconfigured speech services to the Vellum provider after connection",
     );
   } catch (err) {
     // Convenience defaulting must never break credential storage.

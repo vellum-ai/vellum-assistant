@@ -46,23 +46,11 @@ export type SttProviders = z.infer<typeof SttProvidersSchema>;
 /**
  * Canonical STT service configuration.
  *
- * Managed transcription (through the user's Vellum account, billed to Vellum
- * credits) is selectable two ways: `provider: "vellum"` directly, or
- * `mode: "managed"` alongside a BYOK `provider` — the form the mode toggle
- * writes, which leaves the BYOK choice untouched so switching back to
- * `"your-own"` restores it. Use {@link effectiveSttProvider} to resolve
- * which provider is actually active.
+ * `provider` is the only axis: `"vellum"` transcribes through the platform,
+ * billed to Vellum credits; any other provider uses the user's own API key.
  */
 export const SttServiceSchema = z
   .object({
-    mode: z
-      .enum(["your-own", "managed"], {
-        error: 'services.stt.mode must be "your-own" or "managed"',
-      })
-      .default("your-own" as const)
-      .describe(
-        'STT service mode -- "your-own" uses the configured provider with your API key; "managed" transcribes through your Vellum account',
-      ),
     provider: z
       .preprocess(
         (v) => {
@@ -84,21 +72,3 @@ export const SttServiceSchema = z
   );
 
 export type SttService = z.infer<typeof SttServiceSchema>;
-
-/**
- * Resolve the provider that is actually active for the service config.
- *
- * `provider: "vellum"` selects managed transcription directly. Otherwise
- * `mode: "managed"` routes to `vellum` while leaving the user's BYOK
- * `provider` choice untouched, so toggling back to `"your-own"` restores
- * their previous setup.
- */
-export function effectiveSttProvider(service: {
-  mode: SttService["mode"];
-  provider: string;
-}): string {
-  if (service.provider === "vellum") {
-    return "vellum";
-  }
-  return service.mode === "managed" ? "vellum" : service.provider;
-}

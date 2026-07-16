@@ -1,5 +1,4 @@
 import { getConfig } from "../../config/loader.js";
-import { effectiveSttProvider } from "../../config/schemas/stt.js";
 import { getProviderKeyAsync } from "../../security/secure-keys.js";
 import { createDaemonBatchTranscriber } from "../../stt/daemon-batch-transcriber.js";
 import type {
@@ -36,7 +35,7 @@ const log = getLogger("stt-resolver");
  */
 export async function resolveBatchTranscriber(): Promise<BatchTranscriber | null> {
   const config = getConfig();
-  const provider = effectiveSttProvider(config.services.stt);
+  const provider = config.services.stt.provider;
 
   // Look up credential provider via the catalog.
   const credentialProviderName = getCredentialProvider(
@@ -112,7 +111,7 @@ export type TelephonySttCapability =
  */
 export async function resolveTelephonySttCapability(): Promise<TelephonySttCapability> {
   const config = getConfig();
-  const provider = effectiveSttProvider(config.services.stt);
+  const provider = config.services.stt.provider;
 
   const entry = getProviderEntry(provider as SttProviderId);
   if (!entry) {
@@ -201,7 +200,7 @@ export type ConversationStreamingSttCapability =
  */
 export async function resolveConversationStreamingSttCapability(): Promise<ConversationStreamingSttCapability> {
   const config = getConfig();
-  const provider = effectiveSttProvider(config.services.stt);
+  const provider = config.services.stt.provider;
 
   const entry = getProviderEntry(provider as SttProviderId);
   if (!entry) {
@@ -306,7 +305,7 @@ export async function resolveStreamingTranscriber(
   options: ResolveStreamingTranscriberOptions = {},
 ): Promise<StreamingTranscriber | null> {
   const config = getConfig();
-  const provider = effectiveSttProvider(config.services.stt);
+  const provider = config.services.stt.provider;
   const diarizePreference: DiarizePreference = options.diarize ?? "off";
 
   // Look up credential provider via the catalog.
