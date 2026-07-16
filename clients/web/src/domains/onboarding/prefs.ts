@@ -58,7 +58,10 @@ export function useShareAnalytics(): [boolean | null, (next: boolean) => void] {
  * (diagnostics is opt-out), a boolean is an explicit choice. Backed by the
  * SAME localStorage key as `/settings/privacy`.
  */
-export function useShareDiagnostics(): [boolean | null, (next: boolean) => void] {
+export function useShareDiagnostics(): [
+  boolean | null,
+  (next: boolean) => void,
+] {
   const value = useOnboardingStore.use.shareDiagnostics();
   const setter = useCallback((next: boolean) => {
     useOnboardingStore.getState().setShareDiagnostics(next);
@@ -94,7 +97,10 @@ export function usePrivacyConsent(): [boolean, (next: boolean) => void] {
  * version. Set on session sync by the auth store. A stale value means the user
  * must re-review the terms.
  */
-export function useAnalyticsConsentCurrent(): [boolean, (next: boolean) => void] {
+export function useAnalyticsConsentCurrent(): [
+  boolean,
+  (next: boolean) => void,
+] {
   const value = useOnboardingStore.use.analyticsConsentCurrent();
   const setter = useCallback((next: boolean) => {
     useOnboardingStore.getState().setAnalyticsConsentCurrent(next);
@@ -107,7 +113,10 @@ export function useAnalyticsConsentCurrent(): [boolean, (next: boolean) => void]
  * version. Set on session sync by the auth store. A stale value means the user
  * must re-review the terms.
  */
-export function useDiagnosticsConsentCurrent(): [boolean, (next: boolean) => void] {
+export function useDiagnosticsConsentCurrent(): [
+  boolean,
+  (next: boolean) => void,
+] {
   const value = useOnboardingStore.use.diagnosticsConsentCurrent();
   const setter = useCallback((next: boolean) => {
     useOnboardingStore.getState().setDiagnosticsConsentCurrent(next);
@@ -173,10 +182,9 @@ export function readConsentHydrated(): boolean {
  *
  * Thin wrapper over the shared `readAnalyticsConsent()` so the onboarding
  * funnel and the intelligence domain's Memory telemetry gate on the exact
- * same decision: analytics is opt-out — never-asked (`null`) authorizes
- * uploads; only an explicit opt-out stops them. The store is the single
- * in-memory source, so an explicit opt-out holds even if its server write
- * failed.
+ * same decision: a local explicit opt-out wins (its server write may be in
+ * flight); otherwise the server-computed effective verdict decides, with the
+ * opt-out default applying before the first sync.
  */
 export function isAnalyticsEnabled(): boolean {
   return readAnalyticsConsent();
@@ -213,5 +221,3 @@ export function writeSelectedVersion(version: string): void {
     // the right default.
   }
 }
-
-

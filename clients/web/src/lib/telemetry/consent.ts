@@ -3,11 +3,11 @@ import { useOnboardingStore } from "@/domains/onboarding/onboarding-store";
 /**
  * Shared analytics-consent read for telemetry emitters.
  *
- * Analytics is opt-out: never-asked (`null`) authorizes uploads; only an
- * explicit opt-out stops them. The onboarding store is the single in-memory
- * source — hydrated from the `device:share_analytics` key at init and from
- * the server on sync — so an explicit opt-out stops uploads even if its
- * server write failed.
+ * A local explicit opt-out always wins — its server write may still be in
+ * flight (or have failed). Otherwise the platform-computed effective verdict
+ * (`serverAnalyticsEffective`, adopted at sync) decides; before the first
+ * sync with a server record the opt-out default applies (analytics is
+ * opt-out, so never-asked authorizes uploads).
  *
  * This is the single consent decision every emitter gates on. It lives in
  * `lib/` (not a domain) so both the onboarding funnel and the intelligence
@@ -15,5 +15,8 @@ import { useOnboardingStore } from "@/domains/onboarding/onboarding-store";
  * cross-domain import (`local/no-cross-domain-imports`).
  */
 export function readAnalyticsConsent(): boolean {
-  return useOnboardingStore.getState().shareAnalytics !== false;
+  const { shareAnalytics, serverAnalyticsEffective } =
+    useOnboardingStore.getState();
+  if (shareAnalytics === false) return false;
+  return serverAnalyticsEffective ?? true;
 }

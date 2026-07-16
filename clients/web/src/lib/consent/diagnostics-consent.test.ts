@@ -4,10 +4,11 @@
  * The module splits two values: the SAVED PREFERENCE
  * (`device:share_diagnostics`, applied via the `setShareDiagnostics` mock) and
  * the EFFECTIVE GATE (`device:diagnostics_reporting`), of which this module is
- * the sole writer. The preference tracks the server's share value
- * direction-asymmetrically; the gate is a derivation of the effective
- * preference — an explicit server value applies directly, an unknown one
- * follows the saved device preference (absent reads open — opt-out default).
+ * the sole writer. The preference tracks the server's RAW share value
+ * direction-asymmetrically; the gate closes on a local explicit opt-out,
+ * otherwise honors the server's effective verdict when a record exists, and
+ * follows the saved device preference when none does (absent reads open —
+ * opt-out default).
  *
  * `@/runtime/diagnostics` and `@/utils/device-settings` are mocked so the gate
  * writes are observable without a DOM/localStorage.
@@ -65,7 +66,11 @@ describe("applyResolvedDiagnosticsConsent — saved preference", () => {
   test("real record + true → preference true, gate true", () => {
     const setShareDiagnostics = mock((_: boolean) => {});
     const result = applyResolvedDiagnosticsConsent(
-      { shareDiagnostics: true, hasServerRecord: true },
+      {
+        shareDiagnostics: true,
+        diagnosticsEffective: true,
+        hasServerRecord: true,
+      },
       setShareDiagnostics,
     );
     expect(result).toBe(true);
@@ -76,7 +81,11 @@ describe("applyResolvedDiagnosticsConsent — saved preference", () => {
   test("real record + false → preference false, gate false", () => {
     const setShareDiagnostics = mock((_: boolean) => {});
     const result = applyResolvedDiagnosticsConsent(
-      { shareDiagnostics: false, hasServerRecord: true },
+      {
+        shareDiagnostics: false,
+        diagnosticsEffective: false,
+        hasServerRecord: true,
+      },
       setShareDiagnostics,
     );
     expect(result).toBe(false);
@@ -90,7 +99,11 @@ describe("applyResolvedDiagnosticsConsent — saved preference", () => {
   test("null + no record → preference unchanged, gate open (opt-out default)", () => {
     const setShareDiagnostics = mock((_: boolean) => {});
     const result = applyResolvedDiagnosticsConsent(
-      { shareDiagnostics: null, hasServerRecord: false },
+      {
+        shareDiagnostics: null,
+        diagnosticsEffective: true,
+        hasServerRecord: false,
+      },
       setShareDiagnostics,
     );
     expect(result).toBeNull();
@@ -101,7 +114,11 @@ describe("applyResolvedDiagnosticsConsent — saved preference", () => {
   test("null grant with a server record → preference unchanged, gate open", () => {
     const setShareDiagnostics = mock((_: boolean) => {});
     const result = applyResolvedDiagnosticsConsent(
-      { shareDiagnostics: null, hasServerRecord: true },
+      {
+        shareDiagnostics: null,
+        diagnosticsEffective: true,
+        hasServerRecord: true,
+      },
       setShareDiagnostics,
     );
     expect(result).toBeNull();
@@ -112,7 +129,11 @@ describe("applyResolvedDiagnosticsConsent — saved preference", () => {
   test("true grant but no server record → preference unchanged, gate open", () => {
     const setShareDiagnostics = mock((_: boolean) => {});
     const result = applyResolvedDiagnosticsConsent(
-      { shareDiagnostics: true, hasServerRecord: false },
+      {
+        shareDiagnostics: true,
+        diagnosticsEffective: true,
+        hasServerRecord: false,
+      },
       setShareDiagnostics,
     );
     expect(result).toBeNull();
@@ -127,7 +148,11 @@ describe("applyResolvedDiagnosticsConsent — saved preference", () => {
     devicePreference = false;
     const setShareDiagnostics = mock((_: boolean) => {});
     const result = applyResolvedDiagnosticsConsent(
-      { shareDiagnostics: true, hasServerRecord: false },
+      {
+        shareDiagnostics: true,
+        diagnosticsEffective: true,
+        hasServerRecord: false,
+      },
       setShareDiagnostics,
     );
     expect(result).toBeNull();
@@ -142,7 +167,11 @@ describe("applyResolvedDiagnosticsConsent — saved preference", () => {
     devicePreference = false;
     const setShareDiagnostics = mock((_: boolean) => {});
     const result = applyResolvedDiagnosticsConsent(
-      { shareDiagnostics: null, hasServerRecord: true },
+      {
+        shareDiagnostics: null,
+        diagnosticsEffective: true,
+        hasServerRecord: true,
+      },
       setShareDiagnostics,
     );
     expect(result).toBeNull();
@@ -154,7 +183,11 @@ describe("applyResolvedDiagnosticsConsent — saved preference", () => {
     devicePreference = false;
     const setShareDiagnostics = mock((_: boolean) => {});
     applyResolvedDiagnosticsConsent(
-      { shareDiagnostics: true, hasServerRecord: true },
+      {
+        shareDiagnostics: true,
+        diagnosticsEffective: true,
+        hasServerRecord: true,
+      },
       setShareDiagnostics,
     );
     expect(setShareDiagnostics).toHaveBeenCalledWith(true);
@@ -164,11 +197,62 @@ describe("applyResolvedDiagnosticsConsent — saved preference", () => {
   test("explicit false with no prior record → preference false (eager revoke), gate false", () => {
     const setShareDiagnostics = mock((_: boolean) => {});
     const result = applyResolvedDiagnosticsConsent(
-      { shareDiagnostics: false, hasServerRecord: false },
+      {
+        shareDiagnostics: false,
+        diagnosticsEffective: false,
+        hasServerRecord: false,
+      },
       setShareDiagnostics,
     );
     expect(result).toBe(false);
     expect(setShareDiagnostics).toHaveBeenCalledWith(false);
+    expectGate(false);
+  });
+
+  // KEY SERVER-AUTHORITY CASES: the platform's effective verdict closes the
+  // gate even where the raw value reads enabled — the raw tri-state carries
+  // chosen-ness only.
+  test("server-effective false with raw null → gate closed, preference untouched", () => {
+    const setShareDiagnostics = mock((_: boolean) => {});
+    const result = applyResolvedDiagnosticsConsent(
+      {
+        shareDiagnostics: null,
+        diagnosticsEffective: false,
+        hasServerRecord: true,
+      },
+      setShareDiagnostics,
+    );
+    expect(result).toBeNull();
+    expect(setShareDiagnostics).not.toHaveBeenCalled();
+    expectGate(false);
+  });
+
+  test("server-effective false with raw true → preference true (chosen-ness), gate closed", () => {
+    const setShareDiagnostics = mock((_: boolean) => {});
+    const result = applyResolvedDiagnosticsConsent(
+      {
+        shareDiagnostics: true,
+        diagnosticsEffective: false,
+        hasServerRecord: true,
+      },
+      setShareDiagnostics,
+    );
+    expect(result).toBe(true);
+    expect(setShareDiagnostics).toHaveBeenCalledWith(true);
+    expectGate(false);
+  });
+
+  test("server-effective true never reopens over a pending local opt-out", () => {
+    devicePreference = false;
+    const setShareDiagnostics = mock((_: boolean) => {});
+    applyResolvedDiagnosticsConsent(
+      {
+        shareDiagnostics: null,
+        diagnosticsEffective: true,
+        hasServerRecord: true,
+      },
+      setShareDiagnostics,
+    );
     expectGate(false);
   });
 
@@ -182,7 +266,11 @@ describe("applyResolvedDiagnosticsConsent — saved preference", () => {
         storedGate = stored;
         devicePreference = preference;
         applyResolvedDiagnosticsConsent(
-          { shareDiagnostics: null, hasServerRecord: true },
+          {
+            shareDiagnostics: null,
+            diagnosticsEffective: true,
+            hasServerRecord: true,
+          },
           mock((_: boolean) => {}),
         );
         expectGate(expected);

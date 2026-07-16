@@ -342,6 +342,16 @@ async function syncUserScopedState(nextUserId: string | null): Promise<void> {
       // device, not the just-adopted server value.
       const localShareAnalytics = store.shareAnalytics;
       const localShareDiagnostics = store.shareDiagnostics;
+      // Adopt the platform-computed effective verdicts for the data-capture
+      // gates. A no-record response carries no verdict (its values are API
+      // defaults), so the gates keep the pre-sync posture: opt-out default
+      // unless a local explicit opt-out.
+      store.setServerAnalyticsEffective(
+        resolved.hasServerRecord ? resolved.analyticsEffective : null,
+      );
+      store.setServerDiagnosticsEffective(
+        resolved.hasServerRecord ? resolved.diagnosticsEffective : null,
+      );
       // Adopt the server's tri-state share-analytics verbatim: an explicit
       // choice is authoritative even when its legal consent versions are stale
       // (the nav layer routes to review-terms), and null (never asked)
@@ -365,6 +375,7 @@ async function syncUserScopedState(nextUserId: string | null): Promise<void> {
       applyResolvedDiagnosticsConsent(
         {
           shareDiagnostics: resolved.shareDiagnostics,
+          diagnosticsEffective: resolved.diagnosticsEffective,
           hasServerRecord: resolved.hasServerRecord,
         },
         store.setShareDiagnostics,
@@ -479,9 +490,14 @@ async function syncUserScopedState(nextUserId: string | null): Promise<void> {
   const store = useOnboardingStore.getState();
   // Consent fetch failed for a platform user: a device that has never
   // resolved a diagnostics gate fails closed until a successful sync can
-  // reveal a server-side explicit opt-out.
+  // reveal a server-side explicit opt-out. A failed fetch keeps the last
+  // adopted server verdicts; a signed-out sync clears them — they belong to
+  // the departed user's record.
   if (nextUserId) {
     failCloseDiagnosticsGateUntilFirstSync();
+  } else {
+    store.setServerAnalyticsEffective(null);
+    store.setServerDiagnosticsEffective(null);
   }
   store.setTosAccepted(consent.tos);
   store.setPrivacyConsent(consent.privacy);

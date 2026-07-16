@@ -7,9 +7,9 @@
  * date). The `device:` prefix survives logout; the userId makes them
  * per-user. Currency is `storedVersion >= requiredVersion`, where the
  * required versions come from the server's `required_versions` (adopted by
- * `resolveServerConsent`) and fall back to the frozen build constants when
- * the backend predates the field — so a server-side version bump owes a
- * re-review without a client release. The consent axes version
+ * `resolveServerConsent`; the frozen build constants seed them before the
+ * first resolve) — so a server-side version bump owes a re-review without a
+ * client release. The consent axes version
  * independently — ToS, the privacy checkbox (privacy policy + AI data
  * sharing), and share-diagnostics — so any one can be re-reviewed without
  * forcing the others.
@@ -43,19 +43,20 @@ import { applyExplicitDiagnosticsChoice } from "@/lib/consent/diagnostics-consen
 import { useOnboardingStore } from "@/domains/onboarding/onboarding-store";
 import { patchConsent, type UserConsent } from "@/domains/account/profile";
 
-// Offline/older-backend fallback required versions. The server's
-// `required_versions` is authoritative when present; these frozen constants
-// only back the paths where it isn't (a backend that predates the field, or
-// no successful resolve yet this session). Zero-padded ISO dates
-// (YYYY-MM-DD): currency is a monotonic comparison (`>=`), which requires a
+// Frozen build constants. The server's `required_versions` is authoritative;
+// these keep two roles only: seeding the module's required versions before
+// the first successful resolve (offline ack reads/stamps), and guarding
+// against an empty-string value inside the server map. Review-terms also
+// displays change notes keyed off them. Zero-padded ISO dates (YYYY-MM-DD):
+// currency is a monotonic comparison (`>=`), which requires a
 // lexicographically sortable, chronological format.
 export const TOS_CONSENT_VERSION = "2026-06-08";
 export const PRIVACY_CONSENT_VERSION = "2026-06-22";
 
 // The two data-capture toggles version independently from the privacy
 // policy, so bumping the privacy policy doesn't re-prompt capture consent.
-// Frozen at the prior privacy version as the fallback floor; genuine bumps
-// arrive via the server's `required_versions`.
+// Frozen at the prior privacy version as the pre-first-sync floor; genuine
+// bumps arrive via the server's `required_versions`.
 export const ANALYTICS_CONSENT_VERSION = "2026-06-18";
 export const DIAGNOSTICS_CONSENT_VERSION = "2026-06-18";
 
@@ -88,24 +89,24 @@ const FALLBACK_REQUIRED_VERSIONS: RequiredConsentVersions = {
 
 /**
  * The required versions from the most recent server consent record
- * `resolveServerConsent` saw, per-key falling back to the frozen constants.
- * `writeConsent` stamps PATCH bodies and the device-ack reads/writes consume
- * this, so the whole module agrees on one set of required versions: the
- * server's when it supplies them, the build's otherwise.
+ * `resolveServerConsent` saw; the frozen constants seed them until the first
+ * resolve. `writeConsent` stamps PATCH bodies and the device-ack reads/writes
+ * consume this, so the whole module agrees on one set of required versions.
  */
 let requiredVersions: RequiredConsentVersions = FALLBACK_REQUIRED_VERSIONS;
 
 function toRequiredVersions(
-  raw: Record<string, string> | undefined,
+  raw: Record<string, string>,
 ): RequiredConsentVersions {
-  // `||` (not `??`): an empty string means "not supplied", never "nothing
-  // required" — treating it as a requirement would mark every record current.
+  // Per-key `||` is an empty-value guard only: a missing/empty entry in the
+  // server map means "not supplied", never "nothing required" — treating it
+  // as a requirement would mark every record current.
   return {
-    tos: raw?.tos || TOS_CONSENT_VERSION,
-    privacyPolicy: raw?.privacy_policy || PRIVACY_CONSENT_VERSION,
-    aiDataSharing: raw?.ai_data_sharing || PRIVACY_CONSENT_VERSION,
-    shareAnalytics: raw?.share_analytics || ANALYTICS_CONSENT_VERSION,
-    shareDiagnostics: raw?.share_diagnostics || DIAGNOSTICS_CONSENT_VERSION,
+    tos: raw.tos || TOS_CONSENT_VERSION,
+    privacyPolicy: raw.privacy_policy || PRIVACY_CONSENT_VERSION,
+    aiDataSharing: raw.ai_data_sharing || PRIVACY_CONSENT_VERSION,
+    shareAnalytics: raw.share_analytics || ANALYTICS_CONSENT_VERSION,
+    shareDiagnostics: raw.share_diagnostics || DIAGNOSTICS_CONSENT_VERSION,
   };
 }
 
@@ -387,9 +388,9 @@ export function resolveServerConsent(consent: UserConsent | null | undefined): {
   shareAnalytics: boolean | null;
   shareDiagnostics: boolean | null;
   /**
-   * Server-computed effective consent (opt-out semantics: null/never-asked =
-   * enabled). This is the value data-capture gates should honor; the raw
-   * `share*` fields above stay tri-state for chosen-ness.
+   * The platform's single-policy-module effective verdicts (opt-out
+   * semantics: null/never-asked = enabled). The data-capture gates consume
+   * these; the raw `share*` fields above carry chosen-ness only.
    */
   analyticsEffective: boolean;
   diagnosticsEffective: boolean;
@@ -414,8 +415,7 @@ export function resolveServerConsent(consent: UserConsent | null | undefined): {
       privacy: false,
       shareAnalytics: null,
       shareDiagnostics: null,
-      // Opt-out semantics default to enabled, matching the fallback chain
-      // applied to an all-null record.
+      // No record means no verdict — opt-out semantics default to enabled.
       analyticsEffective: true,
       diagnosticsEffective: true,
       analyticsCurrent: false,
@@ -426,8 +426,7 @@ export function resolveServerConsent(consent: UserConsent | null | undefined): {
     };
   }
   // The server is the source of truth for which versions are required: adopt
-  // its `required_versions` (per-key constants fallback for an older backend
-  // that omits the field) and remember them module-wide, so device-ack
+  // its `required_versions` and remember them module-wide, so device-ack
   // currency checks and PATCH version stamps agree with this resolution.
   const required = toRequiredVersions(consent.required_versions);
   requiredVersions = required;
@@ -444,10 +443,8 @@ export function resolveServerConsent(consent: UserConsent | null | undefined): {
   // returns the API defaults (empty versions, null share booleans). Any
   // non-empty version or any `false` share boolean can only have come from a
   // real stored row, so it proves a record whose data is worth preserving.
-  // Truthiness (not `!== ""`) so a response that OMITS the newer
-  // share-version fields — e.g. an older backend during rollout — reads as
-  // absent rather than as record evidence. `undefined` and `""` both mean
-  // "no version on record".
+  // Truthiness (not `!== ""`) so an absent field never reads as record
+  // evidence: `undefined` and `""` both mean "no version on record".
   const hasServerRecord =
     !!consent.tos_accepted_version ||
     !!consent.privacy_policy_accepted_version ||
@@ -475,17 +472,11 @@ export function resolveServerConsent(consent: UserConsent | null | undefined): {
     // consumed verbatim.
     shareAnalytics: consent.share_analytics,
     shareDiagnostics: consent.share_diagnostics,
-    // The platform computes effective consent in one place (null = enabled,
-    // opt-out) and serves it as `share_*_effective`; an older backend omits
-    // the fields, so fall back to the raw value's opt-out reading. These are
-    // the server-authoritative gate inputs; the store-based explicit-opt-out
-    // gates currently consume raw values, which are behaviorally identical
-    // (effective differs from raw only when raw is null, which the gates
-    // read as enabled).
-    analyticsEffective:
-      consent.share_analytics_effective ?? consent.share_analytics ?? true,
-    diagnosticsEffective:
-      consent.share_diagnostics_effective ?? consent.share_diagnostics ?? true,
+    // The platform computes effective consent in its single policy module
+    // and serves it as `share_*_effective`. The data-capture gates consume
+    // these verdicts verbatim; the raw values carry chosen-ness only.
+    analyticsEffective: consent.share_analytics_effective,
+    diagnosticsEffective: consent.share_diagnostics_effective,
     // Share-toggle re-review is owed only for an explicit, genuinely stale
     // choice on record. Onboarding doesn't show the analytics toggle, so
     // `share_analytics` stays null until the user chooses via settings or
@@ -513,7 +504,7 @@ export function resolveServerConsent(consent: UserConsent | null | undefined): {
  *
  * Version stamps — device acks and PATCH bodies — use the module's required
  * versions: server-supplied when the last `resolveServerConsent` saw a
- * record, the frozen constants otherwise (offline, older backend).
+ * record, the frozen pre-first-sync seed otherwise (offline).
  *
  * `legal` is present only for a consent-screen save; that acceptance is an
  * explicit review of the current terms, so currency and hydration are
