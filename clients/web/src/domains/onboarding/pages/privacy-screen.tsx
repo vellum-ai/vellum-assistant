@@ -171,7 +171,13 @@ export function PrivacyScreen() {
             variant="outlined"
             size="regular"
             fullWidth
-            onClick={() => navigate(-1)}
+            // Go to the hosting screen deterministically rather than
+            // `navigate(-1)`. On the happy path hosting is what leads here
+            // (login → hosting → privacy); but on other entries — notably the
+            // post-retire redirect (`resolvePostRetire` → privacy) — history
+            // back would leak out of onboarding into the app assistant-less and
+            // trip a non-onboarding hatch.
+            onClick={() => navigate(routes.onboarding.hosting)}
             className={electron ? undefined : "h-11 text-base"}
           >
             Back
