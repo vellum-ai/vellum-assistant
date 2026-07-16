@@ -19,12 +19,6 @@ import {
   ensureConversationExists,
   getConversation,
 } from "../persistence/conversation-crud.js";
-import {
-  ADOPTABLE_CONVERSATION_ID_RE,
-  createConversation,
-  ensureConversationExists,
-  getConversation,
-} from "../persistence/conversation-crud.js";
 import { wrapWithCallSiteRouting } from "../providers/call-site-routing.js";
 import {
   mainAgentResolutionError,
@@ -55,7 +49,9 @@ import { buildTransportHints } from "./transport-hints.js";
 
 // ── Per-conversation persistent options ────────────────────────────
 
-function mergeConversationOptions(
+const conversationOptions = new Map<string, ConversationCreateOptions>();
+
+export function mergeConversationOptions(
   conversationId: string,
   patch: Partial<ConversationCreateOptions>,
 ): void {
