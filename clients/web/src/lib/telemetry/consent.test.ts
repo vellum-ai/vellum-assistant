@@ -65,15 +65,13 @@ describe("readAnalyticsConsent", () => {
       expected: false,
       why: "server-effective opt-out with never-asked local",
     },
-    // An explicit local choice wins in both directions: sync adopts the
-    // server's raw value into the store, so local true + effective false
-    // only exists while a local opt-in's server write is in flight — it
-    // must re-enable immediately, not on the next sync.
+    // A server-ADOPTED raw grant earns no override: with no pending local
+    // edit, a divergent effective opt-out wins.
     {
       local: true,
       server: false,
-      expected: true,
-      why: "mid-flight local opt-in wins over the cached server verdict",
+      expected: false,
+      why: "adopted raw grant never bypasses the effective opt-out",
     },
   ];
 
@@ -82,8 +80,27 @@ describe("readAnalyticsConsent", () => {
       useOnboardingStore.setState({
         shareAnalytics: local,
         serverAnalyticsEffective: server,
+        pendingAnalyticsOptIn: false,
       });
       expect(readAnalyticsConsent()).toBe(expected);
     });
   }
+
+  test("a PENDING local opt-in re-enables immediately over a stale server-effective opt-out", () => {
+    useOnboardingStore.setState({
+      shareAnalytics: true,
+      serverAnalyticsEffective: false,
+      pendingAnalyticsOptIn: true,
+    });
+    expect(readAnalyticsConsent()).toBe(true);
+  });
+
+  test("an explicit opt-out wins even while an older pending opt-in flag lingers", () => {
+    useOnboardingStore.setState({
+      shareAnalytics: false,
+      serverAnalyticsEffective: true,
+      pendingAnalyticsOptIn: true,
+    });
+    expect(readAnalyticsConsent()).toBe(false);
+  });
 });

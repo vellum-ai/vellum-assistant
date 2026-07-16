@@ -67,6 +67,13 @@ export interface OnboardingState {
    * before the first sync that saw a server record.
    */
   serverAnalyticsEffective: boolean | null;
+  /**
+   * A local explicit analytics opt-in whose server write has not yet been
+   * reflected by a sync. Lets the emit gate re-enable immediately on opt-in
+   * without letting server-ADOPTED raw values bypass a divergent effective
+   * verdict. Cleared whenever a sync adopts server state. In-memory only.
+   */
+  pendingAnalyticsOptIn: boolean;
   /** See {@link serverAnalyticsEffective}; the diagnostics verdict. */
   serverDiagnosticsEffective: boolean | null;
   tosAccepted: boolean;
@@ -84,6 +91,7 @@ export interface OnboardingActions {
   setShareAnalytics: (value: boolean | null) => void;
   setShareDiagnostics: (value: boolean | null) => void;
   setServerAnalyticsEffective: (value: boolean | null) => void;
+  setPendingAnalyticsOptIn: (value: boolean) => void;
   setServerDiagnosticsEffective: (value: boolean | null) => void;
   setTosAccepted: (value: boolean) => void;
   setPrivacyConsent: (value: boolean) => void;
@@ -102,6 +110,7 @@ const useOnboardingStoreBase = create<OnboardingStore>()((set) => ({
   shareAnalytics: getLocalBoolOrNull(KEY_SHARE_ANALYTICS),
   shareDiagnostics: getLocalBoolOrNull(KEY_SHARE_DIAGNOSTICS),
   serverAnalyticsEffective: null,
+  pendingAnalyticsOptIn: false,
   serverDiagnosticsEffective: null,
   tosAccepted: false,
   privacyConsent: false,
@@ -123,6 +132,9 @@ const useOnboardingStoreBase = create<OnboardingStore>()((set) => ({
   },
   // In-memory only: the server verdicts are re-adopted on every sync, so
   // persisting them would just serve a stale verdict across reloads.
+  setPendingAnalyticsOptIn: (value) => {
+    set({ pendingAnalyticsOptIn: value });
+  },
   setServerAnalyticsEffective: (value) => {
     set({ serverAnalyticsEffective: value });
   },

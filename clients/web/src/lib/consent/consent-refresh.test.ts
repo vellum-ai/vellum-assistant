@@ -53,12 +53,14 @@ mock.module("@/stores/auth-store", () => ({
 
 const setShareDiagnostics = mock((_v: boolean) => {});
 const setServerAnalyticsEffective = mock((_v: boolean | null) => {});
+const setPendingAnalyticsOptIn = mock((_v: boolean) => {});
 const setServerDiagnosticsEffective = mock((_v: boolean | null) => {});
 mock.module("@/domains/onboarding/onboarding-store", () => ({
   useOnboardingStore: {
     getState: () => ({
       setShareDiagnostics,
       setServerAnalyticsEffective,
+      setPendingAnalyticsOptIn,
       setServerDiagnosticsEffective,
     }),
   },
@@ -111,6 +113,7 @@ beforeEach(() => {
   applyResolvedDiagnosticsConsent.mockClear();
   setShareDiagnostics.mockClear();
   setServerAnalyticsEffective.mockClear();
+  setPendingAnalyticsOptIn.mockClear();
   setServerDiagnosticsEffective.mockClear();
   currentUser = { id: "u1" };
   consentResult = Promise.resolve(consentRecord());

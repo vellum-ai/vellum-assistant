@@ -242,6 +242,7 @@ const setDiagnosticsConsentCurrentMock = mock((_value: boolean) => {});
 const setShareAnalyticsMock = mock((_value: boolean | null) => {});
 const setShareDiagnosticsMock = mock((_value: boolean | null) => {});
 const setServerAnalyticsEffectiveMock = mock((_value: boolean | null) => {});
+const setPendingAnalyticsOptInMock = mock((_value: boolean) => {});
 const setServerDiagnosticsEffectiveMock = mock((_value: boolean | null) => {});
 const setConsentHydratedMock = mock((_value: boolean) => {});
 // Mirror the store's device-initialized tri-state share values (null = never
@@ -258,6 +259,7 @@ mock.module("@/domains/onboarding/onboarding-store", () => ({
       setShareAnalytics: setShareAnalyticsMock,
       setShareDiagnostics: setShareDiagnosticsMock,
       setServerAnalyticsEffective: setServerAnalyticsEffectiveMock,
+      setPendingAnalyticsOptIn: setPendingAnalyticsOptInMock,
       setServerDiagnosticsEffective: setServerDiagnosticsEffectiveMock,
       setAnalyticsConsentCurrent: setAnalyticsConsentCurrentMock,
       setDiagnosticsConsentCurrent: setDiagnosticsConsentCurrentMock,
@@ -386,6 +388,7 @@ beforeEach(() => {
   setShareAnalyticsMock.mockClear();
   setShareDiagnosticsMock.mockClear();
   setServerAnalyticsEffectiveMock.mockClear();
+  setPendingAnalyticsOptInMock.mockClear();
   setServerDiagnosticsEffectiveMock.mockClear();
   setConsentHydratedMock.mockClear();
   mockStoreShareAnalytics = null;

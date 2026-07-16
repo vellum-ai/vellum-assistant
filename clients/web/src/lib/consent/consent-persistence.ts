@@ -540,6 +540,10 @@ function writeConsent(
   }
   if (shareAnalytics !== undefined) {
     store.setShareAnalytics(shareAnalytics);
+    // An explicit opt-in is pending until a sync reflects it, so the emit
+    // gate re-enables immediately; an explicit opt-out supersedes any
+    // pending opt-in (and wins in the gate on its own).
+    store.setPendingAnalyticsOptIn(shareAnalytics === true);
   }
   if (shareDiagnostics !== undefined) {
     // Opt-out: the effective reporting gate equals the preference — an

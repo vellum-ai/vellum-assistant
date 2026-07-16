@@ -26,6 +26,7 @@ const storeState = {
   setTosAccepted: mock(() => {}),
   setPrivacyConsent: mock(() => {}),
   setShareAnalytics: mock(() => {}),
+  setPendingAnalyticsOptIn: mock(() => {}),
   setShareDiagnostics: mock(() => {}),
   setAnalyticsConsentCurrent: mock(() => {}),
   setDiagnosticsConsentCurrent: mock(() => {}),

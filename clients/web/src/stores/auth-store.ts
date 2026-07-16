@@ -346,6 +346,7 @@ async function syncUserScopedState(nextUserId: string | null): Promise<void> {
       // gates. A no-record response carries no verdict (its values are API
       // defaults), so the gates keep the pre-sync posture: opt-out default
       // unless a local explicit opt-out.
+      store.setPendingAnalyticsOptIn(false);
       store.setServerAnalyticsEffective(
         resolved.hasServerRecord ? resolved.analyticsEffective : null,
       );
@@ -496,6 +497,7 @@ async function syncUserScopedState(nextUserId: string | null): Promise<void> {
   if (nextUserId) {
     failCloseDiagnosticsGateUntilFirstSync();
   } else {
+    store.setPendingAnalyticsOptIn(false);
     store.setServerAnalyticsEffective(null);
     store.setServerDiagnosticsEffective(null);
   }
