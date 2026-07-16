@@ -315,12 +315,25 @@ function ProfileEditorModalInner({
   );
 
   // Derived: selected model from catalog
+  // A saved Vellum model may be a routed `<provider>/<model>` string; parse
+  // it once — the native id feeds every catalog lookup (visibility, token
+  // ranges) and the save path, the prefix feeds upstream derivation.
+  const routedModel = useMemo(
+    () =>
+      provider === VELLUM_CONNECTION_PROVIDER
+        ? parseVellumRoutedModel(model)
+        : null,
+    [provider, model],
+  );
+  const nativeModel = routedModel?.model ?? model;
+
   const selectedModel = useMemo(
     () =>
       provider
-        ? (getModelsForProvider(provider).find((m) => m.id === model) ?? null)
+        ? (getModelsForProvider(provider).find((m) => m.id === nativeModel) ??
+          null)
         : null,
-    [provider, model],
+    [provider, nativeModel],
   );
 
   // The advanced-param defaults a profile inherits when it omits an override
@@ -341,11 +354,14 @@ function ProfileEditorModalInner({
     () =>
       resolveProfileParamVisibility(
         provider === VELLUM_CONNECTION_PROVIDER
-          ? (getManagedUpstreamForModel(model) ?? initialValues?.provider ?? "")
+          ? (routedModel?.provider ??
+              getManagedUpstreamForModel(model) ??
+              initialValues?.provider ??
+              "")
           : provider,
-        model,
+        nativeModel,
       ),
-    [provider, model, initialValues?.provider],
+    [provider, model, nativeModel, routedModel, initialValues?.provider],
   );
 
   // Parent-supplied connections unioned with any created inline this session
@@ -608,18 +624,14 @@ function ProfileEditorModalInner({
       // the stored upstream too instead of clearing it.
       // A routed `<provider>/<model>` string names its upstream directly and
       // must be stripped to the upstream's native id in the legacy wire shape.
-      const routed =
-        provider === VELLUM_CONNECTION_PROVIDER
-          ? parseVellumRoutedModel(model)
-          : null;
       const wireProvider =
         provider === VELLUM_CONNECTION_PROVIDER
-          ? (routed?.provider ??
+          ? (routedModel?.provider ??
             getManagedUpstreamForModel(model) ??
             initialValues?.provider ??
             "")
           : provider;
-      const wireModel = routed?.model ?? model;
+      const wireModel = nativeModel;
       if (effectiveMode === "edit") {
         // In edit mode send null for cleared fields so the server deep-merges
         // them as cleared rather than silently preserving the old value.

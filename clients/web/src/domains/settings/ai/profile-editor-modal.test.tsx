@@ -648,6 +648,40 @@ describe("ProfileEditorModal create mode — provider-first", () => {
     expect(saveCalls[0].entry.provider_connection).toBe("vellum");
   });
 
+  test("a routed model resolves advanced controls from its native id", async () => {
+    // Visibility heuristics expect native ids; a routed string must not hide
+    // the upstream's controls (a replace-mode save would then clear them).
+    render(
+      <Wrapper>
+        <ProfileEditorModal
+          isOpen
+          mode="edit"
+          profileName="my-managed"
+          initialValues={
+            {
+              name: "my-managed",
+              provider: "openai",
+              model: "openai/gpt-5.5",
+              provider_connection: "vellum",
+              effort: "high",
+            } as never
+          }
+          existingNames={["my-managed"]}
+          connections={[makeConnection("vellum", "vellum")]}
+          assistantId={ASSISTANT_ID}
+          onSave={() => Promise.resolve()}
+          onCancel={() => {}}
+        />
+      </Wrapper>,
+    );
+
+    // gpt-5.5's controls include Verbosity (an openai-family field) — it
+    // only renders when visibility resolved against the native id.
+    await waitFor(() => {
+      expect(document.body.textContent).toContain("Verbosity");
+    });
+  });
+
   test("Vellum hides the Connection sub-dropdown", () => {
     renderCreate([makeConnection("vellum-managed", "vellum")]);
     selectProvider("Vellum");
