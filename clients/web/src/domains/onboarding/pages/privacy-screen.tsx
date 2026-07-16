@@ -167,21 +167,27 @@ export function PrivacyScreen() {
           >
             Start
           </Button>
-          <Button
-            variant="outlined"
-            size="regular"
-            fullWidth
-            // Go to the hosting screen deterministically rather than
-            // `navigate(-1)`. On the happy path hosting is what leads here
-            // (login → hosting → privacy); but on other entries — notably the
-            // post-retire redirect (`resolvePostRetire` → privacy) — history
-            // back would leak out of onboarding into the app assistant-less and
-            // trip a non-onboarding hatch.
-            onClick={() => navigate(routes.onboarding.hosting)}
-            className={electron ? undefined : "h-11 text-base"}
-          >
-            Back
-          </Button>
+          {/*
+           * Back is local-mode only. In local mode hosting is the screen that
+           * leads here (welcome → hosting → privacy), so go there deterministically
+           * rather than `navigate(-1)`. In platform mode privacy IS the onboarding
+           * entrypoint — there's nothing before it — and hosting is local-only
+           * (`enforceModeBoundary` bounces a platform user off it to `/assistant`,
+           * which then trips a non-onboarding hatch). So platform gets no Back,
+           * which also keeps the post-retire redirect (`resolvePostRetire` →
+           * privacy) from escaping onboarding.
+           */}
+          {isLocalMode() ? (
+            <Button
+              variant="outlined"
+              size="regular"
+              fullWidth
+              onClick={() => navigate(routes.onboarding.hosting)}
+              className={electron ? undefined : "h-11 text-base"}
+            >
+              Back
+            </Button>
+          ) : null}
         </div>
 
       </div>
