@@ -91,6 +91,7 @@ const BASELINE: Record<string, readonly string[]> = {
     "src/daemon/conversation-lifecycle.ts",
     "src/daemon/conversation-runtime-assembly.ts",
     "src/daemon/conversation-surfaces.ts",
+    "src/daemon/conversation-tool-setup.ts",
     "src/daemon/conversation-turn-finalize.ts",
     "src/daemon/conversation.ts",
     "src/daemon/embedding-reconcile.ts",
