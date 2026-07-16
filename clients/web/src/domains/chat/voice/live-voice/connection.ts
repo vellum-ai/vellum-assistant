@@ -4,7 +4,8 @@
  * Live voice picks its transport by deployment kind via
  * {@link resolveLiveVoiceWsUrl}:
  *
- * - **Cloud** — streams audio to velay (`velay.vellum.ai`), which is
+ * - **Cloud** — streams audio to the platform environment's velay (prod
+ *   `velay.vellum.ai`, staging `velay-staging.vellum.ai`, …), which is
  *   cross-origin from the `platform.vellum.ai` SPA. A same-origin cookie WS
  *   upgrade is NOT viable: velay does no user auth, and the channel gateway
  *   only accepts a local actor edge JWT. So the browser first mints a
@@ -39,13 +40,17 @@
 
 import { authLiveVoiceTokenCreate } from "@/generated/api/sdk.gen";
 import type { LiveVoiceTokenResponse } from "@/generated/api/types.gen";
+import { getPlatformRuntimeUrl } from "@/lib/local-mode";
 import {
   getSelfHostedActorToken,
   getSelfHostedIngressUrl,
 } from "@/lib/self-hosted/connection";
 import { assertHasResponse } from "@/utils/api-errors";
 
-/** Production velay host (no scheme). Overridable via `VITE_VELAY_HOST`. */
+/**
+ * Production velay host (no scheme). Fallback when neither the
+ * `VITE_VELAY_HOST` override nor the platform-host derivation applies.
+ */
 const DEFAULT_VELAY_HOST = "velay.vellum.ai";
 
 export class LiveVoiceTokenError extends Error {
@@ -96,9 +101,44 @@ export async function mintLiveVoiceToken(
   return data;
 }
 
-/** Resolve the velay host (no scheme), honouring the build-time override. */
+/**
+ * Map a Vellum platform host onto its environment's velay host, following the
+ * deployment naming convention (`platform.vellum.ai` → `velay.vellum.ai`,
+ * `{env}-platform.vellum.ai` → `velay-{env}.vellum.ai`). Returns null for
+ * hosts outside that convention (localhost, custom domains). Mirrors
+ * `velayOriginForPlatformHost` in the gateway's speech-relay route.
+ */
+export function velayHostForPlatformHost(host: string): string | null {
+  if (host === "platform.vellum.ai") {
+    return "velay.vellum.ai";
+  }
+  const match = /^([a-z0-9-]+)-platform\.vellum\.ai$/.exec(host);
+  return match ? `velay-${match[1]}.vellum.ai` : null;
+}
+
+/**
+ * Resolve the velay host (no scheme). An explicit `VITE_VELAY_HOST` always
+ * wins (local `vel up` velay); otherwise derive it from the platform runtime
+ * URL so one renderer build follows whichever platform environment it is
+ * connected to — the Electron web bundle is built without `VITE_VELAY_HOST`,
+ * and baking the prod default would send a staging assistant's token to prod
+ * velay, which rejects it on the WS upgrade.
+ */
 function getVelayHost(): string {
-  return import.meta.env.VITE_VELAY_HOST || DEFAULT_VELAY_HOST;
+  if (import.meta.env.VITE_VELAY_HOST) {
+    return import.meta.env.VITE_VELAY_HOST;
+  }
+  try {
+    const derived = velayHostForPlatformHost(
+      new URL(getPlatformRuntimeUrl()).hostname,
+    );
+    if (derived) {
+      return derived;
+    }
+  } catch {
+    // Unparseable platform URL — fall through to the prod default.
+  }
+  return DEFAULT_VELAY_HOST;
 }
 
 /**
