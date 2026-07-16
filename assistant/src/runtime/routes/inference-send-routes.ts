@@ -75,6 +75,13 @@ async function handleInferenceSend({ body = {} }: RouteHandlerArgs) {
       inputTokens: response.usage.inputTokens,
       outputTokens: response.usage.outputTokens,
     },
+    // Runtime-observed diagnostics. `resolved_endpoint` is the base URL the
+    // provider's live HTTP client actually targeted for this request, so a
+    // caller can confirm routing from evidence instead of inferring it.
+    // Omitted when the provider does not surface an endpoint.
+    ...(response.resolvedEndpoint !== undefined
+      ? { evidence: { resolved_endpoint: response.resolvedEndpoint } }
+      : {}),
   };
 }
 
@@ -110,6 +117,11 @@ export const ROUTES: RouteDefinition[] = [
         inputTokens: z.number(),
         outputTokens: z.number(),
       }),
+      evidence: z
+        .object({
+          resolved_endpoint: z.string().optional(),
+        })
+        .optional(),
     }),
     handler: handleInferenceSend,
   },
