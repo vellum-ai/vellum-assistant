@@ -1356,10 +1356,23 @@ function completeChangedCustomProfiles(
 function assertNoWriteLockedProviders(raw: Record<string, unknown>): void {
   const llm = raw.llm as
     | {
+        default?: { provider?: unknown } | null;
         profiles?: Record<string, { provider?: unknown } | null | undefined>;
         callSites?: Record<string, { provider?: unknown } | null | undefined>;
       }
     | undefined;
+  // The schema no longer carries llm.default, but a raw write can still
+  // persist one and profile materialization uses a legacy on-disk blob as
+  // its fill base — so it is locked too.
+  const defaultProvider = llm?.default?.provider;
+  if (
+    typeof defaultProvider === "string" &&
+    WRITE_LOCKED_PROVIDERS.has(defaultProvider)
+  ) {
+    throw new BadRequestError(
+      `Provider "${defaultProvider}" is not yet enabled (llm.default).`,
+    );
+  }
   for (const section of ["profiles", "callSites"] as const) {
     for (const [name, entry] of Object.entries(llm?.[section] ?? {})) {
       const provider = entry?.provider;

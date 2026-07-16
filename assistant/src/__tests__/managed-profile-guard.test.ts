@@ -195,6 +195,17 @@ describe("PUT /v1/config/llm/profiles/:name — managed profile guard", () => {
     expect(committedRaw()).not.toBeNull();
   });
 
+  test("rejects write-locked routing identities in a raw llm.default write", async () => {
+    // The schema dropped llm.default, but a raw PATCH can still persist one
+    // and materialization uses a legacy on-disk blob as its fill base.
+    await expect(
+      patchRoute.handler({
+        body: { llm: { default: { provider: "vellum" } } },
+      }),
+    ).rejects.toThrow(/not yet enabled/);
+    expect(committedRaw()).toBeNull();
+  });
+
   test("rejects write-locked routing identities on the replace path", async () => {
     // This route validates with ProfileEntry.safeParse only, so the
     // commitConfigWrite choke-point guard is what keeps the schema-admitted
