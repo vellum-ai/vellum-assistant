@@ -2,11 +2,9 @@ import { Bell } from "lucide-react";
 import { useState } from "react";
 import { useNavigate } from "react-router";
 
-import { HomeRecapRow } from "@/domains/home/home-recap-row";
-import { useHomeFeedQuery } from "@/domains/home/hooks/use-home-feed-query";
-import { excludeHighUrgency, sortFeedItems } from "@/domains/home/utils";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useSupportsBulkFeedStatus } from "@/lib/backwards-compat/bulk-feed-status";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { routes } from "@/utils/routes";
 import type { FeedItem } from "@vellumai/assistant-api";
 import {
@@ -16,6 +14,10 @@ import {
     Tooltip,
     Typography,
 } from "@vellumai/design-library";
+
+import { HomeRecapRow } from "../home-recap-row";
+import { useHomeFeedQuery } from "../hooks/use-home-feed-query";
+import { excludeHighUrgency, sortFeedItems } from "../utils";
 
 /**
  * Router state consumed by `HomePageRoute`: opening a notification from the
@@ -35,15 +37,18 @@ const LIST_MAX_HEIGHT_CLASS = "max-h-[280px]";
  * (mobile) — the same split the sidebar preferences menu uses. Rows reuse
  * `HomeRecapRow`, so mark-read and dismiss work inline; clicking a row (or
  * "View all") continues to the full Activity page.
+ *
+ * Owned by the home domain (it renders the home feed), so the chat layout
+ * can't import it directly (cross-domain); `routes.tsx` injects it into
+ * `ChatLayout` as `topBarAccessory` instead. Self-contained: reads the
+ * active assistant from the resolved-assistants store — same source as
+ * ChatLayout — so the injection site needs no wiring.
  */
-export function NotificationsBell({
-  assistantId,
-}: {
-  assistantId: string | null;
-}) {
+export function NotificationsBell() {
   const [isOpen, setIsOpen] = useState(false);
   const isMobile = useIsMobile();
   const navigate = useNavigate();
+  const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const feedQuery = useHomeFeedQuery(assistantId);
   const supportsBulkStatus = useSupportsBulkFeedStatus();
 
@@ -99,7 +104,9 @@ export function NotificationsBell({
         <span className="relative flex" aria-hidden>
           <Bell />
           {hasUnread ? (
-            <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-[var(--system-negative-strong)]" />
+            // Same top-left amber dot as the unread rows inside
+            // (HomeRecapRow), so the bell and its list speak one language.
+            <span className="absolute -left-0.5 -top-0.5 h-2 w-2 rounded-full bg-[var(--system-mid-strong)]" />
           ) : null}
         </span>
       }

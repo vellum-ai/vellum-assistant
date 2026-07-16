@@ -3,7 +3,7 @@ import { useLocation, useNavigate } from "react-router";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { useChatLayoutSlotsStore } from "@/components/layout/chat-layout-slots-store";
-import type { ActivityLocationState } from "@/components/notifications-bell";
+import type { ActivityLocationState } from "@/domains/home/components/notifications-bell";
 import { HomePage } from "@/domains/home/home-page";
 import {
     useBackgroundConversationListQuery,

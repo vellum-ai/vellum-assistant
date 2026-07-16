@@ -40,9 +40,18 @@ mock.module("react-router", () => ({
   useNavigate: () => () => {},
 }));
 
-import { NotificationsBell } from "@/components/notifications-bell";
+mock.module("@/stores/resolved-assistants-store", () => {
+  const store = () => null;
+  store.use = {
+    activeAssistantId: () => "assistant-1",
+  };
+  return { useResolvedAssistantsStore: store };
+});
 
-const UNREAD_DOT_CLASS = "bg-[var(--system-negative-strong)]";
+import { NotificationsBell } from "@/domains/home/components/notifications-bell";
+
+// The same amber dot HomeRecapRow puts on unread rows, top-left of the bell.
+const UNREAD_DOT_CLASS = "-left-0.5 -top-0.5 h-2 w-2 rounded-full bg-[var(--system-mid-strong)]";
 
 function feedItem(overrides: Partial<FeedItem>): FeedItem {
   return {
@@ -58,9 +67,7 @@ function feedItem(overrides: Partial<FeedItem>): FeedItem {
 }
 
 function renderBell(): string {
-  return renderToStaticMarkup(
-    createElement(NotificationsBell, { assistantId: "assistant-1" }),
-  );
+  return renderToStaticMarkup(createElement(NotificationsBell));
 }
 
 beforeEach(() => {

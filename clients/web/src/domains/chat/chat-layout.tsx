@@ -30,7 +30,6 @@ import {
 } from "@/utils/routes";
 
 import { useChatLayoutSlotsStore } from "@/components/layout/chat-layout-slots-store";
-import { NotificationsBell } from "@/components/notifications-bell";
 import { useElectronDockSync } from "@/domains/chat/hooks/use-electron-dock-sync";
 import { useOpenAppFromChat } from "@/domains/chat/hooks/use-open-app-from-chat";
 import {
@@ -131,7 +130,17 @@ interface SideMenuRenderArgs {
  *
  * @see https://reactrouter.com/start/data/routing
  */
-export function ChatLayout() {
+export function ChatLayout({
+  topBarAccessory,
+}: {
+  /**
+   * Persistent element for the header's top-right, after the per-route
+   * slot content (currently the notifications bell). Injected by
+   * `routes.tsx` because its implementation lives in another domain,
+   * which this layout must not import directly.
+   */
+  topBarAccessory?: ReactNode;
+} = {}) {
   const navigate = useNavigate();
   const location = useLocation();
   const navigationType = useNavigationType();
@@ -742,10 +751,7 @@ export function ChatLayout() {
             <>
               {topBarRightSlot}
               <VoiceSessionPillHost />
-              {/* The bell replaces the sidebar's Activity nav item: the
-                  notifications surface now opens as a popover from the top
-                  nav, with the full Activity page behind "View all". */}
-              <NotificationsBell assistantId={assistantId} />
+              {topBarAccessory}
             </>
           }
           canGoBack={canGoBack}

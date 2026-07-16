@@ -10,6 +10,7 @@ import { AccountLayout } from "@/domains/account/account-layout";
 import { ChatLayout } from "@/domains/chat/chat-layout";
 import { ChatPage } from "@/domains/chat/chat-page";
 import { ConversationRedirect } from "@/domains/chat/conversation-redirect";
+import { NotificationsBell } from "@/domains/home/components/notifications-bell";
 import { NotFound } from "@/components/not-found";
 import { RouteErrorBoundary } from "@/components/route-error-boundary";
 import { RootHydrateFallback } from "@/components/root-hydrate-fallback";
@@ -50,6 +51,16 @@ function AdvancedSettingsRedirect() {
   return (
     <Navigate to={`${routes.settings.debug}${qs ? `?${qs}` : ""}`} replace />
   );
+}
+
+/**
+ * ChatLayout with its cross-domain header chrome injected. The bell is home
+ * domain (it renders the home feed) and the layout is chat domain, so the
+ * composition happens here at the route level — neither domain imports the
+ * other (see STYLE_GUIDE.md — Shared UI components).
+ */
+function ChatLayoutRoute() {
+  return <ChatLayout topBarAccessory={<NotificationsBell />} />;
 }
 
 export function getRouterBasename(): string | undefined {
@@ -319,7 +330,7 @@ export const routeTree = [
         },
 
         {
-          Component: ChatLayout,
+          Component: ChatLayoutRoute,
           children: [
             // Inner pathless wrapper: catches every error from chat-side
             // routes (home, library, identity, inspector, etc.) one layer
