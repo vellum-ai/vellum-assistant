@@ -14,8 +14,14 @@ export const VISION_NOT_SUPPORTED_PATTERNS = [
   /multi-?modal.*not.*support/i,
 ];
 
-// Vendor-neutral (OpenRouter/Anthropic-style) credit-exhaustion prose.
+// Vendor-neutral (OpenRouter/Anthropic-style) credit-exhaustion prose. Also
+// covers per-key spend caps: OpenRouter returns 403 "Key limit exceeded" when a
+// key's configured credit limit is reached — a billing/budget condition that
+// routes to the billing classification alongside other credit exhaustion. The
+// phrase is anchored on the contiguous "key limit" so it cannot swallow
+// rate-limit prose ("rate limit exceeded") or generic invalid-key text.
 export const INSUFFICIENT_CREDITS_PATTERNS = [
   /credit balance is too low/i,
   /insufficient.*credits?/i,
+  /key limit (?:has been )?(?:exceeded|reached)/i,
 ];
