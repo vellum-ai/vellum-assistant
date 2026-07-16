@@ -2011,6 +2011,7 @@ export class Conversation {
       }
       return await this.runCompaction(true, undefined, {
         fixedTailStartIndex: tailIndex,
+        fixedBoundaryRowIndex: boundaryRowIndex,
         // Slack projections gate on the persisted watermark, not on
         // `contextCompactedMessageCount` — without an advance, the summarized
         // rows would reappear verbatim in the projection alongside the new
@@ -2062,6 +2063,8 @@ export class Conversation {
    * `/compact`); without it the manager no-ops below the threshold.
    * `opts.fixedTailStartIndex` pins the kept tail to a caller-chosen history
    * index ("summarize up to here") instead of the token-budget cut;
+   * `opts.fixedBoundaryRowIndex` is the same boundary in row space, which
+   * bounds the compactor's image manifest to rows being summarized away;
    * `opts.fixedBoundarySlackWatermarkTs` is that path's row-space-derived
    * Slack watermark (the auto/forced Slack path derives its own from the
    * chronological projection).
@@ -2071,6 +2074,7 @@ export class Conversation {
     sizing?: CompactionSizing,
     opts?: {
       fixedTailStartIndex?: number;
+      fixedBoundaryRowIndex?: number;
       fixedBoundarySlackWatermarkTs?: string | null;
     },
   ): Promise<ContextWindowResult> {
@@ -2132,6 +2136,7 @@ export class Conversation {
       overrideProfile,
       actorTrustClass: this.trustContext?.trustClass,
       fixedTailStartIndex: opts?.fixedTailStartIndex,
+      fixedBoundaryRowIndex: opts?.fixedBoundaryRowIndex,
     });
     // Track circuit-breaker state for every compaction that ran a summary
     // call — user-initiated `/compact`, other forced paths, and the wake's
