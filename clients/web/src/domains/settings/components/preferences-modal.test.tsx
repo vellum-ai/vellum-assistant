@@ -20,7 +20,7 @@ const applyThemePreferenceMock = mock((_theme: string) => {});
 const writeStoredThemePreferenceMock = mock((_theme: string) => {});
 const readStoredThemePreferenceMock = mock(() => "system" as const);
 
-mock.module("@/domains/settings/utils/theme-preferences", () => ({
+mock.module("@/utils/theme-preferences", () => ({
   applyThemePreference: applyThemePreferenceMock,
   readStoredThemePreference: readStoredThemePreferenceMock,
   writeStoredThemePreference: writeStoredThemePreferenceMock,
