@@ -26,6 +26,10 @@ import {
   shouldSettlePersonalityPoll,
 } from "@/assistant/personality-rewrite";
 import {
+  completeSliderValues,
+  savePersonalitySliders,
+} from "@/assistant/personality-sliders";
+import {
   conversationsByIdArchivePost,
   conversationsPost,
   messagesGet,
@@ -98,6 +102,11 @@ export async function applyPersonality({
       throwOnError: false,
     });
     if (!posted.response?.ok) return;
+
+    // Persist the raw dial positions as the workspace sidecar the About
+    // Assistant personality page and the overview's radar read — the prose
+    // rewrite alone would lose them. Best-effort, like the rest of the flow.
+    await savePersonalitySliders(assistantId, completeSliderValues(values));
 
     // Let the rewrite turn run before hiding the thread — archiving mid-turn
     // could drop the identity edits, and the chat handoff awaits this promise

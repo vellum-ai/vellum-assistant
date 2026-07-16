@@ -8,6 +8,11 @@
 import { useQuery } from "@tanstack/react-query";
 
 import {
+  completeSliderValues,
+  fetchPersonalitySliders,
+  personalitySlidersQueryKey,
+} from "@/assistant/personality-sliders";
+import {
   channelsReadinessGetOptions,
   contactsGetOptions,
   schedulesGetQueryKey,
@@ -16,12 +21,6 @@ import {
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import { installedPluginsQueryOptions } from "@/lib/installed-plugins-query";
 import { fetchSchedules } from "@/utils/schedules";
-
-import {
-  completeSliderValues,
-  fetchPersonalitySliders,
-  personalitySlidersQueryKey,
-} from "./identity-actions/personality-sliders";
 
 export interface SchedulePreview {
   id: string;
@@ -168,14 +167,16 @@ export function useIdentitySectionStats(
         : undefined,
     schedules:
       schedules.data !== undefined
-        ? {
-            value: schedules.data.count,
-            label: "active",
-            schedules: {
-              items: schedules.data.items,
-              more: schedules.data.count - schedules.data.items.length,
-            },
-          }
+        ? schedules.data.count === 0
+          ? { text: "Nothing scheduled yet" }
+          : {
+              value: schedules.data.count,
+              label: "active",
+              schedules: {
+                items: schedules.data.items,
+                more: schedules.data.count - schedules.data.items.length,
+              },
+            }
         : undefined,
   };
 }

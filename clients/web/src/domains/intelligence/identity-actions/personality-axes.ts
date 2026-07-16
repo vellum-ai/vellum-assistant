@@ -6,6 +6,8 @@
  * with 0 = the left label and 100 = the right label.
  */
 
+import { PERSONALITY_SLIDER_DEFAULT } from "@/assistant/personality-sliders";
+
 export interface PersonalityAxisDefinition {
   id: string;
   left: string;
@@ -21,4 +23,4 @@ export const PERSONALITY_AXES: PersonalityAxisDefinition[] = [
 ];
 
 /** Sliders start centered — no axis is nudged either way until the user acts. */
-export const PERSONALITY_AXIS_DEFAULT = 50;
+export const PERSONALITY_AXIS_DEFAULT = PERSONALITY_SLIDER_DEFAULT;

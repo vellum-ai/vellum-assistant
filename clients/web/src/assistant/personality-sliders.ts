@@ -1,22 +1,25 @@
 /**
- * Persistence for the personality page's slider values.
+ * Persistence for the personality slider values — shared by research
+ * onboarding's "Create my personality" step and the About Assistant
+ * personality page.
  *
  * The rewrite prompt carries the values into the assistant's identity
  * files as prose, so the raw dial positions would otherwise be lost the
  * moment the page unmounts. They're kept as a JSON sidecar in the
  * assistant's workspace (like the avatar's `character-traits.json`), so
- * the sliders reopen where the user left them — on any device.
+ * the sliders reopen where the user left them — on any device — and the
+ * overview's Personality card can plot them as a radar.
  */
 
 import { workspaceFileGet, workspaceWritePost } from "@/generated/daemon/sdk.gen";
 import { assertHasResponse } from "@/utils/api-errors";
 
-import {
-  PERSONALITY_AXES,
-  PERSONALITY_AXIS_DEFAULT,
-} from "./personality-axes";
+import { PERSONALITY_AXIS_IDS } from "./personality-rewrite";
 
 export const PERSONALITY_SLIDERS_PATH = "data/personality-sliders.json";
+
+/** Sliders start centered — no axis is nudged either way until the user acts. */
+export const PERSONALITY_SLIDER_DEFAULT = 50;
 
 export type PersonalitySliderValues = Record<string, number>;
 
@@ -40,9 +43,9 @@ export function completeSliderValues(
   values: PersonalitySliderValues,
 ): PersonalitySliderValues {
   return Object.fromEntries(
-    PERSONALITY_AXES.map((axis) => [
-      axis.id,
-      values[axis.id] ?? PERSONALITY_AXIS_DEFAULT,
+    Object.values(PERSONALITY_AXIS_IDS).map((axisId) => [
+      axisId,
+      values[axisId] ?? PERSONALITY_SLIDER_DEFAULT,
     ]),
   );
 }
