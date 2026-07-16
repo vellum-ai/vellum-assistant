@@ -45,6 +45,15 @@ export interface RunConversationTurnOptions {
    * controller fires, terminating the in-flight agent loop.
    */
   signal?: AbortSignal;
+  /**
+   * Conversation type for newly created conversations. When omitted,
+   * defaults to `"standard"` (visible in the sidebar). Set to
+   * `"background"` for plugin-driven conversations that should not
+   * appear in the sidebar's Recents grouping.
+   *
+   * Ignored when `conversationId` references an existing conversation.
+   */
+  conversationType?: "standard" | "background";
 }
 
 export interface RunConversationTurnResult {
@@ -134,27 +143,25 @@ export async function runConversationTurn(
     await import("../runtime/assistant-event-hub.js");
   const { resolveMediaSourceData } =
     await import("../providers/media-resolve.js");
-  const { ensureConversationExists, getMessageById, getMessages } =
-    await import("../persistence/conversation-crud.js");
+  const { getConversation, getMessageById, getMessages } =
+      await import("../persistence/conversation-crud.js");
   const { publishConversationListAndMetadataChanged } =
-    await import("../runtime/sync/resource-sync-events.js");
+      await import("../runtime/sync/resource-sync-events.js");
 
   const conversationId = options.conversationId ?? uuidv7();
-  const conversation = await getOrCreateConversation(conversationId);
+  const rowExisted = getConversation(conversationId) != null;
+  const conversation = await getOrCreateConversation(conversationId, {
+    ...(options.conversationType
+      ? { conversationType: options.conversationType }
+      : {}),
+  });
 
-  // `getOrCreateConversation` only builds the in-memory conversation (provider,
-  // system prompt, history hydration) — it never writes a `conversations` row.
-  // On the first turn of a brand-new chat (a minted id, or a caller-supplied id
-  // with no persisted row), the user-message persist inside `processMessage`
-  // would insert into `messages` against a nonexistent FK target. Ensure the
-  // row exists (idempotent) before persisting, mirroring the live-voice ingress
-  // which faces the same adopted-id-without-row gap.
-  const createdConversation = ensureConversationExists(conversationId);
-  if (createdConversation) {
-    // The row was created outside the normal send-message route, which is where
-    // sibling clients/sidebars learn about a new conversation. Emit the same
-    // "created" list invalidation that route does so they see it without
-    // waiting for a reload.
+  // `getOrCreateConversation` creates the DB row (with conversationType if
+  // provided) before hydrating. The normal send-message route emits a
+  // "created" list invalidation so sibling clients/sidebars learn about new
+  // conversations — emit it here too, but only when the row is actually new
+  // so we don't spam invalidations for existing conversations.
+  if (!rowExisted) {
     publishConversationListAndMetadataChanged("created", conversationId);
   }
 

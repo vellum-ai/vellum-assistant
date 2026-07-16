@@ -879,7 +879,7 @@ export function createConversation(
  * web client's `crypto.randomUUID()` / `draft-<ts>-<hex>` drafts while
  * rejecting anything with path separators, `..`, or other traversal vectors.
  */
-const ADOPTABLE_CONVERSATION_ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
+export const ADOPTABLE_CONVERSATION_ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
 
 /**
  * Ensure a `conversations` row exists for `id`, creating one with default
