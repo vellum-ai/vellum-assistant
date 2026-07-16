@@ -39,6 +39,12 @@ import {
   setConversation,
 } from "./conversation-registry.js";
 import type { ConversationCreateOptions } from "./handlers/shared.js";
+import {
+  ADOPTABLE_CONVERSATION_ID_RE,
+  createConversation,
+  ensureConversationExists,
+  getConversation,
+} from "../persistence/conversation-crud.js";
 import { buildTransportHints } from "./transport-hints.js";
 
 // ── Per-conversation persistent options ────────────────────────────
@@ -157,6 +163,35 @@ export async function getOrCreateConversation(
         },
       );
       newConversation.updateClient(sendToClient, true);
+
+      // Ensure the conversations row exists before hydrating from DB.
+      // `getOrCreateConversation` builds the in-memory Conversation, but
+      // the persisted row is what `loadFromDb` reads for conversationType,
+      // source, and other metadata. If the row doesn't exist yet (brand-new
+      // conversation), create it now so hydration caches the right fields.
+      //
+      // When `conversationType` is provided (e.g. "background" for
+      // plugin-driven conversations), create the row with that type so it
+      // is hidden from the sidebar. The ID is validated against the same
+      // pattern as `ensureConversationExists` to prevent path traversal.
+      // Otherwise use `ensureConversationExists` directly, which validates
+      // and creates a standard row.
+      if (!getConversation(conversationId)) {
+        if (storedOptions?.conversationType) {
+          if (!ADOPTABLE_CONVERSATION_ID_RE.test(conversationId)) {
+            throw new Error(
+              `Refusing to adopt unsafe conversation id: ${JSON.stringify(conversationId)}`,
+            );
+          }
+          createConversation({
+            id: conversationId,
+            conversationType: storedOptions.conversationType,
+          });
+        } else {
+          ensureConversationExists(conversationId);
+        }
+      }
+
       await newConversation.loadFromDb();
       if (storedOptions?.assistantId) {
         newConversation.setAssistantId(storedOptions.assistantId);

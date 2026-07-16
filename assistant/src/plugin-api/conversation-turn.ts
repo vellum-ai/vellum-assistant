@@ -54,16 +54,6 @@ export interface RunConversationTurnOptions {
    * Ignored when `conversationId` references an existing conversation.
    */
   conversationType?: "standard" | "background";
-  /**
-   * Source label for newly created conversations (e.g. `"plugin"`,
-   * `"schedule"`). When omitted, defaults to `"user"`. Affects sidebar
-   * grouping: conversations with source `"schedule"` or `"reminder"` are
-   * grouped under "system:scheduled", while `"background"` conversation
-   * types are grouped under "system:background".
-   *
-   * Ignored when `conversationId` references an existing conversation.
-   */
-  source?: string;
 }
 
 export interface RunConversationTurnResult {
@@ -153,47 +143,24 @@ export async function runConversationTurn(
     await import("../runtime/assistant-event-hub.js");
   const { resolveMediaSourceData } =
     await import("../providers/media-resolve.js");
-  const { getConversation, createConversation, ensureConversationExists, getMessageById, getMessages } =
+  const { getMessageById, getMessages } =
       await import("../persistence/conversation-crud.js");
   const { publishConversationListAndMetadataChanged } =
       await import("../runtime/sync/resource-sync-events.js");
 
   const conversationId = options.conversationId ?? uuidv7();
-  const conversation = await getOrCreateConversation(conversationId);
+  const conversation = await getOrCreateConversation(conversationId, {
+    ...(options.conversationType
+      ? { conversationType: options.conversationType }
+      : {}),
+  });
 
-  // `getOrCreateConversation` only builds the in-memory conversation (provider,
-  // system prompt, history hydration) — it never writes a `conversations` row.
-  // On the first turn of a brand-new chat (a minted id, or a caller-supplied id
-  // with no persisted row), the user-message persist inside `processMessage`
-  // would insert into `messages` against a nonexistent FK target. Ensure the
-  // row exists (idempotent) before persisting, mirroring the live-voice ingress
-  // which faces the same adopted-id-without-row gap.
-  //
-  // When conversationType/source options are provided, create the row with
-  // those values instead of the defaults ("standard" / "user") so
-  // plugin-driven conversations can be hidden from the sidebar.
-  let createdConversation = false;
-  if (!getConversation(conversationId)) {
-    if (options.conversationType || options.source) {
-      createConversation({
-        id: conversationId,
-        ...(options.conversationType
-          ? { conversationType: options.conversationType }
-          : {}),
-        ...(options.source ? { source: options.source } : {}),
-      });
-      createdConversation = true;
-    } else {
-      createdConversation = ensureConversationExists(conversationId);
-    }
-  }
-  if (createdConversation) {
-      // The row was created outside the normal send-message route, which is where
-      // sibling clients/sidebars learn about a new conversation. Emit the same
-      // "created" list invalidation that route does so they see it without
-      // waiting for a reload.
-      publishConversationListAndMetadataChanged("created", conversationId);
-  }
+  // `getOrCreateConversation` creates the DB row (with conversationType if
+  // provided) before hydrating. The normal send-message route emits a
+  // "created" list invalidation so sibling clients/sidebars learn about new
+  // conversations — emit it here too so background/plugin conversations
+  // appear without waiting for a reload.
+  publishConversationListAndMetadataChanged("created", conversationId);
 
   // Wire the external abort signal to the conversation's internal abort
   // controller so aborting the signal terminates the in-flight agent loop.
