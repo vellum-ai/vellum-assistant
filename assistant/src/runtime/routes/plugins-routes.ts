@@ -1418,6 +1418,21 @@ async function handleUpgradePlugin({
       { name: rawName, dryRun, strategy },
       { fetch: globalThis.fetch.bind(globalThis) },
     );
+    // An upgrade that actually moved files (outcome `upgraded`) rewrites the
+    // plugin's on-disk source; bring the change up in-process right now — run
+    // the old version's `shutdown` and the new version's `init` via the
+    // reconcile — instead of waiting for the resource monitor to republish the
+    // sentinel and a later turn to apply it. This is what makes the lifecycle
+    // fire as part of the upgrade rather than at the next daemon boot,
+    // symmetric to the install and uninstall routes. A no-op or dry run leaves
+    // the tree unchanged, so there is nothing to reconcile. Ensure the
+    // workspace `@vellumai/plugin-api` shim first (as uninstall does) so a hook
+    // that imports the package resolves even inside the daemon boot window.
+    // Never throws; a failure is contained and logged.
+    if (result.outcome === "upgraded") {
+      await ensurePluginApiShim().catch(() => {});
+      await reconcilePluginSourcesNow();
+    }
     publishPluginsChanged(getOriginClientId(headers));
     return {
       name: result.name,

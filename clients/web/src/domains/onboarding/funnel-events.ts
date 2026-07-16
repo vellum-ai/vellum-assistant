@@ -1,27 +1,16 @@
 import { isAnalyticsEnabled } from "@/domains/onboarding/prefs";
-import { getClientId } from "@/lib/telemetry/client-identity";
-import { telemetryIngestCreate } from "@/generated/api/sdk.gen";
+import { postTelemetryEvents } from "@/lib/telemetry/ingest";
 import type { ResearchStep } from "@/domains/onboarding/research-onboarding-persistence";
 
 export const ONBOARDING_FUNNEL_VERSION = "onboarding_v3_2026_05";
 const SESSION_STORAGE_KEY = "onboarding.funnelSessionId";
-const VARIANT_STORAGE_KEY = "onboarding.funnelVariant";
 
 export const ONBOARDING_FUNNEL_VARIANTS = {
   control: "control",
-  paredDown: "pared_down",
 } as const;
 
 export type OnboardingFunnelVariant =
   (typeof ONBOARDING_FUNNEL_VARIANTS)[keyof typeof ONBOARDING_FUNNEL_VARIANTS];
-
-export function onboardingFunnelVariantFromExperiment(
-  experimentArm: string,
-): OnboardingFunnelVariant {
-  return experimentArm === "variant-a"
-    ? ONBOARDING_FUNNEL_VARIANTS.paredDown
-    : ONBOARDING_FUNNEL_VARIANTS.control;
-}
 
 export const ONBOARDING_FUNNEL_STEPS = {
   privacyTos: { stepName: "privacy_tos", stepIndex: 0 },
@@ -121,7 +110,6 @@ export type OnboardingFunnelStepOutcome = "completed" | "skipped";
 
 export interface OnboardingFunnelStepCompletedOptions {
   userId?: string | null;
-  variant?: OnboardingFunnelVariant;
   /** Funnel this step belongs to; defaults to the pre-chat funnel version. */
   funnelVersion?: string;
   /** Completed vs skipped; omitted when the funnel doesn't distinguish. */
@@ -144,12 +132,6 @@ export interface OnboardingFunnelEvent {
   outcome?: OnboardingFunnelStepOutcome;
 }
 
-function stripUndefined(value: object): Record<string, unknown> {
-  return Object.fromEntries(
-    Object.entries(value).filter(([, entry]) => entry !== undefined),
-  );
-}
-
 export function getOnboardingFunnelSessionId(): string {
   if (typeof window === "undefined") return crypto.randomUUID();
   let existing = "";
@@ -168,48 +150,11 @@ export function getOnboardingFunnelSessionId(): string {
   return next;
 }
 
-function isOnboardingFunnelVariant(
-  value: string | null,
-): value is OnboardingFunnelVariant {
-  return (
-    value === ONBOARDING_FUNNEL_VARIANTS.control ||
-    value === ONBOARDING_FUNNEL_VARIANTS.paredDown
-  );
-}
-
-export function readOnboardingFunnelVariant(): OnboardingFunnelVariant | null {
-  if (typeof window === "undefined") return null;
-  try {
-    const stored = sessionStorage.getItem(VARIANT_STORAGE_KEY);
-    return isOnboardingFunnelVariant(stored) ? stored : null;
-  } catch {
-    return null;
-  }
-}
-
-export function resolveOnboardingFunnelVariant(
-  preferred: OnboardingFunnelVariant,
-): OnboardingFunnelVariant {
-  const existing = readOnboardingFunnelVariant();
-  if (existing) return existing;
-  if (typeof window === "undefined") return preferred;
-  try {
-    sessionStorage.setItem(VARIANT_STORAGE_KEY, preferred);
-  } catch {
-    // Storage may be unavailable; the current event still carries the variant.
-  }
-  return preferred;
-}
-
 export function buildOnboardingFunnelEvent(
   screen: OnboardingFunnelStepDescriptor,
   options: OnboardingFunnelStepCompletedOptions = {},
 ): OnboardingFunnelEvent {
   const now = Date.now();
-  const variant =
-    options.variant ??
-    readOnboardingFunnelVariant() ??
-    ONBOARDING_FUNNEL_VARIANTS.control;
   return {
     type: "onboarding",
     daemon_event_id: crypto.randomUUID(),
@@ -221,7 +166,7 @@ export function buildOnboardingFunnelEvent(
     completed_at: new Date(now).toISOString(),
     user_id: options.userId ?? null,
     funnel_version: options.funnelVersion ?? ONBOARDING_FUNNEL_VERSION,
-    ab_variant: variant,
+    ab_variant: ONBOARDING_FUNNEL_VARIANTS.control,
     // Omitted (→ stripped before send) unless the caller distinguishes the two.
     outcome: options.outcome,
   };
@@ -234,29 +179,7 @@ export function emitOnboardingFunnelStepCompleted(
   if (typeof window === "undefined") return;
   if (!isAnalyticsEnabled()) return;
 
-  const event = stripUndefined(buildOnboardingFunnelEvent(screen, options));
-
-  // The generated client (not a raw fetch): its interceptors attach the
-  // session credentials the ingest endpoint authenticates — an
-  // unauthenticated POST is acknowledged with 200 but silently dropped
-  // server-side.
-  void telemetryIngestCreate({
-    body: {
-      device_id: getClientId(),
-      assistant_version: import.meta.env.VITE_APP_VERSION ?? "web-dev",
-      events: [event],
-    },
-    keepalive: true,
-  })
-    .then(({ data, response }) => {
-      if (!import.meta.env.DEV) return;
-      if (!response?.ok) {
-        console.warn("onboarding funnel event rejected", response?.status);
-      } else if (data && data.persisted < data.accepted) {
-        console.warn("onboarding funnel event dropped by server", data.dropped);
-      }
-    })
-    .catch(() => {});
+  postTelemetryEvents([buildOnboardingFunnelEvent(screen, options)]);
 }
 
 /**
@@ -265,8 +188,7 @@ export function emitOnboardingFunnelStepCompleted(
  * emits the same step-completed event on both its Continue and Skip handlers.
  *
  * The research flow has no A/B arm, so events are stamped with the `control`
- * variant (passed explicitly so this never reads the pre-chat funnel's stored
- * variant) and the research funnel version.
+ * variant and the research funnel version.
  *
  * `outcome` records whether the step was completed (Continue) or skipped;
  * defaults to `completed` for the Continue-only steps.
@@ -280,7 +202,6 @@ export function emitResearchOnboardingStepCompleted(
 ): void {
   emitOnboardingFunnelStepCompleted(step, {
     userId: options.userId,
-    variant: ONBOARDING_FUNNEL_VARIANTS.control,
     funnelVersion: RESEARCH_ONBOARDING_FUNNEL_VERSION,
     outcome: options.outcome ?? "completed",
   });
@@ -298,7 +219,6 @@ export function emitResearchOnboardingCheckinCalendarOpened(
 ): void {
   emitOnboardingFunnelStepCompleted(RESEARCH_ONBOARDING_CHECKIN_STEP, {
     userId: options.userId,
-    variant: ONBOARDING_FUNNEL_VARIANTS.control,
     funnelVersion: RESEARCH_ONBOARDING_FUNNEL_VERSION,
     outcome: "completed",
   });
@@ -308,7 +228,6 @@ export function __resetOnboardingFunnelEventsForTests(): void {
   if (typeof window === "undefined") return;
   try {
     sessionStorage.removeItem(SESSION_STORAGE_KEY);
-    sessionStorage.removeItem(VARIANT_STORAGE_KEY);
   } catch {
     // ignore
   }

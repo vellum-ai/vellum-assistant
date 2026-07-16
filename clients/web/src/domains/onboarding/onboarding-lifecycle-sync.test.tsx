@@ -71,7 +71,6 @@ type TestOnboardingRecipe = {
   skipPrechat: boolean;
 };
 
-let preChatOnboardingExperiment = "variant-a";
 let activationFlowExperiment = "control";
 let selfIntroGreeting = true;
 let isIOSWeb = false;
@@ -278,7 +277,6 @@ mock.module("@/stores/client-feature-flag-store", () => ({
   useClientFeatureFlagStore: {
     use: {
       stringFlags: () => ({
-        preChatOnboardingExperiment20260606: preChatOnboardingExperiment,
         experimentActivationFlow20260603: activationFlowExperiment,
       }),
       selfIntroGreeting: () => selfIntroGreeting,
@@ -440,7 +438,6 @@ beforeEach(() => {
   checkAssistantImpl = async () => {};
   fetchTraitsImpl = async () => null;
   getAssistantImpl = async () => assistantResult("active");
-  preChatOnboardingExperiment = "variant-a";
   activationFlowExperiment = "control";
   selfIntroGreeting = true;
   isIOSWeb = false;
@@ -534,10 +531,9 @@ describe("onboarding lifecycle sync", () => {
     render(<PreChatFlow />);
 
     fireEvent.click(await screen.findByTestId("name-continue"));
-    expect(await screen.findByText("Gmail")).toBeTruthy();
-    expect(screen.getByText("Google Calendar")).toBeTruthy();
-    expect(screen.getByText("Google Drive")).toBeTruthy();
-    fireEvent.click(screen.getByText("Skip for now"));
+    fireEvent.click(await screen.findByTestId("task-continue"));
+    fireEvent.click(await screen.findByTestId("tools-continue"));
+    fireEvent.click(await screen.findByTestId("prior-continue"));
 
     expect(JSON.parse(sessionStorage.getItem(STORAGE_KEY) ?? "null")).toEqual({
       tools: [],
@@ -567,7 +563,9 @@ describe("onboarding lifecycle sync", () => {
     render(<PreChatFlow />);
 
     fireEvent.click(await screen.findByTestId("name-continue"));
-    fireEvent.click(await screen.findByText("Skip for now"));
+    fireEvent.click(await screen.findByTestId("task-continue"));
+    fireEvent.click(await screen.findByTestId("tools-continue"));
+    fireEvent.click(await screen.findByTestId("prior-continue"));
 
     await waitFor(() => expect(checkAssistantMock).toHaveBeenCalled());
     expect(JSON.parse(sessionStorage.getItem(STORAGE_KEY) ?? "null")).toEqual({
@@ -586,7 +584,9 @@ describe("onboarding lifecycle sync", () => {
     render(<PreChatFlow />);
 
     fireEvent.click(await screen.findByTestId("name-continue"));
-    fireEvent.click(await screen.findByText("Skip for now"));
+    fireEvent.click(await screen.findByTestId("task-continue"));
+    fireEvent.click(await screen.findByTestId("tools-continue"));
+    fireEvent.click(await screen.findByTestId("prior-continue"));
 
     await waitFor(() => expect(checkAssistantMock).toHaveBeenCalled());
     expect(JSON.parse(sessionStorage.getItem(STORAGE_KEY) ?? "null")).toEqual({
@@ -601,9 +601,7 @@ describe("onboarding lifecycle sync", () => {
     });
   });
 
-  test("pre-chat keeps the existing full funnel when the v3 flag is off", async () => {
-    preChatOnboardingExperiment = "control";
-
+  test("pre-chat shows the full control funnel", async () => {
     render(<PreChatFlow />);
 
     fireEvent.click(await screen.findByTestId("name-continue"));
@@ -613,7 +611,6 @@ describe("onboarding lifecycle sync", () => {
   });
 
   test("pre-chat control flow skips the macOS app step on macOS web", async () => {
-    preChatOnboardingExperiment = "control";
     isMacOSWeb = true;
     macOsAppDownloaded = false;
 
@@ -651,51 +648,6 @@ describe("onboarding lifecycle sync", () => {
     expect(await screen.findByTestId("name-continue")).toBeTruthy();
   });
 
-  test("recipe skip does not bypass the pared-down pre-chat screens", async () => {
-    const recipe: TestOnboardingRecipe = {
-      cohort: "content-automation",
-      tasks: ["writing", "research"],
-      tone: "grounded",
-      bootstrapTemplate: "BOOTSTRAP-CONTENT-AUTOMATION.md",
-      initialMessage: "I want to write articles that rank better in GEO",
-      skills: ["content-automation"],
-      skipPrechat: true,
-    };
-    fetchOnboardingRecipeImpl = async () => recipe;
-    selfIntroGreeting = false;
-
-    render(<PreChatFlow />);
-
-    expect(await screen.findByTestId("name-continue")).toBeTruthy();
-    expect(checkAssistantMock).not.toHaveBeenCalled();
-
-    fireEvent.click(screen.getByTestId("name-continue"));
-    expect(await screen.findByText("Gmail")).toBeTruthy();
-    expect(screen.getByText("Google Calendar")).toBeTruthy();
-    expect(screen.getByText("Google Drive")).toBeTruthy();
-    fireEvent.click(screen.getByText("Skip for now"));
-
-    await waitFor(() => expect(checkAssistantMock).toHaveBeenCalled());
-    await waitFor(() =>
-      expect(navigateMock).toHaveBeenCalledWith(
-        `${routes.assistant}?onboarding=1`,
-        { replace: true },
-      ),
-    );
-
-    expect(JSON.parse(sessionStorage.getItem(STORAGE_KEY) ?? "null")).toEqual({
-      tools: [],
-      tasks: recipe.tasks,
-      tone: recipe.tone,
-      userName: "Alice",
-      googleConnected: false,
-      cohort: recipe.cohort,
-      initialMessage: recipe.initialMessage,
-      bootstrapTemplate: recipe.bootstrapTemplate,
-      skills: recipe.skills,
-    });
-  });
-
   test("local mode never fetches the platform-only onboarding recipe", async () => {
     isLocalModeValue = true;
 
@@ -706,7 +658,6 @@ describe("onboarding lifecycle sync", () => {
   });
 
   test("local mode without a platform session gates the prior-assistants step", async () => {
-    preChatOnboardingExperiment = "control";
     isLocalModeValue = true;
     platformSessionValue = "absent";
 
@@ -727,7 +678,6 @@ describe("onboarding lifecycle sync", () => {
   });
 
   test("local mode with a platform session shows the prior-assistants step", async () => {
-    preChatOnboardingExperiment = "control";
     isLocalModeValue = true;
     platformSessionValue = "present";
 

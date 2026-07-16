@@ -94,6 +94,10 @@ export function ManageProfilesModal({
     enabled: isOpen,
   });
   const connections = connectionsData?.connections;
+  // The managed sentinel row, as opposed to a user-owned row named "vellum".
+  const vellumIsManaged =
+    connections?.some((c) => c.name === "vellum" && c.provider === "vellum") ??
+    false;
 
   const existingNames = Object.keys(profiles);
 
@@ -192,6 +196,7 @@ export function ManageProfilesModal({
         {isOpen ? (
           <ManageProfilesModalInner
             assistantId={assistantId}
+            vellumIsManaged={vellumIsManaged}
             profiles={profiles}
             profileOrder={profileOrder}
             orderedProfiles={orderedProfiles}
@@ -245,6 +250,8 @@ export function ManageProfilesModal({
 
 interface ManageProfilesModalInnerProps {
   assistantId: string;
+  /** True when the "vellum" connection row is the managed sentinel. */
+  vellumIsManaged: boolean;
   profiles: Record<string, ProfileEntry>;
   profileOrder: string[];
   orderedProfiles: ProfileWithName[];
@@ -260,6 +267,7 @@ interface ManageProfilesModalInnerProps {
 
 function ManageProfilesModalInner({
   assistantId,
+  vellumIsManaged,
   profiles,
   profileOrder,
   orderedProfiles,
@@ -504,6 +512,7 @@ function ManageProfilesModalInner({
                 <ProfileListItem
                   key={profile.name}
                   profile={profile}
+                  vellumIsManaged={vellumIsManaged}
                   isDragging={draggingName === profile.name}
                   dropTarget={dropTarget}
                   isDeleting={deleting[profile.name] ?? false}

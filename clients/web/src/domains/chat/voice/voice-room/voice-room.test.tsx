@@ -36,6 +36,8 @@ import {
   useLiveVoiceStore,
   type LiveVoiceSessionState,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
+import { MIN_VERSION as NONINTERACTIVE_VOICE_MIN_VERSION } from "@/lib/backwards-compat/use-supports-noninteractive-voice-turns";
+import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useVoicePrefsStore } from "@/stores/voice-prefs-store";
 
@@ -220,18 +222,28 @@ beforeEach(() => {
     snapshot: null,
     dismissedSurfaceIds: new Set(),
   });
+  // Version unknown by default — the backwards-compat gate reads that as
+  // "may still raise oauth_connect mid-call", keeping the fallback card
+  // reachable (the conservative legacy path).
+  useAssistantIdentityStore.getState().clearIdentity();
 });
 
 afterEach(() => {
   cleanup();
   useLiveVoiceStore.getState().reset();
   useConversationStore.getState().reset();
+  useAssistantIdentityStore.getState().clearIdentity();
 });
 
 const connectCard = () => screen.queryByTestId("room-connect-card");
 
-describe("VoiceRoom — OAuth connect card", () => {
-  test("renders a reachable connect card when a pending oauth_connect surface exists", () => {
+// Backwards-compat fallback card — see
+// use-supports-noninteractive-voice-turns.ts for the canonical writeup. The
+// suite runs with the identity cleared in `beforeEach`, which the gate
+// conservatively reads as "legacy" — the card stays reachable exactly as it
+// would against an old assistant.
+describe("VoiceRoom — OAuth connect card (backwards-compat fallback)", () => {
+  test("renders a reachable connect card when a pending oauth_connect surface exists (version unknown)", () => {
     startOwnedSession("listening");
     seedTranscriptSurface(connectSurface("surface-oauth-1", "google"));
     render(<VoiceRoom />);
@@ -241,6 +253,42 @@ describe("VoiceRoom — OAuth connect card", () => {
     // The room's live-voice assistant id threads through to the card.
     expect(card?.getAttribute("data-assistant")).toBe(ASSISTANT_ID);
     expect(card?.getAttribute("data-provider")).toBe("google");
+  });
+
+  test("renders the card for a legacy assistant below the non-interactive gate", () => {
+    useAssistantIdentityStore
+      .getState()
+      .setIdentity("test-asst", "0.10.8", ASSISTANT_ID);
+    startOwnedSession("listening");
+    seedTranscriptSurface(connectSurface("surface-oauth-1", "google"));
+    render(<VoiceRoom />);
+    expect(connectCard()).not.toBeNull();
+  });
+
+  test("renders no card once the assistant enforces non-interactive voice turns", () => {
+    // At MIN_VERSION+ the assistant forces supportsDynamicUi: false on voice
+    // turns — it can never raise oauth_connect mid-call, so the fallback slot
+    // stays hidden even if a stale pending surface lingers in the snapshot.
+    useAssistantIdentityStore
+      .getState()
+      .setIdentity("test-asst", NONINTERACTIVE_VOICE_MIN_VERSION, ASSISTANT_ID);
+    startOwnedSession("listening");
+    seedTranscriptSurface(connectSurface("surface-oauth-1", "google"));
+    render(<VoiceRoom />);
+    expect(connectCard()).toBeNull();
+  });
+
+  test("keeps the card when the hydrated version belongs to a different assistant", () => {
+    // Identity switch/re-hydration mid-call: another assistant's version
+    // must not vouch for this session's assistant — the gate scopes to the
+    // session owner and conservatively keeps the fallback reachable.
+    useAssistantIdentityStore
+      .getState()
+      .setIdentity("test-asst", NONINTERACTIVE_VOICE_MIN_VERSION, "asst-other");
+    startOwnedSession("listening");
+    seedTranscriptSurface(connectSurface("surface-oauth-1", "google"));
+    render(<VoiceRoom />);
+    expect(connectCard()).not.toBeNull();
   });
 
   test("routes the card action to handleSurfaceAction", () => {

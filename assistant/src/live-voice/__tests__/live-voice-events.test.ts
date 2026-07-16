@@ -4,6 +4,7 @@ import type {
   VoiceTurnCallbacks,
   VoiceTurnOptions,
 } from "../../calls/voice-session-bridge.js";
+import { VOICE_NO_SETUP_FLOWS_RULE } from "../../calls/voice-session-bridge.js";
 import type {
   StreamingTranscriber,
   SttStreamServerEvent,
@@ -129,7 +130,9 @@ async function waitFor(
   message = "Timed out waiting for live voice event test condition",
 ): Promise<void> {
   for (let attempt = 0; attempt < 60; attempt += 1) {
-    if (predicate()) return;
+    if (predicate()) {
+      return;
+    }
     await new Promise((resolve) => setTimeout(resolve, 5));
   }
   throw new Error(message);
@@ -246,7 +249,16 @@ describe("LiveVoiceSession archive and metrics events", () => {
 
     await startReleasedTurn(session);
     expect(startVoiceTurn.mock.calls[0]?.[0]).toMatchObject({
-      approvalMode: "local-live-voice",
+      userMessageChannel: "vellum",
+      assistantMessageChannel: "vellum",
+      userMessageInterface: "macos",
+      assistantMessageInterface: "macos",
+      // Pins the full production control prompt, including the no-UI rule
+      // (voice turns are non-interactive — everything is conveyed in speech)
+      // and the shared no-setup-flows rule (no OAuth/browser flows mid-call).
+      voiceControlPrompt:
+        "You are speaking in a local live voice session. Keep replies brief and conversational. You cannot display cards, forms, or any on-screen UI during the call — convey everything in speech. " +
+        VOICE_NO_SETUP_FLOWS_RULE,
     });
     callbacks?.assistant_text_delta?.(makeTextDelta("Hello there."));
     callbacks?.message_complete?.(makeMessageComplete());

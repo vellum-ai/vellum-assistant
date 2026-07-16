@@ -20,6 +20,7 @@ import {
   removeLocalSetting,
   setLocalSetting,
 } from "@/utils/local-settings";
+import { readAnalyticsConsent } from "@/lib/telemetry/consent";
 import { useOnboardingStore } from "@/domains/onboarding/onboarding-store";
 
 // ---------------------------------------------------------------------------
@@ -170,13 +171,15 @@ export function readConsentHydrated(): boolean {
 /**
  * SSR-safe, non-hook gate for telemetry emitters.
  *
- * Analytics is opt-out: never-asked (`null`) authorizes uploads; only an
- * explicit opt-out stops them. The store is the single in-memory source —
- * hydrated from the device key at init and from the server on sync — so an
- * explicit opt-out stops uploads even if its server write failed.
+ * Thin wrapper over the shared `readAnalyticsConsent()` so the onboarding
+ * funnel and the intelligence domain's Memory telemetry gate on the exact
+ * same decision: analytics is opt-out — never-asked (`null`) authorizes
+ * uploads; only an explicit opt-out stops them. The store is the single
+ * in-memory source, so an explicit opt-out holds even if its server write
+ * failed.
  */
 export function isAnalyticsEnabled(): boolean {
-  return useOnboardingStore.getState().shareAnalytics !== false;
+  return readAnalyticsConsent();
 }
 
 /**

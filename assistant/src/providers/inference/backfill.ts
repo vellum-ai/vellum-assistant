@@ -3,7 +3,7 @@
  * `provider` + `source` model to the new `provider_connection` model.
  *
  * Walks three locations in `llm.*` on every boot:
- *   - `llm.default`           — the base profile every dispatch falls back on
+ *   - `llm.default`           — the legacy raw base blob still present in older configs
  *   - `llm.profiles.*`        — named alternate profiles (fast/balanced/...)
  *   - `llm.callSites.*`       — per-call-site overrides with bare `provider`
  *
@@ -63,7 +63,9 @@ export function runProviderConnectionsBackfill(db: DrizzleDb): void {
 function backfillConfigProfiles(db: DrizzleDb): void {
   const raw = loadRawConfig();
   const llm = raw.llm as Record<string, unknown> | undefined;
-  if (!llm) return;
+  if (!llm) {
+    return;
+  }
 
   const isPlatform =
     process.env.IS_PLATFORM === "true" || process.env.IS_PLATFORM === "1";
@@ -87,13 +89,17 @@ function backfillConfigProfiles(db: DrizzleDb): void {
   if (profiles && typeof profiles === "object") {
     for (const [profileName, profileVal] of Object.entries(profiles)) {
       const profile = profileVal as Record<string, unknown>;
-      if (!profile || typeof profile !== "object") continue;
+      if (!profile || typeof profile !== "object") {
+        continue;
+      }
       if (ensureProviderConnection(profile, profileName, db, globalMode)) {
         profiles[profileName] = profile;
         changed = true;
       }
     }
-    if (changed) llm.profiles = profiles;
+    if (changed) {
+      llm.profiles = profiles;
+    }
   }
 
   // 3. Per-call-site overrides. Only legacy entries with a bare `provider`
@@ -103,11 +109,15 @@ function backfillConfigProfiles(db: DrizzleDb): void {
   if (callSites && typeof callSites === "object") {
     for (const [callSiteName, callSiteVal] of Object.entries(callSites)) {
       const callSite = callSiteVal as Record<string, unknown>;
-      if (!callSite || typeof callSite !== "object") continue;
+      if (!callSite || typeof callSite !== "object") {
+        continue;
+      }
       // Only touch overrides that explicitly set `provider` — the typical
       // case is `{profile: "fast"}`, which has no provider and inherits
       // through `resolveCallSiteConfig` deep-merge.
-      if (callSite.provider == null) continue;
+      if (callSite.provider == null) {
+        continue;
+      }
       if (
         ensureProviderConnection(
           callSite,
@@ -120,7 +130,9 @@ function backfillConfigProfiles(db: DrizzleDb): void {
         changed = true;
       }
     }
-    if (changed) llm.callSites = callSites;
+    if (changed) {
+      llm.callSites = callSites;
+    }
   }
 
   if (changed) {
@@ -152,10 +164,14 @@ function ensureProviderConnection(
   // at runtime. Self-heal those alongside null/undefined.
   const existing = entry.provider_connection;
   const hasValid = typeof existing === "string" && existing.trim() !== "";
-  if (hasValid) return false;
+  if (hasValid) {
+    return false;
+  }
 
   const provider = entry.provider as string | undefined;
-  if (!provider) return false;
+  if (!provider) {
+    return false;
+  }
 
   if (PROVIDERS_REQUIRING_BASE_URL_AND_MODELS.has(provider)) {
     log.warn(

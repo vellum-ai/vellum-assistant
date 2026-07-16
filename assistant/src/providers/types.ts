@@ -215,7 +215,8 @@ export interface SendMessageConfig {
    * LLM call-site identifier. `RetryProvider` resolves
    * provider/model/maxTokens/effort/speed/verbosity/temperature/thinking/
    * contextWindow via `resolveCallSiteConfig(callSite, config.llm)`, falling
-   * back to `llm.default` when no callSite-specific entry is present.
+   * back to the shipped call-site defaults when no callSite-specific entry
+   * is present.
    */
   callSite?: LLMCallSite;
   /**
@@ -433,11 +434,17 @@ export function extractOverflowTokensFromMessage(message: string): {
   maxTokens?: number;
 } {
   const match = message.match(/(\d[\d,]*)\s*(?:tokens?\s*)?[>≥]\s*(\d[\d,]*)/i);
-  if (!match) return {};
+  if (!match) {
+    return {};
+  }
   const actual = parseInt(match[1].replace(/,/g, ""), 10);
   const max = parseInt(match[2].replace(/,/g, ""), 10);
   const out: { actualTokens?: number; maxTokens?: number } = {};
-  if (!isNaN(actual) && actual > 0) out.actualTokens = actual;
-  if (!isNaN(max) && max > 0) out.maxTokens = max;
+  if (!isNaN(actual) && actual > 0) {
+    out.actualTokens = actual;
+  }
+  if (!isNaN(max) && max > 0) {
+    out.maxTokens = max;
+  }
   return out;
 }

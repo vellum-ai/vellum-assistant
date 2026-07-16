@@ -505,6 +505,132 @@ describe("LiveVoiceSession server VAD", () => {
     expect(countType(frames, "utterance_end")).toBe(2);
   });
 
+  test("a thinking barge-in merges the interrupted request into the next turn's control prompt", async () => {
+    const startVoiceTurn = mock(async (_options: VoiceTurnOptions) => {
+      return { turnId: "bridge-turn", abort: mock() };
+    });
+    const streamTtsAudio = mock(async (options: LiveVoiceTtsOptions) => {
+      options.onAudioChunk(makeTtsChunk("assistant audio"));
+      return makeTtsResult("assistant audio");
+    });
+    const { frames, session } = createHarness({
+      finals: ["first question", "second question"],
+      startVoiceTurn,
+      streamTtsAudio,
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => frames.some((frame) => frame.type === "thinking"));
+
+    // Barge in while the first turn is still thinking, then let the barge-in
+    // utterance start its own turn.
+    await session.handleBinaryAudio(SUSTAINED_LOUD_CHUNK);
+    await waitFor(() => startVoiceTurn.mock.calls.length === 2);
+
+    // The barged (first) turn ran on the plain control prompt.
+    const firstPrompt =
+      startVoiceTurn.mock.calls[0]?.[0]?.voiceControlPrompt ?? "";
+    expect(firstPrompt).not.toContain("interrupted");
+    expect(firstPrompt).not.toContain("first question");
+
+    // The follow-up turn's visible content is only what the user just said,
+    // but its control prompt carries the interrupted request so the model
+    // merges the two instead of treating it as a fresh follow-up.
+    const second = startVoiceTurn.mock.calls[1]?.[0];
+    expect(second).toMatchObject({ content: "second question" });
+    expect(second?.voiceControlPrompt).toContain("first question");
+    expect(second?.voiceControlPrompt).toContain("interrupted");
+  });
+
+  test("an ordinary turn carries no interruption merge context", async () => {
+    const { startVoiceTurn, calls } = makeAutoCompletingTurnStarter(["Hi."]);
+    const { frames, session } = createHarness({
+      finals: ["hello there"],
+      startVoiceTurn,
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => countType(frames, "tts_done") === 1);
+
+    expect(calls).toHaveLength(1);
+    const prompt = calls[0]?.voiceControlPrompt ?? "";
+    expect(prompt).toContain("live voice session");
+    expect(prompt).not.toContain("interrupted");
+  });
+
+  test("a discarded barge-in utterance does not leak merge context into a later turn", async () => {
+    const startVoiceTurn = mock(async (_options: VoiceTurnOptions) => {
+      return { turnId: "bridge-turn", abort: mock() };
+    });
+    const streamTtsAudio = mock(async (options: LiveVoiceTtsOptions) => {
+      options.onAudioChunk(makeTtsChunk("assistant audio"));
+      return makeTtsResult("assistant audio");
+    });
+    // The barge-in utterance (second) transcribes to nothing and is discarded.
+    const { frames, session } = createHarness({
+      finals: ["first question", "", "third question"],
+      startVoiceTurn,
+      streamTtsAudio,
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => frames.some((frame) => frame.type === "thinking"));
+
+    // Barge in during thinking (arms the pending merge context), but the
+    // barge-in utterance is discarded (empty transcript), which must drop it.
+    await session.handleBinaryAudio(SUSTAINED_LOUD_CHUNK);
+    await waitFor(() =>
+      frames.some((frame) => frame.type === "utterance_discarded"),
+    );
+
+    // A later, unrelated turn must not carry the discarded request.
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => startVoiceTurn.mock.calls.length === 2);
+    const laterTurn = startVoiceTurn.mock.calls[1]?.[0];
+    expect(laterTurn).toMatchObject({ content: "third question" });
+    expect(laterTurn?.voiceControlPrompt).not.toContain("interrupted");
+    expect(laterTurn?.voiceControlPrompt).not.toContain("first question");
+  });
+
+  test("a client interrupt after a barge-in drops the pending merge context", async () => {
+    const startVoiceTurn = mock(async (_options: VoiceTurnOptions) => {
+      return { turnId: "bridge-turn", abort: mock() };
+    });
+    const streamTtsAudio = mock(async (options: LiveVoiceTtsOptions) => {
+      options.onAudioChunk(makeTtsChunk("assistant audio"));
+      return makeTtsResult("assistant audio");
+    });
+    const { frames, session } = createHarness({
+      finals: ["first question", "second question", "third question"],
+      startVoiceTurn,
+      streamTtsAudio,
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => frames.some((frame) => frame.type === "thinking"));
+
+    // Barge in during thinking, then the client interrupts before the barge-in
+    // utterance launches a turn.
+    await session.handleBinaryAudio(SUSTAINED_LOUD_CHUNK);
+    await waitFor(() =>
+      frames.some((frame) => frame.type === "turn_cancelled"),
+    );
+    await session.handleClientFrame({ type: "interrupt" });
+    await flushAsyncCallbacks();
+    const callsAtInterrupt = startVoiceTurn.mock.calls.length;
+
+    // Any later turn must not carry the discarded request.
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => startVoiceTurn.mock.calls.length > callsAtInterrupt);
+    const laterTurn = startVoiceTurn.mock.calls.at(-1)?.[0];
+    expect(laterTurn?.voiceControlPrompt).not.toContain("interrupted");
+    expect(laterTurn?.voiceControlPrompt).not.toContain("first question");
+  });
+
   test("a late assistant_text_delta after a thinking barge-in never reaches the client", async () => {
     let callbacks: VoiceTurnCallbacks | undefined;
     const abort = mock();
