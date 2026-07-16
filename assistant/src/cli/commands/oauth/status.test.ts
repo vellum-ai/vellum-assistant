@@ -39,6 +39,13 @@ describe("noConnectionsMessage", () => {
     expect(msg).not.toContain("assistant oauth connect google");
   });
 
+  test("weak open models are not steered to oauth_connect for BYO mode", async () => {
+    process.env.__RESOLVED_MODEL = "accounts/fireworks/models/minimax-m3";
+    const msg = await noConnectionsMessage("google", "byo");
+    expect(msg).not.toContain('surface_type "oauth_connect"');
+    expect(msg).toContain("assistant oauth connect google");
+  });
+
   test("weak open model JSON status includes oauth_connect next action", async () => {
     process.env.__RESOLVED_MODEL = "accounts/fireworks/models/glm-5p2";
     const result = await decorateStatusJsonForModel({
@@ -54,6 +61,18 @@ describe("noConnectionsMessage", () => {
       surfaceType: "oauth_connect",
       data: { providerKey: "google" },
     });
+  });
+
+  test("weak open model JSON status stays compact for BYO mode", async () => {
+    process.env.__RESOLVED_MODEL = "accounts/fireworks/models/glm-5p2";
+    const result = await decorateStatusJsonForModel({
+      ok: true,
+      provider: "google",
+      mode: "byo",
+      connections: [],
+    });
+    expect(result.hint).toBeUndefined();
+    expect(result.nextAction).toBeUndefined();
   });
 
   test("capable model JSON status stays compact", async () => {

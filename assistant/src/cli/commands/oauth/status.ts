@@ -16,11 +16,14 @@ import {
  * they get an explicit single next action: render the core `oauth_connect`
  * surface directly. Capable models keep the terse default.
  */
-export async function noConnectionsMessage(provider: string): Promise<string> {
+export async function noConnectionsMessage(
+  provider: string,
+  mode = "managed",
+): Promise<string> {
   const base = `No active connections for ${provider}.`;
   const { isWeakOpenModel } =
     await import("../../../providers/weak-open-model.js");
-  if (isWeakOpenModel(process.env.__RESOLVED_MODEL)) {
+  if (mode === "managed" && isWeakOpenModel(process.env.__RESOLVED_MODEL)) {
     return `${base}\n${oauthConnectSurfaceHint(provider)}\n`;
   }
   return `${base}\nConnect with \`assistant oauth connect ${provider}\`.\n`;
@@ -57,6 +60,9 @@ export async function decorateStatusJsonForModel(
   result: OAuthStatusResponse,
 ): Promise<OAuthStatusResponse> {
   if (result.connections.length > 0) {
+    return result;
+  }
+  if (result.mode !== "managed") {
     return result;
   }
   const { isWeakOpenModel } =
@@ -128,7 +134,7 @@ export function registerStatusCommand(oauth: Command): void {
 
         // Text output
         if (connections.length === 0) {
-          process.stdout.write(await noConnectionsMessage(provider));
+          process.stdout.write(await noConnectionsMessage(provider, mode));
           return;
         }
 
