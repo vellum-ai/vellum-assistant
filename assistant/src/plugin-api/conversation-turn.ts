@@ -148,9 +148,17 @@ export async function runConversationTurn(
   const { publishConversationListAndMetadataChanged } =
       await import("../runtime/sync/resource-sync-events.js");
 
+  // Plugin-driven turns run as the guardian: plugins are installed by the
+  // guardian, so their conversations inherit guardian trust. This lets the
+  // existing non-interactive auto-approve machinery handle tool permissions
+  // (the conversation is already non-interactive via `isInteractive: false`
+  // below) without requiring a client to approve prompts.
+  const { INTERNAL_GUARDIAN_TRUST_CONTEXT } =
+    await import("../daemon/trust-context.js");
   const conversationId = options.conversationId ?? uuidv7();
   const rowExisted = getConversation(conversationId) != null;
   const conversation = await getOrCreateConversation(conversationId, {
+    trustContext: INTERNAL_GUARDIAN_TRUST_CONTEXT,
     ...(options.conversationType
       ? { conversationType: options.conversationType }
       : {}),
