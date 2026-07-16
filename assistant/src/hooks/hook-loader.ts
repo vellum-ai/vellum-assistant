@@ -288,6 +288,21 @@ export function hasWorkspaceHooks(): boolean {
 }
 
 /**
+ * How long a single `init` invocation may run before the loader abandons the
+ * wait and moves on. Plugin activation is awaited on the daemon startup path
+ * (`bootstrapPlugins`) and inside the mtime-cache reconcile, so an `init` that
+ * hangs — or does pathologically slow synchronous setup, e.g. installing a
+ * language runtime into a managed venv — would otherwise stall the rest of
+ * startup and any subsequent plugin's activation. The bound is deliberately
+ * generous (an `init` may legitimately do real setup work) but finite, upholding
+ * the "never block startup on a subsystem" rule. On timeout the underlying work
+ * keeps running in the background (a JS promise cannot be cancelled); the daemon
+ * simply stops waiting, so a genuinely slow first-boot install completes off the
+ * critical path and later boots find it already done.
+ */
+const INIT_TIMEOUT_MS = 30_000;
+
+/**
  * Run the `init` hook for `ownerName` if the owner defines one. `init` can't
  * ride the whole-chain `runHook` the way dispatch hooks do because its context
  * is per-plugin (config, logger, storage dir), so it's dispatched per-owner
@@ -313,6 +328,7 @@ export function hasWorkspaceHooks(): boolean {
 export async function runInitHook(
   ownerName: string,
   pluginDir: string | null = null,
+  opts: { timeoutMs?: number } = {},
 ): Promise<void> {
   // A plugin always has a directory; only the workspace owner passes `null`.
   const kind: HookOwnerKind = pluginDir === null ? "workspace" : "plugin";
@@ -322,6 +338,7 @@ export async function runInitHook(
     return;
   }
 
+  const timeoutMs = opts.timeoutMs ?? INIT_TIMEOUT_MS;
   try {
     const initContext: InitContext = {
       config: resolvePluginConfig(ownerName, pluginDir),
@@ -329,12 +346,16 @@ export async function runInitHook(
       pluginStorageDir: resolvePluginStorageDir(ownerName, pluginDir),
       assistantVersion: APP_VERSION,
     };
-    await initHook(initContext);
+    await withTimeout(
+      Promise.resolve(initHook(initContext)),
+      timeoutMs,
+      `init hook for ${ownerName} exceeded ${timeoutMs}ms`,
+    );
     log.info({ plugin: ownerName }, "user hooks initialized");
   } catch (err) {
     log.error(
       { err, plugin: ownerName },
-      `User hooks for ${ownerName} init() failed — continuing`,
+      `User hooks for ${ownerName} init() failed or timed out — continuing`,
     );
   }
 }
