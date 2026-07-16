@@ -45,6 +45,25 @@ export interface RunConversationTurnOptions {
    * controller fires, terminating the in-flight agent loop.
    */
   signal?: AbortSignal;
+  /**
+   * Conversation type for newly created conversations. When omitted,
+   * defaults to `"standard"` (visible in the sidebar). Set to
+   * `"background"` for plugin-driven conversations that should not
+   * appear in the sidebar's Recents grouping.
+   *
+   * Ignored when `conversationId` references an existing conversation.
+   */
+  conversationType?: "standard" | "background";
+  /**
+   * Source label for newly created conversations (e.g. `"plugin"`,
+   * `"schedule"`). When omitted, defaults to `"user"`. Affects sidebar
+   * grouping: conversations with source `"schedule"` or `"reminder"` are
+   * grouped under "system:scheduled", while `"background"` conversation
+   * types are grouped under "system:background".
+   *
+   * Ignored when `conversationId` references an existing conversation.
+   */
+  source?: string;
 }
 
 export interface RunConversationTurnResult {
@@ -134,10 +153,10 @@ export async function runConversationTurn(
     await import("../runtime/assistant-event-hub.js");
   const { resolveMediaSourceData } =
     await import("../providers/media-resolve.js");
-  const { ensureConversationExists, getMessageById, getMessages } =
-    await import("../persistence/conversation-crud.js");
+  const { getConversation, createConversation, ensureConversationExists, getMessageById, getMessages } =
+      await import("../persistence/conversation-crud.js");
   const { publishConversationListAndMetadataChanged } =
-    await import("../runtime/sync/resource-sync-events.js");
+      await import("../runtime/sync/resource-sync-events.js");
 
   const conversationId = options.conversationId ?? uuidv7();
   const conversation = await getOrCreateConversation(conversationId);
@@ -149,13 +168,31 @@ export async function runConversationTurn(
   // would insert into `messages` against a nonexistent FK target. Ensure the
   // row exists (idempotent) before persisting, mirroring the live-voice ingress
   // which faces the same adopted-id-without-row gap.
-  const createdConversation = ensureConversationExists(conversationId);
+  //
+  // When conversationType/source options are provided, create the row with
+  // those values instead of the defaults ("standard" / "user") so
+  // plugin-driven conversations can be hidden from the sidebar.
+  let createdConversation = false;
+  if (!getConversation(conversationId)) {
+    if (options.conversationType || options.source) {
+      createConversation({
+        id: conversationId,
+        ...(options.conversationType
+          ? { conversationType: options.conversationType }
+          : {}),
+        ...(options.source ? { source: options.source } : {}),
+      });
+      createdConversation = true;
+    } else {
+      createdConversation = ensureConversationExists(conversationId);
+    }
+  }
   if (createdConversation) {
-    // The row was created outside the normal send-message route, which is where
-    // sibling clients/sidebars learn about a new conversation. Emit the same
-    // "created" list invalidation that route does so they see it without
-    // waiting for a reload.
-    publishConversationListAndMetadataChanged("created", conversationId);
+      // The row was created outside the normal send-message route, which is where
+      // sibling clients/sidebars learn about a new conversation. Emit the same
+      // "created" list invalidation that route does so they see it without
+      // waiting for a reload.
+      publishConversationListAndMetadataChanged("created", conversationId);
   }
 
   // Wire the external abort signal to the conversation's internal abort
