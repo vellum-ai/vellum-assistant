@@ -19,6 +19,7 @@ import {
 } from "@vellumai/design-library";
 
 import { LazyBoundary } from "@/components/lazy-boundary";
+import { ThemeToggle } from "@/components/theme-toggle";
 import { organizationsBillingSummaryRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
@@ -188,6 +189,10 @@ function PreferencesMenuContent({
 
   return (
     <>
+      <ThemeToggle className="px-2 py-0" />
+
+      <div className="my-2 border-t border-[var(--border-subtle)]" />
+
       {showBillingRows && effectiveBalance !== null ? (
         <div className="my-2">
           <CreditsCard
