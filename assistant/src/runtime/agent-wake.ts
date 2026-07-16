@@ -292,6 +292,14 @@ export interface WakeOptions {
    */
   toolContextPin?: WakeToolContextPin;
   /**
+   * Skill IDs to preactivate for the wake so their bundled tools join the
+   * turn's active set (`allowedToolNames`) without a prior `skill_load`.
+   * Applied and restored alongside `allowedTools`; ignored when `allowedTools`
+   * is absent. Used by fork-based memory retrospectives to make the
+   * skill-management authoring tools callable directly.
+   */
+  preactivateSkillIds?: readonly string[];
+  /**
    * Explicit persona/channel slugs for the wake's system-prompt build,
    * applied to the conversation for the duration of the run and restored
    * afterwards. Wakes bypass the orchestrator's turn-start persona snapshot,
@@ -1232,6 +1240,7 @@ export async function wakeAgentForOpportunity(
           new Set(opts.allowedTools),
           opts.toolGateMode,
           opts.toolContextPin,
+          opts.preactivateSkillIds,
         );
         return true;
       } catch (err) {
