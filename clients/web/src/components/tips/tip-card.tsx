@@ -43,9 +43,9 @@ export function TipCard({
   return (
     <div
       data-slot="tip-card"
-      className="flex flex-col rounded-xl bg-[var(--system-info-weak)] px-3.5 py-3"
+      className="flex flex-col rounded-xl bg-[var(--system-info-weak)] p-4"
     >
-      <div className="mb-1.5 flex items-center gap-1.5">
+      <div className="mb-3 flex items-center gap-1.5">
         <Lightbulb
           className="h-3.5 w-3.5 text-[color:var(--system-info-strong)]"
           aria-hidden="true"
@@ -79,17 +79,17 @@ export function TipCard({
         </button>
       </div>
 
-      <div className="mb-0.5 text-body-small-emphasised text-[color:var(--content-emphasised)]">
+      <div className="mb-1.5 text-body-small-emphasised text-[color:var(--content-emphasised)]">
         {tip.title}
       </div>
 
-      <div className="text-body-small-default leading-[1.45] text-[color:var(--content-secondary)]">
+      <div className="text-body-small-default leading-[1.55] text-[color:var(--content-secondary)]">
         {tip.body}
       </div>
 
       <div
         className={cn(
-          "mt-2.5 flex flex-wrap items-baseline gap-x-4 gap-y-1",
+          "mt-4 flex flex-wrap items-baseline gap-x-4 gap-y-1",
           tip.learnMore ? "justify-between" : "justify-end",
         )}
       >
