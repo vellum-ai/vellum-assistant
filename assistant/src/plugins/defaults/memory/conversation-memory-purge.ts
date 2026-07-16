@@ -8,8 +8,8 @@ const log = getLogger("conversation-memory-purge");
  * conversation delete must purge. SQLite foreign keys cannot span database
  * files, so the main-DB conversation-delete cascade never reaches these rows;
  * the `conversation-deleted` hook deletes them explicitly instead. Each table
- * keys on `conversation_id`. Wave 2's move PRs extend this list one line each
- * as their tables relocate.
+ * keys on `conversation_id`; a table joins this list when it moves to the
+ * memory connection.
  */
 export const CONVERSATION_KEYED_MEMORY_TABLES: readonly string[] = [
   "memory_v2_activation_logs",
