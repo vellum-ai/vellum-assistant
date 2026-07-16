@@ -24,7 +24,6 @@ export const DEFAULT_SPEECH_ENERGY_THRESHOLD = 800;
  * buffers; a trailing odd byte is ignored.
  *
  * @param chunk - Raw PCM16LE audio.
- * @returns Mean absolute amplitude on the 16-bit linear scale.
  */
 export function pcm16MeanAmplitude(chunk: Buffer): number {
   const sampleCount = Math.floor(chunk.length / 2);

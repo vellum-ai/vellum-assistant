@@ -347,6 +347,11 @@ describe("LiveVoiceSession server VAD", () => {
       return makeTtsResult("assistant audio");
     });
     const { frames, session, transcribers } = createHarness({
+      // Neutralize the echo-adaptive gate (threshold pinned to the 800
+      // floor, warm-up over after one chunk) — this test is about barge-in
+      // mechanics, not echo suppression.
+      echoBargeInMargin: 0.001,
+      echoEmaHalfLifeMs: 4,
       finals: ["what's the weather", "actually never mind"],
       startVoiceTurn,
       streamTtsAudio,
@@ -361,6 +366,10 @@ describe("LiveVoiceSession server VAD", () => {
 
     // Sustained speech over the assistant's audio meets the default guard.
     await session.handleBinaryAudio(SUSTAINED_LOUD_CHUNK);
+    // The sustained chunk is the first in-window audio, so its trip is
+    // deferred by the echo gate's onset warm-up; the follow-up chunk fires
+    // the accumulated run.
+    await session.handleBinaryAudio(LOUD_CHUNK);
     await waitFor(() =>
       frames.some((frame) => frame.type === "turn_cancelled"),
     );
@@ -411,6 +420,11 @@ describe("LiveVoiceSession server VAD", () => {
     });
     let releaseDeltaSend: (() => void) | undefined;
     const { frames, session } = createHarness({
+      // Neutralize the echo-adaptive gate (threshold pinned to the 800
+      // floor, warm-up over after one chunk) — this test is about barge-in
+      // mechanics, not echo suppression.
+      echoBargeInMargin: 0.001,
+      echoEmaHalfLifeMs: 4,
       finals: ["what's the weather", "wait actually", "stop please"],
       startVoiceTurn,
       streamTtsAudio,
@@ -450,6 +464,10 @@ describe("LiveVoiceSession server VAD", () => {
     // Once audio has genuinely gone out, new sustained speech barge-ins.
     await waitFor(() => countType(frames, "utterance_end") === 2);
     await session.handleBinaryAudio(SUSTAINED_LOUD_CHUNK);
+    // The sustained chunk is the first in-window audio, so its trip is
+    // deferred by the echo gate's onset warm-up; the follow-up chunk fires
+    // the accumulated run.
+    await session.handleBinaryAudio(LOUD_CHUNK);
     await waitFor(() =>
       frames.some((frame) => frame.type === "turn_cancelled"),
     );
@@ -833,6 +851,11 @@ describe("LiveVoiceSession server VAD", () => {
       return makeTtsResult("assistant audio");
     });
     const { frames, session } = createHarness({
+      // Neutralize the echo-adaptive gate (threshold pinned to the 800
+      // floor, warm-up over after one chunk) — this test is about barge-in
+      // mechanics, not echo suppression.
+      echoBargeInMargin: 0.001,
+      echoEmaHalfLifeMs: 4,
       finals: ["first question", "second question"],
       startVoiceTurn,
       streamTtsAudio,
@@ -851,6 +874,10 @@ describe("LiveVoiceSession server VAD", () => {
 
     // Barge in over the playing, already-complete reply.
     await session.handleBinaryAudio(SUSTAINED_LOUD_CHUNK);
+    // The sustained chunk is the first in-window audio, so its trip is
+    // deferred by the echo gate's onset warm-up; the follow-up chunk fires
+    // the accumulated run.
+    await session.handleBinaryAudio(LOUD_CHUNK);
     await waitFor(() =>
       frames.some((frame) => frame.type === "turn_cancelled"),
     );
@@ -1282,6 +1309,11 @@ describe("LiveVoiceSession server VAD", () => {
       return makeTtsResult(options.text);
     });
     const { frames, session } = createHarness({
+      // Neutralize the echo-adaptive gate (threshold pinned to the 800
+      // floor, warm-up over after one chunk) — this test is about barge-in
+      // mechanics, not echo suppression.
+      echoBargeInMargin: 0.001,
+      echoEmaHalfLifeMs: 4,
       finals: ["what's the weather", "actually never mind"],
       startVoiceTurn,
       streamTtsAudio,
@@ -1295,6 +1327,11 @@ describe("LiveVoiceSession server VAD", () => {
       makeTextDelta("It is sunny today."),
     );
     await waitFor(() => frames.some((frame) => frame.type === "tts_audio"));
+
+    // Age the echo window past its (pinned-tiny) warm-up with a silent
+    // chunk, so the barge-in below trips synchronously inside
+    // handleBinaryAudio and can race the queued completion.
+    await session.handleBinaryAudio(SILENT_CHUNK);
 
     // The LLM finishes just as the user barges in: message_complete queues
     // the completion continuation and the abort fires before it runs.
@@ -1955,10 +1992,19 @@ describe("LiveVoiceSession sustained-speech barge-in guard", () => {
 
   test("bargeInMinSpeechMs 0 restores instant barge-in", async () => {
     const { frames, session, abort, speakFirstReply } =
-      createSpeakingTurnHarness({ bargeInMinSpeechMs: 0 });
+      createSpeakingTurnHarness({
+        bargeInMinSpeechMs: 0,
+        // Neutralize the echo gate's threshold; its onset warm-up still
+        // shields the first in-window chunk via the deferral guard.
+        echoBargeInMargin: 0.001,
+        echoEmaHalfLifeMs: 4,
+      });
     await speakFirstReply();
 
-    // A single 10 ms onset chunk cancels immediately — no accumulation.
+    // The onset chunk arms the warm-up deferral guard; the next chunk fires
+    // with no sustained-run accumulation — the instant contract under the
+    // echo gate.
+    await session.handleBinaryAudio(LOUD_CHUNK);
     await session.handleBinaryAudio(LOUD_CHUNK);
     await waitFor(() =>
       frames.some((frame) => frame.type === "turn_cancelled"),
@@ -2056,10 +2102,16 @@ describe("LiveVoiceSession sustained-speech barge-in guard", () => {
         // …but the start-frame override disables the guard, so barge-in is
         // instant.
         startFrame: { ...VAD_START_FRAME, bargeInMinSpeechMs: 0 },
+        // Neutralize the echo gate's threshold; its onset warm-up still
+        // shields the first in-window chunk via the deferral guard.
+        echoBargeInMargin: 0.001,
+        echoEmaHalfLifeMs: 4,
       });
     await speakFirstReply();
 
-    // A single speech chunk barges in immediately — proving the frame's 0 won.
+    // The chunk after onset barges in with no accumulated run — proving the
+    // frame's 0 won over the 5s option.
+    await session.handleBinaryAudio(LOUD_CHUNK);
     await session.handleBinaryAudio(LOUD_CHUNK);
     await waitFor(() =>
       frames.some((frame) => frame.type === "turn_cancelled"),
@@ -2074,9 +2126,11 @@ describe("LiveVoiceSession sustained-speech barge-in guard", () => {
   // speech above max(speechEnergyThreshold, echoBargeInMargin × echo EMA), so
   // loud TTS echo leaking through imperfect client echo cancellation cannot
   // self-interrupt the reply, while a user talking over it still can. Tests
-  // compress echoEmaHalfLifeMs to 5 ms so one 10 ms echo chunk converges the
-  // EMA far enough (alpha 0.75 → EMA 2250 for a 3000 chunk, threshold 3375
-  // at the default 1.5 margin) that steady echo sits under its own margin.
+  // compress echoEmaHalfLifeMs to 5 ms: the first 10 ms chunk lands in the
+  // onset warm-up (half-life/2 = 2.5 ms, quartered attack half-life 1.25 ms,
+  // alpha ≈ 0.996), so a 3000 chunk converges the EMA to ≈ 2988 — threshold
+  // ≈ 4482 at the default 1.5 margin — and steady echo sits under its own
+  // margin from the second chunk on.
   describe("echo-adaptive gate", () => {
     test("steady loud echo during playback never fires speech_started or cancels the turn", async () => {
       const { frames, session, abort, speakFirstReply } =
@@ -2142,7 +2196,7 @@ describe("LiveVoiceSession sustained-speech barge-in guard", () => {
       await flushAsyncCallbacks();
       expect(countType(frames, "turn_cancelled")).toBe(0);
 
-      // The user talks over the echo: 6000 clears the 3375 threshold and
+      // The user talks over the echo: 6000 clears the ≈ 4482 threshold and
       // sustains past the guard, so the deferred speech_started flushes
       // playback and the turn cancels.
       for (let index = 0; index < 7; index += 1) {
@@ -2218,6 +2272,142 @@ describe("LiveVoiceSession sustained-speech barge-in guard", () => {
       // floor — a stale reference would have swallowed it.
       await session.handleBinaryAudio(pcm(1_000));
       await waitFor(() => countType(frames, "speech_started") === baseline + 1);
+    });
+
+    test("a guard trip reached during warm-up is deferred and dissolved by the converging reference", async () => {
+      // With the guard (20 ms) SHORTER than the warm-up (half-life/2 =
+      // 20 ms of audio), onset echo accumulates to the trip while its chunks
+      // are still judged against a warming reference — the per-chunk
+      // deferral holds the trip, and the reference overtakes the echo on the
+      // next chunk, zeroing the run before it can ever fire.
+      const { frames, session, abort, speakFirstReply } =
+        createSpeakingTurnHarness({
+          bargeInMinSpeechMs: 20,
+          echoEmaHalfLifeMs: 40,
+        });
+      await speakFirstReply();
+      const baseline = countType(frames, "speech_started");
+
+      for (let index = 0; index < 30; index += 1) {
+        await session.handleBinaryAudio(pcm(3_000));
+      }
+      await flushAsyncCallbacks();
+
+      expect(countType(frames, "speech_started")).toBe(baseline);
+      expect(countType(frames, "turn_cancelled")).toBe(0);
+      expect(abort).not.toHaveBeenCalled();
+    });
+
+    test("instant barge-in (guard disabled) is still shielded from onset echo, then fires instantly once warm", async () => {
+      const { frames, session, abort, speakFirstReply } =
+        createSpeakingTurnHarness({
+          bargeInMinSpeechMs: 0,
+          echoEmaHalfLifeMs: 40,
+        });
+      await speakFirstReply();
+
+      // Onset echo: the warm-up arms a deferral guard even with
+      // bargeInMinSpeechMs 0, and the converging reference absorbs the echo
+      // — without this shield the very first chunk would cancel the turn.
+      for (let index = 0; index < 30; index += 1) {
+        await session.handleBinaryAudio(pcm(3_000));
+      }
+      await flushAsyncCallbacks();
+      expect(countType(frames, "turn_cancelled")).toBe(0);
+
+      // Post-warm-up, instant behavior is back: the first chunk clearing the
+      // converged margin fires without accumulating a sustained run.
+      await session.handleBinaryAudio(pcm(8_000));
+      await waitFor(() =>
+        frames.some((frame) => frame.type === "turn_cancelled"),
+      );
+      await waitFor(() => abort.mock.calls.length === 1);
+    });
+
+    test("a live speech run crossing into playback (turn collision) keeps user-first semantics and trips", async () => {
+      let callbacks: VoiceTurnCallbacks | undefined;
+      const abort = mock();
+      const startVoiceTurn = mock(async (turnOptions: VoiceTurnOptions) => {
+        callbacks ??= turnOptions.callbacks;
+        return { turnId: "bridge-turn", abort };
+      });
+      const streamTtsAudio = mock(async (ttsOptions: LiveVoiceTtsOptions) => {
+        ttsOptions.onAudioChunk(makeTtsChunk("assistant audio"));
+        return makeTtsResult("assistant audio");
+      });
+      const { frames, session } = createHarness({
+        finals: ["what's the weather", "actually never mind"],
+        startVoiceTurn,
+        streamTtsAudio,
+        bargeInMinSpeechMs: 60,
+        echoEmaHalfLifeMs: 400,
+        turnDetectorConfig: { silenceThresholdMs: 5_000 },
+      });
+      await session.start();
+      await session.handleBinaryAudio(LOUD_CHUNK);
+      await session.handleClientFrame({ type: "ptt_release" });
+      await waitFor(() => frames.some((frame) => frame.type === "thinking"));
+
+      // 30 ms of live speech arms the guard while the turn is thinking...
+      for (let index = 0; index < 3; index += 1) {
+        await session.handleBinaryAudio(pcm(3_000));
+      }
+      // ...then TTS starts mid-run. The carried-over guard keeps user-first
+      // semantics: frozen reference, base threshold, normal trip at 60 ms —
+      // the onset warm-up must not defer or absorb the colliding user.
+      callbacks?.assistant_text_delta?.(makeTextDelta("It is sunny today."));
+      await waitFor(() => frames.some((frame) => frame.type === "tts_audio"));
+      for (let index = 0; index < 4; index += 1) {
+        await session.handleBinaryAudio(pcm(3_000));
+      }
+      await waitFor(() =>
+        frames.some((frame) => frame.type === "turn_cancelled"),
+      );
+      await waitFor(() => abort.mock.calls.length === 1);
+    });
+
+    test("a pre-playback noise blip whose run already ended does not block echo learning", async () => {
+      let callbacks: VoiceTurnCallbacks | undefined;
+      const abort = mock();
+      const startVoiceTurn = mock(async (turnOptions: VoiceTurnOptions) => {
+        callbacks ??= turnOptions.callbacks;
+        return { turnId: "bridge-turn", abort };
+      });
+      const streamTtsAudio = mock(async (ttsOptions: LiveVoiceTtsOptions) => {
+        ttsOptions.onAudioChunk(makeTtsChunk("assistant audio"));
+        return makeTtsResult("assistant audio");
+      });
+      const { frames, session } = createHarness({
+        finals: ["what's the weather", "actually never mind"],
+        startVoiceTurn,
+        streamTtsAudio,
+        bargeInMinSpeechMs: 60,
+        echoEmaHalfLifeMs: 40,
+        turnDetectorConfig: { silenceThresholdMs: 5_000 },
+      });
+      await session.start();
+      await session.handleBinaryAudio(LOUD_CHUNK);
+      await session.handleClientFrame({ type: "ptt_release" });
+      await waitFor(() => frames.some((frame) => frame.type === "thinking"));
+
+      // A cough during thinking arms the guard, then a silent chunk zeroes
+      // its run — the guard object itself stays armed.
+      for (let index = 0; index < 2; index += 1) {
+        await session.handleBinaryAudio(pcm(3_000));
+      }
+      await session.handleBinaryAudio(SILENT_CHUNK);
+      // TTS starts: the armed-but-settled guard is NOT a turn collision, so
+      // the onset warm-up learns the echo and steady loud echo cannot run
+      // out the lingering guard against the base threshold.
+      callbacks?.assistant_text_delta?.(makeTextDelta("It is sunny today."));
+      await waitFor(() => frames.some((frame) => frame.type === "tts_audio"));
+      const baseline = countType(frames, "turn_cancelled");
+      for (let index = 0; index < 40; index += 1) {
+        await session.handleBinaryAudio(pcm(3_000));
+      }
+      await flushAsyncCallbacks();
+      expect(countType(frames, "turn_cancelled")).toBe(baseline);
+      expect(abort).not.toHaveBeenCalled();
     });
 
     test("the echo reference freezes while the barge-in guard is armed", async () => {
