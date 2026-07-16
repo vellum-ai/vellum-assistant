@@ -6,7 +6,8 @@
  * drill-down cards (Personality, Schedules, Skills, Plugins, Workspace,
  * Contacts, Channels — the replacement for the old tab bar), each carrying
  * one glanceable stat. On narrow or short viewports the mosaic collapses
- * to a stacked avatar + card grid.
+ * to a stacked avatar + card grid of uniform tiles (icon, title, subtitle,
+ * small stat line).
  */
 
 import { useQueryClient } from "@tanstack/react-query";
@@ -270,6 +271,7 @@ function SectionCard({
   cardStyle,
   hoverFill,
   mini,
+  stacked,
   flooded = false,
   floodOrigin,
   linkRef,
@@ -285,6 +287,9 @@ function SectionCard({
   hoverFill: boolean;
   /** Compact one-row variant for the bottom-strip sections. */
   mini?: boolean;
+  /** Uniform tile for the stacked (small-viewport) grid: every card gets
+   *  the same chrome — icon + title row, subtitle, small stat line. */
+  stacked?: boolean;
   /** The avatar has poured itself over this card — fill it with the
    *  avatar color and flip the content to the contrast tone. */
   flooded?: boolean;
@@ -332,6 +337,50 @@ function SectionCard({
       }
     />
   );
+
+  if (stacked) {
+    // Small-viewport tile: one shared template for every section — no
+    // feature-card wash, no radar or schedule previews, no display-size
+    // numerals — so the stacked grid reads as one calm, even surface.
+    const stackedStat =
+      stat?.value !== undefined
+        ? `${stat.value} ${stat.label ?? ""}`.trim()
+        : stat?.chips && stat.chips.length > 0
+          ? stat.chips.join(" · ")
+          : stat?.text;
+    return (
+      <Card.Root
+        asChild
+        bordered
+        elevated
+        clipContents
+        className="rounded-2xl bg-[var(--card-bg)]"
+      >
+        <Link
+          to={section.to}
+          className="relative flex h-full w-full cursor-pointer flex-col gap-1 p-4 text-left transition-all duration-150 hover:bg-[var(--card-hover)] active:scale-[0.98]"
+        >
+          <span className="flex items-center gap-2">
+            <Icon
+              className="h-5 w-5 shrink-0 text-[var(--content-default)]"
+              aria-hidden
+            />
+            <span className="truncate text-body-medium-default text-[var(--content-default)]">
+              {section.label}
+            </span>
+          </span>
+          <span className="text-[13px] text-[var(--content-secondary)]">
+            {section.description}
+          </span>
+          {stackedStat && (
+            <span className="mt-auto truncate pt-1 text-[12px] font-medium text-[var(--content-tertiary)]">
+              {stackedStat}
+            </span>
+          )}
+        </Link>
+      </Card.Root>
+    );
+  }
 
   if (mini) {
     const miniStat =
@@ -790,6 +839,7 @@ function OverviewBento({
               section={section}
               stat={stats[section.key]}
               hoverFill
+              stacked
             />
           ))}
         </div>

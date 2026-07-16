@@ -57,16 +57,15 @@ export function IntelligenceLayout() {
   const setTopBarCenter = useChatLayoutSlotsStore.use.setTopBarCenter();
 
   const section = sectionForPath(pathname);
-  const mobileTitle = section
-    ? section.label
-    : `About ${assistantName || "Assistant"}`;
+  const mobileTitle = section?.label ?? null;
 
-  // On mobile the title moves out of the page body and into the shared top
-  // bar — centered between the hamburger menu and the search icon. Desktop
-  // keeps the in-body <h1> (section pages only) and leaves the top-bar
-  // center empty.
+  // On mobile the section title moves out of the page body and into the
+  // shared top bar — centered between the hamburger menu and the search
+  // icon. The bare pages (overview, personality) set no title: the
+  // greeting on the stage already names the assistant. Desktop keeps the
+  // in-body <h1> (section pages only) and leaves the top-bar center empty.
   useEffect(() => {
-    if (isMobile) {
+    if (isMobile && mobileTitle) {
       setTopBarCenter(
         <Typography
           variant="body-medium-default"
