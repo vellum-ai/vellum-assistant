@@ -59,8 +59,8 @@ function resetTables(): void {
   db.delete(channelInboundEvents).run();
   db.delete(externalConversationBindings).run();
   db.delete(conversationAssistantAttentionState).run();
-  db.delete(activationState).run();
-  db.delete(conversationGraphMemoryState).run();
+  getMemoryDb()!.delete(activationState).run();
+  getMemoryDb()!.delete(conversationGraphMemoryState).run();
   db.delete(memoryRetrospectiveState).run();
   getLogsDb()!.delete(llmRequestLogs).run();
   db.delete(toolInvocations).run();
@@ -372,8 +372,8 @@ describe("forkConversationForRetrospective — compacted source", () => {
     const snapshot = JSON.stringify({ inContext: ["node-a"], currentTurn: 7 });
     saveGraphMemoryState(source.id, snapshot);
     const everInjected = JSON.stringify([{ slug: "page-a", turn: 1 }]);
-    const db = getDb();
-    db.insert(activationState)
+    getMemoryDb()!
+      .insert(activationState)
       .values({
         conversationId: source.id,
         messageId: "source-turn-marker",
@@ -401,7 +401,7 @@ describe("forkConversationForRetrospective — compacted source", () => {
     // The fork's rendered window equals the source's, so activation,
     // ever-injected, and graph state are carried as-is.
     expect(loadGraphMemoryState(fork.id)).toBe(snapshot);
-    const forkActivation = db
+    const forkActivation = getMemoryDb()!
       .select()
       .from(activationState)
       .where(eq(activationState.conversationId, fork.id))
@@ -455,7 +455,7 @@ describe("forkConversationForRetrospective — compacted source", () => {
 
     // Derived seeding sees only the copied tail's slug; the wholesale graph
     // carry is skipped for truncated forks.
-    const forkActivation = db
+    const forkActivation = getMemoryDb()!
       .select()
       .from(activationState)
       .where(eq(activationState.conversationId, fork.id))

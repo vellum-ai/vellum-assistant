@@ -161,7 +161,6 @@ export async function memoryV2ActivationRecomputeJob(
   config: AssistantConfig,
 ): Promise<number> {
   const workspaceDir = getWorkspaceDir();
-  const database = getDb();
 
   // Activation maps still need to refresh for archived conversations — a
   // consolidated page can leave stale slugs above epsilon in their persisted
@@ -177,7 +176,7 @@ export async function memoryV2ActivationRecomputeJob(
 
   let updated = 0;
   for (const conv of conversations) {
-    const priorState = await hydrate(database, conv.id);
+    const priorState = await hydrate(conv.id);
     if (!priorState) {
       continue;
     } // Nothing to recompute when no row exists.
@@ -202,7 +201,7 @@ export async function memoryV2ActivationRecomputeJob(
     if (!nextState) {
       continue;
     }
-    await save(database, conv.id, nextState);
+    await save(conv.id, nextState);
     updated += 1;
   }
 

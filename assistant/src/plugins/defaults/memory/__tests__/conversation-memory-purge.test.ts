@@ -71,6 +71,24 @@ function seedRow(table: string, conversationId: string): void {
         )
         .run(conversationId, now);
       return;
+    case "activation_state":
+      raw
+        .query(
+          `INSERT INTO activation_state
+             (conversation_id, message_id, state_json, ever_injected_json, current_turn, updated_at)
+           VALUES (?, ?, '{}', '[]', 0, ?)`,
+        )
+        .run(conversationId, `${conversationId}-msg`, now);
+      return;
+    case "conversation_graph_memory_state":
+      raw
+        .query(
+          `INSERT INTO conversation_graph_memory_state
+             (conversation_id, state_json, created_at, updated_at)
+           VALUES (?, '{}', ?, ?)`,
+        )
+        .run(conversationId, now, now);
+      return;
     default:
       throw new Error(`unhandled table ${table}`);
   }
@@ -90,10 +108,12 @@ describe("conversation memory purge", () => {
     }
   });
 
-  test("the shared table list covers the four relocated Wave 1 tables", () => {
+  test("the shared table list covers every relocated per-conversation table", () => {
     expect([...CONVERSATION_KEYED_MEMORY_TABLES].sort()).toEqual(
       [
         "activation_sessions",
+        "activation_state",
+        "conversation_graph_memory_state",
         "memory_recall_logs",
         "memory_v2_activation_logs",
         "memory_v3_selections",

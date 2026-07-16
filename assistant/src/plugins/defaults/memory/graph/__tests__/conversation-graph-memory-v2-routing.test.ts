@@ -161,6 +161,7 @@ afterAll(() => {
     process.env.VELLUM_WORKSPACE_DIR = previousWorkspaceEnv;
   }
   rmSync(tmpWorkspace, { recursive: true, force: true });
+  clearStoredDb("memory");
   // Restore mocks so a sibling test loaded in the same `bun test` run sees
   // unmocked module bindings.
   mock.restore();
@@ -189,6 +190,8 @@ const { _resetMemoryV2QdrantForTests } =
   await import("../../v3/substrate/qdrant.js");
 const { hydrate: hydrateActivationState, save: saveActivationState } =
   await import("../../v2/activation-store.js");
+const { setStoredDb, clearStoredDb } =
+  await import("../../../../../persistence/db-singleton.js");
 
 // The wiring layer calls `getDb()` to fetch the SQLite handle. We mock
 // only that one export and spread the real module so unrelated callers
@@ -309,6 +312,9 @@ const noopEvent = () => {};
 
 beforeEach(() => {
   testDbHandle = createTestDb();
+  // The v2 activation store resolves `activation_state` through the memory
+  // connection; point that slot at the same handle the `getDb()` mock serves.
+  setStoredDb("memory", testDbHandle, () => {});
   qdrantState.queryResponses.dense.length = 0;
   qdrantState.queryResponses.sparse.length = 0;
   loadContextMemoryMock.mockClear();
@@ -601,7 +607,7 @@ describe("ConversationGraphMemory.onCompacted — v2 activation eviction", () =>
       "# memory/concepts/alice-vscode.md",
     );
 
-    const before = await hydrateActivationState(testDbHandle!, conversationId);
+    const before = await hydrateActivationState(conversationId);
     expect(before?.everInjected.map((e) => e.slug)).toContain("alice-vscode");
 
     // Seed a memory-v3 everInjected record too: the same trigger clears it
@@ -611,7 +617,7 @@ describe("ConversationGraphMemory.onCompacted — v2 activation eviction", () =>
 
     await memory.onCompacted(1);
 
-    const after = await hydrateActivationState(testDbHandle!, conversationId);
+    const after = await hydrateActivationState(conversationId);
     expect(after?.everInjected).toEqual([]);
     expect(getV3ActiveSlugs(conversationId)).toEqual(new Set());
 
@@ -645,7 +651,7 @@ describe("ConversationGraphMemory.onCompacted — v2 activation eviction", () =>
     // currentTurn=0 (default for a fresh ConversationGraphMemory), while the
     // persisted row carries everInjected entries from turns 10 and 20 (left
     // over from a prior session that never disposed cleanly).
-    await saveActivationState(testDbHandle!, conversationId, {
+    await saveActivationState(conversationId, {
       messageId: "msg-zombie",
       state: {},
       everInjected: [
@@ -658,7 +664,7 @@ describe("ConversationGraphMemory.onCompacted — v2 activation eviction", () =>
 
     await memory.onCompacted(0);
 
-    const after = await hydrateActivationState(testDbHandle!, conversationId);
+    const after = await hydrateActivationState(conversationId);
     expect(after?.everInjected).toEqual([]);
   });
 });

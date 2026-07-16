@@ -16,6 +16,8 @@ export const CONVERSATION_KEYED_MEMORY_TABLES: readonly string[] = [
   "memory_recall_logs",
   "memory_v3_selections",
   "activation_sessions",
+  "activation_state",
+  "conversation_graph_memory_state",
 ];
 
 /**

@@ -44,12 +44,15 @@ export interface ForkConversationMemoryInput {
  *
  * The persistence layer's fork path (`conversation-crud.ts`) imports this
  * directly and calls it synchronously inside the fork's DB transaction,
- * threading the live transaction handle so the child's memory state commits
- * atomically with the fork. This is a persistence → memory back-import
- * documented in the persistence-layering guard; unlike the other
- * persistence-lifecycle events it is a direct call rather than a first-class
- * `hooks` dispatch, because the async hooks pipeline cannot run inside a
- * synchronous transaction with a live handle.
+ * threading the live transaction handle for the state that still lives in the
+ * main DB (ever-injected, retrospective) so those copies commit with the fork.
+ * Activation and graph state have moved to the dedicated memory connection, a
+ * separate database file: their copies write that connection and so are not
+ * part of the fork transaction, matching the cross-file split everywhere else.
+ * This is a persistence → memory back-import documented in the
+ * persistence-layering guard; unlike the other persistence-lifecycle events it
+ * is a direct call rather than a first-class `hooks` dispatch, because the async
+ * hooks pipeline cannot run inside a synchronous transaction with a live handle.
  *
  * The direct import puts this module on an import cycle (persistence imports
  * it; it transitively imports persistence). The cycle is benign: the binding
@@ -76,7 +79,7 @@ export function forkConversationMemory(
   // full-history forks: a truncated fork would inherit activation/tracker
   // entries for turns the child does not actually contain.
   if (isFullHistoryFork) {
-    forkActivationState(db, sourceConversationId, forkId);
+    forkActivationState(sourceConversationId, forkId);
     forkEverInjected(db, sourceConversationId, forkId);
     forkGraphMemoryState(sourceConversationId, forkId);
   } else {
@@ -113,7 +116,7 @@ export function forkConversationMemory(
         }
       }
     }
-    seedForkActivationState(db, forkId, [...inheritedSlugs]);
+    seedForkActivationState(forkId, [...inheritedSlugs]);
     seedEverInjectedFromSlugs(
       db,
       sourceConversationId,

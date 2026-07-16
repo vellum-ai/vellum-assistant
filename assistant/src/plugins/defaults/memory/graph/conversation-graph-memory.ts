@@ -279,10 +279,9 @@ export class ConversationGraphMemory {
     // leave entries with `turn > tracker.currentTurn` that a turn-bounded
     // filter would skip.
     try {
-      const db = getDb();
-      const state = await hydrateV2State(db, this.conversationId);
+      const state = await hydrateV2State(this.conversationId);
       if (state) {
-        await saveV2State(db, this.conversationId, clearV2EverInjected(state));
+        await saveV2State(this.conversationId, clearV2EverInjected(state));
       }
     } catch (err) {
       log.warn(
@@ -894,7 +893,6 @@ export class ConversationGraphMemory {
         : extractRecentTurnPairs(messages, historicalPairs);
 
     const result = await injectMemoryV2Block({
-      database: getDb(),
       conversationId: this.conversationId,
       currentTurn,
       recentTurnPairs,

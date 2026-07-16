@@ -450,6 +450,8 @@ import { migrateMoveActivationSessionsToMemoryDb } from "./migrations/339-move-a
 import { migrateSweepOrphanedGraphNodeVectors } from "./migrations/340-sweep-orphaned-graph-node-vectors.js";
 import { migrateSweepCachelessGraphNodeVectors } from "./migrations/341-sweep-cacheless-graph-node-vectors.js";
 import { migrateAddConversationParentId } from "./migrations/342-add-conversation-parent-id.js";
+import { migrateMoveActivationStateToMemoryDb } from "./migrations/343-move-activation-state-to-memory-db.js";
+import { migrateMoveConversationGraphMemoryStateToMemoryDb } from "./migrations/344-move-conversation-graph-memory-state-to-memory-db.js";
 import type { MigrationStep } from "./migrations/run-migrations.js";
 
 export const migrationSteps: MigrationStep[] = [
@@ -1399,4 +1401,14 @@ export const migrationSteps: MigrationStep[] = [
   migrateSweepOrphanedGraphNodeVectors,
   migrateSweepCachelessGraphNodeVectors,
   migrateAddConversationParentId,
+  {
+    name: "migrateMoveActivationStateToMemoryDb",
+    run: migrateMoveActivationStateToMemoryDb,
+    dependsOn: ["migrateActivationState", "migrateActivationStateFkCascade"],
+  },
+  {
+    name: "migrateMoveConversationGraphMemoryStateToMemoryDb",
+    run: migrateMoveConversationGraphMemoryStateToMemoryDb,
+    dependsOn: ["migrateCreateConversationGraphMemoryState"],
+  },
 ];

@@ -36,6 +36,10 @@ const { MEMORY_V3_SELECTIONS_RELOCATION } =
   await import("../../../../persistence/migrations/338-move-memory-v3-selections-to-memory-db.js");
 const { ACTIVATION_SESSIONS_RELOCATION } =
   await import("../../../../persistence/migrations/339-move-activation-sessions-to-memory-db.js");
+const { ACTIVATION_STATE_RELOCATION } =
+  await import("../../../../persistence/migrations/343-move-activation-state-to-memory-db.js");
+const { CONVERSATION_GRAPH_MEMORY_STATE_RELOCATION } =
+  await import("../../../../persistence/migrations/344-move-conversation-graph-memory-state-to-memory-db.js");
 
 await initializeDb();
 
@@ -452,6 +456,129 @@ describe("memory_recall_logs drain", () => {
     expect(kept).toEqual([
       { id: "rec-1", message_id: "msg-1", query_context: null },
       { id: "rec-2", message_id: null, query_context: null },
+    ]);
+  });
+});
+
+describe("activation_state drain", () => {
+  test("copies every row (full copy) and drops staging", async () => {
+    const sqlite = getSqlite();
+    const memory = getMemorySqlite()!;
+
+    // Clean slate: empty live table, fresh populated staging table shaped like
+    // the post-241 source (no FK — the memory DB has no conversations table).
+    memory.exec(`DELETE FROM activation_state`);
+    sqlite.exec(`DROP TABLE IF EXISTS main."activation_state__relocating"`);
+    sqlite.exec(/*sql*/ `
+      CREATE TABLE main."activation_state__relocating" (
+        conversation_id TEXT PRIMARY KEY,
+        message_id TEXT NOT NULL,
+        state_json TEXT NOT NULL,
+        ever_injected_json TEXT NOT NULL DEFAULT '[]',
+        current_turn INTEGER NOT NULL DEFAULT 0,
+        updated_at INTEGER NOT NULL
+      )
+    `);
+    const insert = sqlite.prepare(
+      `INSERT INTO main."activation_state__relocating"
+         (conversation_id, message_id, state_json, ever_injected_json, current_turn, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    );
+    insert.run(
+      "conv-a",
+      "msg-a",
+      '{"alice":0.5}',
+      '[{"slug":"alice","turn":1}]',
+      3,
+      1_000,
+    );
+    insert.run("conv-b", "msg-b", "{}", "[]", 0, 2_000);
+
+    await drainStagedTable(sqlite, ACTIVATION_STATE_RELOCATION);
+
+    expect(existsInMain("activation_state__relocating")).toBe(false);
+
+    const kept = memory
+      .query(
+        `SELECT conversation_id, message_id, state_json, ever_injected_json,
+                current_turn, updated_at
+           FROM activation_state WHERE conversation_id IN ('conv-a', 'conv-b')
+           ORDER BY conversation_id`,
+      )
+      .all();
+    expect(kept).toEqual([
+      {
+        conversation_id: "conv-a",
+        message_id: "msg-a",
+        state_json: '{"alice":0.5}',
+        ever_injected_json: '[{"slug":"alice","turn":1}]',
+        current_turn: 3,
+        updated_at: 1_000,
+      },
+      {
+        conversation_id: "conv-b",
+        message_id: "msg-b",
+        state_json: "{}",
+        ever_injected_json: "[]",
+        current_turn: 0,
+        updated_at: 2_000,
+      },
+    ]);
+  });
+});
+
+describe("conversation_graph_memory_state drain", () => {
+  test("copies every row (full copy) and drops staging", async () => {
+    const sqlite = getSqlite();
+    const memory = getMemorySqlite()!;
+
+    memory.exec(`DELETE FROM conversation_graph_memory_state`);
+    sqlite.exec(
+      `DROP TABLE IF EXISTS main."conversation_graph_memory_state__relocating"`,
+    );
+    sqlite.exec(/*sql*/ `
+      CREATE TABLE main."conversation_graph_memory_state__relocating" (
+        conversation_id TEXT PRIMARY KEY,
+        state_json TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    `);
+    const insert = sqlite.prepare(
+      `INSERT INTO main."conversation_graph_memory_state__relocating"
+         (conversation_id, state_json, created_at, updated_at)
+       VALUES (?, ?, ?, ?)`,
+    );
+    insert.run("conv-a", '{"turn":4}', 1_000, 1_500);
+    insert.run("conv-b", "{}", 2_000, 2_000);
+
+    await drainStagedTable(sqlite, CONVERSATION_GRAPH_MEMORY_STATE_RELOCATION);
+
+    expect(existsInMain("conversation_graph_memory_state__relocating")).toBe(
+      false,
+    );
+
+    const kept = memory
+      .query(
+        `SELECT conversation_id, state_json, created_at, updated_at
+           FROM conversation_graph_memory_state
+           WHERE conversation_id IN ('conv-a', 'conv-b')
+           ORDER BY conversation_id`,
+      )
+      .all();
+    expect(kept).toEqual([
+      {
+        conversation_id: "conv-a",
+        state_json: '{"turn":4}',
+        created_at: 1_000,
+        updated_at: 1_500,
+      },
+      {
+        conversation_id: "conv-b",
+        state_json: "{}",
+        created_at: 2_000,
+        updated_at: 2_000,
+      },
     ]);
   });
 });
