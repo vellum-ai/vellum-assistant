@@ -31,6 +31,9 @@ storybook-static/
 assistant/src/config/feature-flag-registry.json
 gateway/src/feature-flag-registry.json
 
+# Generated from plugins/marketplace.json by meta/sync-bundled-copies.ts
+assistant/src/cli/lib/bundled-marketplace.json
+
 # misc
 worktrees/
 .worktrees/
