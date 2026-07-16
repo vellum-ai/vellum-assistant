@@ -15,6 +15,7 @@ import { getConfig } from "../../config/loader.js";
 import type { LLMCallSite, Speed } from "../../config/schemas/llm.js";
 import { ipcCall as gatewayIpcCall } from "../../ipc/gateway-client.js";
 import type { SecretPromptResult } from "../../permissions/secret-prompt-types.js";
+import type { ConversationCreateType } from "../../persistence/conversation-types.js";
 import { resolveMediaSourceData } from "../../providers/media-resolve.js";
 import { isPlaceholderSentinelText } from "../../providers/placeholder-sentinels.js";
 import type { MediaSource } from "../../providers/types.js";
@@ -28,7 +29,6 @@ import { joinWithSpacing } from "../../util/text-spacing.js";
 import { estimateBase64Bytes } from "../assistant-attachments.js";
 import { conversationSupportsDynamicUi } from "../channel-ui-capability.js";
 import { findConversation } from "../conversation-registry.js";
-import type { ConversationCreateType } from "../../persistence/conversation-types.js";
 import type { ConversationTransportMetadata } from "../message-protocol.js";
 import type { TrustContext } from "../trust-context-types.js";
 
@@ -704,7 +704,7 @@ export function renderHistoryContent(
               continue;
             }
             const resolved = resolveMediaSourceData(source);
-            if (resolved) imageDataList.push(resolved.data);
+            if (resolved) {imageDataList.push(resolved.data);}
           }
         }
       }

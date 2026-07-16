@@ -13,6 +13,18 @@
  */
 
 import { getConfig } from "../config/loader.js";
+import {
+  ADOPTABLE_CONVERSATION_ID_RE,
+  createConversation,
+  ensureConversationExists,
+  getConversation,
+} from "../persistence/conversation-crud.js";
+import {
+  ADOPTABLE_CONVERSATION_ID_RE,
+  createConversation,
+  ensureConversationExists,
+  getConversation,
+} from "../persistence/conversation-crud.js";
 import { wrapWithCallSiteRouting } from "../providers/call-site-routing.js";
 import {
   mainAgentResolutionError,
@@ -39,19 +51,11 @@ import {
   setConversation,
 } from "./conversation-registry.js";
 import type { ConversationCreateOptions } from "./handlers/shared.js";
-import {
-  ADOPTABLE_CONVERSATION_ID_RE,
-  createConversation,
-  ensureConversationExists,
-  getConversation,
-} from "../persistence/conversation-crud.js";
 import { buildTransportHints } from "./transport-hints.js";
 
 // ── Per-conversation persistent options ────────────────────────────
 
-const conversationOptions = new Map<string, ConversationCreateOptions>();
-
-export function mergeConversationOptions(
+function mergeConversationOptions(
   conversationId: string,
   patch: Partial<ConversationCreateOptions>,
 ): void {
