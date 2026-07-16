@@ -107,6 +107,9 @@ const SETTINGS_TAB_ROUTE_ALIASES: Record<string, string> = {
   "keyboard shortcuts": `${routes.settings.general}?preferences=open`,
   // Sounds is an in-page tab on the Voice & Sounds page.
   sounds: `${routes.settings.voice}?tab=sounds`,
+  // Services (Text-to-Speech / Speech-to-Text) is an in-page tab on the
+  // Voice & Sounds page.
+  services: `${routes.settings.voice}?tab=services`,
   // Archive is an in-page tab on the Debug page; the bare Debug route opens
   // General, so the archive alias carries the ?tab= param.
   archive: `${routes.settings.debug}?tab=archive`,
