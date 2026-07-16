@@ -15,7 +15,7 @@ import {
  *   manual   (cloud):         open the authorize URL, then let the user paste
  *     the `code#state` the redirect page renders for the daemon to exchange.
  *
- * Exported standalone so PR 8 can render an inline Connect affordance when an
+ * Exported standalone so the inline Connect affordance can drive it when an
  * ACP spawn fails for a missing token.
  */
 export type ConnectClaudePhase =

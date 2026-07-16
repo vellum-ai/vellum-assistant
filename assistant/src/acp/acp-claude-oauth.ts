@@ -3,13 +3,12 @@
  * ACP flow.
  *
  * This module owns the verified Claude OAuth endpoints/client and the pure
- * helpers the daemon connect routes call: the loopback path (PR 5) builds an
+ * helpers the daemon connect routes call: the loopback path builds an
  * authorize URL against a localhost redirect, while the cloud paste path
- * (PR 6) builds one against the manual redirect page and parses the
- * `code#state` string the user copies back. Both converge on
- * `storeAcpClaudeToken`, which writes the `acp/claude_oauth_token` vault field
- * the ACP broker reads at spawn time and provisions the `acp_spawn` read
- * policy.
+ * builds one against the manual redirect page and parses the `code#state`
+ * string the user copies back. Both converge on `storeAcpClaudeToken`, which
+ * writes the `acp/claude_oauth_token` vault field the ACP broker reads at
+ * spawn time and provisions the `acp_spawn` read policy.
  */
 
 import { credentialKey } from "../security/credential-key.js";
@@ -45,7 +44,7 @@ export const CLAUDE_OAUTH_CONFIG: OAuth2Config = {
 };
 
 /**
- * Manual redirect target for the cloud paste path (PR 6): Claude renders the
+ * Manual redirect target for the cloud paste path: Claude renders the
  * `code#state` string on this page for the user to copy back.
  */
 export const CLAUDE_MANUAL_REDIRECT_URI =
