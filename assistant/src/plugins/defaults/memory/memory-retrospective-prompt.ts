@@ -165,7 +165,7 @@ export function buildForkInstruction({
     : `Your review window starts at ${anchorDescription} and ends just before this instruction message. If you cannot locate that anchoring turn in your visible history (for example, it is behind the compaction summary), fail closed: review only the most recent visible messages after the summary, not the whole conversation.`;
 
   const availableToolsLine = procToSkillsActive
-    ? "Only `remember`, `find_similar_skills`, `scaffold_managed_skill`, and `skill_load skill-management` are available for this pass — any other tool call will be rejected, so don't attempt one."
+    ? "Only `remember`, `find_similar_skills`, and `scaffold_managed_skill` are available for this pass — any other tool call will be rejected, so don't attempt one."
     : "Only the `remember` tool is available for this pass — any other tool call will be rejected, so don't attempt one.";
 
   const override = loadPromptOverride({
