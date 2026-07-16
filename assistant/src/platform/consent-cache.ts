@@ -20,11 +20,11 @@
  * confirmed states from a successful platform fetch; `"unknown"` means no
  * confirmed state exists — boot before the first refresh, no platform session,
  * or no resolvable owner identity. A transient fetch failure keeps the
- * previous value so a known opt-in is not flipped mid-session. The boolean
- * accessors collapse `"unknown"` to `false` (fail-closed); the raw analytics
- * accessor exposes the tri-state for callers that must distinguish a confirmed
- * opt-out from a not-yet-known state. Diagnostics gates are deliberately
- * fail-closed, so no raw diagnostics accessor exists.
+ * previous value so a known opt-in is not flipped mid-session. Analytics
+ * exposes only the raw tri-state accessor (gates drop solely on a confirmed
+ * opt-out); the diagnostics boolean accessors collapse `"unknown"` to `false`
+ * — diagnostics gates are deliberately fail-closed, so no raw diagnostics
+ * accessor exists.
  */
 
 import { getConfigReadOnly } from "../config/loader.js";

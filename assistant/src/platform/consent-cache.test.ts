@@ -79,11 +79,11 @@ describe("consent-cache", () => {
     await stopConsentRefresh();
   });
 
-  test("boot state is unknown; public accessor reads false", () => {
+  test("boot state is unknown", () => {
     expect(getRawShareAnalytics()).toBe("unknown");
   });
 
-  test("no platform client available → unknown; public accessor reads false", async () => {
+  test("no platform client available → unknown", async () => {
     mockClient = null;
     await refreshConsentCache();
     expect(getRawShareAnalytics()).toBe("unknown");
@@ -139,7 +139,7 @@ describe("consent-cache", () => {
     expect(getCachedShareDiagnostics()).toBe(false);
   });
 
-  test("a missing client demotes a prior opt-in to unknown (public accessor reads false)", async () => {
+  test("a missing client demotes a prior opt-in to unknown", async () => {
     __setCachedShareAnalyticsForTest(true);
     mockClient = null;
     await refreshConsentCache();
@@ -237,7 +237,7 @@ describe("consent-cache", () => {
     expect(getCachedShareDiagnostics()).toBe(true);
   });
 
-  test("a missing client demotes a prior diagnostics opt-in (public accessor reads false)", async () => {
+  test("a missing client demotes a prior diagnostics opt-in", async () => {
     __setCachedShareDiagnosticsForTest(true);
     mockClient = null;
     await refreshConsentCache();
@@ -297,7 +297,7 @@ describe("consent-cache", () => {
     expect(getCachedShareDiagnosticsVersion()).toBe("2026-06-18");
   });
 
-  test("public accessors collapse unknown to false; the raw analytics accessor exposes the tri-state", async () => {
+  test("diagnostics accessor collapses unknown to false; raw analytics exposes the tri-state", async () => {
     // Refresh once so the module's legacy opt-out marker reflects the
     // beforeEach config (the marker is only re-read during a refresh).
     mockClient = null;
@@ -308,7 +308,6 @@ describe("consent-cache", () => {
       __setCachedShareDiagnosticsForTest(state);
       expect(getRawShareAnalytics()).toBe(state);
       expect(getCachedShareDiagnostics()).toBe(state === true);
-      expect(getRawShareAnalytics()).toBe(state);
     }
   });
 
