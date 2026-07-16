@@ -260,6 +260,13 @@ async function handleSummarizeConversation({
   // all emitted inside the shared compaction write path — only the result
   // card is the route's responsibility.
   (async () => {
+    // The paired terminal for the thinking activity emitted below. Clients
+    // that started an indicator from the thinking event need a definitive
+    // idle — the result card's `message_complete` covers the happy path,
+    // but the hard-error path persists no card, so the idle emit in
+    // `finally` is what guarantees the indicator always clears.
+    let terminalReason: "message_complete" | "error_terminal" =
+      "message_complete";
     try {
       conversation.emitActivityState("thinking", "context_compacting", {
         statusText: "Summarizing conversation",
@@ -277,6 +284,7 @@ async function handleSummarizeConversation({
           err = cardErr;
         }
       }
+      terminalReason = "error_terminal";
       log.error({ err, conversationId }, "Summarize command failed");
       broadcastMessage({
         type: "conversation_error",
@@ -286,6 +294,7 @@ async function handleSummarizeConversation({
         retryable: true,
       });
     } finally {
+      conversation.emitActivityState("idle", terminalReason);
       conversation.setProcessing(false);
       silentlyWithLog(
         conversation.drainQueue(),

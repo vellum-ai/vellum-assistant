@@ -249,6 +249,12 @@ describe("POST /v1/conversations/summarize", () => {
       "context_compacting",
       { statusText: "Summarizing conversation" },
     );
+    // The thinking activity gets a paired terminal so a client that started
+    // an indicator from it always clears.
+    expect(ctx.emitActivityState).toHaveBeenLastCalledWith(
+      "idle",
+      "message_complete",
+    );
 
     // Card persisted as an assistant message and pushed onto in-memory history.
     expect(addMessageMock).toHaveBeenCalledTimes(1);
@@ -413,6 +419,12 @@ describe("POST /v1/conversations/summarize", () => {
     expect(error?.code).toBe("UNKNOWN");
     expect(error?.retryable).toBe(true);
     expect(String(error?.userMessage)).toContain("summary call exploded");
+    // No card means no message_complete — the idle activity emit is the only
+    // terminal signal clearing a client-side indicator on this path.
+    expect(ctx.emitActivityState).toHaveBeenLastCalledWith(
+      "idle",
+      "error_terminal",
+    );
     expect(ctx.conversation.isProcessing()).toBe(false);
     expect(ctx.drainQueue).toHaveBeenCalledTimes(1);
   });
