@@ -153,7 +153,9 @@ describe("PlanCard", () => {
     expect(html).toContain("2 vCPU");
     expect(html).not.toContain("Small →");
     expect(html).not.toContain("Standard");
-    // Storage really changes 0 → 10 GB, so the arrow form is kept.
-    expect(html).toContain("0 → 10 GB");
+    // Storage really changes (free's 4 GiB baseline → Mighty's 10), so the
+    // arrow form is kept.
+    expect(html).toContain("4 → 10 GB");
+    expect(html).not.toContain("0 → 10 GB");
   });
 });

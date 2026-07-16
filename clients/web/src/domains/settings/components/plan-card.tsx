@@ -123,6 +123,13 @@ function PlanHeading() {
  */
 const STANDARD_MACHINE = { sizeLabel: "Small", vcpu: "2" } as const;
 
+/**
+ * Storage included with the free/base plan. The plan catalog's BasePlan entry
+ * carries no storage field, so the baseline comes from the pricing spec
+ * (Free = 4 GiB).
+ */
+const FREE_STORAGE_GIB = 4;
+
 /** Machine size label + vCPU count for a package (or the standard machine). */
 function machineInfo(pkg: ProPackage | null): {
     sizeLabel: string;
@@ -155,7 +162,7 @@ function buildDeltas(
 ): ResourceDelta[] {
     const from = machineInfo(currentPackage);
     const to = machineInfo(recommended);
-    const fromStorage = currentPackage?.storage_gib ?? 0;
+    const fromStorage = currentPackage?.storage_gib ?? FREE_STORAGE_GIB;
     return [
         { icon: Computer, label: `${arrow(from.sizeLabel, to.sizeLabel)} Machine` },
         {
