@@ -1,8 +1,8 @@
 /**
  * Tests for `PreferencesModal`.
  *
- * The theme picker is a separate `AppearanceCard` on Settings → General (see
- * `appearance-card.test.tsx`), not part of this modal. These tests mount the
+ * The theme picker lives inline in the Preferences card on Settings → General
+ * (see `theme-picker.test.tsx`), not in this modal. These tests mount the
  * modal as a web (non-Electron) client and assert it hosts the composer send
  * toggle but no Appearance/theme control.
  */
