@@ -48,8 +48,12 @@ export function ensureConversationGraphMemoryStateSchema(
  * (`assistant-memory.db`), so its store reads/writes ride the memory
  * connection.
  *
- * Registered with `dependsOn` on migration 207 (creator), so the move never
- * outruns it on a database where it is still pending.
+ * Registered with `dependsOn` on migration 207 (creator) and 229
+ * (`migrateDeletePrivateConversations`), so the move never outruns either on a
+ * database where they are still pending. 229 purges private rows through the
+ * main-DB FK cascade, so moving the table first — dropping the cascade — would
+ * let a deferred or retried private delete orphan those snapshots on the memory
+ * connection.
  */
 export async function migrateMoveConversationGraphMemoryStateToMemoryDb(
   database: DrizzleDb,

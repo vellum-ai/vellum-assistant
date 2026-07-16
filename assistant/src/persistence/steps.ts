@@ -1404,11 +1404,24 @@ export const migrationSteps: MigrationStep[] = [
   {
     name: "migrateMoveActivationStateToMemoryDb",
     run: migrateMoveActivationStateToMemoryDb,
-    dependsOn: ["migrateActivationState", "migrateActivationStateFkCascade"],
+    // migrateDeletePrivateConversations purges activation_state via the main-DB
+    // FK cascade; moving the table first drops that cascade, so a deferred or
+    // retried private delete would orphan private snapshots. Wait for it.
+    dependsOn: [
+      "migrateActivationState",
+      "migrateActivationStateFkCascade",
+      "migrateDeletePrivateConversations",
+    ],
   },
   {
     name: "migrateMoveConversationGraphMemoryStateToMemoryDb",
     run: migrateMoveConversationGraphMemoryStateToMemoryDb,
-    dependsOn: ["migrateCreateConversationGraphMemoryState"],
+    // Same guard: migrateDeletePrivateConversations relies on the main-DB FK
+    // cascade to purge conversation_graph_memory_state, so the move must not
+    // run before it is checkpointed.
+    dependsOn: [
+      "migrateCreateConversationGraphMemoryState",
+      "migrateDeletePrivateConversations",
+    ],
   },
 ];

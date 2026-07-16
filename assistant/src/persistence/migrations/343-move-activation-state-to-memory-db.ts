@@ -57,7 +57,11 @@ export function ensureActivationStateSchema(memoryRaw: Database): void {
  *
  * Registered with `dependsOn` on migrations 232 (creator) and 241 (which
  * rebuilds the table to add the FK cascade), so the move never outruns either
- * on a database where they are still pending.
+ * on a database where they are still pending. It also depends on 229
+ * (`migrateDeletePrivateConversations`): that migration purges private rows
+ * through the main-DB FK cascade, so moving the table first — dropping the
+ * cascade — would let a deferred or retried private delete orphan those
+ * snapshots on the memory connection.
  */
 export async function migrateMoveActivationStateToMemoryDb(
   database: DrizzleDb,
