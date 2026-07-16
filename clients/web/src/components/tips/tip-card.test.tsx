@@ -1,13 +1,13 @@
 /**
  * Tests for `TipCard` — the presentational tip card. The card is a bespoke
  * composition (no design-library Notice), so it renders directly inside a
- * `MemoryRouter` (it emits a react-router `<Link>` and navigates on
- * "Don't show again"), via `@testing-library/react` on happy-dom.
+ * `MemoryRouter` (it emits a react-router `<Link>` for learn-more), via
+ * `@testing-library/react` on happy-dom.
  */
 
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, fireEvent, render } from "@testing-library/react";
-import { MemoryRouter, useLocation } from "react-router";
+import { MemoryRouter } from "react-router";
 
 import { TipCard } from "@/components/tips/tip-card";
 import { routes } from "@/utils/routes";
@@ -32,17 +32,14 @@ const PLAIN_TIP: Tip = {
   body: "Ask me for a tracker, dashboard, or calculator.",
 };
 
-function LocationProbe() {
-  const location = useLocation();
-  return <div data-testid="location">{location.pathname}</div>;
-}
-
 function renderCard(
   tip: Tip,
-  handlers?: Partial<{
+  overrides?: Partial<{
+    carouselIndex: number;
+    carouselCount: number;
     onDismiss: () => void;
     onLearnMore: () => void;
-    onDontShowAgain: () => void;
+    onPrevTip: () => void;
     onNextTip: () => void;
   }>,
 ) {
@@ -50,12 +47,13 @@ function renderCard(
     <MemoryRouter initialEntries={[routes.assistant]}>
       <TipCard
         tip={tip}
-        onDismiss={handlers?.onDismiss ?? (() => {})}
-        onLearnMore={handlers?.onLearnMore ?? (() => {})}
-        onDontShowAgain={handlers?.onDontShowAgain ?? (() => {})}
-        onNextTip={handlers?.onNextTip}
+        carouselIndex={overrides?.carouselIndex ?? 1}
+        carouselCount={overrides?.carouselCount ?? 4}
+        onDismiss={overrides?.onDismiss ?? (() => {})}
+        onLearnMore={overrides?.onLearnMore ?? (() => {})}
+        onPrevTip={overrides?.onPrevTip ?? (() => {})}
+        onNextTip={overrides?.onNextTip ?? (() => {})}
       />
-      <LocationProbe />
     </MemoryRouter>,
   );
 }
@@ -86,10 +84,9 @@ describe("TipCard", () => {
   });
 
   test("omits the learn-more link for tips without one", () => {
-    const { container, getByText } = renderCard(PLAIN_TIP);
+    const { container } = renderCard(PLAIN_TIP);
 
     expect(container.querySelector("a")).toBeNull();
-    expect(getByText("Don't show again")).not.toBeNull();
   });
 
   test("dismisses through the header X button", () => {
@@ -101,33 +98,61 @@ describe("TipCard", () => {
     expect(onDismiss).toHaveBeenCalledTimes(1);
   });
 
-  test("renders the next-tip chevron and fires the callback when provided", () => {
+  test("fires the carousel callbacks from the chevrons", () => {
+    const onPrevTip = mock(() => {});
     const onNextTip = mock(() => {});
-    const { container, getByLabelText } = renderCard(LINKED_TIP, { onNextTip });
+    const { getByLabelText } = renderCard(LINKED_TIP, { onPrevTip, onNextTip });
 
-    expect(
-      container.querySelector('[data-slot="tip-card-next"]'),
-    ).not.toBeNull();
+    fireEvent.click(getByLabelText("Previous tip"));
     fireEvent.click(getByLabelText("Next tip"));
 
+    expect(onPrevTip).toHaveBeenCalledTimes(1);
     expect(onNextTip).toHaveBeenCalledTimes(1);
   });
 
-  test("omits the next-tip chevron when the prop is absent", () => {
-    const { container } = renderCard(LINKED_TIP);
+  test("disables the back chevron on the first tip and forward on the last", () => {
+    const first = renderCard(LINKED_TIP, { carouselIndex: 0, carouselCount: 4 });
+    expect(
+      first.getByLabelText("Previous tip").hasAttribute("disabled"),
+    ).toBe(true);
+    expect(first.getByLabelText("Next tip").hasAttribute("disabled")).toBe(
+      false,
+    );
+    cleanup();
 
-    expect(container.querySelector('[data-slot="tip-card-next"]')).toBeNull();
+    const last = renderCard(LINKED_TIP, { carouselIndex: 3, carouselCount: 4 });
+    expect(last.getByLabelText("Previous tip").hasAttribute("disabled")).toBe(
+      false,
+    );
+    expect(last.getByLabelText("Next tip").hasAttribute("disabled")).toBe(true);
   });
 
-  test("don't show again fires the callback and navigates to Settings General", () => {
-    const onDontShowAgain = mock(() => {});
-    const { getByText, getByTestId } = renderCard(LINKED_TIP, {
-      onDontShowAgain,
+  test("renders one dot per tip up to the window, then caps at five", () => {
+    const small = renderCard(LINKED_TIP, { carouselIndex: 0, carouselCount: 3 });
+    expect(
+      small.container.querySelectorAll('[data-slot="tip-card-dots"] span')
+        .length,
+    ).toBe(3);
+    cleanup();
+
+    const large = renderCard(LINKED_TIP, {
+      carouselIndex: 10,
+      carouselCount: 20,
+    });
+    expect(
+      large.container.querySelectorAll('[data-slot="tip-card-dots"] span')
+        .length,
+    ).toBe(5);
+  });
+
+  test("hides the carousel row entirely for a single-tip catalog", () => {
+    const { container } = renderCard(LINKED_TIP, {
+      carouselIndex: 0,
+      carouselCount: 1,
     });
 
-    fireEvent.click(getByText("Don't show again"));
-
-    expect(onDontShowAgain).toHaveBeenCalledTimes(1);
-    expect(getByTestId("location").textContent).toBe(routes.settings.general);
+    expect(container.querySelector('[data-slot="tip-card-prev"]')).toBeNull();
+    expect(container.querySelector('[data-slot="tip-card-next"]')).toBeNull();
+    expect(container.querySelector('[data-slot="tip-card-dots"]')).toBeNull();
   });
 });

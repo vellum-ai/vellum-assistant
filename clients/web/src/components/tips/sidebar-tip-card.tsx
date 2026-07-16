@@ -9,8 +9,15 @@ import { useTipCard } from "@/hooks/use-tip-card";
 import { TipCard } from "./tip-card";
 
 export function SidebarTipCard() {
-  const { tip, onDismiss, onLearnMore, onDontShowAgain, onNextTip } =
-    useTipCard();
+  const {
+    tip,
+    carouselIndex,
+    carouselCount,
+    onDismiss,
+    onLearnMore,
+    onPrevTip,
+    onNextTip,
+  } = useTipCard();
 
   if (!tip) {
     return null;
@@ -19,9 +26,11 @@ export function SidebarTipCard() {
   return (
     <TipCard
       tip={tip}
+      carouselIndex={carouselIndex}
+      carouselCount={carouselCount}
       onDismiss={onDismiss}
       onLearnMore={onLearnMore}
-      onDontShowAgain={onDontShowAgain}
+      onPrevTip={onPrevTip}
       onNextTip={onNextTip}
     />
   );

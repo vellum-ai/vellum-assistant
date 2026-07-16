@@ -34,15 +34,16 @@ const { TIP_ROTATION_INTERVAL_MS } = await import("@/utils/tips-selection");
 const {
   recordTipDismissed,
   tipRecordsStorage,
-  tipsDemoCyclerStorage,
   tipsEnabledStorage,
   tipsFirstSeenAtStorage,
 } = await import("@/utils/tips-storage");
 
 const FIRST_TIP_ID = TIPS_CATALOG[0].id;
-// Successor on web once the first tip is dismissed: next tip that passes
-// gates in this environment (no Electron, no flags, no plugins surface).
-const SECOND_UNGATED_TIP_ID = TIPS_CATALOG.filter((tip) => !tip.gates)[1].id;
+// The browsable catalog in this environment: tips whose gates pass on web
+// (no Electron, no flags, no plugins surface) — i.e. the ungated ones.
+const UNGATED_TIPS = TIPS_CATALOG.filter((tip) => !tip.gates);
+// Successor on web once the first tip is dismissed.
+const SECOND_UNGATED_TIP_ID = UNGATED_TIPS[1].id;
 
 function setFlag(value: "on" | "off") {
   useClientFeatureFlagStore.getState().setStringFlags({ proactiveTips: value });
@@ -276,89 +277,134 @@ describe("useTipCard actions", () => {
     expect(emitTipEvent).toHaveBeenCalledWith(FIRST_TIP_ID, "learn_more", "on");
   });
 
-  test("don't show again disables tips and emits", () => {
-    openAllGates();
-    const { result } = renderHook(() => useTipCard());
-    emitTipEvent.mockClear();
-
-    act(() => {
-      result.current.onDontShowAgain();
-    });
-
-    expect(result.current.tip).toBeNull();
-    expect(tipsEnabledStorage.load()).toBe(false);
-    expect(emitTipEvent).toHaveBeenCalledTimes(1);
-    expect(emitTipEvent).toHaveBeenCalledWith(
-      FIRST_TIP_ID,
-      "dont_show_again",
-      "on",
-    );
-  });
 });
 
-describe("useTipCard demo cycler", () => {
-  test("onNextTip is undefined while the cycler storage is off", () => {
+describe("useTipCard carousel", () => {
+  test("browses forward and back through the gate-passing catalog", () => {
     openAllGates();
 
     const { result } = renderHook(() => useTipCard());
-
     expect(result.current.tip?.id).toBe(FIRST_TIP_ID);
-    expect(result.current.onNextTip).toBeUndefined();
+    expect(result.current.carouselIndex).toBe(0);
+    expect(result.current.carouselCount).toBe(UNGATED_TIPS.length);
+
+    act(() => {
+      result.current.onNextTip();
+    });
+    expect(result.current.tip?.id).toBe(SECOND_UNGATED_TIP_ID);
+    expect(result.current.carouselIndex).toBe(1);
+
+    act(() => {
+      result.current.onPrevTip();
+    });
+    expect(result.current.tip?.id).toBe(FIRST_TIP_ID);
+    expect(result.current.carouselIndex).toBe(0);
   });
 
-  test("cycles the full catalog — including gated and dismissed tips — and wraps", () => {
+  test("clamps at the catalog edges instead of wrapping", () => {
     openAllGates();
-    tipsDemoCyclerStorage.save(true);
-    // A dismissed tip must still appear in the demo walk.
-    recordTipDismissed(TIPS_CATALOG[2].id, Date.now());
 
     const { result } = renderHook(() => useTipCard());
+    act(() => {
+      result.current.onPrevTip();
+    });
     expect(result.current.tip?.id).toBe(FIRST_TIP_ID);
-    expect(result.current.onNextTip).toBeDefined();
 
-    // First click jumps to the shown tip's successor; each later click
-    // advances one slot. Walking length clicks covers every catalog entry
-    // (gated ones included — none pass gates on web) and lands back on the
-    // first tip, proving the wrap.
-    for (let click = 1; click <= TIPS_CATALOG.length; click++) {
+    for (let click = 0; click < UNGATED_TIPS.length + 3; click++) {
       act(() => {
-        result.current.onNextTip?.();
+        result.current.onNextTip();
       });
-      expect(result.current.tip?.id).toBe(
-        TIPS_CATALOG[click % TIPS_CATALOG.length].id,
-      );
     }
+    expect(result.current.tip?.id).toBe(UNGATED_TIPS.at(-1)?.id);
+    expect(result.current.carouselIndex).toBe(UNGATED_TIPS.length - 1);
   });
 
-  test("demo-shown tips stamp no records and emit no telemetry", () => {
+  test("browsing includes previously dismissed tips", () => {
     openAllGates();
-    tipsDemoCyclerStorage.save(true);
+    recordTipDismissed(SECOND_UNGATED_TIP_ID, Date.now());
 
     const { result } = renderHook(() => useTipCard());
-    // The initial real tip still records its impression as usual.
+    expect(result.current.tip?.id).toBe(FIRST_TIP_ID);
+
+    act(() => {
+      result.current.onNextTip();
+    });
+    expect(result.current.tip?.id).toBe(SECOND_UNGATED_TIP_ID);
+  });
+
+  test("browsed tips stamp no records and emit no impressions", () => {
+    openAllGates();
+
+    const { result } = renderHook(() => useTipCard());
+    // The initial cadence-selected tip still records its impression as usual.
     expect(tipRecordsStorage.load()[FIRST_TIP_ID]?.shownCount).toBe(1);
     const recordsAfterRealImpression = tipRecordsStorage.load();
     emitTipEvent.mockClear();
 
-    for (let click = 1; click <= TIPS_CATALOG.length; click++) {
+    for (let click = 0; click < UNGATED_TIPS.length; click++) {
       act(() => {
-        result.current.onNextTip?.();
+        result.current.onNextTip();
       });
     }
+    act(() => {
+      result.current.onPrevTip();
+    });
 
     expect(tipRecordsStorage.load()).toEqual(recordsAfterRealImpression);
     expect(emitTipEvent).not.toHaveBeenCalled();
   });
 
-  test("global gates still blank the slot while demo cycling", () => {
+  test("learn more emits the browsed tip's id", () => {
     openAllGates();
-    tipsDemoCyclerStorage.save(true);
+    const { result } = renderHook(() => useTipCard());
+    act(() => {
+      result.current.onNextTip();
+    });
+    emitTipEvent.mockClear();
+
+    act(() => {
+      result.current.onLearnMore();
+    });
+
+    expect(emitTipEvent).toHaveBeenCalledWith(
+      SECOND_UNGATED_TIP_ID,
+      "learn_more",
+      "on",
+    );
+  });
+
+  test("dismissing a browsed tip records it and closes the card, sparing the selected tip", () => {
+    openAllGates();
+    const { result } = renderHook(() => useTipCard());
+    act(() => {
+      result.current.onNextTip();
+    });
+    emitTipEvent.mockClear();
+
+    act(() => {
+      result.current.onDismiss();
+    });
+
+    expect(result.current.tip).toBeNull();
+    const records = tipRecordsStorage.load();
+    expect(records[SECOND_UNGATED_TIP_ID]?.dismissedAt).toBeGreaterThan(0);
+    expect(records[FIRST_TIP_ID]?.dismissedAt).toBeUndefined();
+    expect(emitTipEvent).toHaveBeenCalledTimes(1);
+    expect(emitTipEvent).toHaveBeenCalledWith(
+      SECOND_UNGATED_TIP_ID,
+      "dismiss",
+      "on",
+    );
+  });
+
+  test("global gates still blank the slot while browsing", () => {
+    openAllGates();
 
     const { result } = renderHook(() => useTipCard());
     act(() => {
-      result.current.onNextTip?.();
+      result.current.onNextTip();
     });
-    expect(result.current.tip?.id).toBe(TIPS_CATALOG[1].id);
+    expect(result.current.tip?.id).toBe(SECOND_UNGATED_TIP_ID);
 
     act(() => {
       useBannerVisibilityStore.getState().registerVisibleBanner();

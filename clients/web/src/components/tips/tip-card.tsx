@@ -4,15 +4,15 @@
  * (`hooks/use-tip-card.ts`); this component only renders the tip it is given.
  *
  * Compact promo-card layout for the narrow sidebar: eyebrow header row with
- * the dismiss X top-right, bold title, secondary body, then a footer row with
- * the learn-more CTA left and "Don't show again" right.
+ * the dismiss X top-right, bold title, secondary body, an optional learn-more
+ * CTA, then a centered carousel row (prev/next chevrons around windowed
+ * pagination dots) for browsing the catalog.
  */
 
-import { ChevronRight, Lightbulb, X } from "lucide-react";
-import { Link, useNavigate } from "react-router";
+import { ChevronLeft, ChevronRight, Lightbulb, X } from "lucide-react";
+import { Link } from "react-router";
 
 import { cn } from "@/utils/misc";
-import { routes } from "@/utils/routes";
 import type { Tip } from "@/utils/tips-catalog";
 
 const headerButtonClassName = cn(
@@ -22,24 +22,76 @@ const headerButtonClassName = cn(
   "keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)] keyboard-focus:outline-none",
 );
 
+const carouselButtonClassName = cn(
+  "shrink-0 cursor-pointer rounded bg-transparent p-1",
+  "text-[color:var(--content-tertiary)] transition-colors",
+  "hover:text-[color:var(--content-secondary)]",
+  "disabled:cursor-default disabled:opacity-35",
+  "disabled:hover:text-[color:var(--content-tertiary)]",
+  "keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)] keyboard-focus:outline-none",
+);
+
+/**
+ * Windowed pagination dots: at most 5, and an edge dot shrinks when more
+ * items lie beyond the window — relative position, never a wall of dots.
+ */
+const MAX_CAROUSEL_DOTS = 5;
+
+function TipCarouselDots({ index, count }: { index: number; count: number }) {
+  const windowSize = Math.min(MAX_CAROUSEL_DOTS, count);
+  const start = Math.min(
+    Math.max(index - Math.floor(windowSize / 2), 0),
+    count - windowSize,
+  );
+  return (
+    <div
+      className="flex items-center gap-1.5"
+      data-slot="tip-card-dots"
+      aria-hidden="true"
+    >
+      {Array.from({ length: windowSize }, (_, offset) => {
+        const dotIndex = start + offset;
+        const shrunk =
+          (dotIndex === start && start > 0) ||
+          (dotIndex === start + windowSize - 1 && start + windowSize < count);
+        return (
+          <span
+            key={dotIndex}
+            className={cn(
+              "rounded-full",
+              shrunk ? "size-1" : "size-1.5",
+              dotIndex === index
+                ? "bg-[var(--system-info-strong)]"
+                : "bg-[var(--content-tertiary)] opacity-50",
+            )}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
 export interface TipCardProps {
   tip: Tip;
+  /** Zero-based position of `tip` among the browsable tips. */
+  carouselIndex: number;
+  /** Number of browsable tips; the carousel row hides when < 2. */
+  carouselCount: number;
   onDismiss: () => void;
   onLearnMore: () => void;
-  onDontShowAgain: () => void;
-  /** Dev/demo-only cycler — omitted in production, so no button renders. */
-  onNextTip?: () => void;
+  onPrevTip: () => void;
+  onNextTip: () => void;
 }
 
 export function TipCard({
   tip,
+  carouselIndex,
+  carouselCount,
   onDismiss,
   onLearnMore,
-  onDontShowAgain,
+  onPrevTip,
   onNextTip,
 }: TipCardProps) {
-  const navigate = useNavigate();
-
   return (
     <div
       data-slot="tip-card"
@@ -54,21 +106,6 @@ export function TipCard({
           {tip.eyebrow}
         </span>
         <span className="flex-1" />
-        {onNextTip ? (
-          <button
-            type="button"
-            onClick={onNextTip}
-            aria-label="Next tip"
-            data-slot="tip-card-next"
-            className={headerButtonClassName}
-          >
-            <ChevronRight
-              className="h-3.5 w-3.5"
-              strokeWidth={2}
-              aria-hidden="true"
-            />
-          </button>
-        ) : null}
         <button
           type="button"
           onClick={onDismiss}
@@ -87,13 +124,8 @@ export function TipCard({
         {tip.body}
       </div>
 
-      <div
-        className={cn(
-          "mt-4 flex flex-wrap items-baseline gap-x-4 gap-y-1",
-          tip.learnMore ? "justify-between" : "justify-end",
-        )}
-      >
-        {tip.learnMore ? (
+      {tip.learnMore ? (
+        <div className="mt-4">
           <Link
             data-slot="tip-card-learn-more"
             to={tip.learnMore.to}
@@ -102,19 +134,42 @@ export function TipCard({
           >
             {tip.learnMore.label} →
           </Link>
-        ) : null}
-        <button
-          type="button"
-          data-slot="tip-card-dont-show-again"
-          onClick={() => {
-            onDontShowAgain();
-            navigate(routes.settings.general);
-          }}
-          className="cursor-pointer text-[10px] whitespace-nowrap text-[color:var(--content-tertiary)] hover:text-[color:var(--content-secondary)] hover:underline"
-        >
-          Don&apos;t show again
-        </button>
-      </div>
+        </div>
+      ) : null}
+
+      {carouselCount > 1 ? (
+        <div className="mt-3 flex items-center justify-center gap-2">
+          <button
+            type="button"
+            onClick={onPrevTip}
+            disabled={carouselIndex === 0}
+            aria-label="Previous tip"
+            data-slot="tip-card-prev"
+            className={carouselButtonClassName}
+          >
+            <ChevronLeft
+              className="h-3.5 w-3.5"
+              strokeWidth={2}
+              aria-hidden="true"
+            />
+          </button>
+          <TipCarouselDots index={carouselIndex} count={carouselCount} />
+          <button
+            type="button"
+            onClick={onNextTip}
+            disabled={carouselIndex === carouselCount - 1}
+            aria-label="Next tip"
+            data-slot="tip-card-next"
+            className={carouselButtonClassName}
+          >
+            <ChevronRight
+              className="h-3.5 w-3.5"
+              strokeWidth={2}
+              aria-hidden="true"
+            />
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }
