@@ -1,5 +1,4 @@
 import { Heart, Monitor, Moon, Sun } from "lucide-react";
-import { useEffect, useState } from "react";
 
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { ShortcutsSections } from "@/domains/settings/keyboard-shortcuts/shortcuts-sections";
@@ -8,13 +7,8 @@ import { getLaunchAtLogin, setLaunchAtLogin } from "@/runtime/launch-at-login";
 import { isMacOSBrowser } from "@/runtime/platform-detection";
 import { cmdEnterToSend } from "@/utils/composer-settings";
 import { isPointerCoarse } from "@/utils/pointer";
-import {
-  applyThemePreference,
-  readStoredThemePreference,
-  type ThemePreference,
-  writeStoredThemePreference,
-} from "@/domains/settings/utils/theme-preferences";
-import { watchDeviceSetting } from "@/utils/device-settings";
+import { type ThemePreference } from "@/domains/settings/utils/theme-preferences";
+import { useThemePreference } from "@/domains/settings/utils/use-theme-preference";
 import { Modal } from "@vellumai/design-library/components/modal";
 import { SegmentControl } from "@vellumai/design-library/components/segment-control";
 import { Toggle } from "@vellumai/design-library/components/toggle";
@@ -24,32 +18,13 @@ import { Toggle } from "@vellumai/design-library/components/toggle";
  * Lives in Preferences alongside the other per-device preferences. Unlike the
  * other sections it is not Electron-gated — theme applies on every platform —
  * so it also gives the modal meaningful content on web and iOS.
+ *
+ * Shares the `useThemePreference` hook with the sidebar `ThemeToggle` so the
+ * two surfaces stay in sync.
  */
 function AppearanceSection() {
   const velvet = useClientFeatureFlagStore.use.velvet();
-  const [theme, setTheme] = useState<ThemePreference>(() =>
-    readStoredThemePreference({ velvetEnabled: velvet }),
-  );
-
-  useEffect(() => {
-    setTheme(readStoredThemePreference({ velvetEnabled: velvet }));
-  }, [velvet]);
-
-  useEffect(() => {
-    return watchDeviceSetting("theme", () => {
-      setTheme(readStoredThemePreference({ velvetEnabled: velvet }));
-    });
-  }, [velvet]);
-
-  useEffect(() => {
-    applyThemePreference(theme);
-  }, [theme]);
-
-  const handleThemeChange = (newTheme: ThemePreference) => {
-    setTheme(newTheme);
-    writeStoredThemePreference(newTheme);
-    applyThemePreference(newTheme);
-  };
+  const { theme, setThemePreference } = useThemePreference();
 
   const themeItems = [
     {
@@ -87,7 +62,7 @@ function AppearanceSection() {
         <SegmentControl<ThemePreference>
           ariaLabel="Theme"
           value={theme}
-          onChange={handleThemeChange}
+          onChange={setThemePreference}
           items={themeItems}
         />
       </div>
