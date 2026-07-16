@@ -804,6 +804,59 @@ describe("LiveVoiceSession server VAD", () => {
     expect(spawnBackgroundContinuation).not.toHaveBeenCalled();
   });
 
+  test("voice-duplex-handoff on: no continuation when the model already completed", async () => {
+    setCachedOverrides({ "voice-duplex-handoff": true }, { fromGateway: true });
+    let callbacks: VoiceTurnCallbacks | undefined;
+    const spawnBackgroundContinuation = mock(
+      async (_args: {
+        parentConversationId: string;
+        objective: string;
+        label: string;
+        signal: AbortSignal;
+      }) => {},
+    );
+    const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
+      callbacks ??= options.callbacks;
+      return { turnId: "bridge-turn", abort: mock() };
+    });
+    let releaseTts: (() => void) | undefined;
+    const streamTtsAudio = mock(async (options: LiveVoiceTtsOptions) => {
+      options.onAudioChunk(makeTtsChunk("assistant audio"));
+      // Hang so tts_done never fires: the turn stays completed-but-not-finalized.
+      await new Promise<void>((resolve) => {
+        releaseTts = resolve;
+      });
+      return makeTtsResult("assistant audio");
+    });
+    const { frames, session } = createHarness({
+      finals: ["first question", "second question"],
+      startVoiceTurn,
+      streamTtsAudio,
+      spawnBackgroundContinuation,
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => callbacks !== undefined);
+
+    // The model finishes generating (assistantCompleted), but TTS is still
+    // playing, so the turn is not finalized.
+    callbacks?.assistant_text_delta?.(makeTextDelta("done"));
+    callbacks?.message_complete?.(makeMessageComplete());
+    await waitFor(() => frames.some((frame) => frame.type === "tts_audio"));
+
+    // Barge in over the playing, already-complete reply.
+    await session.handleBinaryAudio(SUSTAINED_LOUD_CHUNK);
+    await waitFor(() =>
+      frames.some((frame) => frame.type === "turn_cancelled"),
+    );
+    await flushAsyncCallbacks();
+
+    // Nothing to continue: no background subagent is spawned.
+    expect(spawnBackgroundContinuation).not.toHaveBeenCalled();
+    releaseTts?.();
+  });
+
   test("a late assistant_text_delta after a thinking barge-in never reaches the client", async () => {
     let callbacks: VoiceTurnCallbacks | undefined;
     const abort = mock();

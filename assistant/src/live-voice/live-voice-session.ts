@@ -1092,6 +1092,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     if (
       !spawn ||
       this.isClosed ||
+      // The model already finished generating (barge-in during TTS playback of a
+      // complete reply): there is nothing to continue, so a continuation would
+      // just re-do a finished answer.
+      turn.assistantCompleted ||
       // A stop (interrupt/close) landed during the barge-in teardown: honor it
       // and do not start the continuation.
       this.detachStopGeneration !== stopGeneration ||
