@@ -28,6 +28,8 @@ interface MobileAppOverlayProps {
   route?: string;
   /** Forwarded to `AppViewerContainer` for sandboxed app actions. */
   onAction?: (actionId: string, data?: Record<string, unknown>) => void;
+  /** When provided, the app name becomes inline-editable in the nav bar. */
+  onRename?: (newName: string) => Promise<void>;
 }
 
 /**
@@ -51,6 +53,7 @@ export function MobileAppOverlay({
   isDeploying,
   route,
   onAction,
+  onRename,
 }: MobileAppOverlayProps) {
   const shellStyle = useMobileOverlayViewportStyle();
 
@@ -109,6 +112,7 @@ export function MobileAppOverlay({
           isEditing={isAppMinimized}
           route={route}
           onAction={onAction}
+          onRename={onRename}
         />
       </div>
     </div>

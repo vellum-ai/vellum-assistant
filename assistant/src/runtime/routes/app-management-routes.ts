@@ -663,6 +663,30 @@ function handleUpdatePreview({ pathParams, body }: RouteHandlerArgs) {
   return { success: true, appId };
 }
 
+function handleUpdateApp({ pathParams, body, headers }: RouteHandlerArgs) {
+  const appId = pathParams?.id as string;
+  const existing = getApp(appId);
+  if (!existing) {
+    throw new NotFoundError(`App not found: ${appId}`);
+  }
+
+  const name = body?.name as string | undefined;
+  const description = body?.description as string | undefined;
+
+  const updates: { name?: string; description?: string } = {};
+  if (name !== undefined) updates.name = name;
+  if (description !== undefined) updates.description = description;
+
+  const updatedApp = updateApp(appId, updates);
+  publishAppsChanged(getOriginClientId(headers));
+  return {
+    success: true,
+    appId,
+    name: updatedApp.name,
+    description: updatedApp.description,
+  };
+}
+
 async function handleBundle({ pathParams }: RouteHandlerArgs) {
   const appId = pathParams?.id as string;
   const result = await packageApp(appId);
@@ -1002,6 +1026,30 @@ export const ROUTES: RouteDefinition[] = [
     responseBody: z.object({
       success: z.boolean(),
       appId: z.string(),
+    }),
+  },
+  {
+    operationId: "apps_update",
+    endpoint: "apps/:id",
+    method: "PUT",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    handler: handleUpdateApp,
+    summary: "Update app metadata",
+    description:
+      "Update an app's name and/or description. At least one field must be provided.",
+    tags: ["apps"],
+    requestBody: z.object({
+      name: z.string().optional(),
+      description: z.string().optional(),
+    }),
+    responseBody: z.object({
+      success: z.boolean(),
+      appId: z.string(),
+      name: z.string(),
+      description: z.string().optional(),
     }),
   },
   {

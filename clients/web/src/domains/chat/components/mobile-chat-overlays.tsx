@@ -19,6 +19,7 @@ import { useBackgroundTaskStore } from "@/domains/chat/background-task-store";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 import { useWorkflowStore } from "@/domains/chat/workflow-store";
 import { useViewerStore } from "@/stores/viewer-store";
+import { appsByIdPut } from "@/generated/daemon/sdk.gen";
 import { routes } from "@/utils/routes";
 
 import { MobileAcpRunDetailOverlay } from "@/domains/chat/components/mobile-acp-run-detail-overlay";
@@ -61,13 +62,31 @@ export function MobileChatOverlays() {
   const handleShareApp = useCallback(() => {
     const app = useViewerStore.getState().openedAppState;
     const aid = useResolvedAssistantsStore.getState().activeAssistantId;
-    if (app && aid) void useDeployStore.getState().shareApp(aid, app.appId, app.name);
+    if (app && aid)
+      void useDeployStore.getState().shareApp(aid, app.appId, app.name);
   }, []);
 
   const handleDeployApp = useCallback(() => {
     const app = useViewerStore.getState().openedAppState;
     const aid = useResolvedAssistantsStore.getState().activeAssistantId;
-    if (app && aid) void useDeployStore.getState().deployApp(aid, app.appId, app.name, app.html);
+    if (app && aid)
+      void useDeployStore
+        .getState()
+        .deployApp(aid, app.appId, app.name, app.html);
+  }, []);
+
+  const handleRenameApp = useCallback(async (newName: string) => {
+    const viewer = useViewerStore.getState();
+    const app = viewer.openedAppState;
+    const aid = useResolvedAssistantsStore.getState().activeAssistantId;
+    if (!app || !aid) return;
+    await appsByIdPut({
+      path: { assistant_id: aid, id: app.appId },
+      body: { name: newName },
+      throwOnError: true,
+    });
+    viewer.setAppName(newName);
+    viewer.refreshAssets();
   }, []);
 
   const handleAppAction = useCallback(
@@ -94,7 +113,8 @@ export function MobileChatOverlays() {
   }, []);
 
   const handleStopSubagent = useCallback(
-    (subagentId: string) => void useSubagentStore.getState().abortSubagent(subagentId),
+    (subagentId: string) =>
+      void useSubagentStore.getState().abortSubagent(subagentId),
     [],
   );
 
@@ -152,9 +172,12 @@ export function MobileChatOverlays() {
         onDeploy={handleDeployApp}
         isDeploying={isDeploying}
         onAction={handleAppAction}
+        onRename={handleRenameApp}
       />
       <MobileDocumentOverlay
-        openedDocumentState={mainView === "document" ? openedDocumentState : null}
+        openedDocumentState={
+          mainView === "document" ? openedDocumentState : null
+        }
         assistantId={assistantId}
         onClose={handleCloseDocument}
         onSubmitFeedback={handleDocumentSubmitFeedback}
@@ -162,7 +185,7 @@ export function MobileChatOverlays() {
       <MobileSubagentDetailOverlay
         entry={
           mainView === "subagent-detail" && activeSubagentId
-            ? subagentById[activeSubagentId] ?? null
+            ? (subagentById[activeSubagentId] ?? null)
             : null
         }
         onClose={handleCloseSubagentDetail}
@@ -172,7 +195,7 @@ export function MobileChatOverlays() {
       <MobileWorkflowDetailOverlay
         entry={
           mainView === "workflow-detail" && activeWorkflowRunId
-            ? workflowById[activeWorkflowRunId] ?? null
+            ? (workflowById[activeWorkflowRunId] ?? null)
             : null
         }
         onClose={handleCloseWorkflowDetail}
@@ -182,7 +205,7 @@ export function MobileChatOverlays() {
       <MobileAcpRunDetailOverlay
         entry={
           mainView === "acp-run-detail" && activeAcpRunId
-            ? acpRunById[activeAcpRunId] ?? null
+            ? (acpRunById[activeAcpRunId] ?? null)
             : null
         }
         onClose={handleCloseAcpRunDetail}
@@ -190,7 +213,7 @@ export function MobileChatOverlays() {
       <MobileBackgroundTaskDetailOverlay
         entry={
           mainView === "background-task-detail" && activeBackgroundTaskId
-            ? backgroundTaskById[activeBackgroundTaskId] ?? null
+            ? (backgroundTaskById[activeBackgroundTaskId] ?? null)
             : null
         }
         onClose={handleCloseBackgroundTaskDetail}

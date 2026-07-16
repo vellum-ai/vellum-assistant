@@ -28,10 +28,12 @@ export interface AppViewerContainerProps {
   /**
    * Handler for actions the sandboxed app dispatches via
    * `window.vellum.sendAction(actionId, data)` (e.g. `relay_prompt`). The
-   * viewer is presentational — the consumer owns what an action does. Omit it
+   * viewer is presentational, the consumer owns what an action does. Omit it
    * (e.g. the standalone library viewer) to ignore app actions.
    */
   onAction?: (actionId: string, data?: Record<string, unknown>) => void;
+  /** When provided, the app name in the nav bar becomes inline-editable. */
+  onRename?: (newName: string) => Promise<void>;
 }
 
 export function AppViewerContainer({
@@ -49,6 +51,7 @@ export function AppViewerContainer({
   route,
   enableFullscreen = false,
   onAction,
+  onRename,
 }: AppViewerContainerProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
@@ -108,6 +111,7 @@ export function AppViewerContainer({
           isDeploying={isDeploying}
           onToggleFullscreen={enableFullscreen ? toggleFullscreen : undefined}
           onClose={onClose}
+          onRename={onRename}
         />
       )}
 
@@ -117,7 +121,8 @@ export function AppViewerContainer({
             className="absolute z-10"
             style={{
               top: "max(0.75rem, var(--safe-area-inset-top, env(safe-area-inset-top, 0px)))",
-              right: "max(0.75rem, var(--safe-area-inset-right, env(safe-area-inset-right, 0px)))",
+              right:
+                "max(0.75rem, var(--safe-area-inset-right, env(safe-area-inset-right, 0px)))",
             }}
           >
             <Button

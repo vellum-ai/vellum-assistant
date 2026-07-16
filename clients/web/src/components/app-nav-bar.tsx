@@ -7,7 +7,7 @@ import {
   Share,
   X,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { cn } from "@/utils/misc";
@@ -35,6 +35,12 @@ export interface AppNavBarProps {
   /** When provided, renders a fullscreen toggle button in the right group. */
   onToggleFullscreen?: () => void;
   onClose: () => void;
+  /**
+   * When provided, the app name becomes inline-editable: clicking the name
+   * turns it into a text input. Saves on Enter or blur, cancels on Escape.
+   * Empty names revert to the original.
+   */
+  onRename?: (newName: string) => Promise<void>;
 }
 
 export function AppNavBar({
@@ -47,18 +53,125 @@ export function AppNavBar({
   isDeploying,
   onToggleFullscreen,
   onClose,
+  onRename,
 }: AppNavBarProps) {
   const isMobile = useIsMobile();
   // While the bar is acting as the minimized strip on mobile, tapping the
-  // title is the primary "open app" affordance — same callback as the
+  // title is the primary "open app" affordance, same callback as the
   // chevron-up icon next to it.
   const titleClickEnabled = isMobile && isEditing === true && onEdit != null;
 
   // When both share and deploy are available, collapse them into a single
   // dropdown trigger so the right-side button group stays compact and the
-  // two actions live behind one affordance — matching the library card's
+  // two actions live behind one affordance, matching the library card's
   // `...` menu shape.
   const showShareDeployMenu = onShare != null && onDeploy != null;
+
+  // --- Inline rename state ---
+  const [isRenaming, setIsRenaming] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [draftName, setDraftName] = useState(appName);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // Reset draft when appName prop changes externally
+  useEffect(() => {
+    if (!isRenaming) {
+      setDraftName(appName);
+    }
+  }, [appName, isRenaming]);
+
+  // Focus and select all text when entering edit mode
+  useEffect(() => {
+    if (isRenaming && inputRef.current) {
+      inputRef.current.focus();
+      inputRef.current.select();
+    }
+  }, [isRenaming]);
+
+  const canRename = onRename != null && !titleClickEnabled;
+
+  const startRenaming = (e: React.MouseEvent) => {
+    if (!canRename || isRenaming) return;
+    e.stopPropagation();
+    setDraftName(appName);
+    setIsRenaming(true);
+  };
+
+  const cancelRenaming = () => {
+    setIsRenaming(false);
+    setDraftName(appName);
+  };
+
+  const commitRename = async () => {
+    const trimmed = draftName.trim();
+    if (!trimmed || trimmed === appName) {
+      cancelRenaming();
+      return;
+    }
+    setIsSaving(true);
+    try {
+      await onRename?.(trimmed);
+      setIsRenaming(false);
+      setDraftName(trimmed);
+    } catch {
+      cancelRenaming();
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleNameKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      void commitRename();
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      cancelRenaming();
+    }
+  };
+
+  const renderAppName = () => {
+    if (isRenaming) {
+      return (
+        <input
+          ref={inputRef}
+          type="text"
+          value={draftName}
+          disabled={isSaving}
+          onChange={(e) => setDraftName(e.target.value)}
+          onBlur={() => void commitRename()}
+          onKeyDown={handleNameKeyDown}
+          className={cn(
+            "flex-1 min-w-0 rounded-md border border-[var(--border-default)] bg-[var(--surface-base)] px-2 py-0.5",
+            "text-left md:text-center text-[var(--content-emphasised)] outline-none",
+            "focus:border-[var(--border-focus)]",
+          )}
+          style={{ lineHeight: 1.4 }}
+          aria-label="App name"
+        />
+      );
+    }
+
+    const isClickable = canRename || titleClickEnabled;
+    return (
+      <Typography
+        variant="body-large-default"
+        className={cn(
+          "flex-1 truncate text-left md:text-center text-[var(--content-emphasised)]",
+          isClickable && "cursor-pointer",
+        )}
+        style={{ lineHeight: 1.4 }}
+        onClick={
+          titleClickEnabled ? onEdit : canRename ? startRenaming : undefined
+        }
+      >
+        {appName}
+        {isSaving && (
+          <Loader2 className="ml-1 inline h-3.5 w-3.5 animate-spin align-middle" />
+        )}
+      </Typography>
+    );
+  };
 
   return (
     <div className="flex items-center justify-between rounded-t-xl bg-[var(--surface-lift)] px-4 py-3">
@@ -68,17 +181,7 @@ export function AppNavBar({
         )}
       </div>
 
-      <Typography
-        variant="body-large-default"
-        className={cn(
-          "flex-1 truncate text-left md:text-center text-[var(--content-emphasised)]",
-          titleClickEnabled && "cursor-pointer",
-        )}
-        style={{ lineHeight: 1.4 }}
-        onClick={titleClickEnabled ? onEdit : undefined}
-      >
-        {appName}
-      </Typography>
+      {renderAppName()}
 
       <div className="flex items-center gap-1.5 min-w-[72px] justify-end">
         {showShareDeployMenu ? (
@@ -99,7 +202,7 @@ export function AppNavBar({
                 }
                 onClick={onDeploy}
                 disabled={isDeploying}
-                tooltip={isDeploying ? "Deploying…" : "Deploy"}
+                tooltip={isDeploying ? "Deploying..." : "Deploy"}
               />
             )}
             {onShare != null && (
@@ -110,7 +213,7 @@ export function AppNavBar({
                 }
                 onClick={onShare}
                 disabled={isSharing}
-                tooltip={isSharing ? "Sharing…" : "Share"}
+                tooltip={isSharing ? "Sharing..." : "Share"}
               />
             )}
           </>
@@ -133,7 +236,12 @@ export function AppNavBar({
             className="md:hidden"
           />
         )}
-        <Button variant="outlined" iconOnly={<X />} onClick={onClose} tooltip="Close" />
+        <Button
+          variant="outlined"
+          iconOnly={<X />}
+          onClick={onClose}
+          tooltip="Close"
+        />
       </div>
     </div>
   );
@@ -143,7 +251,7 @@ export function AppNavBar({
 // Share + Deploy to Vercel dropdown
 //
 // Single trigger that opens a dropdown listing both actions. Used whenever
-// both `onShare` and `onDeploy` are provided to the nav bar — collapses two
+// both `onShare` and `onDeploy` are provided to the nav bar, collapses two
 // adjacent icon buttons into one affordance. Matches the library card's
 // `...` menu shape (desktop dropdown + mobile bottom sheet).
 // ---------------------------------------------------------------------------
@@ -165,15 +273,11 @@ function ShareDeployMenuTrigger({
 }: ShareDeployMenuTriggerProps) {
   const [open, setOpen] = useState(false);
   const isBusy = isSharing || isDeploying;
-  const triggerIcon = isBusy ? (
-    <Loader2 className="animate-spin" />
-  ) : (
-    <Share />
-  );
+  const triggerIcon = isBusy ? <Loader2 className="animate-spin" /> : <Share />;
   const triggerTooltip = isSharing
-    ? "Sharing…"
+    ? "Sharing..."
     : isDeploying
-      ? "Deploying…"
+      ? "Deploying..."
       : "Share & deploy";
 
   if (isMobile) {

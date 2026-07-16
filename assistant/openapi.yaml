@@ -638,6 +638,51 @@ paths:
       responses:
         "200":
           description: Successful response
+  /v1/apps/{id}:
+    put:
+      operationId: apps_by_id_put
+      summary: Update app metadata
+      description: Update an app's name and/or description. At least one field must be provided.
+      tags:
+        - apps
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                description:
+                  type: string
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  appId:
+                    type: string
+                  name:
+                    type: string
+                  description:
+                    type: string
+                required:
+                  - success
+                  - appId
+                  - name
+                additionalProperties: false
   /v1/apps/{id}/bundle:
     post:
       operationId: apps_by_id_bundle_post

@@ -10,7 +10,7 @@ import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { useEdgeSwipeBack } from "@/hooks/use-edge-swipe-back";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { AppViewerContainer } from "@/components/app-viewer-container";
-import { appsByIdOpenPost } from "@/generated/daemon/sdk.gen";
+import { appsByIdOpenPost, appsByIdPut } from "@/generated/daemon/sdk.gen";
 import { useEditApp } from "@/hooks/use-edit-app";
 import { useDeployStore } from "@/stores/deploy-store";
 import { primeAppHtmlCache } from "@/utils/app-html-cache";
@@ -40,7 +40,9 @@ export function LibraryDetailPage() {
   const requestRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!appId) {return;}
+    if (!appId) {
+      return;
+    }
     requestRef.current = appId;
     setApp(null);
     setError(null);
@@ -50,7 +52,9 @@ export function LibraryDetailPage() {
       throwOnError: true,
     })
       .then(({ data: result }) => {
-        if (requestRef.current !== appId) {return;}
+        if (requestRef.current !== appId) {
+          return;
+        }
         primeAppHtmlCache(assistantId, result.appId, result.html);
         setApp({
           appId: result.appId,
@@ -60,7 +64,9 @@ export function LibraryDetailPage() {
         });
       })
       .catch((err) => {
-        if (requestRef.current !== appId) {return;}
+        if (requestRef.current !== appId) {
+          return;
+        }
         setError(err instanceof Error ? err.message : "Failed to open app");
       });
 
@@ -82,11 +88,15 @@ export function LibraryDetailPage() {
 
   const editApp = useEditApp();
   const handleEdit = useCallback(() => {
-    if (app) {editApp(app);}
+    if (app) {
+      editApp(app);
+    }
   }, [app, editApp]);
 
   const handleShare = useCallback(async () => {
-    if (!app || isSharing) {return;}
+    if (!app || isSharing) {
+      return;
+    }
     setIsSharing(true);
     try {
       await shareApp(assistantId, app.appId, app.name);
@@ -101,11 +111,28 @@ export function LibraryDetailPage() {
   }, [assistantId, app, isSharing]);
 
   const handleDeploy = useCallback(() => {
-    if (!app) {return;}
+    if (!app) {
+      return;
+    }
     void useDeployStore
       .getState()
       .deployApp(assistantId, app.appId, app.name, app.html);
   }, [assistantId, app]);
+
+  const handleRename = useCallback(
+    async (newName: string) => {
+      if (!app) {
+        return;
+      }
+      await appsByIdPut({
+        path: { assistant_id: assistantId, id: app.appId },
+        body: { name: newName },
+        throwOnError: true,
+      });
+      setApp((prev) => (prev ? { ...prev, name: newName } : prev));
+    },
+    [assistantId, app],
+  );
 
   // When the complex-deploy confirmation lands here (the app's HTML uses
   // backend hooks so a static Vercel page isn't viable), hand off to the
@@ -120,7 +147,9 @@ export function LibraryDetailPage() {
     [navigate],
   );
 
-  if (!appId) {return null;}
+  if (!appId) {
+    return null;
+  }
 
   if (error) {
     return (
@@ -165,13 +194,14 @@ export function LibraryDetailPage() {
           isSharing={isSharing}
           onDeploy={handleDeploy}
           isDeploying={isDeploying}
+          onRename={handleRename}
           enableFullscreen
         />
       </div>
       <DeployDialogs
-          assistantId={assistantId}
-          onStartConversation={handleStartConversation}
-        />
+        assistantId={assistantId}
+        onStartConversation={handleStartConversation}
+      />
     </>
   );
 }

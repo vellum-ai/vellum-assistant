@@ -18,12 +18,16 @@ import { AnimatedRightDrawer } from "@/domains/chat/components/animated-right-dr
 import { LazyBoundary } from "@/components/lazy-boundary";
 import { AppViewerContainer } from "@/components/app-viewer-container";
 import { DocumentViewerContainer } from "@/domains/chat/components/document-viewer-container";
-import { ChatMainPanel, type ChatMainPanelProps } from "@/domains/chat/components/chat-route-content";
+import {
+  ChatMainPanel,
+  type ChatMainPanelProps,
+} from "@/domains/chat/components/chat-route-content";
 import { handleAppViewerAction } from "@/domains/chat/app-viewer-actions";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useDeployStore } from "@/stores/deploy-store";
 import { useViewerStore } from "@/stores/viewer-store";
+import { appsByIdPut } from "@/generated/daemon/sdk.gen";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 import { useWorkflowStore } from "@/domains/chat/workflow-store";
 import { useAcpRunStore } from "@/domains/chat/acp-run-store";
@@ -48,9 +52,7 @@ const importAcpRunDetailPanel = () =>
 const importWorkflowDetailPanel = () =>
   import("@/domains/chat/components/workflow-detail-panel");
 const importBackgroundTaskDetailPanel = () =>
-  import(
-    "@/domains/chat/components/background-task-detail-panel/background-task-detail-panel"
-  );
+  import("@/domains/chat/components/background-task-detail-panel/background-task-detail-panel");
 const importSkillDetailPanel = () =>
   import("@/domains/chat/components/skill-detail-panel");
 
@@ -86,7 +88,8 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
   const mainView = useViewerStore.use.mainView();
   const openedAppState = useViewerStore.use.openedAppState();
   const openedDocumentState = useViewerStore.use.openedDocumentState();
-  const editingConversationId = useConversationStore.use.editingConversationId();
+  const editingConversationId =
+    useConversationStore.use.editingConversationId();
   const activeSubagentId = useViewerStore.use.activeSubagentId();
   const activeWorkflowRunId = useViewerStore.use.activeWorkflowRunId();
   const activeToolDetail = useViewerStore.use.activeToolDetail();
@@ -143,13 +146,31 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
   const handleShareApp = useCallback(() => {
     const app = useViewerStore.getState().openedAppState;
     const aid = useResolvedAssistantsStore.getState().activeAssistantId;
-    if (app && aid) void useDeployStore.getState().shareApp(aid, app.appId, app.name);
+    if (app && aid)
+      void useDeployStore.getState().shareApp(aid, app.appId, app.name);
   }, []);
 
   const handleDeployApp = useCallback(() => {
     const app = useViewerStore.getState().openedAppState;
     const aid = useResolvedAssistantsStore.getState().activeAssistantId;
-    if (app && aid) void useDeployStore.getState().deployApp(aid, app.appId, app.name, app.html);
+    if (app && aid)
+      void useDeployStore
+        .getState()
+        .deployApp(aid, app.appId, app.name, app.html);
+  }, []);
+
+  const handleRenameApp = useCallback(async (newName: string) => {
+    const viewer = useViewerStore.getState();
+    const app = viewer.openedAppState;
+    const aid = useResolvedAssistantsStore.getState().activeAssistantId;
+    if (!app || !aid) return;
+    await appsByIdPut({
+      path: { assistant_id: aid, id: app.appId },
+      body: { name: newName },
+      throwOnError: true,
+    });
+    viewer.setAppName(newName);
+    viewer.refreshAssets();
   }, []);
 
   const handleAppAction = useCallback(
@@ -167,7 +188,8 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
   }, []);
 
   const onStopSubagent = useCallback(
-    (subagentId: string) => void useSubagentStore.getState().abortSubagent(subagentId),
+    (subagentId: string) =>
+      void useSubagentStore.getState().abortSubagent(subagentId),
     [],
   );
 
@@ -353,6 +375,7 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
             onDeploy={handleDeployApp}
             isDeploying={isDeploying}
             onAction={handleAppAction}
+            onRename={handleRenameApp}
             isEditing
           />
         }
@@ -383,6 +406,7 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
         onDeploy={handleDeployApp}
         isDeploying={isDeploying}
         onAction={handleAppAction}
+        onRename={handleRenameApp}
       />
     );
   }

@@ -93,7 +93,11 @@ const BottomSheetMock = {
 };
 
 const PanelItemMock = ({ label, ...rest }: Record<string, unknown>) =>
-  createElement("div", { "data-testid": "panel-item", ...rest }, label as ReactNode);
+  createElement(
+    "div",
+    { "data-testid": "panel-item", ...rest },
+    label as ReactNode,
+  );
 
 const ButtonMock = ({
   children,
@@ -104,7 +108,12 @@ const ButtonMock = ({
 }: Record<string, unknown>) =>
   createElement(
     "button",
-    { "data-testid": "button", disabled: disabled || undefined, ...rest, onClick },
+    {
+      "data-testid": "button",
+      disabled: disabled || undefined,
+      ...rest,
+      onClick,
+    },
     (iconOnly ?? children) as ReactNode,
   );
 
@@ -173,11 +182,7 @@ describe("AppNavBar fullscreen toggle", () => {
 describe("AppNavBar share + deploy", () => {
   test("renders a single Share button when only onShare is provided", () => {
     const html = renderToStaticMarkup(
-      <AppNavBar
-        appName="My App"
-        onClose={() => {}}
-        onShare={() => {}}
-      />,
+      <AppNavBar appName="My App" onClose={() => {}} onShare={() => {}} />,
     );
     // One button rendered with the Share icon.
     expect(html).toContain("lucide-share");
@@ -186,11 +191,7 @@ describe("AppNavBar share + deploy", () => {
 
   test("renders a single Deploy button when only onDeploy is provided", () => {
     const html = renderToStaticMarkup(
-      <AppNavBar
-        appName="My App"
-        onClose={() => {}}
-        onDeploy={() => {}}
-      />,
+      <AppNavBar appName="My App" onClose={() => {}} onDeploy={() => {}} />,
     );
     expect(html).toContain("lucide-globe");
     expect(html).not.toContain("lucide-share");
@@ -309,5 +310,136 @@ describe("AppNavBar share + deploy", () => {
     );
     expect(html).toContain("disabled");
     expect(html).toContain("lucide-loader");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Inline rename behavior (real DOM with happy-dom)
+// ---------------------------------------------------------------------------
+
+describe("AppNavBar inline rename", () => {
+  test("does not show an input when onRename is not provided", () => {
+    render(<AppNavBar appName="My App" onClose={() => {}} />);
+    expect(document.querySelector("input")).toBeNull();
+  });
+
+  test("clicking the name enters edit mode with a text input", () => {
+    render(
+      <AppNavBar
+        appName="My App"
+        onClose={() => {}}
+        onRename={async () => {}}
+      />,
+    );
+
+    // The Typography mock renders as a span containing the app name.
+    const nameSpan = Array.from(document.querySelectorAll("span")).find(
+      (el) => el.textContent === "My App",
+    );
+    expect(nameSpan).toBeDefined();
+
+    fireEvent.click(nameSpan!);
+    const input = document.querySelector("input");
+    expect(input).not.toBeNull();
+    expect(input?.value).toBe("My App");
+  });
+
+  test("Enter saves the new name via onRename", async () => {
+    const onRename = mock(async () => {});
+    render(
+      <AppNavBar appName="My App" onClose={() => {}} onRename={onRename} />,
+    );
+
+    const nameSpan = Array.from(document.querySelectorAll("span")).find(
+      (el) => el.textContent === "My App",
+    );
+    fireEvent.click(nameSpan!);
+
+    const input = document.querySelector("input")!;
+    fireEvent.change(input, { target: { value: "Renamed App" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    // Wait for the async commit to resolve.
+    await new Promise((r) => setTimeout(r, 0));
+    expect(onRename).toHaveBeenCalledTimes(1);
+    expect((onRename.mock.calls[0] as string[])[0]).toBe("Renamed App");
+  });
+
+  test("Escape cancels editing and does not call onRename", () => {
+    const onRename = mock(async () => {});
+    render(
+      <AppNavBar appName="My App" onClose={() => {}} onRename={onRename} />,
+    );
+
+    const nameSpan = Array.from(document.querySelectorAll("span")).find(
+      (el) => el.textContent === "My App",
+    );
+    fireEvent.click(nameSpan!);
+
+    const input = document.querySelector("input")!;
+    fireEvent.change(input, { target: { value: "Changed" } });
+    fireEvent.keyDown(input, { key: "Escape" });
+
+    expect(onRename).not.toHaveBeenCalled();
+    // Input is gone, name text is back.
+    expect(document.querySelector("input")).toBeNull();
+  });
+
+  test("empty name after trim reverts to original and does not call onRename", async () => {
+    const onRename = mock(async () => {});
+    render(
+      <AppNavBar appName="My App" onClose={() => {}} onRename={onRename} />,
+    );
+
+    const nameSpan = Array.from(document.querySelectorAll("span")).find(
+      (el) => el.textContent === "My App",
+    );
+    fireEvent.click(nameSpan!);
+
+    const input = document.querySelector("input")!;
+    fireEvent.change(input, { target: { value: "   " } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    await new Promise((r) => setTimeout(r, 0));
+    expect(onRename).not.toHaveBeenCalled();
+  });
+
+  test("blur saves the new name via onRename", async () => {
+    const onRename = mock(async () => {});
+    render(
+      <AppNavBar appName="My App" onClose={() => {}} onRename={onRename} />,
+    );
+
+    const nameSpan = Array.from(document.querySelectorAll("span")).find(
+      (el) => el.textContent === "My App",
+    );
+    fireEvent.click(nameSpan!);
+
+    const input = document.querySelector("input")!;
+    fireEvent.change(input, { target: { value: "Blurred App" } });
+    fireEvent.blur(input);
+
+    await new Promise((r) => setTimeout(r, 0));
+    expect(onRename).toHaveBeenCalledTimes(1);
+    expect((onRename.mock.calls[0] as string[])[0]).toBe("Blurred App");
+  });
+
+  test("name with same value does not call onRename", async () => {
+    const onRename = mock(async () => {});
+    render(
+      <AppNavBar appName="My App" onClose={() => {}} onRename={onRename} />,
+    );
+
+    const nameSpan = Array.from(document.querySelectorAll("span")).find(
+      (el) => el.textContent === "My App",
+    );
+    fireEvent.click(nameSpan!);
+
+    const input = document.querySelector("input")!;
+    fireEvent.change(input, { target: { value: "My App" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    await new Promise((r) => setTimeout(r, 0));
+    expect(onRename).not.toHaveBeenCalled();
   });
 });

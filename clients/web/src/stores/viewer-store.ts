@@ -349,6 +349,7 @@ export interface ViewerActions {
   openApp: (appId: string) => void;
   loadApp: (assistantId: string, appId: string) => Promise<void>;
   setLoadedApp: (app: OpenedAppState) => void;
+  setAppName: (name: string) => void;
   handleAppLoadFailed: () => void;
   closeApp: () => void;
   toggleAppMinimized: () => void;
@@ -428,9 +429,16 @@ export interface ViewerActions {
 
   // --- Document viewer ---
   openDocument: () => void;
-  loadDocument: (assistantId: string, documentSurfaceId: string) => Promise<void>;
+  loadDocument: (
+    assistantId: string,
+    documentSurfaceId: string,
+  ) => Promise<void>;
   setLoadedDocument: (document: OpenedDocumentState) => void;
-  updateDocumentContent: (surfaceId: string, content: string, mode: string) => void;
+  updateDocumentContent: (
+    surfaceId: string,
+    content: string,
+    mode: string,
+  ) => void;
   handleDocumentLoadFailed: () => void;
   closeDocument: () => void;
 
@@ -520,7 +528,12 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
         throwOnError: true,
       });
       if (get().activeAppId !== appId) return;
-      const app = { appId: result.appId, dirName: result.dirName, name: result.name, html: result.html };
+      const app = {
+        appId: result.appId,
+        dirName: result.dirName,
+        name: result.name,
+        html: result.html,
+      };
       set({ openedAppState: app });
       primeAppHtmlCache(assistantId, result.appId, result.html);
     } catch (err) {
@@ -539,6 +552,12 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
 
   setLoadedApp: (app) => {
     set({ openedAppState: app });
+  },
+
+  setAppName: (name) => {
+    const current = get().openedAppState;
+    if (!current) return;
+    set({ openedAppState: { ...current, name } });
   },
 
   handleAppLoadFailed: () => {
@@ -588,7 +607,10 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
     set({
       mainView: "subagent-detail",
       activeSubagentId: subagentId,
-      viewBeforeSubagentDetail: resolveViewBefore(get(), "viewBeforeSubagentDetail"),
+      viewBeforeSubagentDetail: resolveViewBefore(
+        get(),
+        "viewBeforeSubagentDetail",
+      ),
     });
   },
 
@@ -605,7 +627,10 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
     set({
       mainView: "workflow-detail",
       activeWorkflowRunId: runId,
-      viewBeforeWorkflowDetail: resolveViewBefore(get(), "viewBeforeWorkflowDetail"),
+      viewBeforeWorkflowDetail: resolveViewBefore(
+        get(),
+        "viewBeforeWorkflowDetail",
+      ),
     });
   },
 
@@ -622,7 +647,10 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
     set({
       mainView: "acp-run-detail",
       activeAcpRunId: acpSessionId,
-      viewBeforeAcpRunDetail: resolveViewBefore(get(), "viewBeforeAcpRunDetail"),
+      viewBeforeAcpRunDetail: resolveViewBefore(
+        get(),
+        "viewBeforeAcpRunDetail",
+      ),
     });
   },
 
@@ -639,7 +667,10 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
     set({
       mainView: "background-task-detail",
       activeBackgroundTaskId: id,
-      viewBeforeBackgroundTaskDetail: resolveViewBefore(get(), "viewBeforeBackgroundTaskDetail"),
+      viewBeforeBackgroundTaskDetail: resolveViewBefore(
+        get(),
+        "viewBeforeBackgroundTaskDetail",
+      ),
     });
   },
 
@@ -715,7 +746,10 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
     set({
       mainView: "channel-setup",
       activeChannelSetup: payload,
-      viewBeforeChannelSetup: resolveViewBefore(get(), "viewBeforeChannelSetup"),
+      viewBeforeChannelSetup: resolveViewBefore(
+        get(),
+        "viewBeforeChannelSetup",
+      ),
     });
   },
 
@@ -827,7 +861,11 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
       });
       if (get().activeDocumentSurfaceId !== documentSurfaceId) return;
       if (!result) {
-        set({ mainView: viewBeforeDocument, activeDocumentSurfaceId: null, openedDocumentState: null });
+        set({
+          mainView: viewBeforeDocument,
+          activeDocumentSurfaceId: null,
+          openedDocumentState: null,
+        });
         return;
       }
       set({
@@ -840,7 +878,11 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
       });
     } catch {
       if (get().activeDocumentSurfaceId !== documentSurfaceId) return;
-      set({ mainView: viewBeforeDocument, activeDocumentSurfaceId: null, openedDocumentState: null });
+      set({
+        mainView: viewBeforeDocument,
+        activeDocumentSurfaceId: null,
+        openedDocumentState: null,
+      });
     }
   },
 
@@ -850,7 +892,11 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
 
   updateDocumentContent: (surfaceId, content, mode) => {
     const state = get();
-    if (!state.openedDocumentState || state.openedDocumentState.surfaceId !== surfaceId) return;
+    if (
+      !state.openedDocumentState ||
+      state.openedDocumentState.surfaceId !== surfaceId
+    )
+      return;
     const prev = state.openedDocumentState;
     const newContent = mode === "append" ? prev.content + content : content;
     set({ openedDocumentState: { ...prev, content: newContent } });
