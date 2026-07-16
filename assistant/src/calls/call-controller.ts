@@ -291,7 +291,7 @@ export class CallController {
     // If the caller speaks while an END_CALL teardown is pending (during the
     // drain wait or the listen window), this is a deferral — the caller is
     // re-engaging after we tried to hang up. Track it so we can cap repeats.
-    if (this.endCallListenTimer || this.pendingEndCall) {
+    if (this.pendingEndCall) {
       this.endCallDeferralCount++;
       // The goodbye's speech was queued while state was idle, so the
       // media-stream barge-in ignored it. Cancel it here so it can't play
@@ -1349,10 +1349,9 @@ export class CallController {
     this.state = "idle";
     this.currentTurnHandle = null;
 
-    if (this.endCallListenTimer) {
-      clearTimeout(this.endCallListenTimer);
-      this.endCallListenTimer = null;
-    }
+    // Cancel any teardown still in flight from a prior END_CALL so it can't
+    // fire or cancel a later run.
+    this.cancelPendingEndCall();
 
     // The call always continues past END_CALL — either flushing queued
     // instructions or waiting for playback drain — so restore in_progress if
@@ -1361,10 +1360,8 @@ export class CallController {
       updateCallSession(this.callSessionId, { status: "in_progress" });
     }
 
-    // Queued instructions mean the call is continuing — flush and skip
-    // teardown. Clear any stale token first so it can't cancel a later run.
+    // Queued instructions mean the call is continuing — flush and skip teardown.
     if (this.pendingInstructions.length > 0) {
-      this.pendingEndCall = null;
       this.flushPendingInstructions();
       return;
     }
@@ -1468,6 +1465,9 @@ export class CallController {
   }
 
   private completeCallFromEndMarker(): void {
+    // The teardown has run to completion; drop the token so a later utterance
+    // can't read it as a still-pending end-call.
+    this.pendingEndCall = null;
     if (this.destroyed) return;
 
     const currentSession = getCallSession(this.callSessionId);
