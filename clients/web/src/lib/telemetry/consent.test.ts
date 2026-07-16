@@ -57,19 +57,23 @@ describe("readAnalyticsConsent", () => {
       why: "server verdict enabled",
     },
     { local: true, server: true, expected: true, why: "both enabled" },
-    // The server-authority cases: an effective opt-out is honored even
-    // where the raw local value reads enabled.
+    // The server-authority case: an effective opt-out is honored when the
+    // local value is never-asked.
     {
       local: null,
       server: false,
       expected: false,
       why: "server-effective opt-out with never-asked local",
     },
+    // An explicit local choice wins in both directions: sync adopts the
+    // server's raw value into the store, so local true + effective false
+    // only exists while a local opt-in's server write is in flight — it
+    // must re-enable immediately, not on the next sync.
     {
       local: true,
       server: false,
-      expected: false,
-      why: "server-effective opt-out overrides a raw local grant",
+      expected: true,
+      why: "mid-flight local opt-in wins over the cached server verdict",
     },
   ];
 

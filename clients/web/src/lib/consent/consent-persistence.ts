@@ -96,17 +96,19 @@ const FALLBACK_REQUIRED_VERSIONS: RequiredConsentVersions = {
 let requiredVersions: RequiredConsentVersions = FALLBACK_REQUIRED_VERSIONS;
 
 function toRequiredVersions(
-  raw: Record<string, string>,
+  raw: Record<string, string> | undefined,
 ): RequiredConsentVersions {
-  // Per-key `||` is an empty-value guard only: a missing/empty entry in the
-  // server map means "not supplied", never "nothing required" — treating it
+  // `raw?.` and per-key `||` are absent/empty-value guards: the type says the
+  // map is always present, but a runtime response missing it must not throw
+  // the whole consent sync into the device-only fallback, and a missing or
+  // empty entry means "not supplied", never "nothing required" — treating it
   // as a requirement would mark every record current.
   return {
-    tos: raw.tos || TOS_CONSENT_VERSION,
-    privacyPolicy: raw.privacy_policy || PRIVACY_CONSENT_VERSION,
-    aiDataSharing: raw.ai_data_sharing || PRIVACY_CONSENT_VERSION,
-    shareAnalytics: raw.share_analytics || ANALYTICS_CONSENT_VERSION,
-    shareDiagnostics: raw.share_diagnostics || DIAGNOSTICS_CONSENT_VERSION,
+    tos: raw?.tos || TOS_CONSENT_VERSION,
+    privacyPolicy: raw?.privacy_policy || PRIVACY_CONSENT_VERSION,
+    aiDataSharing: raw?.ai_data_sharing || PRIVACY_CONSENT_VERSION,
+    shareAnalytics: raw?.share_analytics || ANALYTICS_CONSENT_VERSION,
+    shareDiagnostics: raw?.share_diagnostics || DIAGNOSTICS_CONSENT_VERSION,
   };
 }
 
@@ -475,8 +477,14 @@ export function resolveServerConsent(consent: UserConsent | null | undefined): {
     // The platform computes effective consent in its single policy module
     // and serves it as `share_*_effective`. The data-capture gates consume
     // these verdicts verbatim; the raw values carry chosen-ness only.
-    analyticsEffective: consent.share_analytics_effective,
-    diagnosticsEffective: consent.share_diagnostics_effective,
+    // `??` is a runtime guard only — the contract guarantees the effective
+    // fields, but an absent one must never read as an opt-out: fall back to
+    // the raw value's opt-out reading (only explicit false disables).
+    analyticsEffective:
+      consent.share_analytics_effective ?? consent.share_analytics !== false,
+    diagnosticsEffective:
+      consent.share_diagnostics_effective ??
+      consent.share_diagnostics !== false,
     // Share-toggle re-review is owed only for an explicit, genuinely stale
     // choice on record. Onboarding doesn't show the analytics toggle, so
     // `share_analytics` stays null until the user chooses via settings or
