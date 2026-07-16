@@ -30,7 +30,10 @@
 
 import { beforeEach, describe, expect, test } from "bun:test";
 
-import { HOOKS } from "../plugin-api/constants.js";
+import {
+  HOOKS,
+  INTERNAL_NUDGE_OUTPUT_SUPPRESSION,
+} from "../plugin-api/constants.js";
 import type {
   PluginLogger,
   PostModelCallContext,
@@ -146,6 +149,17 @@ beforeEach(() => {
 });
 
 // ─── Default decisions ───────────────────────────────────────────────────────
+
+describe("empty-response NUDGE_TEXT — internal-notice suppression", () => {
+  test("appends the shared suppression clause inside the notice wrapper", () => {
+    expect(NUDGE_TEXT).toContain(INTERNAL_NUDGE_OUTPUT_SUPPRESSION);
+    expect(NUDGE_TEXT.startsWith("<system_notice>")).toBe(true);
+    expect(NUDGE_TEXT.endsWith("</system_notice>")).toBe(true);
+    // The recovery instruction still leads — the clause forbids narrating the
+    // notice, it does not license an empty reply.
+    expect(NUDGE_TEXT).toContain("respond to the user with a summary");
+  });
+});
 
 describe("empty-response post-model-call hook — default decisions", () => {
   test("empty turn after a prior tool-use turn → continue with canonical nudge", async () => {
