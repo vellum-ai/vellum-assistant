@@ -20,6 +20,14 @@ export type GatewayConfig = {
     Record<string, number>;
   maxAttachmentConcurrency: number;
   maxWebhookPayloadBytes: number;
+  /**
+   * Body cap for the inbound email webhook (`/webhooks/email`). Email
+   * attachments arrive inlined as base64 in the payload, so this ceiling is
+   * much larger than {@link maxWebhookPayloadBytes} to fit the platform's
+   * per-file / per-message attachment cap. Optional — callers fall back to
+   * {@link maxWebhookPayloadBytes} when unset.
+   */
+  maxEmailWebhookPayloadBytes?: number;
   port: number;
   routingEntries: RoutingEntry[];
   runtimeInitialBackoffMs: number;
@@ -215,10 +223,14 @@ export function loadConfig(): GatewayConfig {
       telegramOutbound: 50 * 1024 * 1024, // Telegram Bot API sendDocument (upload) limit
       slack: 100 * 1024 * 1024, // Slack standard plan
       whatsapp: 16 * 1024 * 1024, // WhatsApp Business API limit
+      email: 25 * 1024 * 1024, // Platform inbound-attachment per-file cap
       default: 100 * 1024 * 1024, // Fallback; capped by runtime MAX_UPLOAD_BYTES (100 MB)
     },
     maxAttachmentConcurrency: 3,
     maxWebhookPayloadBytes: 1024 * 1024,
+    // Fits the platform's inbound-attachment cap (25 MB/file × 10 files),
+    // expanded by base64 (~4/3) plus body/JSON overhead.
+    maxEmailWebhookPayloadBytes: 350 * 1024 * 1024,
     port,
     routingEntries,
     runtimeInitialBackoffMs: 500,

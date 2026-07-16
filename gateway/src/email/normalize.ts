@@ -1,6 +1,26 @@
 import type { GatewayInboundEvent } from "../types.js";
 
 /**
+ * A single inbound email attachment, inlined as base64 by the upstream
+ * caller (the Vellum platform fetches the blob from the provider's
+ * Attachments API and embeds it here, bounded by a per-file / per-message
+ * cap). The gateway uploads each attachment to the assistant's attachment
+ * store so it lands in the conversation workspace.
+ */
+export interface EmailAttachment {
+  /** Original filename as sent by the email client (e.g. "receipt.pdf"). */
+  filename: string;
+  /** MIME type declared by the sender (e.g. "application/pdf"). */
+  contentType: string;
+  /** Decoded byte size, when the upstream caller reports it. */
+  size?: number;
+  /** Base64-encoded attachment bytes. */
+  content: string;
+  /** RFC 2392 Content-ID for inline (cid:) references, when present. */
+  contentId?: string;
+}
+
+/**
  * Shape of a normalized inbound email event as sent by the Vellum
  * platform (or any upstream caller).
  *
@@ -40,6 +60,14 @@ export interface VellumEmailPayload {
    * guardian/trusted_contact trust.
    */
   senderAuthenticated?: boolean;
+  /**
+   * Inbound attachments, inlined as base64 by the upstream caller. Additive
+   * and optional — payloads without attachments (or from callers that do not
+   * fetch them) simply omit the field. The gateway uploads each to the
+   * assistant's attachment store and forwards the resulting ids so they land
+   * in the conversation workspace.
+   */
+  attachments?: EmailAttachment[];
 }
 
 export interface NormalizedEmailEvent {
@@ -54,6 +82,55 @@ export interface NormalizedEmailEvent {
    * the payload carried no boolean value.
    */
   senderAuthenticated?: boolean;
+  /**
+   * Validated inbound attachments parsed from the payload. Only well-formed
+   * entries (string `filename`, `contentType`, and base64 `content`) survive;
+   * omitted when the payload carried none.
+   */
+  attachments?: EmailAttachment[];
+}
+
+/**
+ * Parse and validate the payload's `attachments` array. Drops entries that
+ * are missing the fields the attachment store requires (`filename`,
+ * `contentType`, base64 `content`); coerces `size`/`contentId` when present.
+ * Returns undefined when there are no usable attachments.
+ */
+function parseEmailAttachments(raw: unknown): EmailAttachment[] | undefined {
+  if (!Array.isArray(raw)) {
+    return undefined;
+  }
+  const parsed: EmailAttachment[] = [];
+  for (const entry of raw) {
+    if (!entry || typeof entry !== "object") {
+      continue;
+    }
+    const att = entry as Record<string, unknown>;
+    const filename = att.filename;
+    const contentType = att.contentType;
+    const content = att.content;
+    if (
+      typeof filename !== "string" ||
+      filename.length === 0 ||
+      typeof contentType !== "string" ||
+      contentType.length === 0 ||
+      typeof content !== "string"
+    ) {
+      continue;
+    }
+    parsed.push({
+      filename,
+      contentType,
+      content,
+      ...(typeof att.size === "number" && Number.isFinite(att.size)
+        ? { size: att.size }
+        : {}),
+      ...(typeof att.contentId === "string" && att.contentId.length > 0
+        ? { contentId: att.contentId }
+        : {}),
+    });
+  }
+  return parsed.length > 0 ? parsed : undefined;
 }
 
 /**
@@ -100,6 +177,7 @@ export function normalizeEmailWebhook(
     typeof payload.senderAuthenticated === "boolean"
       ? payload.senderAuthenticated
       : undefined;
+  const attachments = parseEmailAttachments(payload.attachments);
 
   const event: GatewayInboundEvent = {
     version: "v1",
@@ -126,5 +204,6 @@ export function normalizeEmailWebhook(
     eventId: messageId,
     recipientAddress: to,
     ...(senderAuthenticated !== undefined ? { senderAuthenticated } : {}),
+    ...(attachments ? { attachments } : {}),
   };
 }
