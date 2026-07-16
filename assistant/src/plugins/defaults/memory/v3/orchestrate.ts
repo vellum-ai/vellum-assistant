@@ -114,6 +114,35 @@ function recordGateRun(detail: Record<string, unknown>): void {
   }
 }
 
+/** `check_name` of the `watchdog` telemetry event recorded once per orchestrated
+ *  turn, carrying what the SELECTOR did. Keep this string stable — the platform's
+ *  memory admin analytics filter on it. */
+export const MEMORY_V3_SELECTION_CHECK_NAME = "memory_v3_selection";
+
+/** Record one turn's selection outcome. Deliberately a SEPARATE event from
+ *  {@link MEMORY_V3_INJECTION_GATE_CHECK_NAME} rather than extra keys on it: the
+ *  gate records at decision time, before selection has run, so folding the
+ *  outcome in would mean deferring the gate event until after `selectPool` — and
+ *  losing every gate run whenever selection throws, which is exactly the
+ *  incident we would want the gate telemetry for. This event carries
+ *  `gate_reason` so the two still group together without a join.
+ *
+ *  `value` is the selection count. Never throws, same as the gate counter. */
+function recordSelectionRun(
+  value: number,
+  detail: Record<string, unknown>,
+): void {
+  try {
+    recordWatchdogEvent({
+      checkName: MEMORY_V3_SELECTION_CHECK_NAME,
+      value,
+      detail,
+    });
+  } catch {
+    // Same contract as recordGateRun: telemetry must never cost a turn.
+  }
+}
+
 /** Default number of BM25 needle articles to fold into the pool. */
 export const DEFAULT_NEEDLE_K = 12;
 /** Default number of dense-lane articles to fold into the pool. */
@@ -474,6 +503,45 @@ export async function orchestrate(
         ? detail
         : { ...detail, real_concept_page_count: deps.realConceptPageCount },
     );
+
+  // This turn's gate decision, carried to the selection event so the two group
+  // together without a join. Null when the gate never ran (disabled/omitted).
+  let gateOutcome: { reason: string; pass: boolean } | null = null;
+
+  // What the SELECTOR did with the pool the gate let through — the outcome the
+  // gate's own pass rate cannot see. A passed gate only means selectPool got to
+  // run; the selector is told to return `[]` when no candidate is relevant, so
+  // it is the real injection decision and the pass rate is an upper bound on it.
+  //
+  // `selector_ran` marks the turns where the selector actually JUDGED the pool,
+  // and is the filter that keeps a relevance rate honest. Three ways a turn can
+  // report zero selections without the selector having been asked, all of which
+  // must stay out of that rate:
+  //   - the lean profile sets `selectorEnabled: false`, so
+  //     `selectAllPoolCandidates` returns the whole pool untouched (would read
+  //     as a 100% hit rate),
+  //   - a closed gate hard-skips selection entirely (a 0%),
+  //   - the pool is empty, and `selectPool` returns `[]` before it ever reaches
+  //     the provider (also a 0%).
+  // The last is why `poolSize` decides this rather than each call site: an empty
+  // pool is not a judgment that nothing was relevant, and no caller has to
+  // remember that.
+  const recordSelection = (
+    selections: SelectedPage[],
+    poolSize: number,
+  ): void => {
+    const detail: Record<string, unknown> = {
+      gate_reason: gateOutcome?.reason ?? null,
+      gate_pass: gateOutcome?.pass ?? null,
+      selector_ran: deps.selectorEnabled !== false && poolSize > 0,
+      selected_count: selections.length,
+      pool_size: poolSize,
+    };
+    if (deps.realConceptPageCount !== undefined) {
+      detail.real_concept_page_count = deps.realConceptPageCount;
+    }
+    recordSelectionRun(selections.length, detail);
+  };
   if (deps.gateConfig?.enabled) {
     if (liveDensed.length === 0) {
       const reason = denseEnabled ? "dense_unavailable" : "dense_disabled";
@@ -488,6 +556,7 @@ export async function orchestrate(
           ? "memory-v3 injection gate: dense lane unavailable, passing open"
           : "memory-v3 injection gate: dense lane disabled, passing open",
       );
+      gateOutcome = { reason, pass: true };
       recordGate({ pass: true, reason, scored: false });
     } else {
       let gate: V3GateResult | null = null;
@@ -505,6 +574,7 @@ export async function orchestrate(
           },
           "memory-v3 injection gate threw; passing open (proceeding with selection)",
         );
+        gateOutcome = { reason: "gate_error", pass: true };
         recordGate({ pass: true, reason: "gate_error", scored: false });
       }
       if (gate) {
@@ -516,6 +586,7 @@ export async function orchestrate(
           },
           "memory-v3 injection gate decision",
         );
+        gateOutcome = { reason: gate.reason, pass: gate.pass };
         recordGate({
           pass: gate.pass,
           reason: gate.reason,
@@ -542,10 +613,18 @@ export async function orchestrate(
             // explicitly configured with `selectorEnabled: false` AND
             // `denseK > 0` (the dense-gated gate only runs with dense hits; the
             // new-user profile sets `denseK: 0`, so the gate never runs for it).
-            return closed(
-              await runSelection({ stable: buildStable(), finder: [] }),
-            );
+            const stableOnly = buildStable();
+            const bypassed = await runSelection({
+              stable: stableOnly,
+              finder: [],
+            });
+            recordSelection(bypassed, stableOnly.length);
+            return closed(bypassed);
           }
+          // Hard skip: the selector is never consulted, so this is a zero
+          // selection BY CONSTRUCTION, not a judgment that nothing was relevant.
+          // `selector_ran: false` keeps it out of any relevance rate.
+          recordSelection([], 0);
           return closed([]);
         }
       }
@@ -639,6 +718,7 @@ export async function orchestrate(
   // scaffold; `undefined` falls through to the bundled default.
   const pool = { stable, finder: finderTail };
   const selections = await runSelection(pool);
+  recordSelection(selections, stable.length + finderTail.length);
 
   return {
     selections,
