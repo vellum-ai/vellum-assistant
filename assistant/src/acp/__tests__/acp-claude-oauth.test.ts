@@ -19,7 +19,7 @@ const setSecureKeyAsync = mock(
   async (_account: string, _value: string) => storeReturn,
 );
 const getSecureKeyAsync = mock(async (_account: string) => getReturn);
-const ensureAcpCredentialPolicy = mock(
+const grantAcpSpawnPolicy = mock(
   (_field: string, _usageDescription: string) => {},
 );
 let spawnCanRead = true;
@@ -30,7 +30,7 @@ mock.module("../../security/secure-keys.js", () => ({
   getSecureKeyAsync,
 }));
 mock.module("../prepare-agent-env.js", () => ({
-  ensureAcpCredentialPolicy,
+  grantAcpSpawnPolicy,
   acpSpawnCanReadCredential,
 }));
 
@@ -49,7 +49,7 @@ beforeEach(() => {
   spawnCanRead = true;
   setSecureKeyAsync.mockClear();
   getSecureKeyAsync.mockClear();
-  ensureAcpCredentialPolicy.mockClear();
+  grantAcpSpawnPolicy.mockClear();
   acpSpawnCanReadCredential.mockClear();
 });
 
@@ -141,7 +141,7 @@ describe("parseManualClaudeCode", () => {
 // ---------------------------------------------------------------------------
 
 describe("storeAcpClaudeToken", () => {
-  test("writes the token to credential/acp/claude_oauth_token and provisions the policy", async () => {
+  test("writes the token and force-grants the acp_spawn policy (repairs a denied policy)", async () => {
     await storeAcpClaudeToken("sk-ant-oat-token");
 
     expect(setSecureKeyAsync).toHaveBeenCalledTimes(1);
@@ -149,10 +149,10 @@ describe("storeAcpClaudeToken", () => {
       "credential/acp/claude_oauth_token",
       "sk-ant-oat-token",
     );
-    expect(ensureAcpCredentialPolicy).toHaveBeenCalledTimes(1);
-    expect(ensureAcpCredentialPolicy.mock.calls[0][0]).toBe(
-      "claude_oauth_token",
-    );
+    // grant (union), not merely ensure (preserve) — so an explicit Connect
+    // repairs a credential whose allowedTools omitted acp_spawn.
+    expect(grantAcpSpawnPolicy).toHaveBeenCalledTimes(1);
+    expect(grantAcpSpawnPolicy.mock.calls[0][0]).toBe("claude_oauth_token");
   });
 
   test("throws when the secure store rejects the write", async () => {
@@ -161,7 +161,7 @@ describe("storeAcpClaudeToken", () => {
     await expect(storeAcpClaudeToken("sk-ant-oat-token")).rejects.toThrow(
       /Failed to store/,
     );
-    expect(ensureAcpCredentialPolicy).not.toHaveBeenCalled();
+    expect(grantAcpSpawnPolicy).not.toHaveBeenCalled();
   });
 });
 

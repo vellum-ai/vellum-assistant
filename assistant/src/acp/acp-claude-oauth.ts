@@ -24,7 +24,7 @@ import {
 } from "./acp-credentials.js";
 import {
   acpSpawnCanReadCredential,
-  ensureAcpCredentialPolicy,
+  grantAcpSpawnPolicy,
 } from "./prepare-agent-env.js";
 
 /**
@@ -103,7 +103,11 @@ export async function storeAcpClaudeToken(token: string): Promise<void> {
   if (!stored) {
     throw new Error("Failed to store Claude OAuth token in secure storage.");
   }
-  ensureAcpCredentialPolicy(
+  // Force-grant acp_spawn (union) rather than merely ensure it: an explicit
+  // Connect is a deliberate opt-in to ACP, so this repairs a credential whose
+  // explicit allowedTools omitted acp_spawn — otherwise the broker keeps denying
+  // the spawn read and the Connect card dead-loops on every auto-continue.
+  grantAcpSpawnPolicy(
     ACP_OAUTH_TOKEN_FIELD,
     "Claude OAuth token for ACP agent authentication",
   );

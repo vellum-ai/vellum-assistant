@@ -23,10 +23,16 @@ let transientInjections: Array<{
   value: string;
 }>;
 let syncedServices: string[];
-// Controls the ACP-Connect redirect guard: whether a conversation resolves and
-// whether it can render the inline Connect card.
+// Controls the ACP-Connect redirect guard: whether a conversation resolves,
+// whether it can render the inline Connect card, and whether a card has actually
+// been raised (a missing-token acp_spawn failure) in this conversation.
 let conversationExists = true;
 let dynamicUiSupported = true;
+let cardRaised = true;
+
+mock.module("../acp/acp-connect-card-state.js", () => ({
+  hasAcpConnectCardRaised: mock(() => cardRaised),
+}));
 
 // ---------------------------------------------------------------------------
 // Mocks for the route's collaborators
@@ -147,6 +153,7 @@ describe("credentials/prompt route", () => {
     syncedServices = [];
     conversationExists = true;
     dynamicUiSupported = true;
+    cardRaised = true;
   });
 
   test("forwards usageDescription as the prompt purpose and to metadata", async () => {
@@ -581,9 +588,11 @@ describe("credentials/prompt route", () => {
      * result telling the model to defer to the card, and never calls
      * requestSecretStandalone or writes to storage.
      */
-    // GIVEN an interactive conversation that can render the Connect card
+    // GIVEN an interactive conversation that can render the Connect card AND a
+    // missing-token acp_spawn failure has already raised one
     conversationExists = true;
     dynamicUiSupported = true;
+    cardRaised = true;
 
     // WHEN the model prompts for the ACP Claude OAuth token
     const result = (await promptRoute!.handler({
@@ -606,6 +615,34 @@ describe("credentials/prompt route", () => {
     // AND no secure prompt was issued and nothing was stored
     expect(capturedSecretParams).toBeUndefined();
     expect(secureKeyWrites).toEqual([]);
+  });
+
+  test("still prompts when NO Connect card has been raised (proactive prompt must not dead-end)", async () => {
+    /**
+     * A setup flow / model fallback that prompts for acp/claude_oauth_token
+     * before any missing-token acp_spawn failure has no card to point at.
+     * Redirecting there would exit 0 with "click Connect" and suppress the
+     * prompt, leaving auth unset — so the guard must NOT fire and the secure
+     * prompt must be shown.
+     */
+    // GIVEN a dynamic-UI conversation where no card has been raised
+    conversationExists = true;
+    dynamicUiSupported = true;
+    cardRaised = false;
+
+    // WHEN the token is prompted for
+    const result = (await promptRoute!.handler({
+      body: {
+        service: "acp",
+        field: "claude_oauth_token",
+        label: "Claude OAuth Token",
+        conversationId: "conv-1",
+      },
+    })) as PromptResponse;
+
+    // THEN it is NOT redirected — the secure prompt proceeds normally
+    expect(result.redirected).toBeUndefined();
+    expect(capturedSecretParams).toBeDefined();
   });
 
   test("still prompts for the ACP Claude token on a channel that cannot render the card", async () => {

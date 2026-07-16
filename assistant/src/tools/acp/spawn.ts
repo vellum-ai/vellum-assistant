@@ -1,5 +1,6 @@
 import { basename } from "node:path";
 
+import { markAcpConnectCardRaised } from "../../acp/acp-connect-card-state.js";
 import { resolveAgentWithAutoInstall } from "../../acp/auto-install.js";
 import { getAcpSessionManager } from "../../acp/index.js";
 import {
@@ -75,6 +76,12 @@ export async function executeAcpSpawn(
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     const errorCode = acpSpawnErrorCode(err);
+    if (errorCode === ACP_CLAUDE_OAUTH_MISSING_CODE) {
+      // This failure raises the inline Connect card. Record it so the
+      // credential-prompt route only redirects a redundant secure-prompt when a
+      // card actually exists (not for a proactive prompt before any failure).
+      markAcpConnectCardRaised(context.conversationId);
+    }
     return { content: msg, isError: true, ...(errorCode ? { errorCode } : {}) };
   }
 

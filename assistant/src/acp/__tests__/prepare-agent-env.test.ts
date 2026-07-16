@@ -102,7 +102,7 @@ mock.module("../../tools/credentials/broker.js", () => ({
   },
 }));
 
-const { prepareAgentEnv, ACP_CLAUDE_OAUTH_MISSING_CODE } =
+const { prepareAgentEnv, ACP_CLAUDE_OAUTH_MISSING_CODE, grantAcpSpawnPolicy } =
   await import("../prepare-agent-env.js");
 
 beforeEach(() => {
@@ -452,5 +452,41 @@ describe("prepareAgentEnv — non-claude commands", () => {
     });
 
     expect(prepared.env).toEqual({ FOO: "bar" });
+  });
+});
+
+describe("grantAcpSpawnPolicy — force-grant (union)", () => {
+  test("creates metadata with acp_spawn when none exists", () => {
+    grantAcpSpawnPolicy("claude_oauth_token", "desc");
+    expect(metadataStore.get("acp/claude_oauth_token")!.allowedTools).toEqual([
+      "acp_spawn",
+    ]);
+  });
+
+  test("unions acp_spawn into an explicit policy that omitted it (repair)", () => {
+    metadataStore.set("acp/claude_oauth_token", {
+      allowedTools: ["other_tool"],
+    });
+
+    grantAcpSpawnPolicy("claude_oauth_token", "desc");
+
+    // Unlike ensureAcpCredentialPolicy (which preserves), grant adds acp_spawn.
+    expect(metadataStore.get("acp/claude_oauth_token")!.allowedTools).toEqual([
+      "other_tool",
+      "acp_spawn",
+    ]);
+  });
+
+  test("leaves an allowedTools that already includes acp_spawn unchanged", () => {
+    metadataStore.set("acp/claude_oauth_token", {
+      allowedTools: ["acp_spawn", "other_tool"],
+    });
+
+    grantAcpSpawnPolicy("claude_oauth_token", "desc");
+
+    expect(metadataStore.get("acp/claude_oauth_token")!.allowedTools).toEqual([
+      "acp_spawn",
+      "other_tool",
+    ]);
   });
 });

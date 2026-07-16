@@ -82,6 +82,34 @@ export function ensureAcpCredentialPolicy(
 }
 
 /**
+ * Force-grant the `acp_spawn` read policy on `acp/<field>`, unioning it into any
+ * existing `allowedTools`. Unlike {@link ensureAcpCredentialPolicy} (which
+ * PRESERVES an explicit non-empty policy so a passive spawn can't silently widen
+ * it), this is for the EXPLICIT Connect flow: a user connecting Claude is a
+ * deliberate opt-in to `acp_spawn`, so granting it makes the CTA actually repair
+ * a policy-denied credential instead of dead-looping the missing-token card.
+ */
+export function grantAcpSpawnPolicy(
+  field: string,
+  usageDescription: string,
+): void {
+  const meta = getCredentialMetadata(ACP_SERVICE, field);
+  if (!meta) {
+    upsertCredentialMetadata(ACP_SERVICE, field, {
+      allowedTools: [ACP_SPAWN_TOOL],
+      usageDescription,
+    });
+    return;
+  }
+  const tools = meta.allowedTools ?? [];
+  if (!tools.includes(ACP_SPAWN_TOOL)) {
+    upsertCredentialMetadata(ACP_SERVICE, field, {
+      allowedTools: [...tools, ACP_SPAWN_TOOL],
+    });
+  }
+}
+
+/**
  * Whether the `acp_spawn` broker read for `acp/<field>` would actually be
  * permitted, mirroring {@link ensureAcpCredentialPolicy}'s grant rules: a
  * missing or empty `allowedTools` is auto-granted `acp_spawn` at spawn time, so
