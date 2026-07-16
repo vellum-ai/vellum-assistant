@@ -321,11 +321,12 @@ describe("SttStreamSession", () => {
       const frames = ws.frames;
       expect(frames[0].type).toBe("error");
       expect(frames[0].category).toBe("provider-error");
-      expect(
-        (frames[0].message as string).includes(
-          "Mock provider connection refused",
-        ),
-      ).toBe(true);
+      // Friendly copy names the provider; the raw upstream error stays in
+      // logs and must not leak to the client.
+      expect(frames[0].message as string).toContain("Deepgram");
+      expect(frames[0].message as string).not.toContain(
+        "Mock provider connection refused",
+      );
       expect(frames[1].type).toBe("closed");
       expect(session.isClosed).toBe(true);
       expect(ws.closed).toBe(true);
