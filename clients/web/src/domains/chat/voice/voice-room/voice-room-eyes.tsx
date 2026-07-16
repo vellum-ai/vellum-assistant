@@ -42,8 +42,13 @@
  * box — unless a `viewport` override is passed (Storybook renders in a box).
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  AnimatePresence,
+  motion,
+  useAnimationControls,
+  useReducedMotion,
+} from "motion/react";
 
 import { pathBBox, unionBBox, type BBox } from "@/utils/eye-bbox";
 import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
@@ -62,10 +67,13 @@ export type VoiceEyePlacement = "bottom" | "center";
 
 /** How much of the bottom-placed eyes sits below the edge at rest. */
 const EYE_REST_CUTOFF = 0.25;
-/** Eye sizing: height at most 30% of the smaller viewport dimension, capped
- *  so width stays on-screen. */
-const EYE_TARGET_HEIGHT = 0.3;
-const EYE_MAX_WIDTH = 0.85;
+/** Eye sizing: height at most 22% of the smaller viewport dimension, clamped so
+ *  width stays on-screen (≤60% of viewport width) and — so the eyes don't loom
+ *  large enough to feel intimidating on big displays — capped at an absolute
+ *  `EYE_MAX_HEIGHT_PX` ceiling. Scale with the screen, up to a maximum. */
+const EYE_TARGET_HEIGHT = 0.22;
+const EYE_MAX_WIDTH = 0.6;
+const EYE_MAX_HEIGHT_PX = 240;
 /** Slight whole-eye cursor parallax. */
 const CURSOR_MAX_X = 14;
 const CURSOR_MAX_Y = 8;
@@ -162,15 +170,18 @@ export function resolveVoiceRoomLook(
 
 /**
  * The on-screen height of the eyes in a `w`×`h` room — capped at
- * `EYE_TARGET_HEIGHT` of the smaller dimension, then clamped so the width stays
- * within `EYE_MAX_WIDTH`. Shared so the thinking dots can sit just above the
- * centered eyes without re-deriving the sizing from the art bbox.
+ * `EYE_TARGET_HEIGHT` of the smaller dimension, clamped so the width stays
+ * within `EYE_MAX_WIDTH`, and finally bounded by the absolute
+ * `EYE_MAX_HEIGHT_PX` ceiling so the eyes stop growing on large displays.
+ * Shared so the thinking dots can sit just above the centered eyes without
+ * re-deriving the sizing from the art bbox.
  */
 function eyeDisplayHeight(art: VoiceRoomEyeArt, w: number, h: number): number {
   const maxEyesW = w * EYE_MAX_WIDTH;
   return Math.min(
     Math.min(w, h) * EYE_TARGET_HEIGHT,
     (maxEyesW * art.bbox.h) / art.bbox.w,
+    EYE_MAX_HEIGHT_PX,
   );
 }
 
@@ -797,6 +808,33 @@ export function VoiceRoomEyes({
     };
   }, [reduce, entranceDone]);
 
+  // Poke-the-eyes delight: clicking the eyes fires a single blink and a quick
+  // springy wobble that settles back. The blink drives the same `blinking`
+  // state the idle loop uses (its own timeout is tracked so rapid clicks don't
+  // leak), and the wobble rides a dedicated controls-driven layer so it can't
+  // fight the entrance keyframes or the per-state scale tween. Reduced motion
+  // keeps the discrete blink and skips the wobble.
+  const wobble = useAnimationControls();
+  const manualBlinkTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (manualBlinkTimeout.current) clearTimeout(manualBlinkTimeout.current);
+    },
+    [],
+  );
+  const reactToClick = useCallback(() => {
+    setBlinking(true);
+    if (manualBlinkTimeout.current) clearTimeout(manualBlinkTimeout.current);
+    manualBlinkTimeout.current = setTimeout(() => setBlinking(false), 140);
+    if (reduce) return;
+    void wobble.start({
+      scaleX: [1, 1.06, 0.96, 1],
+      scaleY: [1, 0.92, 1.04, 1],
+      rotate: [0, -2.5, 1.5, 0],
+      transition: { duration: 0.5, ease: "easeOut" },
+    });
+  }, [reduce, wobble]);
+
   const originX = entranceOrigin?.x ?? w / 2;
   const originY = entranceOrigin?.y ?? (ENTER_FROM_CENTER_VH / 100) * h;
   const geometry = useMemo(() => {
@@ -873,32 +911,45 @@ export function VoiceRoomEyes({
             transition: "opacity 0.5s ease",
           }}
         >
-          {/* Slight parallax: the whole eyes drift smoothly toward the cursor. */}
-          <div
-            style={{
-              transform: `translate(${pointer.x * CURSOR_MAX_X}px, ${pointer.y * CURSOR_MAX_Y}px)`,
-              transition: "transform 0.5s cubic-bezier(0.22, 1, 0.36, 1)",
-            }}
+          {/* Poke-the-eyes hit target + wobble layer. `pointer-events-auto`
+              re-enables clicks (the outer wrapper is `pointer-events-none`);
+              the wobble rides its own controls so it composes with — rather
+              than fights — the per-state scale on the ancestor. Still
+              `aria-hidden` on the wrapper: this is decorative delight, not a
+              control. */}
+          <motion.div
+            className="pointer-events-auto cursor-pointer"
+            style={{ transformOrigin: "center" }}
+            animate={wobble}
+            onClick={reactToClick}
           >
-            <svg
-              viewBox={`${art.bbox.x} ${art.bbox.y} ${art.bbox.w} ${art.bbox.h}`}
-              width={geometry.eyesW}
-              height={geometry.eyesH}
-              style={{ overflow: "visible", display: "block" }}
+            {/* Slight parallax: the whole eyes drift smoothly toward the cursor. */}
+            <div
+              style={{
+                transform: `translate(${pointer.x * CURSOR_MAX_X}px, ${pointer.y * CURSOR_MAX_Y}px)`,
+                transition: "transform 0.5s cubic-bezier(0.22, 1, 0.36, 1)",
+              }}
             >
-              <g
-                style={{
-                  transform: blinking ? "scaleY(0.1)" : "scaleY(1)",
-                  transformOrigin: `${cx}px ${cy}px`,
-                  transition: "transform 0.14s ease-in-out",
-                }}
+              <svg
+                viewBox={`${art.bbox.x} ${art.bbox.y} ${art.bbox.w} ${art.bbox.h}`}
+                width={geometry.eyesW}
+                height={geometry.eyesH}
+                style={{ overflow: "visible", display: "block" }}
               >
-                {art.paths.map((p, i) => (
-                  <path key={i} d={p.svgPath} fill={p.color} />
-                ))}
-              </g>
-            </svg>
-          </div>
+                <g
+                  style={{
+                    transform: blinking ? "scaleY(0.1)" : "scaleY(1)",
+                    transformOrigin: `${cx}px ${cy}px`,
+                    transition: "transform 0.14s ease-in-out",
+                  }}
+                >
+                  {art.paths.map((p, i) => (
+                    <path key={i} d={p.svgPath} fill={p.color} />
+                  ))}
+                </g>
+              </svg>
+            </div>
+          </motion.div>
         </div>
       </motion.div>
     </motion.div>
