@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
+import { MemoryV3GateSchema } from "../../../../../config/schemas/memory-v3.js";
 import type { DenseHitScored } from "../dense.js";
 import {
   checkV3Gate,
@@ -8,20 +9,20 @@ import {
 } from "../gate.js";
 import type { SectionNeedleScoredHit } from "../section-needle.js";
 
-/** Schema tuning defaults (memory.v3.gate) plus the effective `enabled` flag. */
+/**
+ * The SHIPPED `memory.v3.gate` tuning, parsed from the schema rather than
+ * restated. A hand-copied set lived here and drifted when the schema was
+ * retuned, leaving every threshold path below asserting against numbers
+ * production never used — the tests stayed green and stopped meaning anything.
+ * Parsing keeps them honest by construction; `parse({})` to materialize the
+ * defaults is the same idiom the schema itself uses to seed `memory.v3.gate`.
+ *
+ * The score fixtures below are chosen relative to these values, so retuning a
+ * default may require revisiting them. That is intended: a threshold move
+ * should force a look at whether each case still exercises the path it names.
+ */
 function baseConfig(overrides: Partial<V3GateConfig> = {}): V3GateConfig {
-  return {
-    enabled: true,
-    denseThreshold: 0.52,
-    sparseThreshold: 0.35,
-    sparseOnlyThreshold: 0.45,
-    denseClusterThreshold: 0.47,
-    denseClusterMaxDelta: 0.04,
-    topK: 5,
-    bm25NormK: null,
-    bypassForCore: false,
-    ...overrides,
-  };
+  return { ...MemoryV3GateSchema.parse({}), ...overrides };
 }
 
 let articleSeq = 0;
@@ -36,48 +37,51 @@ describe("checkV3Gate", () => {
   test("dense_pass: top-1 dense clears the dense threshold", () => {
     const result = checkV3Gate({
       needleHits: [],
-      denseHits: [mkDense(0.6), mkDense(0.3)],
+      denseHits: [mkDense(0.7), mkDense(0.3)], // 0.7 >= denseThreshold 0.66
       config: baseConfig(),
     });
     expect(result.pass).toBe(true);
     expect(result.reason).toBe("dense_pass");
-    expect(result.topDenseScore).toBe(0.6);
+    expect(result.topDenseScore).toBe(0.7);
   });
 
   test("dense_cluster: borderline top-3 dense cluster passes", () => {
     const result = checkV3Gate({
+      // All three clear denseClusterThreshold 0.6 within denseClusterMaxDelta
+      // 0.02 (spread 0.01), while top-1 stays under denseThreshold 0.66.
       needleHits: [],
-      denseHits: [mkDense(0.5), mkDense(0.48), mkDense(0.47)],
+      denseHits: [mkDense(0.65), mkDense(0.64), mkDense(0.64)],
       config: baseConfig(),
     });
     expect(result.pass).toBe(true);
     expect(result.reason).toBe("dense_cluster");
     // Top-1 is below denseThreshold, so this is a cluster pass, not a dense pass.
-    expect(result.topDenseScore).toBe(0.5);
+    expect(result.topDenseScore).toBe(0.65);
   });
 
   test("sparse_only_strong: dense fails but normalized BM25F clears the high bar", () => {
     const result = checkV3Gate({
-      needleHits: [mkNeedle(9)], // norm = 9 / (9 + 9) = 0.5 >= 0.45
+      // sparseOnlyThreshold 0.75 needs raw >= 27 at normK 9; 40 clears with room.
+      needleHits: [mkNeedle(40)], // norm = 40 / (40 + 9) ≈ 0.816 >= 0.75
       denseHits: [mkDense(0.3), mkDense(0.25)],
       config: baseConfig(),
     });
     expect(result.pass).toBe(true);
     expect(result.reason).toBe("sparse_only_strong");
-    expect(result.topSparseScore).toBe(9);
-    expect(result.topNormSparseScore).toBeCloseTo(0.5, 10);
+    expect(result.topSparseScore).toBe(40);
+    expect(result.topNormSparseScore).toBeCloseTo(40 / 49, 10);
   });
 
   test("fail_dense_below_and_sparse_weak: sparse passes the floor but not the sparse-only bar", () => {
     const result = checkV3Gate({
-      needleHits: [mkNeedle(5.52)], // norm = 5.52 / 14.52 ≈ 0.380 (≥ 0.35, < 0.45)
+      needleHits: [mkNeedle(9)], // norm = 9 / 18 = 0.5 (≥ 0.35, < 0.75)
       denseHits: [mkDense(0.3)],
       config: baseConfig(),
     });
     expect(result.pass).toBe(false);
     expect(result.reason).toBe("fail_dense_below_and_sparse_weak");
     expect(result.topNormSparseScore!).toBeGreaterThanOrEqual(0.35);
-    expect(result.topNormSparseScore!).toBeLessThan(0.45);
+    expect(result.topNormSparseScore!).toBeLessThan(0.75);
   });
 
   test("fail_no_signal: dense below and sparse essentially nil", () => {
