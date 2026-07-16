@@ -47,8 +47,13 @@ export async function refreshDiagnosticsConsent(): Promise<void> {
     if (!resolved.hasServerRecord) return;
     const store = useOnboardingStore.getState();
     // Adopt both effective verdicts, mirroring the auth-store sync, so a
-    // platform-side revoke closes the gates without a fresh login.
-    store.setPendingAnalyticsOptIn(false);
+    // platform-side revoke closes the gates without a fresh login. The
+    // pending opt-in clears only once the fetched record REFLECTS it — a
+    // refresh racing the opt-in's in-flight PATCH must not flip uploads
+    // back off on the stale record.
+    if (resolved.shareAnalytics === true) {
+      store.setPendingAnalyticsOptIn(false);
+    }
     store.setServerAnalyticsEffective(resolved.analyticsEffective);
     store.setServerDiagnosticsEffective(resolved.diagnosticsEffective);
     applyResolvedDiagnosticsConsent(

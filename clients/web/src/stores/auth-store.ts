@@ -345,8 +345,14 @@ async function syncUserScopedState(nextUserId: string | null): Promise<void> {
       // Adopt the platform-computed effective verdicts for the data-capture
       // gates. A no-record response carries no verdict (its values are API
       // defaults), so the gates keep the pre-sync posture: opt-out default
-      // unless a local explicit opt-out.
-      store.setPendingAnalyticsOptIn(false);
+      // unless a local explicit opt-out. The pending opt-in clears only once
+      // the fetched record REFLECTS it — a sync racing the opt-in's
+      // in-flight PATCH must not flip uploads back off on the stale record.
+      // (An explicit server false is adopted into the store above, where the
+      // gate's explicit-false rule closes uploads regardless of pending.)
+      if (resolved.shareAnalytics === true) {
+        store.setPendingAnalyticsOptIn(false);
+      }
       store.setServerAnalyticsEffective(
         resolved.hasServerRecord ? resolved.analyticsEffective : null,
       );

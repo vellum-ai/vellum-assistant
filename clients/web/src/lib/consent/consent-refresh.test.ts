@@ -162,6 +162,31 @@ describe("refreshDiagnosticsConsent", () => {
     expect(setServerDiagnosticsEffective).toHaveBeenCalledWith(true);
   });
 
+  test("a refresh racing an in-flight opt-in PATCH keeps the pending flag on the stale record", async () => {
+    // The fetched record predates the opt-in (explicit false): pending must
+    // survive so the gate honors the user's fresh opt-in until the server
+    // reflects it.
+    consentResult = Promise.resolve(
+      consentRecord({
+        share_analytics: false,
+        share_analytics_accepted_version: "2026-06-18",
+      }),
+    );
+    await refreshDiagnosticsConsent();
+    expect(setPendingAnalyticsOptIn).not.toHaveBeenCalled();
+  });
+
+  test("a refresh clears the pending opt-in once the record reflects it", async () => {
+    consentResult = Promise.resolve(
+      consentRecord({
+        share_analytics: true,
+        share_analytics_accepted_version: "2026-06-18",
+      }),
+    );
+    await refreshDiagnosticsConsent();
+    expect(setPendingAnalyticsOptIn).toHaveBeenCalledWith(false);
+  });
+
   test("swallows a thrown fetch and leaves state unchanged", async () => {
     consentResult = Promise.reject(new Error("offline"));
     await refreshDiagnosticsConsent();
