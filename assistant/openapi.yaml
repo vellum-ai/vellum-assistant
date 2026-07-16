@@ -29081,13 +29081,13 @@ paths:
   /v1/telemetry/ingest:
     post:
       operationId: telemetry_ingest_post
-      summary: Record a client-reportable telemetry event
+      summary: Record an outbox-backed telemetry event
       description:
-        "Record any client-reportable outbox-backed telemetry event by its wire `type` + `fields`.
-        Client-orchestrated: for events the daemon can't observe on its own (e.g. onboarding_research). The type must be
-        on the daemon's client-reportable allowlist and the payload must pass the platform wire schema. Gated on
-        share_analytics consent like every other outbox-backed event; the platform re-checks the owner's consent
-        server-side at ingest."
+        Record any outbox-backed telemetry event by its wire `type` + `fields`. For events a client observes and
+        the daemon can't detect on its own (e.g. onboarding_research). The type must be an outbox-backed event — the
+        watermark types (turn, llm_usage, tool_executed) have no variant — and the payload must pass the platform wire
+        schema. Gated on share_analytics consent like every other outbox-backed event; the platform re-checks the
+        owner's consent server-side at ingest.
       tags:
         - telemetry
       requestBody:
@@ -29096,6 +29096,298 @@ paths:
           application/json:
             schema:
               oneOf:
+                - type: object
+                  properties:
+                    type:
+                      type: string
+                      const: lifecycle
+                    fields:
+                      type: object
+                      properties:
+                        event_name:
+                          type: string
+                          minLength: 1
+                          maxLength: 64
+                      required:
+                        - event_name
+                      description:
+                        Wire event fields, excluding the daemon-stamped base fields (type, daemon_event_id, recorded_at,
+                        assistant_version).
+                    daemon_event_id:
+                      description:
+                        "Optional collapse key: rows sharing an id collapse downstream (e.g. a retried report). Defaults to a fresh
+                        per-row id."
+                      type: string
+                      minLength: 1
+                      maxLength: 128
+                  required:
+                    - type
+                    - fields
+                - type: object
+                  properties:
+                    type:
+                      type: string
+                      const: onboarding
+                    fields:
+                      type: object
+                      properties:
+                        screen:
+                          type: string
+                          minLength: 1
+                          maxLength: 64
+                        tools:
+                          type: array
+                          items:
+                            type: string
+                            minLength: 1
+                            maxLength: 128
+                        tasks:
+                          type: array
+                          items:
+                            type: string
+                            minLength: 1
+                            maxLength: 128
+                        tone:
+                          type: string
+                          minLength: 1
+                          maxLength: 64
+                        google_connected:
+                          type: boolean
+                        google_scopes:
+                          type: array
+                          items:
+                            type: string
+                            minLength: 1
+                            maxLength: 256
+                        ab_variant:
+                          type: string
+                          minLength: 1
+                          maxLength: 64
+                        session_id:
+                          type: string
+                          minLength: 1
+                          maxLength: 128
+                        step_name:
+                          type: string
+                          minLength: 1
+                          maxLength: 128
+                        step_index:
+                          type: integer
+                          minimum: 0
+                          maximum: 9007199254740991
+                        completed_at:
+                          type: string
+                          minLength: 1
+                          maxLength: 64
+                        funnel_version:
+                          type: string
+                          minLength: 1
+                          maxLength: 128
+                        user_id:
+                          anyOf:
+                            - type: string
+                              minLength: 1
+                              maxLength: 64
+                            - type: "null"
+                        outcome:
+                          type: string
+                          minLength: 1
+                          maxLength: 32
+                      description:
+                        Wire event fields, excluding the daemon-stamped base fields (type, daemon_event_id, recorded_at,
+                        assistant_version).
+                    daemon_event_id:
+                      description:
+                        "Optional collapse key: rows sharing an id collapse downstream (e.g. a retried report). Defaults to a fresh
+                        per-row id."
+                      type: string
+                      minLength: 1
+                      maxLength: 128
+                  required:
+                    - type
+                    - fields
+                - type: object
+                  properties:
+                    type:
+                      type: string
+                      const: auth_fallback
+                    fields:
+                      type: object
+                      properties:
+                        guard:
+                          type: string
+                          minLength: 1
+                          maxLength: 64
+                        failure_kind:
+                          type: string
+                          minLength: 1
+                          maxLength: 64
+                        path:
+                          type: string
+                          minLength: 1
+                          maxLength: 2048
+                        count:
+                          type: integer
+                          minimum: 0
+                          maximum: 9007199254740991
+                        window_start:
+                          type: integer
+                          minimum: 0
+                          maximum: 9007199254740991
+                        window_end:
+                          type: integer
+                          minimum: 0
+                          maximum: 9007199254740991
+                      required:
+                        - guard
+                        - failure_kind
+                        - path
+                        - count
+                        - window_start
+                        - window_end
+                      description:
+                        Wire event fields, excluding the daemon-stamped base fields (type, daemon_event_id, recorded_at,
+                        assistant_version).
+                    daemon_event_id:
+                      description:
+                        "Optional collapse key: rows sharing an id collapse downstream (e.g. a retried report). Defaults to a fresh
+                        per-row id."
+                      type: string
+                      minLength: 1
+                      maxLength: 128
+                  required:
+                    - type
+                    - fields
+                - type: object
+                  properties:
+                    type:
+                      type: string
+                      const: skill_loaded
+                    fields:
+                      type: object
+                      properties:
+                        provider:
+                          anyOf:
+                            - type: string
+                              minLength: 1
+                              maxLength: 64
+                            - type: "null"
+                        model:
+                          anyOf:
+                            - type: string
+                              minLength: 1
+                              maxLength: 128
+                            - type: "null"
+                        inference_profile:
+                          anyOf:
+                            - type: string
+                              minLength: 1
+                              maxLength: 255
+                            - type: "null"
+                        inference_profile_source:
+                          anyOf:
+                            - type: string
+                              minLength: 1
+                              maxLength: 255
+                            - type: "null"
+                        skill_name:
+                          type: string
+                          minLength: 1
+                          maxLength: 255
+                        skill_updated_at:
+                          anyOf:
+                            - type: string
+                              minLength: 1
+                              maxLength: 64
+                            - type: "null"
+                        conversation_id:
+                          anyOf:
+                            - type: string
+                              minLength: 1
+                              maxLength: 128
+                            - type: "null"
+                      required:
+                        - skill_name
+                      description:
+                        Wire event fields, excluding the daemon-stamped base fields (type, daemon_event_id, recorded_at,
+                        assistant_version).
+                    daemon_event_id:
+                      description:
+                        "Optional collapse key: rows sharing an id collapse downstream (e.g. a retried report). Defaults to a fresh
+                        per-row id."
+                      type: string
+                      minLength: 1
+                      maxLength: 128
+                  required:
+                    - type
+                    - fields
+                - type: object
+                  properties:
+                    type:
+                      type: string
+                      const: watchdog
+                    fields:
+                      type: object
+                      properties:
+                        check_name:
+                          type: string
+                          minLength: 1
+                          maxLength: 128
+                        value:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        detail:
+                          anyOf:
+                            - $ref: "#/components/schemas/TelemetryJsonValue"
+                            - type: "null"
+                      required:
+                        - check_name
+                      description:
+                        Wire event fields, excluding the daemon-stamped base fields (type, daemon_event_id, recorded_at,
+                        assistant_version).
+                    daemon_event_id:
+                      description:
+                        "Optional collapse key: rows sharing an id collapse downstream (e.g. a retried report). Defaults to a fresh
+                        per-row id."
+                      type: string
+                      minLength: 1
+                      maxLength: 128
+                  required:
+                    - type
+                    - fields
+                - type: object
+                  properties:
+                    type:
+                      type: string
+                      const: config_setting
+                    fields:
+                      type: object
+                      properties:
+                        config_key:
+                          type: string
+                          minLength: 1
+                          maxLength: 128
+                        config_value:
+                          type: string
+                          minLength: 1
+                          maxLength: 256
+                      required:
+                        - config_key
+                        - config_value
+                      description:
+                        Wire event fields, excluding the daemon-stamped base fields (type, daemon_event_id, recorded_at,
+                        assistant_version).
+                    daemon_event_id:
+                      description:
+                        "Optional collapse key: rows sharing an id collapse downstream (e.g. a retried report). Defaults to a fresh
+                        per-row id."
+                      type: string
+                      minLength: 1
+                      maxLength: 128
+                  required:
+                    - type
+                    - fields
                 - type: object
                   properties:
                     type:

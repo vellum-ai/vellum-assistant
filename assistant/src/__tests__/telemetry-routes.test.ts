@@ -113,13 +113,31 @@ describe("telemetry-routes: ingest", () => {
     expect(pendingPayloads().length).toBe(1);
   });
 
-  test("rejects a type not on the client-reportable allowlist", () => {
-    // `turn` is a real wire type but daemon-authoritative — a client must never
-    // be able to inject it.
+  test("rejects a non-outbox (watermark) or unknown type", () => {
+    // `turn` is a real wire type but watermark-flushed, not outbox-backed, so it
+    // has no ingest variant and a client can't inject it.
     expect(() => call({ type: "turn", fields: {} })).toThrow(RouteError);
     // An unknown type is rejected the same way.
     expect(() => call({ type: "not_a_type", fields: {} })).toThrow(RouteError);
     expect(pendingPayloads().length).toBe(0);
+  });
+
+  test("accepts any outbox-backed type, e.g. config_setting", () => {
+    const result = call({
+      type: "config_setting",
+      fields: { config_key: "voice.provider", config_value: "elevenlabs" },
+    });
+    expect(result).toEqual({ id: expect.any(String) });
+
+    const payloads = pendingOutboxPayloads<{ config_key: string }>(
+      "config_setting",
+    );
+    expect(payloads.length).toBe(1);
+    expect(payloads[0]).toMatchObject({
+      type: "config_setting",
+      config_key: "voice.provider",
+      config_value: "elevenlabs",
+    });
   });
 
   test("rejects malformed fields (missing or mistyped) without persisting", () => {

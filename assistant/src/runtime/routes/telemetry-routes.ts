@@ -2,8 +2,8 @@
  * Route handlers for telemetry lifecycle events.
  *
  * POST /v1/telemetry/lifecycle — record a lifecycle event (app_open, hatch).
- * POST /v1/telemetry/ingest — record any client-reportable outbox-backed
- * telemetry event by its wire `type` + `fields`.
+ * POST /v1/telemetry/ingest — record any outbox-backed telemetry event by its
+ * wire `type` + `fields`.
  */
 
 import { z } from "zod";
@@ -15,10 +15,10 @@ import {
   getWireSchemaForType,
 } from "../../telemetry/telemetry-wire-validation.js";
 import type {
-  ClientReportableTelemetryEventName,
+  OutboxTelemetryEventName,
   TelemetryEvent,
 } from "../../telemetry/types.js";
-import { CLIENT_REPORTABLE_TELEMETRY_EVENT_NAMES } from "../../telemetry/types.js";
+import { OUTBOX_TELEMETRY_EVENT_NAMES } from "../../telemetry/types.js";
 import { getUsageTelemetryReporter } from "../../telemetry/usage-telemetry-reporter.js";
 import { getLogger } from "../../util/logger.js";
 import { APP_VERSION } from "../../version.js";
@@ -41,17 +41,15 @@ const ingestDaemonEventIdSchema = z
   );
 
 /**
- * One request variant per client-reportable type: `{ type, fields, daemon_event_id? }`
+ * One request variant per outbox-backed type: `{ type, fields, daemon_event_id? }`
  * where `fields` is the wire schema for that type minus the daemon-stamped base
- * fields. Throws at module load if a client-reportable name has no wire schema
- * (the allowlist and wire contract drifted).
+ * fields. Throws at module load if an outbox name has no wire schema (an
+ * impossible drift between the outbox name list and the wire contract).
  */
-function buildIngestVariant(name: ClientReportableTelemetryEventName) {
+function buildIngestVariant(name: OutboxTelemetryEventName) {
   const fields = getWireFieldsSchema(name);
   if (!fields) {
-    throw new Error(
-      `No wire schema for client-reportable telemetry type "${name}".`,
-    );
+    throw new Error(`No wire schema for outbox telemetry type "${name}".`);
   }
   return z.object({
     type: z.literal(name),
@@ -64,18 +62,18 @@ function buildIngestVariant(name: ClientReportableTelemetryEventName) {
 }
 
 /**
- * Request shape for `POST /v1/telemetry/ingest`: a discriminated union over the
- * client-reportable event types, each carrying that type's wire `fields`.
+ * Request shape for `POST /v1/telemetry/ingest`: a discriminated union over
+ * every outbox-backed event type, each carrying that type's wire `fields`.
  * Derived from the wire contract, so the generated SDK body is strongly typed
- * and stays in sync as the allowlist and wire schemas evolve.
+ * and stays in sync as the wire schemas evolve.
  */
 const telemetryIngestRequestSchema = z.discriminatedUnion(
   "type",
   // `.map` widens to `ZodObject[]`, but `discriminatedUnion` wants a non-empty
-  // tuple. The allowlist is a non-empty const, and the RUNTIME schema (not this
+  // tuple. The outbox name list is non-empty, and the RUNTIME schema (not this
   // static type) is what codegen introspects, so the cast doesn't affect the
   // emitted OpenAPI/SDK types.
-  CLIENT_REPORTABLE_TELEMETRY_EVENT_NAMES.map(buildIngestVariant) as [
+  OUTBOX_TELEMETRY_EVENT_NAMES.map(buildIngestVariant) as [
     ReturnType<typeof buildIngestVariant>,
     ...ReturnType<typeof buildIngestVariant>[],
   ],
@@ -111,19 +109,16 @@ async function handleTelemetryFlush() {
 }
 
 /**
- * Record any client-reportable outbox-backed telemetry event.
- *
- * Client-orchestrated events are ones the daemon can't observe on its own —
- * only the client knows when they happened and what they produced (today just
- * `onboarding_research`). This is the generic bridge that exposes the daemon's
- * in-process `recordTelemetryEvent` recorder to clients over HTTP/IPC.
+ * Record any outbox-backed telemetry event reported by a client. This is the
+ * generic bridge that exposes the daemon's in-process `recordTelemetryEvent`
+ * recorder to clients over HTTP/IPC — for events the client observes and the
+ * daemon can't detect on its own (e.g. `onboarding_research`).
  *
  * Three guarantees before a row lands:
- *   1. `type` must be on the {@link CLIENT_REPORTABLE_TELEMETRY_EVENT_NAMES}
- *      allowlist and `fields` must match the type's wire shape — both enforced
- *      by the discriminated-union parse, so a client can never inject a
- *      daemon-authoritative type (`turn`, `config_setting`, …) nor a malformed
- *      payload.
+ *   1. `type` must be an outbox-backed event and `fields` must match that
+ *      type's wire shape — both enforced by the discriminated-union parse. The
+ *      watermark types (`turn`, `llm_usage`, `tool_executed`) are excluded
+ *      structurally: they aren't outbox-backed, so they have no variant.
  *   2. The assembled event must additionally pass the full wire schema for the
  *      byte-bound superRefines the request `fields` schema drops (oversize
  *      claims/suggestions).
@@ -143,13 +138,11 @@ function handleTelemetryIngest({ body }: RouteHandlerArgs) {
   }
   const { type, fields, daemon_event_id: daemonEventId } = parsed.data;
 
-  // `type` is allowlisted (the parse matched a union variant), so a wire schema
+  // `type` matched a union variant (an outbox-backed event), so a wire schema
   // is guaranteed — its absence is an invariant breach, not a client error.
   const wireSchema = getWireSchemaForType(type);
   if (!wireSchema) {
-    throw new Error(
-      `No wire schema registered for client-reportable type "${type}".`,
-    );
+    throw new Error(`No wire schema registered for outbox type "${type}".`);
   }
 
   // Re-validate the assembled event against the full wire schema for the
@@ -261,9 +254,9 @@ export const ROUTES: RouteDefinition[] = [
       requiredScopes: ["settings.write"],
       allowedPrincipalTypes: ACTOR_PRINCIPALS,
     },
-    summary: "Record a client-reportable telemetry event",
+    summary: "Record an outbox-backed telemetry event",
     description:
-      "Record any client-reportable outbox-backed telemetry event by its wire `type` + `fields`. Client-orchestrated: for events the daemon can't observe on its own (e.g. onboarding_research). The type must be on the daemon's client-reportable allowlist and the payload must pass the platform wire schema. Gated on share_analytics consent like every other outbox-backed event; the platform re-checks the owner's consent server-side at ingest.",
+      "Record any outbox-backed telemetry event by its wire `type` + `fields`. For events a client observes and the daemon can't detect on its own (e.g. onboarding_research). The type must be an outbox-backed event — the watermark types (turn, llm_usage, tool_executed) have no variant — and the payload must pass the platform wire schema. Gated on share_analytics consent like every other outbox-backed event; the platform re-checks the owner's consent server-side at ingest.",
     tags: ["telemetry"],
     requestBody: telemetryIngestRequestSchema,
     responseBody: z.union([
