@@ -24,7 +24,16 @@ import {
   navGateBubbleCopy,
   type NavGateButtonAction,
 } from "@/domains/chat/nav-gate/nav-gate-copy";
-import { useNavGateStore } from "@/domains/chat/nav-gate/nav-gate-store";
+import {
+  useNavGateStore,
+  type NavGateItemId,
+} from "@/domains/chat/nav-gate/nav-gate-store";
+
+/** Sidenav items open to the right; composer bottom-bar items open upward. */
+const BUBBLE_SIDE: Partial<Record<NavGateItemId, "top">> = {
+  "assistant-access": "top",
+  "model-profile": "top",
+};
 
 export function NavGateBubble({
   assistantId,
@@ -75,7 +84,7 @@ export function NavGateBubble({
     >
       <Popover.Anchor virtualRef={{ current: bubbleAnchor }} />
       <Popover.Content
-        side="right"
+        side={BUBBLE_SIDE[bubbleItem] ?? "right"}
         align="start"
         sideOffset={10}
         className="w-72 p-3"

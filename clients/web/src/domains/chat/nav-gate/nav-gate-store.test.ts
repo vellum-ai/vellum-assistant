@@ -13,6 +13,8 @@ const ALL_ITEMS: NavGateItemId[] = [
   "new-conversation",
   "history",
   "settings",
+  "assistant-access",
+  "model-profile",
 ];
 
 function reset() {
@@ -47,12 +49,14 @@ describe("isNavItemGated — the unlock curve", () => {
     }
   });
 
-  test("1 message: nav spine unlocks, library/settings stay gated", () => {
+  test("1 message: nav spine unlocks, the settings tier stays gated", () => {
     const state = { sentCount: 1, attempts: {} };
     expect(isNavItemGated("gated", "history", state)).toBe(false);
     expect(isNavItemGated("gated", "new-conversation", state)).toBe(false);
     expect(isNavItemGated("gated", "library", state)).toBe(true);
     expect(isNavItemGated("gated", "settings", state)).toBe(true);
+    expect(isNavItemGated("gated", "assistant-access", state)).toBe(true);
+    expect(isNavItemGated("gated", "model-profile", state)).toBe(true);
   });
 
   test("5 messages: full chrome, experiment over", () => {

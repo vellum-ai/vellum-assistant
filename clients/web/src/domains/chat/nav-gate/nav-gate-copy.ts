@@ -117,6 +117,76 @@ const COPY: Record<NavGateItemId, NavGateItemCopy> = {
       },
     ],
   },
+  "assistant-access": {
+    variants: [
+      {
+        message:
+          "This sets how much I can do on my own — from ask-every-time to just-handle-it. It's on a sensible default, and we haven't done anything yet where it'd matter. Want to?",
+        buttons: [
+          {
+            label: "What would you do with it?",
+            action: {
+              kind: "send",
+              text: "What kinds of things could you do for me if I gave you more access?",
+            },
+          },
+          {
+            label: "Just exploring",
+            action: {
+              kind: "send",
+              text: "Just poking around. What does assistant access actually control?",
+            },
+          },
+        ],
+      },
+      {
+        message:
+          "Ask-first or just-handle-it — that's what this controls. It'll matter once we're actually doing things together. Shall we?",
+        buttons: [
+          {
+            label: "What could you handle?",
+            action: {
+              kind: "send",
+              text: "What kinds of things could you do for me if I gave you more access?",
+            },
+          },
+          { label: "Never mind", action: { kind: "dismiss" } },
+        ],
+      },
+    ],
+  },
+  "model-profile": {
+    variants: [
+      {
+        message:
+          "This picks which model I think with. The default is the right call for almost everything — including a first conversation. Curious what's underneath?",
+        buttons: [
+          {
+            label: "What's underneath?",
+            action: {
+              kind: "send",
+              text: "What model are you running right now, and when would switching matter?",
+            },
+          },
+          { label: "Never mind", action: { kind: "dismiss" } },
+        ],
+      },
+      {
+        message:
+          "Model-swapping is here when you need it — the default suits us fine for now. Want the quick version of when it matters?",
+        buttons: [
+          {
+            label: "When does it matter?",
+            action: {
+              kind: "send",
+              text: "When would I want a different model profile?",
+            },
+          },
+          { label: "Never mind", action: { kind: "dismiss" } },
+        ],
+      },
+    ],
+  },
   settings: {
     variants: [
       {
