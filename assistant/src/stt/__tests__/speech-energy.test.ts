@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   DEFAULT_SPEECH_ENERGY_THRESHOLD,
   detectPcm16SpeechActivity,
+  pcm16MeanAmplitude,
 } from "../speech-energy.js";
 
 /** Build a PCM16LE buffer from an array of sample values. */
@@ -64,5 +65,49 @@ describe("detectPcm16SpeechActivity", () => {
     expect(detectPcm16SpeechActivity(quiet)).toBe(false);
     expect(detectPcm16SpeechActivity(quiet, 400)).toBe(true);
     expect(detectPcm16SpeechActivity(quiet, 500)).toBe(false);
+  });
+});
+
+describe("pcm16MeanAmplitude", () => {
+  test("empty buffer returns 0", () => {
+    expect(pcm16MeanAmplitude(Buffer.alloc(0))).toBe(0);
+  });
+
+  test("constant-amplitude buffer returns the exact mean", () => {
+    expect(pcm16MeanAmplitude(pcm16(new Array(100).fill(1234)))).toBe(1234);
+  });
+
+  test("negative samples contribute their absolute value", () => {
+    const samples = Array.from({ length: 160 }, (_, i) =>
+      i % 2 === 0 ? 2000 : -2000,
+    );
+    expect(pcm16MeanAmplitude(pcm16(samples))).toBe(2000);
+  });
+
+  test("odd-length buffer ignores the trailing byte", () => {
+    const constant = pcm16(new Array(50).fill(3000));
+    const withTrailing = Buffer.concat([constant, Buffer.from([0x01])]);
+    expect(pcm16MeanAmplitude(withTrailing)).toBe(3000);
+  });
+
+  test("detectPcm16SpeechActivity is equivalent to comparing the mean against the threshold", () => {
+    const buffers = [
+      Buffer.alloc(0),
+      pcm16(new Array(160).fill(0)),
+      pcm16(new Array(100).fill(500)),
+      pcm16(new Array(100).fill(DEFAULT_SPEECH_ENERGY_THRESHOLD)),
+      pcm16(new Array(100).fill(DEFAULT_SPEECH_ENERGY_THRESHOLD + 1)),
+      pcm16(
+        Array.from({ length: 160 }, (_, i) => (i % 2 === 0 ? 10000 : -10000)),
+      ),
+    ];
+    const thresholds = [400, 500, DEFAULT_SPEECH_ENERGY_THRESHOLD, 12000];
+    for (const chunk of buffers) {
+      for (const threshold of thresholds) {
+        expect(detectPcm16SpeechActivity(chunk, threshold)).toBe(
+          pcm16MeanAmplitude(chunk) > threshold,
+        );
+      }
+    }
   });
 });

@@ -1687,6 +1687,8 @@ describe("LiveVoiceSession VAD threshold configuration", () => {
       silenceThresholdMs: 1200,
       maxTurnDurationMs: 30_000,
       bargeInMinSpeechMs: 250,
+      echoBargeInMargin: 1.5,
+      echoEmaHalfLifeMs: 400,
     });
 
     const { frames, session } = createHarness({ viaFactory: true });
