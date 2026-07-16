@@ -29135,7 +29135,7 @@ paths:
                           maxItems: 20
                           type: array
                           items:
-                            $ref: "#/components/schemas/__schema0"
+                            $ref: "#/components/schemas/TelemetryJsonValue"
                         claim_count:
                           type: integer
                           minimum: 0
@@ -29156,7 +29156,7 @@ paths:
                           maxItems: 20
                           type: array
                           items:
-                            $ref: "#/components/schemas/__schema0"
+                            $ref: "#/components/schemas/TelemetryJsonValue"
                         suggestion_count:
                           type: integer
                           minimum: 0
@@ -32121,7 +32121,7 @@ components:
           minLength: 1
       required:
         - id
-    __schema0:
+    TelemetryJsonValue:
       anyOf:
         - type: string
         - type: number
@@ -32129,12 +32129,12 @@ components:
         - type: "null"
         - type: array
           items:
-            $ref: "#/components/schemas/__schema0"
+            $ref: "#/components/schemas/TelemetryJsonValue"
         - type: object
           propertyNames:
             type: string
           additionalProperties:
-            $ref: "#/components/schemas/__schema0"
+            $ref: "#/components/schemas/TelemetryJsonValue"
     ConfigGetResponse:
       type: object
       properties:
