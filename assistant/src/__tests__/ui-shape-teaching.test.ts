@@ -60,6 +60,22 @@ describe("ui_show unknown surface_type teaching", () => {
     expect(proxied).toBe(false);
   });
 
+  test("retired types (list, task_preferences) teach instead of proxying", async () => {
+    for (const retired of ["list", "task_preferences"]) {
+      let proxied = false;
+      const result = await uiShowTool.execute(
+        { surface_type: retired, data: {} },
+        makeContext(() => {
+          proxied = true;
+        }),
+      );
+
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain(`"${retired}" is not a surface type`);
+      expect(proxied).toBe(false);
+    }
+  });
+
   test("prototype-chain keys are not surface types", async () => {
     let proxied = false;
     const result = await uiShowTool.execute(
@@ -122,7 +138,6 @@ describe("ui_show missing-content teaching", () => {
     },
     { surfaceType: "form", data: {}, expectInError: "`data.fields`" },
     { surfaceType: "confirmation", data: {}, expectInError: "confirmLabel" },
-    { surfaceType: "list", data: { items: [] }, expectInError: "`data.items`" },
     { surfaceType: "work_result", data: {}, expectInError: "summary" },
     { surfaceType: "oauth_connect", data: {}, expectInError: "providerKey" },
     {
@@ -171,10 +186,6 @@ describe("ui_show displayable payloads proxy through", () => {
         surfaceType:
           "card (lenient — top-level fields are normalized downstream)",
         input: { surface_type: "card", title: "Status", data: {} },
-      },
-      {
-        surfaceType: "task_preferences",
-        input: { surface_type: "task_preferences", data: {} },
       },
       {
         surfaceType: "file_upload",
@@ -233,6 +244,12 @@ describe("uiShowTeachingError", () => {
     for (const name of SURFACE_TYPE_NAMES) {
       expect(SURFACE_SHAPE_DOCS[name]!.purpose.length).toBeGreaterThan(0);
       expect(SURFACE_SHAPE_DOCS[name]!.shape.length).toBeGreaterThan(0);
+    }
+  });
+
+  test("every documented type appears in the tool description", () => {
+    for (const name of SURFACE_TYPE_NAMES) {
+      expect(uiShowTool.description).toContain(name);
     }
   });
 });

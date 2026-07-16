@@ -83,7 +83,7 @@ These are enforcement rules, not advice.
 
 Identity writes (IDENTITY.md, SOUL.md), user-profile writes, journal entries: all wait until the rail produces real signal, which is Moment 1 output at the earliest. None of them delay a user-visible response. None of them happen alongside the opening turn.
 
-The base BOOTSTRAP task_preferences fallback is not on this rail. Your opener is the Port pitch.
+Your opener is the Port pitch — no other intake surface precedes it.
 
 ## Telemetry: tag your `ui_show` surfaces
 
