@@ -14,7 +14,14 @@ import { enqueueMemoryJob } from "../../../../persistence/jobs-store.js";
 import { enqueuePkbIndexJob } from "../jobs/embed-pkb-file.js";
 import { getLogger } from "../logging.js";
 import { getWorkspaceDir } from "../paths.js";
-import { deleteNode, queryNodes, recordNodeEdit, updateNode } from "./store.js";
+import type { GraphStats } from "./store.js";
+import {
+  computeGraphStats,
+  deleteNode,
+  queryNodes,
+  recordNodeEdit,
+  updateNode,
+} from "./store.js";
 
 const log = getLogger("graph-tool-handlers");
 
@@ -427,5 +434,33 @@ export function handleListMemory(
       created: n.created,
     })),
     total: filtered.length,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// handleStatsMemory
+// ---------------------------------------------------------------------------
+
+export interface StatsMemoryResult {
+  success: boolean;
+  message: string;
+  stats: GraphStats | null;
+}
+
+export function handleStatsMemory(config: AssistantConfig): StatsMemoryResult {
+  if (!config.memory.v2.enabled) {
+    return {
+      success: false,
+      message: "stats requires memory v2.",
+      stats: null,
+    };
+  }
+  const stats = computeGraphStats();
+  const n = stats.total;
+  const e = stats.edgeCount;
+  return {
+    success: true,
+    message: `${n} active node${n === 1 ? "" : "s"}, ${e} edge${e === 1 ? "" : "s"}.`,
+    stats,
   };
 }
