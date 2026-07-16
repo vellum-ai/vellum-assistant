@@ -57,7 +57,20 @@ export function TextToSpeechCard() {
     enabled: isOrgReady,
     staleTime: Infinity,
   });
-  const providers = catalogData?.providers ?? TTS_PROVIDERS;
+  const providers = useMemo(() => {
+    const fetched = catalogData?.providers;
+    if (!fetched) {
+      return TTS_PROVIDERS;
+    }
+    // Assistants running an older catalog omit vellum, but the managed option
+    // must still be offered (and a legacy managed config still renders as
+    // Vellum) — graft the static entry on.
+    if (fetched.some((p) => p.id === "vellum")) {
+      return fetched;
+    }
+    const vellum = TTS_PROVIDERS.find((p) => p.id === "vellum");
+    return vellum ? [vellum, ...fetched] : fetched;
+  }, [catalogData]);
 
   // Seed the provider from the daemon's live config so a Save doesn't clobber a
   // provider configured elsewhere (CLI/other client) when localStorage is stale.
@@ -173,12 +186,16 @@ export function TextToSpeechCard() {
       const shouldSetProvider =
         draftProvider !== serverProvider || !daemonHasProvider;
       const ttsBody = {
-        ...(shouldSetProvider ? { provider: activeProvider } : {}),
-        // A stale `mode: "managed"` from the legacy toggle would win over the
-        // BYOK choice, so escaping Vellum resets it. Vellum itself needs no
-        // mode — the provider takes precedence.
-        ...(shouldSetProvider && activeProvider !== "vellum"
-          ? { mode: "your-own" }
+        // The provider is always written as a pair with `mode`, which keeps
+        // the write valid on every daemon version: older schemas reject
+        // provider "vellum" without mode "managed", and a stale
+        // `mode: "managed"` from the legacy toggle would win over a BYOK
+        // choice unless reset.
+        ...(shouldSetProvider
+          ? {
+              provider: activeProvider,
+              mode: activeProvider === "vellum" ? "managed" : "your-own",
+            }
           : {}),
         ...(voiceField
           ? {

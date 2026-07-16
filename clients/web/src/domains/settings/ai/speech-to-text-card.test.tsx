@@ -288,14 +288,11 @@ describe("SpeechToTextCard — Vellum provider", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(configPatchCalls.length).toBe(1));
+    // Written as a pair so the save stays valid on daemons whose schema
+    // still couples provider "vellum" to mode "managed".
     expect(configPatchCalls[0]!.body).toMatchObject({
-      services: { stt: { provider: "vellum" } },
+      services: { stt: { provider: "vellum", mode: "managed" } },
     });
-    // The provider takes precedence over any mode on disk — nothing to reset.
-    expect(
-      (configPatchCalls[0]!.body as { services: { stt: object } }).services
-        .stt,
-    ).not.toHaveProperty("mode");
     expect(credentialsSetCalls).toHaveLength(0);
     expect(localStorage.getItem(LS_STT_PROVIDER)).toBe("vellum");
   });

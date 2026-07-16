@@ -217,6 +217,14 @@ export async function run(
 
   if (setting === "tts_provider") {
     setNestedValue(raw, "services.tts.provider", validation.coerced);
+    // Written as a pair, like the settings cards: a stale `mode: "managed"`
+    // takes precedence over a BYOK provider, so switching providers must
+    // also reset it — otherwise the requested switch is silently ignored.
+    setNestedValue(
+      raw,
+      "services.tts.mode",
+      validation.coerced === "vellum" ? "managed" : "your-own",
+    );
     saveRawConfig(raw);
     invalidateConfigCache();
   }

@@ -222,13 +222,13 @@ export function SpeechToTextCard() {
           body: {
             services: {
               stt: {
+                // The provider is always written as a pair with `mode`, which
+                // keeps the write valid on every daemon version: older schemas
+                // reject provider "vellum" without mode "managed", and a stale
+                // `mode: "managed"` from the legacy toggle would win over a
+                // BYOK choice unless reset.
                 provider: providerValue,
-                // A stale `mode: "managed"` from the legacy toggle would win
-                // over the BYOK choice, so escaping Vellum resets it. Vellum
-                // itself needs no mode — the provider takes precedence.
-                ...(providerValue !== "vellum"
-                  ? { mode: "your-own" }
-                  : {}),
+                mode: providerValue === "vellum" ? "managed" : "your-own",
               },
             },
           },

@@ -29,18 +29,23 @@ mock.module("@vellumai/design-library/components/toast", () => ({
   Toaster: () => null,
   ToastContent: () => null,
 }));
+let orgReady = false;
 mock.module("@/hooks/use-is-org-ready", () => ({
-  useIsOrgReady: () => false,
+  useIsOrgReady: () => orgReady,
 }));
 // Controllable daemon config the config-get query resolves to. `initialData`
 // makes it available even though the query is `enabled: isOrgReady` (false),
 // mirroring how the real query would already be cached. Default `{ services: {} }`
 // leaves the daemon with no tts provider, so the happy-path tests still PATCH it.
 let daemonConfigData: { services: Record<string, unknown> } = { services: {} };
+// When set, the tts-providers query resolves to this catalog (as `initialData`,
+// so no async settling) — lets tests exercise a daemon-fetched provider list.
+let ttsCatalogData: { providers: unknown[] } | undefined;
 mock.module("@/generated/daemon/@tanstack/react-query.gen", () => ({
   ttsProvidersGetOptions: () => ({
     queryKey: ["tts-providers-test"],
-    queryFn: () => Promise.resolve({ providers: [] }),
+    queryFn: () => Promise.resolve(ttsCatalogData ?? { providers: [] }),
+    ...(ttsCatalogData ? { initialData: ttsCatalogData } : {}),
   }),
   configGetOptions: () => ({
     queryKey: ["config-get-test"],
@@ -104,6 +109,8 @@ describe("TextToSpeechCard — daemon provisioning on Save", () => {
     credentialsSetCalls.length = 0;
     configPatchCalls.length = 0;
     daemonConfigData = { services: {} };
+    orgReady = false;
+    ttsCatalogData = undefined;
   });
 
   afterEach(() => {
@@ -190,6 +197,8 @@ describe("TextToSpeechCard — Vellum provider", () => {
     credentialsSetCalls.length = 0;
     configPatchCalls.length = 0;
     daemonConfigData = { services: {} };
+    orgReady = false;
+    ttsCatalogData = undefined;
   });
 
   afterEach(() => {
@@ -218,14 +227,11 @@ describe("TextToSpeechCard — Vellum provider", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(configPatchCalls.length).toBe(1));
+    // Written as a pair so the save stays valid on daemons whose schema
+    // still couples provider "vellum" to mode "managed".
     expect(configPatchCalls[0]!.body).toMatchObject({
-      services: { tts: { provider: "vellum" } },
+      services: { tts: { provider: "vellum", mode: "managed" } },
     });
-    // The provider takes precedence over any mode on disk — nothing to reset.
-    expect(
-      (configPatchCalls[0]!.body as { services: { tts: object } }).services
-        .tts,
-    ).not.toHaveProperty("mode");
     expect(credentialsSetCalls).toHaveLength(0);
   });
 
@@ -259,5 +265,36 @@ describe("TextToSpeechCard — Vellum provider", () => {
     expect(configPatchCalls[0]!.body).toMatchObject({
       services: { tts: { provider: "fish-audio", mode: "your-own" } },
     });
+  });
+
+  test("grafts the Vellum option onto a fetched catalog that lacks it", () => {
+    // A daemon serving the pre-vellum catalog omits the managed option; the
+    // card must still offer it, or a legacy managed config has no selectable
+    // representation and managed TTS becomes unreachable from this UI.
+    orgReady = true;
+    ttsCatalogData = {
+      providers: [
+        {
+          id: "elevenlabs",
+          displayName: "ElevenLabs",
+          subtitle: "High-quality voice synthesis.",
+          supportsVoiceSelection: true,
+          apiKeyPlaceholder: "sk_…",
+          credentialsGuide: { description: "", url: "", linkLabel: "" },
+        },
+      ],
+    };
+    renderCard();
+
+    const trigger = document.querySelector<HTMLButtonElement>(
+      'button[role="combobox"][aria-label="TTS provider"]',
+    );
+    expect(trigger).not.toBeNull();
+    fireEvent.click(trigger!);
+    const options = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="option"]'),
+    ).map((o) => o.textContent?.trim());
+    expect(options).toContain("Vellum Managed");
+    expect(options).toContain("ElevenLabs");
   });
 });
