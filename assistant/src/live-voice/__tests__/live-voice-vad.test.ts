@@ -676,7 +676,9 @@ describe("LiveVoiceSession server VAD", () => {
     const spawnArgs = spawnBackgroundContinuation.mock.calls[0]?.[0];
     expect(spawnArgs?.parentConversationId).toBe("conversation-123");
     expect(spawnArgs?.label).toContain("live-turn-1");
-    expect((spawnArgs?.objective.length ?? 0) > 0).toBe(true);
+    // The objective carries the interrupted request so the continuation knows
+    // what to finish even before the user message is persisted into history.
+    expect(spawnArgs?.objective).toContain("first question");
   });
 
   test("voice-duplex-handoff on: a client interrupt aborts an in-flight continuation", async () => {

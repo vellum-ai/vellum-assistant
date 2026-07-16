@@ -332,9 +332,17 @@ function buildInterruptionMergeNote(interruptedRequest: string): string {
 
 // Objective handed to the background subagent that continues a barged-in turn.
 // The subagent forks the live conversation, so it already sees the interrupted
-// turn's completed tool calls in history and resumes from there.
-const DUPLEX_CONTINUATION_OBJECTIVE =
-  "You were in the middle of responding to the user's most recent request when they interrupted you. Finish that response now. Do not repeat any tool calls whose results are already present in the conversation.";
+// turn's completed tool calls in history and resumes from there. The request
+// text is embedded so the continuation still knows what to finish even in the
+// pre-persist window where the interrupted user message has not yet landed in
+// the forked history.
+function buildDuplexContinuationObjective(interruptedRequest: string): string {
+  const base =
+    "You were in the middle of responding to the user's most recent request when they interrupted you. Finish that response now. Do not repeat any tool calls whose results are already present in the conversation.";
+  return interruptedRequest.length > 0
+    ? `${base} Their request was: "${interruptedRequest}".`
+    : base;
+}
 
 export class LiveVoiceSession implements LiveVoiceSessionContract {
   private readonly context: LiveVoiceSessionFactoryContext;
@@ -1091,6 +1099,12 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     ) {
       return;
     }
+    // Embed the interrupted request in the objective so the continuation knows
+    // what to finish even if the forked history predates the user message being
+    // persisted (barge-in can fire while the turn is still acquiring the lock).
+    const interruptedRequest = turn.utterance.finalTranscriptSegments
+      .join(" ")
+      .trim();
     // Register the abort handle synchronously so a stop that lands while the
     // continuation is still spawning still aborts it (abortDetachedRuns fires
     // controller.abort(), which the spawn's signal wiring honors).
@@ -1098,7 +1112,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     this.detachControllers.add(controller);
     void spawn({
       parentConversationId: this.conversationId,
-      objective: DUPLEX_CONTINUATION_OBJECTIVE,
+      objective: buildDuplexContinuationObjective(interruptedRequest),
       label: `voice-continue-${turn.turnId}`,
       signal: controller.signal,
     })
