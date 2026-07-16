@@ -152,6 +152,7 @@ const TOP_P_OPENAI_COMPAT_PROVIDERS = new Set([
   "fireworks",
   "minimax",
   "atlascloud",
+  "baseten",
   "ollama",
   "openrouter",
   "together",

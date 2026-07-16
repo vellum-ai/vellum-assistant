@@ -33,6 +33,7 @@ export const CONNECTION_PROVIDERS: ConnectionProvider[] = [
   "vercel-ai-gateway",
   "minimax",
   "atlascloud",
+  "baseten",
   "openai-compatible",
 ];
 
