@@ -23,6 +23,7 @@ import {
 import { CollapsedGroupFlyout } from "@/domains/chat/components/conversation-rail-flyout";
 import { GroupActionsMenu, renderGroupMenuItems } from "@/domains/chat/components/group-actions-menu";
 import { AssistantNavItem } from "@/domains/chat/components/assistant-nav-item";
+import { NavGateRegion } from "@/domains/chat/nav-gate/nav-gate-region";
 import { PinnedAppNavItem } from "@/domains/chat/components/pinned-app-nav-item";
 import { useDragReorder } from "@/domains/chat/hooks/use-drag-reorder";
 import { SIDEBAR_CONVERSATION_LIMIT, useSidebarState, type UseSidebarStateParams } from "@/domains/chat/use-sidebar-state";
@@ -239,19 +240,21 @@ export function AssistantSideMenu({
   // A plain icon button that starts a new conversation on click.
 
   const headerActions = onStartNewConversation ? (
-    <Button
-      variant="ghost"
-      size="compact"
-      iconOnly={<SquarePen />}
-      aria-label="New conversation"
-      tooltip="New conversation"
-      tooltipSide="right"
-      className="text-[var(--content-tertiary)]"
-      onClick={() => {
-        onStartNewConversation();
-        onClose?.();
-      }}
-    />
+    <NavGateRegion item="new-conversation">
+      <Button
+        variant="ghost"
+        size="compact"
+        iconOnly={<SquarePen />}
+        aria-label="New conversation"
+        tooltip="New conversation"
+        tooltipSide="right"
+        className="text-[var(--content-tertiary)]"
+        onClick={() => {
+          onStartNewConversation();
+          onClose?.();
+        }}
+      />
+    </NavGateRegion>
   ) : null;
 
   // --- Built-in navigation ---
@@ -280,21 +283,25 @@ export function AssistantSideMenu({
       ) : null}
       {/* 4px row gap to match the conversation list. */}
       <div className="flex flex-col gap-[4px]">
-        <AssistantNavItem
-          assistantId={assistantId ?? null}
-          label={assistantName || "Your Assistant"}
-          active={isIntelligenceActive}
-          collapsed={collapsed}
-          onSelect={onOpenIntelligence ? () => { onOpenIntelligence(); onClose?.(); } : undefined}
-        />
-        {onOpenLibrary ? (
-          <SideMenu.Item
-            icon={LayoutGrid}
-            label="Library"
-            showCollapsedTooltip
-            active={isLibraryActive}
-            onSelect={onOpenLibrary ? () => { onOpenLibrary(); onClose?.(); } : undefined}
+        <NavGateRegion item="assistant-profile">
+          <AssistantNavItem
+            assistantId={assistantId ?? null}
+            label={assistantName || "Your Assistant"}
+            active={isIntelligenceActive}
+            collapsed={collapsed}
+            onSelect={onOpenIntelligence ? () => { onOpenIntelligence(); onClose?.(); } : undefined}
           />
+        </NavGateRegion>
+        {onOpenLibrary ? (
+          <NavGateRegion item="library">
+            <SideMenu.Item
+              icon={LayoutGrid}
+              label="Library"
+              showCollapsedTooltip
+              active={isLibraryActive}
+              onSelect={onOpenLibrary ? () => { onOpenLibrary(); onClose?.(); } : undefined}
+            />
+          </NavGateRegion>
         ) : null}
       </div>
       <SideMenu.Separator />
@@ -360,20 +367,22 @@ export function AssistantSideMenu({
                   )}
                 </CollapsedGroupIcon>
               ) : null}
-              <CollapsedGroupIcon
-                icon={Clock}
-                label="Recents"
-                disabled={sidebar.recents.all.length === 0}
-                indicatorState={getGroupIndicatorState(sidebar.recents.all, processingConversationIds, attentionConversationIds)}
-              >
-                {(close) => (
-                  <CollapsedGroupFlyout
-                    title="Recents"
-                    conversations={sidebar.recents.all}
-                    onClosePopover={close}
-                  />
-                )}
-              </CollapsedGroupIcon>
+              <NavGateRegion item="history">
+                <CollapsedGroupIcon
+                  icon={Clock}
+                  label="Recents"
+                  disabled={sidebar.recents.all.length === 0}
+                  indicatorState={getGroupIndicatorState(sidebar.recents.all, processingConversationIds, attentionConversationIds)}
+                >
+                  {(close) => (
+                    <CollapsedGroupFlyout
+                      title="Recents"
+                      conversations={sidebar.recents.all}
+                      onClosePopover={close}
+                    />
+                  )}
+                </CollapsedGroupIcon>
+              </NavGateRegion>
               {sidebar.channelSections.map((section) => (
                 <CollapsedGroupIcon
                   key={section.channelId}
@@ -400,6 +409,7 @@ export function AssistantSideMenu({
                 </SideMenu.Section>
               ) : null}
 
+              <NavGateRegion item="history">
               <SideMenu.Section
                 title="Conversations"
                 className="gap-1"
@@ -477,6 +487,7 @@ export function AssistantSideMenu({
                   </>
                 ) : null}
               </SideMenu.Section>
+              </NavGateRegion>
             </>
           )}
         </SideMenu.Body>
@@ -499,27 +510,37 @@ export function AssistantSideMenu({
             }}
           >
             {footerAction ? (
-              <div className="pointer-events-auto flex-1">{footerAction}</div>
+              <NavGateRegion
+                item="settings"
+                className="pointer-events-auto flex-1"
+              >
+                {footerAction}
+              </NavGateRegion>
             ) : null}
             {onStartNewConversation ? (
-              <Button
-                variant="primary"
-                className="pointer-events-auto h-10 flex-1 rounded-full px-4 shadow-[var(--shadow-lg)]"
-                leftIcon={<SquarePen />}
-                onClick={() => {
-                  onStartNewConversation();
-                  onClose?.();
-                }}
+              <NavGateRegion
+                item="new-conversation"
+                className="pointer-events-auto flex flex-1"
               >
-                New Chat
-              </Button>
+                <Button
+                  variant="primary"
+                  className="h-10 flex-1 rounded-full px-4 shadow-[var(--shadow-lg)]"
+                  leftIcon={<SquarePen />}
+                  onClick={() => {
+                    onStartNewConversation();
+                    onClose?.();
+                  }}
+                >
+                  New Chat
+                </Button>
+              </NavGateRegion>
             ) : null}
           </div>
         ) : footerAction ? (
           <SideMenu.Footer>
             {/* The collapsed rail drops the footer divider (per design). */}
             {collapsed && variant === "rail" ? null : <SideMenu.Separator />}
-            {footerAction}
+            <NavGateRegion item="settings">{footerAction}</NavGateRegion>
           </SideMenu.Footer>
         ) : null}
       </SideMenu>
