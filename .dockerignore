@@ -55,6 +55,14 @@ clients/macos/src
 !skills/meet-join/scripts/
 !skills/meet-join/scripts/**
 
+# Plugin marketplace manifest: the offline plugin catalog reader statically
+# imports this (assistant/src/cli/lib/plugin-catalog-local.ts, loaded even when
+# platform features are enabled). It is the canonical source for the git-ignored
+# assistant/src/cli/lib/bundled-marketplace.json, which the Dockerfile copies
+# into place. Without it the assistant image cannot resolve that import.
+!plugins/
+!plugins/marketplace.json
+
 # Exclude local dependencies and build outputs from included directories.
 assistant/dist/
 assistant/out/
