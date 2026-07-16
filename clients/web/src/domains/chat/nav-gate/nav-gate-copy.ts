@@ -1,11 +1,14 @@
 /**
  * Bubble copy for the sidenav-gating experiment.
  *
- * Voice rules from the experiment design: never say "locked" or "soon" —
- * items aren't withheld, they're empty-because-early. Buttons turn the block
- * into a message-generator: each either sends a message on the user's behalf
- * (tagged `nav_redirect`), prefills the composer so the user finishes the
- * sentence, or just dismisses. The second click on the same item gets a
+ * Voice rules from the experiment design, tightened by the copy review
+ * (people don't read): the bubble is a caption, not a paragraph — under 12
+ * words, one idea. The buttons carry the fork, so the bubble never asks the
+ * question the buttons already pose. Labels are 1-3 words, verbs first.
+ * Never say "locked" or "soon" — items aren't withheld, they're
+ * empty-because-early. Each button either sends a message on the user's
+ * behalf (tagged `nav_redirect`), prefills the composer so the user finishes
+ * the sentence, or dismisses. The second click on the same item gets a
  * different line (`variants[1]`); the third click never shows copy — it
  * quietly unlocks the item instead.
  */
@@ -36,41 +39,39 @@ const COPY: Record<NavGateItemId, NavGateItemCopy> = {
   library: {
     variants: [
       {
-        message:
-          "This is my Library — everything I make for you (docs, apps, research) lives here. Right now it's empty because we haven't made anything yet. Something in mind, or just exploring?",
+        message: "Everything I build for you lands here. Empty so far.",
         buttons: [
           {
-            label: "I have something in mind",
+            label: "Build something",
             action: {
               kind: "send",
-              text: "I want to make something — let's talk about what.",
+              text: "I want to build something. Let's talk about what.",
             },
           },
           {
-            label: "Just exploring",
+            label: "Like what?",
             action: {
               kind: "send",
-              text: "Just looking around. What kind of things could you put in the Library for me?",
+              text: "What kind of things could you build for me?",
             },
           },
         ],
       },
       {
-        message:
-          "Still empty in here — we haven't made anything together yet. Want to change that?",
+        message: "Still empty. Want to change that?",
         buttons: [
           {
-            label: "Let's make something",
+            label: "Let's build something",
             action: {
               kind: "send",
-              text: "I want to make something — let's talk about what.",
+              text: "I want to build something. Let's talk about what.",
             },
           },
           {
-            label: "What could go here?",
+            label: "Show me examples",
             action: {
               kind: "send",
-              text: "What kind of things could you put in the Library for me?",
+              text: "Show me examples of what you could build.",
             },
           },
         ],
@@ -80,8 +81,7 @@ const COPY: Record<NavGateItemId, NavGateItemCopy> = {
   "new-conversation": {
     variants: [
       {
-        message:
-          "A fresh chat! We've barely started this one. Want to switch topics? Just say so right here — I can keep up.",
+        message: "New topic? Just say it here. I can keep up.",
         buttons: [
           {
             label: "New topic",
@@ -91,8 +91,7 @@ const COPY: Record<NavGateItemId, NavGateItemCopy> = {
         ],
       },
       {
-        message:
-          "Still just the one conversation — and it's right here. Switch topics whenever you like; I can keep up.",
+        message: "Still just us. Switch topics anytime.",
         buttons: [
           {
             label: "New topic",
@@ -106,32 +105,59 @@ const COPY: Record<NavGateItemId, NavGateItemCopy> = {
   history: {
     variants: [
       {
-        message:
-          "Past conversations live here. We're currently having our first one, so it's just us in there. Where were we?",
+        message: "Old chats live here. We're still in our first.",
         buttons: [{ label: "Back to it", action: { kind: "dismiss" } }],
       },
       {
-        message:
-          "Only one conversation so far — the one we're in. Let's give it a past worth browsing first.",
+        message: "Still just the one. Let's make it a good one.",
         buttons: [{ label: "Back to it", action: { kind: "dismiss" } }],
+      },
+    ],
+  },
+  settings: {
+    variants: [
+      {
+        message: "Hunting for a setting? Just ask me.",
+        buttons: [
+          {
+            label: "Change something",
+            action: { kind: "prefill", text: "I was looking for a setting: " },
+          },
+          {
+            label: "What can I change?",
+            action: { kind: "send", text: "What can I customize about you?" },
+          },
+        ],
+      },
+      {
+        message: "I'm faster than the settings page. What do you need?",
+        buttons: [
+          {
+            label: "Change something",
+            action: { kind: "prefill", text: "I was looking for a setting: " },
+          },
+          {
+            label: "What can I change?",
+            action: { kind: "send", text: "What can I customize about you?" },
+          },
+        ],
       },
     ],
   },
   "assistant-profile": {
     variants: [
       {
-        message:
-          "That's me in there — my memory, my personality, everything I'm learning about you. It's pretty bare right now; I fill it in by doing things with you. Give me something to remember?",
+        message: "That's me and what I know about you. Mostly blank so far.",
         buttons: [
           {
-            label: "I'll tell you something",
+            label: "Tell me something",
             action: {
               kind: "send",
-              text: "Let me tell you something about me worth remembering.",
+              text: "Let me tell you something worth remembering.",
             },
           },
           {
-            label: "Just exploring",
+            label: "What do you know?",
             action: {
               kind: "send",
               text: "What do you know about me so far?",
@@ -140,14 +166,13 @@ const COPY: Record<NavGateItemId, NavGateItemCopy> = {
         ],
       },
       {
-        message:
-          "My page — what I remember, how I act. It fills in as we talk, and right now you could read it in one blink. Want to give it something to say?",
+        message: "It fills in as we talk. Give it something to say?",
         buttons: [
           {
-            label: "I'll tell you something",
+            label: "Tell me something",
             action: {
               kind: "send",
-              text: "Let me tell you something about me worth remembering.",
+              text: "Let me tell you something worth remembering.",
             },
           },
           { label: "Never mind", action: { kind: "dismiss" } },
@@ -158,34 +183,26 @@ const COPY: Record<NavGateItemId, NavGateItemCopy> = {
   "assistant-access": {
     variants: [
       {
-        message:
-          "This sets how much I can do on my own — from ask-every-time to just-handle-it. It's on a sensible default, and we haven't done anything yet where it'd matter. Want to?",
-        buttons: [
-          {
-            label: "What would you do with it?",
-            action: {
-              kind: "send",
-              text: "What kinds of things could you do for me if I gave you more access?",
-            },
-          },
-          {
-            label: "Just exploring",
-            action: {
-              kind: "send",
-              text: "Just poking around. What does assistant access actually control?",
-            },
-          },
-        ],
-      },
-      {
-        message:
-          "Ask-first or just-handle-it — that's what this controls. It'll matter once we're actually doing things together. Shall we?",
+        message: "How much I do on my own. Default's fine for now.",
         buttons: [
           {
             label: "What could you handle?",
             action: {
               kind: "send",
-              text: "What kinds of things could you do for me if I gave you more access?",
+              text: "What could you do for me with more access?",
+            },
+          },
+          { label: "Never mind", action: { kind: "dismiss" } },
+        ],
+      },
+      {
+        message: "Ask-first or just-do-it. Matters once we're doing real things.",
+        buttons: [
+          {
+            label: "What could you handle?",
+            action: {
+              kind: "send",
+              text: "What could you do for me with more access?",
             },
           },
           { label: "Never mind", action: { kind: "dismiss" } },
@@ -196,63 +213,29 @@ const COPY: Record<NavGateItemId, NavGateItemCopy> = {
   "model-profile": {
     variants: [
       {
-        message:
-          "This picks which model I think with. The default is the right call for almost everything — including a first conversation. Curious what's underneath?",
+        message: "The model that powers me. Default's right for now.",
         buttons: [
           {
             label: "What's underneath?",
             action: {
               kind: "send",
-              text: "What model are you running right now, and when would switching matter?",
+              text: "What model are you running, and when would switching matter?",
             },
           },
           { label: "Never mind", action: { kind: "dismiss" } },
         ],
       },
       {
-        message:
-          "Model-swapping is here when you need it — the default suits us fine for now. Want the quick version of when it matters?",
+        message: "Swapping's here when you need it. Not right now.",
         buttons: [
           {
-            label: "When does it matter?",
+            label: "When would I?",
             action: {
               kind: "send",
               text: "When would I want a different model profile?",
             },
           },
           { label: "Never mind", action: { kind: "dismiss" } },
-        ],
-      },
-    ],
-  },
-  settings: {
-    variants: [
-      {
-        message:
-          "Settings — models, connections, preferences. Anything specific you're hunting for? I can probably just do it from here.",
-        buttons: [
-          {
-            label: "Yes, looking for something",
-            action: { kind: "prefill", text: "I was looking for a setting — " },
-          },
-          {
-            label: "Just exploring",
-            action: { kind: "send", text: "What can I customize about you?" },
-          },
-        ],
-      },
-      {
-        message:
-          "Odds are I can change it faster than the settings page can. What are you after?",
-        buttons: [
-          {
-            label: "Tell you what I need",
-            action: { kind: "prefill", text: "I was looking for a setting — " },
-          },
-          {
-            label: "Just exploring",
-            action: { kind: "send", text: "What can I customize about you?" },
-          },
         ],
       },
     ],
