@@ -202,13 +202,7 @@ describe("resolveNavigation", () => {
         guard(s({ isLocalMode: false }), "/assistant/onboarding/hatching"),
       ).toEqual(ALLOW);
       expect(
-        guard(s({ isLocalMode: false }), "/assistant/onboarding/prechat"),
-      ).toEqual(ALLOW);
-      expect(
         guard(s({ isLocalMode: false, hasAssistants: false }), "/assistant/onboarding/privacy"),
-      ).toEqual(ALLOW);
-      expect(
-        guard(s({ isLocalMode: false, hasAssistants: false }), "/assistant/onboarding/prechat"),
       ).toEqual(ALLOW);
     });
 

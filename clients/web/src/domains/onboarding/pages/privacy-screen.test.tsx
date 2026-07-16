@@ -110,17 +110,16 @@ describe("PrivacyScreen — Start navigation", () => {
     localMode = false;
   });
 
-  test("preview mode replays forward into prechat without persisting consent", () => {
+  test("preview mode no-ops on Start without persisting consent", () => {
     searchParamsValue = new URLSearchParams("preview=true");
     render(<PrivacyScreen />);
 
     clickStart();
 
-    // Developer "Replay Onboarding" advances privacy → prechat (sandboxed),
-    // never to the side-effecting hatching route, and never persists consent.
-    expect(navigateMock).toHaveBeenCalledWith(
-      `${routes.onboarding.prechat}?preview=true`,
-    );
+    // Developer "Replay Onboarding": the legacy pre-chat step that used to
+    // follow privacy is gone and hatching has real side effects, so preview
+    // Start is a no-op — it neither navigates nor persists consent.
+    expect(navigateMock).not.toHaveBeenCalled();
     expect(saveConsentMock).not.toHaveBeenCalled();
     expect(emitFunnelStepCompletedMock).not.toHaveBeenCalled();
   });

@@ -258,9 +258,6 @@ export function RootLayout() {
     replayOnboarding: () => {
       void navigate(`${routes.onboarding.privacy}?preview=true`);
     },
-    previewPrechat: () => {
-      void navigate(`${routes.onboarding.prechat}?preview=true`);
-    },
     replayHatchFailure: () => {
       void navigate(`${routes.onboarding.hatching}?preview=true&fail=1`);
     },
