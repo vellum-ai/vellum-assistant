@@ -136,6 +136,14 @@ function assertValidProvider(provider: string): void {
       `Invalid provider "${provider}". Valid providers: ${LLMProvider.options.join(", ")}.`,
     );
   }
+  // Schema-admitted but rejected on writes until dispatch resolves these
+  // routing identities to a real upstream — accepting them earlier would
+  // store profiles that cannot dispatch.
+  if (provider === "vellum" || provider === "chatgpt") {
+    throw new BadRequestError(
+      `Provider "${provider}" is not yet enabled for profiles.`,
+    );
+  }
 }
 
 /**

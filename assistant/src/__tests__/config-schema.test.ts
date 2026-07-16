@@ -392,6 +392,15 @@ describe("AssistantConfigSchema", () => {
     expect(result.success).toBe(false);
   });
 
+  test("accepts the vellum and chatgpt routing identities as profile providers", () => {
+    for (const provider of ["vellum", "chatgpt"]) {
+      const result = AssistantConfigSchema.safeParse({
+        llm: { profiles: { custom: { provider } } },
+      });
+      expect(result.success).toBe(true);
+    }
+  });
+
   test("rejects negative llm.callSites maxTokens", () => {
     const result = AssistantConfigSchema.safeParse({
       llm: { callSites: { mainAgent: { maxTokens: -100 } } },
