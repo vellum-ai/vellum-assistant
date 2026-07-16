@@ -181,4 +181,9 @@ describe("hasAcpClaudeToken", () => {
     getReturn = "";
     expect(await hasAcpClaudeToken()).toBe(false);
   });
+
+  test("reports false for a legacy Anthropic API key so Connect stays offered", async () => {
+    getReturn = "sk-ant-api03-legacy-bad-entry";
+    expect(await hasAcpClaudeToken()).toBe(false);
+  });
 });

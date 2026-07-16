@@ -14,8 +14,15 @@
 
 import { credentialKey } from "../security/credential-key.js";
 import type { OAuth2Config } from "../security/oauth2.js";
-import { getSecureKeyAsync, setSecureKeyAsync } from "../security/secure-keys.js";
-import { ACP_OAUTH_TOKEN_FIELD, ACP_SERVICE } from "./acp-credentials.js";
+import {
+  getSecureKeyAsync,
+  setSecureKeyAsync,
+} from "../security/secure-keys.js";
+import {
+  ACP_OAUTH_TOKEN_FIELD,
+  ACP_SERVICE,
+  classifyAnthropicToken,
+} from "./acp-credentials.js";
 import { ensureAcpCredentialPolicy } from "./prepare-agent-env.js";
 
 /**
@@ -101,14 +108,24 @@ export async function storeAcpClaudeToken(token: string): Promise<void> {
 }
 
 /**
- * Whether a Claude OAuth token is present in the `acp/claude_oauth_token` vault
- * field for this workspace. A read-only presence check — never returns the
- * token value — used by the connect-status route so the web client can
- * self-heal the inline Connect Claude affordance once the account is connected.
+ * Whether a usable Claude OAuth token is present in the `acp/claude_oauth_token`
+ * vault field for this workspace. A read-only check — never returns the token
+ * value — used by the connect-status route so the web client can self-heal the
+ * inline Connect Claude affordance once the account is connected.
+ *
+ * A legacy vault entry may hold an Anthropic **API key** (`sk-ant-api…`) in this
+ * field — the footgun the write path now rejects for new writes. Such a value is
+ * treated as NOT connected: it 401s when injected as `CLAUDE_CODE_OAUTH_TOKEN` at
+ * spawn, so keeping Connect offered (rather than self-dismissing) lets the user
+ * repair the bad entry by connecting a real OAuth token.
  */
 export async function hasAcpClaudeToken(): Promise<boolean> {
   const token = await getSecureKeyAsync(
     credentialKey(ACP_SERVICE, ACP_OAUTH_TOKEN_FIELD),
   );
-  return token != null && token.length > 0;
+  return (
+    token != null &&
+    token.length > 0 &&
+    classifyAnthropicToken(token) !== "api_key"
+  );
 }
