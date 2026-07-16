@@ -32,14 +32,17 @@ export const REMOVAL_REASON_LABELS: Record<RemovalReason, string> = {
   not_relevant: "Not relevant",
 };
 
-export interface ResearchFact {
+// A `type` (not `interface`) so it carries an implicit index signature and
+// stays assignable to the telemetry `fields` JSON-value type — see the
+// `onboarding_research` reporter in research-runner.ts.
+export type ResearchFact = {
   claim: string;
   confidence: ResearchConfidence;
   /** Source URLs the assistant cited as evidence (rendered as proof favicons). */
   sources: string[];
-}
+};
 
-export interface ResearchSuggestion {
+export type ResearchSuggestion = {
   /**
    * The offer as the assistant would speak it — first-person, in the
    * assistant's voice ("I'll build you a training plan…"). This is what the
@@ -53,7 +56,7 @@ export interface ResearchSuggestion {
    * talking to itself.
    */
   prompt: string;
-}
+};
 
 /** Bare registrable domain from a URL (www stripped), or null if unparseable. */
 export function domainFromUrl(url: string): string | null {
