@@ -109,12 +109,26 @@ describe("parity with meta/llm-provider-catalog.json", () => {
     expect(metaProvidersById.has("vellum")).toBe(false);
 
     const vellumModels = getModelsForProvider("vellum");
-    const expectedIds = new Set(
+    // Every entry comes from a served provider's catalog…
+    const servedIds = new Set<string>(
       VELLUM_SERVED_PROVIDERS.flatMap((p) =>
         MODELS_BY_PROVIDER[p].map((m) => m.id),
       ),
     );
-    expect(new Set(vellumModels.map((m) => m.id))).toEqual(expectedIds);
+    for (const model of vellumModels) {
+      expect(servedIds.has(model.id)).toBe(true);
+    }
+    // …labels are unique (the picker renders labels only, so duplicates
+    // would be indistinguishable options)…
+    const labels = vellumModels.map((m) => m.displayName);
+    expect(new Set(labels).size).toBe(labels.length);
+    // …and no distinct label from any served catalog is missing.
+    const servedLabels = new Set(
+      VELLUM_SERVED_PROVIDERS.flatMap((p) =>
+        MODELS_BY_PROVIDER[p].map((m) => m.displayName),
+      ),
+    );
+    expect(new Set(labels)).toEqual(servedLabels);
   });
 
   test("getManagedUpstreamForModel derives the serving provider", () => {

@@ -223,14 +223,14 @@ function ProfileEditorModalInner({
   const [key, setKey] = useState(mode === "create" ? "" : (profileName ?? ""));
   // "vellum" is a picker-level value: profiles bound to the Vellum-managed
   // connection present (and edit) as provider "Vellum"; the wire-shape
-  // upstream is derived from the model at save time.
+  // upstream is derived from the model at save time. The form opens on the
+  // stored upstream and only promotes to Vellum once the loaded connections
+  // prove the bound row is the managed sentinel (see the effect below) — a
+  // user-owned row merely named "vellum" must never enter Vellum mode, even
+  // in the pre-load window.
   const [provider, setProvider] = useState<
     NonNullable<ProfileEntry["provider"]> | "vellum" | ""
-  >(
-    initialValues?.provider_connection === VELLUM_CONNECTION_PROVIDER
-      ? VELLUM_CONNECTION_PROVIDER
-      : (initialValues?.provider ?? ""),
-  );
+  >(initialValues?.provider ?? "");
   const [model, setModel] = useState(initialValues?.model ?? "");
   // Per-profile provider-connection binding. Empty string means no explicit
   // binding — daemon falls back to its first-connection dispatch. Snake_case
@@ -394,21 +394,21 @@ function ProfileEditorModalInner({
   // One-time helper note shown after an inline provider create succeeds.
   const [newProviderNote, setNewProviderNote] = useState(false);
 
-  // A user-owned row may be NAMED "vellum" without being the managed
-  // sentinel (the daemon's seeder preserves that case). Vellum picker mode
-  // requires the actual managed row; once connections load, demote to the
-  // stored upstream if the binding's row isn't the sentinel.
+  // Promote a vellum-bound profile into Vellum picker mode once the loaded
+  // connections prove the bound row is the managed sentinel (the daemon's
+  // seeder preserves a user-owned row that merely claims the name, and such
+  // profiles must keep their real provider). Skipped once the user changes
+  // the provider themselves.
   useEffect(() => {
-    if (provider !== VELLUM_CONNECTION_PROVIDER) return;
     if (initialValues?.provider_connection !== VELLUM_CONNECTION_PROVIDER) {
       return;
     }
-    if (connections === undefined) return;
-    const boundRow = connections.find(
+    if (provider !== (initialValues?.provider ?? "")) return;
+    const boundRow = connections?.find(
       (c) => c.name === initialValues.provider_connection,
     );
-    if (boundRow && boundRow.provider !== VELLUM_CONNECTION_PROVIDER) {
-      setProvider(initialValues?.provider ?? "");
+    if (boundRow?.provider === VELLUM_CONNECTION_PROVIDER) {
+      setProvider(VELLUM_CONNECTION_PROVIDER);
     }
   }, [connections, provider, initialValues]);
 

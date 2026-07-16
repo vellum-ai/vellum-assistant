@@ -921,14 +921,22 @@ export const VELLUM_SERVED_PROVIDERS = [
  * "Vellum" + a model; which upstream serves it is an implementation detail.
  */
 const VELLUM_MODELS: readonly LlmCatalogModel[] = (() => {
-  const seen = new Set<string>();
+  const seenIds = new Set<string>();
+  const seenLabels = new Set<string>();
   const union: LlmCatalogModel[] = [];
   for (const provider of VELLUM_SERVED_PROVIDERS) {
     for (const model of MODELS_BY_PROVIDER[provider]) {
-      if (!seen.has(model.id)) {
-        seen.add(model.id);
-        union.push(model);
+      // Dedupe by display label as well as id: two upstreams can host the
+      // same model under different ids (e.g. MiniMax M3 on Fireworks and
+      // Together), and the provider-agnostic picker renders labels only —
+      // duplicate labels would be indistinguishable options. First provider
+      // in VELLUM_SERVED_PROVIDERS order wins.
+      if (seenIds.has(model.id) || seenLabels.has(model.displayName)) {
+        continue;
       }
+      seenIds.add(model.id);
+      seenLabels.add(model.displayName);
+      union.push(model);
     }
   }
   return union;
