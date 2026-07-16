@@ -135,10 +135,11 @@ export function useIdentitySectionStats(
 
   return {
     personality: {
-      // Once the fetch resolves, always plot a radar: assistants with no
-      // persisted sidecar (onboarded before it was saved, or never touched
-      // the sliders) fall back to the all-centered neutral shape rather than
-      // a blank card. `undefined` only while the fetch is still pending.
+      // `null` means the sidecar was never persisted (onboarded before it
+      // was saved, or never touched the sliders) — fall back to the
+      // all-centered neutral shape instead of a blank card. `undefined`
+      // covers still-loading and read errors, which stay a no-stat card so a
+      // transient failure never overwrites saved dials with a neutral radar.
       radar:
         sliders.data !== undefined
           ? completeSliderValues(sliders.data ?? {})
