@@ -9,7 +9,22 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, render, screen } from "@testing-library/react";
 
-// Web client: not Electron. Keyboard Shortcuts + Launch at Login stay hidden.
+const applyThemePreferenceMock = mock((_theme: string) => {});
+const writeStoredThemePreferenceMock = mock((_theme: string) => {});
+const readStoredThemePreferenceMock = mock(() => "system" as const);
+
+mock.module("@/utils/theme-preferences", () => ({
+  applyThemePreference: applyThemePreferenceMock,
+  readStoredThemePreference: readStoredThemePreferenceMock,
+  writeStoredThemePreference: writeStoredThemePreferenceMock,
+}));
+
+mock.module("@/utils/device-settings", () => ({
+  watchDeviceSetting: () => () => {},
+}));
+
+// Web client: not Electron. Keyboard Shortcuts + Launch at Login stay hidden,
+// leaving Appearance (+ the composer toggle) as the modal's content.
 mock.module("@/runtime/is-electron", () => ({
   isElectron: () => false,
 }));
