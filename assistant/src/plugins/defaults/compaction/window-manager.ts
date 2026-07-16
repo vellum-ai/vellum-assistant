@@ -87,6 +87,8 @@ export interface ContextWindowResult {
   summaryCacheCreationInputTokens?: number;
   summaryCacheReadInputTokens?: number;
   summaryRawResponses?: unknown[];
+  /** See {@link CompactionRunResult.summaryRequestLogId}. */
+  summaryRequestLogId?: string | null;
   summaryText: string;
   reason?: string;
   summaryFailed?: boolean;
@@ -169,6 +171,12 @@ export interface ContextWindowCompactOptions {
    * for range validation).
    */
   fixedTailStartIndex?: number;
+  /**
+   * Row-space twin of `fixedTailStartIndex` — bounds the compactor's image
+   * manifest to rows before the user-chosen boundary. See
+   * {@link CompactionRunArgs.fixedBoundaryRowIndex}.
+   */
+  fixedBoundaryRowIndex?: number;
 }
 
 export interface EmergencyCompactOptions {
@@ -766,6 +774,7 @@ export class ContextWindowManager {
         ...buildBaseArgs(),
         force: true,
         fixedTailStartIndex: options.fixedTailStartIndex,
+        fixedBoundaryRowIndex: options.fixedBoundaryRowIndex,
       });
       if (!result.compacted) return result;
       return {

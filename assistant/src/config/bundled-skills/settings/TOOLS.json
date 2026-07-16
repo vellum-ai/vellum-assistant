@@ -68,6 +68,7 @@
               "Billing",
               "Archive",
               "Schedules",
+              "Debug",
               "Developer"
             ],
             "description": "The settings tab to navigate to"

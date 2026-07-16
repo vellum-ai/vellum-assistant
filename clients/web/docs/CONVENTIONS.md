@@ -915,6 +915,20 @@ cannot support the use case (e.g. SSE/streaming endpoints that need
 custom `EventSource` handling). If bypassing, add a comment explaining
 why.
 
+### API transport: no raw `fetch` of `/v1` paths
+
+A raw `fetch("/v1/...")` (including template literals and
+`window.fetch`/`globalThis.fetch`) bypasses the generated client's
+auth interceptors — the request ships without the session token /
+CSRF headers and fails silently against authenticated deployments.
+An ESLint rule (`no-restricted-syntax` in `eslint.config.mjs`,
+`rawApiFetchRules`) blocks these call forms everywhere in `src/`.
+
+Always call the generated SDK function for the endpoint instead. If
+the endpoint has no generated function or type, it is missing from
+`platform.yaml` — tag it with `PLATFORM_API_CLIENT_EXTENSION` in the
+platform repo and regenerate, rather than hand-rolling the request.
+
 ### Generated types are the source of truth
 
 Never hand-write a type for a value the codegen produces — a request

@@ -24,6 +24,7 @@ import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import type { Conversation } from "@/types/conversation-types";
 
 import {
+  useArchivedConversationListQuery,
   useBackgroundConversationListQuery,
   useConversationListQuery,
   useScheduledConversationListQuery,
@@ -41,14 +42,18 @@ export function useActiveConversation(
     assistantId,
     enabled,
   );
-  // Read-only subscriptions (`enabled: false`): reflect background and
-  // scheduled rows already in cache — including the single row fetched below
-  // — without triggering either lazy list fetch.
+  // Read-only subscriptions (`enabled: false`): reflect background, scheduled,
+  // and archived rows already in cache — including the single row fetched below
+  // — without triggering any lazy list fetch.
   const { conversations: background } = useBackgroundConversationListQuery(
     assistantId,
     false,
   );
   const { conversations: scheduled } = useScheduledConversationListQuery(
+    assistantId,
+    false,
+  );
+  const { conversations: archived } = useArchivedConversationListQuery(
     assistantId,
     false,
   );
@@ -60,9 +65,10 @@ export function useActiveConversation(
     return (
       foreground.find((c) => c.conversationId === conversationId) ??
       background.find((c) => c.conversationId === conversationId) ??
-      scheduled.find((c) => c.conversationId === conversationId)
+      scheduled.find((c) => c.conversationId === conversationId) ??
+      archived.find((c) => c.conversationId === conversationId)
     );
-  }, [foreground, background, scheduled, conversationId]);
+  }, [foreground, background, scheduled, archived, conversationId]);
 
   const fetchedConversationIdRef = useRef<string | null>(null);
   useEffect(() => {

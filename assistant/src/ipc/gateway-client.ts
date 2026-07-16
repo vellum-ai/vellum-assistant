@@ -12,6 +12,7 @@
 
 import {
   ipcCall as packageIpcCall,
+  IpcCallError,
   PersistentIpcClient as PackagePersistentIpcClient,
 } from "@vellumai/gateway-client/ipc-client";
 
@@ -20,6 +21,7 @@ import type {
   ClassifyRiskParams,
 } from "../permissions/ipc-risk-types.js";
 import { getLogger } from "../util/logger.js";
+import { abortableSleep, computeRetryDelay } from "../util/retry.js";
 import { resolveIpcSocketPath } from "./socket-path.js";
 
 const log = getLogger("gateway-ipc-client");
@@ -138,6 +140,19 @@ export async function ipcGetVelayStatus(): Promise<VelayTunnelStatus | null> {
   };
 }
 
+// classify_risk is an idempotent, side-effect-free read, so a transient gateway
+// blip (socket dropped between calls, momentary unreachability) is safe to
+// retry — the persistent client re-establishes its socket on the next call. The
+// budget is deliberately sized for SUB-SECOND blips, not restart-class outages:
+// each attempt uses a tighter timeout than the transport default so a wedged-
+// but-reachable gateway cannot multiply the worst-case wait, and total latency
+// against a hard-down gateway stays close to the single-attempt ceiling.
+// Deterministic failures — a structured IpcCallError, or a returned-but-
+// malformed payload — are NOT retried; they fail closed immediately.
+const CLASSIFY_RISK_MAX_RETRIES = 2; // 3 attempts total
+const CLASSIFY_RISK_RETRY_BASE_MS = 100; // ~[50,100] then ~[100,200] ms backoff
+const CLASSIFY_RISK_ATTEMPT_TIMEOUT_MS = 1_500; // per-attempt cap (< 5s default)
+
 /**
  * Classify risk for a tool invocation via the gateway's persistent IPC
  * connection.
@@ -146,41 +161,69 @@ export async function ipcGetVelayStatus(): Promise<VelayTunnelStatus | null> {
  * classification is on the hot path for every tool invocation and the
  * persistent connection avoids per-call connect overhead.
  *
- * Returns `undefined` when the gateway is unreachable, the response is
- * malformed, or the call fails for any reason — callers should throw
- * since there is no local fallback (gateway is a hard dependency).
+ * A transient transport failure is retried with bounded backoff (see the
+ * constants above) before giving up; a structured `IpcCallError` or a
+ * malformed payload fails fast without retrying. Returns `undefined` when the
+ * gateway is unreachable or the response is unusable after retries — callers
+ * should throw since there is no local fallback (gateway is a hard dependency).
+ * When a `signal` is supplied, retries stop as soon as it aborts.
  */
 export async function ipcClassifyRisk(
   params: ClassifyRiskParams,
+  signal?: AbortSignal,
 ): Promise<ClassificationResult | undefined> {
-  try {
-    const result = await ipcCallPersistent(
-      "classify_risk",
-      params as unknown as Record<string, unknown>,
-    );
-
-    // Validate the response has at minimum a `risk` field
-    if (!result || typeof result !== "object" || Array.isArray(result)) {
-      log.warn(
-        { result },
-        "ipcClassifyRisk: gateway returned non-object response",
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const result = await ipcCallPersistent(
+        "classify_risk",
+        params as unknown as Record<string, unknown>,
+        CLASSIFY_RISK_ATTEMPT_TIMEOUT_MS,
       );
+
+      // Returned-but-malformed responses are deterministic, not transient:
+      // fail closed immediately (no retry).
+      if (!result || typeof result !== "object" || Array.isArray(result)) {
+        log.warn(
+          { result },
+          "ipcClassifyRisk: gateway returned non-object response",
+        );
+        return undefined;
+      }
+
+      const obj = result as Record<string, unknown>;
+      if (typeof obj.risk !== "string") {
+        log.warn(
+          { result },
+          "ipcClassifyRisk: gateway response missing 'risk' field",
+        );
+        return undefined;
+      }
+
+      return result as ClassificationResult;
+    } catch (err) {
+      // A structured gateway error means the gateway was reachable and
+      // deterministically rejected the request — not a transient blip.
+      const retryable = !(err instanceof IpcCallError);
+      if (
+        retryable &&
+        attempt < CLASSIFY_RISK_MAX_RETRIES &&
+        !signal?.aborted
+      ) {
+        log.warn(
+          { err, attempt },
+          "ipcClassifyRisk: transient IPC failure, retrying after backoff",
+        );
+        await abortableSleep(
+          computeRetryDelay(attempt, CLASSIFY_RISK_RETRY_BASE_MS),
+          signal,
+        );
+        if (!signal?.aborted) {
+          continue;
+        }
+      }
+      log.warn({ err }, "ipcClassifyRisk: persistent IPC call failed");
       return undefined;
     }
-
-    const obj = result as Record<string, unknown>;
-    if (typeof obj.risk !== "string") {
-      log.warn(
-        { result },
-        "ipcClassifyRisk: gateway response missing 'risk' field",
-      );
-      return undefined;
-    }
-
-    return result as ClassificationResult;
-  } catch (err) {
-    log.warn({ err }, "ipcClassifyRisk: persistent IPC call failed");
-    return undefined;
   }
 }
 

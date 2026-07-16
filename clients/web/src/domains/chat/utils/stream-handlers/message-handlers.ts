@@ -168,7 +168,16 @@ export function handleAssistantActivityState(
   }
 
   if (event.phase === "thinking") {
-    ctx.turnActions.onActivityThinking(event.statusText);
+    // Daemon-initiated work (e.g. summarize-up-to-here) reports thinking
+    // without a client-initiated turn. Allow the signal to start activity
+    // from an idle turn store only when the event belongs to the active
+    // conversation — a background conversation's activity must not light
+    // this tab's indicator.
+    const activeConversationId =
+      useConversationStore.getState().activeConversationId;
+    ctx.turnActions.onActivityThinking(event.statusText, {
+      canStartFromIdle: convId != null && convId === activeConversationId,
+    });
     recordDiagnostic("sse_activity_state_thinking_handled", {
       convId,
       reason: event.reason,

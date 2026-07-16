@@ -4,8 +4,8 @@
  * platform session.
  *
  * The reporting gate tracks the saved Share Diagnostics preference with
- * opt-out semantics: it closes only for an explicit opt-out. It is written by
- * the consent-resolution paths (`setDiagnosticsReportingGate`).
+ * opt-out semantics: it closes only for an explicit opt-out. It is written
+ * solely by the consent chokepoints in `lib/consent/diagnostics-consent.ts`.
  *
  * Diagnostics are recorded against a platform account, so an offline /
  * self-hosted client — including a believed offline restore (LUM-2412) that no

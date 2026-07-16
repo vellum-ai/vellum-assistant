@@ -6,7 +6,7 @@ import type { ServerMessage } from "../daemon/message-protocol.js";
 let shareAnalytics = true;
 
 mock.module("../platform/consent-cache.js", () => ({
-  getCachedShareAnalytics: () => shareAnalytics,
+  getRawShareAnalytics: () => shareAnalytics,
 }));
 
 let broadcastedMessages: ServerMessage[] = [];
@@ -27,12 +27,12 @@ const { createSurfaceMutex, handleSurfaceAction, surfaceProxyResolver } =
 
 import type { SurfaceConversationContext } from "../daemon/conversation-surfaces.js";
 import type { SurfaceType, UiSurfaceShow } from "../daemon/message-protocol.js";
-import { getDb, getTelemetryDb } from "../persistence/db-connection.js";
-import { initializeDb } from "../persistence/db-init.js";
 import {
-  activationSessions,
-  telemetryEvents,
-} from "../persistence/schema/index.js";
+  getMemorySqlite,
+  getTelemetryDb,
+} from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { telemetryEvents } from "../persistence/schema/index.js";
 import {
   isActivationSession,
   markActivationSession,
@@ -93,7 +93,7 @@ function makeContext(
 
 function resetTables(): void {
   getTelemetryDb()!.delete(telemetryEvents).run();
-  getDb().delete(activationSessions).run();
+  getMemorySqlite()!.exec("DELETE FROM activation_sessions");
 }
 
 /** Render a choice surface tagged (or not) with an activation_moment. */

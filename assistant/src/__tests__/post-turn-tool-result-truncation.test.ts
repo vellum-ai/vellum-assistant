@@ -163,6 +163,9 @@ describe("postTurnTruncateToolResults", () => {
     expect(stub.endsWith(expectedSuffix)).toBe(true);
     expect(stub).toContain(TRUNCATION_MARKER);
     expect(stub).toContain(filePath);
+    // The marker must state how to page the content back in — it is the
+    // model's only signal that the omitted middle is recoverable.
+    expect(stub).toContain("use file_read to view");
   });
 
   test("skill_load result above threshold is NOT truncated (durable instructions exempt)", () => {
@@ -235,6 +238,41 @@ describe("postTurnTruncateToolResults", () => {
       content: string;
     };
     expect(block.content).toContain(TRUNCATION_MARKER);
+  });
+
+  test("web_fetch result above threshold IS truncated post-turn (result-time exemption does not extend here)", () => {
+    // web_fetch is exempt from the result-time spool pass so the model reads
+    // the window it sized during the turn; at turn end the consumed page text
+    // is one-off data and must still be stubbed.
+    const toolUseId = "tool_web_fetch_1";
+    const pageText = "W".repeat(THRESHOLD_CHARS + 5_000);
+    const messages: Message[] = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool_use" as const,
+            id: toolUseId,
+            name: "web_fetch",
+            input: { url: "https://example.com/article" },
+          },
+        ],
+      },
+      { role: "user", content: [makeToolResult(pageText, toolUseId)] },
+    ];
+
+    const { messages: result, truncatedCount } = postTurnTruncateToolResults(
+      messages,
+      { conversationDir: convDir },
+    );
+
+    expect(truncatedCount).toBe(1);
+    const block = result[1].content[0] as {
+      type: "tool_result";
+      content: string;
+    };
+    expect(block.content).toContain(TRUNCATION_MARKER);
+    expect(TRUNCATION_EXEMPT_TOOLS.has("web_fetch")).toBe(false);
   });
 
   test("file path is deterministic for the same toolUseId", () => {

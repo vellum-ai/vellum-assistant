@@ -64,6 +64,11 @@ export function deriveAuthForProvider(
   if (entry?.setupMode === "keyless") {
     return { type: "none" };
   }
+  if (provider === "openai-compatible") {
+    // Custom endpoints have no fixed auth story: local servers are usually
+    // keyless, hosted ones keyed. Credential presence decides.
+    return credential ? { type: "api_key", credential } : { type: "none" };
+  }
   return credential ? { type: "api_key", credential } : null;
 }
 
@@ -79,7 +84,7 @@ export function deriveAuthForProvider(
 export type ResolvedAuth =
   | { kind: "header"; headers: Record<string, string>; baseUrl?: string }
   | { kind: "runtime_proxy"; route: string }
-  | { kind: "none" };
+  | { kind: "none"; baseUrl?: string };
 
 // ---------------------------------------------------------------------------
 // Valid provider identifiers — derived from PROVIDER_CATALOG

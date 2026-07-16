@@ -3,6 +3,10 @@ import { useState } from "react";
 import { DetailCard } from "@/components/detail-card";
 import { SettingRow } from "@/components/setting-row";
 import { SystemPermissionsCard } from "@/components/system-permissions-card";
+import {
+    useShareAnalytics,
+    useShareDiagnostics,
+} from "@/domains/onboarding/prefs";
 import { AccessConsentSetting } from "@/domains/settings/components/access-consent-setting";
 import { BiometricSettingsCard } from "@/domains/settings/components/biometric-settings-card";
 import { MediaEmbedsCard } from "@/domains/settings/components/media-embeds-card";
@@ -14,11 +18,10 @@ import {
   useHasConfirmedPlatformSession,
 } from "@/stores/auth-store";
 import {
-    getDeviceBool,
     getDeviceSetting,
     setDeviceSetting,
 } from "@/utils/device-settings";
-import { savePreferenceToggle } from "@/utils/onboarding-cleanup";
+import { savePreferenceToggle } from "@/lib/consent/consent-persistence";
 import { legalUrl, routes } from "@/utils/routes";
 import { Dropdown } from "@vellumai/design-library/components/dropdown";
 
@@ -52,26 +55,29 @@ export function PrivacyPage() {
   const hasPlatformSession = useHasConfirmedPlatformSession();
   const showShareConsent = hasPlatformSession;
   const userId = useAuthStore.use.user()?.id ?? null;
-  const [shareAnalytics, setShareAnalytics] = useState(
-    () => getDeviceBool("shareAnalytics", true),
-  );
-  const [shareDiagnostics, setShareDiagnostics] = useState(
-    () => getDeviceBool("shareDiagnostics", true),
-  );
+  // Never-asked (null) displays as on: both toggles are opt-out. The store
+  // setters inside `savePreferenceToggle` keep these reactive, so server
+  // syncs and cross-tab writes update the rows in place.
+  const [shareAnalytics] = useShareAnalytics();
+  const [shareDiagnostics] = useShareDiagnostics();
+  const shareAnalyticsChecked = shareAnalytics ?? true;
+  const shareDiagnosticsChecked = shareDiagnostics ?? true;
   const [retentionId, setRetentionId] = useState(() =>
     getDeviceSetting("llmLogRetention", DEFAULT_RETENTION_ID),
   );
 
   const handleAnalyticsToggle = () => {
-    const next = !shareAnalytics;
-    setShareAnalytics(next);
-    savePreferenceToggle("share_analytics", next, { userId, hasPlatformSession });
+    savePreferenceToggle("share_analytics", !shareAnalyticsChecked, {
+      userId,
+      hasPlatformSession,
+    });
   };
 
   const handleDiagnosticsToggle = () => {
-    const next = !shareDiagnostics;
-    setShareDiagnostics(next);
-    savePreferenceToggle("share_diagnostics", next, { userId, hasPlatformSession });
+    savePreferenceToggle("share_diagnostics", !shareDiagnosticsChecked, {
+      userId,
+      hasPlatformSession,
+    });
   };
 
   const handleRetentionChange = (value: string) => {
@@ -111,7 +117,7 @@ export function PrivacyPage() {
               <SettingRow
                 label="Share Analytics"
                 helperText="Send aggregated product usage data"
-                checked={shareAnalytics}
+                checked={shareAnalyticsChecked}
                 onChange={handleAnalyticsToggle}
                 variant="toggle-trailing"
               />
@@ -119,7 +125,7 @@ export function PrivacyPage() {
               <SettingRow
                 label="Share Diagnostics"
                 helperText="Send crash reports, conversation traces, and session replay data"
-                checked={shareDiagnostics}
+                checked={shareDiagnosticsChecked}
                 onChange={handleDiagnosticsToggle}
                 variant="toggle-trailing"
               />

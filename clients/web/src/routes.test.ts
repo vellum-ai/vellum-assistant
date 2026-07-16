@@ -187,4 +187,21 @@ describe("settings route compatibility", () => {
       "McpSettingsRedirect",
     );
   });
+
+  test("legacy Advanced settings URL redirects to Debug", () => {
+    expect(leafRouteComponentName("/assistant/settings/advanced")).toBe(
+      "AdvancedSettingsRedirect",
+    );
+  });
+
+  test("the Debug settings URL renders the page rather than redirecting", () => {
+    const matches = matchRoutes(routeTree as never, "/assistant/settings/debug");
+    const leaf = matches?.at(-1)?.route as
+      | { lazy?: unknown; Component?: { name?: string } }
+      | undefined;
+    // `lazy` is the page itself; a redirect route would carry a named
+    // `Component` instead.
+    expect(leaf?.lazy).toBeDefined();
+    expect(leaf?.Component).toBeUndefined();
+  });
 });

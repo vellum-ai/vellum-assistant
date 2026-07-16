@@ -87,6 +87,7 @@ import {
   MEMORY_RETROSPECTIVE_INSTRUCTION_KIND,
   MEMORY_RETROSPECTIVE_ORIGIN,
   MEMORY_RETROSPECTIVE_SOURCE,
+  SKILL_MANAGEMENT_SKILL_ID,
 } from "./memory-retrospective-constants.js";
 import { loadRetrospectiveRunMessages } from "./memory-retrospective-fork-boundary.js";
 import { buildForkInstruction } from "./memory-retrospective-prompt.js";
@@ -435,6 +436,14 @@ export async function runForkBasedRetrospective(
       // {@link SubagentToolGateMode} and {@link WakeToolContextPin}.
       toolGateMode: "execution" as const,
       toolContextPin,
+      // Preactivate skill-management so its authoring tools (`find_similar_skills`
+      // / `scaffold_managed_skill` / the `skill_load` target) are in the turn's
+      // active set from turn 1; the checker's origin-scoped grant then makes them
+      // callable without an interactive prompt. Same `procToSkillsActive` gate as
+      // the allowlist above.
+      preactivateSkillIds: procToSkillsActive
+        ? [SKILL_MANAGEMENT_SKILL_ID]
+        : undefined,
       // Message-tier cache-prefix parity — reproducing the source's
       // `<background_turn>` / `<channel_capabilities>` / `<non_interactive_context>`
       // blocks — is handled by metadata rehydration, not by re-running runtime

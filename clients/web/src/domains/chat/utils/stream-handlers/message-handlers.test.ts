@@ -14,6 +14,7 @@ import {
   handleGenerationCancelled,
 } from "@/domains/chat/utils/stream-handlers/message-handlers";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
+import { useConversationStore } from "@/stores/conversation-store";
 import { conversationsQueryKey } from "@/utils/conversation-list-fetchers";
 import { findConversation } from "@/utils/conversation-cache";
 import type { Conversation } from "@/types/conversation-types";
@@ -173,7 +174,10 @@ describe("handleAssistantActivityState", () => {
       ctx,
     );
     expect(ctx.lastActivityVersionRef.current.get("conv-1")).toBe(2);
-    expect(ctx.turnActions.onActivityThinking).toHaveBeenCalledWith(undefined);
+    expect(ctx.turnActions.onActivityThinking).toHaveBeenCalledWith(
+      undefined,
+      { canStartFromIdle: false },
+    );
     expect(ctx.startReconciliationLoop).not.toHaveBeenCalled();
   });
 
@@ -193,7 +197,49 @@ describe("handleAssistantActivityState", () => {
     );
     expect(ctx.turnActions.onActivityThinking).toHaveBeenCalledWith(
       "Processing bash results",
+      { canStartFromIdle: false },
     );
+  });
+
+  it("marks thinking as idle-startable only for the active conversation", () => {
+    useConversationStore.getState().setActiveConversationId("conv-1");
+    try {
+      const ctx = makeCtx();
+      handleAssistantActivityState(
+        {
+          type: "assistant_activity_state",
+          activityVersion: 4,
+          phase: "thinking",
+          anchor: "assistant_turn",
+          reason: "context_compacting",
+          statusText: "Summarizing conversation",
+          conversationId: "conv-1",
+        },
+        ctx,
+      );
+      expect(ctx.turnActions.onActivityThinking).toHaveBeenCalledWith(
+        "Summarizing conversation",
+        { canStartFromIdle: true },
+      );
+
+      handleAssistantActivityState(
+        {
+          type: "assistant_activity_state",
+          activityVersion: 1,
+          phase: "thinking",
+          anchor: "assistant_turn",
+          reason: "context_compacting",
+          conversationId: "conv-other",
+        },
+        ctx,
+      );
+      expect(ctx.turnActions.onActivityThinking).toHaveBeenLastCalledWith(
+        undefined,
+        { canStartFromIdle: false },
+      );
+    } finally {
+      useConversationStore.getState().setActiveConversationId(null);
+    }
   });
 
   it("returns early for non-idle, non-thinking phase", () => {

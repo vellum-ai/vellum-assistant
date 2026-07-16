@@ -63,6 +63,7 @@ import type { ContentBlock, Message } from "@vellumai/plugin-api";
 import { getDb, getSqliteFrom } from "../../../../persistence/db-connection.js";
 import { getMemoryConfig } from "../config.js";
 import { getLogger } from "../logging.js";
+import { memorySqliteOrNull } from "../memory-db.js";
 import { unwrapMemoryBlock, wrapMemoryBlock } from "../memory-marker.js";
 import {
   INJECTED_CONCEPT_HEADER_REGEX,
@@ -210,12 +211,14 @@ export interface PruneDeps {
  *
  * The footprint and the candidates both range over the ACTIVE injected slugs.
  * Candidates are ranked by last selection recency — `MAX(created_at)` per
- * slug from `memory_v3_selections`, falling back to the store's `injected_at`
- * for slugs with no selection rows (e.g. rows copied by a full fork) — taken
- * oldest-first until the footprint is at `targetResidentBytes`. Core/hot lane
- * members are exempt, and zero-byte rows (capability slugs, truncated-fork
- * seeds: dedup-only, no byte accounting) are skipped — pruning them frees
- * nothing while discarding inherited context.
+ * slug from `memory_v3_selections` (read over the dedicated memory
+ * connection; an unavailable memory database reads as no selection rows),
+ * falling back to the store's `injected_at` for slugs with no selection rows
+ * (e.g. rows copied by a full fork) — taken oldest-first until the footprint
+ * is at `targetResidentBytes`. Core/hot lane members are exempt, and
+ * zero-byte rows (capability slugs, truncated-fork seeds: dedup-only, no byte
+ * accounting) are skipped — pruning them frees nothing while discarding
+ * inherited context.
  */
 export function planPrune(
   deps: PruneDeps,
@@ -225,15 +228,18 @@ export function planPrune(
   const resident = activeEntries.reduce((sum, e) => sum + e.bytes, 0);
   if (resident <= deps.maxResidentBytes) return null;
 
-  const selectionRows = getSqliteFrom(getDb())
-    .query(
-      /*sql*/ `
+  const memoryRaw = memorySqliteOrNull("planPrune");
+  const selectionRows = memoryRaw
+    ? (memoryRaw
+        .query(
+          /*sql*/ `
       SELECT slug, MAX(created_at) AS lastSelectedAt FROM memory_v3_selections
       WHERE conversation_id = ?
       GROUP BY slug
     `,
-    )
-    .all(conversationId) as Array<{ slug: string; lastSelectedAt: number }>;
+        )
+        .all(conversationId) as Array<{ slug: string; lastSelectedAt: number }>)
+    : [];
   const lastSelectedAt = new Map(
     selectionRows.map((row) => [row.slug, row.lastSelectedAt]),
   );

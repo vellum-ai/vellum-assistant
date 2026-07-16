@@ -28,5 +28,8 @@
   ],
   "src/domains/home/hooks/use-home-schedules-data.ts": [
     "settings"
+  ],
+  "src/domains/settings/pages/privacy-page.tsx": [
+    "onboarding"
   ]
 }

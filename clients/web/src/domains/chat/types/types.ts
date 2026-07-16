@@ -149,6 +149,10 @@ export interface DisplayMessage {
    *  defer/schedule/webhook/background-tool); suppressed from the transcript
    *  like {@link isSubagentNotification} — the wake card shows it instead. */
   isBackgroundEventNotification?: boolean;
+  /** True for daemon-authored status cards (the /compact, /clean, and
+   *  summarize-up-to results). Rendered as a standalone system notice —
+   *  no avatar, no persona bubble — never as assistant speech. */
+  isSystemCard?: boolean;
 }
 
 /**

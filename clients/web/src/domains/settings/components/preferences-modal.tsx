@@ -1,13 +1,99 @@
+import { Heart, Monitor, Moon, Sun } from "lucide-react";
 import { useEffect, useState } from "react";
 
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { ShortcutsSections } from "@/domains/settings/keyboard-shortcuts/shortcuts-sections";
 import { isElectron } from "@/runtime/is-electron";
 import { getLaunchAtLogin, setLaunchAtLogin } from "@/runtime/launch-at-login";
 import { isMacOSBrowser } from "@/runtime/platform-detection";
 import { cmdEnterToSend } from "@/utils/composer-settings";
 import { isPointerCoarse } from "@/utils/pointer";
+import {
+  applyThemePreference,
+  readStoredThemePreference,
+  type ThemePreference,
+  writeStoredThemePreference,
+} from "@/domains/settings/utils/theme-preferences";
+import { watchDeviceSetting } from "@/utils/device-settings";
 import { Modal } from "@vellumai/design-library/components/modal";
+import { SegmentControl } from "@vellumai/design-library/components/segment-control";
 import { Toggle } from "@vellumai/design-library/components/toggle";
+
+/**
+ * Theme picker (System / Light / Dark, plus Velvet when the flag is on).
+ * Lives in Preferences alongside the other per-device preferences. Unlike the
+ * other sections it is not Electron-gated — theme applies on every platform —
+ * so it also gives the modal meaningful content on web and iOS.
+ */
+function AppearanceSection() {
+  const velvet = useClientFeatureFlagStore.use.velvet();
+  const [theme, setTheme] = useState<ThemePreference>(() =>
+    readStoredThemePreference({ velvetEnabled: velvet }),
+  );
+
+  useEffect(() => {
+    setTheme(readStoredThemePreference({ velvetEnabled: velvet }));
+  }, [velvet]);
+
+  useEffect(() => {
+    return watchDeviceSetting("theme", () => {
+      setTheme(readStoredThemePreference({ velvetEnabled: velvet }));
+    });
+  }, [velvet]);
+
+  useEffect(() => {
+    applyThemePreference(theme);
+  }, [theme]);
+
+  const handleThemeChange = (newTheme: ThemePreference) => {
+    setTheme(newTheme);
+    writeStoredThemePreference(newTheme);
+    applyThemePreference(newTheme);
+  };
+
+  const themeItems = [
+    {
+      value: "system" as const,
+      label: "System",
+      icon: <Monitor className="h-4 w-4" />,
+    },
+    {
+      value: "light" as const,
+      label: "Light",
+      icon: <Sun className="h-4 w-4" />,
+    },
+    {
+      value: "dark" as const,
+      label: "Dark",
+      icon: <Moon className="h-4 w-4" />,
+    },
+    ...(velvet
+      ? [
+          {
+            value: "velvet" as const,
+            label: "Velvet",
+            icon: <Heart className="h-4 w-4" />,
+          },
+        ]
+      : []),
+  ];
+
+  return (
+    <section>
+      <h3 className="text-title-small text-[var(--content-emphasised)]">
+        Appearance
+      </h3>
+      <div className="mt-2 max-w-[360px]">
+        <SegmentControl<ThemePreference>
+          ariaLabel="Theme"
+          value={theme}
+          onChange={handleThemeChange}
+          items={themeItems}
+        />
+      </div>
+    </section>
+  );
+}
 
 /**
  * Preferences section for the composer's Enter-key behavior, at parity with
@@ -85,9 +171,10 @@ export interface PreferencesModalProps {
 
 /**
  * Preferences editor opened from the Preferences card on Settings → General.
- * Hosts the shortcut rebinding sections (Electron only — hotkeys drive
- * Electron globalShortcut + menu accelerators with no web/iOS analogue),
- * the composer send toggle, and the Launch at Login toggle.
+ * Hosts the appearance/theme picker (all platforms), the shortcut rebinding
+ * sections (Electron only — hotkeys drive Electron globalShortcut + menu
+ * accelerators with no web/iOS analogue), the composer send toggle, and the
+ * Launch at Login toggle.
  */
 export function PreferencesModal({ open, onClose }: PreferencesModalProps) {
   return (
@@ -108,6 +195,7 @@ export function PreferencesModal({ open, onClose }: PreferencesModalProps) {
         </Modal.Header>
         <Modal.Body>
           <div className="space-y-6">
+            <AppearanceSection />
             {isElectron() && (
               <section>
                 <h3 className="text-title-small text-[var(--content-emphasised)]">

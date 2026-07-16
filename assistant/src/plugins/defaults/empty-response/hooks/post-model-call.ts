@@ -46,17 +46,27 @@
  * ignores the decision — so the hook returns early for both.
  */
 
-import type {
-  ContentBlock,
-  HookFunction,
-  Message,
-  PostModelCallContext,
+import {
+  type ContentBlock,
+  type HookFunction,
+  INTERNAL_NUDGE_OUTPUT_SUPPRESSION,
+  type Message,
+  type PostModelCallContext,
 } from "@vellumai/plugin-api";
 
 import {
   isEmptyResponseNudged,
   markEmptyResponseNudged,
 } from "../nudge-state-store.js";
+import {
+  isToolResultMessage,
+  REFUSAL_FALLBACK_TEXT,
+} from "../refusal-quarantine.js";
+
+// Re-exported so existing importers (tests, sibling hooks) keep resolving
+// REFUSAL_FALLBACK_TEXT from this module; the definition lives in
+// refusal-quarantine.ts alongside its detector (single source of truth).
+export { REFUSAL_FALLBACK_TEXT };
 
 /**
  * Canonical nudge text for an empty turn after tool use. Must stay verbatim so
@@ -66,16 +76,9 @@ import {
  * model behavior but not end-user UX directly.
  */
 export const NUDGE_TEXT =
-  "<system_notice>Your previous response was empty. You must respond to the user with a summary of what you found or did. Do not use any tools — just respond with text.</system_notice>";
-
-/**
- * User-facing text a refusal turn is rewritten into. Used when the provider
- * stops with `"refusal"` and no visible text — i.e. the safety classifier
- * zeroed the response. Unlike `NUDGE_TEXT` (shown only to the model), this is
- * the message the user actually reads in place of an empty assistant bubble.
- */
-export const REFUSAL_FALLBACK_TEXT =
-  "Sorry — I wasn't able to generate a response to that. Please try rephrasing or asking in a different way.";
+  "<system_notice>Your previous response was empty. You must respond to the user with a summary of what you found or did. Do not use any tools — just respond with text." +
+  INTERNAL_NUDGE_OUTPUT_SUPPRESSION +
+  "</system_notice>";
 
 function hasVisibleText(content: ReadonlyArray<ContentBlock>): boolean {
   return content.some(
@@ -89,15 +92,6 @@ function hasToolUse(content: ReadonlyArray<ContentBlock>): boolean {
 
 function isAssistantTurn(message: Message): boolean {
   return message.role === "assistant";
-}
-
-/** A user-role message carrying only tool results, not a fresh prompt. */
-function isToolResultMessage(message: Message): boolean {
-  return (
-    message.role === "user" &&
-    message.content.length > 0 &&
-    message.content.every((block) => block.type === "tool_result")
-  );
 }
 
 /**

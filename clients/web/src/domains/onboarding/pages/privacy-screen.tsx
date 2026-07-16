@@ -11,8 +11,6 @@ import {
     emitOnboardingFunnelStepCompleted,
     getOnboardingFunnelSessionId,
     ONBOARDING_FUNNEL_STEPS,
-    onboardingFunnelVariantFromExperiment,
-    resolveOnboardingFunnelVariant,
 } from "@/domains/onboarding/funnel-events";
 import { onboardingDestinationAfterConsent } from "@/domains/onboarding/onboarding-destination";
 import { isLocalMode } from "@/lib/local-mode";
@@ -24,8 +22,7 @@ import {
 import { isElectron } from "@/runtime/is-electron";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import { useAuthStore, useHasPlatformSession } from "@/stores/auth-store";
-import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
-import { saveConsent } from "@/utils/onboarding-cleanup";
+import { saveConsent } from "@/lib/consent/consent-persistence";
 import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
 
@@ -35,11 +32,11 @@ export function PrivacyScreen() {
   const userId = useAuthStore.use.user()?.id ?? null;
   const electron = isElectron();
   const isNative = useIsNativePlatform();
-  const preChatExperimentArm =
-    useClientFeatureFlagStore.use.stringFlags().preChatOnboardingExperiment20260606 ?? "control";
-  const preferredFunnelVariant =
-    onboardingFunnelVariantFromExperiment(preChatExperimentArm);
   const [shareDiagnostics, setShareDiagnosticsReal] = useShareDiagnostics();
+  // Never-asked (null) displays as on — diagnostics is opt-out — and the
+  // toggle is on screen, so Start records the displayed value as an explicit
+  // choice.
+  const shareDiagnosticsChecked = shareDiagnostics ?? true;
   const [tosAccepted, setTosAcceptedReal] = useTosAccepted();
   const [privacyConsent, setPrivacyConsentReal] = usePrivacyConsent();
   const hasPlatformSession = useHasPlatformSession();
@@ -68,12 +65,10 @@ export function PrivacyScreen() {
 
     // Analytics isn't asked here — the server keeps share_analytics null
     // until the user opts in via settings or review-terms.
-    saveConsent({ userId, tos: tosAccepted, privacy: privacyConsent, shareAnalytics: null, shareDiagnostics, hasPlatformSession });
+    saveConsent({ userId, tos: tosAccepted, privacy: privacyConsent, shareAnalytics: null, shareDiagnostics: shareDiagnosticsChecked, hasPlatformSession });
     if (!isNative) {
-      const variant = resolveOnboardingFunnelVariant(preferredFunnelVariant);
       emitOnboardingFunnelStepCompleted(ONBOARDING_FUNNEL_STEPS.privacyTos, {
         userId,
-        variant,
       });
     }
 
@@ -98,9 +93,8 @@ export function PrivacyScreen() {
     isNative,
     isPreview,
     navigate,
-    preferredFunnelVariant,
     searchParams,
-    shareDiagnostics,
+    shareDiagnosticsChecked,
     tosAccepted,
     userId,
   ]);
@@ -136,7 +130,7 @@ export function PrivacyScreen() {
           electron={electron}
           showAnalytics={false}
           shareAnalytics={false}
-          shareDiagnostics={shareDiagnostics}
+          shareDiagnostics={shareDiagnosticsChecked}
           onShareAnalyticsChange={noop}
           onShareDiagnosticsChange={setShareDiagnostics}
           className="mt-8 w-full"
@@ -167,15 +161,27 @@ export function PrivacyScreen() {
           >
             Start
           </Button>
-          <Button
-            variant="outlined"
-            size="regular"
-            fullWidth
-            onClick={() => navigate(-1)}
-            className={electron ? undefined : "h-11 text-base"}
-          >
-            Back
-          </Button>
+          {/*
+           * Back is local-mode only. In local mode hosting is the screen that
+           * leads here (welcome → hosting → privacy), so go there deterministically
+           * rather than `navigate(-1)`. In platform mode privacy IS the onboarding
+           * entrypoint — there's nothing before it — and hosting is local-only
+           * (`enforceModeBoundary` bounces a platform user off it to `/assistant`,
+           * which then trips a non-onboarding hatch). So platform gets no Back,
+           * which also keeps the post-retire redirect (`resolvePostRetire` →
+           * privacy) from escaping onboarding.
+           */}
+          {isLocalMode() ? (
+            <Button
+              variant="outlined"
+              size="regular"
+              fullWidth
+              onClick={() => navigate(routes.onboarding.hosting)}
+              className={electron ? undefined : "h-11 text-base"}
+            >
+              Back
+            </Button>
+          ) : null}
         </div>
 
       </div>

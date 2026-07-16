@@ -16,6 +16,7 @@ import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
 import { getBindingByConversation } from "../persistence/external-conversation-store.js";
 import { getAllDefaultPluginNames } from "../plugins/defaults/main.js";
+import { isActivationSession } from "../plugins/defaults/memory/activation-session-store.js";
 import { isPluginDisabled } from "../plugins/disabled-state.js";
 import type { Message, ToolDefinition } from "../providers/types.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
@@ -50,6 +51,10 @@ import {
   type ToolContext,
   type ToolExecutionResult,
 } from "../tools/types.js";
+import {
+  injectActivationMomentParam,
+  projectUiToolsForChannel,
+} from "../tools/ui-surface/channel-variants.js";
 import { loadWorkspaceTools } from "../tools/workspace-tools/loader.js";
 import {
   resolveUsageAttribution,
@@ -539,7 +544,7 @@ const CROSS_CLIENT_EXPOSED_CAPABILITIES = new Set<HostProxyCapability>([
   "host_browser",
 ]);
 // Tools that require a connected client but no specific host proxy capability.
-const CLIENT_CAPABILITY_TOOL_NAMES = new Set(["app_open", "ask_question"]);
+const CLIENT_CAPABILITY_TOOL_NAMES = new Set(["ask_question"]);
 const PLATFORM_TOOL_NAMES = new Set(["request_system_permission"]);
 
 /**
@@ -822,11 +827,26 @@ export function createResolveToolsCallback(
       ? currentWorkspaceDefs.filter((d) => wireAllowlist.has(d.name))
       : currentWorkspaceDefs;
     const excluded = new Set(getConfig().tools.exclude);
-    const allBaseDefs = [
-      ...scopedCoreDefs,
-      ...scopedWorkspaceDefs,
-      ...scopedMcpDefs,
-    ].filter((d) => !excluded.has(d.name));
+    // Swap UI surface tools for channel-appropriate variants (e.g. Slack's
+    // task_progress-only ui_show). Mirrors the pin handling in
+    // `isToolActiveForContext`: execution-gate-mode wakes pin channel
+    // capabilities to undefined, which resolves to the unprojected defs.
+    const channelForUiTools = ctx.toolContextPin
+      ? undefined
+      : ctx.channelCapabilities?.channel;
+    let allBaseDefs = projectUiToolsForChannel(
+      [...scopedCoreDefs, ...scopedWorkspaceDefs, ...scopedMcpDefs].filter(
+        (d) => !excluded.has(d.name),
+      ),
+      channelForUiTools,
+    );
+    // Activation-rail conversations carry the optional `activation_moment`
+    // telemetry param on ui_show. The marker is written before the first
+    // tool resolution (see `applyBootstrapTemplate` in system-prompt.ts), so
+    // the projected schema is stable for the conversation's lifetime.
+    if (isActivationSession(ctx.conversationId)) {
+      allBaseDefs = injectActivationMomentParam(allBaseDefs);
+    }
 
     const effectivePreactivated = [
       ...DEFAULT_PREACTIVATED_SKILL_IDS,

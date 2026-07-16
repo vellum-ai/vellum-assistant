@@ -63,7 +63,7 @@ export const MemoryRetrospectiveConfigSchema = z
       .nullable()
       .default(null)
       .describe(
-        "Optional path to a file whose contents replace the bundled retrospective fork-instruction prompt. Absolute paths are used as-is, a leading `~/` is expanded to the home directory, otherwise the path is resolved under the workspace root. The loaded contents may include `{{AVAILABLE_TOOLS_LINE}}`, `{{WINDOW_ANCHOR}}`, `{{ALREADY_REMEMBERED}}`, and `{{SKILL_AUTHORING_SECTION}}`, which are substituted at runtime. If the file is missing, unreadable, or empty, the bundled prompt is used and a warning is logged.",
+        "Optional path to a file whose contents replace the bundled retrospective fork-instruction prompt. Relative paths resolve under the workspace root; absolute paths and a leading `~/` (expanded to the home directory) are honored only when they still resolve inside the workspace root — a path that lands outside the workspace (including via symlinks) is rejected. The loaded contents may include `{{AVAILABLE_TOOLS_LINE}}`, `{{WINDOW_ANCHOR}}`, `{{ALREADY_REMEMBERED}}`, and `{{SKILL_AUTHORING_SECTION}}`, which are substituted at runtime. If the file is rejected, missing, unreadable, or empty, the bundled prompt is used and a warning is logged.",
       ),
   })
   .describe(

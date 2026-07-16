@@ -114,6 +114,7 @@ import {
   hasMessages,
   isConversationProcessing,
   isHiddenMessageMetadata,
+  isSystemCardMetadata,
   type MessageRow,
   recordConversationPersistedSeq,
   setConversationInferenceProfile,
@@ -123,6 +124,7 @@ import {
   getOrCreateConversation,
 } from "../../persistence/conversation-key-store.js";
 import { searchConversations } from "../../persistence/conversation-queries.js";
+import { linkRequestLogsToMessage } from "../../persistence/llm-request-log-store.js";
 import { MEMORY_RETROSPECTIVE_FORK_SOURCE } from "../../plugins/defaults/memory/memory-retrospective-constants.js";
 import { normalizeOnboardingContext } from "../../prompts/normalize-onboarding.js";
 import { writeOnboardingSection } from "../../prompts/persona-resolver.js";
@@ -872,11 +874,17 @@ export function handleListMessages({
     let acpNotification: { acpSessionId: string; agent?: string } | undefined;
     let backgroundEventNotification: boolean | undefined;
     let backgroundToolCompletion: ConversationMessage["backgroundToolCompletion"];
+    let systemCard: boolean | undefined;
     if (msg.metadata) {
       try {
         const meta = JSON.parse(msg.metadata);
         if (typeof meta.sentAt === "number") {
           sentAt = meta.sentAt;
+        }
+        // Daemon-authored status cards (compact/clean/summarize results)
+        // render as standalone system notices, not persona speech.
+        if (isSystemCardMetadata(meta)) {
+          systemCard = true;
         }
         // Every wake persists a `<background_event source="...">` trigger row
         // (see `persistWakeTriggerMessage`) that the LLM reads. Flag any such
@@ -949,6 +957,7 @@ export function handleListMessages({
       acpNotification,
       backgroundEventNotification,
       backgroundToolCompletion,
+      systemCard,
       slackMessage,
       clientMessageId: msg.clientMessageId ?? undefined,
     };
@@ -2349,13 +2358,18 @@ export async function handleSendMessage(
         publishConversationMessagesChanged(conversationId, originClientId);
         conversation.emitActivityState("thinking", "context_compacting");
         const result = await conversation.forceCompact();
-        await persistCannedAssistantCard({
+        const cardId = await persistCannedAssistantCard({
           conversation,
           conversationId,
           text: formatCompactResult(result),
           metadata: channelMeta,
           originClientId,
         });
+        // Attribute the compaction LLM call to the card it produced — same
+        // linkage as the summarize-up-to route.
+        if (result.summaryRequestLogId) {
+          linkRequestLogsToMessage([result.summaryRequestLogId], cardId);
+        }
       } catch (err) {
         log.error({ err, conversationId }, "Compact command failed");
         broadcastMessage({

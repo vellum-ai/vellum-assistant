@@ -237,6 +237,14 @@ export const messageMetadataSchema = z
      */
     hidden: z.boolean().optional(),
     /**
+     * Discriminates daemon-authored rows from ordinary turns.
+     * `"system_card"` marks pre-composed status cards (the /compact, /clean,
+     * and summarize-up-to results); see {@link SYSTEM_CARD_MESSAGE_KIND}.
+     * Kept as a plain string so unknown future kinds never fail metadata
+     * validation.
+     */
+    messageKind: z.string().optional(),
+    /**
      * Structured terminal record stamped onto a `<background_event
      * source="background-tool">` wake so the web can rebuild the inline
      * bash/host_bash card from history after a daemon restart.
@@ -289,6 +297,48 @@ export function isHiddenMessageMetadata(
   metadata: Record<string, unknown> | null | undefined,
 ): boolean {
   return metadata?.hidden === true;
+}
+
+/**
+ * `messageKind` value marking a daemon-authored system card — a pre-composed
+ * status reply (the /compact, /clean, and summarize-up-to result cards) that
+ * bypasses the agent loop. Cards render as standalone system notices, never
+ * as the assistant persona speaking, and never merge into adjacent assistant
+ * display turns.
+ */
+export const SYSTEM_CARD_MESSAGE_KIND = "system_card";
+
+/**
+ * Shared predicate for the system-card marker on assistant-message metadata
+ * (see the `messageKind` field on {@link messageMetadataSchema}). One
+ * definition so display merging, transcript rendering, and turn grouping
+ * cannot drift.
+ */
+export function isSystemCardMetadata(
+  metadata: Record<string, unknown> | null | undefined,
+): boolean {
+  return metadata?.messageKind === SYSTEM_CARD_MESSAGE_KIND;
+}
+
+/**
+ * Row-level variant of {@link isSystemCardMetadata} for callers holding the
+ * raw persisted `metadata` JSON string. The single place the parse lives so
+ * display merging and turn grouping agree on what a card is.
+ */
+export function isSystemCardMessage(
+  role: string,
+  metadata: string | null,
+): boolean {
+  if (role !== "assistant" || !metadata) {
+    return false;
+  }
+  try {
+    return isSystemCardMetadata(
+      JSON.parse(metadata) as Record<string, unknown>,
+    );
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -3830,6 +3880,12 @@ export function getAssistantMessageIdsInTurn(messageId: string): string[] {
     return [messageId];
   }
 
+  // A system card is its own single-row group — its linked calls (e.g. the
+  // summarize-up-to compaction call) never mix into a neighbouring turn.
+  if (isSystemCardMessage(target.role, target.metadata)) {
+    return [target.id];
+  }
+
   // Walk backward from the target message to find the turn boundary.
   // Limit to 50 rows — sufficient for even aggressive tool-use loops.
   const backwardRows = db
@@ -3838,6 +3894,7 @@ export function getAssistantMessageIdsInTurn(messageId: string): string[] {
       role: messages.role,
       content: messages.content,
       createdAt: messages.createdAt,
+      metadata: messages.metadata,
     })
     .from(messages)
     .where(
@@ -3855,6 +3912,12 @@ export function getAssistantMessageIdsInTurn(messageId: string): string[] {
 
   for (const row of backwardRows) {
     if (row.role === "assistant") {
+      if (isSystemCardMessage(row.role, row.metadata)) {
+        // A system card closes the groups on either side of it — rows
+        // before the card belong to an earlier display group.
+        boundaryCreatedAt = row.createdAt;
+        break;
+      }
       assistantIds.push(row.id);
     } else if (row.role === "user") {
       if (isToolResultMessage(row.role, row.content)) {
@@ -3876,6 +3939,7 @@ export function getAssistantMessageIdsInTurn(messageId: string): string[] {
       role: messages.role,
       content: messages.content,
       createdAt: messages.createdAt,
+      metadata: messages.metadata,
     })
     .from(messages)
     .where(
@@ -3890,6 +3954,15 @@ export function getAssistantMessageIdsInTurn(messageId: string): string[] {
 
   for (const row of forwardRows) {
     if (row.role === "assistant") {
+      if (isSystemCardMessage(row.role, row.metadata)) {
+        // A card that is the queried user message's only reply (e.g. the
+        // /compact result) IS the turn's response; otherwise the card
+        // closes the group.
+        if (assistantIds.length === 0) {
+          assistantIds.push(row.id);
+        }
+        break;
+      }
       if (!assistantIds.includes(row.id)) {
         assistantIds.push(row.id);
       }
@@ -3912,6 +3985,7 @@ export function getAssistantMessageIdsInTurn(messageId: string): string[] {
         id: messages.id,
         role: messages.role,
         createdAt: messages.createdAt,
+        metadata: messages.metadata,
       })
       .from(messages)
       .where(
@@ -3925,7 +3999,11 @@ export function getAssistantMessageIdsInTurn(messageId: string): string[] {
       .all();
 
     for (const row of gapRows) {
-      if (row.role === "assistant" && !assistantIds.includes(row.id)) {
+      if (
+        row.role === "assistant" &&
+        !isSystemCardMessage(row.role, row.metadata) &&
+        !assistantIds.includes(row.id)
+      ) {
         assistantIds.push(row.id);
       }
     }

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { type LLMConfigBase, LLMSchema } from "../../config/schemas/llm.js";
+import { LLMSchema } from "../../config/schemas/llm.js";
 import type { ProviderConnection } from "../inference/auth.js";
 import type { ProvidersConfig } from "../registry.js";
 
@@ -46,7 +46,8 @@ import {
 } from "../registry.js";
 
 function makeConfig(): ProvidersConfig {
-  const baseLlm = LLMSchema.parse({});
+  // Every test passes an explicit `opts.model`, so the llm config only needs
+  // to be schema-valid — resolution is never consulted for the model here.
   return {
     services: {
       inference: {},
@@ -60,14 +61,7 @@ function makeConfig(): ProvidersConfig {
         provider: "inference-provider-native",
       },
     },
-    llm: {
-      ...baseLlm,
-      default: {
-        ...baseLlm.default,
-        provider: "openrouter" as LLMConfigBase["provider"],
-        model: "x-ai/grok-4.20",
-      },
-    },
+    llm: LLMSchema.parse({}),
   };
 }
 

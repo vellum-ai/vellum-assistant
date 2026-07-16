@@ -10,29 +10,13 @@
       "defaultEnabled": false
     },
     {
-      "id": "pre-chat-onboarding-experiment-2026-06-06",
-      "scope": "client",
-      "key": "pre-chat-onboarding-experiment-2026-06-06",
-      "label": "Pre-chat Onboarding Experiment 2026-06-06",
-      "description": "Pre-chat onboarding experiment with control and variant-a arms. Control shows the full funnel; variant-a shows the condensed pared-down flow.",
-      "defaultEnabled": "control",
-      "values": [
-        "control",
-        "variant-a"
-      ]
-    },
-    {
       "id": "experiment-activation-flow-2026-06-03",
       "scope": "both",
       "key": "experiment-activation-flow-2026-06-03",
       "label": "Activation Flow Experiment 2026-06-03",
       "description": "Multivariate activation-flow experiment. control = standard flow; variant-a = activation rail; personal-page = new sign-up-page variant (front-end only). Targeted via LaunchDarkly.",
       "defaultEnabled": "control",
-      "values": [
-        "control",
-        "variant-a",
-        "personal-page"
-      ]
+      "values": ["control", "variant-a", "personal-page"]
     },
     {
       "id": "local-docker-enabled",
@@ -315,22 +299,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "research-onboarding",
-      "scope": "client",
-      "key": "research-onboarding",
-      "label": "Research onboarding (spike)",
-      "description": "Spike: replace pre-chat onboarding with a web-research \"here's what I know about you\" flow, including a Google Calendar \"Let's chat tomorrow\" step shown over the streaming research. Gates the /assistant/onboarding/research route and the research mock harness. Off by default; enable locally via the feature-flags panel.",
-      "defaultEnabled": false
-    },
-    {
-      "id": "personality-onboarding",
-      "scope": "client",
-      "key": "personality-onboarding",
-      "label": "Personality onboarding step (spike)",
-      "description": "Spike: show the \"Create my personality\" trait-slider step in the research-onboarding flow (between the pitch and the integration step). On continue it applies the sliders to the assistant's persona on a throwaway side conversation. When off, the step is skipped entirely. Off by default; enable locally via the feature-flags panel.",
-      "defaultEnabled": false
-    },
-    {
       "id": "channel-trust-floors",
       "scope": "assistant",
       "key": "channel-trust-floors",
@@ -387,27 +355,11 @@
       "defaultEnabled": false
     },
     {
-      "id": "summarize-up-to-here",
-      "scope": "both",
-      "key": "summarize-up-to-here",
-      "label": "Summarize Up To Here",
-      "description": "Show the per-message Summarize up to here action and enable the conversation summarize endpoint",
-      "defaultEnabled": false
-    },
-    {
-      "id": "override-or-default-resolution",
-      "scope": "assistant",
-      "key": "override-or-default-resolution",
-      "label": "Override-or-Default Profile Resolution",
-      "description": "Resolve inference profiles as single complete overrides (or the call site's default intent through the default provider) instead of the legacy deep-merge cascade. Ships enabled; disable as a kill switch to restore merge semantics.",
-      "defaultEnabled": true
-    },
-    {
       "id": "chat-credential-reveal",
       "scope": "assistant",
       "key": "chat-credential-reveal",
       "label": "Chat Credential Reveal",
-      "description": "Persist chat secret redactions as sentinel markers instead of the legacy HTML marker, enriched with the vault identity when the value byte-matches a credential revealed this turn. Render support in clients is unconditional; this flag gates only the daemon persist format.",
+      "description": "Persist chat secret redactions as sentinel markers instead of the legacy HTML marker, enriched with the vault identity when the value byte-matches a credential revealed this turn. Also gates the `credentials reveal --for-chat` channel and the live-stream swap that replaces an echoed reveal plaintext with its sentinel before emission. Redaction itself is NOT gated: a route-proven reveal plaintext stays out of persisted rows in both modes. Client chip rendering is gated on daemon version, not on this flag.",
       "defaultEnabled": false
     }
   ]

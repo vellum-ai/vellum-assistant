@@ -409,6 +409,20 @@
       "icon": "🧪"
     },
     {
+      "name": "virlo",
+      "source": {
+        "source": "github",
+        "repo": "Virlo-AI/virlo-integrations",
+        "path": "integrations/vellum",
+        "ref": "e398cfd8a48316b9378e08efe4b42ad3dc42197e"
+      },
+      "description": "Real-time short-form video intelligence across TikTok, YouTube Shorts, and Instagram Reels, powered by Virlo Content Research Agents.",
+      "category": "marketing",
+      "homepage": "https://github.com/Virlo-AI/virlo-integrations/tree/main/integrations/vellum",
+      "license": "MIT",
+      "icon": "📱"
+    },
+    {
       "name": "writing-coach",
       "source": {
         "source": "github",

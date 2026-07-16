@@ -13,7 +13,6 @@ import {
 } from "@/domains/onboarding/prechat-steps";
 
 const CONTROL: WebStepCapabilities = {
-  paredDown: false,
   canOfferPriorAssistants: true,
   canOfferGoogleStep: true,
   hasGoogleTool: true,
@@ -90,57 +89,11 @@ describe("resolveWebSteps", () => {
     expect(ids({ ...CONTROL, showIOSAppStep: false })).not.toContain("iosApp");
   });
 
-  test("pared-down funnel: name then google only", () => {
-    const steps = resolveWebSteps({
-      paredDown: true,
-      canOfferPriorAssistants: true,
-      canOfferGoogleStep: true,
-      hasGoogleTool: false,
-      showIOSAppStep: true,
-    });
-    expect(steps.map((s) => s.id)).toEqual(["name", "google"]);
-    // Back from google skips every gated control step and lands on name.
-    expect(prevStep(steps, "google")).toBe("name");
-  });
-
-  test("pared-down funnel offers google without a tool selection", () => {
-    // No tool-selection screen in this variant, so hasGoogleTool is irrelevant.
-    expect(
-      ids({
-        paredDown: true,
-        canOfferPriorAssistants: true,
-        canOfferGoogleStep: true,
-        hasGoogleTool: false,
-        showIOSAppStep: false,
-      }),
-    ).toEqual(["name", "google"]);
-  });
-
-  test("pared-down funnel collapses to name when google is unavailable", () => {
-    expect(
-      ids({
-        paredDown: true,
-        canOfferPriorAssistants: true,
-        canOfferGoogleStep: false,
-        hasGoogleTool: true,
-        showIOSAppStep: true,
-      }),
-    ).toEqual(["name"]);
-  });
-
-  test("emits the variant-specific google funnel event", () => {
+  test("google step emits the control gmail-connect funnel event", () => {
     const control = resolveWebSteps(CONTROL).find((s) => s.id === "google");
     expect(control?.funnelStep).toBe(
       ONBOARDING_FUNNEL_STEPS.controlGmailConnect,
     );
-    const pared = resolveWebSteps({
-      paredDown: true,
-      canOfferPriorAssistants: true,
-      canOfferGoogleStep: true,
-      hasGoogleTool: false,
-      showIOSAppStep: false,
-    }).find((s) => s.id === "google");
-    expect(pared?.funnelStep).toBe(ONBOARDING_FUNNEL_STEPS.gmailConnect);
   });
 });
 

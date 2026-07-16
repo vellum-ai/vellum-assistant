@@ -82,10 +82,13 @@ function recordCompactionRequestLog(
   conversationId: string,
   response: ProviderResponse,
   provider: Provider,
-): void {
-  if (!response.rawRequest || !response.rawResponse) return;
+): string | null {
+  if (!response.rawRequest || !response.rawResponse) return null;
   try {
-    recordRequestLog(
+    // Inserted unlinked (no message id) — user-initiated compaction flows
+    // (/compact, summarize-up-to) link the row to their result card after
+    // it persists, via `linkRequestLogsToMessage`.
+    return recordRequestLog(
       conversationId,
       JSON.stringify(response.rawRequest),
       JSON.stringify(response.rawResponse),
@@ -98,6 +101,7 @@ function recordCompactionRequestLog(
       { err, conversationId },
       "Failed to persist compaction LLM request log (non-fatal)",
     );
+    return null;
   }
 }
 
@@ -280,6 +284,14 @@ export interface CompactionRunArgs {
    * `[1, messages.length)` — otherwise the run returns `compacted: false`.
    */
   fixedTailStartIndex?: number;
+  /**
+   * Row-space twin of `fixedTailStartIndex`: index into the conversation's
+   * persisted rows of the first message kept verbatim. Bounds the image
+   * manifest to rows that are actually being summarized away — kept-tail
+   * images stay in context verbatim, so offering them for retention would
+   * only duplicate them. Only meaningful alongside `fixedTailStartIndex`.
+   */
+  fixedBoundaryRowIndex?: number;
 }
 
 export interface CompactionRunResult {
@@ -305,6 +317,14 @@ export interface CompactionRunResult {
   summaryCacheCreationInputTokens?: number;
   summaryCacheReadInputTokens?: number;
   summaryRawResponses?: unknown[];
+  /**
+   * `llm_request_logs.id` of this pass's compaction call, `null` when the
+   * row was not written (logging disabled, missing raw payloads, DB error).
+   * User-initiated flows (/compact, summarize-up-to) link the row to their
+   * persisted result card so the inspector attributes the call to the card
+   * instead of the unlinked-row recovery guessing an enclosing turn.
+   */
+  summaryRequestLogId?: string | null;
   summaryText: string;
   /** Inline structured pending state from the model's `<key_state>` block. */
   keyState?: string;
@@ -457,15 +477,23 @@ interface ManifestEntry {
  * `loadFromDb` applies when assembling history — so guardian-only images
  * never enter the manifest and therefore can never be retained back into
  * an untrusted actor's view.
+ *
+ * `endRowIndex` (exclusive, row-space) bounds the walk to rows before a
+ * caller-fixed compaction boundary — images in the kept tail survive
+ * verbatim and must not be offered for retention. The slice happens before
+ * the trust filter because the boundary indexes the full row list.
  */
 export function collectImageManifest(
   conversationId: string,
   actorTrustClass?: TrustClass,
+  endRowIndex?: number,
 ): ManifestEntry[] {
   const allRows = getMessages(conversationId);
+  const boundedRows =
+    endRowIndex != null ? allRows.slice(0, endRowIndex) : allRows;
   const rows = !resolveCapabilities(actorTrustClass).canAccessMemory
-    ? filterMessagesForUntrustedActor(allRows)
-    : allRows;
+    ? filterMessagesForUntrustedActor(boundedRows)
+    : boundedRows;
   const entries: ManifestEntry[] = [];
   for (const row of rows) {
     const atts = getAttachmentMetadataForMessage(row.id);
@@ -1096,10 +1124,12 @@ export async function runAssistantDrivenCompaction(
   // Build image manifest from the DB before invoking the model so the
   // instruction message carries a faithful picture of available images.
   // Filtered by actor trust so untrusted turns never see guardian-only
-  // attachments.
+  // attachments, and bounded to pre-boundary rows on fixed-boundary runs
+  // so kept-tail images are never offered for retention.
   const manifest = collectImageManifest(
     args.conversationId,
     args.actorTrustClass,
+    fixedTailStartIndex != null ? args.fixedBoundaryRowIndex : undefined,
   );
   const manifestText = renderImageManifest(manifest);
   const instruction = buildInstructionMessage(
@@ -1159,7 +1189,11 @@ export async function runAssistantDrivenCompaction(
 
   // Persist the compaction LLM call into `llm_request_logs` with
   // `call_site = "compactionAgent"`. Non-fatal on DB error — see helper.
-  recordCompactionRequestLog(args.conversationId, response, args.provider);
+  const summaryRequestLogId = recordCompactionRequestLog(
+    args.conversationId,
+    response,
+    args.provider,
+  );
 
   const rawText = extractTextFromResponse(response.content);
   const parsed = parseCompactionResult(rawText, {
@@ -1182,6 +1216,7 @@ export async function runAssistantDrivenCompaction(
       summaryCallSite: COMPACTION_CALL_SITE,
       summaryOverrideProfile: args.overrideProfile ?? null,
       summaryRawResponses: response.rawResponse ? [response.rawResponse] : [],
+      summaryRequestLogId,
       summaryCalls: 1,
     };
   }
@@ -1387,6 +1422,7 @@ export async function runAssistantDrivenCompaction(
       summaryCallSite: COMPACTION_CALL_SITE,
       summaryOverrideProfile: args.overrideProfile ?? null,
       summaryRawResponses: response.rawResponse ? [response.rawResponse] : [],
+      summaryRequestLogId,
       summaryCalls: 1,
     };
   }
@@ -1459,6 +1495,7 @@ export async function runAssistantDrivenCompaction(
       response.usage.cacheCreationInputTokens ?? 0,
     summaryCacheReadInputTokens: response.usage.cacheReadInputTokens ?? 0,
     summaryRawResponses: response.rawResponse ? [response.rawResponse] : [],
+    summaryRequestLogId,
     summaryText: finalSummaryText,
     keyState: parsed.keyState,
     summaryFailed: false,

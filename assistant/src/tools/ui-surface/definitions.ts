@@ -2,19 +2,25 @@
  * UI surface tool definitions.
  *
  * These tools allow the model to show, update, and dismiss just-in-time UI
- * surfaces (cards, forms, lists, confirmations) on a connected macOS client.
+ * surfaces (cards, tables, forms, confirmations) on a connected macOS client.
  * They are proxy tools -- execution is forwarded to the client and never
  * handled locally by the daemon.
  */
 
 import { RiskLevel } from "../../permissions/types.js";
 import { isWeakOpenModel } from "../../providers/weak-open-model.js";
-import { ACTIVATION_MOMENT_PARAMS } from "../../telemetry/activation-funnel.js";
 import type {
   ToolContext,
   ToolDefinition,
   ToolExecutionResult,
 } from "../types.js";
+import {
+  asRecord,
+  hasContent,
+  SURFACE_TYPE_NAMES,
+  UI_SHOW_TYPE_DOCS,
+  uiShowTeachingError,
+} from "./surface-shape-docs.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -36,6 +42,13 @@ function proxyExecute(toolName: string) {
     input: Record<string, unknown>,
     context: ToolContext,
   ): Promise<ToolExecutionResult> => {
+    if (toolName === "ui_show") {
+      const teachingError = uiShowTeachingError(input);
+      if (teachingError !== null) {
+        return { content: teachingError, isError: true };
+      }
+    }
+
     if (toolName === "ui_show" && isEmptyDynamicPage(input)) {
       return {
         content: isWeakOpenModel(context.attribution?.resolvedModel)
@@ -135,22 +148,6 @@ function isEmptyUpdate(input: Record<string, unknown>): boolean {
   return data === null || !hasContent(data);
 }
 
-function hasContent(value: unknown): boolean {
-  if (value === null || value === undefined) {
-    return false;
-  }
-  if (Array.isArray(value)) {
-    return value.length > 0;
-  }
-  if (typeof value === "object") {
-    return Object.values(value).some(hasContent);
-  }
-  if (typeof value === "string") {
-    return value.trim().length > 0;
-  }
-  return true;
-}
-
 function isEmptyDynamicPage(input: Record<string, unknown>): boolean {
   if (input.surface_type !== "dynamic_page") {
     return false;
@@ -211,12 +208,6 @@ function collectRoutingText(input: Record<string, unknown>): string[] {
   return values;
 }
 
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return value !== null && typeof value === "object"
-    ? (value as Record<string, unknown>)
-    : null;
-}
-
 function addString(values: string[], value: unknown): void {
   if (typeof value === "string") {
     values.push(value);
@@ -231,21 +222,7 @@ export const uiShowTool = {
   name: "ui_show",
   description:
     'Surface structured data or UI in the conversation. For long-form writing use the document skill. For interactive apps, dashboards, games, calculators, or durable tools, call `skill_load` with `skill: "app-builder"` and use the app-builder workflow; do not use `dynamic_page` as a substitute for a persistent app. App-like `dynamic_page` calls are rejected.\n\n' +
-    "Surface types (data shapes):\n" +
-    '- card: { title, subtitle?, body, metadata?: [{ label, value }], template?, templateData? }. Templates: "weather_forecast" (native weather widget), "task_progress" (live step tracker - update via ui_update on data.templateData; shape: { title, status: "in_progress"|"completed"|"failed", steps: [{ label, status: "pending"|"in_progress"|"completed"|"failed", detail? }] })\n' +
-    "- copy_block: { text, label?, language? }. Shows copyable text with a visible copy button; use for prompts, commands, paths, or snippets the user should copy.\n" +
-    '- choice: { description?, options: [{ id, title, description?, recommended?, data? }], selectionMode?: "single"|"multiple", commitOnSelect?, submitLabel? }. Single-select choices commit on option click by default. Use for outcome offers and follow-up choices; mark the strongest option with recommended: true.\n' +
-    "- oauth_connect: { providerKey, displayName?, description?, logoUrl? }. Shows a managed OAuth connection CTA in chat; use when the current task needs a managed integration account (Google, Linear, GitHub, etc.) instead of asking the user to visit settings or attempting OAuth through shell/tools. The client supplies the CTA label. Do not include OAuth scopes in the surface; managed providers use the platform's configured scopes.\n" +
-    '- table: { columns: [{ id, label }], rows: [{ id, cells: Record<id, string | { text, icon?, iconColor?: "success"|"warning"|"error"|"muted" }>, selectable?, selected? }], selectionMode?: "none"|"single"|"multiple", caption? }\n' +
-    '- form: { description?, fields: [{ id, type: "text"|"textarea"|"select"|"toggle"|"number"|"password", label, placeholder?, required?, defaultValue?, options?: [{ label, value }] }], submitLabel? }. Multi-page: { pages: [{ id, title, description?, fields }], pageLabels?: { next?, back?, submit? }, submitLabel? }\n' +
-    '- list: { items: [{ id, title, subtitle?, icon?, selected? }], selectionMode: "single"|"multiple"|"none" }\n' +
-    "- confirmation: { message, detail?, confirmLabel?, confirmedLabel?, cancelLabel?, destructive? }\n" +
-    "- dynamic_page: { html, width?, height?, preview?: { title, subtitle?, description?, icon?, metrics?: [{ label, value }] } }\n" +
-    "- file_upload: { prompt, acceptedTypes?, maxFiles? }\n" +
-    "- task_preferences: {} (no data needed — categories are rendered client-side)\n" +
-    '- work_result: { eyebrow?, status?: "completed"|"partial"|"failed"|"in_progress", summary?, metrics?: [{ label, value, detail?, tone?: "neutral"|"positive"|"warning"|"negative" }], sections?: [{ id?, title, description?, type?: "items"|"timeline"|"diff"|"artifacts"|"warnings", items?: [{ id?, title, description?, status?, tone?, metadata?: [{ label, value }], href? }], diffs?: [{ label?, before?, after? }] }] }. Shows a structured receipt after real work: what changed, what was skipped, proof points, and next actions. Keep display-only unless explicit follow-up buttons are needed.\n' +
-    '- channel_setup: { channel: "slack" | "telegram" | "phone" }. Opens the channel setup panel in a side drawer. Returns success only after a connected client confirms the panel rendered (an error means the user does NOT see the panel — never claim it is open after an error). The user then completes credential entry at their own pace. Slack shows a full setup wizard; Telegram and Phone show credential forms (the assistant handles remaining setup steps like webhooks in chat after the user saves credentials).\n\n' +
-    "For multi-step or long-running turns (web searches, file operations, research), show a task_progress card early and keep its steps updated as work progresses. Coarse steps are fine, and you can add or revise them as the work takes shape — a rough card beats no signal.",
+    UI_SHOW_TYPE_DOCS,
   category: "ui-surface",
   defaultRiskLevel: RiskLevel.Low,
   executionTarget: "host",
@@ -255,26 +232,12 @@ export const uiShowTool = {
     properties: {
       surface_type: {
         type: "string",
-        enum: [
-          "card",
-          "channel_setup",
-          "choice",
-          "copy_block",
-          "oauth_connect",
-          "form",
-          "list",
-          "table",
-          "confirmation",
-          "dynamic_page",
-          "file_upload",
-          "task_preferences",
-          "work_result",
-        ],
+        enum: SURFACE_TYPE_NAMES,
         description: "The type of surface to display",
       },
       title: {
         type: "string",
-        description: "Optional title for the surface window",
+        description: "Optional surface title",
       },
       data: {
         type: "object",
@@ -286,12 +249,11 @@ export const uiShowTool = {
         items: {
           type: "object",
           properties: {
-            id: { type: "string", description: "Unique action identifier" },
-            label: { type: "string", description: "Button label text" },
+            id: { type: "string" },
+            label: { type: "string" },
             style: {
               type: "string",
               enum: ["primary", "secondary", "destructive"],
-              description: "Visual style of the button",
             },
           },
           required: ["id", "label"],
@@ -302,23 +264,17 @@ export const uiShowTool = {
         type: "string",
         enum: ["inline", "panel"],
         description:
-          'Where to render the surface. "inline" embeds it in the chat message. "panel" shows a floating window. Defaults to "inline". Prefer inline — only use panel when a separate window is explicitly requested.',
+          'Where to render: "inline" (default, embedded in chat) or "panel" (floating window; only when explicitly requested)',
       },
       await_action: {
         type: "boolean",
         description:
-          "Whether to block until an action is selected. Defaults to true when actions are provided.",
+          "Block until an action is selected. Defaults to true when actions are provided.",
       },
       persistent: {
         type: "boolean",
         description:
-          "When true, clicking an action does not dismiss the surface — the card stays visible and only the clicked action is marked as spent. Use for launcher or menu-style cards where multiple buttons may be clicked. Defaults to false.",
-      },
-      activation_moment: {
-        type: "string",
-        enum: ACTIVATION_MOMENT_PARAMS,
-        description:
-          "Activation-rail telemetry tag (cohort only). Set this when this surface IS one of the activation funnel moments; the milestone is recorded automatically when the user commits the surface. Omit for all non-activation surfaces.",
+          "Keep the surface visible after an action is clicked (clicked actions are marked spent). For launcher/menu cards. Defaults to false.",
       },
     },
     required: ["surface_type", "data"],

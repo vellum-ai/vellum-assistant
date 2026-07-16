@@ -210,7 +210,7 @@ describe("resolveConsolidationPrompt — with override", () => {
     expect(warnCalls).toHaveLength(0);
   });
 
-  test("expands a leading ~/ to the home directory", () => {
+  test("rejects a ~/ path that resolves outside the workspace", () => {
     const filename = `.vellum-prompt-test-${process.pid}.md`;
     const path = join(homedir(), filename);
     writeFileSync(path, "Home dir {{CUTOFF}}\n");
@@ -220,8 +220,10 @@ describe("resolveConsolidationPrompt — with override", () => {
         CUTOFF,
         NO_CORE,
       );
-      expect(result).toBe(`Home dir ${CUTOFF}\n`);
-      expect(warnCalls).toHaveLength(0);
+      expect(result).toBe(bundledPrompt());
+      expect(warnCalls).toHaveLength(1);
+      const data = warnCalls[0].data as Record<string, unknown>;
+      expect(data.reason).toBe("outside_workspace");
     } finally {
       rmSync(path, { force: true });
     }
