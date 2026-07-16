@@ -186,11 +186,11 @@ export async function run(
     return { content: `Error: ${validation.error}`, isError: true };
   }
 
-  if (
-    (setting === "stt_mode" || setting === "tts_mode") &&
-    validation.coerced === "managed" &&
-    !(await managedSpeechAvailable())
-  ) {
+  const wantsManagedSpeech =
+    ((setting === "stt_mode" || setting === "tts_mode") &&
+      validation.coerced === "managed") ||
+    (setting === "tts_provider" && validation.coerced === "vellum");
+  if (wantsManagedSpeech && !(await managedSpeechAvailable())) {
     return {
       content:
         "Error: managed speech requires a Vellum platform connection. Run 'assistant platform connect' first.",
@@ -217,6 +217,14 @@ export async function run(
 
   if (setting === "tts_provider") {
     setNestedValue(raw, "services.tts.provider", validation.coerced);
+    // Written as a pair, like the settings cards: a stale `mode: "managed"`
+    // takes precedence over a BYOK provider, so switching providers must
+    // also reset it — otherwise the requested switch is silently ignored.
+    setNestedValue(
+      raw,
+      "services.tts.mode",
+      validation.coerced === "vellum" ? "managed" : "your-own",
+    );
     saveRawConfig(raw);
     invalidateConfigCache();
   }

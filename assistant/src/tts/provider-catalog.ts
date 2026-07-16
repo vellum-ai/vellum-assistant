@@ -54,11 +54,9 @@ const DEFINITIONS = {
 /**
  * Definitions in display order (e.g. settings dropdowns).
  */
-// vellum is deliberately absent: managed mode is selected via
-// `services.tts.mode`, not the provider picker — the settings UI pairs the
-// picker with an API-key input, which vellum has no use for. The definition
-// stays in DEFINITIONS so managed-mode resolution works.
+// vellum leads: it is the managed option, selected like any other provider.
 const CATALOG: readonly TtsProviderDefinition[] = [
+  DEFINITIONS.vellum,
   DEFINITIONS.elevenlabs,
   DEFINITIONS["fish-audio"],
   DEFINITIONS.deepgram,

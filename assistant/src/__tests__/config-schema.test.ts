@@ -1721,25 +1721,16 @@ describe("resolveTtsConfig", () => {
 // ---------------------------------------------------------------------------
 
 describe("TTS provider catalog integration", () => {
-  test("TTS_PROVIDER_IDS matches catalog provider IDs plus hidden providers", () => {
-    const catalogIds = listCatalogProviderIds();
-    // Every displayed provider is a canonical ID…
-    for (const id of catalogIds) {
-      expect(TTS_PROVIDER_IDS).toContain(id);
-    }
-    // …and the only canonical ID hidden from the display catalog is
-    // vellum: managed mode is selected via services.tts.mode, not the
-    // provider picker.
-    const hidden = TTS_PROVIDER_IDS.filter((id) => !catalogIds.includes(id));
-    expect(hidden).toEqual(["vellum"]);
+  test("TTS_PROVIDER_IDS matches the display catalog exactly", () => {
+    expect([...listCatalogProviderIds()].sort()).toEqual(
+      [...TTS_PROVIDER_IDS].sort(),
+    );
   });
 
   test("schema accepts all catalog provider IDs as services.tts.provider", () => {
     for (const providerId of listCatalogProviderIds()) {
-      // vellum is connection-based and only valid under managed mode.
-      const mode = providerId === "vellum" ? "managed" : "your-own";
       const result = AssistantConfigSchema.safeParse({
-        services: { tts: { mode, provider: providerId } },
+        services: { tts: { provider: providerId } },
       });
       expect(result.success).toBe(true);
       if (result.success) {

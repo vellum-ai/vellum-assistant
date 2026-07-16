@@ -120,6 +120,37 @@ describe("voice_config_update — tts_provider", () => {
     expect(result.content).toContain("tts_provider must be one of");
   });
 
+  test("tts_provider resets a stale managed mode", async () => {
+    // A lingering `mode: "managed"` takes precedence over the BYOK provider,
+    // so a provider switch that left it in place would be silently ignored.
+    writeConfig({ services: { tts: { mode: "managed", provider: "vellum" } } });
+    invalidateConfigCache();
+
+    const result = await run(
+      { setting: "tts_provider", value: "elevenlabs" },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    const tts = (readConfig().services as any).tts;
+    expect(tts.provider).toBe("elevenlabs");
+    expect(tts.mode).toBe("your-own");
+  });
+
+  test("tts_provider vellum writes the managed pair", async () => {
+    mockManagedSpeechAvailable = true;
+
+    const result = await run(
+      { setting: "tts_provider", value: "vellum" },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    const tts = (readConfig().services as any).tts;
+    expect(tts.provider).toBe("vellum");
+    expect(tts.mode).toBe("managed");
+  });
+
   test("broadcasts ttsProvider to client", async () => {
     const messages: any[] = [];
     const ctx = makeContext({
@@ -446,7 +477,22 @@ describe("voice_config_update — stt_mode / tts_mode", () => {
 // ---------------------------------------------------------------------------
 
 describe("voice_config_update — catalog-driven provider validation", () => {
+  test("rejects tts_provider vellum without a platform connection", async () => {
+    mockManagedSpeechAvailable = false;
+
+    const result = await run(
+      { setting: "tts_provider", value: "vellum" },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("assistant platform connect");
+    expect((readConfig().services as any)?.tts?.provider).toBeUndefined();
+  });
+
   test("accepts every provider ID in the catalog", async () => {
+    // The catalog includes vellum, which is gated on a platform connection.
+    mockManagedSpeechAvailable = true;
     const catalogIds = listCatalogProviderIds();
     expect(catalogIds.length).toBeGreaterThanOrEqual(1);
 
