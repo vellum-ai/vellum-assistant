@@ -1,8 +1,17 @@
-import { beforeEach, describe, expect, test } from "bun:test";
+/**
+ * Tests for the memory recall-log store. The store reads and writes
+ * `memory_recall_logs` over the dedicated memory connection, so each test
+ * installs a fresh in-memory database into the `memory` singleton slot with
+ * the relocated table's schema.
+ */
+import { Database } from "bun:sqlite";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { getDb } from "../persistence/db-connection.js";
-import { initializeDb } from "../persistence/db-init.js";
-import { memoryRecallLogs } from "../persistence/schema/index.js";
+import { drizzle } from "drizzle-orm/bun-sqlite";
+
+import { clearStoredDb, setStoredDb } from "../persistence/db-singleton.js";
+import { ensureRecallLogsSchema } from "../persistence/migrations/337-move-memory-recall-logs-to-memory-db.js";
+import * as schema from "../persistence/schema/index.js";
 import {
   backfillMemoryRecallLogMessageId,
   getMemoryRecallLogByMessageIds,
@@ -10,18 +19,21 @@ import {
   recordMemoryRecallLog,
 } from "../plugins/defaults/memory/memory-recall-log-store.js";
 
-await initializeDb();
+let memorySqlite: Database;
 
-function resetTables(): void {
-  const db = getDb();
-  db.delete(memoryRecallLogs).run();
-}
+beforeEach(() => {
+  memorySqlite = new Database(":memory:");
+  ensureRecallLogsSchema(memorySqlite);
+  setStoredDb("memory", drizzle(memorySqlite, { schema }), () =>
+    memorySqlite.close(),
+  );
+});
+
+afterEach(() => {
+  clearStoredDb("memory");
+});
 
 describe("memory-recall-log-store", () => {
-  beforeEach(() => {
-    resetTables();
-  });
-
   test("round-trip: record → backfill messageId → query by messageId", () => {
     const conversationId = "conv-1";
     const messageId = "msg-1";
@@ -97,6 +109,28 @@ describe("memory-recall-log-store", () => {
     const result = getMemoryRecallLogByMessageIds([messageId]);
     expect(result).not.toBeNull();
     expect(result!.queryContext).toBeNull();
+  });
+
+  test("writes land in the memory connection", () => {
+    recordMemoryRecallLog({
+      conversationId: "conv-mem",
+      enabled: true,
+      degraded: false,
+      semanticHits: 1,
+      mergedCount: 1,
+      selectedCount: 1,
+      tier1Count: 1,
+      tier2Count: 0,
+      hybridSearchLatencyMs: 50,
+      sparseVectorUsed: false,
+      injectedTokens: 100,
+      latencyMs: 80,
+      topCandidatesJson: [],
+    });
+    const { n } = memorySqlite
+      .query(`SELECT COUNT(*) AS n FROM memory_recall_logs`)
+      .get() as { n: number };
+    expect(n).toBe(1);
   });
 
   test("returns null when no log exists for a messageId", () => {

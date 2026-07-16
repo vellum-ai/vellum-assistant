@@ -1,18 +1,23 @@
 /**
  * Tests for the frecency hot-set lane (`hot-set.ts`) and its config schema.
  *
- * `computeHotSet` takes the db handle directly (no module mocks needed):
- * each test seeds an in-memory SQLite db with `memory_v3_selections` rows
- * (via the real migration) and asserts the decayed-frequency ranking.
+ * `computeHotSet` reads `memory_v3_selections` over the dedicated memory
+ * connection: each test installs an in-memory SQLite db into the `memory`
+ * singleton slot (where the accessor resolves its connection), seeds it with
+ * selection rows, and asserts the decayed-frequency ranking.
  */
 
 import { Database } from "bun:sqlite";
-import { beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import { MemoryV3ConfigSchema } from "../../../../config/schemas/memory-v3.js";
-import { migrateAddMemoryV3Selections } from "../../../../persistence/migrations/268-add-memory-v3-selections.js";
+import {
+  clearStoredDb,
+  setStoredDb,
+} from "../../../../persistence/db-singleton.js";
+import { ensureMemoryV3SelectionsSchema } from "../../../../persistence/migrations/338-move-memory-v3-selections-to-memory-db.js";
 import * as schema from "../../../../persistence/schema/index.js";
 import { computeHotSet, type HotSetOptions } from "./hot-set.js";
 
@@ -20,12 +25,15 @@ const HALF_LIFE_MS = 1000;
 const NOW = 100_000;
 
 let sqlite: Database;
-let db: ReturnType<typeof drizzle<typeof schema>>;
 
 beforeEach(() => {
   sqlite = new Database(":memory:");
-  db = drizzle(sqlite, { schema });
-  migrateAddMemoryV3Selections(db);
+  ensureMemoryV3SelectionsSchema(sqlite);
+  setStoredDb("memory", drizzle(sqlite, { schema }), () => sqlite.close());
+});
+
+afterEach(() => {
+  clearStoredDb("memory");
 });
 
 let nextTurn = 0;
@@ -40,16 +48,13 @@ function seed(slug: string, createdAts: number[]): void {
 }
 
 function hotSet(overrides: Partial<HotSetOptions> = {}) {
-  return computeHotSet(
-    { db },
-    {
-      k: 10,
-      halfLifeMs: HALF_LIFE_MS,
-      now: NOW,
-      excludeSlugs: new Set<string>(),
-      ...overrides,
-    },
-  );
+  return computeHotSet({
+    k: 10,
+    halfLifeMs: HALF_LIFE_MS,
+    now: NOW,
+    excludeSlugs: new Set<string>(),
+    ...overrides,
+  });
 }
 
 describe("computeHotSet", () => {
@@ -110,6 +115,19 @@ describe("computeHotSet", () => {
   test("future-dated rows are clamped to weight 1", () => {
     seed("page-a", [NOW + 50 * HALF_LIFE_MS]);
     expect(hotSet()[0]!.score).toBeCloseTo(1, 10);
+  });
+
+  test("degrades to an empty hot set when the memory database is unavailable", () => {
+    seed("page-a", [NOW]);
+    // Simulate unavailability through the singleton slot instead of
+    // `mock.module`, which is process-global and leaks into sibling test
+    // files. The accessor extracts the raw connection from the stored
+    // handle's `$client`, so a handle without one makes `getMemorySqlite()`
+    // resolve to null, the same contract computeHotSet sees when the
+    // dedicated open fails.
+    clearStoredDb("memory");
+    setStoredDb("memory", { $client: null }, () => {});
+    expect(hotSet()).toEqual([]);
   });
 });
 

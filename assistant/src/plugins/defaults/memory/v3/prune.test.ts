@@ -31,8 +31,8 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import type { Message } from "@vellumai/plugin-api";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
-import { migrateAddMemoryV3Selections } from "../../../../persistence/migrations/268-add-memory-v3-selections.js";
 import { migrateAddMemoryV3EverInjected } from "../../../../persistence/migrations/277-add-memory-v3-ever-injected.js";
+import { ensureMemoryV3SelectionsSchema } from "../../../../persistence/migrations/338-move-memory-v3-selections-to-memory-db.js";
 import * as schema from "../../../../persistence/schema/index.js";
 import { wrapMemoryBlock } from "../memory-marker.js";
 
@@ -48,12 +48,15 @@ let pruneConfig: {
 } | null = null;
 
 let testSqlite: Database;
+// `planPrune`'s recency ranking reads `memory_v3_selections` over the
+// dedicated memory connection, resolved via `getMemorySqlite` — stubbed to a
+// second in-memory DB carrying the relocated table's schema.
+let memorySqlite: Database;
 let testDb = makeDb();
 function makeDb() {
   testSqlite = new Database(":memory:");
   const db = drizzle(testSqlite, { schema });
   migrateAddMemoryV3EverInjected(db);
-  migrateAddMemoryV3Selections(db);
   // Minimal `messages` shape — `collectPersistedV3Cards` reads only
   // `conversation_id` and `metadata`.
   testSqlite.run(/*sql*/ `
@@ -66,6 +69,8 @@ function makeDb() {
       created_at INTEGER NOT NULL
     )
   `);
+  memorySqlite = new Database(":memory:");
+  ensureMemoryV3SelectionsSchema(memorySqlite);
   return db;
 }
 
@@ -76,6 +81,8 @@ mock.module("../../../../persistence/db-connection.js", () => ({
     pruneMockActive
       ? testSqlite
       : realDb.getSqliteFrom(db as Parameters<typeof realDb.getSqliteFrom>[0]),
+  getMemorySqlite: () =>
+    pruneMockActive ? memorySqlite : realDb.getMemorySqlite(),
 }));
 
 // Memory code resolves its config through the plugin's own accessor
@@ -120,7 +127,7 @@ function insertSelection(
   slug: string,
   createdAt: number,
 ): void {
-  testSqlite
+  memorySqlite
     .query(
       /*sql*/ `
       INSERT OR REPLACE INTO memory_v3_selections
