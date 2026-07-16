@@ -1,35 +1,13 @@
 /**
- * Local type stubs for the Pro package catalog, mirroring the `ProPackage`
- * OpenAPI schema introduced in vellum-assistant-platform PR #9200.
- *
- * The platform exposes named, versioned Pro plan packages (Mighty / Super /
- * Ultra) as presets of the existing Pro line items (machine/storage/credit
- * tiers + base fee). These types are additive to `ProPlan` — the generated
- * `ProPlan` type will gain a `packages?: ProPackage[]` field once #9200
- * merges and the OpenAPI client is regenerated. Until then, callers read
- * `packages` defensively via the `ProPlanWithPackages` helper.
- *
- * Schema source: `ProPackage` component in `django/openapi_schemas/platform.yaml`.
+ * Helpers for the Pro package catalog — the named Pro plan presets
+ * (Mighty / Super / Ultra) exposed as `ProPlan.packages` in the platform API
+ * (vellum-assistant-platform #9200). The catalog is empty while the
+ * `pro-packages` LaunchDarkly flag is off; callers no-op on an empty array.
  */
 
-export interface ProPackage {
-  key: string;
-  name: string;
-  description: string;
-  version: number;
-  machine_tier: string | null;
-  storage_tier: string;
-  credit_tier: string | null;
-  machine_size: string | null;
-  storage_gib: number;
-  credits_usd: number | null;
-  include_platform_fee: boolean;
-  base_price_cents: number;
-  machine_price_cents: number;
-  storage_price_cents: number;
-  credit_price_cents: number;
-  total_price_cents: number;
-}
+import type { ProPackage } from "@/generated/api/types.gen";
+
+export type { ProPackage };
 
 /**
  * Catalog display order (mirrors `PRO_PACKAGES` insertion order from
@@ -37,71 +15,6 @@ export interface ProPackage {
  *   mighty → super → ultra
  */
 export const PACKAGE_ORDER = ["mighty", "super", "ultra"] as const;
-
-/**
- * Local fallback presets, mirroring `PRO_PACKAGES` from platform PR #9200
- * (`django/app/domain_models/constants.py`). The API only returns `packages`
- * when the `pro-packages` LaunchDarkly flag is on; when it's off (or the
- * array is otherwise empty) callers fall back to these so the recommended
- * upgrade always has something to show.
- */
-export const PACKAGE_PRESETS: ProPackage[] = [
-  {
-    key: "mighty",
-    name: "Mighty",
-    description:
-      "10 GB of storage and $25 in monthly credits on the standard machine.",
-    version: 1,
-    machine_tier: null,
-    storage_tier: "xs",
-    credit_tier: "credits_25",
-    machine_size: null,
-    storage_gib: 10,
-    credits_usd: 25,
-    include_platform_fee: false,
-    base_price_cents: 4000,
-    machine_price_cents: 0,
-    storage_price_cents: 0,
-    credit_price_cents: 0,
-    total_price_cents: 4000,
-  },
-  {
-    key: "super",
-    name: "Super",
-    description: "Medium machine, 30 GB of storage, and $45 in monthly credits.",
-    version: 1,
-    machine_tier: "medium",
-    storage_tier: "s",
-    credit_tier: "credits_45",
-    machine_size: "medium",
-    storage_gib: 30,
-    credits_usd: 45,
-    include_platform_fee: true,
-    base_price_cents: 10000,
-    machine_price_cents: 0,
-    storage_price_cents: 0,
-    credit_price_cents: 0,
-    total_price_cents: 10000,
-  },
-  {
-    key: "ultra",
-    name: "Ultra",
-    description: "Large machine, 60 GB of storage, and $115 in monthly credits.",
-    version: 1,
-    machine_tier: "large",
-    storage_tier: "m",
-    credit_tier: "credits_115",
-    machine_size: "large",
-    storage_gib: 60,
-    credits_usd: 115,
-    include_platform_fee: true,
-    base_price_cents: 20000,
-    machine_price_cents: 0,
-    storage_price_cents: 0,
-    credit_price_cents: 0,
-    total_price_cents: 20000,
-  },
-];
 
 /**
  * Given a current package key (or null for base/free), return the next

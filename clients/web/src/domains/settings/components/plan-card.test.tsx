@@ -36,6 +36,37 @@ function basePlansResponse(): PlanListResponse {
         billing_interval: "month",
         included_features: [],
       },
+      {
+        id: "pro",
+        name: "Pro",
+        base_lookup_key: "pro_base",
+        base_price_cents: 2000,
+        billing_interval: "month",
+        included_features: [],
+        machine_tiers: [],
+        storage_tiers: [],
+        packages: [
+          {
+            key: "mighty",
+            name: "Mighty",
+            description:
+              "10 GB of storage and $25 in monthly credits on the standard machine.",
+            version: 1,
+            machine_tier: null,
+            storage_tier: "xs",
+            credit_tier: "credits_25",
+            machine_size: null,
+            storage_gib: 10,
+            credits_usd: 25,
+            include_platform_fee: false,
+            base_price_cents: 4000,
+            machine_price_cents: 0,
+            storage_price_cents: 0,
+            credit_price_cents: 0,
+            total_price_cents: 4000,
+          },
+        ],
+      },
     ],
   };
 }
@@ -99,6 +130,17 @@ describe("PlanCard", () => {
     expect(html).toContain("recommended-upgrade-button");
     expect(html).toContain("Recommended Upgrade");
     expect(html).toContain("Mighty");
+  });
+
+  test("no upgrade banner when the package catalog is empty (flag off)", () => {
+    const plans = basePlansResponse();
+    const pro = plans.plans.find((p) => p.id === "pro");
+    if (pro && "packages" in pro) {
+      pro.packages = [];
+    }
+    const html = renderCard(baseSubscription(), plans);
+    expect(html).not.toContain("recommended-upgrade-button");
+    expect(html).not.toContain("Recommended Upgrade");
   });
 
   test("delta labels are data-faithful (no bogus arrows, no fake 'Standard')", () => {

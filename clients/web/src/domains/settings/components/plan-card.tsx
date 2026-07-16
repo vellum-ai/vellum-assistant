@@ -7,7 +7,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AvatarRenderer } from "@/components/avatar-renderer";
 import {
     nextPackageUp,
-    PACKAGE_PRESETS,
     type ProPackage,
 } from "@/domains/settings/billing/package-types";
 import {
@@ -21,11 +20,7 @@ import {
     organizationsBillingSubscriptionRetrieveQueryKey,
     organizationsBillingSubscriptionUpgradeCreateMutation,
 } from "@/generated/api/@tanstack/react-query.gen";
-import type {
-    MachineSizeEnum,
-    ProPlan,
-    SubscriptionUpgradeRequestRequest,
-} from "@/generated/api/types.gen";
+import type { MachineSizeEnum, ProPlan } from "@/generated/api/types.gen";
 import { SIZE_DESCRIPTION, SIZE_LABEL } from "@/lib/billing/machine-sizes";
 import { openUrl } from "@/runtime/browser";
 import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
@@ -211,25 +206,16 @@ function RecommendedUpgrade({
         }
         setPending(true);
         try {
-            const body: SubscriptionUpgradeRequestRequest = {
-                target_plan_id: "pro",
-                storage_tier: recommended.storage_tier as SubscriptionUpgradeRequestRequest["storage_tier"],
-                machine_tier: (recommended.machine_tier ?? null) as SubscriptionUpgradeRequestRequest["machine_tier"],
-                credit_tier: (recommended.credit_tier ?? null) as SubscriptionUpgradeRequestRequest["credit_tier"],
-                include_platform_fee: recommended.include_platform_fee,
-                confirm: false,
-            };
-            // PR #9200 adds a `package` param to the upgrade request. The
-            // generated type doesn't include it yet, so we attach it via a
-            // local cast. When #9200 merges and types regenerate, remove cast.
-            const bodyWithPackage = {
-                ...body,
-                package: recommended.key,
-            } as unknown as SubscriptionUpgradeRequestRequest;
-
-            const result = await upgradeMutation.mutateAsync(
-                bodyWithPackage as never,
-            );
+            // A package checkout resolves its own line items server-side;
+            // explicit tiers / include_platform_fee alongside `package` are
+            // rejected by the upgrade serializer.
+            const result = await upgradeMutation.mutateAsync({
+                body: {
+                    target_plan_id: "pro",
+                    package: recommended.key,
+                    confirm: true,
+                },
+            });
             if (result.status === "redirect" && result.checkout_url) {
                 openUrl(result.checkout_url);
             } else {
@@ -374,12 +360,10 @@ export function PlanCard({ onManage }: PlanCardProps) {
     const showCancellation =
         display.showsRenewal && isCancelling && !isCanceled && cancelDate;
 
-    const proPlan = plans.find((p) => p.id === "pro");
-    const apiPackages = readPackages(proPlan);
-    const packages = apiPackages.length > 0 ? apiPackages : PACKAGE_PRESETS;
-    const currentKey =
-        (subscription as unknown as { package_key?: string | null })
-            .package_key ?? null;
+    const proPlan = plans.find((p): p is ProPlan => p.id === "pro");
+    // Empty while the `pro-packages` flag is off — the upgrade banner no-ops.
+    const packages = proPlan?.packages ?? [];
+    const currentKey = subscription.package?.key ?? null;
     const currentTier = currentKey ?? "free";
 
     return (
@@ -447,14 +431,4 @@ export function PlanCard({ onManage }: PlanCardProps) {
             </div>
         </Card>
     );
-}
-
-/**
- * Read packages defensively from a Pro plan entry. The `packages` field is
- * additive (platform PR #9200, gated behind the `pro-packages` LaunchDarkly
- * flag). The generated type doesn't include it yet, so we read via a local
- * cast. When #9200 merges and types regenerate, this cast can be removed.
- */
-export function readPackages(plan: ProPlan | undefined): ProPackage[] {
-    return (plan as unknown as { packages?: ProPackage[] })?.packages ?? [];
 }
