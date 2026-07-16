@@ -132,10 +132,7 @@ function supportsEffort(provider: string, modelId: string, supportsThinking: boo
     }
     return supportsThinking;
   }
-  if (provider === "fireworks") {
-    return supportsThinking;
-  }
-  if (provider === "together") {
+  if (provider === "fireworks" || provider === "together" || provider === "baseten") {
     return supportsThinking;
   }
   return false;

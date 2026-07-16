@@ -1968,6 +1968,9 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
+        // Baseten's reasoning_effort for Inkling tops out at "xhigh" (no
+        // "max"), matching the chat-completions client's default ceiling.
+        maxEffort: "xhigh",
         pricing: {
           inputPer1mTokens: 1.0,
           outputPer1mTokens: 4.05,
