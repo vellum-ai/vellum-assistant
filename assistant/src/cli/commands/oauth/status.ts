@@ -3,6 +3,11 @@ import type { Command } from "commander";
 import { cliIpcCall, exitFromIpcResult } from "../../../ipc/cli-client.js";
 import { subcommand } from "../../lib/cli-command-help.js";
 import { shouldOutputJson, writeOutput } from "../../output.js";
+import {
+  buildOAuthConnectSurfaceNextAction,
+  oauthConnectSurfaceHint,
+  type OAuthConnectSurfaceNextAction,
+} from "./connect-surface-guidance.js";
 
 /**
  * Message shown when a provider has no active connections. Weak open models
@@ -16,13 +21,7 @@ export async function noConnectionsMessage(provider: string): Promise<string> {
   const { isWeakOpenModel } =
     await import("../../../providers/weak-open-model.js");
   if (isWeakOpenModel(process.env.__RESOLVED_MODEL)) {
-    return (
-      `${base}\nTo let the user connect, render the connect button: call ` +
-      `\`ui_show\` with surface_type "oauth_connect" and ` +
-      `data.providerKey "${provider}". That surface is always available — do ` +
-      `not run further \`oauth\`/\`channels\` commands or load a setup skill ` +
-      `just to display it.\n`
-    );
+    return `${base}\n${oauthConnectSurfaceHint(provider)}\n`;
   }
   return `${base}\nConnect with \`assistant oauth connect ${provider}\`.\n`;
 }
@@ -38,6 +37,39 @@ interface ConnectionSummary {
   status: string;
   expiresAt?: string | null;
   hasRefreshToken?: boolean;
+}
+
+interface OAuthStatusResponse {
+  ok: boolean;
+  provider: string;
+  mode: string;
+  connections: ConnectionSummary[];
+  hint?: string;
+  nextAction?: OAuthConnectSurfaceNextAction;
+}
+
+/**
+ * JSON status output is often fed back to the model. For weak open models,
+ * include the same next-action steering as the human text path so a follow-up
+ * "yes" renders the first-class OAuth surface instead of a raw CLI URL.
+ */
+export async function decorateStatusJsonForModel(
+  result: OAuthStatusResponse,
+): Promise<OAuthStatusResponse> {
+  if (result.connections.length > 0) {
+    return result;
+  }
+  const { isWeakOpenModel } =
+    await import("../../../providers/weak-open-model.js");
+  if (!isWeakOpenModel(process.env.__RESOLVED_MODEL)) {
+    return result;
+  }
+  return {
+    ...result,
+    hint: result.hint ?? oauthConnectSurfaceHint(result.provider),
+    nextAction:
+      result.nextAction ?? buildOAuthConnectSurfaceNextAction(result.provider),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -86,11 +118,11 @@ export function registerStatusCommand(oauth: Command): void {
           return exitFromIpcResult(r);
         }
 
-        const result = r.result!;
+        const result = r.result! as OAuthStatusResponse;
         const { connections, mode } = result;
 
         if (shouldOutputJson(cmd)) {
-          writeOutput(cmd, result);
+          writeOutput(cmd, await decorateStatusJsonForModel(result));
           return;
         }
 
