@@ -1,12 +1,4 @@
-import {
-    Computer,
-    HardDrive,
-    Loader2,
-    Microchip,
-    Plus,
-    Sparkles,
-    type LucideIcon,
-} from "lucide-react";
+import { Computer, HardDrive, Loader2, Microchip, Sparkles } from "lucide-react";
 
 import { useState } from "react";
 
@@ -48,7 +40,6 @@ import { formatMonthly } from "./tier-pricing";
 interface PlanDisplay {
     actionLabel: string;
     actionVariant: ButtonProps["variant"];
-    actionIcon?: LucideIcon;
     actionTestId: string;
     showsRenewal: boolean;
 }
@@ -61,9 +52,8 @@ const PLAN_DISPLAY: Record<string, PlanDisplay> = {
         showsRenewal: true,
     },
     base: {
-        actionLabel: "Upgrade",
+        actionLabel: "View Plans",
         actionVariant: "primary",
-        actionIcon: Plus,
         actionTestId: "plan-card-upgrade-button",
         showsRenewal: true,
     },
@@ -368,7 +358,6 @@ export function PlanCard({ onManage }: PlanCardProps) {
     }
 
     const display = PLAN_DISPLAY[currentPlan.id] ?? DEFAULT_DISPLAY;
-    const ActionIcon = display.actionIcon;
     const planName = currentPlan.name ?? currentPlan.id;
 
     const isCancelling =
@@ -396,9 +385,19 @@ export function PlanCard({ onManage }: PlanCardProps) {
     return (
         <Card padding="md">
             <div className="flex flex-col gap-4">
-                <PlanHeading />
+                <div className="flex items-center justify-between gap-3">
+                    <PlanHeading />
+                    <Button
+                        variant={display.actionVariant}
+                        onClick={onManage}
+                        data-testid={display.actionTestId}
+                        className="shrink-0"
+                    >
+                        {display.actionLabel}
+                    </Button>
+                </div>
                 <div className="flex flex-col gap-2">
-                    <div className="flex items-center justify-between gap-3 rounded-lg bg-[var(--surface-base)] py-1.5 pl-3 pr-2">
+                    <div className="flex items-center gap-3 rounded-lg bg-[var(--surface-base)] py-1.5 pl-3 pr-2">
                         <div className="flex min-w-0 items-center gap-3">
                             <PlanTierAvatar tier={currentTier} />
                             <div className="flex min-w-0 flex-col gap-1">
@@ -438,19 +437,6 @@ export function PlanCard({ onManage }: PlanCardProps) {
                                 )}
                             </div>
                         </div>
-                        <Button
-                            variant={display.actionVariant}
-                            onClick={onManage}
-                            leftIcon={
-                                ActionIcon ? (
-                                    <ActionIcon className="h-4 w-4" />
-                                ) : undefined
-                            }
-                            data-testid={display.actionTestId}
-                            className="shrink-0"
-                        >
-                            {display.actionLabel}
-                        </Button>
                     </div>
                     <RecommendedUpgrade
                         packages={packages}

@@ -86,7 +86,7 @@ describe("PlanCard", () => {
   test("shows the upgrade button for a base plan", () => {
     const html = renderCard(baseSubscription(), basePlansResponse());
     expect(html).toContain("plan-card-upgrade-button");
-    expect(html).toContain("Upgrade");
+    expect(html).toContain("View Plans");
   });
 
   test("does not render the invoices button (moved to inline table)", () => {
