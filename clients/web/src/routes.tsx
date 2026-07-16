@@ -17,8 +17,6 @@ import { RootHydrateFallback } from "@/components/root-hydrate-fallback";
 import { ActiveAssistantGate } from "@/components/layout/active-assistant-gate";
 import { remoteGatewayPublicPathPrefix } from "@/lib/auth/remote-gateway-session";
 import { isRemoteGatewayMode } from "@/lib/local-mode";
-import { useOnboardingStore } from "@/domains/onboarding/onboarding-store";
-import { useIsNativePlatform } from "@/runtime/native-auth";
 import { routes } from "@/utils/routes";
 
 /**
@@ -53,47 +51,6 @@ function AdvancedSettingsRedirect() {
   return (
     <Navigate to={`${routes.settings.debug}${qs ? `?${qs}` : ""}`} replace />
   );
-}
-
-/**
- * Forwards legacy `/assistant/onboarding/prechat` links to the research
- * onboarding flow. The pre-chat funnel was removed, but existing sessions,
- * bookmarks, and older desktop builds may still hold that URL — redirecting
- * (query string preserved so `?hosting=` carries through) keeps them out of
- * the NotFound page during a deploy. Safe to drop after a deprecation period.
- *
- * Only a web user who has already recorded ToS + privacy consent is forwarded
- * to the research flow. Two cases go to the privacy screen (the native-safe
- * onboarding entry, which then routes on to hatching/chat) instead:
- *   - missing-consent web users, so a stale link can't skip the consent the
- *     removed `usePreChatConsentGate` enforced before the background hatch; and
- *   - native (Capacitor/iOS) sessions, because the research flow isn't wired for
- *     the native shell — its onboarding runs privacy → hatching, not research.
- *
- * The consent flags boot to `false` and are restored by auth-sync, so deciding
- * before they hydrate would send an already-consented web user to privacy
- * instead of research. Wait for `consentHydrated` first — the reactive selector
- * re-renders once the sync lands (mirroring the old gate's effect-driven
- * recheck). Native has no such sync and always targets privacy, so it never
- * waits.
- */
-function PrechatLegacyRedirect() {
-  const [searchParams] = useSearchParams();
-  const isNative = useIsNativePlatform();
-  const consentHydrated = useOnboardingStore.use.consentHydrated();
-  const tosAccepted = useOnboardingStore.use.tosAccepted();
-  const privacyConsent = useOnboardingStore.use.privacyConsent();
-  const qs = searchParams.toString();
-
-  if (!isNative && !consentHydrated) {
-    return <RootHydrateFallback />;
-  }
-
-  const forwardToResearch = !isNative && tosAccepted && privacyConsent;
-  const target = forwardToResearch
-    ? routes.onboarding.research
-    : routes.onboarding.privacy;
-  return <Navigate to={`${target}${qs ? `?${qs}` : ""}`} replace />;
 }
 
 /**
@@ -307,12 +264,6 @@ export const routeTree = [
             {
               path: "onboarding/privacy",
               lazy: { Component: () => import("@/domains/onboarding/pages/privacy-screen").then((m) => m.PrivacyScreen) },
-            },
-            {
-              // Legacy redirect — the pre-chat funnel was removed. Forward stale
-              // `/onboarding/prechat` links to the research flow, not NotFound.
-              path: "onboarding/prechat",
-              Component: PrechatLegacyRedirect,
             },
             {
               path: "onboarding/hatching",
