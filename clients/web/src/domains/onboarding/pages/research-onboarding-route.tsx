@@ -297,8 +297,10 @@ export function ResearchOnboardingRoute() {
   // has actually reviewed the results — a "Skip to Chat" before that must not
   // hand unvetted claims to the persona as user-confirmed. Handed off via
   // PreChatOnboardingContext.researchFindings so the first greeting (which is
-  // barred from recall/file reads) has something real to work with.
-  const keptFindingsRef = useRef<string[] | null>(null);
+  // barred from recall/file reads) has something real to work with. State (not
+  // a ref) so the snapshot persist effect below sees it — a refresh between
+  // the results step and "Let's chat" must not regress to a blind greeting.
+  const [keptFindings, setKeptFindings] = useState<string[] | null>(null);
   // In-flight personality rewrite (if any), fired from the personality step. The
   // chat handoff awaits it (alongside the plugin installs + removal correction)
   // so the assistant's persona is fully rewritten BEFORE the first real chat is
@@ -360,6 +362,7 @@ export function ResearchOnboardingRoute() {
       setFaceValues(snapshot.faceValues);
       setCheckinTime(snapshot.checkinTime);
       setCheckinBooked(snapshot.checkinBooked);
+      setKeptFindings(snapshot.keptClaims ?? null);
       setResearchConversationId(snapshot.researchConversationId ?? null);
       // Re-enqueue the named plugin installs against the re-hatched assistant so
       // a suggestion click awaits real (idempotent) installs, not an empty map.
@@ -411,11 +414,13 @@ export function ResearchOnboardingRoute() {
       ...(researchConversationId
         ? { researchConversationId }
         : {}),
+      ...(keptFindings ? { keptClaims: keptFindings } : {}),
     });
   }, [
     restored,
     userId,
     step,
+    keptFindings,
     formValues,
     faceValues,
     checkinTime,
@@ -535,9 +540,7 @@ export function ResearchOnboardingRoute() {
       // persona's onboarding section daemon-side so the blind greeting turn
       // can reference something real. Omitted when the user never reviewed
       // the results (null) or rejected them all (empty).
-      ...(keptFindingsRef.current?.length
-        ? { researchFindings: keptFindingsRef.current }
-        : {}),
+      ...(keptFindings?.length ? { researchFindings: keptFindings } : {}),
     };
 
     setPendingPreChatContext(context);
@@ -812,9 +815,11 @@ export function ResearchOnboardingRoute() {
             loading={researchLoading}
             onContinue={(removed) => {
               const removedSet = new Set(removed);
-              keptFindingsRef.current = research.claims
-                .filter((c) => !removedSet.has(c.claim))
-                .map((c) => c.claim);
+              setKeptFindings(
+                research.claims
+                  .filter((c) => !removedSet.has(c.claim))
+                  .map((c) => c.claim),
+              );
               // Pruned claims are wrong — tell the assistant to disregard them so
               // they don't leak into the real chat (the research turn taught its
               // memory these facts). The chat handoff awaits this promise, so the
@@ -830,7 +835,7 @@ export function ResearchOnboardingRoute() {
               goForwardTo("suggestions");
             }}
             onRejectAll={() => {
-              keptFindingsRef.current = [];
+              setKeptFindings([]);
               // "This is not me" — the search matched someone else. Disown the
               // whole result so none of it carries into the assistant's context.
               if (researchConversationId && hatchedAssistantId) {

@@ -129,8 +129,15 @@ export function normalizeOnboardingContext(
     occupation: ctx.occupation?.trim() || undefined,
     commonWork: normalizeTasks(ctx.tasks),
     dailyTools: normalizeTools(ctx.tools),
+    // Findings are model-extracted from arbitrary web content and get written
+    // into persisted persona markdown as single bullets. Collapse ALL runs of
+    // whitespace (incl. newlines) so one finding can never mint extra lines —
+    // injected bullets, headings, or a `## ` that would corrupt the managed
+    // section boundary on later rewrites.
     researchFindings: ctx.researchFindings?.length
-      ? ctx.researchFindings.map((finding) => finding.trim()).filter(Boolean)
+      ? ctx.researchFindings
+          .map((finding) => finding.replace(/\s+/g, " ").trim())
+          .filter(Boolean)
       : undefined,
     tone: ctx.tone,
     assistantName: ctx.assistantName,
