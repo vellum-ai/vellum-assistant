@@ -237,6 +237,17 @@ export const messageMetadataSchema = z
      */
     hidden: z.boolean().optional(),
     /**
+     * How the send was initiated when the user message was sent on the
+     * user's behalf by the UI rather than typed by hand (`body.source` on
+     * `POST /v1/messages`). Current value: `"nav_redirect"` — a navigation
+     * shortcut redirected the user into chat with a pre-filled message.
+     * Read back by turn telemetry (`turn-events-store`) so analytics can
+     * separate UI-initiated turns from hand-typed ones, and by the queue
+     * drain to steer the turn. Kept as a plain string so new sources never
+     * fail metadata validation. Absent on hand-typed messages.
+     */
+    userMessageSource: z.string().optional(),
+    /**
      * Discriminates daemon-authored rows from ordinary turns.
      * `"system_card"` marks pre-composed status cards (the /compact, /clean,
      * and summarize-up-to results); see {@link SYSTEM_CARD_MESSAGE_KIND}.
@@ -297,6 +308,19 @@ export function isHiddenMessageMetadata(
   metadata: Record<string, unknown> | null | undefined,
 ): boolean {
   return metadata?.hidden === true;
+}
+
+/**
+ * Shared accessor for the send-source tag on user-message metadata (see the
+ * `userMessageSource` field on {@link messageMetadataSchema}). Returns the
+ * tag (e.g. `"nav_redirect"`) or undefined when the message was typed by
+ * hand or predates the field.
+ */
+export function getUserMessageSourceMetadata(
+  metadata: Record<string, unknown> | null | undefined,
+): string | undefined {
+  const source = metadata?.userMessageSource;
+  return typeof source === "string" && source.length > 0 ? source : undefined;
 }
 
 /**

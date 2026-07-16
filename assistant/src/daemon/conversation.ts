@@ -2356,6 +2356,8 @@ export class Conversation {
       titleText?: string;
       /** See {@link runAgentLoopImpl} — hidden machine-signal turn marker. */
       isHiddenPrompt?: boolean;
+      /** See {@link runAgentLoopImpl} — UI-initiated send-source tag. */
+      messageSource?: string;
       callSite?: LLMCallSite;
       /**
        * Optional ad-hoc inference-profile override applied to every LLM call
