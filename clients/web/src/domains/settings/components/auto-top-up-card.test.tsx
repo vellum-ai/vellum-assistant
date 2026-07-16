@@ -153,4 +153,35 @@ describe("AutoTopUpCard enable gate", () => {
 
     expect(form()).not.toBeNull();
   });
+
+  test("toggling Enable on with no payment method shows the Add payment method button, not the form", () => {
+    // The toggle is never disabled: turning it on with no PM on file flips
+    // the toggle visually and gates on an actionable "Add payment method"
+    // button instead of blocking the click or the form.
+    const config: AutoTopUpConfigResponse = {
+      ...DISABLED_CONFIG,
+      enabled: false,
+      has_payment_method: false,
+      disabled_due_to_repeated_failures: false,
+    };
+
+    const { container, getByLabelText } = render(
+      <QueryClientProvider client={makeClient(config)}>
+        <AutoTopUpCard />
+      </QueryClientProvider>,
+    );
+    const form = () =>
+      container.querySelector('[data-testid="auto-top-up-save-button"]');
+    const addPmButton = () =>
+      container.querySelector('[data-testid="auto-top-up-add-pm-button"]');
+    const toggle = getByLabelText("Enable Auto-Reload");
+
+    expect(addPmButton()).toBeNull();
+
+    fireEvent.click(toggle);
+
+    expect(toggle.getAttribute("aria-checked")).toBe("true");
+    expect(addPmButton()).not.toBeNull();
+    expect(form()).toBeNull();
+  });
 });

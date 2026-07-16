@@ -1,5 +1,5 @@
 import { Check, ChevronDown, Coins, Copy, ExternalLink, Loader2, Users } from "lucide-react";
-import { useCallback, useState } from "react";
+import { type ReactNode, useCallback, useState } from "react";
 
 import { useQuery } from "@tanstack/react-query";
 
@@ -8,7 +8,6 @@ import { openUrl } from "@/runtime/browser";
 import { Button } from "@vellumai/design-library/components/button";
 import { Card } from "@vellumai/design-library/components/card";
 import { Notice } from "@vellumai/design-library/components/notice";
-import { Tag } from "@vellumai/design-library/components/tag";
 import { toast } from "@vellumai/design-library/components/toast";
 import { Typography } from "@vellumai/design-library/components/typography";
 
@@ -16,6 +15,31 @@ const REFERRAL_PANEL_ANCHOR_ID = "settings-referral-panel";
 
 function stripDecimals(amount: string): string {
   return amount.replace(/\.00$/, "");
+}
+
+interface StatPillProps {
+  icon: ReactNode;
+  value: ReactNode;
+  label: string;
+}
+
+function StatPill({ icon, value, label }: StatPillProps) {
+    return (
+      <div className="flex items-center gap-2 rounded-lg bg-[var(--surface-base)] px-3 py-2">
+        <span
+          aria-hidden="true"
+          className="flex h-4 w-4 shrink-0 items-center justify-center text-[var(--content-tertiary)]"
+        >
+          {icon}
+        </span>
+        <Typography variant="body-medium-default" as="span" className="text-[var(--content-default)]">
+          {value}
+        </Typography>
+        <Typography variant="body-small-default" as="span" className="text-[var(--content-tertiary)]">
+          {label}
+        </Typography>
+      </div>
+    );
 }
 
 function ReferralTerms({ cap }: { cap: string }) {
@@ -117,19 +141,23 @@ export function ReferralPanel() {
             <Notice tone="error">Failed to load referral information.</Notice>
           ) : (
             <div className="flex flex-wrap items-center gap-2">
-              <Tag leftIcon={<Coins />}>
-                {stripDecimals(data.total_earned)} Credits Earned
-              </Tag>
-              <Tag leftIcon={<Users />}>
-                {data.referred_count} Friends Referred
-              </Tag>
+              <StatPill
+                icon={<Coins className="h-4 w-4" />}
+                value={stripDecimals(data.total_earned)}
+                label="Credits Earned"
+              />
+              <StatPill
+                icon={<Users className="h-4 w-4" />}
+                value={data.referred_count}
+                label="Friends Referred"
+              />
             </div>
           )}
 
           {data && (
             <div className="flex flex-wrap items-center gap-2">
               <Button
-                variant="outlined"
+                variant="ghost"
                 leftIcon={<ExternalLink className="h-3.5 w-3.5" />}
                 onClick={() => openUrl(data.referral_url)}
                 data-testid="referral-view-button"
@@ -137,7 +165,7 @@ export function ReferralPanel() {
                 View Referrals
               </Button>
               <Button
-                variant="primary"
+                variant="outlined"
                 onClick={() => handleCopy(data.referral_url)}
                 leftIcon={
                   copied ? (

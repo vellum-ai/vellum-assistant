@@ -205,9 +205,11 @@ function RecommendedUpgrade({
             const bodyWithPackage = {
                 ...body,
                 package: recommended.key,
-            } as SubscriptionUpgradeRequestRequest;
+            } as unknown as SubscriptionUpgradeRequestRequest;
 
-            const result = await upgradeMutation.mutateAsync(bodyWithPackage);
+            const result = await upgradeMutation.mutateAsync(
+                bodyWithPackage as never,
+            );
             if (result.status === "redirect" && result.checkout_url) {
                 openUrl(result.checkout_url);
             } else {
@@ -224,35 +226,49 @@ function RecommendedUpgrade({
     };
 
     return (
-        <div className="flex flex-col gap-4 border-t border-[var(--border-base)] pt-4">
-            <div className="flex items-center gap-2">
-                <Sparkles className="h-4 w-4 text-[var(--content-emphasised)]" aria-hidden />
-                <Typography as="h3" variant="title-small" className="text-[var(--content-default)]">
-                    {recommended.name}
-                </Typography>
-                <Tag tone="positive">Recommended Upgrade</Tag>
-            </div>
+        <div className="flex flex-col gap-4 rounded-xl bg-[var(--system-positive-weak)] p-4">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+                <div className="flex flex-col gap-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                        <span
+                            aria-hidden
+                            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[var(--surface-lift)]"
+                        >
+                            <Sparkles className="h-4 w-4 text-[var(--system-positive-strong)]" />
+                        </span>
+                        <Typography as="h3" variant="title-small" className="text-[var(--content-default)]">
+                            {recommended.name}
+                        </Typography>
+                        <Tag tone="positive" leftIcon={<Sparkles />}>
+                            Recommended Upgrade
+                        </Tag>
+                    </div>
+                    <Typography as="p" variant="title-medium" className="text-[var(--content-default)]">
+                        {priceLabel}
+                    </Typography>
+                </div>
 
-            <Typography as="p" variant="title-medium" className="text-[var(--content-default)]">
-                {priceLabel}
-            </Typography>
-
-            <div className="flex flex-col gap-2">
-                {deltas.map((delta) => {
-                    const Icon = delta.icon;
-                    return (
-                        <div key={delta.label} className="flex items-center gap-2">
-                            <Icon className="h-4 w-4 shrink-0 text-[var(--content-tertiary)]" aria-hidden />
-                            <Typography as="span" variant="body-small-default" className="text-[var(--content-secondary)]">
-                                {delta.label}
-                            </Typography>
-                        </div>
-                    );
-                })}
+                <div className="flex flex-wrap items-center gap-2">
+                    {deltas.map((delta) => {
+                        const Icon = delta.icon;
+                        return (
+                            <div
+                                key={delta.label}
+                                className="flex items-center gap-1.5 whitespace-nowrap rounded-lg bg-[var(--surface-lift)] px-2.5 py-1.5"
+                            >
+                                <Icon className="h-3.5 w-3.5 shrink-0 text-[var(--content-tertiary)]" aria-hidden />
+                                <Typography as="span" variant="body-small-default" className="text-[var(--content-secondary)]">
+                                    {delta.label}
+                                </Typography>
+                            </div>
+                        );
+                    })}
+                </div>
             </div>
 
             <Button
                 variant="primary"
+                fullWidth
                 onClick={handleUpgrade}
                 disabled={pending || upgradeMutation.isPending}
                 leftIcon={
