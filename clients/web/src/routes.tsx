@@ -17,7 +17,7 @@ import { RootHydrateFallback } from "@/components/root-hydrate-fallback";
 import { ActiveAssistantGate } from "@/components/layout/active-assistant-gate";
 import { remoteGatewayPublicPathPrefix } from "@/lib/auth/remote-gateway-session";
 import { isRemoteGatewayMode } from "@/lib/local-mode";
-import { readPrivacyConsent, readTosAccepted } from "@/domains/onboarding/prefs";
+import { useOnboardingStore } from "@/domains/onboarding/onboarding-store";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import { routes } from "@/utils/routes";
 
@@ -69,13 +69,27 @@ function AdvancedSettingsRedirect() {
  *     removed `usePreChatConsentGate` enforced before the background hatch; and
  *   - native (Capacitor/iOS) sessions, because the research flow isn't wired for
  *     the native shell — its onboarding runs privacy → hatching, not research.
+ *
+ * The consent flags boot to `false` and are restored by auth-sync, so deciding
+ * before they hydrate would send an already-consented web user to privacy
+ * instead of research. Wait for `consentHydrated` first — the reactive selector
+ * re-renders once the sync lands (mirroring the old gate's effect-driven
+ * recheck). Native has no such sync and always targets privacy, so it never
+ * waits.
  */
 function PrechatLegacyRedirect() {
   const [searchParams] = useSearchParams();
   const isNative = useIsNativePlatform();
+  const consentHydrated = useOnboardingStore.use.consentHydrated();
+  const tosAccepted = useOnboardingStore.use.tosAccepted();
+  const privacyConsent = useOnboardingStore.use.privacyConsent();
   const qs = searchParams.toString();
-  const forwardToResearch =
-    !isNative && readTosAccepted() && readPrivacyConsent();
+
+  if (!isNative && !consentHydrated) {
+    return <RootHydrateFallback />;
+  }
+
+  const forwardToResearch = !isNative && tosAccepted && privacyConsent;
   const target = forwardToResearch
     ? routes.onboarding.research
     : routes.onboarding.privacy;
