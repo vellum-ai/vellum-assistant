@@ -21,8 +21,6 @@
 
 import { z } from "zod";
 
-import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
-import { getConfig } from "../../config/loader.js";
 import { formatSummarizeUpToResult } from "../../daemon/conversation-process.js";
 import { findConversation } from "../../daemon/conversation-registry.js";
 import {
@@ -92,12 +90,6 @@ function resolveOrThrow(rawId: string): string {
   const id = resolveConversationId(rawId);
   if (!id) throw new NotFoundError(`Conversation ${rawId} not found`);
   return id;
-}
-
-const SUMMARIZE_UP_TO_HERE_FLAG = "summarize-up-to-here" as const;
-
-function isSummarizeUpToHereEnabled(): boolean {
-  return isAssistantFeatureFlagEnabled(SUMMARIZE_UP_TO_HERE_FLAG, getConfig());
 }
 
 async function cancelScheduleIfLast(conversationId: string): Promise<void> {
@@ -206,11 +198,6 @@ async function handleSummarizeConversation({
   body = {},
   headers,
 }: RouteHandlerArgs) {
-  // Flag-off behaves as an unknown endpoint — same body shape as the
-  // router's 404 — so the surface is invisible until the flag ships.
-  if (!isSummarizeUpToHereEnabled()) {
-    throw new NotFoundError("Not found");
-  }
   const rawConversationId = body.conversationId;
   if (!rawConversationId || typeof rawConversationId !== "string") {
     throw new BadRequestError("Missing conversationId");
