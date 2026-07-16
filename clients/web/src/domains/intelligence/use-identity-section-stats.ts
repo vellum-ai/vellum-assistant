@@ -135,7 +135,14 @@ export function useIdentitySectionStats(
 
   return {
     personality: {
-      radar: sliders.data ? completeSliderValues(sliders.data) : undefined,
+      // Once the fetch resolves, always plot a radar: assistants with no
+      // persisted sidecar (onboarded before it was saved, or never touched
+      // the sliders) fall back to the all-centered neutral shape rather than
+      // a blank card. `undefined` only while the fetch is still pending.
+      radar:
+        sliders.data !== undefined
+          ? completeSliderValues(sliders.data ?? {})
+          : undefined,
     },
     skills:
       skills.data !== undefined
