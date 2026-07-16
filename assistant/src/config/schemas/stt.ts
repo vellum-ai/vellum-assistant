@@ -33,11 +33,12 @@ export type SttProviders = z.infer<typeof SttProvidersSchema>;
 /**
  * Canonical STT service configuration.
  *
- * `mode` selects between the user's own provider key (`"your-own"`) and
- * Vellum-managed transcription billed to Vellum credits (`"managed"`).
- * The `provider` field always holds the user's BYOK choice so switching
- * back from managed mode restores it; use {@link effectiveSttProvider}
- * to resolve which provider is actually active.
+ * Managed transcription (through the user's Vellum account, billed to Vellum
+ * credits) is selectable two ways: `provider: "vellum"` directly, or
+ * `mode: "managed"` alongside a BYOK `provider` — the form the mode toggle
+ * writes, which leaves the BYOK choice untouched so switching back to
+ * `"your-own"` restores it. Use {@link effectiveSttProvider} to resolve
+ * which provider is actually active.
  */
 export const SttServiceSchema = z
   .object({
@@ -56,16 +57,6 @@ export const SttServiceSchema = z
       .describe("Active STT provider used for speech-to-text transcription"),
     providers: SttProvidersSchema.default({}),
   })
-  .superRefine((service, ctx) => {
-    if (service.provider === "vellum" && service.mode !== "managed") {
-      ctx.addIssue({
-        code: "custom",
-        path: ["provider"],
-        message:
-          'services.stt.provider "vellum" requires services.stt.mode "managed"',
-      });
-    }
-  })
   .describe(
     "Speech-to-text service configuration -- provider selection and per-provider settings",
   );
@@ -75,13 +66,17 @@ export type SttService = z.infer<typeof SttServiceSchema>;
 /**
  * Resolve the provider that is actually active for the service config.
  *
- * Managed mode always routes to the `vellum` provider while leaving the
- * user's BYOK `provider` choice untouched, so toggling back to
- * `"your-own"` restores their previous setup.
+ * `provider: "vellum"` selects managed transcription directly. Otherwise
+ * `mode: "managed"` routes to `vellum` while leaving the user's BYOK
+ * `provider` choice untouched, so toggling back to `"your-own"` restores
+ * their previous setup.
  */
 export function effectiveSttProvider(service: {
   mode: SttService["mode"];
   provider: string;
 }): string {
+  if (service.provider === "vellum") {
+    return "vellum";
+  }
   return service.mode === "managed" ? "vellum" : service.provider;
 }

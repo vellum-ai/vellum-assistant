@@ -30,6 +30,18 @@ mock.module("@/hooks/conversation-queries", () => ({
   }),
 }));
 
+// The assistant nav item reads the avatar through React Query; stub it so
+// static SSR rendering resolves without a QueryClient.
+mock.module("@/hooks/use-assistant-avatar", () => ({
+  useAssistantAvatar: () => ({
+    components: null,
+    traits: null,
+    customImageUrl: null,
+    isLoading: false,
+    invalidate: () => {},
+  }),
+}));
+
 import type { Conversation } from "@/types/conversation-types";
 import {
   ASSISTANT_SIDE_MENU_CONVERSATION_LIMIT,

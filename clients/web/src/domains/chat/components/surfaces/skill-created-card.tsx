@@ -91,7 +91,7 @@ export function SkillCreatedCard({ surface, onAction }: SkillCreatedCardProps) {
       <div className="divide-y divide-[var(--border-base)]">
         {/* The whole row is one native button (name, description, and the
             "View" chip all open the skill) — matching the clickable-row
-            pattern in home-schedule-row.tsx. The chip is purely visual, so
+            pattern in schedule-row.tsx. The chip is purely visual, so
             no nested interactive elements and no stopPropagation dance;
             `aria-label` keeps the accessible name unique per skill. */}
         {skills.map((skill) => (

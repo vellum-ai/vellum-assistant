@@ -20,6 +20,7 @@
 
 import { beforeEach, describe, expect, test } from "bun:test";
 
+import { INTERNAL_NUDGE_OUTPUT_SUPPRESSION } from "../plugin-api/constants.js";
 import type {
   PluginLogger,
   PostModelCallContext,
@@ -71,6 +72,24 @@ beforeEach(() => {
 });
 
 // ─── Decisions ───────────────────────────────────────────────────────────────
+
+describe("max-tokens-continue NUDGE_TEXT — internal-notice suppression", () => {
+  test("appends the shared suppression clause inside the notice wrapper", () => {
+    expect(MAX_TOKENS_CONTINUE_NUDGE_TEXT).toContain(
+      INTERNAL_NUDGE_OUTPUT_SUPPRESSION,
+    );
+    expect(MAX_TOKENS_CONTINUE_NUDGE_TEXT.startsWith("<system_notice>")).toBe(
+      true,
+    );
+    expect(MAX_TOKENS_CONTINUE_NUDGE_TEXT.endsWith("</system_notice>")).toBe(
+      true,
+    );
+    // The continue instruction still leads (a truncated turn has content).
+    expect(MAX_TOKENS_CONTINUE_NUDGE_TEXT).toContain(
+      "Continue exactly where you stopped",
+    );
+  });
+});
 
 describe("max-tokens-continue post-model-call hook", () => {
   test("truncated main-agent turn → continue with the turn and nudge appended", async () => {

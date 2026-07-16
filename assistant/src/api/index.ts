@@ -40,6 +40,7 @@ import { MessageQueuedDeletedEventSchema } from "./events/message-queued-deleted
 import { MessageRequestCompleteEventSchema } from "./events/message-request-complete.js";
 import { NavigateSettingsEventSchema } from "./events/navigate-settings.js";
 import { NotificationIntentEventSchema } from "./events/notification-intent.js";
+import { OpenConversationEventSchema } from "./events/open-conversation.js";
 import { OpenPanelEventSchema } from "./events/open-panel.js";
 import { OpenUrlEventSchema } from "./events/open-url.js";
 import { QuestionRequestEventSchema } from "./events/question-request.js";
@@ -275,6 +276,10 @@ export {
   type NotificationIntentEvent,
   NotificationIntentEventSchema,
 } from "./events/notification-intent.js";
+export {
+  type OpenConversationEvent,
+  OpenConversationEventSchema,
+} from "./events/open-conversation.js";
 export {
   type OpenPanelEvent,
   OpenPanelEventSchema,
@@ -591,6 +596,7 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   MessageRequestCompleteEventSchema,
   NavigateSettingsEventSchema,
   NotificationIntentEventSchema,
+  OpenConversationEventSchema,
   OpenPanelEventSchema,
   OpenUrlEventSchema,
   QuestionRequestEventSchema,

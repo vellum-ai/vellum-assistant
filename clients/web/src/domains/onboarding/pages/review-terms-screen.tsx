@@ -26,7 +26,7 @@ import {
     PRIVACY_CONSENT_VERSION,
     TOS_CONSENT_VERSION,
     saveConsent,
-} from "@/utils/onboarding-cleanup";
+} from "@/lib/consent/consent-persistence";
 import { sanitizeReturnTo } from "@/utils/return-to";
 import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
@@ -45,6 +45,10 @@ export function ReviewTermsScreen() {
   const [shareDiagnostics, setShareDiagnostics] = useShareDiagnostics();
   const [analyticsConsentCurrent] = useAnalyticsConsentCurrent();
   const [diagnosticsConsentCurrent] = useDiagnosticsConsentCurrent();
+  // Never-asked (null) displays as on: both toggles are opt-out, so an
+  // unchosen toggle is effectively enabled.
+  const shareAnalyticsChecked = shareAnalytics ?? true;
+  const shareDiagnosticsChecked = shareDiagnostics ?? true;
 
   // Snapshot staleness at mount: these are the sections the user was routed
   // here to address. Gating render on live values would unmount a checkbox the
@@ -90,8 +94,8 @@ export function ReviewTermsScreen() {
       userId,
       tos: tosAccepted,
       privacy: privacyConsent,
-      shareAnalytics: showAnalytics ? shareAnalytics : null,
-      shareDiagnostics: showDiagnostics ? shareDiagnostics : null,
+      shareAnalytics: showAnalytics ? shareAnalyticsChecked : null,
+      shareDiagnostics: showDiagnostics ? shareDiagnosticsChecked : null,
       hasPlatformSession,
     });
 
@@ -102,8 +106,8 @@ export function ReviewTermsScreen() {
     hasPlatformSession,
     navigate,
     searchParams,
-    shareAnalytics,
-    shareDiagnostics,
+    shareAnalyticsChecked,
+    shareDiagnosticsChecked,
     showAnalytics,
     showDiagnostics,
     tosAccepted,
@@ -152,8 +156,8 @@ export function ReviewTermsScreen() {
             electron={electron}
             showAnalytics={showAnalytics}
             showDiagnostics={showDiagnostics}
-            shareAnalytics={shareAnalytics}
-            shareDiagnostics={shareDiagnostics}
+            shareAnalytics={shareAnalyticsChecked}
+            shareDiagnostics={shareDiagnosticsChecked}
             onShareAnalyticsChange={setShareAnalytics}
             onShareDiagnosticsChange={setShareDiagnostics}
             className="mt-9 w-full"

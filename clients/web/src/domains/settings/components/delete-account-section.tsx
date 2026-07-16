@@ -9,7 +9,7 @@ import {
 } from "@/hooks/use-platform-gate";
 import { hardNavigate } from "@/lib/auth/hard-navigate";
 import { useAuthStore } from "@/stores/auth-store";
-import { clearConsentForUser } from "@/utils/onboarding-cleanup";
+import { clearConsentForUser } from "@/lib/consent/consent-persistence";
 import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";

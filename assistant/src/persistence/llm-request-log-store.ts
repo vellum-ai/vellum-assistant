@@ -778,11 +778,50 @@ export function getRequestLogById(logId: string): LogRow | null {
   );
 }
 
+/**
+ * Authoritative post-persist linkage: stamp `message_id` onto rows a flow
+ * inserted unlinked because its user-facing message persists afterwards
+ * (the /compact and summarize-up-to result cards). Dispatched through the
+ * IS-NULL-guarded {@link LlmRequestLogWriter.backfillMessageIdOnRecoveredLogs}
+ * so a concurrent inspector-recovery stamp is never overwritten. Non-fatal —
+ * an unlinked row degrades to time-window recovery, not data loss.
+ */
+export function linkRequestLogsToMessage(
+  logIds: string[],
+  messageId: string,
+): void {
+  if (logIds.length === 0) {
+    return;
+  }
+  try {
+    resolveLlmRequestLogWriter().backfillMessageIdOnRecoveredLogs(
+      logIds,
+      messageId,
+    );
+  } catch {
+    // non-fatal — the row stays unlinked and time-window recovery finds it
+  }
+}
+
+/**
+ * True when a log row was authored by the turn's own agent loop — a
+ * `mainAgent` row, or a legacy row from before call sites were stamped
+ * (`call_site` NULL). Companion rows a turn merely hosts (e.g.
+ * `compactionAgent`) don't count: a fork-local turn whose only rows are
+ * companions still needs the fork-source fallback to surface the turn's
+ * real calls.
+ */
+function isTurnAuthoredLog(row: LogRow): boolean {
+  return row.callSite == null || row.callSite === "mainAgent";
+}
+
 export function getRequestLogsByMessageId(messageId: string): LogRow[] {
   // Resolve all assistant message IDs in the same turn so the inspector
   // shows every LLM call from the entire agent turn, not just the queried message.
   const turnMessageIds = getAssistantMessageIdsInTurn(messageId);
   const turnLogs = selectLogsByMessageIds(turnMessageIds);
+  const seen = new Set(turnLogs.map((l) => l.id));
+  const merged = [...turnLogs];
 
   // Recovery: find logs in the turn's time window that the message-ID-based
   // query missed. Two categories:
@@ -805,65 +844,62 @@ export function getRequestLogsByMessageId(messageId: string): LogRow[] {
         bounds.endTime,
       );
 
-      if (orphanedLogs.length > 0 || unlinkedLogs.length > 0) {
-        const seen = new Set(turnLogs.map((l) => l.id));
-        const merged = [...turnLogs];
-        for (const log of [...orphanedLogs, ...unlinkedLogs]) {
+      for (const log of [...orphanedLogs, ...unlinkedLogs]) {
+        if (!seen.has(log.id)) {
+          merged.push(log);
+          seen.add(log.id);
+        }
+      }
+
+      // Opportunistically backfill recovered unlinked logs so future queries
+      // hit the fast indexed-by-messageId path. Dispatched through the
+      // active write backend like every other table writer — INSERT-only
+      // backends no-op.
+      if (unlinkedLogs.length > 0 && turnMessageIds.length > 0) {
+        try {
+          const ids = unlinkedLogs.map((l) => l.id);
+          const targetMessageId = turnMessageIds[turnMessageIds.length - 1]!;
+          resolveLlmRequestLogWriter().backfillMessageIdOnRecoveredLogs(
+            ids,
+            targetMessageId,
+          );
+        } catch {
+          // non-fatal — the recovery already returned the right data
+        }
+      }
+    }
+  }
+
+  // Fork-source fallback: pre-fork turns keep their calls under the SOURCE
+  // conversation's message ids, so a fork-local turn with no turn-authored
+  // row resolves the source turn and merges its calls. Gating on "no
+  // turn-authored row" (not "no rows at all") keeps the fallback alive when
+  // a companion row — e.g. a summarize-up-to compaction call landing inside
+  // the turn's time window — was claimed by the recovery above; without it
+  // that companion would eclipse the turn's real calls.
+  if (message?.metadata && !merged.some(isTurnAuthoredLog)) {
+    try {
+      const parsed = messageMetadataSchema.safeParse(
+        JSON.parse(message.metadata),
+      );
+      const sourceMessageId =
+        parsed.success && typeof parsed.data.forkSourceMessageId === "string"
+          ? parsed.data.forkSourceMessageId
+          : null;
+      if (sourceMessageId && sourceMessageId !== messageId) {
+        const sourceTurnIds = getAssistantMessageIdsInTurn(sourceMessageId);
+        for (const log of selectLogsByMessageIds(sourceTurnIds)) {
           if (!seen.has(log.id)) {
             merged.push(log);
             seen.add(log.id);
           }
         }
-        merged.sort(
-          (a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id),
-        );
-
-        // Opportunistically backfill recovered unlinked logs so future queries
-        // hit the fast indexed-by-messageId path. Dispatched through the
-        // active write backend like every other table writer — INSERT-only
-        // backends no-op.
-        if (unlinkedLogs.length > 0 && turnMessageIds.length > 0) {
-          try {
-            const ids = unlinkedLogs.map((l) => l.id);
-            const targetMessageId = turnMessageIds[turnMessageIds.length - 1]!;
-            resolveLlmRequestLogWriter().backfillMessageIdOnRecoveredLogs(
-              ids,
-              targetMessageId,
-            );
-          } catch {
-            // non-fatal — the recovery already returned the right data
-          }
-        }
-
-        return merged;
       }
+    } catch {
+      // malformed metadata — no fork source to resolve
     }
   }
 
-  if (turnLogs.length > 0) {
-    return turnLogs;
-  }
-
-  // Fork-source fallback: if no logs found for the turn, check whether
-  // the queried message was forked from a source and resolve that source's turn.
-  if (!message?.metadata) {
-    return [];
-  }
-
-  try {
-    const parsed = messageMetadataSchema.safeParse(
-      JSON.parse(message.metadata),
-    );
-    const sourceMessageId =
-      parsed.success && typeof parsed.data.forkSourceMessageId === "string"
-        ? parsed.data.forkSourceMessageId
-        : null;
-    if (!sourceMessageId || sourceMessageId === messageId) {
-      return [];
-    }
-    const sourceTurnIds = getAssistantMessageIdsInTurn(sourceMessageId);
-    return selectLogsByMessageIds(sourceTurnIds);
-  } catch {
-    return [];
-  }
+  merged.sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id));
+  return merged;
 }

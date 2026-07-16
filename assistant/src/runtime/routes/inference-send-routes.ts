@@ -53,7 +53,7 @@ async function handleInferenceSend({ body = {} }: RouteHandlerArgs) {
   });
   if (!provider) {
     throw new BadRequestError(
-      "No LLM provider is configured. Run 'assistant config set llm.default.provider <provider>' to set one up.",
+      "No LLM provider is configured. Connect a provider (assistant credentials) or set llm.defaultProvider to choose one.",
     );
   }
 

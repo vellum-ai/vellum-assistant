@@ -1,6 +1,6 @@
 /**
  * Direct-from-browser TTS synthesis for the Text-to-Speech "Test" button on
- * the Models & Services settings tab.
+ * the Voice & Sounds → Services settings tab.
  *
  * The web client does not have a managed TTS backend endpoint (TTS runs
  * inside the desktop daemon on macOS). To actually exercise the user's

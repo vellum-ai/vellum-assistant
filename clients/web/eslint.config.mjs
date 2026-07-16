@@ -94,6 +94,42 @@ const universalAuthRules = [
 ];
 
 /**
+ * Raw `/v1` fetch ban — the generated HeyAPI client is the only
+ * transport for API paths. A raw `fetch("/v1/...")` skips the auth
+ * interceptors on the generated singleton, so the request silently
+ * ships without the session token / CSRF headers.
+ */
+const rawApiFetchMessage =
+  "Raw fetch to /v1 bypasses the generated client's auth interceptors (session token/CSRF) — use the generated SDK function; if the endpoint has no generated type, it's missing from platform.yaml (tag it with PLATFORM_API_CLIENT_EXTENSION in the platform repo).";
+
+const rawApiFetchRules = [
+  // fetch("/v1/...") — string-literal first argument.
+  {
+    selector:
+      "CallExpression[callee.name='fetch'][arguments.0.value=/^\\/v1\\//]",
+    message: rawApiFetchMessage,
+  },
+  // fetch(`/v1/...`) — template literal starting with /v1/.
+  {
+    selector:
+      "CallExpression[callee.name='fetch'][arguments.0.quasis.0.value.raw=/^\\/v1\\//]",
+    message: rawApiFetchMessage,
+  },
+  // window.fetch("/v1/...") / globalThis.fetch("/v1/...").
+  {
+    selector:
+      "CallExpression[callee.object.name=/^(window|globalThis)$/][callee.property.name='fetch'][arguments.0.value=/^\\/v1\\//]",
+    message: rawApiFetchMessage,
+  },
+  // window.fetch(`/v1/...`) / globalThis.fetch(`/v1/...`).
+  {
+    selector:
+      "CallExpression[callee.object.name=/^(window|globalThis)$/][callee.property.name='fetch'][arguments.0.quasis.0.value.raw=/^\\/v1\\//]",
+    message: rawApiFetchMessage,
+  },
+];
+
+/**
  * Header-literal rules — apply OUTSIDE the auth boundary only.
  *
  * The `lib/auth/` directory and `lib/api-interceptors.ts` are the only
@@ -166,6 +202,7 @@ const eslintConfig = defineConfig([
         "error",
         ...darkPairedColorScaleRules,
         ...universalAuthRules,
+        ...rawApiFetchRules,
         ...headerLiteralRules,
       ],
 
@@ -209,6 +246,7 @@ const eslintConfig = defineConfig([
         "error",
         ...darkPairedColorScaleRules,
         ...universalAuthRules,
+        ...rawApiFetchRules,
       ],
     },
   },

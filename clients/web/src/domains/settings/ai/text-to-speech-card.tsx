@@ -20,20 +20,17 @@ import { Input } from "@vellumai/design-library/components/input";
 import { toast } from "@vellumai/design-library/components/toast";
 
 import {
+  ByoServiceCard,
   CredentialsGuide,
   ResetButton,
   SaveButton,
-  ServiceCard,
 } from "@/domains/settings/ai/shared-ui";
 import {
   LS_TTS_API_KEY_PREFIX,
-  LS_TTS_MODE,
   LS_TTS_PROVIDER,
   LS_TTS_VOICE_ID_PREFIX,
 } from "@/domains/settings/ai/local-storage-keys";
 import { TTS_PROVIDERS } from "@/domains/settings/ai/provider-catalogs";
-import { parseServiceMode } from "@/domains/settings/ai/utils";
-import type { ServiceMode } from "@/generated/daemon/types.gen";
 
 /**
  * The daemon config key that the "Voice ID" input maps to, per provider, under
@@ -60,7 +57,20 @@ export function TextToSpeechCard() {
     enabled: isOrgReady,
     staleTime: Infinity,
   });
-  const providers = catalogData?.providers ?? TTS_PROVIDERS;
+  const providers = useMemo(() => {
+    const fetched = catalogData?.providers;
+    if (!fetched) {
+      return TTS_PROVIDERS;
+    }
+    // Assistants running an older catalog omit vellum, but the managed option
+    // must still be offered (and a legacy managed config still renders as
+    // Vellum) — graft the static entry on.
+    if (fetched.some((p) => p.id === "vellum")) {
+      return fetched;
+    }
+    const vellum = TTS_PROVIDERS.find((p) => p.id === "vellum");
+    return vellum ? [vellum, ...fetched] : fetched;
+  }, [catalogData]);
 
   // Seed the provider from the daemon's live config so a Save doesn't clobber a
   // provider configured elsewhere (CLI/other client) when localStorage is stale.
@@ -70,27 +80,19 @@ export function TextToSpeechCard() {
     staleTime: 30_000,
   });
   // `services.tts` falls under the ConfigGetResponse index signature (`unknown`),
-  // so narrow it explicitly to read the provider and mode.
+  // so narrow it explicitly to read the provider.
   const daemonTts = daemonConfig?.services?.tts as
     { provider?: string; mode?: string } | undefined;
-  const daemonTtsProvider = daemonTts?.provider;
-  const daemonManaged = daemonTts?.mode === "managed";
+  // A config written by the legacy mode toggle marks managed via `mode` while
+  // `provider` holds the BYOK restore value — the daemon routes it to Vellum,
+  // so the card must render it as Vellum too.
+  const daemonTtsProvider =
+    daemonTts?.mode === "managed" ? "vellum" : daemonTts?.provider;
 
-  // Managed vs. your-own toggle. Derived from the daemon (source of truth),
-  // falling back to localStorage so the toggle doesn't flash "your-own" before
-  // the config query resolves. `useDraftOverride` lets the user flip it locally
-  // until a save + refetch converges the server value.
-  const serverMode = useMemo<ServiceMode>(
-    () =>
-      parseServiceMode(
-        daemonTts?.mode ?? getLocalSetting(LS_TTS_MODE, "your-own"),
-        "your-own",
-      ),
-    [daemonTts?.mode],
-  );
-  const [mode, setDraftMode] = useDraftOverride(serverMode);
-
-  const defaultProviderId = providers[0]?.id ?? "elevenlabs";
+  // Mirrors the daemon's `services.tts.provider` schema default. Deliberately
+  // not `providers[0]` — the catalog leads with Vellum, and an unconfigured
+  // client must not claim the managed provider on its own.
+  const defaultProviderId = "elevenlabs";
   const serverProvider = useMemo(
     () =>
       daemonTtsProvider ?? getLocalSetting(LS_TTS_PROVIDER, defaultProviderId),
@@ -129,34 +131,20 @@ export function TextToSpeechCard() {
     const providerChanged = draftProvider !== serverProvider;
     const hasNewKey = apiKeyText.trim().length > 0;
     const voiceIdChanged = voiceIdText.trim() !== initialVoiceId;
-    // Toggling off managed is itself a saveable change: a user with a BYOK
-    // provider+key already stored has nothing else to edit.
-    const modeChanged = mode !== serverMode;
-    return providerChanged || hasNewKey || voiceIdChanged || modeChanged;
-  }, [
-    draftProvider,
-    serverProvider,
-    apiKeyText,
-    voiceIdText,
-    initialVoiceId,
-    mode,
-    serverMode,
-  ]);
+    return providerChanged || hasNewKey || voiceIdChanged;
+  }, [draftProvider, serverProvider, apiKeyText, voiceIdText, initialVoiceId]);
 
   const handleSave = useCallback(async () => {
     const trimmedKey = apiKeyText.trim();
     const trimmedVoiceId = voiceIdText.trim();
 
     // The provider everything is saved under. Matches draftProvider except
-    // when the daemon reports one the dropdown can't represent (e.g. the
-    // reserved managed-mode "vellum" id) — then it is the rendered fallback,
-    // so the credential, local state, and config PATCH all target the same
-    // provider the save activates.
+    // when the daemon reports one the dropdown can't represent — then it is
+    // the rendered fallback, so the credential, local state, and config PATCH
+    // all target the same provider the save activates.
     const activeProvider = selectedProvider.id;
 
-    // Local settings back the client-side voice path; keep them in sync. This
-    // handler serves the "Your Own" panel, so the effective mode is your-own.
-    setLocalSetting(LS_TTS_MODE, "your-own");
+    // Local settings back the client-side voice path; keep them in sync.
     setLocalSetting(LS_TTS_PROVIDER, activeProvider);
     if (trimmedKey.length > 0) {
       setLocalSetting(LS_TTS_API_KEY_PREFIX + activeProvider, trimmedKey);
@@ -194,18 +182,21 @@ export function TextToSpeechCard() {
       }
       // Only PATCH the provider when it truly diverges from the persisted
       // value (or the daemon has none yet); otherwise a re-save with just a new
-      // key/voice would silently switch a provider set elsewhere. Saving from
-      // the "Your Own" panel is explicit BYOK intent, so a managed-mode daemon
-      // is switched back to your-own even without a new key — the user reached
-      // these inputs by toggling off Managed.
-      const escapeManaged = daemonManaged;
+      // key/voice would silently switch a provider set elsewhere.
       const shouldSetProvider =
         draftProvider !== serverProvider || !daemonHasProvider;
       const ttsBody = {
-        ...(shouldSetProvider || escapeManaged
-          ? { provider: activeProvider }
+        // The provider is always written as a pair with `mode`, which keeps
+        // the write valid on every daemon version: older schemas reject
+        // provider "vellum" without mode "managed", and a stale
+        // `mode: "managed"` from the legacy toggle would win over a BYOK
+        // choice unless reset.
+        ...(shouldSetProvider
+          ? {
+              provider: activeProvider,
+              mode: activeProvider === "vellum" ? "managed" : "your-own",
+            }
           : {}),
-        ...(escapeManaged ? { mode: "your-own" } : {}),
         ...(voiceField
           ? {
               providers: { [activeProvider]: { [voiceField]: trimmedVoiceId } },
@@ -249,45 +240,8 @@ export function TextToSpeechCard() {
     selectedProvider,
     serverProvider,
     daemonHasProvider,
-    daemonManaged,
     queryClient,
   ]);
-
-  const handleSaveManaged = useCallback(async () => {
-    setSaving(true);
-    try {
-      // Persist the effective BYOK provider as the restore value for toggling
-      // back — `selectedProvider.id` is always representable (never the reserved
-      // "vellum" id). The daemon's `effectiveTtsProvider` routes managed mode to
-      // Vellum at runtime regardless; the schema only forbids "vellum" outside
-      // managed mode, which this write is not.
-      const { response: cfgRes } = await configPatch({
-        path: { assistant_id: assistantId },
-        body: {
-          services: { tts: { mode: "managed", provider: selectedProvider.id } },
-        },
-        throwOnError: false,
-      });
-      if (!cfgRes?.ok) {
-        throw new Error(
-          `Failed to save configuration (HTTP ${cfgRes?.status ?? "?"})`,
-        );
-      }
-      setLocalSetting(LS_TTS_MODE, "managed");
-      void queryClient.invalidateQueries({
-        queryKey: configGetQueryKey({ path: { assistant_id: assistantId } }),
-      });
-      toast.success("Text-to-speech settings saved");
-    } catch (err) {
-      toast.error(
-        err instanceof Error
-          ? err.message
-          : "Failed to save text-to-speech settings",
-      );
-    } finally {
-      setSaving(false);
-    }
-  }, [assistantId, selectedProvider, queryClient]);
 
   const handleReset = useCallback(() => {
     setLocalSetting(LS_TTS_API_KEY_PREFIX + draftProvider, "");
@@ -345,38 +299,32 @@ export function TextToSpeechCard() {
   const apiKeyPlaceholder = providerHasKey
     ? "••••••••  (Enter a new key to replace)"
     : selectedProvider.apiKeyPlaceholder;
+  // Vellum authenticates via the platform connection, so it has no key to enter
+  // and nothing for the client-side Test path (a direct provider call) to use.
+  const isManaged = draftProvider === "vellum";
 
   return (
-    <ServiceCard
+    <ByoServiceCard
       title="Text-to-Speech"
       subtitle="Configure how your assistant speaks"
-      mode={mode}
-      onModeChange={(m) => setDraftMode(m)}
     >
-      {mode === "managed" ? (
-        <div className="space-y-3">
-          <p className="text-body-medium-lighter text-[var(--content-tertiary)]">
-            Managed speech synthesis is included with your Vellum connection.
-          </p>
-          <SaveButton onClick={handleSaveManaged} disabled={saving} />
+      <div className="space-y-4">
+        <div className="space-y-1">
+          <label className="block text-body-small-default text-[var(--content-tertiary)]">
+            Provider
+          </label>
+          <Dropdown
+            value={draftProvider}
+            onChange={setDraftProvider}
+            options={providers.map((p) => ({
+              value: p.id,
+              label: p.displayName,
+            }))}
+            aria-label="TTS provider"
+          />
         </div>
-      ) : (
-        <div className="space-y-4">
-          <div className="space-y-1">
-            <label className="block text-body-small-default text-[var(--content-tertiary)]">
-              Provider
-            </label>
-            <Dropdown
-              value={draftProvider}
-              onChange={setDraftProvider}
-              options={providers.map((p) => ({
-                value: p.id,
-                label: p.displayName,
-              }))}
-              aria-label="TTS provider"
-            />
-          </div>
 
+        {!isManaged && (
           <div className="space-y-1">
             <label className="block text-body-small-default text-[var(--content-tertiary)]">
               API Key
@@ -389,38 +337,39 @@ export function TextToSpeechCard() {
               fullWidth
             />
           </div>
+        )}
 
-          {selectedProvider.supportsVoiceSelection && (
-            <div className="space-y-1">
-              <label className="block text-body-small-default text-[var(--content-tertiary)]">
-                Voice ID
-              </label>
-              <Input
-                type="text"
-                value={voiceIdText}
-                onChange={(e) => setVoiceIdText(e.target.value)}
-                placeholder="Enter a voice ID"
-                fullWidth
-              />
-            </div>
-          )}
+        {selectedProvider.supportsVoiceSelection && (
+          <div className="space-y-1">
+            <label className="block text-body-small-default text-[var(--content-tertiary)]">
+              Voice ID
+            </label>
+            <Input
+              type="text"
+              value={voiceIdText}
+              onChange={(e) => setVoiceIdText(e.target.value)}
+              placeholder="Enter a voice ID"
+              fullWidth
+            />
+          </div>
+        )}
 
-          <CredentialsGuide guide={selectedProvider.credentialsGuide} />
+        <CredentialsGuide guide={selectedProvider.credentialsGuide} />
 
-          <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2">
+          {!isManaged && (
             <Button variant="outlined" onClick={handleTest} disabled={testing}>
               {testing ? "Testing…" : "Test"}
             </Button>
-            <div className="ml-auto flex items-center gap-2">
-              <SaveButton
-                onClick={handleSave}
-                disabled={!hasChanges || saving}
-              />
-              {providerHasKey && <ResetButton onClick={handleReset} />}
-            </div>
+          )}
+          <div className="ml-auto flex items-center gap-2">
+            <SaveButton onClick={handleSave} disabled={!hasChanges || saving} />
+            {providerHasKey && !isManaged && (
+              <ResetButton onClick={handleReset} />
+            )}
           </div>
         </div>
-      )}
-    </ServiceCard>
+      </div>
+    </ByoServiceCard>
   );
 }

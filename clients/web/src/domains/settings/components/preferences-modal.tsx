@@ -85,9 +85,10 @@ export interface PreferencesModalProps {
 
 /**
  * Preferences editor opened from the Preferences card on Settings → General.
- * Hosts the shortcut rebinding sections (Electron only — hotkeys drive
- * Electron globalShortcut + menu accelerators with no web/iOS analogue),
- * the composer send toggle, and the Launch at Login toggle.
+ * Hosts the shortcut rebinding sections (Electron only — hotkeys drive Electron
+ * globalShortcut + menu accelerators with no web/iOS analogue), the composer
+ * send toggle, and the Launch at Login toggle. The theme picker is a separate
+ * Appearance card on Settings → General.
  */
 export function PreferencesModal({ open, onClose }: PreferencesModalProps) {
   return (

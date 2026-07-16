@@ -5,6 +5,8 @@ import {
   SUBAGENT_ROLE_REGISTRY,
   type SubagentRole,
 } from "../subagent/index.js";
+import { buildSubagentSystemPrompt } from "../subagent/manager.js";
+import type { SubagentConfig } from "../subagent/types.js";
 
 /** All roles defined in the SubagentRole union. */
 const ALL_ROLES: SubagentRole[] = [
@@ -124,6 +126,41 @@ describe("SUBAGENT_ROLE_REGISTRY", () => {
       "file_list",
     );
     expect(SUBAGENT_ROLE_REGISTRY.planner.allowedTools).toContain("file_list");
+  });
+});
+
+describe("buildSubagentSystemPrompt — blocked-signal constraint", () => {
+  const cfg = (objective: string): SubagentConfig => ({
+    id: "sub-1",
+    parentConversationId: "conv-1",
+    label: "task",
+    objective,
+  });
+
+  test("every role's constructed prompt tells it to signal blocked instead of fabricating a result", () => {
+    for (const role of ALL_ROLES) {
+      const prompt = buildSubagentSystemPrompt(
+        cfg("write the results to a CSV file"),
+        role,
+      );
+      expect(prompt).toContain("notify_parent");
+      expect(prompt).toContain('urgency "blocked"');
+      expect(prompt).toContain("do NOT fabricate");
+    }
+  });
+
+  test("the blocked-signal guidance is shared (Constraints), not baked into per-role preambles", () => {
+    // A read-only role and a write-capable role both receive it (role-agnostic).
+    expect(
+      buildSubagentSystemPrompt(cfg("save output"), "researcher"),
+    ).toContain("do NOT fabricate");
+    expect(buildSubagentSystemPrompt(cfg("save output"), "coder")).toContain(
+      "do NOT fabricate",
+    );
+    // It is NOT duplicated into the researcher role's own preamble.
+    expect(
+      SUBAGENT_ROLE_REGISTRY.researcher.systemPromptPreamble,
+    ).not.toContain("do NOT fabricate");
   });
 });
 

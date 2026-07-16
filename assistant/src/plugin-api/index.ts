@@ -67,7 +67,7 @@
  */
 
 export type { HookName } from "./constants.js";
-export { HOOKS } from "./constants.js";
+export { HOOKS, INTERNAL_NUDGE_OUTPUT_SUPPRESSION } from "./constants.js";
 // Conversation message/content shapes. A hook receives the live message
 // history (e.g. `PostToolUseContext.latestMessages: Message[]`), so plugins
 // that inspect or narrow content blocks — reading a `tool_use` block's input,
@@ -150,6 +150,16 @@ export { getModelProfiles } from "./model-profiles.js";
 // looks up the model catalog's `supportsVision` flag (mix profiles are
 // vision-capable if any arm is). Returns false when nothing resolves.
 export { doesSupportVision } from "./vision-support.js";
+// Resolve a stored credential to its plaintext value — the same value
+// `assistant credentials reveal` prints — from a UUID or a "service/field"
+// reference. When a plugin is in context, resolution is scoped to credentials
+// whose `field` matches the plugin's manifest name; outside any plugin it is
+// unscoped. Throws CredentialResolutionError when the ref does not resolve, the
+// store is unreachable, or the credential is out of the plugin's scope.
+export {
+  CredentialResolutionError,
+  resolveCredential,
+} from "./resolve-credential.js";
 // Resolve a provider for a call site (optionally overriding the profile) so a
 // plugin can run inference through the workspace's configured profiles and
 // credentials — managed-proxy or BYOK — without supplying its own API key.

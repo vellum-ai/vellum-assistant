@@ -198,13 +198,21 @@ export interface ErrorContext {
  * recognized as cancellation too.
  */
 export function isUserCancellation(error: unknown, ctx: ErrorContext): boolean {
-  if (!ctx.aborted) return false;
-  if (error instanceof DOMException && error.name === "AbortError") return true;
-  if (error instanceof Error && error.name === "AbortError") return true;
+  if (!ctx.aborted) {
+    return false;
+  }
+  if (error instanceof DOMException && error.name === "AbortError") {
+    return true;
+  }
+  if (error instanceof Error && error.name === "AbortError") {
+    return true;
+  }
   if (error instanceof ProviderError && isAbortReason(error.abortReason)) {
     return true;
   }
-  if (isAbortReason(error)) return true;
+  if (isAbortReason(error)) {
+    return true;
+  }
   return false;
 }
 
@@ -215,7 +223,9 @@ const MAX_DEBUG_DETAIL_LENGTH = 4000;
  * Truncate debug details to a reasonable size for transport.
  */
 function truncateDebugDetails(details: string): string {
-  if (details.length <= MAX_DEBUG_DETAIL_LENGTH) return details;
+  if (details.length <= MAX_DEBUG_DETAIL_LENGTH) {
+    return details;
+  }
   return details.slice(0, MAX_DEBUG_DETAIL_LENGTH) + "\n… (truncated)";
 }
 
@@ -287,7 +297,7 @@ export function classifyConversationError(
 }
 
 /**
- * Internal throw sites use sentinel pseudo-names (`<llm.default>`,
+ * Internal throw sites use sentinel pseudo-names (`<default>`,
  * `<resolved-callsite>`) when no real connection row is involved; those must
  * not render as literal connection names.
  */
@@ -351,7 +361,9 @@ function classifyCore(
       attribution,
       message,
     });
-    if (c) return c;
+    if (c) {
+      return c;
+    }
   }
 
   // Reason-less (or bad_request/unknown) ProviderError with a status — the
@@ -493,9 +505,13 @@ function extractProviderDetail(message: string): string | undefined {
   detail = detail.replace(/\s*\[[^\]]*\]\s*$/, "").trim();
   if (!detail || detail === message.trim()) {
     // No recognizable prefix — only surface prose that isn't the whole raw line.
-    if (/API error \(\d+\)/i.test(message)) return undefined;
+    if (/API error \(\d+\)/i.test(message)) {
+      return undefined;
+    }
   }
-  if (!detail) return undefined;
+  if (!detail) {
+    return undefined;
+  }
   return detail.length > 200 ? `${detail.slice(0, 200)}…` : detail;
 }
 
@@ -768,19 +784,25 @@ function visionNotSupportedClassification(): Omit<
  * Build a user-facing message that names the exact profile / connection
  * to fix when one is known, falling back to a generic phrase otherwise.
  * Profile is preferred because that's the entity the user picks in the
- * chat picker; connection is shown when no profile is in play (e.g.
- * `llm.default` direct dispatch) or as a parenthetical when both differ.
+ * chat picker; connection is shown when no profile is in play (e.g. the
+ * profileless anchor dispatch) or as a parenthetical when both differ.
  */
 function describeAttribution(
   attribution: ConversationErrorAttribution | undefined,
 ): string {
-  if (!attribution) return "";
+  if (!attribution) {
+    return "";
+  }
   const { profileName, connectionName } = attribution;
   if (profileName && connectionName && profileName !== connectionName) {
     return ` for profile "${profileName}" (connection "${connectionName}")`;
   }
-  if (profileName) return ` for profile "${profileName}"`;
-  if (connectionName) return ` for connection "${connectionName}"`;
+  if (profileName) {
+    return ` for profile "${profileName}"`;
+  }
+  if (connectionName) {
+    return ` for connection "${connectionName}"`;
+  }
   return "";
 }
 

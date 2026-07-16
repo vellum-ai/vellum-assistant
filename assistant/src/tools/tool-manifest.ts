@@ -7,7 +7,6 @@
  */
 
 import { recallTool, rememberTool } from "../plugins/defaults/memory/tools.js";
-import { appOpenTool } from "./apps/definitions.js";
 import { askQuestionTool } from "./ask-question/ask-question-tool.js";
 import { fileEditTool } from "./filesystem/edit.js";
 import { fileListTool } from "./filesystem/list.js";
@@ -69,5 +68,4 @@ export const explicitTools: ToolDefinition[] = [
   uiShowTool,
   uiUpdateTool,
   uiDismissTool,
-  appOpenTool,
 ];

@@ -1,4 +1,4 @@
-import { Check, Coins, Copy, Loader2, Users } from "lucide-react";
+import { Check, ChevronDown, Coins, Copy, Loader2, Users } from "lucide-react";
 import { useCallback, useState } from "react";
 
 import { useQuery } from "@tanstack/react-query";
@@ -19,6 +19,41 @@ function stripDecimals(amount: string): string {
 }
 
 /**
+ * The referral program rules. This is the only place these terms are surfaced
+ * in the product, so the panel keeps them reachable behind a disclosure. The
+ * earning cap is interpolated from the referral code payload.
+ */
+function ReferralTerms({ cap }: { cap: string }) {
+  const bullets = [
+    "This promotion is available to new users who sign up through your referral link only.",
+    "Rewards are earned once your invitee completes the creation of their Vellum account.",
+    `You may earn up to ${cap} free credits through the Referral Program. We may change this limit at any time.`,
+    "We do not grant credits for disposable or high-risk email accounts.",
+    "Each new user can generate only one (1) reward. No stacking or loophole hunting.",
+    "Please avoid spamming or misusing your referral link. Our systems actively monitor referral engagement.",
+    "If we detect suspicious or non-compliant activity, we reserve the right to withhold rewards or deactivate your referral link.",
+    "We may update, pause, or discontinue this program at any time.",
+  ];
+
+  return (
+    <ul className="!m-0 !list-none space-y-2 !p-0">
+      {bullets.map((text) => (
+        <li
+          key={text}
+          className="flex items-start gap-2 text-body-small-default"
+          style={{ color: "var(--content-secondary)" }}
+        >
+          <span aria-hidden="true" className="mt-0.5">
+            •
+          </span>
+          <span>{text}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/**
  * ReferralPanel — "Earn Free Credits" section on the billing settings tab.
  *
  * Surfaces the same data as the user/preferences-menu Earn Credits modal:
@@ -33,6 +68,7 @@ export function ReferralPanel() {
   );
 
   const [copied, setCopied] = useState(false);
+  const [showTerms, setShowTerms] = useState(false);
 
   const handleCopy = useCallback((url: string) => {
     void navigator.clipboard.writeText(url).then(() => {
@@ -127,6 +163,29 @@ export function ReferralPanel() {
             >
               {copied ? "Copied!" : "Copy Share Link"}
             </Button>
+          </div>
+        )}
+
+        {data && (
+          <div className="border-t border-[var(--border-base)] pt-3">
+            <button
+              type="button"
+              onClick={() => setShowTerms((v) => !v)}
+              aria-expanded={showTerms}
+              className="flex items-center gap-1 text-body-small-default text-[var(--content-tertiary)] transition-colors hover:text-[var(--content-secondary)]"
+            >
+              <ChevronDown
+                className={`h-3.5 w-3.5 transition-transform ${
+                  showTerms ? "rotate-180" : ""
+                }`}
+              />
+              {showTerms ? "Hide Terms and Conditions" : "View Terms and Conditions"}
+            </button>
+            {showTerms && (
+              <div className="mt-3">
+                <ReferralTerms cap={stripDecimals(data.earning_cap)} />
+              </div>
+            )}
           </div>
         )}
       </div>

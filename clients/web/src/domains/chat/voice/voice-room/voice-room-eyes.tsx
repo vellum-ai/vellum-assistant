@@ -45,7 +45,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 
-import { pathBBox, unionBBox, type BBox } from "@/components/avatar/eye-bbox";
+import { pathBBox, unionBBox, type BBox } from "@/utils/eye-bbox";
 import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
 
 import {

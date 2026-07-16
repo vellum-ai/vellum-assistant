@@ -12,13 +12,16 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { VIRTUAL_CENTER } from "@/domains/intelligence/components/constellation-view/constants";
 import { memoryGraphOptions } from "@/domains/intelligence/memory-graph/get-memory-graph";
+import { emitMemoryEvent } from "@/domains/intelligence/memory-telemetry";
 import { Button } from "@vellumai/design-library";
 
 import { buildForceLayout } from "./build-force-layout";
 import { ConceptDetailPanel, type ConceptDetailNode } from "./concept-detail-panel";
 import { ConceptGraphIntroBanner } from "./concept-graph-intro-banner";
 import { ConceptGraphLegend } from "./concept-graph-legend";
-import { EDGE_LEARNED_COLOR, NODE_KIND_COLORS } from "./constants";
+import { CLUSTER_PALETTE, EDGE_LEARNED_COLOR, NODE_KIND_COLORS } from "./constants";
+import { detectClusters } from "./detect-clusters";
+import { RecencyLens, type RecencyWindow } from "./recency-lens";
 import type { ConceptNodeKind, GraphLayoutNode } from "./types";
 import { useGraphIntroDismissed } from "./use-graph-intro-dismissed";
 
@@ -64,6 +67,19 @@ interface Projected {
   sy: number;
   sr: number;
   depth: number; // 0 (far) .. 1 (near)
+  updatedAtMs?: number; // for recency hit-test skipping; undefined = stale/older
+}
+
+// A drawn edge in screen space: the two endpoints (a → b), its kind, its
+// authored description (link edges only), and mid-segment depth for tie-breaks.
+interface ProjectedEdge {
+  ax: number;
+  ay: number;
+  bx: number;
+  by: number;
+  kind: string;
+  description?: string;
+  depth: number;
 }
 
 interface Colors {
@@ -77,6 +93,29 @@ function resolveColors(el: HTMLElement): Colors {
     content: s.getPropertyValue("--content-default").trim() || "#e5e7eb",
     tertiary: s.getPropertyValue("--content-tertiary").trim() || "#8792a0",
   };
+}
+
+// Tooltip text for a hovered edge: a learned edge is a behavioral association;
+// a link edge carries an authored description (falling back to a generic label).
+function labelForEdge(edge: { kind: string; description?: string }): string {
+  if (edge.kind === "learned") {
+    return "Learned association";
+  }
+  return edge.description ?? "Linked concepts";
+}
+
+// Recency-lens staleness test: a node/point is stale when its last-update
+// timestamp falls outside the active window. With no window set (windowMs ==
+// null) nothing is stale; a missing timestamp counts as stale/older.
+function isStale(
+  updatedAtMs: number | undefined,
+  windowMs: number | null,
+  now: number,
+): boolean {
+  if (windowMs == null) {
+    return false;
+  }
+  return updatedAtMs == null || now - updatedAtMs > windowMs;
 }
 
 export interface ConceptGraphViewProps {
@@ -129,6 +168,42 @@ export function ConceptGraphView({
   );
   const ready = query.data?.kind === "ready" && layout.nodes.length > 0;
 
+  // Group concepts into themes so the map reads as colored clusters instead of
+  // one flat color. Deterministic (see detect-clusters), so no render churn.
+  const clusters = useMemo(
+    () => detectClusters(layout.nodes, layout.edges),
+    [layout.nodes, layout.edges],
+  );
+
+  // One label per theme: the highest-degree node in each cluster is its hub, so
+  // even small clusters (every node below the hub-label degree threshold) get a
+  // name. Ties break to the lowest id for determinism. The render loop
+  // force-labels these ids so a theme always reads with at least one word.
+  // Disconnected nodes (degree 0) each form their own singleton cluster; they're
+  // not themes, so skipping them keeps orphans from turning into label soup.
+  const clusterHubs = useMemo(() => {
+    const bestByCluster = new Map<number, GraphLayoutNode>();
+    for (const node of layout.nodes) {
+      const cluster = clusters.get(node.id);
+      if (cluster == null || node.degree === 0) {
+        continue;
+      }
+      const current = bestByCluster.get(cluster);
+      if (
+        !current ||
+        node.degree > current.degree ||
+        (node.degree === current.degree && node.id < current.id)
+      ) {
+        bestByCluster.set(cluster, node);
+      }
+    }
+    const hubIds = new Set<string>();
+    for (const node of bestByCluster.values()) {
+      hubIds.add(node.id);
+    }
+    return hubIds;
+  }, [clusters, layout.nodes]);
+
   // Neighbor adjacency for hover highlighting.
   const adjacency = useMemo(() => {
     const map = new Map<string, Set<string>>();
@@ -180,13 +255,29 @@ export function ConceptGraphView({
     dirty: true,
   });
   const projectedRef = useRef<Projected[]>([]);
+  // Screen-space segments of the edges drawn this frame (ghosted ones skipped),
+  // so a pointer can hit-test edges for the "why are these connected?" tooltip.
+  const projectedEdgesRef = useRef<ProjectedEdge[]>([]);
   const colorsRef = useRef<Colors>({ content: "#e5e7eb", tertiary: "#8792a0" });
+  // Set by search jump-to. While non-null the render loop eases the camera each
+  // frame to center this concept, then clears it once the view has settled.
+  const focusTargetRef = useRef<string | null>(null);
 
   // Bumped only when the focused node changes, so the DOM tooltip re-renders.
   // The canvas itself never needs React state.
   const [focusLabel, setFocusLabel] = useState<string | null>(null);
+  // Set while the pointer is over an EDGE (and no node) — the tooltip then
+  // explains why two concepts connect. Node hover always wins (onPointerMove).
+  const [edgeLabel, setEdgeLabel] = useState<string | null>(null);
   // The concept opened into the detail drawer (null = graph only).
   const [openNode, setOpenNode] = useState<ConceptDetailNode | null>(null);
+  // Opening a concept into the detail drawer (canvas click or search result)
+  // is a tracked memory interaction. Route every open through here so
+  // "node_opened" is emitted exactly once per open, from one place.
+  const openNodeDetail = useCallback((node: ConceptDetailNode) => {
+    emitMemoryEvent("node_opened");
+    setOpenNode(node);
+  }, []);
 
   // First-run explainer: shown over the graph (empty or populated) until the
   // user dismisses it; the dismissal sticks per-assistant.
@@ -197,6 +288,10 @@ export function ConceptGraphView({
   // a ref the 60fps render loop reads (so keystrokes don't re-run the effect),
   // and `dirty` is bumped whenever it changes so reduced-motion redraws.
   const [search, setSearch] = useState("");
+  // Latch so the "search" interaction is emitted once per search session — on
+  // the empty→non-empty transition — not per keystroke. Reset whenever the box
+  // empties (see the effect below), so a fresh search re-emits.
+  const searchEmittedRef = useRef(false);
   const searchLower = search.trim().toLowerCase();
   const matchIds = useMemo(() => {
     if (!searchLower) {return null;}
@@ -214,11 +309,73 @@ export function ConceptGraphView({
     filterRef.current = { active: Boolean(matchIds), matches: matchIds };
     view.current.dirty = true;
   }, [matchIds]);
-  // Reset the search when the active assistant changes: this component is reused
-  // across assistants (IdentityTab doesn't key it), so a stale query would
-  // otherwise filter the new assistant's graph and ghost every node.
+  // Reset the "search started" latch whenever the box empties — by keystroke,
+  // the clear button, Escape, or an assistant switch — so the next search
+  // re-emits its start event.
+  useEffect(() => {
+    if (!search.trim()) {
+      searchEmittedRef.current = false;
+    }
+  }, [search]);
+  // Top matches for the results list under the search box: most-connected first,
+  // capped so the dropdown stays scannable. The head is also the Enter target.
+  const searchResults = useMemo(() => {
+    if (!matchIds || matchIds.size === 0) {
+      return [];
+    }
+    return layout.nodes
+      .filter((n) => matchIds.has(n.id))
+      .sort((a, b) => b.degree - a.degree)
+      .slice(0, 8);
+  }, [matchIds, layout.nodes]);
+
+  // Recency time-lens: "All · Month · Week" narrows the graph to concepts
+  // updated within the window — older ones ghost like non-search-matches, so
+  // "what did it learn recently?" pops. The window (in ms, or null for "all")
+  // lives in a ref the 60fps loop reads (so segment clicks don't re-run it), and
+  // `dirty` is bumped whenever it changes so reduced-motion redraws.
+  const [recency, setRecency] = useState<RecencyWindow>("all");
+  const recencyRef = useRef<number | null>(null);
+  useEffect(() => {
+    recencyRef.current =
+      recency === "week" ? 7 * DAY_MS : recency === "month" ? 30 * DAY_MS : null;
+    view.current.dirty = true;
+  }, [recency]);
+  // Whether any node carries a recency timestamp. Without one the lens has
+  // nothing to narrow by — showing it would let Week/Month ghost the entire
+  // graph — so the lens stays hidden.
+  const hasRecencyData = useMemo(
+    () => layout.nodes.some((n) => n.updatedAtMs != null),
+    [layout.nodes],
+  );
+  // If a refetch (or same-assistant data change) drops all timestamps while a
+  // Week/Month window is active, clear it. Otherwise the lens hides (no data)
+  // but the still-active window would ghost every node with no way to reset.
+  useEffect(() => {
+    if (!hasRecencyData && recency !== "all") {
+      setRecency("all");
+    }
+  }, [hasRecencyData, recency]);
+
+  // Edge-kind filter: toggle authored (link) vs behavioral (learned) edges to
+  // declutter. The active flags live in a ref the 60fps loop reads (so a toggle
+  // click doesn't re-run the render effect), and `dirty` is bumped whenever they
+  // change so reduced-motion redraws. Only surfaced when both kinds are present.
+  const [edgeFilter, setEdgeFilter] = useState({ link: true, learned: true });
+  const edgeFilterRef = useRef(edgeFilter);
+  useEffect(() => {
+    edgeFilterRef.current = edgeFilter;
+    view.current.dirty = true;
+  }, [edgeFilter]);
+  // Reset every lens when the active assistant changes: this component is reused
+  // across assistants (IdentityTab doesn't key it), so a stale search, recency
+  // window, or hidden edge kind would otherwise ghost/blank the new assistant's
+  // freshly-loaded graph.
   useEffect(() => {
     setSearch("");
+    setRecency("all");
+    setEdgeFilter({ link: true, learned: true });
+    searchEmittedRef.current = false;
   }, [assistantId]);
 
   const labelFor = useCallback(
@@ -248,6 +405,14 @@ export function ConceptGraphView({
     v.dirty = true;
   }, []);
 
+  // Fly the camera to center a concept (search jump-to). The render loop reads
+  // focusTargetRef each frame and eases yaw/pitch/zoom toward it.
+  const focusOn = useCallback((id: string) => {
+    focusTargetRef.current = id;
+    view.current.lastInteractAt = performance.now();
+    view.current.dirty = true;
+  }, []);
+
   useEffect(() => {
     if (!ready) {return;}
     const canvas = canvasRef.current;
@@ -260,6 +425,8 @@ export function ConceptGraphView({
     // this loop) whenever the data changes, so these never go stale.
     const nodes = layout.nodes;
     const edges = layout.edges;
+    const nodeClusters = clusters;
+    const hubIds = clusterHubs;
     const adj = adjacency;
     const R = massRadius;
 
@@ -294,9 +461,48 @@ export function ConceptGraphView({
       const colors = colorsRef.current;
       const nowMs = Date.now();
 
+      const focusId = focusTargetRef.current;
       const idle = !v.dragging && t - v.lastInteractAt > IDLE_RESUME_MS;
-      if (idle && !reduceMotion) {
+      // Suppress the idle drift while flying to a searched concept, or it fights
+      // the ease and the target never settles.
+      if (idle && !reduceMotion && !focusId) {
         v.yaw += AUTO_YAW_PER_SEC * dt;
+      }
+
+      // Search jump-to: ease the camera to bring the target node front-and-center
+      // (yaw/pitch face it, zoom pushes in), then clear the target once settled.
+      // Reduced motion snaps instantly (k=1). Runs before the reduced-motion
+      // static-frame skip so it keeps stepping the ease.
+      if (focusId) {
+        const target = nodes.find((n) => n.id === focusId);
+        if (!target) {
+          focusTargetRef.current = null;
+        } else {
+          const nx = target.x - VIRTUAL_CENTER.x;
+          const ny = target.y - VIRTUAL_CENTER.y;
+          const nz = target.z;
+          const targetYaw = -Math.atan2(nx, nz);
+          const r = Math.hypot(nx, nz);
+          const targetPitch = Math.max(
+            -PITCH_CLAMP,
+            Math.min(PITCH_CLAMP, Math.atan2(ny, r)),
+          );
+          const targetZoom = Math.min(MAX_ZOOM, 1.6);
+          const k = reduceMotion ? 1 : 0.15;
+          let dY = targetYaw - v.yaw;
+          dY = Math.atan2(Math.sin(dY), Math.cos(dY));
+          v.yaw += dY * k;
+          v.pitch += (targetPitch - v.pitch) * k;
+          v.zoom += (targetZoom - v.zoom) * k;
+          v.dirty = true;
+          if (
+            Math.abs(dY) < 0.01 &&
+            Math.abs(targetPitch - v.pitch) < 0.01 &&
+            Math.abs(targetZoom - v.zoom) < 0.02
+          ) {
+            focusTargetRef.current = null;
+          }
+        }
       }
 
       // With reduced motion there is no auto-rotation, so the scene is static
@@ -330,6 +536,15 @@ export function ConceptGraphView({
       const searchActive = filter.active;
       const isMatch = (id: string) =>
         !searchActive || (filter.matches?.has(id) ?? false);
+
+      // Recency lens: when a window is set, concepts not updated within it ghost
+      // (like non-search-matches). A missing timestamp counts as stale/older.
+      const recencyWindowMs = recencyRef.current;
+      const isRecencyGhost = (n: GraphLayoutNode) =>
+        isStale(n.updatedAtMs, recencyWindowMs, nowMs);
+
+      // Edge-kind toggle: a hidden kind is skipped entirely below.
+      const edgeKinds = edgeFilterRef.current;
 
       // Density fog: fade the resting learned-edge web as the corpus grows.
       const learnedFog =
@@ -374,16 +589,39 @@ export function ConceptGraphView({
       const posById = new Map<string, (typeof proj)[number]>();
       for (const p of proj) {posById.set(p.node.id, p);}
 
-      // Edges (behind nodes).
+      // Edges (behind nodes). Each drawn, non-ghosted segment is also collected
+      // (screen-space endpoints) so the pointer can hit-test edges for hover.
+      const projEdges: ProjectedEdge[] = [];
       ctx.lineCap = "round";
       for (const e of edges) {
         const a = posById.get(e.fromId);
         const b = posById.get(e.toId);
         if (!a || !b) {continue;}
         const learned = e.kind === "learned";
-        const ghost = searchActive && (!isMatch(e.fromId) || !isMatch(e.toId));
+        // A hidden kind is neither drawn nor collected for edge-hover, so the
+        // hit-test stays consistent with what's on screen.
+        if (learned ? !edgeKinds.learned : !edgeKinds.link) {
+          continue;
+        }
+        // An edge ghosts if either endpoint is ghosted by search or recency.
+        const ghost =
+          (searchActive && (!isMatch(e.fromId) || !isMatch(e.toId))) ||
+          isRecencyGhost(a.node) ||
+          isRecencyGhost(b.node);
         const incident = activeId != null && (e.fromId === activeId || e.toId === activeId);
         const depth = (a.depth + b.depth) / 2;
+        // Only offer hover on edges that read as present — skip faded ones.
+        if (!ghost) {
+          projEdges.push({
+            ax: a.sx,
+            ay: a.sy,
+            bx: b.sx,
+            by: b.sy,
+            kind: e.kind,
+            description: e.description,
+            depth,
+          });
+        }
         // Learned edges fade with density in the resting web; authored links
         // don't. A focused hover neighborhood reads at full contrast, though —
         // so lit edges use the unfogged base even in a dense graph.
@@ -412,8 +650,14 @@ export function ConceptGraphView({
       for (const idx of order) {
         const p = proj[idx];
         const node = p.node;
-        const color = NODE_KIND_COLORS[node.kind];
-        const ghost = searchActive && !isMatch(node.id);
+        // Concepts are colored by their detected theme/cluster; any non-concept
+        // node falls back to its per-kind color.
+        const color =
+          node.kind === "concept"
+            ? CLUSTER_PALETTE[(nodeClusters.get(node.id) ?? 0) % CLUSTER_PALETTE.length]
+            : NODE_KIND_COLORS[node.kind];
+        const searchGhost = searchActive && !isMatch(node.id);
+        const ghost = searchGhost || isRecencyGhost(node);
         const lit = !ghost && isLit(node.id);
         const isActive = node.id === activeId;
         const depthA = DEPTH_ALPHA_MIN + (1 - DEPTH_ALPHA_MIN) * p.depth;
@@ -425,9 +669,9 @@ export function ConceptGraphView({
         const updatedAtMs = node.updatedAtMs;
         if (updatedAtMs) {
           const age = nowMs - updatedAtMs;
-          const recency = Math.max(0, 1 - age / RECENCY_GLOW_WINDOW_MS);
-          if (recency > 0) {
-            let boost = recency * RECENCY_GLOW_MAX;
+          const freshness = Math.max(0, 1 - age / RECENCY_GLOW_WINDOW_MS);
+          if (freshness > 0) {
+            let boost = freshness * RECENCY_GLOW_MAX;
             if (!reduceMotion && age < PULSE_WINDOW_MS) {
               boost *= 0.55 + 0.45 * Math.sin(t / 420 + idx * 1.7);
             }
@@ -459,14 +703,17 @@ export function ConceptGraphView({
         const p = proj[idx];
         const node = p.node;
         // When nothing is focused, only label front-facing hubs (depth-gated) so
-        // the dense middle of the mass doesn't turn into unreadable label soup.
+        // the dense middle of the mass doesn't turn into unreadable label soup —
+        // but always label each cluster's hub so every theme reads with a name.
         // While searching, label the matches instead (that's what you're after).
-        if (searchActive && !isMatch(node.id)) {continue;}
+        // Ghosted nodes (search or recency) never get labels.
+        if ((searchActive && !isMatch(node.id)) || isRecencyGhost(node)) {continue;}
         const showLabel = searchActive
           ? p.depth > 0.3
           : activeId != null
             ? isLit(node.id)
-            : node.degree >= HUB_LABEL_DEGREE && p.depth > 0.55;
+            : hubIds.has(node.id) ||
+              (node.degree >= HUB_LABEL_DEGREE && p.depth > 0.55);
         if (!showLabel) {continue;}
         ctx.globalAlpha = (node.id === activeId ? 1 : 0.85) * (0.4 + 0.6 * p.depth);
         ctx.fillStyle = colors.content;
@@ -481,7 +728,9 @@ export function ConceptGraphView({
         sy: p.sy,
         sr: p.sr,
         depth: p.depth,
+        updatedAtMs: p.node.updatedAtMs,
       }));
+      projectedEdgesRef.current = projEdges;
 
       raf = requestAnimationFrame(render);
     };
@@ -491,17 +740,23 @@ export function ConceptGraphView({
       cancelAnimationFrame(raf);
       ro.disconnect();
     };
-  }, [ready, layout, adjacency, massRadius]);
+  }, [ready, layout, adjacency, massRadius, clusters, clusterHubs]);
 
-  // Nearest node under a screen point; nearest-in-front wins. While a search is
-  // active, ghosted (non-matching) nodes are skipped so hover/click land on a
-  // result, not a faded background node.
+  // Nearest node under a screen point; nearest-in-front wins. Ghosted nodes are
+  // skipped so hover/click land on a live node, not a faded background one: both
+  // search non-matches and, when a recency window is set, concepts older than it
+  // (a missing timestamp counts as stale). Mirrors the render-loop ghosting.
   const hitTest = useCallback((x: number, y: number): string | null => {
     const filter = filterRef.current;
+    const recencyWindowMs = recencyRef.current;
+    const now = Date.now();
     let best: string | null = null;
     let bestDepth = -1;
     for (const p of projectedRef.current) {
       if (filter.active && !(filter.matches?.has(p.id) ?? false)) {continue;}
+      if (isStale(p.updatedAtMs, recencyWindowMs, now)) {
+        continue;
+      }
       const dx = x - p.sx;
       const dy = y - p.sy;
       if (dx * dx + dy * dy <= (p.sr + 5) * (p.sr + 5) && p.depth > bestDepth) {
@@ -512,6 +767,40 @@ export function ConceptGraphView({
     return best;
   }, []);
 
+  // Nearest EDGE segment under a screen point, within ~5px (point-to-segment
+  // distance); on ties the one nearer the front (higher depth) wins. Only the
+  // non-ghosted edges the render loop collected are considered.
+  const edgeHitTest = useCallback(
+    (x: number, y: number): { kind: string; description?: string } | null => {
+      let best: { kind: string; description?: string } | null = null;
+      let bestDist = Infinity;
+      let bestDepth = -1;
+      for (const e of projectedEdgesRef.current) {
+        const vx = e.bx - e.ax;
+        const vy = e.by - e.ay;
+        const len2 = vx * vx + vy * vy;
+        let t = 0;
+        if (len2 > 0) {
+          t = ((x - e.ax) * vx + (y - e.ay) * vy) / len2;
+          t = Math.max(0, Math.min(1, t));
+        }
+        const dx = x - (e.ax + t * vx);
+        const dy = y - (e.ay + t * vy);
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist > 5) {
+          continue;
+        }
+        if (dist < bestDist || (dist === bestDist && e.depth > bestDepth)) {
+          best = { kind: e.kind, description: e.description };
+          bestDist = dist;
+          bestDepth = e.depth;
+        }
+      }
+      return best;
+    },
+    [],
+  );
+
   const localPoint = (e: React.PointerEvent) => {
     const rect = containerRef.current!.getBoundingClientRect();
     return { x: e.clientX - rect.left, y: e.clientY - rect.top };
@@ -521,6 +810,9 @@ export function ConceptGraphView({
     if (e.button !== 0) {return;}
     if ((e.target as HTMLElement).closest("[data-graph-control]")) {return;}
     const v = view.current;
+    // A user grab takes control immediately: cancel any in-flight search
+    // jump-to ease so the drag isn't fighting the camera each frame.
+    focusTargetRef.current = null;
     v.dragging = true;
     v.moved = false;
     v.lastX = e.clientX;
@@ -553,8 +845,15 @@ export function ConceptGraphView({
         v.dirty = true;
         setFocusLabel(labelFor(hit));
       }
+      // Node hover wins: only probe edges when no node is under the cursor.
+      if (hit) {
+        setEdgeLabel(null);
+      } else {
+        const edge = edgeHitTest(x, y);
+        setEdgeLabel(edge ? labelForEdge(edge) : null);
+      }
     },
-    [hitTest, labelFor],
+    [hitTest, labelFor, edgeHitTest],
   );
 
   const onPointerUp = useCallback(
@@ -577,20 +876,25 @@ export function ConceptGraphView({
           // Click a node → open its concept page in the detail drawer.
           const n = layout.nodes.find((nn) => nn.id === hit);
           if (n) {
-            setOpenNode({ id: n.id, label: n.label, updatedAtMs: n.updatedAtMs });
+            openNodeDetail({
+              id: n.id,
+              label: n.label,
+              updatedAtMs: n.updatedAtMs,
+            });
           }
         } else {
           setFocusLabel(null);
         }
       }
     },
-    [hitTest, layout.nodes],
+    [hitTest, layout.nodes, openNodeDetail],
   );
 
   // Hover is only ever rewritten by moves inside the container, so without
   // this the highlight + tooltip would stay pinned after the pointer leaves.
   const onPointerLeave = useCallback(() => {
     const v = view.current;
+    setEdgeLabel(null);
     if (v.dragging || v.hoveredId == null) {
       return;
     }
@@ -621,6 +925,18 @@ export function ConceptGraphView({
   }, [layout.nodes]);
   const hasLearned = useMemo(() => layout.edges.some((e) => e.kind === "learned"), [layout.edges]);
   const hasLinks = useMemo(() => layout.edges.some((e) => e.kind !== "learned"), [layout.edges]);
+  // The Link/Learned toggles only render when both kinds are present. If a
+  // refetch leaves only one kind, the controls disappear — so clear any active
+  // filter, otherwise a previously-hidden kind stays hidden with no way to
+  // restore it. Mirrors the recency-window reset.
+  useEffect(() => {
+    if (
+      !(hasLinks && hasLearned) &&
+      (!edgeFilter.link || !edgeFilter.learned)
+    ) {
+      setEdgeFilter({ link: true, learned: true });
+    }
+  }, [hasLinks, hasLearned, edgeFilter]);
 
   // The intro banner shows over a supported graph (empty or populated), never
   // over the loading / error / unsupported states.
@@ -665,10 +981,12 @@ export function ConceptGraphView({
         {/* Keep the box visible whenever a search is active, even if the graph
             shrank below the threshold (e.g. a refetch) — otherwise an active
             filter would ghost nodes with no way to clear it short of remount. */}
+        {/* z-20 keeps the results dropdown above the recency lens (top-14,
+            z-10) so its top rows stay clickable while a search is active. */}
         {layout.nodes.length > SEARCH_MIN_NODES || search ? (
           <div
             data-graph-control
-            className={`absolute top-4 z-10 ${onToggleFullscreen ? "left-16" : "left-4"}`}
+            className={`absolute top-4 z-20 ${onToggleFullscreen ? "left-16" : "left-4"}`}
           >
             <div
               className="flex items-center gap-1.5 rounded-full px-2.5 py-1"
@@ -681,10 +999,23 @@ export function ConceptGraphView({
               <input
                 type="text"
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  // Emit once when a search session begins (empty → typed).
+                  // Key on the trimmed value so whitespace-only input, which the
+                  // graph treats as no search, doesn't latch/emit prematurely.
+                  if (value.trim() && !searchEmittedRef.current) {
+                    emitMemoryEvent("search");
+                    searchEmittedRef.current = true;
+                  }
+                  setSearch(value);
+                }}
                 onKeyDown={(e) => {
                   if (e.key === "Escape") {
                     setSearch("");
+                  } else if (e.key === "Enter" && searchResults.length > 0) {
+                    e.preventDefault();
+                    focusOn(searchResults[0].id);
                   }
                 }}
                 placeholder="Search concepts…"
@@ -712,16 +1043,77 @@ export function ConceptGraphView({
                 </>
               ) : null}
             </div>
+
+            {/* Results under the box: click (or Enter on the top row) flies the
+                camera to center that concept and opens its detail drawer. */}
+            {search && searchResults.length > 0 ? (
+              <ul
+                className="mt-1.5 flex max-h-56 w-52 list-none flex-col overflow-y-auto rounded-xl py-1"
+                style={{
+                  backgroundColor:
+                    "color-mix(in srgb, var(--surface-base) 92%, transparent)",
+                  border: "1px solid var(--border-base)",
+                }}
+              >
+                {searchResults.map((node) => (
+                  <li key={node.id}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        focusOn(node.id);
+                        openNodeDetail({
+                          id: node.id,
+                          label: node.label,
+                          updatedAtMs: node.updatedAtMs,
+                        });
+                      }}
+                      className="block w-full truncate px-3 py-1 text-left text-[12px] hover:bg-[color-mix(in_srgb,var(--content-tertiary)_14%,transparent)]"
+                      style={{ color: "var(--content-default)" }}
+                    >
+                      {node.label}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
+        ) : null}
+
+        {/* Recency time-lens, tucked just under the search pill. Kept visible
+            while a non-"all" window is active even if the graph shrank below the
+            threshold (e.g. a refetch), so an active window is always resettable
+            — mirrors the search box's own guard. */}
+        {(layout.nodes.length > SEARCH_MIN_NODES || recency !== "all") &&
+        hasRecencyData ? (
+          <div
+            data-graph-control
+            className={`absolute top-14 z-10 ${onToggleFullscreen ? "left-16" : "left-4"}`}
+          >
+            <RecencyLens value={recency} onChange={setRecency} />
           </div>
         ) : null}
 
         <ConceptGraphLegend
-          nodeKinds={presentKinds.length > 1 ? presentKinds : []}
+          nodeKinds={presentKinds.filter((k) => k !== "concept")}
+          coloredByTheme={presentKinds.includes("concept")}
           hasLinks={hasLinks}
           hasLearned={hasLearned}
+          {...(hasLinks && hasLearned
+            ? {
+                onToggleLink: () =>
+                  setEdgeFilter((f) => ({ ...f, link: !f.link })),
+                onToggleLearned: () =>
+                  setEdgeFilter((f) => ({ ...f, learned: !f.learned })),
+                linkActive: edgeFilter.link,
+                learnedActive: edgeFilter.learned,
+              }
+            : {})}
         />
 
-        {focusLabel && !showIntro ? (
+        {/* One pill for both hovers. Node hover and edge hover are mutually
+            exclusive (a node hit clears edgeLabel; an edge hit means no node,
+            so focusLabel is null), and focusLabel wins when both are present. */}
+        {(focusLabel ?? edgeLabel) && !showIntro ? (
           <div
             className="pointer-events-none absolute left-1/2 top-4 max-w-[80%] -translate-x-1/2 truncate rounded-full px-3 py-1 text-[12px]"
             style={{
@@ -730,7 +1122,7 @@ export function ConceptGraphView({
               color: "var(--content-default)",
             }}
           >
-            {focusLabel}
+            {focusLabel ?? edgeLabel}
           </div>
         ) : null}
 

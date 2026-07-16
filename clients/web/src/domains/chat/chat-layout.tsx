@@ -32,7 +32,6 @@ import {
 import { useChatLayoutSlotsStore } from "@/components/layout/chat-layout-slots-store";
 import { useElectronDockSync } from "@/domains/chat/hooks/use-electron-dock-sync";
 import { useOpenAppFromChat } from "@/domains/chat/hooks/use-open-app-from-chat";
-import { useHomeUnreadBadge } from "@/hooks/use-home-unread-badge";
 import {
   DRAWER_SLIDE_MS,
   useEdgeSwipeDrawer,
@@ -131,7 +130,17 @@ interface SideMenuRenderArgs {
  *
  * @see https://reactrouter.com/start/data/routing
  */
-export function ChatLayout() {
+export function ChatLayout({
+  topBarAccessory,
+}: {
+  /**
+   * Persistent element for the header's top-right, after the per-route
+   * slot content (currently the notifications bell). Injected by
+   * `routes.tsx` because its implementation lives in another domain,
+   * which this layout must not import directly.
+   */
+  topBarAccessory?: ReactNode;
+} = {}) {
   const navigate = useNavigate();
   const location = useLocation();
   const navigationType = useNavigationType();
@@ -202,10 +211,6 @@ export function ChatLayout() {
     conversationGroups,
   });
 
-  // Home page unread indicator — drives the red dot on the Home button in
-  // the layout header.
-  const { hasUnreadHome } = useHomeUnreadBadge(assistantId);
-
   // Mirror the unread count + signed-in flag into the Electron Dock
   // (no-op off Electron). Uses the conversation list this layout
   // already subscribes to, so there's no extra query — see
@@ -255,10 +260,6 @@ export function ChatLayout() {
   const canGoBack = historyIndex > 0;
   const canGoForward = historyIndex < maxHistoryIndex;
 
-  const handleOpenHome = useCallback(() => {
-    navigate(routes.home);
-  }, [navigate]);
-
   const handleOpenIdentity = useCallback(() => {
     navigate(routes.identity);
   }, [navigate]);
@@ -271,10 +272,8 @@ export function ChatLayout() {
     navigate(1);
   }, [navigate]);
 
-  const isHomeActive =
-    location.pathname === routes.home ||
-    location.pathname === routes.schedules.root ||
-    location.pathname.startsWith(`${routes.schedules.root}/`);
+  // Schedules paths count as About Assistant (via isAboutAssistantPath) —
+  // the Schedules surface is a drill-down section under the overview.
   const isIdentityActive = isAboutAssistantPath(location.pathname);
 
   // --- Sidebar collapsed / drawer state ---
@@ -698,9 +697,6 @@ export function ChatLayout() {
       onOpenIntelligence={handleOpenIdentity}
       isLibraryActive={isLibraryActive}
       onOpenLibrary={handleOpenLibrary}
-      isHomeActive={isHomeActive}
-      onOpenHome={handleOpenHome}
-      hasUnreadHome={hasUnreadHome}
       activeAppId={activeAppId ?? undefined}
       onOpenApp={handleOpenAppFromSidebar}
       onPinConversation={handleTogglePinConversation}
@@ -755,6 +751,7 @@ export function ChatLayout() {
             <>
               {topBarRightSlot}
               <VoiceSessionPillHost />
+              {topBarAccessory}
             </>
           }
           canGoBack={canGoBack}

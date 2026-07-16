@@ -1,10 +1,14 @@
 /**
  * Offline plugin catalog reader backed by the manifest bundled into the
- * package at build time (see meta/sync-bundled-copies.ts).
+ * package at build time. `bundled-marketplace.json` is a generated artifact
+ * (git-ignored) that meta/sync-bundled-copies.ts copies from the canonical
+ * plugins/marketplace.json before every build, test, and install — the same
+ * treatment as the feature-flag registry.
  *
  * `getPluginCatalog` selects this reader only when platform features are
  * disabled (air-gapped / self-hosted, `VELLUM_DISABLE_PLATFORM=true`). Importing
- * the JSON directly (resolveJsonModule) means no filesystem path resolution, so
+ * the JSON directly (resolveJsonModule) inlines it into the bundle, so there is
+ * no filesystem path resolution and the manifest is always present at runtime —
  * it works identically in dev, Docker, and an npm-packed macOS install.
  */
 

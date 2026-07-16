@@ -1,15 +1,10 @@
 import type { Database } from "bun:sqlite";
 
 import { getMemoryDbPath } from "../../util/memory-db-path.js";
+import type { DrizzleDb } from "../db-connection.js";
 import {
-  type DrizzleDb,
-  getMemorySqlite,
-  getSqliteFrom,
-} from "../db-connection.js";
-import {
-  drainStagedTable,
   type RelocationSpec,
-  stageTableForRelocation,
+  runMemoryTableRelocation,
 } from "./helpers/relocation.js";
 
 /**
@@ -69,36 +64,15 @@ export function ensureInjectionEventsSchema(memoryRaw: Database): void {
  * accessors in `plugins/defaults/memory/v2/injection-events.ts` read/write it
  * over the dedicated memory connection (see `getMemoryDb()`).
  *
- * Like migrations 297/298 the move is incremental: create the table (and
- * indexes) on the memory connection, rename any populated
- * `main.memory_v2_injection_events` aside to
- * `memory_v2_injection_events__relocating`, then drain it in awaited batches
- * (see `helpers/relocation.ts`) per {@link INJECTION_EVENTS_RELOCATION}. On a
- * fresh install the main-side table created by migration 256 is empty, so
- * staging just drops it.
- *
- * Throws (rather than returning) if the memory database cannot be opened, so
- * the runner records the step as failed instead of applied and retries it on
- * a later boot — never renaming the source aside without a target to write
- * to. The throw is caught per-step by the runner, so startup is not aborted.
+ * On a fresh install the main-side table created by migration 256 is empty,
+ * so staging just drops it.
  */
 export async function migrateMoveInjectionEventsToMemoryDb(
   database: DrizzleDb,
 ): Promise<void> {
-  const memoryRaw = getMemorySqlite();
-  if (!memoryRaw) {
-    throw new Error(
-      "memory database unavailable — deferring memory_v2_injection_events relocation",
-    );
-  }
-
-  ensureInjectionEventsSchema(memoryRaw);
-
-  const raw = getSqliteFrom(database);
-  const needsDrain = stageTableForRelocation(
-    raw,
-    INJECTION_EVENTS_RELOCATION.table,
+  await runMemoryTableRelocation(
+    database,
+    INJECTION_EVENTS_RELOCATION,
+    ensureInjectionEventsSchema,
   );
-
-  if (needsDrain) await drainStagedTable(raw, INJECTION_EVENTS_RELOCATION);
 }

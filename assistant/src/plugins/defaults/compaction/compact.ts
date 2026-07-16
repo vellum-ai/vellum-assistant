@@ -58,6 +58,12 @@ export interface CompactionContext {
    */
   fixedTailStartIndex?: number;
   /**
+   * Row-space twin of `fixedTailStartIndex` — bounds the compactor's image
+   * manifest to rows before the user-chosen boundary so kept-tail images
+   * are never offered for retention.
+   */
+  fixedBoundaryRowIndex?: number;
+  /**
    * Set when this compaction is recovering from a provider context-overflow
    * rejection rather than the ordinary auto-threshold trip. Its presence
    * routes the request through the manager's reduction ladder (which escalates

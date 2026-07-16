@@ -195,12 +195,15 @@ describe("CopyBlockSurface", () => {
 
     fireEvent.click(getByRole("button", { name: "Copy" }));
 
+    // `handleCopy` awaits the clipboard write before flipping to "Copied", so
+    // the label lands a microtask after `writeText` is called — both
+    // assertions have to sit inside the same retry.
     await waitFor(() => {
       expect(writeText).toHaveBeenCalledWith(
         "Paste this into another assistant.",
       );
+      expect(getByRole("button", { name: "Copied" })).toBeTruthy();
     });
-    expect(getByRole("button", { name: "Copied" })).toBeTruthy();
   });
 });
 

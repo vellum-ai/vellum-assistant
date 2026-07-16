@@ -31,6 +31,7 @@ export const LLMProvider = z
     "minimax",
     "atlascloud",
     "together",
+    "baseten",
   ])
   .meta({ id: "LLMProvider" });
 type LLMProvider = z.infer<typeof LLMProvider>;
@@ -261,14 +262,46 @@ export type ContextWindow = z.infer<typeof ContextWindowSchema>;
 // injected. Nested `overflowRecovery` likewise uses its fragment view, so a
 // partial override like `{ overflowRecovery: { maxAttempts: 5 } }` produces
 // exactly that and nothing else.
-const ContextWindowDeepPartialSchema = z.object({
-  enabled: ContextEnabledSchema.optional(),
-  maxInputTokens: ContextMaxInputTokensSchema.optional(),
-  targetBudgetRatio: ContextTargetBudgetRatioSchema.optional(),
-  compactThreshold: ContextCompactThresholdSchema.optional(),
-  summaryBudgetRatio: ContextSummaryBudgetRatioSchema.optional(),
-  overflowRecovery: ContextOverflowRecoveryFragmentSchema.optional(),
-});
+//
+// Cross-field ordering (targetBudgetRatio < compactThreshold, and
+// targetBudgetRatio > summaryBudgetRatio) is enforced only when both sides of
+// a pair are present in the same fragment — a partial override merges with
+// lower layers at resolution time, so a lone field can't be judged here.
+const ContextWindowDeepPartialSchema = z
+  .object({
+    enabled: ContextEnabledSchema.optional(),
+    maxInputTokens: ContextMaxInputTokensSchema.optional(),
+    targetBudgetRatio: ContextTargetBudgetRatioSchema.optional(),
+    compactThreshold: ContextCompactThresholdSchema.optional(),
+    summaryBudgetRatio: ContextSummaryBudgetRatioSchema.optional(),
+    overflowRecovery: ContextOverflowRecoveryFragmentSchema.optional(),
+  })
+  .superRefine((cw, ctx) => {
+    if (
+      cw.targetBudgetRatio != null &&
+      cw.compactThreshold != null &&
+      cw.targetBudgetRatio >= cw.compactThreshold
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["targetBudgetRatio"],
+        message:
+          "contextWindow.targetBudgetRatio must be less than contextWindow.compactThreshold",
+      });
+    }
+    if (
+      cw.targetBudgetRatio != null &&
+      cw.summaryBudgetRatio != null &&
+      cw.targetBudgetRatio <= cw.summaryBudgetRatio
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["targetBudgetRatio"],
+        message:
+          "contextWindow.targetBudgetRatio must be greater than contextWindow.summaryBudgetRatio",
+      });
+    }
+  });
 
 // ---------------------------------------------------------------------------
 // OpenRouter provider-routing preferences
@@ -318,10 +351,11 @@ const PricingOverrideSchema = z.object({
 // ---------------------------------------------------------------------------
 
 /**
- * Fully specified LLM config. Used for `llm.default` — every knob has a
- * schema-level default, so `LLMConfigBase.parse({})` returns a complete
- * fallback object. This is essential for the loader's leaf-deletion recovery
- * path; see the comment on `ThinkingSchema` above.
+ * Fully specified LLM config: every knob has a schema-level default, so
+ * `LLMConfigBase.parse({})` returns a complete object. The resolver uses it as
+ * the code-owned base every resolved call-site config composes over (see
+ * `CODE_DEFAULT_BASE` in `llm-resolver.ts`), and profile materialization
+ * completes partial custom profiles against it.
  */
 export const LLMConfigBase = z.object({
   provider: LLMProvider.default("anthropic"),
@@ -510,7 +544,6 @@ const DefaultProviderField = DefaultProviderSchema.optional().catch(undefined);
 
 export const LLMSchema = z
   .object({
-    default: LLMConfigBase.default(LLMConfigBase.parse({})),
     profiles: z.record(z.string().min(1), ProfileEntry).default({}),
     // Presentation-only order for named profiles. The resolver ignores this;
     // clients use it to render profile pickers consistently.
@@ -551,7 +584,9 @@ export const LLMSchema = z
       ...DEFAULT_PROFILE_KEYS,
     ]);
     for (const [siteId, siteConfig] of Object.entries(config.callSites ?? {})) {
-      if (siteConfig?.profile == null) continue;
+      if (siteConfig?.profile == null) {
+        continue;
+      }
       if (!profileNames.has(siteConfig.profile)) {
         ctx.addIssue({
           code: "custom",
@@ -596,7 +631,9 @@ export const LLMSchema = z
         .map(([name]) => name),
     );
     for (const [name, profile] of Object.entries(config.profiles ?? {})) {
-      if (profile?.mix == null) continue;
+      if (profile?.mix == null) {
+        continue;
+      }
       // (d) A mix must not also carry model config — the resolved config comes
       // entirely from the chosen constituent.
       for (const key of MIX_DISALLOWED_CONFIG_KEYS) {

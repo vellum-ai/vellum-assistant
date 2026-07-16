@@ -143,6 +143,32 @@ describe("writeOnboardingSection", () => {
     expect(content).toContain("- **Daily tools:** GitHub, Linear, Slack");
   });
 
+  test("renders user-confirmed research findings as nested bullets", () => {
+    seedVellumGuardian("alice.md");
+    const guardianPath = workspacePath("users/alice.md");
+    mkdirSync(workspacePath("users"), { recursive: true });
+    writeFileSync(guardianPath, "# User Profile\n\n- **Name:** Alice\n");
+
+    writeOnboardingSection({
+      preferredName: "Alice",
+      commonWork: [],
+      dailyTools: [],
+      researchFindings: [
+        "Maintains a popular open-source charting library",
+        "Climbs at Movement on Tuesdays",
+      ],
+    });
+
+    const content = readFileSync(guardianPath, "utf-8");
+    expect(content).toContain(
+      "- **Research findings** (surfaced during onboarding, confirmed by the user):",
+    );
+    expect(content).toContain(
+      "  - Maintains a popular open-source charting library",
+    );
+    expect(content).toContain("  - Climbs at Movement on Tuesdays");
+  });
+
   test("falls back to users/default.md when guardian path is null", () => {
     mockGuardianDeliveries = [];
   mockContactsByAddress = {};

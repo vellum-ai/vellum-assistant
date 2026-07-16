@@ -36,6 +36,7 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 
@@ -1024,10 +1025,7 @@ function normalizeInstalledManifest(
  * data is read — the install name is the only identity we trust for an
  * untrusted direct install.
  */
-function synthesizeMinimalPackageJson(
-  name: string,
-  stagingDir: string,
-): void {
+function synthesizeMinimalPackageJson(name: string, stagingDir: string): void {
   const manifestPath = join(stagingDir, "package.json");
 
   const manifest: PackageManifest = {
@@ -1278,6 +1276,72 @@ function pluginGitEnv(): NodeJS.ProcessEnv {
     env.PATH = [...current, ...missing].join(":");
   }
   return env;
+}
+
+/**
+ * Resolve the commit SHA a plugin source's recorded ref points at *now*, using
+ * a single `git ls-remote` — no clone. `plugins upgrade` uses this to detect
+ * drift for a directly-installed plugin (one sourced from a GitHub URL rather
+ * than the curated marketplace), whose "latest" is whatever its recorded
+ * branch / tag / `HEAD` currently resolves to.
+ *
+ * A full-SHA ref is immutable, so it resolves to itself with no network call
+ * (ls-remote lists refs, never arbitrary commits). For an annotated tag the
+ * peeled commit (`<ref>^{}`) is preferred — the commit a checkout lands on.
+ * Returns `null` when the ref no longer exists on the remote (a deleted branch /
+ * tag) or the repo is unreachable as a hard failure; throws
+ * {@link PluginSourceUnavailableError} on a transient git / network failure so
+ * the caller can surface a retryable 503.
+ */
+export async function resolveRefCommit(
+  source: PluginFetchSource,
+  runGit: GitRunner = defaultGitRunner,
+): Promise<string | null> {
+  if (isFullCommitSha(source.ref)) {
+    return source.ref;
+  }
+  const repoUrl = `https://github.com/${source.owner}/${source.repo}.git`;
+
+  let stdout: string;
+  try {
+    // ls-remote takes the URL explicitly and never reads a local working tree,
+    // so the OS temp dir is a safe, always-present cwd.
+    ({ stdout } = await runGit(["ls-remote", repoUrl, source.ref], {
+      cwd: tmpdir(),
+    }));
+  } catch (err) {
+    // A missing repo / ref (or a private one we can't reach) is a hard failure
+    // the caller maps to not-found; anything else — network loss, a transient
+    // GitHub outage — is retryable, so surface a 503.
+    if (isGitRefNotFound(err)) {
+      return null;
+    }
+    throw new PluginSourceUnavailableError(
+      `git ls-remote failed for ${source.owner}/${source.repo} @ ${source.ref}: ${subprocessErrorText(err)}`,
+      503,
+    );
+  }
+
+  // Each line is `<sha>\t<refname>`. Prefer the peeled commit of an annotated
+  // tag (`<ref>^{}`) — the commit a checkout resolves to — over the tag object.
+  let peeled: string | null = null;
+  let direct: string | null = null;
+  for (const line of stdout.split("\n")) {
+    const trimmed = line.trim();
+    if (trimmed === "") {
+      continue;
+    }
+    const [sha, refname] = trimmed.split(/\s+/);
+    if (sha === undefined || refname === undefined || !isFullCommitSha(sha)) {
+      continue;
+    }
+    if (refname.endsWith("^{}")) {
+      peeled = sha;
+    } else {
+      direct ??= sha;
+    }
+  }
+  return peeled ?? direct;
 }
 
 /** Inputs for {@link writeInstallMeta}, resolved during a fresh install. */

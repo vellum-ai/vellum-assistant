@@ -3,7 +3,7 @@
 openapi: 3.1.0
 info:
   title: Vellum Assistant API
-  version: 0.10.8
+  version: 0.10.9
   description: Auto-generated OpenAPI specification for the Vellum Assistant runtime HTTP server.
 servers:
   - url: http://127.0.0.1:7821
@@ -14229,7 +14229,7 @@ paths:
             type: string
           description:
             "Filter by provider id. One of: anthropic, openai, gemini, ollama, fireworks, together, openrouter,
-            vercel-ai-gateway, openai-compatible, minimax, atlascloud"
+            vercel-ai-gateway, openai-compatible, minimax, atlascloud, baseten"
       responses:
         "200":
           description: Successful response
@@ -14460,7 +14460,7 @@ paths:
             type: string
           description:
             "Filter by provider. One of: anthropic, openai, gemini, ollama, fireworks, together, openrouter,
-            vercel-ai-gateway, openai-compatible, minimax, atlascloud, vellum"
+            vercel-ai-gateway, openai-compatible, minimax, atlascloud, baseten, vellum"
       responses:
         "200":
           description: Successful response
@@ -14479,7 +14479,10 @@ paths:
     post:
       operationId: inference_providerconnections_post
       summary: Create a provider connection
-      description: Create a new named provider connection. Fails with 409 if a connection with this name already exists.
+      description:
+        Create a new named provider connection. When auth is omitted it is derived from the provider (keyless
+        providers get none, vellum gets platform, everything else needs credential for api_key auth). Fails with 409 if
+        a connection with this name already exists.
       tags:
         - inference
       requestBody:
@@ -14496,6 +14499,9 @@ paths:
                   $ref: "#/components/schemas/ConnectionProvider"
                 auth:
                   $ref: "#/components/schemas/Auth"
+                credential:
+                  type: string
+                  minLength: 1
                 label:
                   type: string
                   minLength: 1
@@ -14513,7 +14519,6 @@ paths:
               required:
                 - name
                 - provider
-                - auth
       responses:
         "201":
           description: Successful response
@@ -14585,7 +14590,8 @@ paths:
       operationId: inference_providerconnections_by_name_patch
       summary: Update a provider connection
       description:
-        Update an existing connection. Cannot rename or change the provider. For the Vellum-managed connection
+        Update an existing connection. Cannot rename or change the provider. Omitting auth keeps the stored auth;
+        passing credential alone rotates the key via provider-derived api_key auth. For the Vellum-managed connection
         (vellum) the auth is locked to platform; label remains editable.
       tags:
         - inference
@@ -14604,6 +14610,9 @@ paths:
               properties:
                 auth:
                   $ref: "#/components/schemas/Auth"
+                credential:
+                  type: string
+                  minLength: 1
                 label:
                   anyOf:
                     - type: string
@@ -14620,8 +14629,6 @@ paths:
                       items:
                         $ref: "#/components/schemas/ConnectionModel"
                     - type: "null"
-              required:
-                - auth
       responses:
         "200":
           description: Successful response
@@ -18934,6 +18941,8 @@ paths:
                             - output
                             - completedAt
                           additionalProperties: false
+                        systemCard:
+                          type: boolean
                         slackMessage:
                           type: object
                           properties:
@@ -19177,6 +19186,13 @@ paths:
                     initialMessage:
                       type: string
                     skills:
+                      type: array
+                      items:
+                        type: string
+                    researchFindings:
+                      description:
+                        Findings from pre-chat onboarding research that the user explicitly kept on the results screen. Written
+                        into the persona's onboarding section so the first turn can reference them.
                       type: array
                       items:
                         type: string
@@ -22992,20 +23008,24 @@ paths:
   /v1/plugins/{name}/upgrade:
     post:
       operationId: plugins_by_name_upgrade_post
-      summary: Upgrade a plugin to the marketplace pin
+      summary: Upgrade a plugin to its source's current revision
       description:
-        'Move an installed plugin to the marketplace''s current pinned commit, re-materializing it under
-        `<workspaceDir>/plugins/<name>/`. Always resolves against the curated marketplace pin (no caller-supplied ref),
-        mirroring `plugins install`''s curation boundary. A no-op (`outcome: "already-up-to-date"`) when the installed
-        commit already equals the pin; pass `dryRun` to preview the move (`outcome: "would-upgrade"`) without touching
-        the install. Installs lacking provenance are re-pinned to the current SHA. The upgraded code is picked up live
-        on the next read (no restart required). `strategy` controls how local edits are reconciled: `overwrite`
-        (default) discards them and re-installs the pin wholesale; `ours`/`theirs`/`assistant` perform a three-way merge
-        against the re-materialized install commit, carrying non-conflicting edits from both sides forward and resolving
-        conflicting hunks toward the local edit (`ours`) or the pin (`theirs`), or writing git conflict markers into the
-        file and reporting them in `conflicts`/`binaryConflicts` for the assistant to resolve (`assistant`). A merge
-        strategy whose install-time baseline cannot be reconstructed returns 409. Mirrors the CLI''s `assistant plugins
-        upgrade <name> [--strategy <s>]`.'
+        'Move an installed plugin to its source''s current revision, re-materializing it under
+        `<workspaceDir>/plugins/<name>/`. A marketplace plugin advances to the curated pin; a plugin installed directly
+        from a GitHub URL (untrusted, not in the marketplace) advances to whatever its recorded ref now resolves to — a
+        pinned SHA is immutable (a no-op), a branch/tag/HEAD moves as upstream does — re-materialized verbatim with no
+        curated adapter overlay, exactly as the original untrusted install was. The target ref is never taken from the
+        request (no caller-supplied ref), mirroring `plugins install`''s curation boundary. A no-op (`outcome:
+        "already-up-to-date"`) when the installed commit already equals the target; pass `dryRun` to preview the move
+        (`outcome: "would-upgrade"`) without touching the install. Installs lacking provenance are re-pinned to the
+        current SHA. The upgraded code is picked up live on the next read (no restart required). `strategy` controls how
+        local edits are reconciled: `overwrite` (default) discards them and re-installs the target wholesale;
+        `ours`/`theirs`/`assistant` perform a three-way merge against the re-materialized install commit, carrying
+        non-conflicting edits from both sides forward and resolving conflicting hunks toward the local edit (`ours`) or
+        the target (`theirs`), or writing git conflict markers into the file and reporting them in
+        `conflicts`/`binaryConflicts` for the assistant to resolve (`assistant`). A merge strategy whose install-time
+        baseline cannot be reconstructed returns 409. Mirrors the CLI''s `assistant plugins upgrade <name> [--strategy
+        <s>]`.'
       tags:
         - plugins
       parameters:
@@ -23134,8 +23154,8 @@ paths:
           description: No copy of the plugin is installed, or its source resolves to nothing.
         "409":
           description:
-            The install exists but has no marketplace entry to advance to, or a merge strategy was requested whose
-            install-time baseline cannot be reconstructed.
+            The install has neither a marketplace entry nor a recorded GitHub source to advance to, or a merge strategy
+            was requested whose install-time baseline cannot be reconstructed.
         "503":
           description: The plugin source (GitHub) was temporarily unavailable; the upgrade is retryable.
   /v1/plugins/{name}/versions:
@@ -29181,8 +29201,20 @@ paths:
                       flushed:
                         type: boolean
                         const: true
+                      sent:
+                        type: number
+                        description: Events POSTed to the platform
+                      persisted:
+                        type: number
+                        description: Events the platform confirmed written
+                      dropped:
+                        type: number
+                        description: Events that did not land (sent - persisted)
                     required:
                       - flushed
+                      - sent
+                      - persisted
+                      - dropped
                     additionalProperties: false
                   - type: object
                     properties:
@@ -29194,6 +29226,444 @@ paths:
                     required:
                       - flushed
                       - reason
+                    additionalProperties: false
+  /v1/telemetry/ingest:
+    post:
+      operationId: telemetry_ingest_post
+      summary: Record an outbox-backed telemetry event
+      description:
+        Record any outbox-backed telemetry event by its wire `type` + `fields`. For events a client observes and
+        the daemon can't detect on its own (e.g. onboarding_research). The type must be an outbox-backed event — the
+        watermark types (turn, llm_usage, tool_executed) have no variant — and the payload must pass the platform wire
+        schema. Gated on share_analytics consent like every other outbox-backed event; the platform re-checks the
+        owner's consent server-side at ingest.
+      tags:
+        - telemetry
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - type: object
+                  properties:
+                    type:
+                      type: string
+                      const: lifecycle
+                    fields:
+                      type: object
+                      properties:
+                        event_name:
+                          type: string
+                          minLength: 1
+                          maxLength: 64
+                      required:
+                        - event_name
+                      description:
+                        Wire event fields, excluding the daemon-stamped base fields (type, daemon_event_id, recorded_at,
+                        assistant_version).
+                    daemon_event_id:
+                      description:
+                        "Optional collapse key: rows sharing an id collapse downstream (e.g. a retried report). Defaults to a fresh
+                        per-row id."
+                      type: string
+                      minLength: 1
+                      maxLength: 128
+                  required:
+                    - type
+                    - fields
+                - type: object
+                  properties:
+                    type:
+                      type: string
+                      const: onboarding
+                    fields:
+                      type: object
+                      properties:
+                        screen:
+                          type: string
+                          minLength: 1
+                          maxLength: 64
+                        tools:
+                          type: array
+                          items:
+                            type: string
+                            minLength: 1
+                            maxLength: 128
+                        tasks:
+                          type: array
+                          items:
+                            type: string
+                            minLength: 1
+                            maxLength: 128
+                        tone:
+                          type: string
+                          minLength: 1
+                          maxLength: 64
+                        google_connected:
+                          type: boolean
+                        google_scopes:
+                          type: array
+                          items:
+                            type: string
+                            minLength: 1
+                            maxLength: 256
+                        ab_variant:
+                          type: string
+                          minLength: 1
+                          maxLength: 64
+                        session_id:
+                          type: string
+                          minLength: 1
+                          maxLength: 128
+                        step_name:
+                          type: string
+                          minLength: 1
+                          maxLength: 128
+                        step_index:
+                          type: integer
+                          minimum: 0
+                          maximum: 9007199254740991
+                        completed_at:
+                          type: string
+                          minLength: 1
+                          maxLength: 64
+                        funnel_version:
+                          type: string
+                          minLength: 1
+                          maxLength: 128
+                        user_id:
+                          anyOf:
+                            - type: string
+                              minLength: 1
+                              maxLength: 64
+                            - type: "null"
+                        outcome:
+                          type: string
+                          minLength: 1
+                          maxLength: 32
+                      description:
+                        Wire event fields, excluding the daemon-stamped base fields (type, daemon_event_id, recorded_at,
+                        assistant_version).
+                    daemon_event_id:
+                      description:
+                        "Optional collapse key: rows sharing an id collapse downstream (e.g. a retried report). Defaults to a fresh
+                        per-row id."
+                      type: string
+                      minLength: 1
+                      maxLength: 128
+                  required:
+                    - type
+                    - fields
+                - type: object
+                  properties:
+                    type:
+                      type: string
+                      const: auth_fallback
+                    fields:
+                      type: object
+                      properties:
+                        guard:
+                          type: string
+                          minLength: 1
+                          maxLength: 64
+                        failure_kind:
+                          type: string
+                          minLength: 1
+                          maxLength: 64
+                        path:
+                          type: string
+                          minLength: 1
+                          maxLength: 2048
+                        count:
+                          type: integer
+                          minimum: 0
+                          maximum: 9007199254740991
+                        window_start:
+                          type: integer
+                          minimum: 0
+                          maximum: 9007199254740991
+                        window_end:
+                          type: integer
+                          minimum: 0
+                          maximum: 9007199254740991
+                      required:
+                        - guard
+                        - failure_kind
+                        - path
+                        - count
+                        - window_start
+                        - window_end
+                      description:
+                        Wire event fields, excluding the daemon-stamped base fields (type, daemon_event_id, recorded_at,
+                        assistant_version).
+                    daemon_event_id:
+                      description:
+                        "Optional collapse key: rows sharing an id collapse downstream (e.g. a retried report). Defaults to a fresh
+                        per-row id."
+                      type: string
+                      minLength: 1
+                      maxLength: 128
+                  required:
+                    - type
+                    - fields
+                - type: object
+                  properties:
+                    type:
+                      type: string
+                      const: skill_loaded
+                    fields:
+                      type: object
+                      properties:
+                        provider:
+                          anyOf:
+                            - type: string
+                              minLength: 1
+                              maxLength: 64
+                            - type: "null"
+                        model:
+                          anyOf:
+                            - type: string
+                              minLength: 1
+                              maxLength: 128
+                            - type: "null"
+                        inference_profile:
+                          anyOf:
+                            - type: string
+                              minLength: 1
+                              maxLength: 255
+                            - type: "null"
+                        inference_profile_source:
+                          anyOf:
+                            - type: string
+                              minLength: 1
+                              maxLength: 255
+                            - type: "null"
+                        skill_name:
+                          type: string
+                          minLength: 1
+                          maxLength: 255
+                        skill_updated_at:
+                          anyOf:
+                            - type: string
+                              minLength: 1
+                              maxLength: 64
+                            - type: "null"
+                        conversation_id:
+                          anyOf:
+                            - type: string
+                              minLength: 1
+                              maxLength: 128
+                            - type: "null"
+                      required:
+                        - skill_name
+                      description:
+                        Wire event fields, excluding the daemon-stamped base fields (type, daemon_event_id, recorded_at,
+                        assistant_version).
+                    daemon_event_id:
+                      description:
+                        "Optional collapse key: rows sharing an id collapse downstream (e.g. a retried report). Defaults to a fresh
+                        per-row id."
+                      type: string
+                      minLength: 1
+                      maxLength: 128
+                  required:
+                    - type
+                    - fields
+                - type: object
+                  properties:
+                    type:
+                      type: string
+                      const: watchdog
+                    fields:
+                      type: object
+                      properties:
+                        check_name:
+                          type: string
+                          minLength: 1
+                          maxLength: 128
+                        value:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        detail:
+                          anyOf:
+                            - $ref: "#/components/schemas/TelemetryJsonValue"
+                            - type: "null"
+                      required:
+                        - check_name
+                      description:
+                        Wire event fields, excluding the daemon-stamped base fields (type, daemon_event_id, recorded_at,
+                        assistant_version).
+                    daemon_event_id:
+                      description:
+                        "Optional collapse key: rows sharing an id collapse downstream (e.g. a retried report). Defaults to a fresh
+                        per-row id."
+                      type: string
+                      minLength: 1
+                      maxLength: 128
+                  required:
+                    - type
+                    - fields
+                - type: object
+                  properties:
+                    type:
+                      type: string
+                      const: config_setting
+                    fields:
+                      type: object
+                      properties:
+                        config_key:
+                          type: string
+                          minLength: 1
+                          maxLength: 128
+                        config_value:
+                          type: string
+                          minLength: 1
+                          maxLength: 256
+                      required:
+                        - config_key
+                        - config_value
+                      description:
+                        Wire event fields, excluding the daemon-stamped base fields (type, daemon_event_id, recorded_at,
+                        assistant_version).
+                    daemon_event_id:
+                      description:
+                        "Optional collapse key: rows sharing an id collapse downstream (e.g. a retried report). Defaults to a fresh
+                        per-row id."
+                      type: string
+                      minLength: 1
+                      maxLength: 128
+                  required:
+                    - type
+                    - fields
+                - type: object
+                  properties:
+                    type:
+                      type: string
+                      const: onboarding_research
+                    fields:
+                      type: object
+                      properties:
+                        conversation_id:
+                          anyOf:
+                            - type: string
+                              minLength: 1
+                              maxLength: 64
+                            - type: "null"
+                        status:
+                          type: string
+                          minLength: 1
+                          maxLength: 32
+                        self_reported_occupation:
+                          anyOf:
+                            - type: string
+                              maxLength: 256
+                            - type: "null"
+                        self_reported_hobbies:
+                          maxItems: 32
+                          type: array
+                          items:
+                            type: string
+                            minLength: 1
+                            maxLength: 128
+                        self_reported_timezone:
+                          anyOf:
+                            - type: string
+                              maxLength: 64
+                            - type: "null"
+                        claims:
+                          maxItems: 20
+                          type: array
+                          items:
+                            $ref: "#/components/schemas/TelemetryJsonValue"
+                        claim_count:
+                          type: integer
+                          minimum: 0
+                          maximum: 9007199254740991
+                        claims_confident:
+                          type: integer
+                          minimum: 0
+                          maximum: 9007199254740991
+                        claims_maybe:
+                          type: integer
+                          minimum: 0
+                          maximum: 9007199254740991
+                        claims_guessing:
+                          type: integer
+                          minimum: 0
+                          maximum: 9007199254740991
+                        suggestions:
+                          maxItems: 20
+                          type: array
+                          items:
+                            $ref: "#/components/schemas/TelemetryJsonValue"
+                        suggestion_count:
+                          type: integer
+                          minimum: 0
+                          maximum: 9007199254740991
+                        plugins:
+                          maxItems: 20
+                          type: array
+                          items:
+                            type: string
+                            minLength: 1
+                            maxLength: 128
+                        installed_plugins:
+                          maxItems: 20
+                          type: array
+                          items:
+                            type: string
+                            minLength: 1
+                            maxLength: 128
+                      required:
+                        - status
+                        - claims
+                        - claim_count
+                        - claims_confident
+                        - claims_maybe
+                        - claims_guessing
+                        - suggestions
+                        - suggestion_count
+                        - plugins
+                        - installed_plugins
+                      description:
+                        Wire event fields, excluding the daemon-stamped base fields (type, daemon_event_id, recorded_at,
+                        assistant_version).
+                    daemon_event_id:
+                      description:
+                        "Optional collapse key: rows sharing an id collapse downstream (e.g. a retried report). Defaults to a fresh
+                        per-row id."
+                      type: string
+                      minLength: 1
+                      maxLength: 128
+                  required:
+                    - type
+                    - fields
+              type: object
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      id:
+                        type: string
+                        description: Event ID
+                    required:
+                      - id
+                    additionalProperties: false
+                  - type: object
+                    properties:
+                      skipped:
+                        type: boolean
+                        const: true
+                        description: "Event skipped: usage data collection is disabled or the telemetry database is unavailable"
+                    required:
+                      - skipped
                     additionalProperties: false
   /v1/telemetry/lifecycle:
     post:
@@ -29238,105 +29708,6 @@ paths:
                         type: boolean
                         const: true
                         description: Event skipped due to usage data collection being disabled
-                    required:
-                      - skipped
-                    additionalProperties: false
-  /v1/telemetry/onboarding-research:
-    post:
-      operationId: telemetry_onboardingresearch_post
-      summary: Record onboarding-research event
-      description:
-        'Record the settled result of an onboarding "research me" web-search turn (claims, suggestions, and
-        plugin picks). Client-orchestrated: the web client reports this once it has observed the turn complete. Gated on
-        share_diagnostics consent (in addition to share_analytics) since the payload carries the model''s raw inferred
-        claims about the user.'
-      tags:
-        - telemetry
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                conversation_id:
-                  anyOf:
-                    - type: string
-                    - type: "null"
-                status:
-                  type: string
-                  enum:
-                    - done
-                    - error
-                claims:
-                  type: array
-                  items:
-                    type: object
-                    properties:
-                      claim:
-                        type: string
-                      confidence:
-                        type: string
-                        enum:
-                          - confident
-                          - maybe
-                          - guessing
-                      sources:
-                        type: array
-                        items:
-                          type: string
-                    required:
-                      - claim
-                      - confidence
-                      - sources
-                suggestions:
-                  type: array
-                  items:
-                    type: object
-                    properties:
-                      suggestion:
-                        type: string
-                      prompt:
-                        type: string
-                    required:
-                      - suggestion
-                      - prompt
-                plugins:
-                  type: array
-                  items:
-                    type: string
-                installed_plugins:
-                  type: array
-                  items:
-                    type: string
-              required:
-                - conversation_id
-                - status
-                - claims
-                - suggestions
-                - plugins
-                - installed_plugins
-      responses:
-        "200":
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                anyOf:
-                  - type: object
-                    properties:
-                      id:
-                        type: string
-                        description: Event ID
-                    required:
-                      - id
-                    additionalProperties: false
-                  - type: object
-                    properties:
-                      skipped:
-                        type: boolean
-                        const: true
-                        description: "Event skipped: usage data collection or diagnostics consent is disabled/ineligible"
                     required:
                       - skipped
                     additionalProperties: false
@@ -31715,8 +32086,6 @@ components:
               anyOf:
                 - type: object
                   properties:
-                    mode:
-                      $ref: "#/components/schemas/ServiceMode"
                     provider:
                       type: string
                   additionalProperties: {}
@@ -31753,6 +32122,7 @@ components:
         - minimax
         - atlascloud
         - together
+        - baseten
     ProfilePatchEntry:
       type: object
       properties:
@@ -32129,6 +32499,7 @@ components:
         - openai-compatible
         - minimax
         - atlascloud
+        - baseten
         - vellum
     Auth:
       oneOf:
@@ -32191,6 +32562,20 @@ components:
           minLength: 1
       required:
         - id
+    TelemetryJsonValue:
+      anyOf:
+        - type: string
+        - type: number
+        - type: boolean
+        - type: "null"
+        - type: array
+          items:
+            $ref: "#/components/schemas/TelemetryJsonValue"
+        - type: object
+          propertyNames:
+            type: string
+          additionalProperties:
+            $ref: "#/components/schemas/TelemetryJsonValue"
     ConfigGetResponse:
       type: object
       properties:
@@ -32513,8 +32898,6 @@ components:
             web-fetch:
               type: object
               properties:
-                mode:
-                  $ref: "#/components/schemas/ServiceMode"
                 provider:
                   type: string
               additionalProperties: {}

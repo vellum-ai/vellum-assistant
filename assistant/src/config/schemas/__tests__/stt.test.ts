@@ -61,15 +61,18 @@ describe("managed mode", () => {
     expect(parsed.provider).toBe("vellum");
   });
 
-  test("rejects provider vellum under your-own mode", () => {
+  test("accepts provider vellum regardless of mode", () => {
     const result = SttServiceSchema.safeParse({
       mode: "your-own",
       provider: "vellum",
     });
-    expect(result.success).toBe(false);
+    expect(result.success).toBe(true);
   });
 
-  test("effectiveSttProvider routes managed mode to vellum and preserves BYOK otherwise", () => {
+  test("effectiveSttProvider routes provider vellum and managed mode to vellum, preserves BYOK otherwise", () => {
+    expect(
+      effectiveSttProvider({ mode: "your-own", provider: "vellum" }),
+    ).toBe("vellum");
     expect(
       effectiveSttProvider({ mode: "managed", provider: "deepgram" }),
     ).toBe("vellum");

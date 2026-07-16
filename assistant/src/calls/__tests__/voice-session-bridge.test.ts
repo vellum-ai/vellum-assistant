@@ -70,8 +70,6 @@ interface FakeConversation {
   updateClient: (cb: unknown, reset?: boolean) => void;
   runAgentLoop: (...args: unknown[]) => Promise<void>;
   abort: (reason?: unknown) => void;
-  currentActiveSurfaceId?: string;
-  currentPage?: string;
 }
 
 function makeFakeConversation(opts: {
@@ -344,6 +342,53 @@ describe("startVoiceTurn triage-and-escalate control prompt", () => {
       voiceControlPrompt: LIVE_VOICE_PROMPT,
     });
     expect(installed()).toBe(LIVE_VOICE_PROMPT);
+  });
+});
+
+describe("startVoiceTurn channel capabilities", () => {
+  // Voice calls are non-interactive: the bridge forces supportsDynamicUi off
+  // for every voice turn so ui-surface tools never reach the model mid-call,
+  // while leaving the rest of the channel's resolved capabilities intact.
+
+  // The turn installs its capabilities, then cleanup resets them to null — so
+  // capture every applied value and read the installed (non-null) one.
+  function captureInstalledCapabilities(): () =>
+    | Record<string, unknown>
+    | undefined {
+    const fake = makeFakeConversation({ processing: false });
+    fakeConversation = fake.conversation;
+    const applied: unknown[] = [];
+    fake.conversation.setChannelCapabilities = (caps) => {
+      applied.push(caps);
+    };
+    return () =>
+      applied.find(
+        (caps): caps is Record<string, unknown> =>
+          caps != null && typeof caps === "object",
+      );
+  }
+
+  test("a vellum/macos (live-voice) turn forces supportsDynamicUi off, other fields untouched", async () => {
+    const installed = captureInstalledCapabilities();
+    await startVoiceTurn({
+      ...makeTurnOptions(),
+      userMessageChannel: "vellum",
+      userMessageInterface: "macos",
+    });
+    const caps = installed();
+    expect(caps?.supportsDynamicUi).toBe(false);
+    // The override is surgical: live-voice keeps identifying as vellum/macos.
+    expect(caps?.dashboardCapable).toBe(true);
+    expect(caps?.supportsVoiceInput).toBe(true);
+    expect(caps?.clientOS).toBe("macos");
+  });
+
+  test("phone defaults (no channel overrides) also yield supportsDynamicUi false", async () => {
+    const installed = captureInstalledCapabilities();
+    await startVoiceTurn(makeTurnOptions());
+    const caps = installed();
+    expect(caps?.channel).toBe("phone");
+    expect(caps?.supportsDynamicUi).toBe(false);
   });
 });
 
@@ -971,54 +1016,5 @@ describe("startVoiceTurn race-loss state restore", () => {
     expect(waited.channelCapabilities).toBe(winnerState.channelCapabilities);
     expect(waited.callSessionId).toBe(winnerState.callSessionId);
     expect(waited.assistantId).toBe(winnerState.assistantId);
-  });
-});
-
-describe("startVoiceTurn active-surface context (voice surface resume)", () => {
-  // Captured via an object property (not a bare `let`) so the closure write is
-  // visible to the assertion without control-flow narrowing to `null`.
-  const captureSurfaceStateAtLoop = () => {
-    const captured: {
-      value: { activeSurfaceId?: string; currentPage?: string } | null;
-    } = { value: null };
-    const fake = makeFakeConversation({
-      processing: false,
-      runAgentLoop: async () => {
-        captured.value = {
-          activeSurfaceId: fake.conversation.currentActiveSurfaceId,
-          currentPage: fake.conversation.currentPage,
-        };
-      },
-    });
-    return { fake, captured };
-  };
-
-  test("installs activeSurfaceId and clears currentPage before the agent loop runs", async () => {
-    const { fake, captured } = captureSurfaceStateAtLoop();
-    fakeConversation = fake.conversation;
-    // A prior turn's stale page must not survive into the resumed surface turn.
-    fake.conversation.currentPage = "stale-page";
-
-    await startVoiceTurn({ ...makeTurnOptions(), activeSurfaceId: "surf-1" });
-    await flushMicrotasks();
-
-    expect(captured.value).toEqual({
-      activeSurfaceId: "surf-1",
-      currentPage: undefined,
-    });
-  });
-
-  test("leaves currentPage untouched on an ordinary STT turn (no activeSurfaceId)", async () => {
-    const { fake, captured } = captureSurfaceStateAtLoop();
-    fakeConversation = fake.conversation;
-    fake.conversation.currentPage = "keep-me";
-
-    await startVoiceTurn(makeTurnOptions()); // no activeSurfaceId
-    await flushMicrotasks();
-
-    expect(captured.value).toEqual({
-      activeSurfaceId: undefined,
-      currentPage: "keep-me",
-    });
   });
 });

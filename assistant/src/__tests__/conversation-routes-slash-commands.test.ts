@@ -8,25 +8,9 @@
  */
 import { existsSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import {
-  afterEach,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  mock,
-  test,
-} from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
 import { setConfig } from "./helpers/set-config.js";
-
-// Legacy-shaped fixtures (llm.default-centric resolution): pinned to the
-// flag-off cascade. Override-or-default (flag-on) semantics are pinned by
-// llm-resolver-override-or-default.test.ts and its companion suites.
-beforeAll(() => {
-  setOverridesForTesting({ "override-or-default-resolution": false });
-});
 
 mock.module("../config/env.js", () => ({ isHttpAuthDisabled: () => true }));
 
@@ -39,12 +23,14 @@ const formatCompactResultMock = mock(
 
 // The /context and /compact branches resolve the conversation's override
 // profile ("short-context", via the mocked getConversationOverrideProfile)
-// against the real workspace config, so seed the profile plus the default
-// model the assertions render.
+// against the real workspace config. The profile is complete (provider +
+// model) so it is a usable winner; its narrowed context window is what the
+// /context budget must reflect.
 setConfig("llm", {
-  default: { model: "claude-opus-4-7" },
   profiles: {
     "short-context": {
+      provider: "anthropic",
+      model: "claude-opus-4-7",
       contextWindow: { maxInputTokens: 150000 },
     },
   },

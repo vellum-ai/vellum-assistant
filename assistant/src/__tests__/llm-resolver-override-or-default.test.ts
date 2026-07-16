@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 
 import { CODE_DEFAULT_PROFILE_ENTRIES } from "../config/default-profile-catalog.js";
 import {
@@ -8,13 +8,6 @@ import {
   selectWinningProfile,
 } from "../config/llm-resolver.js";
 import { LLMConfigBase, LLMSchema } from "../config/schemas/llm.js";
-import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
-
-// Pins the override-or-default (flag-on, shipped default) semantics. The
-// legacy merge cascade is pinned by llm-resolver.test.ts under flag-off.
-beforeAll(() => {
-  setOverridesForTesting({ "override-or-default-resolution": true });
-});
 
 const schemaBase = LLMConfigBase.parse({});
 
@@ -205,7 +198,7 @@ describe("composition", () => {
     // siblings.
     expect(resolved.thinking.enabled).toBe(true);
     expect(resolved.thinking.streamThinking).toBe(false);
-    // Fields nobody set fall to schema defaults, not llm.default.
+    // Fields nobody set fall to the code-owned schema defaults.
     expect(resolved.verbosity).toBe(schemaBase.verbosity);
   });
 
@@ -327,7 +320,7 @@ describe("mix profiles", () => {
   });
 });
 
-describe("resolveDefaultProfileKey (flag-on)", () => {
+describe("resolveDefaultProfileKey", () => {
   test("mainAgent: activeProfile, else the call-site intent", () => {
     const withActive = LLMSchema.parse({
       profiles: { mine: completeCustom },
@@ -349,48 +342,6 @@ describe("resolveDefaultProfileKey (flag-on)", () => {
       ...anthropicDp,
     });
     expect(resolveDefaultProfileKey("mainAgent", llm)).toBe("balanced");
-  });
-});
-
-describe("flag-on / flag-off parity on materialized workspaces", () => {
-  // For a workspace the M6 data PRs produced — complete custom profiles,
-  // llm.default equal to what the profiles were materialized against — the
-  // two semantics must resolve identically on the common paths.
-  const materializedLlm = () =>
-    LLMSchema.parse({
-      default: {
-        ...schemaBase,
-        provider: "openai",
-        provider_connection: "openai-personal",
-        model: "gpt-5.5",
-      },
-      profiles: { "custom-balanced": completeCustom },
-      activeProfile: "custom-balanced",
-      defaultProvider: { provider: "openai" },
-    });
-
-  test("mainAgent under an active materialized profile resolves identically", () => {
-    const llm = materializedLlm();
-    const flagOn = resolveCallSiteConfig("mainAgent", llm, {
-      resolutionSemantics: "override-or-default",
-    });
-    const flagOff = resolveCallSiteConfig("mainAgent", llm, {
-      resolutionSemantics: "legacy-merge",
-    });
-    expect(flagOn).toEqual(flagOff);
-  });
-
-  test("an override pin on a materialized profile resolves identically", () => {
-    const llm = materializedLlm();
-    const flagOn = resolveCallSiteConfig("mainAgent", llm, {
-      overrideProfile: "custom-balanced",
-      resolutionSemantics: "override-or-default",
-    });
-    const flagOff = resolveCallSiteConfig("mainAgent", llm, {
-      overrideProfile: "custom-balanced",
-      resolutionSemantics: "legacy-merge",
-    });
-    expect(flagOn).toEqual(flagOff);
   });
 });
 

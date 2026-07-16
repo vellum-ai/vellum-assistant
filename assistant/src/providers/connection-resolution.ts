@@ -28,7 +28,6 @@
  */
 
 import {
-  isOverrideOrDefaultResolutionEnabled,
   resolveCallSiteConfig,
   selectWinningProfile,
 } from "../config/llm-resolver.js";
@@ -233,7 +232,8 @@ export async function tryResolveProviderForConnectionName(
  * construction-time path (subagent manager, conversation store,
  * approval/guardian generators, rollup producer).
  *
- * Reads `config.llm.default.{provider, provider_connection}`.
+ * Resolves the mainAgent call-site config and reads its
+ * `{provider, provider_connection}`.
  *
  *   - Throws `ConnectionResolutionError` if the default profile has no
  *     `provider_connection` (boot-time backfill should have set one;
@@ -285,16 +285,16 @@ export async function resolveDefaultProvider(
         : null;
       if (incompatMsg) {
         throw new ConnectionResolutionError(
-          "<llm.default>",
+          "<default>",
           "model_incompatible",
           incompatMsg,
           { model: resolved.model },
         );
       }
       throw new ConnectionResolutionError(
-        "<llm.default>",
+        "<default>",
         "missing_connection",
-        `llm.default.provider_connection is unset — every profile must declare a provider_connection. The boot-time backfill in lifecycle.ts populates this field; if you see this error, the backfill did not run or the field was manually cleared.`,
+        `The resolved default config carries no provider_connection and no active connection exists for provider "${resolved.provider}". Connect a provider or point llm.defaultProvider at one with credentials.`,
       );
     }
   }
@@ -460,12 +460,10 @@ export async function mainAgentResolutionError(
   registeredProviders: string[],
 ): Promise<ProviderNotConfiguredError> {
   const resolved = resolveCallSiteConfig("mainAgent", llm);
-  if (isOverrideOrDefaultResolutionEnabled()) {
-    await preflightResolvedConfig(resolved, {
-      profileName:
-        selectWinningProfile("mainAgent", llm, {}).profileName ?? undefined,
-    });
-  }
+  await preflightResolvedConfig(resolved, {
+    profileName:
+      selectWinningProfile("mainAgent", llm, {}).profileName ?? undefined,
+  });
   return new ProviderNotConfiguredError(
     resolved.provider,
     registeredProviders,

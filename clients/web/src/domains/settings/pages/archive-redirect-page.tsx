@@ -11,7 +11,7 @@ export function ArchiveRedirectPage() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    navigate(routes.settings.advanced, { replace: true });
+    navigate(`${routes.settings.debug}?tab=archive`, { replace: true });
   }, [navigate]);
 
   return null;

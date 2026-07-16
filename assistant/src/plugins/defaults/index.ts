@@ -37,6 +37,7 @@ import { documentsInjectors } from "./documents/injectors.js";
 import documentsPkg from "./documents/package.json" with { type: "json" };
 import emptyResponsePostModelCall from "./empty-response/hooks/post-model-call.js";
 import emptyResponseStop from "./empty-response/hooks/stop.js";
+import emptyResponseUserPromptSubmit from "./empty-response/hooks/user-prompt-submit.js";
 import { resetEmptyResponseNudgeStoreForTests } from "./empty-response/nudge-state-store.js";
 import emptyResponsePkg from "./empty-response/package.json" with { type: "json" };
 import explorationDriftPostToolUse, {
@@ -156,7 +157,12 @@ export const defaultCompactionPlugin: Plugin = {
  * `empty-response` — a `post-model-call` hook that re-queries the model when a
  * turn yields with no tool calls but came back empty (or as a provider
  * refusal); the `stop` hook clears the one-shot nudge bound on a terminal stop
- * so the next run nudges afresh.
+ * so the next run nudges afresh. The `user-prompt-submit` hook runs a turn-start
+ * sweep that drops previously-refused exchanges (marked by the persisted
+ * `REFUSAL_FALLBACK_TEXT`) from the working history, so a single refusal doesn't
+ * poison the conversation by re-sending the flagged prompt every turn. It is
+ * registered before `history-repair`, which normalizes any role-alternation
+ * artifact a dropped run leaves behind.
  */
 export const defaultEmptyResponsePlugin: Plugin = {
   manifest: {
@@ -164,6 +170,7 @@ export const defaultEmptyResponsePlugin: Plugin = {
     version: emptyResponsePkg.version,
   },
   hooks: {
+    "user-prompt-submit": emptyResponseUserPromptSubmit,
     "post-model-call": emptyResponsePostModelCall,
     stop: emptyResponseStop,
   },

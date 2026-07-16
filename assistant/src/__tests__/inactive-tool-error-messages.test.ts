@@ -84,14 +84,14 @@ describe("buildInactiveToolMessage", () => {
 
   test("owner-less context gating lists the active tools instead of a skill hint", () => {
     const msg = buildInactiveToolMessage({
-      name: "app_open",
+      name: "ui_show",
       owner: undefined,
       subagentAllowedTools: undefined,
       memoryEnabled: true,
       activeToolNames: ACTIVE,
     });
     expect(msg).toBe(
-      'Tool "app_open" is not available in this context. Available tools: bash, file_read, web_search',
+      'Tool "ui_show" is not available in this context. Available tools: bash, file_read, web_search',
     );
     expect(msg).not.toContain("Load the skill");
   });

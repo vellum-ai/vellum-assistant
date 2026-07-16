@@ -15,6 +15,7 @@ import {
   handleOpenUrl,
   handleNavigateSettings,
   handleOpenPanel,
+  handleOpenConversation,
 } from "@/domains/chat/utils/stream-handlers/navigation-handlers";
 import {
   handleAssistantTextDelta,
@@ -268,6 +269,9 @@ export function useStreamEventHandler(
           break;
         case "open_panel":
           handleOpenPanel(event, ctx);
+          break;
+        case "open_conversation":
+          handleOpenConversation(event, ctx);
           break;
         case "assistant_turn_start":
           handleAssistantTurnStart(event, ctx);

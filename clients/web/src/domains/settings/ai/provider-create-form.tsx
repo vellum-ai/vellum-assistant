@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, useRef, useState, type ReactNode } from "react";
 
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@vellumai/design-library/components/button";
@@ -9,27 +9,33 @@ import { toast } from "@vellumai/design-library/components/toast";
 import { Typography } from "@vellumai/design-library/components/typography";
 import { ChevronRight } from "lucide-react";
 
-import { credentialPresenceQueryKey, useStoredCredentialPresence } from "@/domains/settings/ai/use-stored-credential-presence";
+import {
+  credentialPresenceQueryKey,
+  useStoredCredentialPresence,
+} from "@/domains/settings/ai/use-stored-credential-presence";
 import { secretsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 import {
-    inferenceProviderconnectionsPost,
-    secretsPost,
+  inferenceProviderconnectionsPost,
+  secretsPost,
 } from "@/generated/daemon/sdk.gen";
 
-import { providerSupportsPlatformAuth, PROVIDER_DISPLAY_NAMES } from "@/assistant/llm-model-catalog";
+import { PROVIDER_DISPLAY_NAMES } from "@/assistant/llm-model-catalog";
 import { ChatgptOAuthSection } from "@/domains/settings/ai/chatgpt-oauth-section";
 import { deriveProviderDefaults } from "@/domains/settings/ai/profile-prefill";
-import type { Auth, ConnectionProvider, InferenceProviderconnectionsPostData, ProviderConnection } from "@/generated/daemon/types.gen";
+import type {
+  Auth,
+  ConnectionProvider,
+  InferenceProviderconnectionsPostData,
+  ProviderConnection,
+} from "@/generated/daemon/types.gen";
 import { ProviderEditorApiKeySection } from "@/domains/settings/ai/provider-editor-api-key-section";
 import {
-    AUTH_TYPE_DISPLAY_NAMES,
-    connectionSaveErrorMessage,
-    parseCredentialRef,
-    type AuthType,
+  connectionSaveErrorMessage,
+  parseCredentialRef,
+  validationErrorMessage,
 } from "@/domains/settings/ai/provider-editor-constants";
 import { useSelectableConnectionProviders } from "@/domains/settings/ai/provider-availability";
 import { secretPlaceholder } from "@/domains/settings/ai/secret-placeholder";
-import { useLabelKeySync } from "@/domains/settings/ai/use-label-key-sync";
 import { useProviderCredentialsList } from "@/domains/settings/ai/use-provider-credentials-list";
 
 // ---------------------------------------------------------------------------
@@ -72,23 +78,30 @@ export function ProviderCreateForm({
       ? defaultProviderType
       : (selectableConnectionProviders[0] ?? "anthropic");
 
-  // Seed Display Name (label) + Key (name) from the initial provider type so
-  // the form opens pre-filled (e.g. Anthropic → "Anthropic" / "anthropic"),
-  // deduped against existing connection names. The user can override both, and
-  // a provider-type change re-seeds only while they haven't edited the fields
-  // (see the dirty guard in the Provider dropdown's onChange below).
-  const initialDefaults = deriveProviderDefaults(initialProvider, existingNames);
+  // Seed the user-facing label and internal name from the provider type,
+  // deduped against existing provider names.
+  const initialDefaults = deriveProviderDefaults(
+    initialProvider,
+    existingNames,
+  );
 
   const [label, setLabel] = useState(initialDefaults.name);
   const [name, setName] = useState(initialDefaults.key);
-  const [provider, setProvider] = useState<ConnectionProvider>(initialProvider);
-  const [authType, setAuthType] = useState<AuthType>(() =>
-    initialProvider === "ollama"
-      ? "none"
-      : providerSupportsPlatformAuth(initialProvider)
-        ? "platform"
-        : "api_key",
+  // The picker offers real connection providers plus "chatgpt", a
+  // subscription-auth pseudo-provider: its connection is created by the OAuth
+  // sign-in flow rather than this form's Save.
+  const [selected, setSelected] = useState<ConnectionProvider | "chatgpt">(
+    initialProvider,
   );
+  const isChatgpt = selected === "chatgpt";
+  const provider: ConnectionProvider = isChatgpt ? "openai" : selected;
+  // Auth is derived from the provider, never user-chosen: ollama is keyless,
+  // ChatGPT is subscription (OAuth), everything else authenticates by API key.
+  const authType: Auth["type"] = isChatgpt
+    ? "oauth_subscription"
+    : provider === "ollama"
+      ? "none"
+      : "api_key";
   const [credential, setCredential] = useState(() =>
     initialProvider === "ollama" ? "" : `credential/${initialProvider}/api_key`,
   );
@@ -99,53 +112,56 @@ export function ProviderCreateForm({
   const [isDetailsExpanded, setIsDetailsExpanded] = useState(false);
 
   const isOpenAICompatible = provider === "openai-compatible";
-  const connectionProviderOptions = useMemo(() => {
-    if (provider && !selectableConnectionProviders.includes(provider)) {
-      return [...selectableConnectionProviders, provider];
+  const connectionProviderOptions = useMemo<
+    Array<ConnectionProvider | "chatgpt">
+  >(() => {
+    const base: Array<ConnectionProvider | "chatgpt"> =
+      !isChatgpt && !selectableConnectionProviders.includes(provider)
+        ? [...selectableConnectionProviders, provider]
+        : [...selectableConnectionProviders];
+    // Subscription-auth entry, right after its API-key sibling.
+    const openaiIndex = base.indexOf("openai");
+    if (openaiIndex >= 0) {
+      base.splice(openaiIndex + 1, 0, "chatgpt");
     }
-    return selectableConnectionProviders;
-  }, [provider, selectableConnectionProviders]);
+    return base;
+  }, [isChatgpt, provider, selectableConnectionProviders]);
 
-  const { handleLabelChange, handleKeyChange: handleNameChange, getDirty } =
-    useLabelKeySync("create", setLabel, setName);
+  const isLabelDirty = useRef(false);
+
+  function handleLabelChange(newLabel: string) {
+    isLabelDirty.current = true;
+    setLabel(newLabel);
+  }
 
   const [apiKeyValue, setApiKeyValue] = useState("");
   const [isSavingKey, setIsSavingKey] = useState(false);
   const queryClient = useQueryClient();
 
   // --- Credential presence (shared hook) ---
-  const parsedCredRef = useMemo(() => parseCredentialRef(credential), [credential]);
+  const parsedCredRef = useMemo(
+    () => parseCredentialRef(credential),
+    [credential],
+  );
   const needsCredentialCheck = authType === "api_key" && parsedCredRef !== null;
 
-  const {
-    hasStoredCredential,
-    isLoading: isLoadingCredential,
-  } = useStoredCredentialPresence({
-    assistantId,
-    credentialKind: "credential",
-    credentialName: parsedCredRef ? `${parsedCredRef.service}:${parsedCredRef.field}` : "",
-    enabled: needsCredentialCheck,
-  });
+  const { hasStoredCredential, isLoading: isLoadingCredential } =
+    useStoredCredentialPresence({
+      assistantId,
+      credentialKind: "credential",
+      credentialName: parsedCredRef
+        ? `${parsedCredRef.service}:${parsedCredRef.field}`
+        : "",
+      enabled: needsCredentialCheck,
+    });
 
   // --- Available credentials list ---
-  const {
-    credentials: availableCredentials,
-  } = useProviderCredentialsList({
+  const { credentials: availableCredentials } = useProviderCredentialsList({
     assistantId,
     enabled: true,
   });
 
-  const nameError = (() => {
-    if (!name.trim()) {
-      return null;
-    }
-    if (existingNames.includes(name.trim())) {
-      return `A connection named "${name.trim()}" already exists.`;
-    }
-    return null;
-  })();
-
-  const canSave = name.trim().length > 0 && !nameError;
+  const canSave = name.trim().length > 0;
 
   async function handleSave() {
     if (!canSave) {
@@ -189,7 +205,9 @@ export function ProviderCreateForm({
             );
             queryClient.setQueryData(presenceKey, true);
             void queryClient.invalidateQueries({
-              queryKey: secretsGetQueryKey({ path: { assistant_id: assistantId } }),
+              queryKey: secretsGetQueryKey({
+                path: { assistant_id: assistantId },
+              }),
             });
           } catch {
             setError("Failed to save API key. Please try again.");
@@ -197,24 +215,26 @@ export function ProviderCreateForm({
           } finally {
             setIsSavingKey(false);
           }
-        } else if (!hasStoredCredential) {
+          auth = { type: "api_key", credential: effectiveCredential };
+        } else if (hasStoredCredential) {
+          auth = { type: "api_key", credential: effectiveCredential };
+        } else if (isOpenAICompatible) {
+          // Custom endpoints have no fixed auth story: local servers are
+          // usually keyless. No key entered → keyless auth.
+          auth = { type: "none" };
+        } else {
           setError("Enter an API key or select an existing credential.");
           return;
         }
-
-        auth = { type: "api_key", credential: effectiveCredential };
       } else if (authType === "oauth_subscription") {
         // OAuth subscription connections are created by the OAuth flow
         // (ChatgptOAuthSection), not through Save.
-        setError("Use the \"Sign in with ChatGPT\" button to connect your subscription.");
-        return;
-      } else if (authType === "none") {
-        auth = { type: "none" };
-      } else if (authType === "service_account") {
-        setError("Service account connections cannot be created through this form.");
+        setError(
+          'Use the "Sign in with ChatGPT" button to connect your subscription.',
+        );
         return;
       } else {
-        auth = { type: "platform" };
+        auth = { type: "none" };
       }
 
       const labelValue = label.trim() || null;
@@ -234,21 +254,19 @@ export function ProviderCreateForm({
             : null,
         }),
       };
-      const { data: created, response: createRes } = await inferenceProviderconnectionsPost({
+      const {
+        data: created,
+        error: createErr,
+        response: createRes,
+      } = await inferenceProviderconnectionsPost({
         path: { assistant_id: assistantId },
         body: input,
       });
       if (!createRes?.ok) {
-        let serverMessage: string | undefined;
-        try {
-          const body = await createRes?.json();
-          if (typeof body?.error?.message === "string") {
-            serverMessage = body.error.message;
-          }
-        } catch {
-          // Response body not JSON-parseable; fall through to generic message.
-        }
-        setError(serverMessage || connectionSaveErrorMessage(createRes?.status, name.trim()));
+        setError(
+          validationErrorMessage(createRes?.status, createErr) ??
+            connectionSaveErrorMessage(createRes?.status),
+        );
         return;
       }
       if (!created) {
@@ -260,7 +278,7 @@ export function ProviderCreateForm({
       toast.success("Provider connected");
       onCreated(created);
     } catch {
-      setError("Failed to save connection. Please try again.");
+      setError("Failed to save provider. Please try again.");
     } finally {
       setSaving(false);
     }
@@ -282,10 +300,8 @@ export function ProviderCreateForm({
     hasStoredCredential,
   );
 
-  // Display Name + Key are auto-derived from the selected provider and rarely
-  // need editing, so they live under an "Advanced" disclosure. Force it open
-  // when the Key collides with an existing connection so the error is visible.
-  const detailsOpen = isDetailsExpanded || Boolean(nameError);
+  // Display Name is optional and rarely needs editing.
+  const detailsOpen = isDetailsExpanded;
 
   const advancedDetailsSection = (
     <div>
@@ -316,31 +332,6 @@ export function ProviderCreateForm({
               fullWidth
             />
           </div>
-
-          {/* Key — editable on create, auto-derived from label */}
-          <div className="space-y-1">
-            <label className="block text-body-small-default text-[var(--content-tertiary)]">
-              Key
-            </label>
-            <Input
-              value={name}
-              onChange={(e) => {
-                handleNameChange(e.target.value);
-                setError(null);
-              }}
-              placeholder="e.g. anthropic-personal"
-              fullWidth
-            />
-            {nameError && (
-              <Typography
-                variant="body-small-default"
-                as="p"
-                className="text-(--system-negative-strong)"
-              >
-                {nameError}
-              </Typography>
-            )}
-          </div>
         </div>
       )}
     </div>
@@ -355,45 +346,28 @@ export function ProviderCreateForm({
         </label>
         <Dropdown
           aria-label="Provider"
-          value={provider}
-          onChange={(newProvider) => {
-            setProvider(newProvider);
-            // Re-seed Name + Key from the newly selected provider type, but
-            // only while the user hasn't manually edited either field (dirty
-            // tracking lives in useLabelKeySync). Seeding writes state
-            // directly so it doesn't itself flip the dirty flag.
-            if (!getDirty()) {
-              const { name: seedName, key: seedKey } = deriveProviderDefaults(
-                newProvider,
-                existingNames,
-              );
+          value={selected}
+          onChange={(newSelected) => {
+            setSelected(newSelected);
+            setError(null);
+            if (newSelected === "chatgpt") {
+              return;
+            }
+            // Internal names always follow the selected provider. Preserve a
+            // user-edited Display Name across provider changes.
+            const { name: seedName, key: seedKey } = deriveProviderDefaults(
+              newSelected,
+              existingNames,
+            );
+            if (!isLabelDirty.current) {
               setLabel(seedName);
-              setName(seedKey);
             }
-            if (newProvider === "ollama") {
-              setAuthType("none");
-              setCredential("");
-            } else {
-              setAuthType((prev) => {
-                if (prev === "none") {
-                  return "api_key";
-                }
-                if (
-                  prev === "oauth_subscription" &&
-                  newProvider !== "openai"
-                ) {
-                  return "api_key";
-                }
-                if (
-                  prev === "platform" &&
-                  !providerSupportsPlatformAuth(newProvider)
-                ) {
-                  return "api_key";
-                }
-                return prev;
-              });
-              setCredential(`credential/${newProvider}/api_key`);
-            }
+            setName(seedKey);
+            setCredential(
+              newSelected === "ollama"
+                ? ""
+                : `credential/${newSelected}/api_key`,
+            );
             // Credential ref changes above trigger a new TQ query key,
             // so the presence check auto-refetches for the new provider.
           }}
@@ -439,44 +413,7 @@ export function ProviderCreateForm({
         </>
       )}
 
-      {/* Auth type */}
-      <div className="space-y-1">
-        <label className="block text-body-small-default text-[var(--content-tertiary)]">
-          Auth Type
-        </label>
-        <Dropdown
-          aria-label="Auth type"
-          value={authType}
-          onChange={(v) => {
-            setAuthType(v);
-            setError(null);
-          }}
-          disabled={provider === "ollama"}
-          options={(() => {
-            let types: AuthType[];
-            if (provider === "ollama") {
-              types = ["none"];
-            } else if (providerSupportsPlatformAuth(provider)) {
-              types = ["api_key", "platform"];
-            } else {
-              types = ["api_key"];
-            }
-            // Add oauth_subscription when ChatGPT flag is enabled for OpenAI.
-            if (provider === "openai") {
-              types.push("oauth_subscription");
-            }
-            if (authType && !types.includes(authType)) {
-              types.push(authType);
-            }
-            return types.map((t) => ({
-              value: t,
-              label: AUTH_TYPE_DISPLAY_NAMES[t],
-            }));
-          })()}
-        />
-      </div>
-
-      {/* API Key + Advanced disclosure — only shown for api_key auth */}
+      {/* API Key + Advanced disclosure — only shown for key-based providers */}
       {authType === "api_key" && (
         <ProviderEditorApiKeySection
           apiKeyValue={apiKeyValue}
@@ -500,7 +437,7 @@ export function ProviderCreateForm({
         />
       )}
 
-      {advancedDetailsSection}
+      {!isChatgpt && advancedDetailsSection}
 
       {error && (
         <Typography
@@ -519,14 +456,16 @@ export function ProviderCreateForm({
       <Button variant="ghost" size="compact" onClick={onCancel}>
         Cancel
       </Button>
-      <Button
-        variant="primary"
-        size="compact"
-        disabled={!canSave || saving || isSavingKey}
-        onClick={() => void handleSave()}
-      >
-        {saving ? "Saving…" : "Create"}
-      </Button>
+      {!isChatgpt && (
+        <Button
+          variant="primary"
+          size="compact"
+          disabled={!canSave || saving || isSavingKey}
+          onClick={() => void handleSave()}
+        >
+          {saving ? "Saving…" : "Add"}
+        </Button>
+      )}
     </>
   );
 
@@ -542,9 +481,9 @@ export function ProviderCreateForm({
   return (
     <Modal.Content size="md">
       <Modal.Header>
-        <Modal.Title>New Provider Connection</Modal.Title>
+        <Modal.Title>Add Provider</Modal.Title>
         <Modal.Description>
-          Define a provider and auth configuration for inference routing.
+          Choose a provider and paste its API key.
         </Modal.Description>
       </Modal.Header>
 

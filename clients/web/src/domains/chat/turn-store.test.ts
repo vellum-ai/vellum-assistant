@@ -429,6 +429,28 @@ describe("ACTIVITY_STATE_THINKING", () => {
     expect(state).toBe(INITIAL_TURN_STATE);
   });
 
+  test("starts server-driven activity from idle when canStartFromIdle", () => {
+    const state = turnReducer(INITIAL_TURN_STATE, {
+      type: "ACTIVITY_STATE_THINKING",
+      statusText: "Summarizing conversation",
+      canStartFromIdle: true,
+    });
+    expect(state.phase).toBe("thinking");
+    expect(state.statusText).toBe("Summarizing conversation");
+    expect(state.activeTurnId).toBeNull();
+  });
+
+  test("server-driven activity still tears down on turn completion", () => {
+    const thinking = turnReducer(INITIAL_TURN_STATE, {
+      type: "ACTIVITY_STATE_THINKING",
+      statusText: "Summarizing conversation",
+      canStartFromIdle: true,
+    });
+    const state = turnReducer(thinking, { type: "MESSAGE_COMPLETE" });
+    expect(state.phase).toBe("idle");
+    expect(state.statusText).toBeNull();
+  });
+
   test("is discarded when errored with null activeTurnId", () => {
     const errored: TurnState = {
       ...INITIAL_TURN_STATE,

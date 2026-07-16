@@ -26,7 +26,7 @@ mock.module("@/domains/onboarding/prefs", () => ({
 }));
 
 const saveConsentMock = mock((_args: unknown) => {});
-mock.module("@/utils/onboarding-cleanup", () => ({
+mock.module("@/lib/consent/consent-persistence", () => ({
   saveConsent: saveConsentMock,
 }));
 
@@ -35,14 +35,11 @@ mock.module("@/domains/onboarding/funnel-events", () => ({
   emitOnboardingFunnelStepCompleted: emitFunnelStepCompletedMock,
   getOnboardingFunnelSessionId: () => "session-1",
   ONBOARDING_FUNNEL_STEPS: { privacyTos: "privacy_tos" },
-  onboardingFunnelVariantFromExperiment: () => "control",
-  resolveOnboardingFunnelVariant: () => "control",
 }));
 
 mock.module("@/runtime/is-electron", () => ({ isElectron: () => true }));
 // Mutable platform/flag state so individual tests can flip them.
 let nativePlatform = false;
-let researchFlag = false;
 let localMode = false;
 mock.module("@/lib/local-mode", () => ({ isLocalMode: () => localMode }));
 mock.module("@/runtime/native-auth", () => ({
@@ -54,7 +51,7 @@ mock.module("@/stores/auth-store", () => ({
 }));
 mock.module("@/stores/client-feature-flag-store", () => ({
   useClientFeatureFlagStore: {
-    use: { stringFlags: () => ({}), researchOnboarding: () => researchFlag },
+    use: { stringFlags: () => ({}) },
   },
 }));
 
@@ -104,33 +101,29 @@ describe("PrivacyScreen — Start navigation", () => {
     navigateMock.mockClear();
     saveConsentMock.mockClear();
     emitFunnelStepCompletedMock.mockClear();
-    researchFlag = false;
     nativePlatform = false;
     localMode = false;
   });
   afterEach(() => {
     cleanup();
-    researchFlag = false;
     nativePlatform = false;
     localMode = false;
   });
 
-  test("preview mode replays forward into prechat without persisting consent", () => {
+  test("preview mode no-ops on Start without persisting consent", () => {
     searchParamsValue = new URLSearchParams("preview=true");
     render(<PrivacyScreen />);
 
     clickStart();
 
-    // Developer "Replay Onboarding" advances privacy → prechat (sandboxed),
-    // never to the side-effecting hatching route, and never persists consent.
-    expect(navigateMock).toHaveBeenCalledWith(
-      `${routes.onboarding.prechat}?preview=true`,
-    );
+    // Developer "Replay Onboarding": preview mode allows only non-side-effecting
+    // routes, so Start is a no-op — it neither navigates nor persists consent.
+    expect(navigateMock).not.toHaveBeenCalled();
     expect(saveConsentMock).not.toHaveBeenCalled();
     expect(emitFunnelStepCompletedMock).not.toHaveBeenCalled();
   });
 
-  test("web persists consent and advances to the research flow (now the default), preserving hosting", () => {
+  test("web persists consent and advances to the research flow, preserving hosting", () => {
     nativePlatform = false;
     searchParamsValue = new URLSearchParams("hosting=managed");
     render(<PrivacyScreen />);
@@ -165,5 +158,65 @@ describe("PrivacyScreen — Start navigation", () => {
     clickStart();
 
     expect(navigateMock).toHaveBeenCalledWith(routes.onboarding.hatching);
+  });
+});
+
+describe("PrivacyScreen — Back navigation", () => {
+  const assignMock = mock((_url: string) => {});
+
+  beforeEach(() => {
+    navigateMock.mockClear();
+    assignMock.mockClear();
+    nativePlatform = false;
+    localMode = false;
+    searchParamsValue = new URLSearchParams();
+    // Guard against regressions: Back must stay inside the SPA and never reach
+    // for a full-document navigation to the marketing host.
+    Object.defineProperty(window, "location", {
+      value: { assign: assignMock },
+      configurable: true,
+      writable: true,
+    });
+  });
+  afterEach(() => {
+    cleanup();
+    nativePlatform = false;
+    localMode = false;
+  });
+
+  test("local mode: Back returns to the hosting screen deterministically", () => {
+    localMode = true;
+    render(<PrivacyScreen />);
+
+    fireEvent.click(screen.getByText("Back"));
+
+    expect(navigateMock).toHaveBeenCalledWith(routes.onboarding.hosting);
+    expect(assignMock).not.toHaveBeenCalled();
+  });
+
+  test("platform mode: Back lands on the in-SPA onboarding start screen", () => {
+    localMode = false;
+    render(<PrivacyScreen />);
+
+    fireEvent.click(screen.getByText("Back"));
+
+    expect(navigateMock).toHaveBeenCalledWith(routes.onboarding.start);
+    // Must not leave the SPA for the marketing host — that would switch a
+    // Capacitor staging/dev shell onto production.
+    expect(assignMock).not.toHaveBeenCalled();
+  });
+
+  test("native platform shell: Back stays in-SPA (no marketing-host escape)", () => {
+    // The environment-preservation case Codex flagged: on Capacitor
+    // staging/dev, isLocalMode() is false, so platform-mode Back applies. It
+    // must remain an in-SPA navigation, never a full-document nav to `/`.
+    localMode = false;
+    nativePlatform = true;
+    render(<PrivacyScreen />);
+
+    fireEvent.click(screen.getByText("Back"));
+
+    expect(navigateMock).toHaveBeenCalledWith(routes.onboarding.start);
+    expect(assignMock).not.toHaveBeenCalled();
   });
 });

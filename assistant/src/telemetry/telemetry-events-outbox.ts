@@ -9,9 +9,9 @@
 import { asc, eq, inArray } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
-import { getTelemetryDb } from "../persistence/db-connection.js";
+import { getSqliteFrom, getTelemetryDb } from "../persistence/db-connection.js";
 import { telemetryEvents } from "../persistence/schema/index.js";
-import { getCachedShareAnalytics } from "../platform/consent-cache.js";
+import { getRawShareAnalytics } from "../platform/consent-cache.js";
 import { APP_VERSION } from "../version.js";
 import type {
   OutboxTelemetryEventName,
@@ -22,6 +22,14 @@ import type {
 
 /** Ids per DELETE chunk — stays under SQLite's bound-variable limit. */
 const DELETE_CHUNK_SIZE = 500;
+
+/**
+ * Max age of a pending outbox row. The reporter prunes older rows at the
+ * start of every flush cycle, in every consent state — this is what bounds
+ * the unknown-consent buffering (a permanently-unknown state never resolves,
+ * and a row this stale is worthless telemetry anyway).
+ */
+export const OUTBOX_MAX_ROW_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 
 /** One pending outbox row; `payload` is the wire `TelemetryEvent` JSON. */
 export interface TelemetryOutboxRow {
@@ -82,19 +90,25 @@ export function insertTelemetryOutboxEvent(
 /**
  * Lower-level record escape hatch: for payloads that need the record-time
  * `(id, createdAt)` inside type-specific fields (onboarding's activation
- * `daemon_event_id` override and `completed_at`). Gates on usage-data
- * consent, generates the outbox row identity, builds the wire payload via
- * `buildEvent` (which owns all stamping), and inserts. Returns the generated
- * row identity, or null when usage data collection is disabled (the event is
- * dropped to honor the opt-out) or the telemetry DB is unavailable (degraded
- * mode). Prefer `recordTelemetryEvent` when the payload doesn't need them.
+ * `daemon_event_id` override and `completed_at`). Drops only on a confirmed
+ * `share_analytics` opt-out — the record-time drop is a privacy courtesy for
+ * known opt-outs. While consent is unknown (cold cache, no platform session)
+ * the event is recorded: dropping on an unresolved state would permanently
+ * destroy data, and consent is enforced again at flush time. Unknown-state
+ * buffering is bounded — the reporter prunes rows older than
+ * {@link OUTBOX_MAX_ROW_AGE_MS} each flush cycle. Generates the
+ * outbox row identity, builds the wire payload via `buildEvent` (which owns
+ * all stamping), and inserts. Returns the generated row identity, or null
+ * when dropped for the opt-out or when the telemetry DB is unavailable
+ * (degraded mode). Prefer `recordTelemetryEvent` when the payload doesn't
+ * need them.
  */
 export function recordTelemetryOutboxEvent(
   name: string,
   buildEvent: (id: string, createdAt: number) => TelemetryEvent,
   opts?: { conversationId?: string | null },
 ): { id: string; createdAt: number } | null {
-  if (!getCachedShareAnalytics()) {
+  if (getRawShareAnalytics() === false) {
     return null;
   }
   const id = uuid();
@@ -174,6 +188,25 @@ export function deleteTelemetryOutboxEvents(ids: string[]): void {
       .where(inArray(telemetryEvents.id, ids.slice(i, i + DELETE_CHUNK_SIZE)))
       .run();
   }
+}
+
+/**
+ * Delete rows recorded before `cutoffCreatedAt`, across every event name
+ * (age-bound prune). Returns the deleted row count; 0 when the telemetry DB
+ * is unavailable.
+ */
+export function deleteTelemetryOutboxEventsBefore(
+  cutoffCreatedAt: number,
+): number {
+  const db = getTelemetryDb();
+  if (!db) {
+    return 0;
+  }
+  // Raw statement: drizzle's bun-sqlite `.run()` is typed void, and the
+  // prune's only output is the changed-row count.
+  return getSqliteFrom(db)
+    .prepare("DELETE FROM telemetry_events WHERE created_at < ?")
+    .run(cutoffCreatedAt).changes;
 }
 
 /** Drop all pending rows for one event name (telemetry opt-out). */
