@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { PageShell } from "@/components/page-shell";
 import { fetchSchedules } from "@/domains/settings/api/schedules";
@@ -39,6 +39,9 @@ export interface HomePageProps {
   /** Navigate to a schedule's detail on the Schedules page
    *  (`/assistant/schedules/:scheduleId`). */
   onViewSchedule: (scheduleId: string) => void;
+  /** Feed item to open on arrival (routed here from the notifications
+   *  bell); its detail drawer opens once the feed has loaded. */
+  initialFeedItemId?: string | null;
 }
 
 /**
@@ -56,6 +59,7 @@ export function HomePage({
   validConversationIds,
   onOpenConversation,
   onViewSchedule,
+  initialFeedItemId,
 }: HomePageProps) {
   const isMobile = useIsMobile();
   const feedQuery = useHomeFeedQuery(assistantId);
@@ -133,6 +137,32 @@ export function HomePage({
   );
 
   const feedItems = feedQuery.data?.items ?? [];
+
+  // One-shot: when routed here from the notifications bell, open that item's
+  // detail drawer once the feed has loaded. Tracking the consumed id keeps a
+  // later refetch from re-opening a drawer the user has since closed.
+  const [consumedInitialItemId, setConsumedInitialItemId] = useState<
+    string | null
+  >(null);
+  useEffect(() => {
+    if (
+      !initialFeedItemId ||
+      initialFeedItemId === consumedInitialItemId ||
+      feedQuery.isLoading
+    ) {
+      return;
+    }
+    setConsumedInitialItemId(initialFeedItemId);
+    const item = feedItems.find((i) => i.id === initialFeedItemId);
+    if (item) handleSelectItem(item);
+  }, [
+    initialFeedItemId,
+    consumedInitialItemId,
+    feedQuery.isLoading,
+    feedItems,
+    handleSelectItem,
+  ]);
+
   const visibleFeedItems = excludeHighUrgency(
     feedItems.filter((i) => i.status !== "dismissed"),
   );

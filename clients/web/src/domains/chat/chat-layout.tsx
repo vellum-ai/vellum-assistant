@@ -30,9 +30,9 @@ import {
 } from "@/utils/routes";
 
 import { useChatLayoutSlotsStore } from "@/components/layout/chat-layout-slots-store";
+import { NotificationsBell } from "@/components/notifications-bell";
 import { useElectronDockSync } from "@/domains/chat/hooks/use-electron-dock-sync";
 import { useOpenAppFromChat } from "@/domains/chat/hooks/use-open-app-from-chat";
-import { useHomeUnreadBadge } from "@/hooks/use-home-unread-badge";
 import {
   DRAWER_SLIDE_MS,
   useEdgeSwipeDrawer,
@@ -202,10 +202,6 @@ export function ChatLayout() {
     conversationGroups,
   });
 
-  // Home page unread indicator — drives the red dot on the Home button in
-  // the layout header.
-  const { hasUnreadHome } = useHomeUnreadBadge(assistantId);
-
   // Mirror the unread count + signed-in flag into the Electron Dock
   // (no-op off Electron). Uses the conversation list this layout
   // already subscribes to, so there's no extra query — see
@@ -255,10 +251,6 @@ export function ChatLayout() {
   const canGoBack = historyIndex > 0;
   const canGoForward = historyIndex < maxHistoryIndex;
 
-  const handleOpenHome = useCallback(() => {
-    navigate(routes.home);
-  }, [navigate]);
-
   const handleOpenIdentity = useCallback(() => {
     navigate(routes.identity);
   }, [navigate]);
@@ -271,7 +263,6 @@ export function ChatLayout() {
     navigate(1);
   }, [navigate]);
 
-  const isHomeActive = location.pathname === routes.home;
   // Schedules paths count as About Assistant (via isAboutAssistantPath) —
   // the Schedules surface is a drill-down section under the overview.
   const isIdentityActive = isAboutAssistantPath(location.pathname);
@@ -697,9 +688,6 @@ export function ChatLayout() {
       onOpenIntelligence={handleOpenIdentity}
       isLibraryActive={isLibraryActive}
       onOpenLibrary={handleOpenLibrary}
-      isHomeActive={isHomeActive}
-      onOpenHome={handleOpenHome}
-      hasUnreadHome={hasUnreadHome}
       activeAppId={activeAppId ?? undefined}
       onOpenApp={handleOpenAppFromSidebar}
       onPinConversation={handleTogglePinConversation}
@@ -754,6 +742,10 @@ export function ChatLayout() {
             <>
               {topBarRightSlot}
               <VoiceSessionPillHost />
+              {/* The bell replaces the sidebar's Activity nav item: the
+                  notifications surface now opens as a popover from the top
+                  nav, with the full Activity page behind "View all". */}
+              <NotificationsBell assistantId={assistantId} />
             </>
           }
           canGoBack={canGoBack}

@@ -1,8 +1,4 @@
-import type {
-  FeedItem,
-  FeedItemCategory,
-  FeedItemSourceType,
-} from "@vellumai/assistant-api";
+import type { FeedItem, FeedItemCategory } from "@vellumai/assistant-api";
 
 /**
  * Client-side grouping of feed items by recency. Not part of the wire
@@ -90,57 +86,3 @@ export function getPresentCategories(items: FeedItem[]): FeedItemCategory[] {
   return [...categories];
 }
 
-/**
- * A distinct producer of feed items, identified by `key`. Schedules each
- * get their own key (`schedule:<id>`); other producers (heartbeat, memory
- * consolidation, …) share a key per `type`. Used to build the source filter.
- */
-export interface FeedSource {
-  key: string;
-  label: string;
-  type: FeedItemSourceType;
-}
-
-// Display order for the source filter: producer types first in a fixed
-// order, schedules grouped together and sorted by name within that band.
-const SOURCE_TYPE_ORDER: Record<FeedItemSourceType, number> = {
-  heartbeat: 0,
-  memory_consolidation: 1,
-  schedule: 2,
-  auto_analysis: 3,
-  user: 4,
-  other: 5,
-};
-
-/**
- * Return the distinct sources present in the items, ordered for display.
- * Items missing a `sourceKey` (e.g. not yet enriched) are skipped — they
- * remain visible under the "All sources" option.
- */
-export function getPresentSources(items: FeedItem[]): FeedSource[] {
-  const byKey = new Map<string, FeedSource>();
-  for (const item of items) {
-    const key = item.sourceKey;
-    if (!key || byKey.has(key)) continue;
-    byKey.set(key, {
-      key,
-      label: item.sourceLabel ?? key,
-      type: item.sourceType ?? "other",
-    });
-  }
-  return [...byKey.values()].sort((a, b) => {
-    const rankDiff = SOURCE_TYPE_ORDER[a.type] - SOURCE_TYPE_ORDER[b.type];
-    return rankDiff !== 0 ? rankDiff : a.label.localeCompare(b.label);
-  });
-}
-
-/**
- * Filter items by source key. If sourceKey is null, return all items.
- */
-export function filterBySource(
-  items: FeedItem[],
-  sourceKey: string | null,
-): FeedItem[] {
-  if (sourceKey === null) return items;
-  return items.filter((item) => item.sourceKey === sourceKey);
-}

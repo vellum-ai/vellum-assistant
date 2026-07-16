@@ -1,8 +1,9 @@
 import { useEffect, useMemo } from "react";
-import { useNavigate } from "react-router";
+import { useLocation, useNavigate } from "react-router";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { useChatLayoutSlotsStore } from "@/components/layout/chat-layout-slots-store";
+import type { ActivityLocationState } from "@/components/notifications-bell";
 import { HomePage } from "@/domains/home/home-page";
 import {
     useBackgroundConversationListQuery,
@@ -16,7 +17,12 @@ import { Typography } from "@vellumai/design-library";
 
 export function HomePageRoute() {
   const navigate = useNavigate();
+  const location = useLocation();
   const assistantId = useActiveAssistantId();
+  // Set when a notification row in the bell popover routed here — the page
+  // opens that item's detail drawer on arrival.
+  const initialFeedItemId =
+    (location.state as ActivityLocationState | null)?.feedItemId ?? null;
   const setTopBarCenter = useChatLayoutSlotsStore.use.setTopBarCenter();
   const isMobile = useIsMobile();
   const { conversations: foregroundConversations } =
@@ -60,6 +66,7 @@ export function HomePageRoute() {
     <HomePage
       assistantId={assistantId}
       validConversationIds={validConversationIds}
+      initialFeedItemId={initialFeedItemId}
       onOpenConversation={(conversationId) =>
         navigate(routes.conversation(conversationId))
       }
