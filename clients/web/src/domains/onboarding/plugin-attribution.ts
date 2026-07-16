@@ -1,66 +1,53 @@
 /**
  * Plugins the user should start with based on where they came from.
  *
- * When a logged-in user with no assistant yet clicks "Install in your assistant"
- * on a marketing plugin page (state B), the marketing side (platform repo
- * `web/src/lib/plugins-pending-intent.ts`) stashes the plugin in `localStorage`
- * — a URL param wouldn't survive onboarding, which lands on
- * `/assistant?onboarding=1`. Onboarding folds this into the set it installs (see
+ * When a logged-in user with no assistant clicks "Hatch an assistant with this
+ * plugin" on a marketing plugin page, the marketing side (platform repo
+ * `web/src/app/(marketing)/plugins/[slug]/_components/plugin-install-in-assistant-button.tsx`)
+ * routes them into onboarding with the plugin carried as a `?plugin=<name>`
+ * query parameter. Onboarding folds this into the set it installs (see
  * `onboarding-plugin-affinity`), so the user arrives with it already set up.
  *
- * It's a signal, not a one-shot command: it isn't consumed/cleared. Installs are
- * idempotent, so a re-read is harmless, and the record expires after
- * {@link PENDING_PLUGIN_INSTALL_MAX_AGE_MS} so a stale one can't linger. Not
- * clearing also means a momentarily-empty catalog (nothing installed this run)
- * doesn't discard the intent — a later run within the TTL still honors it.
+ * A query parameter — not `localStorage`, which this replaced — so the hand-off
+ * is visible to marketing analytics on the landing URL (the whole point of the
+ * switch). It rides the current onboarding URL: the research route holds a
+ * stable URL across its internal steps, so the param is readable for the whole
+ * flow, and it's naturally gone once the user leaves that URL (no TTL needed).
  *
- * Both sides MUST agree on the key + shape. Same-origin only (dev-only surface
- * served from the assistant host, sharing `localStorage` with marketing).
+ * It's a signal, not a one-shot command: reads are idempotent (an already-
+ * installed plugin 409s and is ignored) and everything is narrowed to the live
+ * catalog downstream, so an off-catalog or malformed value is simply dropped.
+ *
+ * Both repos MUST agree on {@link ATTRIBUTED_PLUGIN_PARAM}.
  */
 
-import { getLocalSetting } from "@/utils/local-settings";
-
-export const PENDING_PLUGIN_INSTALL_KEY = "vellum_pending_plugin_install";
-
-/** Ignore intents older than this so a stale one can't fire much later. */
-export const PENDING_PLUGIN_INSTALL_MAX_AGE_MS = 60 * 60 * 1000; // 1 hour
-
-interface PendingPluginInstall {
-  pluginId: string;
-  ts: number;
-}
+/** Query-param name carrying the marketing-attributed plugin. */
+export const ATTRIBUTED_PLUGIN_PARAM = "plugin";
 
 /**
- * The attributed plugin id, or `null` when there is none / it is malformed /
- * expired.
+ * The attributed plugin id from a query string, or `null` when there is none.
+ * `search` defaults to the current URL's query so the runner can read it
+ * without threading; pass an explicit string in tests.
  */
-function readAttributedPluginId(): string | null {
-  const raw = getLocalSetting(PENDING_PLUGIN_INSTALL_KEY, "");
-  if (!raw) {
-    return null;
-  }
+function readAttributedPluginId(search: string): string | null {
+  let params: URLSearchParams;
   try {
-    const parsed = JSON.parse(raw) as Partial<PendingPluginInstall>;
-    if (typeof parsed?.pluginId !== "string" || !parsed.pluginId) {
-      return null;
-    }
-    if (typeof parsed.ts !== "number") {
-      return null;
-    }
-    if (Date.now() - parsed.ts > PENDING_PLUGIN_INSTALL_MAX_AGE_MS) {
-      return null;
-    }
-    return parsed.pluginId;
+    params = new URLSearchParams(search);
   } catch {
     return null;
   }
+  const id = params.get(ATTRIBUTED_PLUGIN_PARAM)?.trim();
+  return id ? id : null;
 }
 
 /**
  * Plugin names to install for the user based on marketing attribution — the
- * plugin they clicked "Install" on before onboarding. Empty when there's none.
+ * plugin they clicked "Hatch an assistant with this plugin" on before
+ * onboarding. Empty when there's none.
  */
-export function pluginsFromAttribution(): string[] {
-  const pluginId = readAttributedPluginId();
+export function pluginsFromAttribution(
+  search: string = typeof window !== "undefined" ? window.location.search : "",
+): string[] {
+  const pluginId = readAttributedPluginId(search);
   return pluginId ? [pluginId] : [];
 }

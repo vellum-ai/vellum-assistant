@@ -13,6 +13,7 @@ import {
     ONBOARDING_FUNNEL_STEPS,
 } from "@/domains/onboarding/funnel-events";
 import { onboardingDestinationAfterConsent } from "@/domains/onboarding/onboarding-destination";
+import { ATTRIBUTED_PLUGIN_PARAM } from "@/domains/onboarding/plugin-attribution";
 import { isLocalMode } from "@/lib/local-mode";
 import {
     usePrivacyConsent,
@@ -74,6 +75,10 @@ export function PrivacyScreen() {
     const hostingParam = searchParams.get("hosting");
     const params = new URLSearchParams();
     if (hostingParam) params.set("hosting", hostingParam);
+    // Carry the marketing plugin attribution forward so the research runner can
+    // read it off the URL and pre-install that plugin (see `plugin-attribution`).
+    const pluginParam = searchParams.get(ATTRIBUTED_PLUGIN_PARAM);
+    if (pluginParam) params.set(ATTRIBUTED_PLUGIN_PARAM, pluginParam);
     const qs = params.toString();
     // A local-hosting onboarding (hosting=local/docker in a local-mode build)
     // must run the foreground local hatch first, so it goes to `hatching`, which

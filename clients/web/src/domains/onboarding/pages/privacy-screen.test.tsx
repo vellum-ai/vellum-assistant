@@ -138,6 +138,22 @@ describe("PrivacyScreen — Start navigation", () => {
     expect(target).toContain("hosting=managed");
   });
 
+  test("carries the marketing plugin attribution forward to the research flow", () => {
+    nativePlatform = false;
+    searchParamsValue = new URLSearchParams(
+      "hosting=managed&plugin=coffee-aficionado",
+    );
+    render(<PrivacyScreen />);
+
+    clickStart();
+
+    const target = navigateMock.mock.calls[0]?.[0] as string;
+    expect(target.startsWith(routes.onboarding.research)).toBe(true);
+    // The runner reads `plugin` off the (stable) research URL to pre-install it.
+    expect(target).toContain("plugin=coffee-aficionado");
+    expect(target).toContain("hosting=managed");
+  });
+
   test("local hosting routes to hatching first (foreground local hatch), preserving hosting", () => {
     localMode = true;
     nativePlatform = false;
