@@ -162,26 +162,30 @@ export function PrivacyScreen() {
             Start
           </Button>
           {/*
-           * Back is local-mode only. In local mode hosting is the screen that
-           * leads here (welcome → hosting → privacy), so go there deterministically
-           * rather than `navigate(-1)`. In platform mode privacy IS the onboarding
-           * entrypoint — there's nothing before it — and hosting is local-only
-           * (`enforceModeBoundary` bounces a platform user off it to `/assistant`,
-           * which then trips a non-onboarding hatch). So platform gets no Back,
-           * which also keeps the post-retire redirect (`resolvePostRetire` →
-           * privacy) from escaping onboarding.
+           * Back's destination is mode-specific. In local mode hosting is the
+           * screen that leads here (welcome → hosting → privacy), so go there
+           * deterministically rather than `navigate(-1)`. In platform mode privacy
+           * IS the onboarding entrypoint — there's nothing before it inside
+           * onboarding, and hosting is local-only (`enforceModeBoundary` bounces a
+           * platform user off it to `/assistant`, which then trips a non-onboarding
+           * hatch). So platform mode leaves onboarding entirely, back to the
+           * marketing landing page. `/` is served by the marketing app (the SPA
+           * only owns `/assistant/*`), so this needs a full-document navigation,
+           * not react-router `navigate`.
            */}
-          {isLocalMode() ? (
-            <Button
-              variant="outlined"
-              size="regular"
-              fullWidth
-              onClick={() => navigate(routes.onboarding.hosting)}
-              className={electron ? undefined : "h-11 text-base"}
-            >
-              Back
-            </Button>
-          ) : null}
+          <Button
+            variant="outlined"
+            size="regular"
+            fullWidth
+            onClick={() =>
+              isLocalMode()
+                ? navigate(routes.onboarding.hosting)
+                : window.location.assign("/")
+            }
+            className={electron ? undefined : "h-11 text-base"}
+          >
+            Back
+          </Button>
         </div>
 
       </div>

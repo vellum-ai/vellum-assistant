@@ -162,3 +162,47 @@ describe("PrivacyScreen — Start navigation", () => {
     expect(navigateMock).toHaveBeenCalledWith(routes.onboarding.hatching);
   });
 });
+
+describe("PrivacyScreen — Back navigation", () => {
+  const assignMock = mock((_url: string) => {});
+
+  beforeEach(() => {
+    navigateMock.mockClear();
+    assignMock.mockClear();
+    nativePlatform = false;
+    localMode = false;
+    searchParamsValue = new URLSearchParams();
+    // window.location.assign drives the platform-mode Back (a full-document nav
+    // to the marketing landing page, which the SPA does not own).
+    Object.defineProperty(window, "location", {
+      value: { assign: assignMock },
+      configurable: true,
+      writable: true,
+    });
+  });
+  afterEach(() => {
+    cleanup();
+    nativePlatform = false;
+    localMode = false;
+  });
+
+  test("local mode: Back returns to the hosting screen deterministically", () => {
+    localMode = true;
+    render(<PrivacyScreen />);
+
+    fireEvent.click(screen.getByText("Back"));
+
+    expect(navigateMock).toHaveBeenCalledWith(routes.onboarding.hosting);
+    expect(assignMock).not.toHaveBeenCalled();
+  });
+
+  test("platform mode: Back leaves onboarding for the marketing landing page", () => {
+    localMode = false;
+    render(<PrivacyScreen />);
+
+    fireEvent.click(screen.getByText("Back"));
+
+    expect(assignMock).toHaveBeenCalledWith("/");
+    expect(navigateMock).not.toHaveBeenCalled();
+  });
+});
