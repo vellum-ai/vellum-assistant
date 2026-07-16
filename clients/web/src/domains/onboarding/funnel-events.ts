@@ -12,10 +12,8 @@ export const ONBOARDING_FUNNEL_VARIANTS = {
 export type OnboardingFunnelVariant =
   (typeof ONBOARDING_FUNNEL_VARIANTS)[keyof typeof ONBOARDING_FUNNEL_VARIANTS];
 
-// The privacy/ToS consent screen is the only surviving step of the original
-// pre-chat funnel — it's still shown ahead of onboarding. The rest of that
-// funnel's steps were removed with the pre-chat flow; the research-onboarding
-// funnel below carries its own step catalog.
+// Steps for the privacy/ToS consent screen shown ahead of onboarding. The
+// research-onboarding funnel below carries its own step catalog.
 export const ONBOARDING_FUNNEL_STEPS = {
   privacyTos: { stepName: "privacy_tos", stepIndex: 0 },
 } as const;
