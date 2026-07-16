@@ -1345,6 +1345,70 @@ describe("orchestrate — injection gate", () => {
     });
   });
 
+  test("records the corpus size on a scored run", async () => {
+    const lanes = await buildLanes();
+    denseHits = [{ article: "topic-b", section: 0, score: 0.9 }];
+    providerStub = selectProvider(["topic-a"]);
+
+    await orchestrate(
+      makeTurn(1, "apple"),
+      depsOf(lanes, {
+        denseK: 100,
+        realConceptPageCount: 42,
+        gateConfig: gateConfigOf(),
+      }),
+    );
+
+    expect(recordedGateEvents[0]!.detail).toMatchObject({
+      reason: "dense_pass",
+      real_concept_page_count: 42,
+    });
+  });
+
+  test("records the corpus size on a dense_disabled run", async () => {
+    const lanes = await buildLanes();
+    // The sub-threshold cohort is the whole reason the field exists: without it
+    // `dense_disabled` says only "below the threshold", not how far below.
+    const needle = {
+      query: () => [],
+      queryScored: () => [{ article: "topic-a", section: 0, score: 0.1 }],
+      bestSection: () => -1,
+      idf: () => 0,
+    };
+    providerStub = selectProvider(["topic-a"]);
+
+    await orchestrate(
+      makeTurn(1, "apple"),
+      depsOf(lanes, {
+        needle,
+        denseK: 0,
+        realConceptPageCount: 3,
+        gateConfig: gateConfigOf(),
+      }),
+    );
+
+    expect(recordedGateEvents[0]!.detail).toMatchObject({
+      reason: "dense_disabled",
+      real_concept_page_count: 3,
+    });
+  });
+
+  test("omits the corpus size when the dep is not threaded", async () => {
+    const lanes = await buildLanes();
+    denseHits = [{ article: "topic-b", section: 0, score: 0.9 }];
+    providerStub = selectProvider(["topic-a"]);
+
+    await orchestrate(
+      makeTurn(1, "apple"),
+      depsOf(lanes, { denseK: 100, gateConfig: gateConfigOf() }),
+    );
+
+    expect(recordedGateEvents).toHaveLength(1);
+    expect(recordedGateEvents[0]!.detail).not.toHaveProperty(
+      "real_concept_page_count",
+    );
+  });
+
   test("no gate telemetry when the gate is disabled or omitted", async () => {
     const lanes = await buildLanes();
     denseHits = [{ article: "topic-b", section: 0, score: 0.1 }];
