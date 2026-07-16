@@ -1246,6 +1246,72 @@ describe("LiveVoiceSession server VAD", () => {
     expect(resurfaced?.voiceControlPrompt).not.toContain("OLDER_RESULT");
   });
 
+  test("voice-duplex-handoff on: an empty newer continuation supersedes an older stashed result", async () => {
+    setCachedOverrides({ "voice-duplex-handoff": true }, { fromGateway: true });
+    const resolvers: Array<(result: string) => void> = [];
+    const spawnBackgroundContinuation = mock(
+      (_args: {
+        parentConversationId: string;
+        objective: string;
+        label: string;
+        signal: AbortSignal;
+      }): Promise<string> =>
+        new Promise<string>((resolve) => {
+          resolvers.push(resolve);
+        }),
+    );
+    const calls: VoiceTurnOptions[] = [];
+    const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
+      calls.push(options);
+      if (
+        options.content !== "first question" &&
+        options.content !== "second question"
+      ) {
+        options.callbacks?.assistant_text_delta?.(makeTextDelta("ok"));
+        options.callbacks?.message_complete?.(makeMessageComplete());
+      }
+      return { turnId: `bridge-turn-${calls.length}`, abort: mock() };
+    });
+    const streamTtsAudio = mock(async (options: LiveVoiceTtsOptions) => {
+      options.onAudioChunk(makeTtsChunk("assistant audio"));
+      return makeTtsResult("assistant audio");
+    });
+    const { frames, session } = createHarness({
+      finals: [
+        "first question",
+        "second question",
+        "third question",
+        "fourth question",
+      ],
+      startVoiceTurn,
+      streamTtsAudio,
+      spawnBackgroundContinuation,
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => frames.some((frame) => frame.type === "thinking"));
+    await session.handleBinaryAudio(SUSTAINED_LOUD_CHUNK);
+    await waitFor(() => calls.some((c) => c.content === "second question"));
+    await session.handleBinaryAudio(SUSTAINED_LOUD_CHUNK);
+    await waitFor(() => calls.some((c) => c.content === "third question"));
+    await waitFor(() => resolvers.length === 2);
+
+    // The older continuation stashes a result, then the newer one finishes with
+    // no text and must supersede it — nothing should resurface.
+    resolvers[0]?.("OLDER_RESULT");
+    resolvers[1]?.("");
+    await flushAsyncCallbacks();
+
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => calls.some((c) => c.content === "fourth question"));
+    const resurfaced = calls.find((c) => c.content === "fourth question");
+    expect(resurfaced?.voiceControlPrompt).not.toContain("OLDER_RESULT");
+    expect(resurfaced?.voiceControlPrompt).not.toContain(
+      "background you finished",
+    );
+  });
+
   test("a late assistant_text_delta after a thinking barge-in never reaches the client", async () => {
     let callbacks: VoiceTurnCallbacks | undefined;
     const abort = mock();

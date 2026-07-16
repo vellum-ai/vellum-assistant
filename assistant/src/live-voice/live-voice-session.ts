@@ -1259,19 +1259,20 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         });
         // Fold the completed continuation's answer into the next turn the user
         // starts (never spoken unprompted). Re-check the stop guards after the
-        // await: an interrupt/close during the run must suppress it. Only a
-        // newer-or-equal detach may overwrite the stash, so an older continuation
-        // finishing out of order can't clobber a more recent answer.
-        const answer = resultText.trim();
+        // await: an interrupt/close during the run must suppress it. A
+        // newer-or-equal detach supersedes any older stash by advancing the
+        // sequence even when it produced no text — so an older continuation
+        // finishing out of order can't surface a stale answer behind a more
+        // recent interruption. Only non-empty text is actually surfaced.
         if (
-          answer.length > 0 &&
           !controller.signal.aborted &&
           !this.isClosed &&
           this.detachStopGeneration === stopGeneration &&
           detachSeq >= this.pendingContinuationResultSeq
         ) {
-          this.pendingContinuationResult = answer;
+          const answer = resultText.trim();
           this.pendingContinuationResultSeq = detachSeq;
+          this.pendingContinuationResult = answer.length > 0 ? answer : null;
         }
       } catch (err) {
         // A stop/interrupt aborts via the signal; that rejection is expected.
