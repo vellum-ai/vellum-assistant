@@ -434,6 +434,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // before its async teardown; if it has changed by the time the detach would
   // spawn, a stop landed during the gap and the continuation is not started.
   private detachStopGeneration = 0;
+  // Monotonic id assigned to each detached continuation in barge-in order, so a
+  // later-completing OLDER continuation can't overwrite a newer one's stashed
+  // result (see pendingContinuationResultSeq).
+  private detachSequence = 0;
   private readonly emitMetrics: boolean;
   private readonly metrics: LiveVoiceMetricsCollector;
   private readonly createTurnId: () => string;
@@ -480,6 +484,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // starts as context. Consumed (and cleared) when that turn launches; cleared
   // on a hard stop (abortDetachedRuns) so a stale result never surfaces later.
   private pendingContinuationResult: string | null = null;
+  // The detachSequence of the continuation whose result is currently stashed (0
+  // when none). Only a continuation at least as recent may overwrite it, so an
+  // older continuation completing out of order can't clobber a newer answer.
+  private pendingContinuationResultSeq = 0;
   private readonly maxPendingAudioBytes: number;
   // Set on VAD speech onset; consumed when the first speech chunk is routed
   // to an utterance so the metric lands on the right turn.
@@ -1202,6 +1210,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     const interruptedRequest = turn.utterance.finalTranscriptSegments
       .join(" ")
       .trim();
+    // Order this continuation among concurrent detaches so a later-completing
+    // older one can't overwrite a newer one's stashed result.
+    const detachSeq = ++this.detachSequence;
     // Register the abort handle synchronously so a stop that lands while the
     // continuation is still spawning still aborts it (abortDetachedRuns fires
     // controller.abort(), which the spawn's signal wiring honors).
@@ -1248,16 +1259,19 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         });
         // Fold the completed continuation's answer into the next turn the user
         // starts (never spoken unprompted). Re-check the stop guards after the
-        // await: an interrupt/close during the run must suppress it. Latest
-        // result wins if another continuation already stashed one.
+        // await: an interrupt/close during the run must suppress it. Only a
+        // newer-or-equal detach may overwrite the stash, so an older continuation
+        // finishing out of order can't clobber a more recent answer.
         const answer = resultText.trim();
         if (
           answer.length > 0 &&
           !controller.signal.aborted &&
           !this.isClosed &&
-          this.detachStopGeneration === stopGeneration
+          this.detachStopGeneration === stopGeneration &&
+          detachSeq >= this.pendingContinuationResultSeq
         ) {
           this.pendingContinuationResult = answer;
+          this.pendingContinuationResultSeq = detachSeq;
         }
       } catch (err) {
         // A stop/interrupt aborts via the signal; that rejection is expected.
@@ -2643,6 +2657,13 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     // finalizes through finalizeAssistantTurn, not here, so this never clears a
     // request that the barge-in follow-up turn is still about to consume.
     this.pendingInterruptedRequest = null;
+    // `pendingContinuationResult` is deliberately NOT cleared here. Unlike the
+    // merge context (bound to the immediate barge-in follow-up), a completed
+    // continuation's answer targets the next REAL turn, and hands-free server-VAD
+    // routinely discards noise/empty-transcript utterances between turns; wiping
+    // it on each such discard would frequently drop a valid result before the
+    // user's next question. It is bounded instead by consume-once, the hard-stop
+    // clear (abortDetachedRuns), and the model's "use only if relevant" framing.
     utterance.completed = true;
     const turnId = utterance.turnId;
     if (!turnId) {
