@@ -123,6 +123,20 @@
       "icon": "🕸️"
     },
     {
+      "name": "creatorland",
+      "source": {
+        "source": "github",
+        "repo": "creatorland/creatorland-mcp-skills",
+        "path": "plugins/creatorland-data",
+        "ref": "9cdbb1553645bbb746918f43d60e0df17ae91fa0"
+      },
+      "description": "Creatorland Data MCP and companion skill catalog: brief-to-shortlist, transcript-to-shortlist, brief builder, fair-price negotiation, one-number rate cards, and a guided onboarding tour for creator marketing workflows.",
+      "category": "marketing",
+      "homepage": "https://github.com/creatorland/creatorland-mcp-skills/tree/main/plugins/creatorland-data",
+      "license": "MIT",
+      "icon": "🎨"
+    },
+    {
       "name": "dynamic-notch",
       "source": {
         "source": "github",
