@@ -827,6 +827,7 @@ describe("AssistantConfigSchema", () => {
         bargeInMinSpeechMs: 250,
         echoBargeInMargin: 1.5,
         echoEmaHalfLifeMs: 400,
+        echoDrainSlackMs: 300,
       },
       maxSessionDurationSeconds: 1800,
       archiveAudio: false,

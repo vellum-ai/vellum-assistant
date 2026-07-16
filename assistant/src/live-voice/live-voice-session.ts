@@ -107,9 +107,15 @@ const FINALIZE_GRACE_MS = 1_000;
 // instant barge-in.
 const DEFAULT_BARGE_IN_MIN_SPEECH_MS = 250;
 // Echo-adaptive gate knobs (see effectiveSpeechThreshold). Mirror the
-// liveVoice.vad.echoBargeInMargin / echoEmaHalfLifeMs schema defaults.
+// liveVoice.vad.echoBargeInMargin / echoEmaHalfLifeMs / echoDrainSlackMs
+// schema defaults.
 const DEFAULT_ECHO_BARGE_IN_MARGIN = 1.5;
 const DEFAULT_ECHO_EMA_HALF_LIFE_MS = 400;
+// Slack (ms) past the client playback-drain estimate during which echo is
+// still expected at the mic: covers one-way transport latency + the client
+// jitter buffer, so the echo window outlives the send-time estimate by the
+// same margin real playback does. Mirrors liveVoice.vad.echoDrainSlackMs.
+const DEFAULT_ECHO_DRAIN_SLACK_MS = 300;
 // At most this many TTS segment jobs are open (provider stream started,
 // frames not yet fully emitted) per turn: the emitting job plus one
 // prefetching job. The prefetch buffers its chunks in memory until promoted;
@@ -210,6 +216,12 @@ export interface LiveVoiceSessionOptions {
    * `DEFAULT_ECHO_EMA_HALF_LIFE_MS`.
    */
   echoEmaHalfLifeMs?: number;
+  /**
+   * Slack (ms) past the client playback-drain estimate during which echo is
+   * still expected; seeds from `liveVoice.vad.echoDrainSlackMs` config when
+   * unset; defaults to DEFAULT_ECHO_DRAIN_SLACK_MS.
+   */
+  echoDrainSlackMs?: number;
   /**
    * Overrides the bounded wait for the shared transcriber's finalize
    * flush in persistent mode (test hook). Defaults to `FINALIZE_GRACE_MS`.
@@ -403,6 +415,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // playback, and that EMA's half-life.
   private readonly echoBargeInMargin: number;
   private readonly echoEmaHalfLifeMs: number;
+  private readonly echoDrainSlackMs: number;
   // EMA of observed mic-chunk energy while assistant audio is playing (the
   // echo reference); 0 outside the echo window.
   private echoEnergyEma = 0;
@@ -413,9 +426,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // across the turn boundary (turn collision) — see effectiveSpeechThreshold.
   private echoWindowGuardCarryover = false;
   // Warm-up state of the most recently classified in-window chunk (set by
-  // effectiveSpeechThreshold; consulted by handleVadSpeechStart and
-  // trackBargeInGuard) so classification and trip deferral agree per chunk
-  // regardless of ingress chunk size; false outside the echo window.
+  // effectiveSpeechThreshold; consulted by handleServerVadAudio's speech
+  // classification to suppress presumed-echo chunks); false outside the
+  // echo window.
   private echoGateChunkWarmingUp = false;
   // Mutable so a mid-session `update_config` frame can retune "interrupt
   // sensitivity" live (see applyConfigUpdate).
@@ -517,6 +530,8 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       options.echoBargeInMargin ?? DEFAULT_ECHO_BARGE_IN_MARGIN;
     this.echoEmaHalfLifeMs =
       options.echoEmaHalfLifeMs ?? DEFAULT_ECHO_EMA_HALF_LIFE_MS;
+    this.echoDrainSlackMs =
+      options.echoDrainSlackMs ?? DEFAULT_ECHO_DRAIN_SLACK_MS;
     this.finalizeGraceMs = options.finalizeGraceMs ?? FINALIZE_GRACE_MS;
     const turnDetectorConfig: TurnDetectorConfig = {
       ...(options.turnDetectorConfig ?? {}),
@@ -873,8 +888,13 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     }
 
     const meanAmplitude = pcm16MeanAmplitude(chunk);
+    const speechThreshold = this.effectiveSpeechThreshold(chunk, meanAmplitude);
+    // Presumed-echo suppression: a chunk judged while the gate is warming is
+    // never speech — it must not trip barge-in, arm an utterance, or stream
+    // to STT (else the assistant's own onset echo transcribes into a ghost
+    // follow-up turn). See effectiveSpeechThreshold.
     const hasSpeech =
-      meanAmplitude > this.effectiveSpeechThreshold(chunk, meanAmplitude);
+      meanAmplitude > speechThreshold && !this.echoGateChunkWarmingUp;
     detector.onMediaChunk(hasSpeech);
     this.trackBargeInGuard(hasSpeech, chunk);
 
@@ -917,17 +937,20 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     await this.routeVadAudio(utterance, chunk);
   }
 
-  // The echo window: the only time the speakers can be emitting assistant
-  // audio — a turn that has audibly started speaking, or the post-tts_done
-  // drain tail the client is still playing. A thinking (pre-TTS) turn plays
-  // nothing, so it keeps base-threshold sensitivity and pre-TTS barge-in
-  // (JARVIS-1266) is unaffected.
+  // The echo window: the client is (estimated to be) audibly draining
+  // assistant audio. Scoped to the live playback-drain estimate — which
+  // grows with every sent tts_audio chunk — plus a slack that covers
+  // one-way transport latency and the client jitter buffer, NOT to the
+  // whole turn: a synthesis stall or inter-sentence pause drains the client
+  // and closes the window, so each speech burst re-opens it with a fresh
+  // warm-up instead of letting the reference decay against a stale open
+  // window. A thinking (pre-TTS or mid-pause) turn plays nothing, so it
+  // keeps base-threshold sensitivity and pre-TTS barge-in (JARVIS-1266) is
+  // unaffected.
   private isAssistantAudioPlaying(): boolean {
-    const turn = this.activeAssistantTurn;
-    if (turn?.ttsAudioStarted && !turn.finalized) {
-      return true;
-    }
-    return Date.now() < this.assistantPlaybackTailUntilMs;
+    return (
+      Date.now() < this.assistantPlaybackTailUntilMs + this.echoDrainSlackMs
+    );
   }
 
   // Energy gate for classifying a server-VAD chunk as speech. While assistant
@@ -944,25 +967,25 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // not inflate the reference against them — and resets outside the echo
   // window so a loud turn's reference never leaks into the next one.
   //
-  // The freeze has a cold-start hole: at playback onset the very first loud
-  // echo chunk arms the guard, which would freeze the reference near zero and
-  // let steady onset echo complete a full guard run against the base
-  // threshold. So the window opens with a WARM-UP — the first
-  // echoEmaHalfLifeMs / 2 of in-window audio (200 ms at the 400 ms default,
-  // under the 250 ms default trip, so real barge-in latency is untouched) —
-  // during which the EMA learns despite the armed guard, at a quarter-
+  // Cold start: the reference knows nothing at window open, so the window
+  // opens with a WARM-UP — its first echoEmaHalfLifeMs / 2 of audio (200 ms
+  // at the 400 ms default) — during which the EMA learns at a quarter-
   // half-life attack rate (two attack half-lives per warm-up brings the
   // reference to ~75% of a steady echo level, putting margin × EMA above
-  // it): echo, not speech, is the expected first signal at TTS onset. Guard
-  // trips are deferred (the run accumulates, it doesn't fire) while the
-  // tripping chunk was judged against a warming reference — a per-chunk flag
-  // (echoGateChunkWarmingUp), so large ingress chunks cannot outrun the
-  // window clock. Onset echo's run is zeroed once the reference overtakes
-  // it; a genuine user run that outlasts the warm-up fires on its first warm
-  // chunk. The same warm-up floor guards the instant-barge-in config
-  // (bargeInMinSpeechMs 0), which otherwise bypasses the guard entirely (see
-  // handleVadSpeechStart). Warm-up is measured in processed audio time, the
-  // same clock that drives EMA convergence.
+  // it) and chunks are SUPPRESSED from speech classification entirely
+  // (handleServerVadAudio): echo, not speech, is the expected first signal
+  // when playback starts, and warm-up echo must not trip barge-in, arm an
+  // utterance, or stream to STT as user audio (a transcribed echo fragment
+  // would launch a ghost follow-up turn). The per-chunk flag
+  // (echoGateChunkWarmingUp) is captured before the window clock advances,
+  // so large ingress chunks cannot outrun it. Because the window is scoped
+  // to the client playback-drain estimate (isAssistantAudioPlaying), every
+  // TTS pause closes the window and every speech burst re-opens it with a
+  // fresh warm-up — the reference never goes stale against resumed echo. A
+  // user starting to speak inside a warm-up is absorbed into the reference
+  // (echo-first assumption) and recovers by pausing and speaking again once
+  // the gate is warm. Warm-up is measured in processed audio time, the same
+  // clock that drives EMA convergence.
   //
   // Turn collision: a guard with a LIVE speech run when the window opens is
   // the user already talking across the turn boundary — humans cannot react
@@ -1149,17 +1172,14 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     // The client can still be draining audible playback after tts_done
     // (the turn is already cleared server-side) — that tail deserves the
     // same guard, or a noise blip clips the reply's last words.
-    const drainingPlayback = Date.now() < this.assistantPlaybackTailUntilMs;
+    const drainingPlayback = this.isAssistantAudioPlaying();
 
-    if (
-      (bargeableTurn || drainingPlayback) &&
-      (this.bargeInMinSpeechMs > 0 || this.echoGateChunkWarmingUp)
-    ) {
+    if ((bargeableTurn || drainingPlayback) && this.bargeInMinSpeechMs > 0) {
       // Onset audio keeps flowing into the cycle/pre-roll while the guard
       // accumulates (trackBargeInGuard), so no speech is lost either way.
-      // Instant barge-in (bargeInMinSpeechMs 0) still arms the guard while
-      // the echo gate is warming up — otherwise the first onset-echo chunk
-      // would cancel every turn — and resumes instant behavior once warm.
+      // Instant barge-in (bargeInMinSpeechMs 0) needs no warm-up handling
+      // here: warm-up chunks are suppressed at classification, so a speech
+      // onset cannot fire while the gate is warming.
       this.pendingBargeIn = { turn: bargeableTurn, speechMs: 0 };
       return;
     }
@@ -1197,11 +1217,6 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       this.context.startFrame.audio.sampleRate,
     );
     if (guard.speechMs < this.bargeInMinSpeechMs) {
-      return;
-    }
-    // Defer trips fed by a chunk judged against a warming echo reference —
-    // see effectiveSpeechThreshold. Turn-collision guards trip normally.
-    if (this.echoGateChunkWarmingUp) {
       return;
     }
     this.pendingBargeIn = null;
@@ -2964,6 +2979,7 @@ export function createLiveVoiceSession(
       options.echoBargeInMargin ?? vadConfig?.echoBargeInMargin,
     echoEmaHalfLifeMs:
       options.echoEmaHalfLifeMs ?? vadConfig?.echoEmaHalfLifeMs,
+    echoDrainSlackMs: options.echoDrainSlackMs ?? vadConfig?.echoDrainSlackMs,
     resolveCredentialReadiness:
       options.resolveCredentialReadiness === undefined
         ? defaultResolveLiveVoiceCredentialReadiness
