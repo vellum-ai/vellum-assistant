@@ -38,6 +38,13 @@ mock.module("@/lib/backwards-compat/bulk-feed-status", () => ({
 
 mock.module("react-router", () => ({
   useNavigate: () => () => {},
+  useLocation: () => ({
+    pathname: "/assistant/conversations/c1",
+    search: "",
+    hash: "",
+    state: null,
+    key: "test-key",
+  }),
 }));
 
 mock.module("@/stores/resolved-assistants-store", () => {

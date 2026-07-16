@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import { useLocation, useNavigate } from "react-router";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
@@ -23,6 +23,11 @@ export function HomePageRoute() {
   // opens that item's detail drawer on arrival.
   const initialFeedItemId =
     (location.state as ActivityLocationState | null)?.feedItemId ?? null;
+  // Once consumed, replace the history entry without the feedItemId state so
+  // a reload or Back to this entry doesn't re-open a drawer the user closed.
+  const handleInitialFeedItemConsumed = useCallback(() => {
+    void navigate(location.pathname + location.search, { replace: true });
+  }, [navigate, location.pathname, location.search]);
   const setTopBarCenter = useChatLayoutSlotsStore.use.setTopBarCenter();
   const isMobile = useIsMobile();
   const { conversations: foregroundConversations } =
@@ -67,6 +72,8 @@ export function HomePageRoute() {
       assistantId={assistantId}
       validConversationIds={validConversationIds}
       initialFeedItemId={initialFeedItemId}
+      navigationKey={location.key}
+      onInitialFeedItemConsumed={handleInitialFeedItemConsumed}
       onOpenConversation={(conversationId) =>
         navigate(routes.conversation(conversationId))
       }

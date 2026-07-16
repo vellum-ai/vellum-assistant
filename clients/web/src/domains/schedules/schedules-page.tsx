@@ -4,6 +4,7 @@ import { useNavigate, useParams } from "react-router";
 
 import { getAssistantHealthz } from "@/assistant/api";
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
+import { DetailDrawer, MobileDetailOverlay } from "@/components/detail-drawer";
 import { CreateScheduleModal } from "@/domains/settings/components/create-schedule-modal";
 import { SystemTasksSection } from "@/domains/settings/components/system-tasks-section";
 import { useSystemTasks } from "@/domains/settings/hooks/use-system-tasks";
@@ -12,7 +13,6 @@ import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-st
 import { navigateToNewConversation } from "@/utils/conversation-navigation";
 import { routes } from "@/utils/routes";
 import { useEffectiveTimezone } from "@/utils/use-effective-timezone";
-import { ResizablePanel } from "@vellumai/design-library";
 
 import type { SystemTaskKind } from "@/domains/settings/types/schedules";
 
@@ -83,15 +83,23 @@ export function SchedulesPage() {
 
   // Drop the selection if the schedule disappears (e.g. after a delete/refetch,
   // or a deep link to a now-deleted id). Gate on `!isLoading` so a deep link to
-  // `/schedules/:id` doesn't clear the URL before the list has loaded.
+  // `/schedules/:id` doesn't clear the URL before the list has loaded, and on
+  // `!isError` so a failed fetch doesn't destroy the deep link — after a retry
+  // succeeds, the still-present URL re-opens the schedule's drawer.
   useEffect(() => {
-    if (selectedScheduleId && !schedules.isLoading && !selectedSchedule) {
+    if (
+      selectedScheduleId &&
+      !schedules.isLoading &&
+      !schedules.isError &&
+      !selectedSchedule
+    ) {
       handleSelectScheduleId(null);
     }
   }, [
     selectedScheduleId,
     selectedSchedule,
     schedules.isLoading,
+    schedules.isError,
     handleSelectScheduleId,
   ]);
 
@@ -206,47 +214,17 @@ export function SchedulesPage() {
   // On mobile the detail takes over the whole screen; on desktop it opens as
   // a drawer beside the list, under the layout's fixed heading.
   if (detail && isMobile) {
-    return (
-      <div
-        className="fixed inset-0 z-30 bg-[var(--surface-overlay)]"
-        style={{
-          paddingTop:
-            "var(--safe-area-inset-top, env(safe-area-inset-top, 0px))",
-          paddingBottom:
-            "var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px))",
-        }}
-      >
-        {detail}
-      </div>
-    );
+    return <MobileDetailOverlay>{detail}</MobileDetailOverlay>;
   }
 
   return (
     <>
       {detail && !isMobile ? (
-        <ResizablePanel
-          className="min-h-0 flex-1"
+        <DetailDrawer
           storageKey="schedulesDetailDrawerWidth"
-          defaultRightWidth={480}
-          minLeftWidth={320}
-          minRightWidth={400}
-          hideDivider
-          left={
-            <div className="flex min-h-0 flex-1 flex-col pr-[var(--app-spacing-lg)]">
-              {section}
-            </div>
-          }
-          right={
-            // `key` re-mounts the animated wrapper on each new selection so
-            // the slide-in replays when switching between schedules and
-            // system tasks (not just on the initial null → open transition).
-            <div
-              key={selectedScheduleId ?? selectedSystemTaskKind ?? undefined}
-              className="home-detail-drawer"
-            >
-              {detail}
-            </div>
-          }
+          detailKey={selectedScheduleId ?? selectedSystemTaskKind ?? undefined}
+          section={section}
+          detail={detail}
         />
       ) : (
         section

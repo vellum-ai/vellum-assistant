@@ -1,17 +1,17 @@
 import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useState } from "react";
 
+import { DetailDrawer, MobileDetailOverlay } from "@/components/detail-drawer";
 import { PageShell } from "@/components/page-shell";
-import { fetchSchedules } from "@/domains/settings/api/schedules";
+import { schedulesListQueryOptions } from "@/domains/settings/api/schedules";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useSupportsBulkFeedStatus } from "@/lib/backwards-compat/bulk-feed-status";
-import { schedulesGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 import type { FeedItem, FeedItemStatus } from "@vellumai/assistant-api";
-import { Button, ResizablePanel } from "@vellumai/design-library";
+import { Button } from "@vellumai/design-library";
 import { HomeDetailPanel } from "./detail-panel/home-detail-panel";
 import { HomeFeedList } from "./home-feed-list";
 import { HomeTopHeader } from "./home-top-header";
-import { excludeHighUrgency } from "./utils";
+import { clearAllArgs, getVisibleFeedItems, markAllReadArgs } from "./utils";
 import { useHomeFeedQuery } from "./hooks/use-home-feed-query";
 import { useHomeStateQuery } from "./hooks/use-home-state-query";
 
@@ -42,6 +42,14 @@ export interface HomePageProps {
   /** Feed item to open on arrival (routed here from the notifications
    *  bell); its detail drawer opens once the feed has loaded. */
   initialFeedItemId?: string | null;
+  /** Identity of the navigation that delivered `initialFeedItemId`
+   *  (`location.key`). Consumption is tracked per navigation, so clicking
+   *  the same notification again re-opens its drawer. */
+  navigationKey?: string;
+  /** Called once `initialFeedItemId` has been handled, so the route can
+   *  strip it from history state — otherwise a reload or Back to this entry
+   *  would replay a drawer the user already closed. */
+  onInitialFeedItemConsumed?: () => void;
 }
 
 /**
@@ -60,6 +68,8 @@ export function HomePage({
   onOpenConversation,
   onViewSchedule,
   initialFeedItemId,
+  navigationKey,
+  onInitialFeedItemConsumed,
 }: HomePageProps) {
   const isMobile = useIsMobile();
   const feedQuery = useHomeFeedQuery(assistantId);
@@ -67,13 +77,10 @@ export function HomePage({
 
   // Schedules moved to their own page (`/assistant/schedules`), but the feed
   // still links scheduled-run notifications to their schedule. This query
-  // shares its key (and cache) with the Schedules page and only gates whether
-  // the "View schedule" link is offered — the schedule may have been deleted.
-  const { data: schedules } = useQuery({
-    queryKey: schedulesGetQueryKey({ path: { assistant_id: assistantId } }),
-    queryFn: () => fetchSchedules(assistantId),
-    staleTime: 10_000,
-  });
+  // shares its options (key, and therefore cache) with the Schedules page and
+  // only gates whether the "View schedule" link is offered — the schedule may
+  // have been deleted.
+  const { data: schedules } = useQuery(schedulesListQueryOptions(assistantId));
 
   const [selectedItem, setSelectedItem] = useState<FeedItem | null>(null);
   // Accordion open-states are lifted here so they survive the section remount
@@ -138,52 +145,48 @@ export function HomePage({
 
   const feedItems = feedQuery.data?.items ?? [];
 
-  // One-shot: when routed here from the notifications bell, open that item's
-  // detail drawer once the feed has loaded. Tracking the consumed id keeps a
-  // later refetch from re-opening a drawer the user has since closed.
-  const [consumedInitialItemId, setConsumedInitialItemId] = useState<
+  // One-shot per navigation: when routed here from the notifications bell,
+  // open that item's detail drawer once the feed has loaded. Keyed on the
+  // navigation (`location.key`), not the item id, so re-clicking the same
+  // notification works; the consumed-state callback then strips the id from
+  // history state so reload/Back don't replay a drawer the user closed.
+  const [consumedNavigationKey, setConsumedNavigationKey] = useState<
     string | null
   >(null);
   useEffect(() => {
     if (
       !initialFeedItemId ||
-      initialFeedItemId === consumedInitialItemId ||
+      navigationKey === consumedNavigationKey ||
       feedQuery.isLoading
     ) {
       return;
     }
-    setConsumedInitialItemId(initialFeedItemId);
+    setConsumedNavigationKey(navigationKey ?? null);
     const item = feedItems.find((i) => i.id === initialFeedItemId);
-    if (item) handleSelectItem(item);
+    // A since-dismissed item's drawer must not pop open unprompted.
+    if (item && item.status !== "dismissed") handleSelectItem(item);
+    onInitialFeedItemConsumed?.();
   }, [
     initialFeedItemId,
-    consumedInitialItemId,
+    navigationKey,
+    consumedNavigationKey,
     feedQuery.isLoading,
     feedItems,
     handleSelectItem,
+    onInitialFeedItemConsumed,
   ]);
 
-  const visibleFeedItems = excludeHighUrgency(
-    feedItems.filter((i) => i.status !== "dismissed"),
-  );
+  const visibleFeedItems = getVisibleFeedItems(feedItems);
   const newCount = visibleFeedItems.filter((i) => i.status === "new").length;
   const activeCount = visibleFeedItems.length;
   const supportsBulkStatus = useSupportsBulkFeedStatus();
 
   const handleMarkAllRead = useCallback(() => {
-    feedQuery.markAll.mutate({
-      from: ["new"],
-      to: "seen",
-      ids: visibleFeedItems.filter((i) => i.status === "new").map((i) => i.id),
-    });
+    feedQuery.markAll.mutate(markAllReadArgs(visibleFeedItems));
   }, [feedQuery.markAll, visibleFeedItems]);
 
   const handleClearAll = useCallback(() => {
-    feedQuery.markAll.mutate({
-      from: ["new", "seen", "acted_on"],
-      to: "dismissed",
-      ids: visibleFeedItems.map((i) => i.id),
-    });
+    feedQuery.markAll.mutate(clearAllArgs(visibleFeedItems));
     setSelectedItem(null);
   }, [feedQuery.markAll, visibleFeedItems]);
 
@@ -267,27 +270,14 @@ export function HomePage({
 
   // On mobile the detail takes over the whole screen (handled below). On
   // desktop it opens as a drawer beside the feed, so the Activity title
-  // stays fixed above it. `key` re-mounts the animated wrapper on each new
-  // selection so the slide-in replays when switching between items.
+  // stays fixed above it.
   const sections =
     itemDetail && !isMobile ? (
-      <ResizablePanel
-        className="min-h-0 flex-1"
+      <DetailDrawer
         storageKey="homeDetailDrawerWidth"
-        defaultRightWidth={480}
-        minLeftWidth={320}
-        minRightWidth={400}
-        hideDivider
-        left={
-          <div className="flex min-h-0 flex-1 flex-col pr-[var(--app-spacing-lg)]">
-            {notificationsSection}
-          </div>
-        }
-        right={
-          <div key={selectedItem?.id} className="home-detail-drawer">
-            {itemDetail}
-          </div>
-        }
+        detailKey={selectedItem?.id}
+        section={notificationsSection}
+        detail={itemDetail}
       />
     ) : (
       notificationsSection
@@ -303,19 +293,7 @@ export function HomePage({
   );
 
   if (itemDetail && isMobile) {
-    return (
-      <div
-        className="fixed inset-0 z-30 bg-[var(--surface-overlay)]"
-        style={{
-          paddingTop:
-            "var(--safe-area-inset-top, env(safe-area-inset-top, 0px))",
-          paddingBottom:
-            "var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px))",
-        }}
-      >
-        {itemDetail}
-      </div>
-    );
+    return <MobileDetailOverlay>{itemDetail}</MobileDetailOverlay>;
   }
 
   return <PageShell>{feedContent}</PageShell>;

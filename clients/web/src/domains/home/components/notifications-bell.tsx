@@ -1,6 +1,6 @@
 import { Bell } from "lucide-react";
-import { useState } from "react";
-import { useNavigate } from "react-router";
+import { useMemo, useState } from "react";
+import { useLocation, useNavigate } from "react-router";
 
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useSupportsBulkFeedStatus } from "@/lib/backwards-compat/bulk-feed-status";
@@ -17,7 +17,12 @@ import {
 
 import { HomeRecapRow } from "../home-recap-row";
 import { useHomeFeedQuery } from "../hooks/use-home-feed-query";
-import { excludeHighUrgency, sortFeedItems } from "../utils";
+import {
+    clearAllArgs,
+    getVisibleFeedItems,
+    markAllReadArgs,
+    sortFeedItems,
+} from "../utils";
 
 /**
  * Router state consumed by `HomePageRoute`: opening a notification from the
@@ -48,22 +53,28 @@ export function NotificationsBell() {
   const [isOpen, setIsOpen] = useState(false);
   const isMobile = useIsMobile();
   const navigate = useNavigate();
+  const location = useLocation();
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const feedQuery = useHomeFeedQuery(assistantId);
   const supportsBulkStatus = useSupportsBulkFeedStatus();
 
-  const items = feedQuery.data?.items ?? [];
-  // Same visibility rules as the Activity page: dismissed items are hidden
-  // and high-urgency items surface through their own channels.
-  const visibleItems = sortFeedItems(
-    excludeHighUrgency(items.filter((item) => item.status !== "dismissed")),
+  // Memoized: the bell lives in the persistent top bar and re-renders with
+  // every layout update, so the filter + sort must only re-run when the feed
+  // data itself changes.
+  const items = feedQuery.data?.items;
+  const visibleItems = useMemo(
+    () => sortFeedItems(getVisibleFeedItems(items ?? [])),
+    [items],
   );
-  const newItems = visibleItems.filter((item) => item.status === "new");
-  const hasUnread = newItems.length > 0;
+  const hasUnread = visibleItems.some((item) => item.status === "new");
 
   const openActivityPage = (item?: FeedItem) => {
     setIsOpen(false);
     void navigate(routes.home, {
+      // Re-clicking from the Activity page itself must not stack history
+      // entries (each carrying stale feedItemId state that would replay
+      // closed drawers on Back).
+      replace: location.pathname === routes.home,
       state: item
         ? ({ feedItemId: item.id } satisfies ActivityLocationState)
         : undefined,
@@ -78,19 +89,11 @@ export function NotificationsBell() {
   };
 
   const handleMarkAllRead = () => {
-    feedQuery.markAll.mutate({
-      from: ["new"],
-      to: "seen",
-      ids: newItems.map((item) => item.id),
-    });
+    feedQuery.markAll.mutate(markAllReadArgs(visibleItems));
   };
 
   const handleClearAll = () => {
-    feedQuery.markAll.mutate({
-      from: ["new", "seen", "acted_on"],
-      to: "dismissed",
-      ids: visibleItems.map((item) => item.id),
-    });
+    feedQuery.markAll.mutate(clearAllArgs(visibleItems));
   };
 
   // No `tooltip` prop on the Button: it would wrap the button in a Tooltip

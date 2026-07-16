@@ -1,4 +1,8 @@
-import type { FeedItem, FeedItemCategory } from "@vellumai/assistant-api";
+import type {
+  FeedItem,
+  FeedItemCategory,
+  FeedItemStatus,
+} from "@vellumai/assistant-api";
 
 /**
  * Client-side grouping of feed items by recency. Not part of the wire
@@ -73,6 +77,41 @@ export function excludeHighUrgency(items: FeedItem[]): FeedItem[] {
   return items.filter(
     (item) => item.urgency !== "high" && item.urgency !== "critical",
   );
+}
+
+/**
+ * The items the notification surfaces show: dismissed items are hidden and
+ * high-urgency items surface through their own channels. Shared by the
+ * Activity page and the notifications bell so the bell's unread dot and
+ * bulk actions always agree with the page it links to.
+ */
+export function getVisibleFeedItems(items: FeedItem[]): FeedItem[] {
+  return excludeHighUrgency(items.filter((i) => i.status !== "dismissed"));
+}
+
+/** Arguments for the feed's bulk status mutation (`markAll`). */
+export interface FeedMarkAllArgs {
+  from: FeedItemStatus[];
+  to: FeedItemStatus;
+  ids: string[];
+}
+
+/** Bulk payload marking every visible unread item as read. */
+export function markAllReadArgs(visibleItems: FeedItem[]): FeedMarkAllArgs {
+  return {
+    from: ["new"],
+    to: "seen",
+    ids: visibleItems.filter((i) => i.status === "new").map((i) => i.id),
+  };
+}
+
+/** Bulk payload dismissing every visible item ("Clear all"). */
+export function clearAllArgs(visibleItems: FeedItem[]): FeedMarkAllArgs {
+  return {
+    from: ["new", "seen", "acted_on"],
+    to: "dismissed",
+    ids: visibleItems.map((i) => i.id),
+  };
 }
 
 /**
