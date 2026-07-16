@@ -1,12 +1,17 @@
-import { X } from "lucide-react";
+import { Button } from "@vellumai/design-library/components/button";
+import { Input } from "@vellumai/design-library/components/input";
+import { Check, Loader2, X } from "lucide-react";
 import { useEffect, useState } from "react";
 
-import { ConnectClaudePanel } from "@/components/connect-claude-panel";
 import { AcpAgentIcon } from "@/domains/chat/components/acp-run-inline-card/acp-agent-icon";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
 import { isClaudeConnected } from "@/hooks/connect-claude-api";
-import { useConnectClaude } from "@/hooks/use-connect-claude";
+import {
+  useConnectClaude,
+  type UseConnectClaudeResult,
+} from "@/hooks/use-connect-claude";
 import { useSupportsAcpConnect } from "@/lib/backwards-compat/use-supports-acp-connect";
+import { isElectron } from "@/runtime/is-electron";
 
 // ---------------------------------------------------------------------------
 // Inline "Connect Claude Code" affordance for a failed ACP spawn
@@ -29,6 +34,14 @@ import { useSupportsAcpConnect } from "@/lib/backwards-compat/use-supports-acp-c
 // `ChatPage` renders outside it): a transcript row can render during a
 // self-hosted/transition state before the active id resolves, so we take the
 // (nullable) prop and render nothing when it's absent.
+//
+// Two card shapes, chosen the same way the client tells the daemon which flow to
+// run (`preferManual: !isElectron()`), so the shape matches the flow the user
+// gets:
+//   - one-step (desktop/loopback): a compact row — the daemon captures the token
+//     on its own callback, so a single "Connect" click is the whole flow.
+//   - two-step (browser/cloud): a stacked card — "Connect" opens a tab, then the
+//     user pastes the key it shows back into a masked field to finish.
 
 export function AcpConnectAffordance({
   assistantId,
@@ -82,45 +95,222 @@ function AcpConnectAffordanceInner({ assistantId }: { assistantId: string }) {
     return null;
   }
 
+  const dismiss = () => useInteractionStore.getState().dismissAcpConnect();
+
+  return isElectron() ? (
+    <OneStepCard connection={connection} onDismiss={dismiss} />
+  ) : (
+    <TwoStepCard
+      connection={connection}
+      pastedCode={pastedCode}
+      onPastedCodeChange={setPastedCode}
+      onDismiss={dismiss}
+    />
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Shared chrome
+// ---------------------------------------------------------------------------
+
+function BrandIcon() {
+  return (
+    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-base)]">
+      <AcpAgentIcon agent="claude" className="h-5 w-5 shrink-0" />
+    </div>
+  );
+}
+
+function Title() {
+  return (
+    <div className="text-title-small text-[var(--content-strong)]">
+      Connect Claude Code
+    </div>
+  );
+}
+
+function DismissButton({ onDismiss }: { onDismiss: () => void }) {
+  return (
+    <button
+      type="button"
+      aria-label="Dismiss"
+      title="Dismiss"
+      onClick={onDismiss}
+      className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--content-secondary)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--content-strong)]"
+    >
+      <X className="h-4 w-4" />
+    </button>
+  );
+}
+
+function BusyRow({ label }: { label: string }) {
+  return (
+    <div className="flex items-center gap-2">
+      <Loader2 className="h-4 w-4 animate-spin text-[var(--content-tertiary)]" />
+      <span className="text-body-medium-lighter text-[var(--content-tertiary)]">
+        {label}
+      </span>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// One-step (desktop / loopback): compact single row
+// ---------------------------------------------------------------------------
+
+function OneStepCard({
+  connection,
+  onDismiss,
+}: {
+  connection: UseConnectClaudeResult;
+  onDismiss: () => void;
+}) {
+  const { phase, error, connect } = connection;
+
+  const subtitle =
+    phase === "error"
+      ? (error ?? "Connecting Claude failed. Please try again.")
+      : phase === "starting"
+        ? "Starting sign-in..."
+        : phase === "awaiting_capture" || phase === "awaiting_paste"
+          ? "Waiting for Claude sign-in..."
+          : phase === "exchanging"
+            ? "Completing sign-in..."
+            : phase === "connected"
+              ? "Claude Code connected. Ask again to run the agent."
+              : "Sign in — no API key needed";
+
+  const subtitleColor =
+    phase === "error"
+      ? "text-[var(--system-negative-strong)]"
+      : phase === "connected"
+        ? "text-[var(--system-positive-strong)]"
+        : "text-[var(--content-quiet)]";
+
+  const canConnect = phase === "idle" || phase === "error";
+  const busy =
+    phase === "starting" ||
+    phase === "awaiting_capture" ||
+    phase === "awaiting_paste" ||
+    phase === "exchanging";
+
   return (
     <div
-      className="mt-2 rounded-lg border border-[var(--border-element)] bg-[var(--surface-lift)] p-4"
       data-testid="acp-connect-affordance"
+      className="mt-2 flex items-center gap-3 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-base)] px-3 py-2.5 shadow-sm"
     >
-      <div className="flex gap-3">
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-base)]">
-          <AcpAgentIcon agent="claude" className="h-7 w-7 shrink-0" />
+      <BrandIcon />
+      <div className="min-w-0 flex-1">
+        <Title />
+        <div className={`text-body-medium-lighter ${subtitleColor}`}>
+          {subtitle}
         </div>
+      </div>
 
-        <div className="min-w-0 flex-1 space-y-3">
-          <div className="min-w-0">
-            <div className="text-title-small text-[var(--content-strong)]">
-              Connect Claude Code
-            </div>
-            <p className="mt-1 text-body-medium-lighter text-[var(--content-quiet)]">
-              Sign in with your Claude account to run this agent — no API key
-              needed.
+      {canConnect ? (
+        <Button variant="primary" size="compact" onClick={() => void connect()}>
+          Connect
+        </Button>
+      ) : busy ? (
+        <Loader2 className="h-4 w-4 shrink-0 animate-spin text-[var(--content-tertiary)]" />
+      ) : phase === "connected" ? (
+        <Check className="h-5 w-5 shrink-0 text-[var(--system-positive-strong)]" />
+      ) : null}
+
+      <DismissButton onDismiss={onDismiss} />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Two-step (browser / cloud): stacked card with a paste step
+// ---------------------------------------------------------------------------
+
+function TwoStepCard({
+  connection,
+  pastedCode,
+  onPastedCodeChange,
+  onDismiss,
+}: {
+  connection: UseConnectClaudeResult;
+  pastedCode: string;
+  onPastedCodeChange: (value: string) => void;
+  onDismiss: () => void;
+}) {
+  const { phase, error, connect, submitPastedCode } = connection;
+
+  return (
+    <div
+      data-testid="acp-connect-affordance"
+      className="mt-2 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-base)] p-4 shadow-sm"
+    >
+      <div className="flex items-center gap-3">
+        <BrandIcon />
+        <div className="min-w-0 flex-1">
+          <Title />
+        </div>
+        <DismissButton onDismiss={onDismiss} />
+      </div>
+
+      <div className="mt-3 space-y-3">
+        {phase === "idle" || phase === "error" ? (
+          <>
+            <p
+              className={`text-body-medium-lighter ${
+                phase === "error"
+                  ? "text-[var(--system-negative-strong)]"
+                  : "text-[var(--content-quiet)]"
+              }`}
+            >
+              {phase === "error"
+                ? (error ?? "Connecting Claude failed. Please try again.")
+                : "Sign in with your Claude account to run this agent. No API key required."}
             </p>
-          </div>
+            <Button variant="primary" fullWidth onClick={() => void connect()}>
+              Connect
+            </Button>
+          </>
+        ) : null}
 
-          <ConnectClaudePanel
-            connection={connection}
-            pastedCode={pastedCode}
-            onPastedCodeChange={setPastedCode}
-            pasteInstructions="After signing in, paste the code Claude shows you."
-            connectedMessage="Claude Code connected. Ask again to run the agent."
-          />
-        </div>
+        {phase === "starting" ? <BusyRow label="Starting sign-in..." /> : null}
+        {phase === "awaiting_capture" ? (
+          <BusyRow label="Waiting for Claude sign-in..." />
+        ) : null}
+        {phase === "exchanging" ? (
+          <BusyRow label="Completing sign-in..." />
+        ) : null}
 
-        <button
-          type="button"
-          aria-label="Dismiss"
-          title="Dismiss"
-          onClick={() => useInteractionStore.getState().dismissAcpConnect()}
-          className="inline-flex h-8 w-8 shrink-0 items-center justify-center self-start rounded-md text-[var(--content-secondary)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--content-strong)]"
-        >
-          <X className="h-4 w-4" />
-        </button>
+        {phase === "awaiting_paste" ? (
+          <>
+            <p className="text-body-medium-lighter text-[var(--content-quiet)]">
+              A browser tab opened. Paste the key it gives you to finish.
+            </p>
+            <div className="flex items-center gap-2">
+              <div className="min-w-0 flex-1">
+                <Input
+                  type="password"
+                  value={pastedCode}
+                  onChange={(e) => onPastedCodeChange(e.target.value)}
+                  placeholder="Paste your key"
+                  fullWidth
+                />
+              </div>
+              <Button
+                variant="primary"
+                disabled={!pastedCode.trim()}
+                onClick={() => void submitPastedCode(pastedCode)}
+              >
+                Save
+              </Button>
+            </div>
+          </>
+        ) : null}
+
+        {phase === "connected" ? (
+          <p className="text-body-medium-lighter text-[var(--system-positive-strong)]">
+            Claude Code connected. Ask again to run the agent.
+          </p>
+        ) : null}
       </div>
     </div>
   );

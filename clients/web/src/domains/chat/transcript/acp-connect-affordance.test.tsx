@@ -52,11 +52,13 @@ mock.module("@vellumai/design-library/components/button", () => ({
     children,
     size: _size,
     variant: _variant,
+    fullWidth: _fullWidth,
     ...props
   }: {
     children?: ReactNode;
     size?: string;
     variant?: string;
+    fullWidth?: boolean;
     onClick?: () => void;
     disabled?: boolean;
   }) => <button {...props}>{children}</button>,
