@@ -1,26 +1,20 @@
 /**
  * Tests for the `AppearanceCard` theme picker.
  *
- * The card renders on every platform, so no Electron/pointer probes are needed.
- * `SegmentControl` is stubbed with a minimal harness exposing its `onChange`
- * via buttons; the theme persistence helpers and the device-setting watcher are
- * mocked.
+ * The card renders on every platform. `useThemePreference` and `SegmentControl`
+ * are stubbed so the test exercises the card's option list and its delegation to
+ * the shared theme setter.
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 
-const applyThemePreferenceMock = mock((_theme: string) => {});
-const writeStoredThemePreferenceMock = mock((_theme: string) => {});
-const readStoredThemePreferenceMock = mock(() => "system" as const);
+const setThemePreferenceMock = mock((_theme: string) => {});
 
-mock.module("@/domains/settings/utils/theme-preferences", () => ({
-  applyThemePreference: applyThemePreferenceMock,
-  readStoredThemePreference: readStoredThemePreferenceMock,
-  writeStoredThemePreference: writeStoredThemePreferenceMock,
-}));
-
-mock.module("@/utils/device-settings", () => ({
-  watchDeviceSetting: () => () => {},
+mock.module("@/hooks/use-theme-preference", () => ({
+  useThemePreference: () => ({
+    theme: "system",
+    setThemePreference: setThemePreferenceMock,
+  }),
 }));
 
 // Minimal SegmentControl harness: render one button per item exposing onChange.
@@ -62,9 +56,7 @@ import { AppearanceCard } from "@/domains/settings/components/appearance-card";
 
 describe("AppearanceCard", () => {
   beforeEach(() => {
-    applyThemePreferenceMock.mockClear();
-    writeStoredThemePreferenceMock.mockClear();
-    readStoredThemePreferenceMock.mockClear();
+    setThemePreferenceMock.mockClear();
     velvetValue.current = false;
   });
 
@@ -84,13 +76,12 @@ describe("AppearanceCard", () => {
     expect(screen.queryByRole("button", { name: "Velvet" })).toBeNull();
   });
 
-  test("choosing a theme writes and applies it", () => {
+  test("choosing a theme delegates to the shared theme setter", () => {
     render(<AppearanceCard />);
 
     fireEvent.click(screen.getByRole("button", { name: "Dark" }));
 
-    expect(writeStoredThemePreferenceMock).toHaveBeenCalledWith("dark");
-    expect(applyThemePreferenceMock).toHaveBeenCalledWith("dark");
+    expect(setThemePreferenceMock).toHaveBeenCalledWith("dark");
   });
 
   test("exposes the Velvet option when the flag is enabled", () => {

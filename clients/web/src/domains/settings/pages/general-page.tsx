@@ -126,10 +126,9 @@ export function GeneralPage() {
   // Mirrors DeleteAccountSection's internal platformHostedOnly gate — it
   // returns null when gated, so the card must not render an empty shell.
   const showDeleteAccount = infraGate !== "gated";
-  // The Preferences modal's remaining sections are Electron-only (shortcuts,
-  // Launch at Login) or fine-pointer-only (composer send toggle). With the
-  // theme picker pulled out into its own always-visible card, hide the
-  // Preferences card on touch/non-Electron surfaces where the modal is empty.
+  // The Preferences modal only has content on Electron (shortcuts, Launch at
+  // Login) or with a fine pointer (the composer send toggle), so its card is
+  // hidden on touch/non-Electron surfaces where the modal would be empty.
   const showPreferences = isElectron() || !isPointerCoarse();
 
   return (

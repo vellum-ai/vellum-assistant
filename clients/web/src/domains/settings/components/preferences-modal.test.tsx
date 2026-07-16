@@ -1,11 +1,10 @@
 /**
  * Tests for `PreferencesModal`.
  *
- * The theme picker used to live here but now renders as its own always-visible
- * `AppearanceCard` on Settings → General (see `appearance-card.test.tsx`).
- * These tests mount the modal as a web (non-Electron) client and guard that it
- * no longer hosts Appearance while still rendering its remaining content — the
- * composer send toggle.
+ * The theme picker is a separate `AppearanceCard` on Settings → General (see
+ * `appearance-card.test.tsx`), not part of this modal. These tests mount the
+ * modal as a web (non-Electron) client and assert it hosts the composer send
+ * toggle but no Appearance/theme control.
  */
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, render, screen } from "@testing-library/react";
@@ -54,7 +53,7 @@ describe("PreferencesModal", () => {
     expect(screen.getByText("Send with Cmd+Enter")).toBeDefined();
   });
 
-  test("no longer hosts the Appearance theme picker", () => {
+  test("does not host the Appearance theme picker", () => {
     render(<PreferencesModal open onClose={() => {}} />);
 
     expect(screen.queryByText("Appearance")).toBeNull();

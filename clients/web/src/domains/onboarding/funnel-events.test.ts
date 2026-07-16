@@ -58,15 +58,17 @@ describe("onboarding funnel events", () => {
         userId: "user-123",
       },
     );
-    const nameVibe = buildOnboardingFunnelEvent(
-      ONBOARDING_FUNNEL_STEPS.nameVibe,
+    // A later step in the same journey (here a research-funnel step) shares the
+    // funnel session id — the id is per-journey, not per-funnel.
+    const laterStep = buildOnboardingFunnelEvent(
+      RESEARCH_ONBOARDING_FUNNEL_STEPS.form,
       {
         userId: "user-123",
       },
     );
 
     expect(privacy.session_id).toBeTruthy();
-    expect(nameVibe.session_id).toBe(privacy.session_id);
+    expect(laterStep.session_id).toBe(privacy.session_id);
     expect(privacy.daemon_event_id).toHaveLength(36);
     expect(privacy).toMatchObject({
       type: "onboarding",
@@ -77,49 +79,26 @@ describe("onboarding funnel events", () => {
       funnel_version: ONBOARDING_FUNNEL_VERSION,
       ab_variant: "control",
     });
-    expect(nameVibe).toMatchObject({
-      screen: "name_vibe",
-      step_name: "name_vibe",
-      step_index: 1,
-      user_id: "user-123",
-      funnel_version: ONBOARDING_FUNNEL_VERSION,
-      ab_variant: "control",
-    });
     expect(privacy.completed_at).toMatch(
       /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/,
     );
   });
 
   test("defaults ab_variant to control when no variant is passed", () => {
-    const event = buildOnboardingFunnelEvent(ONBOARDING_FUNNEL_STEPS.nameVibe, {
-      userId: "user-123",
-    });
-    expect(event.ab_variant).toBe("control");
-  });
-
-  test("uses control step indices for the existing funnel", () => {
-    const tools = buildOnboardingFunnelEvent(
-      ONBOARDING_FUNNEL_STEPS.controlTools,
+    const event = buildOnboardingFunnelEvent(
+      ONBOARDING_FUNNEL_STEPS.privacyTos,
       {
         userId: "user-123",
       },
     );
-
-    expect(tools).toMatchObject({
-      screen: "tools",
-      step_name: "tools",
-      step_index: 3,
-      user_id: "user-123",
-      ab_variant: "control",
-      funnel_version: ONBOARDING_FUNNEL_VERSION,
-    });
+    expect(event.ab_variant).toBe("control");
   });
 
   test("emits fire-and-forget telemetry payloads with the same session id", () => {
     emitOnboardingFunnelStepCompleted(ONBOARDING_FUNNEL_STEPS.privacyTos, {
       userId: "user-123",
     });
-    emitOnboardingFunnelStepCompleted(ONBOARDING_FUNNEL_STEPS.gmailConnect, {
+    emitResearchOnboardingStepCompleted(RESEARCH_ONBOARDING_FUNNEL_STEPS.form, {
       userId: "user-123",
     });
 
@@ -130,10 +109,10 @@ describe("onboarding funnel events", () => {
     expect(ingestPayload(0).device_id).toBeTruthy();
     expect(firstEvent?.session_id).toBeTruthy();
     expect(secondEvent?.session_id).toBe(firstEvent?.session_id);
-    expect(secondEvent).toMatchObject({
-      screen: "gmail_connect",
-      step_name: "gmail_connect",
-      step_index: 2,
+    expect(firstEvent).toMatchObject({
+      screen: "privacy_tos",
+      step_name: "privacy_tos",
+      step_index: 0,
       user_id: "user-123",
       funnel_version: ONBOARDING_FUNNEL_VERSION,
       ab_variant: "control",
@@ -210,7 +189,7 @@ describe("onboarding funnel events", () => {
 
     // An explicit opt-out through the store setter stops uploads.
     useOnboardingStore.getState().setShareAnalytics(false);
-    emitOnboardingFunnelStepCompleted(ONBOARDING_FUNNEL_STEPS.gmailConnect, {
+    emitOnboardingFunnelStepCompleted(ONBOARDING_FUNNEL_STEPS.privacyTos, {
       userId: "user-123",
     });
     expect(ingestMock).toHaveBeenCalledTimes(1);
@@ -220,7 +199,7 @@ describe("onboarding funnel events", () => {
     // failed opt-out write on another layer must not re-authorize events).
     localStorage.setItem("device:share_analytics", "true");
     useOnboardingStore.setState({ shareAnalytics: false });
-    emitOnboardingFunnelStepCompleted(ONBOARDING_FUNNEL_STEPS.nameVibe, {
+    emitOnboardingFunnelStepCompleted(ONBOARDING_FUNNEL_STEPS.privacyTos, {
       userId: "user-123",
     });
     expect(ingestMock).toHaveBeenCalledTimes(1);
@@ -237,7 +216,7 @@ describe("onboarding funnel events", () => {
     // returns the store to null — still enabled under opt-out semantics.
     useOnboardingStore.getState().setShareAnalytics(null);
     expect(localStorage.getItem("device:share_analytics")).toBeNull();
-    emitOnboardingFunnelStepCompleted(ONBOARDING_FUNNEL_STEPS.nameVibe, {
+    emitOnboardingFunnelStepCompleted(ONBOARDING_FUNNEL_STEPS.privacyTos, {
       userId: "user-123",
     });
     expect(ingestMock).toHaveBeenCalledTimes(2);

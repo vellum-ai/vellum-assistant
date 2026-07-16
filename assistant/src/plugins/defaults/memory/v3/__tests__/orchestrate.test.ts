@@ -1103,13 +1103,13 @@ describe("orchestrate — injection gate", () => {
     expect(result.lanes.finder).toEqual([]);
   });
 
-  test("gate stays inert when the dense lane produced no hits (denseK = 0 new-user/outage case)", async () => {
+  test("gate stays inert when the dense lane is off (denseK = 0 new-user profile)", async () => {
     const lanes = await buildLanes();
-    // denseK: 0 leaves `densed` empty — the new-user profile, or any embedding
-    // outage. A low-score needle hit (norm ≈ 0.011) would CLOSE the gate if it
-    // ran on sparse signal alone, but zero dense hits means dense is
-    // unavailable, not low-relevance: the gate is dense-gated and never runs, so
-    // selection proceeds and memory is not suppressed.
+    // denseK: 0 leaves `densed` empty — the lean new-user profile. A low-score
+    // needle hit (norm ≈ 0.011) would CLOSE the gate if it ran on sparse signal
+    // alone, but zero dense hits means dense is unavailable, not low-relevance:
+    // the gate is dense-gated and never runs, so selection proceeds and memory
+    // is not suppressed.
     const needle = {
       query: () => [],
       queryScored: () => [{ article: "topic-a", section: 0, score: 0.1 }],
@@ -1153,6 +1153,11 @@ describe("orchestrate — injection gate", () => {
     expect(result.selections.map((s) => s.slug)).toContain("topic-a");
     // The stale deleted page never reaches the pool either.
     expect(lastPool).not.toContain("gone-page");
+    // The lane WAS enabled, so this reports as an outage, not as disabled.
+    expect(recordedGateEvents[0]!.detail).toMatchObject({
+      pass: true,
+      reason: "dense_unavailable",
+    });
   });
 
   test("bypassForCore: true on a closed gate selects the stable prefix only (no finder lines)", async () => {
@@ -1264,6 +1269,7 @@ describe("orchestrate — injection gate", () => {
     expect(event.detail).toMatchObject({
       pass: true,
       reason: "dense_pass",
+      scored: true,
       top_dense_score: 0.9,
     });
   });
@@ -1286,9 +1292,11 @@ describe("orchestrate — injection gate", () => {
     });
   });
 
-  test("the dense-unavailable pass-open records reason dense_unavailable", async () => {
+  test("denseK: 0 records reason dense_disabled, not dense_unavailable", async () => {
     const lanes = await buildLanes();
-    // denseK: 0 → no live dense hits → the gate passes open without scoring.
+    // denseK: 0 → the lane never ran → the gate passes open without scoring.
+    // Deliberate configuration (the lean new-user profile), so it must NOT be
+    // reported as an outage.
     const needle = {
       query: () => [],
       queryScored: () => [{ article: "topic-a", section: 0, score: 0.1 }],
@@ -1305,8 +1313,100 @@ describe("orchestrate — injection gate", () => {
     expect(recordedGateEvents).toHaveLength(1);
     expect(recordedGateEvents[0]!.detail).toMatchObject({
       pass: true,
-      reason: "dense_unavailable",
+      reason: "dense_disabled",
+      scored: false,
     });
+  });
+
+  test("an enabled dense lane yielding no live hits records reason dense_unavailable", async () => {
+    const lanes = await buildLanes();
+    // denseK > 0 but the lane came back empty — a degraded embedding backend or
+    // a Qdrant error swallowed to [] by denseLaneScored. Dense SHOULD have
+    // scored this turn and didn't, so this is the alertable reason.
+    denseHits = [];
+    const needle = {
+      query: () => [],
+      queryScored: () => [{ article: "topic-a", section: 0, score: 0.1 }],
+      bestSection: () => -1,
+      idf: () => 0,
+    };
+    providerStub = selectProvider(["topic-a"]);
+
+    await orchestrate(
+      makeTurn(1, "apple"),
+      depsOf(lanes, { needle, denseK: 100, gateConfig: gateConfigOf() }),
+    );
+
+    expect(recordedGateEvents).toHaveLength(1);
+    expect(recordedGateEvents[0]!.detail).toMatchObject({
+      pass: true,
+      reason: "dense_unavailable",
+      scored: false,
+    });
+  });
+
+  test("records the corpus size on a scored run", async () => {
+    const lanes = await buildLanes();
+    denseHits = [{ article: "topic-b", section: 0, score: 0.9 }];
+    providerStub = selectProvider(["topic-a"]);
+
+    await orchestrate(
+      makeTurn(1, "apple"),
+      depsOf(lanes, {
+        denseK: 100,
+        realConceptPageCount: 42,
+        gateConfig: gateConfigOf(),
+      }),
+    );
+
+    expect(recordedGateEvents[0]!.detail).toMatchObject({
+      reason: "dense_pass",
+      real_concept_page_count: 42,
+    });
+  });
+
+  test("records the corpus size on a dense_disabled run", async () => {
+    const lanes = await buildLanes();
+    // The sub-threshold cohort is the whole reason the field exists: without it
+    // `dense_disabled` says only "below the threshold", not how far below.
+    const needle = {
+      query: () => [],
+      queryScored: () => [{ article: "topic-a", section: 0, score: 0.1 }],
+      bestSection: () => -1,
+      idf: () => 0,
+    };
+    providerStub = selectProvider(["topic-a"]);
+
+    await orchestrate(
+      makeTurn(1, "apple"),
+      depsOf(lanes, {
+        needle,
+        denseK: 0,
+        realConceptPageCount: 3,
+        gateConfig: gateConfigOf(),
+      }),
+    );
+
+    expect(recordedGateEvents[0]!.detail).toMatchObject({
+      reason: "dense_disabled",
+      real_concept_page_count: 3,
+    });
+  });
+
+  test("omits the corpus size when the dep is not threaded", async () => {
+    const lanes = await buildLanes();
+    denseHits = [{ article: "topic-b", section: 0, score: 0.9 }];
+    providerStub = selectProvider(["topic-a"]);
+
+    await orchestrate(
+      makeTurn(1, "apple"),
+      depsOf(lanes, { denseK: 100, gateConfig: gateConfigOf() }),
+    );
+
+    expect(recordedGateEvents).toHaveLength(1);
+    expect(recordedGateEvents[0]!.detail).not.toHaveProperty(
+      "real_concept_page_count",
+    );
   });
 
   test("no gate telemetry when the gate is disabled or omitted", async () => {

@@ -1,4 +1,4 @@
-import { ArrowUpRight, Info } from "lucide-react";
+import { Info } from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -7,7 +7,7 @@ import {
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
-import { Link, useSearchParams } from "react-router";
+import { useSearchParams } from "react-router";
 
 import { Button } from "@vellumai/design-library/components/button";
 import { Dropdown } from "@vellumai/design-library/components/dropdown";
@@ -17,6 +17,9 @@ import { Slider } from "@vellumai/design-library/components/slider";
 import { Toggle } from "@vellumai/design-library/components/toggle";
 
 import { SoundsSections } from "@/domains/settings/pages/sounds-sections";
+import { TextToSpeechCard } from "@/domains/settings/ai/text-to-speech-card";
+import { SpeechToTextCard } from "@/domains/settings/ai/speech-to-text-card";
+import { ManagedServicesBanner } from "@/domains/settings/ai/shared-ui";
 
 import { DetailCard } from "@/components/detail-card";
 import {
@@ -46,7 +49,6 @@ import {
   type PTTActivator,
   type PTTModifier,
 } from "@/utils/ptt-activator";
-import { routes } from "@/utils/routes";
 import {
   LS_VOICE_INPUT_DEVICE,
   getPreferredInputDeviceId,
@@ -91,16 +93,24 @@ const DEFAULT_CONVERSATION_TIMEOUT: ConversationTimeoutValue = "30";
 
 const labelClasses = "text-body-small-default text-[var(--content-tertiary)]";
 
+const VOICE_TABS = ["voice", "services", "sounds"] as const;
+type VoiceTab = (typeof VOICE_TABS)[number];
+
+function isVoiceTab(value: string | null): value is VoiceTab {
+  return VOICE_TABS.includes(value as VoiceTab);
+}
+
 export function VoicePage() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const activeTab = searchParams.get("tab") === "sounds" ? "sounds" : "voice";
+  const tabParam = searchParams.get("tab");
+  const activeTab: VoiceTab = isVoiceTab(tabParam) ? tabParam : "voice";
 
   const handleTabChange = (value: string) => {
     const next = new URLSearchParams(searchParams);
-    if (value === "sounds") {
-      next.set("tab", "sounds");
-    } else {
+    if (value === "voice") {
       next.delete("tab");
+    } else {
+      next.set("tab", value);
     }
     setSearchParams(next, { replace: true });
   };
@@ -110,10 +120,14 @@ export function VoicePage() {
       <Tabs.Root value={activeTab} onValueChange={handleTabChange}>
         <Tabs.List>
           <Tabs.Trigger value="voice">Voice</Tabs.Trigger>
+          <Tabs.Trigger value="services">Services</Tabs.Trigger>
           <Tabs.Trigger value="sounds">Sounds</Tabs.Trigger>
         </Tabs.List>
         <Tabs.Panel value="voice" className="pt-4">
           <VoiceSections />
+        </Tabs.Panel>
+        <Tabs.Panel value="services" className="pt-4">
+          <ServicesSections />
         </Tabs.Panel>
         <Tabs.Panel value="sounds" className="pt-4">
           <SoundsSections />
@@ -123,10 +137,19 @@ export function VoicePage() {
   );
 }
 
+function ServicesSections() {
+  return (
+    <div className="flex flex-col gap-5">
+      <ManagedServicesBanner />
+      <TextToSpeechCard />
+      <SpeechToTextCard />
+    </div>
+  );
+}
+
 export function VoiceSections() {
   return (
     <div className="flex flex-col gap-6">
-      <SpeechServicesBanner />
       <MicrophoneCard />
       <PushToTalkCard />
       <ConversationTimeoutCard />
@@ -150,24 +173,6 @@ function TranscriptionCard() {
         </p>
       </div>
     </DetailCard>
-  );
-}
-
-function SpeechServicesBanner() {
-  return (
-    <div className="flex items-center gap-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--field-bg)] px-3 py-2">
-      <Info className="h-3.5 w-3.5 shrink-0 text-[var(--primary-base)]" />
-      <span className="text-body-medium-lighter text-[var(--content-tertiary)]">
-        Looking to configure Speech-to-Text or Text-to-Speech models?
-      </span>
-      <Link
-        to={routes.settings.ai}
-        className="inline-flex items-center gap-1 text-body-medium-lighter text-[var(--system-positive-strong)] underline hover:opacity-80"
-      >
-        Go to Models &amp; Services
-        <ArrowUpRight className="h-3 w-3" />
-      </Link>
-    </div>
   );
 }
 

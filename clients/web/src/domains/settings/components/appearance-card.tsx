@@ -1,49 +1,20 @@
 import { Heart, Monitor, Moon, Sun } from "lucide-react";
-import { useEffect, useState } from "react";
 
 import { DetailCard } from "@/components/detail-card";
-import {
-  applyThemePreference,
-  readStoredThemePreference,
-  type ThemePreference,
-  writeStoredThemePreference,
-} from "@/domains/settings/utils/theme-preferences";
+import { useThemePreference } from "@/hooks/use-theme-preference";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
-import { watchDeviceSetting } from "@/utils/device-settings";
+import { type ThemePreference } from "@/utils/theme-preferences";
 import { SegmentControl } from "@vellumai/design-library/components/segment-control";
 
 /**
- * Theme picker (System / Light / Dark, plus Velvet when the flag is on),
- * rendered as its own card on Settings → General so the theme control is
- * visible directly rather than hidden behind the Preferences modal. Unlike the
- * per-device preferences in that modal it is not Electron-gated — theme applies
- * on every platform.
+ * Theme picker (System / Light / Dark, plus Velvet when the flag is on), shown
+ * as its own card on Settings → General. Not Electron-gated — theme applies on
+ * every platform. Shares `useThemePreference` with the sidebar `ThemeToggle`,
+ * so the two surfaces stay in sync.
  */
 export function AppearanceCard() {
   const velvet = useClientFeatureFlagStore.use.velvet();
-  const [theme, setTheme] = useState<ThemePreference>(() =>
-    readStoredThemePreference({ velvetEnabled: velvet }),
-  );
-
-  useEffect(() => {
-    setTheme(readStoredThemePreference({ velvetEnabled: velvet }));
-  }, [velvet]);
-
-  useEffect(() => {
-    return watchDeviceSetting("theme", () => {
-      setTheme(readStoredThemePreference({ velvetEnabled: velvet }));
-    });
-  }, [velvet]);
-
-  useEffect(() => {
-    applyThemePreference(theme);
-  }, [theme]);
-
-  const handleThemeChange = (newTheme: ThemePreference) => {
-    setTheme(newTheme);
-    writeStoredThemePreference(newTheme);
-    applyThemePreference(newTheme);
-  };
+  const { theme, setThemePreference } = useThemePreference();
 
   const themeItems = [
     {
@@ -78,7 +49,7 @@ export function AppearanceCard() {
         <SegmentControl<ThemePreference>
           ariaLabel="Theme"
           value={theme}
-          onChange={handleThemeChange}
+          onChange={setThemePreference}
           items={themeItems}
         />
       </div>

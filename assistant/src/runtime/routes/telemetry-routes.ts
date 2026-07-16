@@ -2,16 +2,26 @@
  * Route handlers for telemetry lifecycle events.
  *
  * POST /v1/telemetry/lifecycle — record a lifecycle event (app_open, hatch).
- * POST /v1/telemetry/onboarding-research — record the settled result of an
- * onboarding "research me" web-search turn.
+ * POST /v1/telemetry/ingest — record any outbox-backed telemetry event by its
+ * wire `type` + `fields`.
  */
 
 import { z } from "zod";
 
-import { recordOnboardingResearchEvent } from "../../onboarding/onboarding-research-events-store.js";
 import { recordLifecycleEvent } from "../../persistence/lifecycle-events-store.js";
+import { recordTelemetryOutboxEvent } from "../../telemetry/telemetry-events-outbox.js";
+import {
+  getWireFieldsSchema,
+  getWireSchemaForType,
+} from "../../telemetry/telemetry-wire-validation.js";
+import type {
+  OutboxTelemetryEventName,
+  TelemetryEvent,
+} from "../../telemetry/types.js";
+import { OUTBOX_TELEMETRY_EVENT_NAMES } from "../../telemetry/types.js";
 import { getUsageTelemetryReporter } from "../../telemetry/usage-telemetry-reporter.js";
 import { getLogger } from "../../util/logger.js";
+import { APP_VERSION } from "../../version.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
@@ -20,33 +30,58 @@ const log = getLogger("telemetry-routes");
 
 const VALID_EVENT_NAMES = new Set(["app_open", "hatch"]);
 
-const onboardingResearchClaimSchema = z.object({
-  claim: z.string(),
-  confidence: z.enum(["confident", "maybe", "guessing"]),
-  sources: z.array(z.string()),
-});
+const ingestDaemonEventIdSchema = z
+  .string()
+  .min(1)
+  .max(128)
+  .optional()
+  .describe(
+    "Optional collapse key: rows sharing an id collapse downstream " +
+      "(e.g. a retried report). Defaults to a fresh per-row id.",
+  );
 
-const onboardingResearchSuggestionSchema = z.object({
-  suggestion: z.string(),
-  prompt: z.string(),
-});
+/**
+ * One request variant per outbox-backed type: `{ type, fields, daemon_event_id? }`
+ * where `fields` is the wire schema for that type minus the daemon-stamped base
+ * fields. Throws at module load if an outbox name has no wire schema (an
+ * impossible drift between the outbox name list and the wire contract).
+ */
+function buildIngestVariant(name: OutboxTelemetryEventName) {
+  const fields = getWireFieldsSchema(name);
+  if (!fields) {
+    throw new Error(`No wire schema for outbox telemetry type "${name}".`);
+  }
+  return z.object({
+    type: z.literal(name),
+    fields: fields.describe(
+      "Wire event fields, excluding the daemon-stamped base fields " +
+        "(type, daemon_event_id, recorded_at, assistant_version).",
+    ),
+    daemon_event_id: ingestDaemonEventIdSchema,
+  });
+}
 
-const onboardingResearchRequestSchema = z.object({
-  conversation_id: z.string().nullable(),
-  status: z.enum(["done", "error"]),
-  // The onboarding-form values the turn was run ON. Optional: an older web
-  // client omits them, and the flow's own fields are optional. Kept permissive
-  // for the same reason the platform serializer is — a rejected request here
-  // would cost the whole research report, and the subject is the least
-  // important part of it.
-  self_reported_occupation: z.string().optional(),
-  self_reported_hobbies: z.array(z.string()).optional(),
-  self_reported_timezone: z.string().optional(),
-  claims: z.array(onboardingResearchClaimSchema),
-  suggestions: z.array(onboardingResearchSuggestionSchema),
-  plugins: z.array(z.string()),
-  installed_plugins: z.array(z.string()),
-});
+/**
+ * Request shape for `POST /v1/telemetry/ingest`: a discriminated union over
+ * every outbox-backed event type, each carrying that type's wire `fields`.
+ * Derived from the wire contract, so the generated SDK body is strongly typed
+ * and stays in sync as the wire schemas evolve.
+ */
+const telemetryIngestRequestSchema = z.discriminatedUnion(
+  "type",
+  // `.map` widens to `ZodObject[]`, but `discriminatedUnion` wants a non-empty
+  // tuple. The outbox name list is non-empty, and the RUNTIME schema (not this
+  // static type) is what codegen introspects, so the cast doesn't affect the
+  // emitted OpenAPI/SDK types.
+  OUTBOX_TELEMETRY_EVENT_NAMES.map(buildIngestVariant) as [
+    ReturnType<typeof buildIngestVariant>,
+    ...ReturnType<typeof buildIngestVariant>[],
+  ],
+);
+
+/** Placeholder id satisfying the wire schema's `daemon_event_id` bound during
+ * the up-front validation pass; the real id is stamped at record time. */
+const VALIDATION_PROBE_DAEMON_EVENT_ID = "validation-probe";
 
 function handleRecordLifecycleEvent({ body }: RouteHandlerArgs) {
   const eventName = body?.event_name as string | undefined;
@@ -70,34 +105,85 @@ async function handleTelemetryFlush() {
   if (!reporter) {
     return { flushed: false, reason: "disabled" };
   }
-  await reporter.flush();
-  return { flushed: true };
+  return reporter.flush();
 }
 
-function handleRecordOnboardingResearchEvent({ body }: RouteHandlerArgs) {
-  const parsed = onboardingResearchRequestSchema.safeParse(body);
+/**
+ * Record any outbox-backed telemetry event reported by a client. This is the
+ * generic bridge that exposes the daemon's in-process `recordTelemetryEvent`
+ * recorder to clients over HTTP/IPC — for events the client observes and the
+ * daemon can't detect on its own (e.g. `onboarding_research`).
+ *
+ * Three guarantees before a row lands:
+ *   1. `type` must be an outbox-backed event and `fields` must match that
+ *      type's wire shape — both enforced by the discriminated-union parse. The
+ *      watermark types (`turn`, `llm_usage`, `tool_executed`) are excluded
+ *      structurally: they aren't outbox-backed, so they have no variant.
+ *   2. The assembled event must additionally pass the full wire schema for the
+ *      byte-bound superRefines the request `fields` schema drops (oversize
+ *      claims/suggestions).
+ *   3. Consent is enforced by {@link recordTelemetryOutboxEvent} (the
+ *      `share_analytics` gate), same as every daemon-internal emitter.
+ *
+ * An optional `daemon_event_id` lets the client supply a collapse key (e.g. a
+ * refresh-retried report reusing a conversation-scoped id); it defaults to the
+ * fresh row id. A `conversation_id` field on the event is threaded into the
+ * outbox row's dedicated column so pending rows redact on conversation deletion
+ * via the indexed delete.
+ */
+function handleTelemetryIngest({ body }: RouteHandlerArgs) {
+  const parsed = telemetryIngestRequestSchema.safeParse(body);
   if (!parsed.success) {
     throw new BadRequestError(parsed.error.message);
   }
+  const { type, fields, daemon_event_id: daemonEventId } = parsed.data;
 
-  const event = recordOnboardingResearchEvent({
-    conversationId: parsed.data.conversation_id,
-    status: parsed.data.status,
-    selfReportedOccupation: parsed.data.self_reported_occupation,
-    selfReportedHobbies: parsed.data.self_reported_hobbies,
-    selfReportedTimezone: parsed.data.self_reported_timezone,
-    claims: parsed.data.claims,
-    suggestions: parsed.data.suggestions,
-    plugins: parsed.data.plugins,
-    installedPlugins: parsed.data.installed_plugins,
+  // `type` matched a union variant (an outbox-backed event), so a wire schema
+  // is guaranteed — its absence is an invariant breach, not a client error.
+  const wireSchema = getWireSchemaForType(type);
+  if (!wireSchema) {
+    throw new Error(`No wire schema registered for outbox type "${type}".`);
+  }
+
+  // Re-validate the assembled event against the full wire schema for the
+  // byte-bound superRefines the request `fields` schema drops. Up front (with
+  // placeholder base values) so an oversize payload 400s regardless of consent.
+  // The `.trim()`-transformed parse output is discarded: `fields` are recorded
+  // verbatim, matching pre-flush validation's non-mutating contract.
+  const validation = wireSchema.safeParse({
+    ...fields,
+    type,
+    daemon_event_id: daemonEventId ?? VALIDATION_PROBE_DAEMON_EVENT_ID,
+    recorded_at: 0,
+    assistant_version: APP_VERSION,
   });
+  if (!validation.success) {
+    throw new BadRequestError(validation.error.message);
+  }
+
+  const conversationId =
+    "conversation_id" in fields && typeof fields.conversation_id === "string"
+      ? fields.conversation_id
+      : null;
+
+  const event = recordTelemetryOutboxEvent(
+    type,
+    (id, createdAt): TelemetryEvent =>
+      // Base fields stamped after the spread so a `fields` payload carrying a
+      // base key can never override the daemon's stamp.
+      ({
+        ...fields,
+        type,
+        daemon_event_id: daemonEventId ?? id,
+        recorded_at: createdAt,
+        assistant_version: APP_VERSION,
+      }) as TelemetryEvent,
+    { conversationId },
+  );
   if (!event) {
     return { skipped: true };
   }
-  log.info(
-    { eventId: event.id, claimCount: parsed.data.claims.length },
-    "Recorded onboarding-research event",
-  );
+  log.info({ type, eventId: event.id }, "Recorded client telemetry event");
 
   return { id: event.id };
 }
@@ -145,7 +231,14 @@ export const ROUTES: RouteDefinition[] = [
       "Force-flush the telemetry events owned by the assistant process (turn events) to the platform. Other event types are flushed on their own cycle by the resource monitor process.",
     tags: ["telemetry"],
     responseBody: z.union([
-      z.object({ flushed: z.literal(true) }),
+      z.object({
+        flushed: z.literal(true),
+        sent: z.number().describe("Events POSTed to the platform"),
+        persisted: z.number().describe("Events the platform confirmed written"),
+        dropped: z
+          .number()
+          .describe("Events that did not land (sent - persisted)"),
+      }),
       z.object({
         flushed: z.literal(false),
         reason: z.string(),
@@ -154,18 +247,18 @@ export const ROUTES: RouteDefinition[] = [
     handler: handleTelemetryFlush,
   },
   {
-    operationId: "telemetry_onboarding_research",
-    endpoint: "telemetry/onboarding-research",
+    operationId: "telemetry_ingest",
+    endpoint: "telemetry/ingest",
     method: "POST",
     policy: {
       requiredScopes: ["settings.write"],
       allowedPrincipalTypes: ACTOR_PRINCIPALS,
     },
-    summary: "Record onboarding-research event",
+    summary: "Record an outbox-backed telemetry event",
     description:
-      'Record the settled result of an onboarding "research me" web-search turn (claims, suggestions, and plugin picks). Client-orchestrated: the web client reports this once it has observed the turn complete. Gated on share_analytics consent like every other outbox-backed event; the platform re-checks the owner\'s consent server-side at ingest.',
+      "Record any outbox-backed telemetry event by its wire `type` + `fields`. For events a client observes and the daemon can't detect on its own (e.g. onboarding_research). The type must be an outbox-backed event — the watermark types (turn, llm_usage, tool_executed) have no variant — and the payload must pass the platform wire schema. Gated on share_analytics consent like every other outbox-backed event; the platform re-checks the owner's consent server-side at ingest.",
     tags: ["telemetry"],
-    requestBody: onboardingResearchRequestSchema,
+    requestBody: telemetryIngestRequestSchema,
     responseBody: z.union([
       z.object({ id: z.string().describe("Event ID") }),
       z.object({
@@ -176,6 +269,6 @@ export const ROUTES: RouteDefinition[] = [
           ),
       }),
     ]),
-    handler: handleRecordOnboardingResearchEvent,
+    handler: handleTelemetryIngest,
   },
 ];

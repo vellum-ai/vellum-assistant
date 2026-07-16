@@ -69,6 +69,43 @@ const BATCH_SIZE = 500;
 const MAX_CONSECUTIVE_BATCHES = 10;
 const TELEMETRY_PATH = "/v1/telemetry/ingest/";
 
+/**
+ * Outcome of a {@link UsageTelemetryReporter.flush} call. `flushed: true` means
+ * at least one batch reached the platform (2xx). `sent` is the count the daemon
+ * POSTed; `persisted` is the count the platform confirmed written; `dropped` is
+ * `sent - persisted` — folding server-side drops (opt-out, unauthenticated) and
+ * events silently skipped at ingest validation (unknown/invalid type) into one
+ * "did not land" number. `flushed: false` carries a kebab-case skip reason.
+ */
+export type TelemetryFlushSummary =
+  | { flushed: true; sent: number; persisted: number; dropped: number }
+  | { flushed: false; reason: string };
+
+interface FlushAccumulator {
+  sent: number;
+  persisted: number;
+}
+
+/**
+ * Read `persisted` from an ingest response body. Falls back to `fallback`
+ * (the POSTed count — assume all landed) on a malformed body or an older
+ * platform that omits the field. Never throws.
+ */
+function parsePersistedCount(body: string, fallback: number): number {
+  try {
+    const parsed: unknown = JSON.parse(body);
+    if (parsed && typeof parsed === "object") {
+      const p = (parsed as { persisted?: unknown }).persisted;
+      if (typeof p === "number" && Number.isFinite(p) && p >= 0) {
+        return p;
+      }
+    }
+  } catch {
+    // Malformed/empty body — assume everything persisted.
+  }
+  return fallback;
+}
+
 // ---------------------------------------------------------------------------
 // Singleton access
 // ---------------------------------------------------------------------------
@@ -197,7 +234,7 @@ export function initToolExecutedWatermarkIfAbsent(
 export class UsageTelemetryReporter {
   private initialFlushTimer: ReturnType<typeof setTimeout> | null = null;
   private timer: ReturnType<typeof setInterval> | null = null;
-  private activeFlush: Promise<void> | null = null;
+  private activeFlush: Promise<TelemetryFlushSummary> | null = null;
   private readonly sources: readonly TelemetryEventSource[];
   private readonly checkpoints: FlushCheckpointStore;
 
@@ -252,22 +289,36 @@ export class UsageTelemetryReporter {
     await this.flush();
   }
 
-  async flush(): Promise<void> {
+  async flush(): Promise<TelemetryFlushSummary> {
     if (this.activeFlush) {
-      return; // overlap guard
+      return this.activeFlush; // overlap guard — share the in-flight result
     }
     this.activeFlush = this._doFlush();
     try {
-      await this.activeFlush;
+      return await this.activeFlush;
     } finally {
       this.activeFlush = null;
     }
   }
 
-  private async _doFlush(batchCount = 0): Promise<void> {
+  private async _doFlush(
+    batchCount = 0,
+    acc: FlushAccumulator = { sent: 0, persisted: 0 },
+  ): Promise<TelemetryFlushSummary> {
+    // Once any batch has shipped (acc.sent > 0), a later skip/defer/error is
+    // just the natural end of the flush — report what landed, not a failure.
+    const flushed = (): TelemetryFlushSummary => ({
+      flushed: true,
+      sent: acc.sent,
+      persisted: acc.persisted,
+      dropped: Math.max(0, acc.sent - acc.persisted),
+    });
+    const settle = (reason: string): TelemetryFlushSummary =>
+      acc.sent > 0 ? flushed() : { flushed: false, reason };
+
     try {
       if (batchCount >= MAX_CONSECUTIVE_BATCHES) {
-        return;
+        return flushed();
       }
 
       // Age-bound the ack-mode outbox before any skip gate (platform,
@@ -293,7 +344,7 @@ export class UsageTelemetryReporter {
       // is a deployment/local-mode toggle, not a privacy opt-out, so the unsent
       // backlog ships once the flag is cleared.
       if (!arePlatformFeaturesEnabled()) {
-        return;
+        return settle("disabled");
       }
 
       // Skip when the flush-checkpoint store (telemetry DB) is unreachable.
@@ -304,7 +355,7 @@ export class UsageTelemetryReporter {
         log.warn(
           "Telemetry flush: flush-checkpoint store unavailable — skipping, will retry next cycle",
         );
-        return;
+        return settle("checkpoint-unavailable");
       }
 
       // Tri-state consent gate: `true` ships, `false` purges, `"unknown"`
@@ -323,7 +374,7 @@ export class UsageTelemetryReporter {
         log.debug(
           "Telemetry flush: share_analytics consent unknown — skipping, will retry next cycle",
         );
-        return;
+        return settle("unknown-consent");
       }
 
       // Respect a confirmed opt-out: if the platform owner declined
@@ -362,7 +413,7 @@ export class UsageTelemetryReporter {
           this.checkpoints.set(keys.at, now);
           this.checkpoints.set(keys.id, OPT_OUT_WATERMARK_ID_SENTINEL);
         }
-        return;
+        return settle("opted-out");
       }
 
       // Read each source's watermark (compound cursor: createdAt + id) and
@@ -411,7 +462,7 @@ export class UsageTelemetryReporter {
       }
 
       if (batches.every(({ batch }) => batch.events.length === 0)) {
-        return;
+        return settle("nothing-pending");
       }
 
       // Resolve auth context. We send authenticated-only: if no platform
@@ -428,7 +479,7 @@ export class UsageTelemetryReporter {
           },
           "Telemetry flush: no platform credentials — skipping, will retry next cycle",
         );
-        return;
+        return settle("no-credentials");
       }
       log.debug(
         {
@@ -477,9 +528,14 @@ export class UsageTelemetryReporter {
           { status: resp.status, body },
           "Usage telemetry POST failed — will retry next cycle",
         );
-        return;
+        return settle("post-failed");
       }
-      await resp.text(); // consume body to release connection
+
+      // Read the ingest response so `persisted` reflects what actually landed;
+      // consuming the body also releases the connection.
+      const body = await resp.text();
+      acc.sent += typedEvents.length;
+      acc.persisted += parsePersistedCount(body, typedEvents.length);
 
       // Acknowledge each source's shipped rows: ack-mode sources delete them
       // (never touching flush_checkpoints), watermark-mode sources advance
@@ -496,12 +552,15 @@ export class UsageTelemetryReporter {
         }
       }
 
-      // If any source produced a full batch, there may be more — recurse.
+      // If any source produced a full batch, there may be more — recurse,
+      // threading the accumulator so counts span every batch in this flush.
       if (batches.some(({ batch }) => batch.fullBatch)) {
-        await this._doFlush(batchCount + 1);
+        return this._doFlush(batchCount + 1, acc);
       }
+      return flushed();
     } catch (err) {
       log.warn({ err }, "Usage telemetry flush error — non-fatal, will retry");
+      return settle("error");
     }
   }
 }

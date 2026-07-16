@@ -465,8 +465,8 @@ export interface OnboardingResearchSuggestion {
  * settled result during onboarding. Client-orchestrated: the web client
  * knows exactly when the turn completes and what it produced (claims,
  * suggestions, plugin picks), and reports it once via
- * `POST /v1/telemetry/onboarding-research` — the daemon never detects this
- * turn on its own.
+ * `POST /v1/telemetry/ingest` (as a client-reportable type) — the daemon
+ * never detects this turn on its own.
  *
  * Carries both the raw claim/suggestion text (+ source URLs) and structural
  * counts by confidence tier, so downstream consumers can aggregate cheaply

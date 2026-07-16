@@ -11,6 +11,7 @@ const CANONICAL_TABS = [
   "General",
   "Models & Services",
   "Voice",
+  "Services",
   "Sounds",
   "Permissions & Privacy",
   "Billing",

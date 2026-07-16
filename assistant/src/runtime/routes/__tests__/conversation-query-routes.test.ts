@@ -1399,6 +1399,88 @@ describe("custom profile write normalization (complete overrides)", () => {
   });
 });
 
+describe("call-site override tuning backfill", () => {
+  const configPatchRoute = ROUTES.find(
+    (r) => r.operationId === "config_patch",
+  )!;
+
+  const savedCallSites = () =>
+    (
+      loadRawConfig().llm as {
+        callSites?: Record<string, Record<string, unknown>>;
+      }
+    ).callSites ?? {};
+
+  beforeEach(() => {
+    rawConfigFixture = { llm: {} };
+    seedRawConfig();
+  });
+
+  test("PATCH creating a bare { profile } entry backfills shipped tuning", async () => {
+    await configPatchRoute.handler({
+      body: {
+        llm: {
+          callSites: {
+            memoryRouter: { profile: "mine", provider: null, model: null },
+            commitMessage: { profile: "mine", provider: null, model: null },
+          },
+        },
+      },
+    });
+    const memoryRouter = savedCallSites().memoryRouter!;
+    expect(memoryRouter.profile).toBe("mine");
+    expect(memoryRouter.contextWindow).toEqual({ maxInputTokens: 1_000_000 });
+    const commitMessage = savedCallSites().commitMessage!;
+    expect(commitMessage.profile).toBe("mine");
+    expect(commitMessage.maxTokens).toBe(120);
+    expect(commitMessage.effort).toBe("low");
+  });
+
+  test("explicit patch values win over shipped tuning on a new entry", async () => {
+    await configPatchRoute.handler({
+      body: {
+        llm: {
+          callSites: { commitMessage: { profile: "mine", maxTokens: 500 } },
+        },
+      },
+    });
+    const saved = savedCallSites().commitMessage!;
+    expect(saved.maxTokens).toBe(500);
+    expect(saved.temperature).toBe(0.2);
+  });
+
+  test("existing entries are never backfilled — customization is preserved", async () => {
+    rawConfigFixture = {
+      llm: { callSites: { recall: { profile: "old", maxTokens: 200 } } },
+    };
+    seedRawConfig();
+    await configPatchRoute.handler({
+      body: {
+        llm: {
+          callSites: {
+            recall: { profile: "mine", provider: null, model: null },
+          },
+        },
+      },
+    });
+    const saved = savedCallSites().recall!;
+    expect(saved.profile).toBe("mine");
+    expect(saved.maxTokens).toBe(200);
+    expect(saved.disableCache).toBeUndefined();
+  });
+
+  test("deleting an entry (null) is untouched by the backfill", async () => {
+    rawConfigFixture = {
+      llm: { callSites: { recall: { profile: "old" } } },
+    };
+    seedRawConfig();
+    await configPatchRoute.handler({
+      body: { llm: { callSites: { recall: null } } },
+    });
+    expect(savedCallSites().recall).toBeUndefined();
+  });
+});
+
 describe("config invariant flag enrichment", () => {
   const configGetRoute = ROUTES.find((r) => r.operationId === "config_get")!;
   const configPatchRoute = ROUTES.find(

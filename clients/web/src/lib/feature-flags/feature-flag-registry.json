@@ -107,6 +107,14 @@
       "defaultEnabled": false
     },
     {
+      "id": "voice-duplex-handoff",
+      "scope": "assistant",
+      "key": "voice-duplex-handoff",
+      "label": "Voice Duplex Handoff",
+      "description": "When a user barges in during live voice, keep the interrupted turn running as a background subagent instead of discarding it (true-duplex handoff)",
+      "defaultEnabled": false
+    },
+    {
       "id": "fast-mode",
       "scope": "assistant",
       "key": "fast-mode",
