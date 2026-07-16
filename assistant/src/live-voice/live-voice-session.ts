@@ -132,16 +132,17 @@ export type LiveVoiceTtsStreamer = (
 ) => Promise<LiveVoiceTtsResult>;
 
 // Runs an interrupted live-voice turn to completion on a background subagent
-// (true-duplex handoff, gated behind voice-duplex-handoff). The run is silent
-// (no parent notification) until the resurface flow lands, and aborts when
-// `signal` fires. Injected for testability; the factory wires the real
-// SubagentManager-backed implementation.
+// (true-duplex handoff, gated behind voice-duplex-handoff). The run stays silent
+// (no parent notification, never spoken unprompted); it RESOLVES with the
+// continuation's final answer text, which the session folds into the next turn
+// the user starts as context. Aborts when `signal` fires (rejecting). Injected
+// for testability; the factory wires the real SubagentManager-backed impl.
 export type LiveVoiceBackgroundContinuationSpawner = (args: {
   parentConversationId: string;
   objective: string;
   label: string;
   signal: AbortSignal;
-}) => Promise<void>;
+}) => Promise<string>;
 
 export interface LiveVoiceSessionArchiveAudioInput {
   messageId?: string | null;
@@ -314,6 +315,11 @@ interface ActiveAssistantTurn {
   // merges it with this turn's utterance instead of treating that utterance as
   // a fresh follow-up. Null for an ordinary (non-barge-in) turn.
   interruptedRequest: string | null;
+  // The completed background continuation's answer (voice-duplex-handoff),
+  // folded into this turn's control prompt as context so the model can deliver
+  // or reference it in reply to the user, without ever speaking it unprompted.
+  // Null when no continuation result is pending for this turn.
+  continuationResult: string | null;
   // Triage-and-escalate (Voice Mode): the front-door leg emitted [ESCALATE]
   // and the strong "escalated" leg has taken over this same turn. Guards the
   // front-door leg's trailing completion from finalizing the turn, and makes
@@ -349,6 +355,31 @@ const LIVE_VOICE_CONTROL_PROMPT =
 // not a user message and never renders as a transcript bubble.
 function buildInterruptionMergeNote(interruptedRequest: string): string {
   return `The user interrupted your previous, unfinished reply. Their earlier request was: "${interruptedRequest}". Treat their current message as a continuation of that request and address both together, or stay silent if they only want you to stop.`;
+}
+
+// System-level guidance appended to the NEXT turn's control prompt after a
+// background continuation (voice-duplex-handoff) finished the reply the user
+// interrupted. Folds the completed answer in as context so the model can
+// deliver or reference it in reply to the user; it must never be spoken
+// unprompted (live-voice is non-interactive, JARVIS-1291). Reaches the model
+// only; it is not a user message and never renders as a transcript bubble.
+function buildResurfaceContextNote(continuationResult: string): string {
+  return `Earlier the user interrupted you, and in the background you finished the reply they cut off. What you worked out was: "${continuationResult}". If their current message relates to it, use it to answer; otherwise you may briefly offer it or leave it aside, and do not repeat it verbatim if it no longer fits.`;
+}
+
+// Assemble a turn's model-facing control prompt: the base live-voice rules plus
+// any pending barge-in merge context and/or completed-continuation context. A
+// turn can carry both (a barge-in follow-up that also has a continuation result
+// waiting); the notes are model-only and never render as user bubbles.
+function buildVoiceControlPrompt(turn: ActiveAssistantTurn): string {
+  let prompt = LIVE_VOICE_CONTROL_PROMPT;
+  if (turn.interruptedRequest) {
+    prompt = `${prompt}\n\n${buildInterruptionMergeNote(turn.interruptedRequest)}`;
+  }
+  if (turn.continuationResult) {
+    prompt = `${prompt}\n\n${buildResurfaceContextNote(turn.continuationResult)}`;
+  }
+  return prompt;
 }
 
 // Objective handed to the background subagent that continues a barged-in turn.
@@ -444,6 +475,11 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // Consumed (and cleared) when that turn launches; cleared if the barge-in
   // utterance is discarded, so it can never attach to a later, unrelated turn.
   private pendingInterruptedRequest: string | null = null;
+  // Set when a background continuation (voice-duplex-handoff) finishes the reply
+  // a barge-in cut off: its final answer, folded into the next turn the user
+  // starts as context. Consumed (and cleared) when that turn launches; cleared
+  // on a hard stop (abortDetachedRuns) so a stale result never surfaces later.
+  private pendingContinuationResult: string | null = null;
   private readonly maxPendingAudioBytes: number;
   // Set on VAD speech onset; consumed when the first speech chunk is routed
   // to an utterance so the metric lands on the right turn.
@@ -1204,12 +1240,25 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         if (controller.signal.aborted || this.isClosed) {
           return;
         }
-        await spawn({
+        const resultText = await spawn({
           parentConversationId: this.conversationId,
           objective: buildDuplexContinuationObjective(interruptedRequest),
           label: `voice-continue-${turn.turnId}`,
           signal: controller.signal,
         });
+        // Fold the completed continuation's answer into the next turn the user
+        // starts (never spoken unprompted). Re-check the stop guards after the
+        // await: an interrupt/close during the run must suppress it. Latest
+        // result wins if another continuation already stashed one.
+        const answer = resultText.trim();
+        if (
+          answer.length > 0 &&
+          !controller.signal.aborted &&
+          !this.isClosed &&
+          this.detachStopGeneration === stopGeneration
+        ) {
+          this.pendingContinuationResult = answer;
+        }
       } catch (err) {
         // A stop/interrupt aborts via the signal; that rejection is expected.
         if (!controller.signal.aborted) {
@@ -1235,6 +1284,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       controller.abort();
     }
     this.detachControllers.clear();
+    // A hard stop also drops any completed continuation's result still waiting
+    // to fold into the next turn, so it can't surface after the user reset.
+    this.pendingContinuationResult = null;
   }
 
   // VAD closed the utterance — the analog of ptt_release: emit
@@ -1747,11 +1799,16 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       return;
     }
 
-    // Consume any pending barge-in merge context for this turn (one barge-in
-    // feeds exactly the next launched turn).
+    // Consume any pending barge-in merge context and completed-continuation
+    // context for this turn (each feeds exactly the next launched turn).
     const interruptedRequest = this.pendingInterruptedRequest;
     this.pendingInterruptedRequest = null;
-    await this.launchAssistantTurn(utterance, content, { interruptedRequest });
+    const continuationResult = this.pendingContinuationResult;
+    this.pendingContinuationResult = null;
+    await this.launchAssistantTurn(utterance, content, {
+      interruptedRequest,
+      continuationResult,
+    });
   }
 
   // Build the ActiveAssistantTurn for a released utterance and drive its model
@@ -1763,6 +1820,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       // Set on a barge-in follow-up turn: the interrupted request's transcript,
       // appended to the turn's control prompt so the model merges the two.
       interruptedRequest?: string | null;
+      // Set when a background continuation finished the interrupted reply: its
+      // answer, appended to the turn's control prompt as context.
+      continuationResult?: string | null;
     },
   ): Promise<void> {
     utterance.assistantTurnStarted = true;
@@ -1781,6 +1841,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       ttsAudioStarted: false,
       finalized: false,
       interruptedRequest: opts?.interruptedRequest ?? null,
+      continuationResult: opts?.continuationResult ?? null,
       escalationHandedOff: false,
       ttsBuffer: "",
       ttsSegmentEnqueued: false,
@@ -1913,11 +1974,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         assistantMessageChannel: "vellum",
         userMessageInterface: "macos",
         assistantMessageInterface: "macos",
-        voiceControlPrompt: activeTurn.interruptedRequest
-          ? `${LIVE_VOICE_CONTROL_PROMPT}\n\n${buildInterruptionMergeNote(
-              activeTurn.interruptedRequest,
-            )}`
-          : LIVE_VOICE_CONTROL_PROMPT,
+        voiceControlPrompt: buildVoiceControlPrompt(activeTurn),
         content: leg.content,
         isInbound: true,
         signal: activeTurn.abortController.signal,
@@ -2914,21 +2971,22 @@ export function createLiveVoiceSession(
 // (which include the interrupted turn's completed tool calls after teardown),
 // so it resumes without repeating them. Uses spawnAndAwait (synchronous mode)
 // so the terminal parent-notification is skipped — the continuation stays
-// silent until the resurface flow lands, and this call ignores its result. The
-// `signal` aborts the child on a stop/interrupt.
+// silent (never spoken unprompted); its final answer is RETURNED so the session
+// can fold it into the next turn the user starts. The `signal` aborts the child
+// on a stop/interrupt (spawnAndAwait then rejects).
 async function defaultSpawnBackgroundContinuation(args: {
   parentConversationId: string;
   objective: string;
   label: string;
   signal: AbortSignal;
-}): Promise<void> {
+}): Promise<string> {
   const parentConversation = findConversation(args.parentConversationId);
   if (!parentConversation) {
     throw new Error(
       `Cannot detach interrupted voice turn: conversation ${args.parentConversationId} is not resident.`,
     );
   }
-  await getSubagentManager().spawnAndAwait(
+  return await getSubagentManager().spawnAndAwait(
     {
       parentConversationId: args.parentConversationId,
       label: args.label,
@@ -2938,7 +2996,8 @@ async function defaultSpawnBackgroundContinuation(args: {
       parentMessages: [...parentConversation.messages],
       parentSystemPrompt: parentConversation.getCurrentSystemPrompt(),
     },
-    // No client-facing events: the continuation is silent until resurface.
+    // No client-facing events: the continuation is silent; its result is folded
+    // into the next user turn as context, never spoken on its own.
     () => {},
     { signal: args.signal },
   );
