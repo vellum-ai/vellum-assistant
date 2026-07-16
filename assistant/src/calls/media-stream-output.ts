@@ -702,8 +702,12 @@ export class MediaStreamOutput implements CallTransport {
       this.activePlaybackAbort.abort();
       this.activePlaybackAbort = null;
     }
-    // A flushed queue will never echo its pending end-of-turn marks, so
-    // release any drain waiters rather than leave them hanging.
+    // A flushed queue will never (genuinely) echo its pending end-of-turn
+    // marks — Twilio drops the buffered audio on `clear`. Treat every
+    // outstanding mark as drained so existing waiters resolve now and any
+    // *future* awaitPlaybackDrained() targeting a flushed seq doesn't hang.
+    // It also makes a late cleared-mark echo a no-op (seq <= echoed).
+    this.echoedEndOfTurnSeq = this.enqueuedEndOfTurnSeq;
     this.releaseAllDrainWaiters();
   }
 

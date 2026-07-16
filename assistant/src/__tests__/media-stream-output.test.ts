@@ -1673,6 +1673,50 @@ describe("MediaStreamOutput", () => {
       await expect(drained).resolves.toBeUndefined();
     });
 
+    test("a waiter armed AFTER a flush does not hang on the flushed mark", async () => {
+      // Barge-in flushes an outstanding end-of-turn mark before any waiter
+      // exists. A later awaitPlaybackDrained() targeting that flushed seq
+      // must resolve (the audio was cleared, never to be echoed) rather than
+      // wait forever.
+      const { ws, sent } = createMockWs();
+      const output = makeOutput(ws, "stream-1");
+      output.sendTextToken("", true); // enqueues end-of-turn:1
+      await drain(() => countEvents(sent, "mark") > 0);
+
+      output.clearAudio(); // flushes end-of-turn:1 with no waiter present
+
+      await expect(output.awaitPlaybackDrained()).resolves.toBeUndefined();
+    });
+
+    test("a late cleared-mark echo does not prematurely resolve a fresh turn", async () => {
+      // After a flush advances the drained seq, a stale echo for the cleared
+      // mark is a no-op, and the next turn's waiter still pends until its own
+      // (higher-seq) mark is echoed.
+      const { ws, sent } = createMockWs();
+      const output = makeOutput(ws, "stream-1");
+      output.sendTextToken("", true); // end-of-turn:1
+      await drain(() => countEvents(sent, "mark") > 0);
+      output.clearAudio(); // flush; drained seq advances to 1
+
+      output.sendTextToken("", true); // end-of-turn:2 (next turn)
+      await drain(() => countEvents(sent, "mark") > 1);
+
+      let resolved = false;
+      void output.awaitPlaybackDrained().then(() => {
+        resolved = true;
+      });
+
+      // Stale echo for the cleared mark must not resolve the seq-2 waiter.
+      output.notePlaybackMarkEcho("end-of-turn:1");
+      await drain();
+      expect(resolved).toBe(false);
+
+      // The genuine seq-2 echo resolves it.
+      output.notePlaybackMarkEcho("end-of-turn:2");
+      await drain(() => resolved);
+      expect(resolved).toBe(true);
+    });
+
     test("endSession releases a pending waiter", async () => {
       const { ws, sent } = createMockWs();
       const output = makeOutput(ws, "stream-1");
