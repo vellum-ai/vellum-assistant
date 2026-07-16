@@ -788,10 +788,6 @@ export function useSendMessage({
       };
       if (!isHidden) addOptimisticSend(userMessage);
       void getSoundManager().play("message_sent");
-      // Sidenav-gating experiment: every real (non-hidden) user send advances
-      // the unlock thresholds — including tagged nav_redirect sends, which are
-      // real intent. The store caps the count, so this is cheap for everyone.
-      if (!isHidden) useNavGateStore.getState().recordMessageSent();
 
       // Queue path: POST to assistant (it queues internally) but don't
       // disrupt the active turn.
@@ -815,6 +811,11 @@ export function useSendMessage({
             setError({ message: detail, code: postResult.error.code ?? undefined });
             return;
           }
+          // Sidenav-gating experiment: the daemon accepted the message, so
+          // it advances the unlock thresholds — including tagged nav_redirect
+          // sends, which are real intent. Counted only on accepted POSTs so a
+          // failed send can't unlock chrome or mute the bounce signal.
+          if (!isHidden) useNavGateStore.getState().recordMessageSent();
           void surfaceConversationAfterUserSend(postResult.conversationId).catch(
             (err) => {
               captureError(err, {
@@ -930,6 +931,11 @@ export function useSendMessage({
           // Scope changed mid-flight; the new scope owns UI state from here.
           return;
         }
+
+        // Sidenav-gating experiment counter — see the queue-path note above.
+        // The "ignored" return skips counting: scope flipped mid-flight, so
+        // undercounting one edge send beats crediting an uncertain one.
+        if (!isHidden) useNavGateStore.getState().recordMessageSent();
 
         resolvedId = result.resolvedConversationId;
 

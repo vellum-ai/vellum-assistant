@@ -13,6 +13,7 @@
  */
 
 import { motion, useReducedMotion } from "motion/react";
+import { useLocation, useNavigate } from "react-router";
 
 import { Button, Popover } from "@vellumai/design-library";
 
@@ -28,6 +29,8 @@ import {
   useNavGateStore,
   type NavGateItemId,
 } from "@/domains/chat/nav-gate/nav-gate-store";
+import { useConversationStore } from "@/stores/conversation-store";
+import { routes } from "@/utils/routes";
 
 /** Sidenav items open to the right; composer bottom-bar items open upward. */
 const BUBBLE_SIDE: Partial<Record<NavGateItemId, "top">> = {
@@ -44,6 +47,8 @@ export function NavGateBubble({
   onAfterAction?: () => void;
 }) {
   const reduce = useReducedMotion();
+  const navigate = useNavigate();
+  const location = useLocation();
   const bubbleItem = useNavGateStore.use.bubbleItem();
   const bubbleAnchor = useNavGateStore.use.bubbleAnchor();
   const attempts = useNavGateStore.use.attempts();
@@ -68,6 +73,23 @@ export function NavGateBubble({
       case "dismiss":
         store.dismissBubble();
         break;
+    }
+    // Send and prefill both land IN the chat. The pending send is consumed by
+    // ActiveChatView and the prefilled input lives in the chat composer, so a
+    // click from a non-chat route (Library or Home after a quiet unlock) must
+    // navigate back — otherwise the action silently does nothing and a stale
+    // pending send would fire whenever the user next wanders into chat.
+    if (
+      action.kind !== "dismiss" &&
+      !location.pathname.startsWith(routes.conversations)
+    ) {
+      const activeConversationId =
+        useConversationStore.getState().activeConversationId;
+      void navigate(
+        activeConversationId
+          ? routes.conversation(activeConversationId)
+          : routes.assistant,
+      );
     }
     requestComposerFocus();
     onAfterAction?.();
