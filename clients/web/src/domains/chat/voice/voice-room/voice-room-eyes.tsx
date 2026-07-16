@@ -818,15 +818,21 @@ export function VoiceRoomEyes({
   const manualBlinkTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(
     () => () => {
-      if (manualBlinkTimeout.current) clearTimeout(manualBlinkTimeout.current);
+      if (manualBlinkTimeout.current) {
+        clearTimeout(manualBlinkTimeout.current);
+      }
     },
     [],
   );
   const reactToClick = useCallback(() => {
     setBlinking(true);
-    if (manualBlinkTimeout.current) clearTimeout(manualBlinkTimeout.current);
+    if (manualBlinkTimeout.current) {
+      clearTimeout(manualBlinkTimeout.current);
+    }
     manualBlinkTimeout.current = setTimeout(() => setBlinking(false), 140);
-    if (reduce) return;
+    if (reduce) {
+      return;
+    }
     void wobble.start({
       scaleX: [1, 1.06, 0.96, 1],
       scaleY: [1, 0.92, 1.04, 1],
