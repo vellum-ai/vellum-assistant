@@ -58,7 +58,7 @@ mock.module("../../../acp/acp-claude-oauth.js", () => ({
   hasAcpClaudeToken: hasAcpClaudeTokenMock,
 }));
 
-// Host detection: default false (local/loopback) so the PR-5 tests are
+// Host detection: default false (local/loopback) so the loopback tests are
 // unaffected; the cloud tests flip it to true.
 const actualEnvRegistry = await import("../../../config/env-registry.js");
 const getIsContainerizedMock = mock(() => false);
@@ -166,6 +166,16 @@ describe("acp_claude_auth_start", () => {
 
     // The flow is now tracked as pending.
     expect(getStatus(result.state)).toEqual({ status: "pending" });
+
+    // Close the real loopback server this flow bound: left alone it lingers
+    // until the oauth2 helper's multi-minute callback timeout, keeping this
+    // file's event loop alive and slowing CI. Driving the callback with an
+    // `error` settles + closes the server without any token exchange; awaiting
+    // the errored status guarantees cleanup ran before the test returns.
+    await fetch(
+      `${redirectUri}?state=${encodeURIComponent(result.state)}&error=connect_test_cleanup`,
+    );
+    await waitForStatus(result.state, "error");
   });
 
   test("client `preferManual` forces the manual path on a non-containerized host", async () => {
