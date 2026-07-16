@@ -330,3 +330,31 @@ describe("fail-soft without a memory database", () => {
     expect(() => clearConversation("conv-1")).not.toThrow();
   });
 });
+
+describe("fail-soft when the underlying statement fails", () => {
+  // The memory connection is present, but the relocated table is gone (a
+  // corrupt/dropped table, SQLITE_FULL, I/O error, or SQLITE_BUSY after
+  // timeout). Every write must degrade like the null-connection case — log a
+  // warning and no-op — rather than throwing out of the turn.
+  test("write paths no-op when the target table is missing", () => {
+    memorySqlite.query("DROP TABLE memory_v3_ever_injected").run();
+
+    expect(() =>
+      recordInjected("conv-1", [{ slug: "topics/page-a", bytes: 100 }], 1_000),
+    ).not.toThrow();
+    expect(() => markPruned("conv-1", ["topics/page-a"], 2_000)).not.toThrow();
+    expect(() => clearConversation("conv-1")).not.toThrow();
+    expect(() =>
+      forkEverInjected(testDb, "conv-parent", "conv-child"),
+    ).not.toThrow();
+    expect(() =>
+      seedEverInjectedFromSlugs(
+        testDb,
+        "conv-parent",
+        "conv-child",
+        ["topics/page-a"],
+        5_000,
+      ),
+    ).not.toThrow();
+  });
+});
