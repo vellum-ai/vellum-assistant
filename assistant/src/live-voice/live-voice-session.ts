@@ -27,6 +27,7 @@ import {
 } from "../calls/voice-triage-escalate.js";
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getConfig } from "../config/loader.js";
+import { findConversation } from "../daemon/conversation-registry.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
 import { ensureConversationExists } from "../persistence/conversation-crud.js";
 import {
@@ -41,6 +42,7 @@ import type {
   SttStreamServerErrorEvent,
   SttStreamServerEvent,
 } from "../stt/types.js";
+import { getSubagentManager } from "../subagent/index.js";
 import { extractSpeakableSegments } from "../tts/speakable-segments.js";
 import { getLogger } from "../util/logger.js";
 import type {
@@ -123,6 +125,19 @@ export type LiveVoiceTtsStreamer = (
   options: LiveVoiceTtsOptions,
 ) => Promise<LiveVoiceTtsResult>;
 
+// Spawns a background subagent that continues an interrupted live-voice turn
+// (true-duplex handoff, gated behind voice-duplex-handoff). Returns the
+// subagent id so a later stop/interrupt can abort it. Injected for testability;
+// the factory wires the real SubagentManager-backed implementation.
+export type LiveVoiceBackgroundContinuationSpawner = (args: {
+  parentConversationId: string;
+  objective: string;
+  label: string;
+}) => Promise<string>;
+
+// Aborts a background continuation subagent by id.
+export type LiveVoiceBackgroundRunAborter = (subagentId: string) => void;
+
 export interface LiveVoiceSessionArchiveAudioInput {
   messageId?: string | null;
   sessionId: string;
@@ -179,6 +194,14 @@ export interface LiveVoiceSessionOptions {
    * flush in persistent mode (test hook). Defaults to `FINALIZE_GRACE_MS`.
    */
   finalizeGraceMs?: number;
+  /**
+   * Spawns the background continuation for a barged-in turn when the
+   * `voice-duplex-handoff` flag is on. The factory wires the real
+   * SubagentManager-backed implementation; tests inject a stub.
+   */
+  spawnBackgroundContinuation?: LiveVoiceBackgroundContinuationSpawner;
+  /** Aborts a background continuation started via spawnBackgroundContinuation. */
+  abortBackgroundRun?: LiveVoiceBackgroundRunAborter;
 }
 
 type LiveVoiceUtterancePhase =
@@ -310,6 +333,12 @@ function buildInterruptionMergeNote(interruptedRequest: string): string {
   return `The user interrupted your previous, unfinished reply. Their earlier request was: "${interruptedRequest}". Treat their current message as a continuation of that request and address both together, or stay silent if they only want you to stop.`;
 }
 
+// Objective handed to the background subagent that continues a barged-in turn.
+// The subagent forks the live conversation, so it already sees the interrupted
+// turn's completed tool calls in history and resumes from there.
+const DUPLEX_CONTINUATION_OBJECTIVE =
+  "You were in the middle of responding to the user's most recent request when they interrupted you. Finish that response now. Do not repeat any tool calls whose results are already present in the conversation.";
+
 export class LiveVoiceSession implements LiveVoiceSessionContract {
   private readonly context: LiveVoiceSessionFactoryContext;
   private readonly resolveTranscriber: LiveVoiceStreamingTranscriberResolver;
@@ -317,6 +346,12 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   private readonly startVoiceTurn: LiveVoiceTurnStarter | null;
   private readonly streamTtsAudio: LiveVoiceTtsStreamer | null;
   private readonly archiveAudio: LiveVoiceSessionAudioArchiver | null;
+  private readonly spawnBackgroundContinuation: LiveVoiceBackgroundContinuationSpawner | null;
+  private readonly abortBackgroundRun: LiveVoiceBackgroundRunAborter | null;
+  // Subagent ids of background continuations started when a barge-in detached
+  // an interrupted turn (voice-duplex-handoff). A barge-in adds to the set;
+  // interrupt()/close() abort every id so a "stop" ends them.
+  private readonly detachedRuns = new Set<string>();
   private readonly emitMetrics: boolean;
   private readonly metrics: LiveVoiceMetricsCollector;
   private readonly createTurnId: () => string;
@@ -407,6 +442,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     this.startVoiceTurn = options.startVoiceTurn ?? null;
     this.streamTtsAudio = options.streamTtsAudio ?? null;
     this.archiveAudio = options.archiveAudio ?? null;
+    this.spawnBackgroundContinuation =
+      options.spawnBackgroundContinuation ?? null;
+    this.abortBackgroundRun = options.abortBackgroundRun ?? null;
     this.emitMetrics = options.emitMetrics ?? false;
     this.createTurnId = options.createTurnId ?? randomUUID;
     this.conversationId =
@@ -539,6 +577,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     this.state = "closed";
     this.turnDetector?.dispose();
     this.stopSessionTranscriber();
+    this.abortDetachedRuns();
     await this.cancelAssistantTurn("session_closed");
     if (shouldEmitSessionEndMetrics) {
       await this.emitSessionEndMetrics();
@@ -1022,7 +1061,59 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       );
       await this.sendFrame({ type: "turn_cancelled", turnId: turn.turnId });
       await this.cancelAssistantTurn("barge_in");
+      // Teardown has settled, so the interrupted turn's partial is in history;
+      // keep its work alive on a background subagent (voice-duplex-handoff).
+      this.detachInterruptedTurn(turn);
     })().catch(() => {});
+  }
+
+  // True-duplex handoff (voice-duplex-handoff): keep a barged-in turn's work
+  // alive by continuing it on a background subagent instead of discarding it.
+  // Called after the barge-in teardown settles so the interrupted turn's
+  // partial (including any completed tool calls) is already in the conversation
+  // the subagent forks from. Resurfacing the subagent's result is a follow-up;
+  // for now it runs silently and a later stop/interrupt aborts it.
+  private detachInterruptedTurn(turn: ActiveAssistantTurn): void {
+    const spawn = this.spawnBackgroundContinuation;
+    if (
+      !spawn ||
+      !isAssistantFeatureFlagEnabled("voice-duplex-handoff", getConfig())
+    ) {
+      return;
+    }
+    void (async () => {
+      try {
+        const subagentId = await spawn({
+          parentConversationId: this.conversationId,
+          objective: DUPLEX_CONTINUATION_OBJECTIVE,
+          label: `voice-continue-${turn.turnId}`,
+        });
+        // A stop/close that landed while the spawn was in flight already
+        // cleared the set, so abort the just-started run rather than leak it.
+        if (this.isClosed) {
+          this.abortBackgroundRun?.(subagentId);
+          return;
+        }
+        this.detachedRuns.add(subagentId);
+      } catch (err) {
+        log.warn(
+          { err, turnId: turn.turnId },
+          "Voice duplex handoff continuation spawn failed",
+        );
+      }
+    })();
+  }
+
+  // Abort every background continuation this session started and clear the set.
+  // A client interrupt or session close is a hard stop for detached work.
+  private abortDetachedRuns(): void {
+    if (this.detachedRuns.size === 0) {
+      return;
+    }
+    for (const subagentId of this.detachedRuns) {
+      this.abortBackgroundRun?.(subagentId);
+    }
+    this.detachedRuns.clear();
   }
 
   // VAD closed the utterance — the analog of ptt_release: emit
@@ -1461,6 +1552,8 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     // the next turn is now stale (the interrupted utterance may be discarded
     // without ever reaching finalizePendingUtterance).
     this.pendingInterruptedRequest = null;
+    // ...and it hard-stops any detached background continuations.
+    this.abortDetachedRuns();
     const utterance = this.currentUtterance;
     this.stopSessionTranscriber();
     if (utterance) {
@@ -2677,6 +2770,9 @@ export function createLiveVoiceSession(
       options.streamTtsAudio === undefined
         ? defaultStreamLiveVoiceTtsAudio
         : options.streamTtsAudio,
+    spawnBackgroundContinuation:
+      options.spawnBackgroundContinuation ?? defaultSpawnBackgroundContinuation,
+    abortBackgroundRun: options.abortBackgroundRun ?? defaultAbortBackgroundRun,
     // Off by default (see the `liveVoice.archiveAudio` schema): voice turns
     // persist only their transcribed text, so the recorded audio never lands
     // as an attachment on the conversation messages. Enable via config for
@@ -2690,6 +2786,41 @@ export function createLiveVoiceSession(
         : options.archiveAudio,
     emitMetrics: options.emitMetrics ?? true,
   });
+}
+
+// Forks the live voice conversation into a background subagent that continues
+// the interrupted turn. The fork inherits the conversation's current messages
+// (which include the interrupted turn's completed tool calls after teardown),
+// so it resumes without repeating them. Runs silently: resurfacing the result
+// is a follow-up.
+async function defaultSpawnBackgroundContinuation(args: {
+  parentConversationId: string;
+  objective: string;
+  label: string;
+}): Promise<string> {
+  const parentConversation = findConversation(args.parentConversationId);
+  if (!parentConversation) {
+    throw new Error(
+      `Cannot detach interrupted voice turn: conversation ${args.parentConversationId} is not resident.`,
+    );
+  }
+  return getSubagentManager().spawn(
+    {
+      parentConversationId: args.parentConversationId,
+      label: args.label,
+      objective: args.objective,
+      fork: true,
+      sendResultToUser: false,
+      parentMessages: [...parentConversation.messages],
+      parentSystemPrompt: parentConversation.getCurrentSystemPrompt(),
+    },
+    // Silent continuation: no client-facing events until resurface lands.
+    () => {},
+  );
+}
+
+function defaultAbortBackgroundRun(subagentId: string): void {
+  getSubagentManager().abort(subagentId);
 }
 
 async function defaultResolveStreamingTranscriber(
