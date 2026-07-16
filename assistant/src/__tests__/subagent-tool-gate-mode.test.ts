@@ -365,6 +365,79 @@ describe("createToolExecutor — execution-layer allowlist gate", () => {
     expect(calls[0]!.name).toBe("remember");
   });
 
+  test("execution mode: a denied call is recorded on subagentDeniedToolNames", async () => {
+    const denied = new Set<string>();
+    const { executor } = makeCapturingExecutor();
+    const toolFn = makeToolFn(
+      executor,
+      makeSetupCtx({
+        subagentAllowedTools: new Set(["remember"]),
+        subagentToolGateMode: "execution",
+        subagentDeniedToolNames: denied,
+      }),
+    );
+
+    await toolFn("bash", { command: "echo hi" });
+
+    expect([...denied]).toEqual(["bash"]);
+  });
+
+  test("skill_execute records the resolved inner tool, not the wrapper", async () => {
+    const denied = new Set<string>();
+    const { executor } = makeCapturingExecutor();
+    const toolFn = makeToolFn(
+      executor,
+      makeSetupCtx({
+        subagentAllowedTools: new Set(["remember"]),
+        subagentToolGateMode: "execution",
+        subagentDeniedToolNames: denied,
+      }),
+    );
+
+    await toolFn("skill_execute", {
+      tool: "bash",
+      input: { command: "echo hi" },
+    });
+
+    expect(denied.has("bash")).toBe(true);
+    expect(denied.has("skill_execute")).toBe(false);
+  });
+
+  test("records a non-allowlisted attempt even in wire gate mode (observation only)", async () => {
+    const denied = new Set<string>();
+    const { executor } = makeCapturingExecutor();
+    const toolFn = makeToolFn(
+      executor,
+      // No subagentToolGateMode → "wire": the executor does not reject here, but
+      // the out-of-allowlist attempt is still recorded for parent reporting.
+      makeSetupCtx({
+        subagentAllowedTools: new Set(["remember"]),
+        subagentDeniedToolNames: denied,
+      }),
+    );
+
+    await toolFn("bash", { command: "echo hi" });
+
+    expect(denied.has("bash")).toBe(true);
+  });
+
+  test("an allowlisted call records nothing", async () => {
+    const denied = new Set<string>();
+    const { executor } = makeCapturingExecutor();
+    const toolFn = makeToolFn(
+      executor,
+      makeSetupCtx({
+        subagentAllowedTools: new Set(["remember"]),
+        subagentToolGateMode: "execution",
+        subagentDeniedToolNames: denied,
+      }),
+    );
+
+    await toolFn("remember", { content: "a fact" });
+
+    expect([...denied]).toEqual([]);
+  });
+
   test("execution mode: skill_execute gates the resolved inner tool, executor never invoked", async () => {
     const { executor, calls } = makeCapturingExecutor();
     const toolFn = makeToolFn(

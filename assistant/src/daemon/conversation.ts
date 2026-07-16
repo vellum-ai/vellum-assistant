@@ -320,6 +320,14 @@ export class Conversation {
   /** @internal */ preactivatedSkillIds?: string[];
   /** @internal */ subagentAllowedTools?: Set<string>;
   /**
+   * Tool names a subagent attempted but that its role allowlist
+   * ({@link subagentAllowedTools}) denied. Recorded by the tool executor;
+   * surfaced to the parent in the terminal notification so it can re-spawn with
+   * a role that includes them. Ephemeral, never persisted.
+   * @internal
+   */
+  subagentDeniedToolNames = new Set<string>();
+  /**
    * How {@link subagentAllowedTools} is enforced — see
    * {@link SubagentToolGateMode}. Set and restored alongside the allowlist
    * by `scopeWakeAllowedTools`.
