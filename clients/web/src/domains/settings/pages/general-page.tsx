@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
 import { useDiskPressureMonitor } from "@/assistant/use-disk-pressure-monitor";
-import { AppearanceCard } from "@/domains/settings/components/appearance-card";
+import { ThemePicker } from "@/domains/settings/components/theme-picker";
 import { DetailCard } from "@/components/detail-card";
 import {
   DiskPressureBanner,
@@ -127,8 +127,10 @@ export function GeneralPage() {
   // returns null when gated, so the card must not render an empty shell.
   const showDeleteAccount = infraGate !== "gated";
   // The Preferences modal only has content on Electron (shortcuts, Launch at
-  // Login) or with a fine pointer (the composer send toggle), so its card is
-  // hidden on touch/non-Electron surfaces where the modal would be empty.
+  // Login) or with a fine pointer (the composer send toggle), so its Customize
+  // button and modal are hidden on touch/non-Electron surfaces where the modal
+  // would be empty. The card itself always renders — it hosts the theme picker,
+  // which applies on every platform.
   const showPreferences = isElectron() || !isPointerCoarse();
 
   return (
@@ -273,27 +275,27 @@ export function GeneralPage() {
         </DetailCard>
       )}
 
-      <AppearanceCard />
-
+      <DetailCard
+        title="Preferences"
+        subtitle="Customize how Vellum looks and behaves on this device."
+        accessory={
+          showPreferences ? (
+            <Button
+              variant="outlined"
+              onClick={() => setPreferencesOpen(true)}
+            >
+              Customize
+            </Button>
+          ) : undefined
+        }
+      >
+        <ThemePicker />
+      </DetailCard>
       {showPreferences && (
-        <>
-          <DetailCard
-            title="Preferences"
-            subtitle="Customize shortcuts and how Vellum behaves on this device."
-            accessory={
-              <Button
-                variant="outlined"
-                onClick={() => setPreferencesOpen(true)}
-              >
-                Customize
-              </Button>
-            }
-          />
-          <PreferencesModal
-            open={preferencesOpen}
-            onClose={() => setPreferencesOpen(false)}
-          />
-        </>
+        <PreferencesModal
+          open={preferencesOpen}
+          onClose={() => setPreferencesOpen(false)}
+        />
       )}
 
       {teleportEnabled && isElectron() && <TeleportCard />}
