@@ -19047,6 +19047,13 @@ paths:
                       type: array
                       items:
                         type: string
+                    researchFindings:
+                      description:
+                        Findings from pre-chat onboarding research that the user explicitly kept on the results screen. Written
+                        into the persona's onboarding section so the first turn can reference them.
+                      type: array
+                      items:
+                        type: string
                     title:
                       description:
                         Explicit title for the conversation minted on this first message. Persisted as a user-set title (never
