@@ -1,4 +1,5 @@
 import type { AssistantConfig } from "../../config/types.js";
+import { purgeConversationMemoryTables } from "../../plugins/defaults/memory/conversation-memory-purge.js";
 import { rotateToolInvocations } from "../../telemetry/tool-usage-store.js";
 import { getLogger } from "../../util/logger.js";
 import { getLogsDbPath } from "../../util/logs-db-path.js";
@@ -210,6 +211,11 @@ export function pruneOldConversationsJob(
         `DELETE FROM telemetry_events WHERE conversation_id = ?`,
         id,
       );
+      // Conversation-keyed tables relocated to the memory connection lost their
+      // main-DB cascade, so purge them here on that connection. The purge is
+      // best-effort because a stray orphan row in these derived tables is
+      // harmless garbage.
+      purgeConversationMemoryTables(id);
       rawRun(
         "cleanup:pruneOldConversations:toolInv",
         `DELETE FROM tool_invocations WHERE conversation_id = ?`,

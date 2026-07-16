@@ -23,82 +23,16 @@ import {
   purgeConversationMemoryTables,
 } from "../conversation-memory-purge.js";
 import conversationDeleted from "../hooks/conversation-deleted.js";
+import {
+  relocatedMemoryRowCount as rowCount,
+  seedRelocatedMemoryRow as seedRow,
+} from "./relocated-memory-test-rows.js";
 
 await initializeDb();
 
 async function runHook(conversationId: string): Promise<void> {
   const hook = conversationDeleted as HookFunction<ConversationDeletedContext>;
   await hook({ conversationId } as ConversationDeletedContext);
-}
-
-function seedRow(table: string, conversationId: string): void {
-  const raw = getMemorySqlite()!;
-  const now = Date.now();
-  switch (table) {
-    case "memory_v2_activation_logs":
-      raw
-        .query(
-          `INSERT INTO memory_v2_activation_logs
-             (id, conversation_id, turn, mode, concepts_json, skills_json, config_json, created_at)
-           VALUES (?, ?, 1, 'per-turn', '[]', '[]', '{}', ?)`,
-        )
-        .run(`${conversationId}-al`, conversationId, now);
-      return;
-    case "memory_recall_logs":
-      raw
-        .query(
-          `INSERT INTO memory_recall_logs
-             (id, conversation_id, enabled, degraded, semantic_hits, merged_count,
-              selected_count, tier1_count, tier2_count, hybrid_search_latency_ms,
-              sparse_vector_used, injected_tokens, latency_ms, top_candidates_json, created_at)
-           VALUES (?, ?, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, '[]', ?)`,
-        )
-        .run(`${conversationId}-rl`, conversationId, now);
-      return;
-    case "memory_v3_selections":
-      raw
-        .query(
-          `INSERT INTO memory_v3_selections
-             (conversation_id, turn, slug, source, created_at)
-           VALUES (?, 1, 'domain/page', 'auto', ?)`,
-        )
-        .run(conversationId, now);
-      return;
-    case "activation_sessions":
-      raw
-        .query(
-          `INSERT INTO activation_sessions (conversation_id, created_at) VALUES (?, ?)`,
-        )
-        .run(conversationId, now);
-      return;
-    case "activation_state":
-      raw
-        .query(
-          `INSERT INTO activation_state
-             (conversation_id, message_id, state_json, ever_injected_json, current_turn, updated_at)
-           VALUES (?, ?, '{}', '[]', 0, ?)`,
-        )
-        .run(conversationId, `${conversationId}-msg`, now);
-      return;
-    case "conversation_graph_memory_state":
-      raw
-        .query(
-          `INSERT INTO conversation_graph_memory_state
-             (conversation_id, state_json, created_at, updated_at)
-           VALUES (?, '{}', ?, ?)`,
-        )
-        .run(conversationId, now, now);
-      return;
-    default:
-      throw new Error(`unhandled table ${table}`);
-  }
-}
-
-function rowCount(table: string, conversationId: string): number {
-  const { n } = getMemorySqlite()!
-    .query(`SELECT COUNT(*) AS n FROM ${table} WHERE conversation_id = ?`)
-    .get(conversationId) as { n: number };
-  return n;
 }
 
 describe("conversation memory purge", () => {

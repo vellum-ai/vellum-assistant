@@ -17,9 +17,18 @@ import {
   getMessages,
 } from "../persistence/conversation-crud.js";
 import { isLastUserMessageToolResult } from "../persistence/conversation-queries.js";
-import { getDb, getTelemetryDb } from "../persistence/db-connection.js";
+import {
+  getDb,
+  getMemorySqlite,
+  getTelemetryDb,
+} from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { telemetryEvents } from "../persistence/schema/index.js";
+import {
+  relocatedMemoryRowCount,
+  seedRelocatedMemoryRow,
+} from "../plugins/defaults/memory/__tests__/relocated-memory-test-rows.js";
+import { CONVERSATION_KEYED_MEMORY_TABLES } from "../plugins/defaults/memory/conversation-memory-purge.js";
 // Initialize db once before all tests
 await initializeDb();
 
@@ -458,6 +467,29 @@ describe("attachment orphan cleanup", () => {
       .query("SELECT COUNT(*) AS c FROM attachments")
       .get() as { c: number };
     expect(remaining.c).toBe(1); // only the unlinked upload survives
+  });
+});
+
+describe("clearAll purges relocated conversation-keyed memory tables", () => {
+  beforeEach(() => {
+    for (const table of CONVERSATION_KEYED_MEMORY_TABLES) {
+      getMemorySqlite()!.exec(`DELETE FROM ${table}`);
+    }
+  });
+
+  test("clearAll wipes every relocated conversation-keyed memory table", async () => {
+    const conv = createConversation("doomed");
+    for (const table of CONVERSATION_KEYED_MEMORY_TABLES) {
+      seedRelocatedMemoryRow(table, conv.id);
+    }
+
+    await clearAll();
+
+    // A table added to the shared array is wiped here without touching this
+    // test.
+    for (const table of CONVERSATION_KEYED_MEMORY_TABLES) {
+      expect(relocatedMemoryRowCount(table, conv.id)).toBe(0);
+    }
   });
 });
 

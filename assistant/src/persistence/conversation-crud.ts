@@ -32,6 +32,7 @@ import type { TrustContext } from "../daemon/trust-context-types.js";
 import { clearAllConversationIds } from "../home/feed-writer.js";
 import type { ConversationDeletedInputContext } from "../hooks/types.js";
 import { HOOKS } from "../plugin-api/constants.js";
+import { CONVERSATION_KEYED_MEMORY_TABLES } from "../plugins/defaults/memory/conversation-memory-purge.js";
 import { forkConversationMemory } from "../plugins/defaults/memory/fork-conversation-memory.js";
 import { indexMessageNow } from "../plugins/defaults/memory/indexer.js";
 import { runHook } from "../plugins/pipeline.js";
@@ -3074,6 +3075,12 @@ export async function clearAll(): Promise<{
   // connection; clear them directly on those connections rather than through
   // a sqlite3 subprocess.
   rawMemoryRun("conversation:clearAll:memoryJobs", "DELETE FROM memory_jobs");
+  // Conversation-keyed tables relocated to the memory connection lost their
+  // main-DB cascade, so wipe every one here. clearAll drops all conversations,
+  // so each is a full-table delete.
+  for (const table of CONVERSATION_KEYED_MEMORY_TABLES) {
+    rawMemoryRun(`conversation:clearAll:${table}`, `DELETE FROM ${table}`);
+  }
   await runOrThrow("DELETE FROM memory_checkpoints");
   rawLogsRun(
     "conversation:clearAll:requestLogs",
