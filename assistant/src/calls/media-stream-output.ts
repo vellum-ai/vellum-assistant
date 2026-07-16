@@ -57,6 +57,9 @@ import { resolveCallTtsProvider } from "./resolve-call-tts-provider.js";
 
 const log = getLogger("media-stream-output");
 
+/** Prefix for the sequenced end-of-turn playback marks Twilio echoes back. */
+const END_OF_TURN_MARK_PREFIX = "end-of-turn";
+
 /** Twilio media streams consume 8 kHz mono mu-law. */
 const TELEPHONY_SAMPLE_RATE_HZ = 8000;
 
@@ -335,6 +338,15 @@ export class MediaStreamOutput implements CallTransport {
    */
   private audioStartCallback: (() => void) | null = null;
 
+  /** Incremented per end-of-turn mark enqueued. */
+  private enqueuedEndOfTurnSeq = 0;
+
+  /** Highest end-of-turn seq echoed back by Twilio. */
+  private echoedEndOfTurnSeq = 0;
+
+  /** Pending {@link awaitPlaybackDrained} waiters, each with its target seq. */
+  private drainWaiters: Array<{ targetSeq: number; resolve: () => void }> = [];
+
   /**
    * The media-stream transport requires raw PCM audio because its
    * mu-law transcoder cannot decode compressed formats (mp3, opus).
@@ -378,9 +390,13 @@ export class MediaStreamOutput implements CallTransport {
     }
 
     if (last) {
-      // Always send an end-of-turn mark so the media-stream server
-      // can detect turn boundaries.
-      this.enqueuePlayback({ type: "mark", name: "end-of-turn" });
+      // Always send a sequenced end-of-turn mark so the media-stream server
+      // can detect turn boundaries and drain waiters can track playback.
+      const seq = ++this.enqueuedEndOfTurnSeq;
+      this.enqueuePlayback({
+        type: "mark",
+        name: `${END_OF_TURN_MARK_PREFIX}:${seq}`,
+      });
       this.turnSegmentEnqueued = false;
     }
   }
@@ -438,6 +454,9 @@ export class MediaStreamOutput implements CallTransport {
       return;
     }
     this.state = "closed";
+
+    // Release drain waiters immediately so teardown never leaves one pending.
+    this.releaseAllDrainWaiters();
 
     // Cancel any in-flight playback
     this.flushPlaybackQueue();
@@ -508,6 +527,35 @@ export class MediaStreamOutput implements CallTransport {
         "Failed to send mark command",
       );
     }
+  }
+
+  /**
+   * Record a mark echoed back by Twilio. When it is an end-of-turn mark,
+   * advance the echoed sequence and resolve any drain waiters whose target
+   * has now been reached (played out to the caller).
+   */
+  notePlaybackMarkEcho(name: string): void {
+    if (!name.startsWith(`${END_OF_TURN_MARK_PREFIX}:`)) return;
+    const seq = Number(name.slice(END_OF_TURN_MARK_PREFIX.length + 1));
+    if (!Number.isFinite(seq)) return;
+    if (seq > this.echoedEndOfTurnSeq) this.echoedEndOfTurnSeq = seq;
+    this.resolveDrainWaiters();
+  }
+
+  /**
+   * Resolve once the most-recently-enqueued end-of-turn mark has been
+   * echoed by Twilio (all queued speech has played out to the caller).
+   * Resolves immediately if nothing is outstanding or the output is closed.
+   * Also resolves if the playback queue is later flushed (barge-in / teardown)
+   * so callers never hang.
+   */
+  awaitPlaybackDrained(): Promise<void> {
+    if (this.state === "closed") return Promise.resolve();
+    const targetSeq = this.enqueuedEndOfTurnSeq;
+    if (this.echoedEndOfTurnSeq >= targetSeq) return Promise.resolve();
+    return new Promise<void>((resolve) => {
+      this.drainWaiters.push({ targetSeq, resolve });
+    });
   }
 
   /**
@@ -610,6 +658,24 @@ export class MediaStreamOutput implements CallTransport {
     return this.state === "closed";
   }
 
+  // ── Private: playback drain waiters ─────────────────────────────────
+
+  private resolveDrainWaiters(): void {
+    if (this.drainWaiters.length === 0) return;
+    const remaining: typeof this.drainWaiters = [];
+    for (const w of this.drainWaiters) {
+      if (this.echoedEndOfTurnSeq >= w.targetSeq) w.resolve();
+      else remaining.push(w);
+    }
+    this.drainWaiters = remaining;
+  }
+
+  private releaseAllDrainWaiters(): void {
+    const waiters = this.drainWaiters;
+    this.drainWaiters = [];
+    for (const w of waiters) w.resolve();
+  }
+
   // ── Private: playback queue management ──────────────────────────────
 
   private enqueuePlayback(item: PlaybackItem): void {
@@ -636,6 +702,9 @@ export class MediaStreamOutput implements CallTransport {
       this.activePlaybackAbort.abort();
       this.activePlaybackAbort = null;
     }
+    // A flushed queue will never echo its pending end-of-turn marks, so
+    // release any drain waiters rather than leave them hanging.
+    this.releaseAllDrainWaiters();
   }
 
   /**
