@@ -30,6 +30,7 @@ export const LLM_PROVIDER_ENV_VAR_NAMES: Record<string, string> = {
   minimax: "MINIMAX_API_KEY",
   atlascloud: "ATLASCLOUD_API_KEY",
   together: "TOGETHER_API_KEY",
+  baseten: "BASETEN_API_KEY",
 };
 
 /** Search-provider env var names. Mirrors `SEARCH_PROVIDER_CATALOG` BYOK entries. */

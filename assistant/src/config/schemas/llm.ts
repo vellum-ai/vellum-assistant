@@ -31,6 +31,7 @@ export const LLMProvider = z
     "minimax",
     "atlascloud",
     "together",
+    "baseten",
   ])
   .meta({ id: "LLMProvider" });
 type LLMProvider = z.infer<typeof LLMProvider>;

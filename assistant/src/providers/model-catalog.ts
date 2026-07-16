@@ -1945,6 +1945,40 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
     apiKeyUrl: "https://www.atlascloud.ai/console",
     apiKeyPlaceholder: "apikey-...",
   },
+  {
+    id: "baseten",
+    displayName: "Baseten",
+    subtitle: "Open models served by Baseten. Requires a Baseten API key.",
+    setupMode: "api-key",
+    setupHint: "Enter your Baseten API key to enable Baseten models.",
+    envVar: "BASETEN_API_KEY",
+    credentialsGuide: {
+      description: "Sign in to the Baseten dashboard and create an API key.",
+      url: "https://app.baseten.co/settings/api_keys",
+      linkLabel: "Open Baseten Dashboard",
+    },
+    models: [
+      {
+        id: "thinkingmachines/inkling",
+        displayName: "Inkling",
+        // Baseten serves Inkling with a 1,048K-token input window.
+        contextWindowTokens: 1048576,
+        maxOutputTokens: 32768,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 1.0,
+          outputPer1mTokens: 4.05,
+          cacheReadPer1mTokens: 0.17,
+        },
+      },
+    ],
+    defaultModel: "thinkingmachines/inkling",
+    apiKeyUrl: "https://app.baseten.co/settings/api_keys",
+    apiKeyPlaceholder: "Your Baseten API key",
+  },
 ];
 
 export const PROVIDER_CATALOG: ProviderCatalogEntry[] =

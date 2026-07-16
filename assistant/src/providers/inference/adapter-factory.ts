@@ -20,6 +20,7 @@
 
 import { AnthropicProvider } from "../anthropic/client.js";
 import { AtlasCloudProvider } from "../atlascloud/client.js";
+import { BasetenProvider } from "../baseten/client.js";
 import { FireworksProvider } from "../fireworks/client.js";
 import { GeminiProvider } from "../gemini/client.js";
 import { MinimaxProvider } from "../minimax/client.js";
@@ -138,6 +139,11 @@ const ADAPTER_FACTORIES: Record<string, AdapterFactory> = {
       streamTimeoutMs,
       ...(baseURL ? { baseURL } : {}),
     }),
+  baseten: ({ apiKey, model, streamTimeoutMs, baseURL }) =>
+    new BasetenProvider(apiKey, model, {
+      streamTimeoutMs,
+      ...(baseURL ? { baseURL } : {}),
+    }),
 };
 
 /**
@@ -178,7 +184,9 @@ export function buildProviderAdapter(
   opts: AdapterCreateOpts,
 ): Provider | null {
   const factory = ADAPTER_FACTORIES[providerId];
-  if (!factory) return null;
+  if (!factory) {
+    return null;
+  }
   return factory(opts);
 }
 
@@ -207,7 +215,9 @@ export function createAdapterFromConnection(
 ): Provider | null {
   const provider = opts.provider ?? connection.provider;
   const entry = PROVIDER_CATALOG.find((e) => e.id === provider);
-  if (!entry) return null;
+  if (!entry) {
+    return null;
+  }
   const isKeyless = entry.setupMode === "keyless";
   // openai-compatible is dual-mode: local endpoints (LM Studio, vLLM) are
   // keyless, hosted ones keyed — none auth is valid for it.
@@ -238,7 +248,9 @@ export function createAdapterFromConnection(
     useNativeWebSearch: opts.useNativeWebSearch ?? false,
     codexSubscription,
   });
-  if (!adapter) return null;
+  if (!adapter) {
+    return null;
+  }
 
   // Usage-attribution headers (`X-Vellum-*`) are only meaningful when the
   // request is routed through the Vellum-managed proxy — they carry billing
