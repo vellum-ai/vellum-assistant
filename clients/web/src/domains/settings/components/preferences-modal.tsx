@@ -6,8 +6,67 @@ import { getLaunchAtLogin, setLaunchAtLogin } from "@/runtime/launch-at-login";
 import { isMacOSBrowser } from "@/runtime/platform-detection";
 import { cmdEnterToSend } from "@/utils/composer-settings";
 import { isPointerCoarse } from "@/utils/pointer";
+import { type ThemePreference } from "@/utils/theme-preferences";
+import { useThemePreference } from "@/hooks/use-theme-preference";
 import { Modal } from "@vellumai/design-library/components/modal";
 import { Toggle } from "@vellumai/design-library/components/toggle";
+
+/**
+ * Theme picker (System / Light / Dark, plus Velvet when the flag is on).
+ * Lives in Preferences alongside the other per-device preferences. Unlike the
+ * other sections it is not Electron-gated — theme applies on every platform —
+ * so it also gives the modal meaningful content on web and iOS.
+ *
+ * Shares the `useThemePreference` hook with the sidebar `ThemeToggle` so the
+ * two surfaces stay in sync.
+ */
+function AppearanceSection() {
+  const velvet = useClientFeatureFlagStore.use.velvet();
+  const { theme, setThemePreference } = useThemePreference();
+
+  const themeItems = [
+    {
+      value: "system" as const,
+      label: "System",
+      icon: <Monitor className="h-4 w-4" />,
+    },
+    {
+      value: "light" as const,
+      label: "Light",
+      icon: <Sun className="h-4 w-4" />,
+    },
+    {
+      value: "dark" as const,
+      label: "Dark",
+      icon: <Moon className="h-4 w-4" />,
+    },
+    ...(velvet
+      ? [
+          {
+            value: "velvet" as const,
+            label: "Velvet",
+            icon: <Heart className="h-4 w-4" />,
+          },
+        ]
+      : []),
+  ];
+
+  return (
+    <section>
+      <h3 className="text-title-small text-[var(--content-emphasised)]">
+        Appearance
+      </h3>
+      <div className="mt-2 max-w-[360px]">
+        <SegmentControl<ThemePreference>
+          ariaLabel="Theme"
+          value={theme}
+          onChange={setThemePreference}
+          items={themeItems}
+        />
+      </div>
+    </section>
+  );
+}
 
 /**
  * Preferences section for the composer's Enter-key behavior, at parity with
