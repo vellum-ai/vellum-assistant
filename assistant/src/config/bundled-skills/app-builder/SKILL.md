@@ -11,6 +11,7 @@ metadata:
       - "User asks to build a dashboard, tracker, calculator, data visualization, chart, simple landing page, or slide deck for their own use"
       - "User asks to visualize something, make a chart, or build an artifact — build a real persistent app here, never a ui_show dynamic_page"
       - "User asks to change, fix, restyle, or extend an app they already built in the sandbox — open it and iterate"
+      - "User asks to open, show, or pull up an app they already built — this skill provides app_list + app_open even when nothing needs editing"
     avoid-when:
       - "User wants a complex app, a multi-user app, or something to publish, deploy, or hand off to others — route to a local project folder + coding agent instead (see Scope)"
 ---

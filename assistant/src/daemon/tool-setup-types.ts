@@ -33,7 +33,7 @@ export type SubagentToolGateMode = "wire" | "execution";
  * but the definitions themselves are resolved from the live context: a
  * fork-retrospective wake hydrates clientless (`hasNoClient = true`, no
  * transport interface, no channel capabilities), which drops client-gated
- * tools (`host_*`, `ui_*`, `app_open`, `request_system_permission`) from
+ * tools (`host_*`, `ui_*`, `ask_question`, `request_system_permission`) from
  * the wire definitions and breaks the cache prefix anyway. When this pin is
  * set on the conversation, `isToolActiveForContext` reads `hasNoClient` and
  * `transportInterface` exclusively from the pin and treats channel

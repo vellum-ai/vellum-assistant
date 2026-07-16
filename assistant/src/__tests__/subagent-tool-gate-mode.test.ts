@@ -224,13 +224,13 @@ describe("createResolveToolsCallback — subagentToolGateMode", () => {
 
 describe("createResolveToolsCallback — toolContextPin", () => {
   // Core defs spanning each client-gated family: host proxy (host_bash),
-  // dynamic UI (ui_show), connected-client (app_open), client-platform
+  // dynamic UI (ui_show), connected-client (ask_question), client-platform
   // (request_system_permission), plus the always-on remember.
   const CLIENT_GATED_DEFS = [
     makeToolDef("remember"),
     makeToolDef("host_bash"),
     makeToolDef("ui_show"),
-    makeToolDef("app_open"),
+    makeToolDef("ask_question"),
     makeToolDef("request_system_permission"),
   ];
 
@@ -270,8 +270,9 @@ describe("createResolveToolsCallback — toolContextPin", () => {
       .sort();
     // request_system_permission stays out: it keys on
     // channelCapabilities.clientOS, which desktop HTTP live turns never set
-    // either — exclusion IS parity there.
-    expect(names).toEqual(["app_open", "host_bash", "remember", "ui_show"]);
+    // either — exclusion IS parity there. ask_question stays IN: its
+    // macOS-specific hide also keys on clientOS, which the pin leaves unset.
+    expect(names).toEqual(["ask_question", "host_bash", "remember", "ui_show"]);
   });
 
   test("the pin REPLACES the live context — absent pin fields do not fall through", () => {
