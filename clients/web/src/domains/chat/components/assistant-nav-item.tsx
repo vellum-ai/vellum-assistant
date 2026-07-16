@@ -21,20 +21,21 @@ import { motion, useAnimationControls, useReducedMotion } from "motion/react";
 import { cn, SideMenu } from "@vellumai/design-library";
 
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
+import { useIsMobile } from "@/hooks/use-is-mobile";
 import { contrastForeground } from "@/utils/avatar-tone";
 import { pathBBox, unionBBox } from "@/utils/eye-bbox";
 
 const PILL_HEIGHT = 30;
+/** Mobile-overlay pill height, matching `SideMenu.Item`'s mobile row
+ *  (py-3 around the 20px body-large line). */
+const MOBILE_PILL_HEIGHT = 44;
 /** Eyes sized to the 14px leading-icon slot of `SideMenu.Item`, so the
  *  label aligns with the nav items below. */
 const EYES_WIDTH = 14;
 /** Horizontal padding of the pill (matches SideMenu.Item's p-[6px]). */
 const PILL_PADDING_X = 6;
-/** How far down the eyes dive to fully exit the pill's bottom edge. */
-const DIVE_Y = 26;
 /** Patrol stop on the right side: grown, cut off by the bottom edge. */
 const SIDE_SCALE = 2.1;
-const SIDE_PEEK_Y = 10;
 const SIDE_RIGHT_MARGIN = 14;
 
 const sleep = (ms: number): Promise<void> =>
@@ -60,9 +61,16 @@ export function AssistantNavItem({
 }: AssistantNavItemProps) {
   const { components, traits } = useAssistantAvatar(assistantId);
   const reduce = useReducedMotion();
+  const isMobile = useIsMobile();
   const eyesControls = useAnimationControls();
   const buttonRef = useRef<HTMLButtonElement | null>(null);
   const [blinking, setBlinking] = useState(false);
+
+  const pillHeight = isMobile ? MOBILE_PILL_HEIGHT : PILL_HEIGHT;
+  /** How far down the eyes dive to fully exit the pill's bottom edge. */
+  const diveY = pillHeight - 4;
+  /** Side-patrol stop: the grown eyes flush with the bottom edge. */
+  const sidePeekY = pillHeight - 20;
 
   useEffect(() => {
     if (reduce) {
@@ -95,7 +103,7 @@ export function AssistantNavItem({
     // grown on the right side, blink, dive again, and slip back into the
     // icon slot.
     const patrol = async () => {
-      await move({ y: DIVE_Y }, { duration: 0.3, ease: "easeIn" });
+      await move({ y: diveY }, { duration: 0.3, ease: "easeIn" });
       if (cancelled) {
         return;
       }
@@ -104,12 +112,12 @@ export function AssistantNavItem({
         0,
         width - PILL_PADDING_X - SIDE_RIGHT_MARGIN - EYES_WIDTH * SIDE_SCALE,
       );
-      eyesControls.set({ x: sideX, y: DIVE_Y, scale: SIDE_SCALE });
-      await move({ y: SIDE_PEEK_Y }, spring(360, 16));
+      eyesControls.set({ x: sideX, y: diveY, scale: SIDE_SCALE });
+      await move({ y: sidePeekY }, spring(360, 16));
       await blink();
       await sleep(jitter(700, 900));
-      await move({ y: DIVE_Y }, { duration: 0.3, ease: "easeIn" });
-      eyesControls.set({ x: 0, y: DIVE_Y, scale: 1 });
+      await move({ y: diveY }, { duration: 0.3, ease: "easeIn" });
+      eyesControls.set({ x: 0, y: diveY, scale: 1 });
       await move({ y: 0 }, spring(320, 18));
     };
 
@@ -141,7 +149,7 @@ export function AssistantNavItem({
       cancelled = true;
       eyesControls.stop();
     };
-  }, [reduce, collapsed, eyesControls]);
+  }, [reduce, collapsed, eyesControls, diveY, sidePeekY]);
 
   const hex =
     (components &&
@@ -191,7 +199,7 @@ export function AssistantNavItem({
         collapsed ? "justify-center px-0" : "px-[6px]",
       )}
       style={{
-        height: PILL_HEIGHT,
+        height: pillHeight,
         backgroundColor: hex,
         color: contrastForeground(hex),
       }}
@@ -201,7 +209,7 @@ export function AssistantNavItem({
       <span
         aria-hidden="true"
         className="pointer-events-none relative shrink-0"
-        style={{ width: EYES_WIDTH, height: PILL_HEIGHT }}
+        style={{ width: EYES_WIDTH, height: pillHeight }}
       >
         {eye && (
           <motion.span
@@ -209,7 +217,7 @@ export function AssistantNavItem({
             style={{
               width: EYES_WIDTH,
               height: eyesHeight,
-              top: (PILL_HEIGHT - eyesHeight) / 2,
+              top: (pillHeight - eyesHeight) / 2,
               transformOrigin: "50% 100%",
             }}
             initial={false}
@@ -239,9 +247,9 @@ export function AssistantNavItem({
       </span>
       {!collapsed && (
         <span
-          className={`truncate text-body-medium-default ${
-            active ? "font-bold" : ""
-          }`}
+          className={`truncate ${
+            isMobile ? "text-body-large-default" : "text-body-medium-default"
+          } ${active ? "font-bold" : ""}`}
         >
           {label}
         </span>
