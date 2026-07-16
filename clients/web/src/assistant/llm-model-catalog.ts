@@ -901,9 +901,90 @@ export const PROVIDER_SUPPORTS_PLATFORM_AUTH: Record<string, boolean> = {
 
 export const MANAGED_MODELS = MODELS_BY_PROVIDER.anthropic;
 
+/**
+ * Providers the Vellum-managed entry can route to. Single source of truth for
+ * the web (the settings-domain MANAGED_ROUTABLE_PROVIDERS set derives from
+ * it); mirrors the daemon's managed-routable set in
+ * assistant/src/providers/platform-proxy/constants.ts.
+ */
+export const VELLUM_SERVED_PROVIDERS = [
+  "anthropic",
+  "openai",
+  "gemini",
+  "fireworks",
+  "together",
+] as const;
+
+/**
+ * The Vellum entry's model list: the union of the managed-routable providers'
+ * catalogs, deduplicated by id in VELLUM_SERVED_PROVIDERS order. Users pick
+ * "Vellum" + a model; which upstream serves it is an implementation detail.
+ */
+const VELLUM_MODELS: readonly LlmCatalogModel[] = (() => {
+  const seenIds = new Set<string>();
+  const seenLabels = new Set<string>();
+  const union: LlmCatalogModel[] = [];
+  for (const provider of VELLUM_SERVED_PROVIDERS) {
+    for (const model of MODELS_BY_PROVIDER[provider]) {
+      // Dedupe by display label as well as id: two upstreams can host the
+      // same model under different ids (e.g. MiniMax M3 on Fireworks and
+      // Together), and the provider-agnostic picker renders labels only —
+      // duplicate labels would be indistinguishable options. First provider
+      // in VELLUM_SERVED_PROVIDERS order wins.
+      if (seenIds.has(model.id) || seenLabels.has(model.displayName)) {
+        continue;
+      }
+      seenIds.add(model.id);
+      seenLabels.add(model.displayName);
+      union.push(model);
+    }
+  }
+  return union;
+})();
+
+/**
+ * The managed upstream that serves a model picked under the Vellum entry —
+ * the first VELLUM_SERVED_PROVIDERS member whose catalog lists the id. Used
+ * at profile-save time to derive the wire-shape provider for
+ * provider_connection: "vellum" profiles.
+ */
+/**
+ * Decode a `<provider>/<model>` Vellum routing string (mirrors the daemon's
+ * parseVellumModel): the prefix names the upstream, the remainder is the
+ * upstream's native model id. Null for anything else.
+ */
+export function parseVellumRoutedModel(modelId: string): {
+  provider: (typeof VELLUM_SERVED_PROVIDERS)[number];
+  model: string;
+} | null {
+  const slash = modelId.indexOf("/");
+  if (slash <= 0) {
+    return null;
+  }
+  const prefix = modelId.slice(0, slash);
+  const provider = VELLUM_SERVED_PROVIDERS.find((p) => p === prefix);
+  const model = modelId.slice(slash + 1);
+  return provider && model ? { provider, model } : null;
+}
+
+export function getManagedUpstreamForModel(
+  modelId: string,
+): (typeof VELLUM_SERVED_PROVIDERS)[number] | undefined {
+  const routed = parseVellumRoutedModel(modelId);
+  if (routed) {
+    return routed.provider;
+  }
+  return VELLUM_SERVED_PROVIDERS.find((provider) =>
+    MODELS_BY_PROVIDER[provider].some((m) => m.id === modelId),
+  );
+}
+
 export function getModelsForProvider(
   provider: string,
 ): readonly LlmCatalogModel[] {
+  if (provider === "vellum") {
+    return VELLUM_MODELS;
+  }
   return MODELS_BY_PROVIDER[provider as LlmProviderId] ?? [];
 }
 
