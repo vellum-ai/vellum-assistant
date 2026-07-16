@@ -237,6 +237,11 @@ describe("prepareAgentEnv — claude-agent-acp gating", () => {
     // Tells the model the task auto-continues after connect (no manual retry).
     expect(message).toContain("continue automatically");
     expect(message).toContain("do NOT retry the spawn yourself");
+    // Forbids positional claims about the card — placement is a client-render
+    // detail the model can't see, so "below"/"above" are hallucinations. The
+    // card actually renders above the model's reply, so "below" is always wrong.
+    expect(message).toContain('never say "below"');
+    expect(message).toContain('"above"');
   });
 
   test("does NOT attach the marker when a token is present (happy path unchanged)", async () => {

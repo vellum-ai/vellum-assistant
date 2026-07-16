@@ -180,6 +180,14 @@ export interface PendingToolResult {
   content: string;
   isError: boolean;
   contentBlocks?: ContentBlock[];
+  /**
+   * Stable, machine-readable classification for an error result (mirrors the
+   * live `tool_result` event's `errorCode`). Persisted onto the stored
+   * `tool_result` block so a surface can re-derive from reopened history — e.g.
+   * `acp_claude_oauth_missing` re-raises the inline "Connect Claude Code" card
+   * after a reload/reconnect, instead of it living only in the live event tap.
+   */
+  errorCode?: string;
 }
 
 /** Mutable state shared across event handlers within a single agent loop run. */
@@ -1702,6 +1710,9 @@ function buildToolResultBlocks(
     tool_use_id: toolUseId,
     content: redact(result.content),
     is_error: result.isError,
+    // Persist the error classification so reopened history can re-derive
+    // surfaces keyed on it (e.g. the inline "Connect Claude Code" card).
+    ...(result.errorCode ? { errorCode: result.errorCode } : {}),
     ...(result.contentBlocks
       ? {
           contentBlocks: result.contentBlocks.map((block) =>
@@ -2069,6 +2080,7 @@ export async function handleToolResult(
     content: event.content,
     isError: event.isError,
     contentBlocks: event.contentBlocks,
+    errorCode: event.errorCode,
   });
 
   // Record tool completion timestamp

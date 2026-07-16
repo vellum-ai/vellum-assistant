@@ -189,17 +189,18 @@ export async function prepareAgentEnv(
       // exists to replace. The CLI command stays only as a headless fallback.
       throw new FailedDependencyError(
         "claude-agent-acp needs a Claude OAuth token (CLAUDE_CODE_OAUTH_TOKEN), " +
-          'which is not set. An inline "Connect Claude Code" card is shown to ' +
-          "the user in the app. Reply with ONE short sentence asking them to " +
-          "click Connect in it and telling them you'll continue automatically " +
-          "once they're connected — do not narrate that a card appeared, " +
-          'describe how the sign-in works, or claim there is "nothing to paste" ' +
-          "(the cloud flow does paste a key). Do NOT tell them to run " +
-          "`claude setup-token`, paste a token in chat, or run credential CLI " +
-          "commands, and do NOT retry the spawn yourself — the card and " +
-          "auto-continue handle it. (Headless only, where no card can appear: " +
-          "`assistant credentials set --service acp --field claude_oauth_token " +
-          "<token>`.)",
+          'which is not set. The app shows the user an inline "Connect Claude ' +
+          'Code" card. Reply with ONE short sentence: ask them to click Connect ' +
+          "in that card to sign in, and tell them you'll continue automatically " +
+          "once they're connected. Do NOT say where the card is — never say " +
+          '"below", "above", "at the bottom", or "here"; its placement is a UI ' +
+          'detail you cannot see. Do NOT say the card "appeared", narrate how ' +
+          'the sign-in works, or claim there is "nothing to paste" (the cloud ' +
+          "flow does paste a key). Do NOT tell them to run `claude setup-token`, " +
+          "paste a token in chat, or run credential CLI commands, and do NOT " +
+          "retry the spawn yourself — the card and auto-continue handle it. " +
+          "(Headless only, where no card can appear: `assistant credentials set " +
+          "--service acp --field claude_oauth_token <token>`.)",
         { code: ACP_CLAUDE_OAUTH_MISSING_CODE },
       );
     }

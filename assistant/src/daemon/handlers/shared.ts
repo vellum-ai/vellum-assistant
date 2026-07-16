@@ -704,6 +704,13 @@ export function renderHistoryContent(
       if (matched) {
         matched.result = resultContent;
         matched.isError = isError;
+        // Carry the persisted error classification onto the history row so a
+        // client can re-derive an error-specific surface after a reload (e.g.
+        // `acp_claude_oauth_missing` re-raising the inline Connect card),
+        // rather than it living only on the live `tool_result` event.
+        if (typeof block.errorCode === "string") {
+          matched.errorCode = block.errorCode;
+        }
         if (imageDataList.length > 0) {
           matched.imageData = imageDataList[0];
           matched.imageDataList = imageDataList;

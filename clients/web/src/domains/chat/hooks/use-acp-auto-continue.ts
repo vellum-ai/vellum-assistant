@@ -12,6 +12,11 @@ import { useInteractionStore } from "@/domains/chat/interaction-store";
  * that flag into a hidden continuation send so the assistant picks the failed
  * task back up without the user typing "retry". Clears the flag before firing
  * so a re-render can't double-send.
+ *
+ * This is also where the connected card is retired: a normal send no longer
+ * dismisses the Connect prompt (it stays until resolved), so the connect →
+ * auto-continue path explicitly clears the "connected — continuing..." card
+ * here as the task resumes.
  */
 export function useAcpAutoContinue(onContinue: () => void): void {
   const pendingAcpContinue = useInteractionStore.use.pendingAcpContinue();
@@ -20,7 +25,9 @@ export function useAcpAutoContinue(onContinue: () => void): void {
     if (!pendingAcpContinue) {
       return;
     }
-    useInteractionStore.getState().clearAcpContinue();
+    const store = useInteractionStore.getState();
+    store.clearAcpContinue();
+    store.dismissAcpConnect();
     onContinue();
   }, [pendingAcpContinue, onContinue]);
 }
