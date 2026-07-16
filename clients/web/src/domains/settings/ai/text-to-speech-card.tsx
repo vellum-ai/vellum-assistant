@@ -258,9 +258,9 @@ export function TextToSpeechCard() {
     try {
       // Persist the effective BYOK provider as the restore value for toggling
       // back — `selectedProvider.id` is always representable (never the reserved
-      // "vellum" id). The daemon's `effectiveTtsProvider` routes managed mode to
-      // Vellum at runtime regardless; the schema only forbids "vellum" outside
-      // managed mode, which this write is not.
+      // "vellum" id, which would defeat its purpose as a restore value). The
+      // daemon's `effectiveTtsProvider` routes managed mode to Vellum at
+      // runtime regardless of this value.
       const { response: cfgRes } = await configPatch({
         path: { assistant_id: assistantId },
         body: {

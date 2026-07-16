@@ -55,9 +55,9 @@ const DEFINITIONS = {
  * Definitions in display order (e.g. settings dropdowns).
  */
 // vellum is deliberately absent: managed mode is selected via
-// `services.tts.mode`, not the provider picker — today's settings UI writes
-// only `provider` + an API key, which the schema rejects for vellum. The
-// definition stays in DEFINITIONS so managed-mode resolution works.
+// `services.tts.mode`, not the provider picker — the settings UI pairs the
+// picker with an API-key input, which vellum has no use for. The definition
+// stays in DEFINITIONS so managed-mode resolution works.
 const CATALOG: readonly TtsProviderDefinition[] = [
   DEFINITIONS.elevenlabs,
   DEFINITIONS["fish-audio"],
