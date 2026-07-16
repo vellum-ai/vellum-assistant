@@ -478,6 +478,7 @@ export type PostChatMessageOptions = Pick<
   | "inferenceProfile"
   | "enabledPlugins"
   | "hidden"
+  | "source"
 > & {
   /** PreChat onboarding context — see the `postChatMessage` docs. */
   onboarding?: PreChatOnboardingContext;
@@ -517,6 +518,7 @@ export async function postChatMessage(
     inferenceProfile,
     enabledPlugins,
     hidden,
+    source,
   } = options;
   // Wire-field selection picks exactly one of `conversationId` (0.8.6+
   // strict internal-id lookup) or `conversationKey` (legacy
@@ -590,6 +592,13 @@ export async function postChatMessage(
   // the channel-setup wizard close/hand-off notifications.
   if (hidden) {
     body.hidden = true;
+  }
+  // Origin tag for system-initiated sends the user clicked but didn't type
+  // (e.g. "nav_redirect" from the sidenav-gate bubbles). The daemon stamps it
+  // into message metadata for funnel filtering and steers the reply; older
+  // daemons ignore the field, so no version gate is needed.
+  if (source) {
+    body.source = source;
   }
   const normalizedOnboarding = onboarding
     ? normalizePreChatOnboardingContext(onboarding)

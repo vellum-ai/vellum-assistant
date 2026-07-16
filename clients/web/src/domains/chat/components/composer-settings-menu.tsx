@@ -25,6 +25,7 @@ import {
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import { conversationsByIdInferenceprofilePut } from "@/generated/daemon/sdk.gen";
 import { useIsMobile } from "@/hooks/use-is-mobile";
+import { NavGateRegion } from "@/domains/chat/nav-gate/nav-gate-region";
 import {
   deleteConversationOverride,
   getConversationOverride,
@@ -546,6 +547,7 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
     return (
       <>
         {showAccess && (
+          <NavGateRegion item="assistant-access" className="flex shrink-0">
           <BottomSheet.Root open={accessOpen} onOpenChange={setAccessOpen}>
             <BottomSheet.Trigger asChild>{accessTrigger}</BottomSheet.Trigger>
             {/* Radix Dialog requires a Title for screen-reader accessibility;
@@ -578,7 +580,9 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
               </BottomSheet.Body>
             </BottomSheet.Content>
           </BottomSheet.Root>
+          </NavGateRegion>
         )}
+        <NavGateRegion item="model-profile" className="flex min-w-0">
         <BottomSheet.Root open={profileOpen} onOpenChange={setProfileOpen}>
           <BottomSheet.Trigger asChild>{profileTrigger}</BottomSheet.Trigger>
           <BottomSheet.Content aria-describedby={undefined}>
@@ -615,6 +619,7 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
             </BottomSheet.Body>
           </BottomSheet.Content>
         </BottomSheet.Root>
+        </NavGateRegion>
       </>
     );
   }
@@ -622,6 +627,7 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
   return (
     <>
       {showAccess && (
+        <NavGateRegion item="assistant-access" className="flex shrink-0">
         <Menu.Root open={accessOpen} onOpenChange={setAccessOpen}>
           <Menu.Trigger asChild>{accessTrigger}</Menu.Trigger>
           <Menu.Content side="top" align="start">
@@ -658,7 +664,9 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
             })}
           </Menu.Content>
         </Menu.Root>
+        </NavGateRegion>
       )}
+      <NavGateRegion item="model-profile" className="flex min-w-0">
       <Menu.Root open={profileOpen} onOpenChange={setProfileOpen}>
         <Menu.Trigger asChild>{profileTrigger}</Menu.Trigger>
         <Menu.Content side="top" align="start">
@@ -690,6 +698,7 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
           })}
         </Menu.Content>
       </Menu.Root>
+      </NavGateRegion>
     </>
   );
 }
