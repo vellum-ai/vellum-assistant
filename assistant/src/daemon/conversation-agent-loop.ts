@@ -1583,40 +1583,65 @@ export async function runAgentLoopImpl(
       publishLoopMessagesChanged();
     }
   } finally {
+    // Everything below runs BEFORE `ctx.setProcessing(false)` clears the
+    // conversation's `processing_started_at` flag. That clear is the release
+    // that unwedges the conversation: if it is skipped, the row stays
+    // "mid-turn" forever — the next send never gets a turn started (client
+    // times out with "did not respond in time"), the memory retrospective job
+    // requeues on a loop, and queued `POST /v1/messages` never drain. So the
+    // pre-clear work here (turn-boundary commit, tool-profiling summary) must
+    // never be able to throw past the flag clear. A fatal failure in the
+    // commit path — e.g. the Bun `memoryUsage` crash in ATL-1007 — previously
+    // escaped this `finally` and latched the flag; guard it so the clear is
+    // reached regardless of how the pre-clear work fails.
     if (turnStarted) {
-      ctx.turnCount++;
-      const config = getConfig();
-      const maxWait = config.workspaceGit?.turnCommitMaxWaitMs ?? 4000;
-      const deadlineMs = Date.now() + maxWait;
+      try {
+        ctx.turnCount++;
+        const config = getConfig();
+        const maxWait = config.workspaceGit?.turnCommitMaxWaitMs ?? 4000;
+        const deadlineMs = Date.now() + maxWait;
 
-      const commitTurnChangesFn = ctx.commitTurnChanges ?? commitTurnChanges;
-      const commitPromise = commitTurnChangesFn(
-        ctx.workingDir,
-        ctx.conversationId,
-        ctx.turnCount,
-        undefined,
-        deadlineMs,
-      );
-      const outcome = await raceWithTimeout(commitPromise, maxWait);
-      if (outcome === "timed_out") {
-        rlog.warn(
-          {
-            turnNumber: ctx.turnCount,
-            maxWaitMs: maxWait,
-            conversationId: ctx.conversationId,
-          },
-          "Turn-boundary commit timed out — continuing without waiting (commit still runs in background)",
+        const commitTurnChangesFn = ctx.commitTurnChanges ?? commitTurnChanges;
+        const commitPromise = commitTurnChangesFn(
+          ctx.workingDir,
+          ctx.conversationId,
+          ctx.turnCount,
+          undefined,
+          deadlineMs,
+        );
+        const outcome = await raceWithTimeout(commitPromise, maxWait);
+        if (outcome === "timed_out") {
+          rlog.warn(
+            {
+              turnNumber: ctx.turnCount,
+              maxWaitMs: maxWait,
+              conversationId: ctx.conversationId,
+            },
+            "Turn-boundary commit timed out — continuing without waiting (commit still runs in background)",
+          );
+        }
+
+        // Recompute relationship-state.json at turn boundary (fire-and-forget).
+        // The writer swallows its own errors, but we still guard with catch()
+        // here so a regression in the writer can never bubble out of the
+        // agent loop and reject an otherwise-complete turn.
+        void writeRelationshipState().catch(() => {});
+      } catch (err) {
+        rlog.error(
+          { err, conversationId: ctx.conversationId, requestId: reqId },
+          "Turn-boundary commit work threw; clearing processing state anyway to avoid wedging the conversation mid-turn",
         );
       }
-
-      // Recompute relationship-state.json at turn boundary (fire-and-forget).
-      // The writer swallows its own errors, but we still guard with catch()
-      // here so a regression in the writer can never bubble out of the
-      // agent loop and reject an otherwise-complete turn.
-      void writeRelationshipState().catch(() => {});
     }
 
-    emitToolProfilingSummary(ctx.conversationId, reqId);
+    try {
+      emitToolProfilingSummary(ctx.conversationId, reqId);
+    } catch (err) {
+      rlog.warn(
+        { err, conversationId: ctx.conversationId, requestId: reqId },
+        "Tool profiling summary threw (non-fatal); continuing to clear processing state",
+      );
+    }
 
     // Tear down this turn's per-turn state. Abort reliably drives the loop to
     // this `finally` within a bounded time — cooperative signal propagation
