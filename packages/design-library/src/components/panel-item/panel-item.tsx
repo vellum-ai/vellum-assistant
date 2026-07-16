@@ -87,8 +87,21 @@ interface PanelItemProps {
    * Trailing slot (commonly an ellipsis / more-options button). Hidden by
    * default; revealed on hover or focus-within, while a child menu is open
    * (`aria-expanded="true"` on the trigger), and always when `active`.
+   *
+   * On touch (coarse-pointer) devices the trailing action stays visible by
+   * default so users can reach it without hover. Set
+   * `hideTrailingActionOnTouch` when the caller provides its own touch
+   * affordance (long-press → bottom sheet, swipe-to-reveal, etc.) so the
+   * ellipsis doesn't duplicate the gesture.
    */
   trailingAction?: ReactNode;
+  /**
+   * Suppress the touch-visible trailing action. Default `false` — the
+   * trailing action is shown on coarse-pointer devices. Set to `true` when
+   * the row has its own long-press or swipe-to-reveal gesture that makes
+   * the trailing ellipsis redundant on touch.
+   */
+  hideTrailingActionOnTouch?: boolean;
   /** Selected state. Sets `aria-current="page"` automatically. */
   active?: boolean;
   /**
@@ -221,6 +234,7 @@ function PanelItem({
   expandChevron: ExpandChevron,
   badge,
   trailingAction,
+  hideTrailingActionOnTouch = false,
   active = false,
   activeVariant = "default",
   disabled = false,
@@ -267,7 +281,10 @@ function PanelItem({
 
   const trailingNode = trailingAction ? (
     <span
-      className={TRAILING_ACTION_CLASSES}
+      className={cn(
+        TRAILING_ACTION_CLASSES,
+        !hideTrailingActionOnTouch && "pointer-coarse:opacity-100",
+      )}
       onClick={(event: MouseEvent<HTMLSpanElement>) => {
         event.stopPropagation();
         event.preventDefault();

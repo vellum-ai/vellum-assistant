@@ -11,12 +11,16 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 import { PanelItem } from "./panel-item";
 
-function renderRow(trailingAction = createElement("button", {}, "⋯")): string {
+function renderRow(
+  trailingAction = createElement("button", {}, "⋯"),
+  hideTrailingActionOnTouch = false,
+): string {
   return renderToStaticMarkup(
     createElement(PanelItem, {
       label: "Row",
       onSelect: () => {},
       trailingAction,
+      hideTrailingActionOnTouch,
     }),
   );
 }
@@ -38,8 +42,12 @@ describe("PanelItem trailing action", () => {
     expect(html).toContain("has-[[aria-expanded=true]]:opacity-100");
   });
 
-  test("does not force-show on touch devices (long-press + swipe are the touch path)", () => {
-    expect(renderRow()).not.toContain("pointer-coarse:opacity-100");
+  test("stays visible on touch devices by default (no hover to reveal it)", () => {
+    expect(renderRow()).toContain("pointer-coarse:opacity-100");
+  });
+
+  test("is hidden on touch when hideTrailingActionOnTouch is set (caller has long-press + swipe)", () => {
+    expect(renderRow(undefined, true)).not.toContain("pointer-coarse:opacity-100");
   });
 
   test("stays visible on the active row", () => {

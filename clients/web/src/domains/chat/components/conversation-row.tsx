@@ -281,6 +281,7 @@ export function ConversationRow({
         marqueeOnHover={marquee}
         active={conversationId === ctx.activeConversationId}
         onSelect={() => select(conversationId)}
+        hideTrailingActionOnTouch
         badge={
           hasThreadStatus(status) ? (
             <ThreadStatusIndicator {...status} />
