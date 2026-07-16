@@ -15,7 +15,11 @@ import type {
   VoiceTurnHandle,
   VoiceTurnOptions,
 } from "../calls/voice-session-bridge.js";
-import { VOICE_NO_SETUP_FLOWS_RULE } from "../calls/voice-session-bridge.js";
+import {
+  getConversationTurnTeardown,
+  VOICE_NO_SETUP_FLOWS_RULE,
+  waitForPriorTurnTeardown,
+} from "../calls/voice-session-bridge.js";
 import {
   ESCALATION_CONTINUATION_CONTENT,
   ESCALATION_PROFILE,
@@ -199,6 +203,15 @@ export interface LiveVoiceSessionOptions {
    * SubagentManager-backed implementation; tests inject a stub.
    */
   spawnBackgroundContinuation?: LiveVoiceBackgroundContinuationSpawner;
+  /**
+   * Returns the pending teardown promise for a conversation's most recent
+   * turn. The barge-in path awaits it before forking the background
+   * continuation so the fork snapshots history only after the interrupted
+   * turn's completed tool calls have settled in. The factory wires the
+   * bridge's `getConversationTurnTeardown`; tests inject a controllable
+   * promise to exercise the ordering.
+   */
+  getTurnTeardown?: (conversationId: string) => Promise<void> | undefined;
 }
 
 type LiveVoiceUtterancePhase =
@@ -344,6 +357,13 @@ function buildDuplexContinuationObjective(interruptedRequest: string): string {
     : base;
 }
 
+// Upper bound on how long a barge-in waits for the interrupted turn's teardown
+// to settle before forking the continuation anyway. Teardown normally settles
+// in well under this; the cap keeps the fork from blocking indefinitely on a
+// stuck teardown (the continuation's "don't repeat finished tool calls"
+// objective is the backstop if the snapshot is ever slightly early).
+const DETACH_TEARDOWN_SETTLE_TIMEOUT_MS = 2000;
+
 export class LiveVoiceSession implements LiveVoiceSessionContract {
   private readonly context: LiveVoiceSessionFactoryContext;
   private readonly resolveTranscriber: LiveVoiceStreamingTranscriberResolver;
@@ -352,6 +372,11 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   private readonly streamTtsAudio: LiveVoiceTtsStreamer | null;
   private readonly archiveAudio: LiveVoiceSessionAudioArchiver | null;
   private readonly spawnBackgroundContinuation: LiveVoiceBackgroundContinuationSpawner | null;
+  // Reads the interrupted turn's teardown promise so the barge-in path can wait
+  // for it to settle before forking the continuation (voice-duplex-handoff).
+  private readonly getTurnTeardown:
+    | ((conversationId: string) => Promise<void> | undefined)
+    | null;
   // Abort handles for background continuations started when a barge-in detached
   // an interrupted turn (voice-duplex-handoff). Each controller is registered
   // synchronously before its spawn, so interrupt()/close() abort a continuation
@@ -453,6 +478,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     this.archiveAudio = options.archiveAudio ?? null;
     this.spawnBackgroundContinuation =
       options.spawnBackgroundContinuation ?? null;
+    this.getTurnTeardown = options.getTurnTeardown ?? null;
     this.emitMetrics = options.emitMetrics ?? false;
     this.createTurnId = options.createTurnId ?? randomUUID;
     this.conversationId =
@@ -1060,6 +1086,13 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       interruptedRequest.length > 0 ? interruptedRequest : null;
     turn.abortController.abort();
     this.metrics.markBargeIn(turn.turnId);
+    // Capture the interrupted turn's teardown promise synchronously, before the
+    // barge-in utterance's own startVoiceTurn overwrites the bridge's
+    // per-conversation entry (that utterance is not transcribed yet, so its turn
+    // has not started — this read is race-free). The detach awaits it so the
+    // fork snapshots history only after this turn's completed tool calls have
+    // settled in (see detachInterruptedTurn).
+    const teardownWait = this.getTurnTeardown?.(this.conversationId);
     // Snapshot the stop generation before the async teardown: a stop that lands
     // during it must cancel the pending detach (checked in detachInterruptedTurn).
     const stopGeneration = this.detachStopGeneration;
@@ -1072,21 +1105,25 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       );
       await this.sendFrame({ type: "turn_cancelled", turnId: turn.turnId });
       await this.cancelAssistantTurn("barge_in");
-      // Teardown has settled, so the interrupted turn's partial is in history;
-      // keep its work alive on a background subagent (voice-duplex-handoff).
-      this.detachInterruptedTurn(turn, stopGeneration);
+      // Keep the interrupted turn's work alive on a background subagent
+      // (voice-duplex-handoff); the detach waits for its teardown to settle the
+      // partial into history before forking.
+      this.detachInterruptedTurn(turn, stopGeneration, teardownWait);
     })().catch(() => {});
   }
 
   // True-duplex handoff (voice-duplex-handoff): keep a barged-in turn's work
   // alive by continuing it on a background subagent instead of discarding it.
-  // Called after the barge-in teardown settles so the interrupted turn's
-  // partial (including any completed tool calls) is already in the conversation
-  // the subagent forks from. Resurfacing the subagent's result is a follow-up;
-  // for now it runs silently and a later stop/interrupt aborts it.
+  // Waits for the interrupted turn's bridge teardown (captured at barge-in) to
+  // settle before forking, so its partial — including any completed tool calls —
+  // is already in the conversation the subagent forks from and a side-effecting
+  // continuation cannot repeat a call the interrupted turn already ran.
+  // Resurfacing the subagent's result is a follow-up; for now it runs silently
+  // and a later stop/interrupt aborts it.
   private detachInterruptedTurn(
     turn: ActiveAssistantTurn,
     stopGeneration: number,
+    teardownWait: Promise<void> | undefined,
   ): void {
     const spawn = this.spawnBackgroundContinuation;
     if (
@@ -1114,13 +1151,37 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     // controller.abort(), which the spawn's signal wiring honors).
     const controller = new AbortController();
     this.detachControllers.add(controller);
-    void spawn({
-      parentConversationId: this.conversationId,
-      objective: buildDuplexContinuationObjective(interruptedRequest),
-      label: `voice-continue-${turn.turnId}`,
-      signal: controller.signal,
-    })
-      .catch((err) => {
+    void (async () => {
+      try {
+        // Wait for the interrupted turn's teardown to settle its partial into
+        // conversation history before the fork snapshots it. This is
+        // turn-scoped — it waits for THIS turn only (captured at barge-in), not
+        // the conversation's overall idle state, so the interrupting turn's own
+        // work still proceeds in parallel (conversation.waitForIdle would block
+        // on it and defeat the background handoff). Bounded by the timeout; a
+        // stop landing during the wait aborts the controller, which surfaces as
+        // the rejection swallowed below and is re-checked before the fork.
+        if (teardownWait) {
+          try {
+            await waitForPriorTurnTeardown(
+              teardownWait,
+              DETACH_TEARDOWN_SETTLE_TIMEOUT_MS,
+              controller.signal,
+            );
+          } catch {
+            // Aborted mid-wait; the signal re-check below skips the fork.
+          }
+        }
+        if (controller.signal.aborted || this.isClosed) {
+          return;
+        }
+        await spawn({
+          parentConversationId: this.conversationId,
+          objective: buildDuplexContinuationObjective(interruptedRequest),
+          label: `voice-continue-${turn.turnId}`,
+          signal: controller.signal,
+        });
+      } catch (err) {
         // A stop/interrupt aborts via the signal; that rejection is expected.
         if (!controller.signal.aborted) {
           log.warn(
@@ -1128,10 +1189,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
             "Voice duplex handoff continuation failed",
           );
         }
-      })
-      .finally(() => {
+      } finally {
         this.detachControllers.delete(controller);
-      });
+      }
+    })();
   }
 
   // Abort every background continuation this session started and drop its
@@ -2803,6 +2864,7 @@ export function createLiveVoiceSession(
         : options.streamTtsAudio,
     spawnBackgroundContinuation:
       options.spawnBackgroundContinuation ?? defaultSpawnBackgroundContinuation,
+    getTurnTeardown: options.getTurnTeardown ?? getConversationTurnTeardown,
     // Off by default (see the `liveVoice.archiveAudio` schema): voice turns
     // persist only their transcribed text, so the recorded audio never lands
     // as an attachment on the conversation messages. Enable via config for
