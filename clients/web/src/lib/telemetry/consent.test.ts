@@ -95,6 +95,28 @@ describe("readAnalyticsConsent", () => {
     expect(readAnalyticsConsent()).toBe(true);
   });
 
+  // -------------------------------------------------------------------------
+  // Pending-flag lifecycle matrix. The gate cases above cover READS; this
+  // table pins the WRITE/lifecycle contract implemented across
+  // consent-persistence (set on explicit local writes), auth-store /
+  // consent-refresh (cleared only on server reflection), and auth-store's
+  // account-change reset. Each row names the owning module so a transition
+  // regression points at its home.
+  //
+  // | transition                                   | pending after | owner              |
+  // | explicit local opt-in written                | true          | writeConsent       |
+  // | explicit local opt-out written               | false         | writeConsent       |
+  // | sync: record reflects opt-in (raw true)      | false         | auth-store/refresh |
+  // | sync: stale record (raw null/false)          | unchanged     | auth-store/refresh |
+  // | account switch (incl. to signed-out)         | false         | auth-store         |
+  // | same-user resync, unreflected                | unchanged     | auth-store         |
+  //
+  // The corresponding behavior pins live beside their owners:
+  // consent-persistence.test.ts (write path), consent-refresh.test.ts
+  // (reflection + stale-record race), auth-store.test.ts (reflection,
+  // account switch, same-user preservation, unconditional verdict adoption).
+  // -------------------------------------------------------------------------
+
   test("an explicit opt-out wins even while an older pending opt-in flag lingers", () => {
     useOnboardingStore.setState({
       shareAnalytics: false,

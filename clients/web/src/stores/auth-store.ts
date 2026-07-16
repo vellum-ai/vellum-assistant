@@ -366,22 +366,20 @@ async function syncUserScopedState(nextUserId: string | null): Promise<void> {
       const localShareAnalytics = store.shareAnalytics;
       const localShareDiagnostics = store.shareDiagnostics;
       // Adopt the platform-computed effective verdicts for the data-capture
-      // gates. A no-record response carries no verdict (its values are API
-      // defaults), so the gates keep the pre-sync posture: opt-out default
-      // unless a local explicit opt-out. The pending opt-in clears only once
-      // the fetched record REFLECTS it — a sync racing the opt-in's
+      // gates UNCONDITIONALLY: the platform computes a verdict for every
+      // response, including no-row responses (never-asked → enabled), so
+      // there is no client-side judgment about record-ness on this path —
+      // that heuristic (hasServerRecord) guards only legal-consent fallback,
+      // backfill, and chosen-ness adoption. The pending opt-in clears only
+      // once the fetched record REFLECTS it — a sync racing the opt-in's
       // in-flight PATCH must not flip uploads back off on the stale record.
       // (An explicit server false is adopted into the store above, where the
       // gate's explicit-false rule closes uploads regardless of pending.)
       if (resolved.shareAnalytics === true) {
         store.setPendingAnalyticsOptIn(false);
       }
-      store.setServerAnalyticsEffective(
-        resolved.hasServerRecord ? resolved.analyticsEffective : null,
-      );
-      store.setServerDiagnosticsEffective(
-        resolved.hasServerRecord ? resolved.diagnosticsEffective : null,
-      );
+      store.setServerAnalyticsEffective(resolved.analyticsEffective);
+      store.setServerDiagnosticsEffective(resolved.diagnosticsEffective);
       // Adopt the server's tri-state share-analytics verbatim: an explicit
       // choice is authoritative even when its legal consent versions are stale
       // (the nav layer routes to review-terms), and null (never asked)

@@ -708,15 +708,6 @@ describe("auth store onboarding flag reconciliation", () => {
     expect(setServerDiagnosticsEffectiveMock).toHaveBeenCalledWith(true);
   });
 
-  test("a no-record response keeps the effective verdicts null (pre-sync posture)", async () => {
-    sessionUser = { id: "user-1", email: "user@example.com" };
-
-    await useAuthStore.getState().initSession();
-
-    expect(setServerAnalyticsEffectiveMock).toHaveBeenCalledWith(null);
-    expect(setServerDiagnosticsEffectiveMock).toHaveBeenCalledWith(null);
-  });
-
   test("a failed consent fetch leaves the adopted effective verdicts untouched", async () => {
     sessionUser = { id: "user-1", email: "user@example.com" };
     mockFetchConsentError = new Error("offline");
@@ -827,6 +818,53 @@ describe("auth store onboarding flag reconciliation", () => {
     // Raw is null (does not reflect an opt-in) and the user is unchanged:
     // the pending flag must survive the sync (the in-flight-PATCH race).
     expect(setPendingAnalyticsOptInMock).not.toHaveBeenCalledWith(false);
+  });
+
+  test("a policy denial without version evidence is adopted and counted as a record", async () => {
+    // Never-asked user denied by org/platform policy: raw null, effective
+    // false, no version stamps. The verdict must be adopted (unconditional
+    // adoption — no record heuristic on the verdict path) so the gate closes.
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    resolveServerConsentMock.mockReturnValueOnce({
+      tos: false,
+      privacy: false,
+      shareAnalytics: null,
+      shareDiagnostics: null,
+      analyticsEffective: false,
+      diagnosticsEffective: false,
+      analyticsCurrent: true,
+      diagnosticsCurrent: true,
+      analyticsVersionCurrent: false,
+      diagnosticsVersionCurrent: false,
+      hasServerRecord: true,
+    });
+
+    await useAuthStore.getState().initSession();
+
+    expect(setServerAnalyticsEffectiveMock).toHaveBeenCalledWith(false);
+    expect(setServerDiagnosticsEffectiveMock).toHaveBeenCalledWith(false);
+  });
+
+  test("even a no-record response adopts the platform verdict (never-asked → enabled)", async () => {
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    resolveServerConsentMock.mockReturnValueOnce({
+      tos: false,
+      privacy: false,
+      shareAnalytics: null,
+      shareDiagnostics: null,
+      analyticsEffective: true,
+      diagnosticsEffective: true,
+      analyticsCurrent: true,
+      diagnosticsCurrent: true,
+      analyticsVersionCurrent: false,
+      diagnosticsVersionCurrent: false,
+      hasServerRecord: false,
+    });
+
+    await useAuthStore.getState().initSession();
+
+    expect(setServerAnalyticsEffectiveMock).toHaveBeenCalledWith(true);
+    expect(setServerDiagnosticsEffectiveMock).toHaveBeenCalledWith(true);
   });
 
   test("a no-record response never adopts its default share values over a local opt-out", async () => {

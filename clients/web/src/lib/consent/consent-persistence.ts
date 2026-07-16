@@ -454,7 +454,13 @@ export function resolveServerConsent(consent: UserConsent | null | undefined): {
     !!consent.share_analytics_accepted_version ||
     !!consent.share_diagnostics_accepted_version ||
     consent.share_analytics === false ||
-    consent.share_diagnostics === false;
+    consent.share_diagnostics === false ||
+    // A synthesized no-row response can only carry effective true (null →
+    // enabled), so an effective false is by construction a stored-state or
+    // policy verdict — record evidence even without version stamps (e.g. a
+    // never-asked user denied by org/platform policy).
+    consent.share_analytics_effective === false ||
+    consent.share_diagnostics_effective === false;
   return {
     // The ToS checkbox covers only the Terms of Service. The privacy checkbox
     // covers both the Privacy Policy and the AI Data Sharing Policy, so it is
