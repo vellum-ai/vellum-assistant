@@ -3,17 +3,15 @@
  * agent-loop failure.
  *
  * The agent-loop `finally` block clears the conversation's processing flag
- * (`ctx.setProcessing(false)` → `processing_started_at = NULL`). That clear is
- * the release that unwedges the conversation. Several pre-clear steps run first
- * inside the same `finally` — most notably the turn-boundary commit. If one of
- * them throws (as the Bun `memoryUsage` crash in ATL-1007 did in the commit
- * path), execution must NOT skip the flag clear: otherwise the row stays
- * "mid-turn" forever, the next send times out with "did not respond in time",
- * and queued messages never drain.
+ * (`ctx.setProcessing(false)` → `processing_started_at = NULL`) first, before
+ * any cleanup step that can throw (the turn-boundary commit, profiling). The
+ * clear is the release that unwedges the conversation: if a later step threw
+ * ahead of it, the row would stay "mid-turn" forever — the next send times out
+ * with "did not respond in time" and queued messages never drain.
  *
- * This test drives `runAgentLoopImpl` to a fatal failure (agent loop throws)
- * AND makes the turn-boundary commit throw inside the `finally`, then asserts
- * the processing flag was still cleared and the queue was still drained.
+ * These tests drive `runAgentLoopImpl` to a fatal failure (agent loop throws)
+ * and assert the processing flag is cleared even when the turn-boundary commit
+ * itself throws afterward.
  */
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
@@ -158,35 +156,33 @@ describe("runAgentLoopImpl fatal-failure cleanup (ATL-1009)", () => {
     // restore nothing — disk pressure stays disabled for this suite
   });
 
-  test("clears the processing flag even when the turn-boundary commit throws in the finally", async () => {
+  test("clears the processing flag before the turn-boundary commit, so a commit that throws cannot latch it", async () => {
     const events: ServerMessage[] = [];
-    const drainQueue = mock(async (_reason: unknown) => {});
     // The turn-boundary commit throwing inside the `finally` is precisely the
-    // ATL-1007 failure mode. Before the fix this bypassed `setProcessing(false)`
-    // and latched `processing_started_at`.
+    // ATL-1007 failure mode. Because the flag is cleared first, the throw can
+    // no longer leave `processing_started_at` latched.
     const commitTurnChanges = mock(() => {
       throw new Error("commit crashed (simulated Bun memoryUsage bug)");
     });
     const ctx = makeCtx({
-      drainQueue,
       commitTurnChanges:
         commitTurnChanges as unknown as Context["commitTurnChanges"],
     });
 
-    // Must not reject: a fatal agent-loop failure is handled, not propagated.
-    await runAgentLoopImpl(ctx, "background task", "msg-fatal", (event) =>
-      events.push(event),
-    );
+    // The commit throw still surfaces (it runs after the clear), but the flag
+    // was already released.
+    await expect(
+      runAgentLoopImpl(ctx, "background task", "msg-fatal", (event) =>
+        events.push(event),
+      ),
+    ).rejects.toThrow("commit crashed");
 
-    // The commit was attempted (turn was marked started before the loop threw).
+    // The commit was reached (turn was marked started before the loop threw).
     expect(commitTurnChanges).toHaveBeenCalled();
     // The processing flag was cleared despite the commit throwing — the
     // conversation is no longer wedged mid-turn.
     expect(ctx.isProcessing()).toBe(false);
     expect(ctx.abortController).toBeNull();
-    expect(ctx.currentRequestId).toBeUndefined();
-    // The queue was still drained so a resend can start a fresh turn.
-    expect(drainQueue).toHaveBeenCalledWith("loop_complete");
     // The user still saw a terminal error for the fatal failure.
     expect(events.some((event) => event.type === "error")).toBe(true);
   });

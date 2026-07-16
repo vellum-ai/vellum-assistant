@@ -1583,77 +1583,13 @@ export async function runAgentLoopImpl(
       publishLoopMessagesChanged();
     }
   } finally {
-    // Everything below runs BEFORE `ctx.setProcessing(false)` clears the
-    // conversation's `processing_started_at` flag. That clear is the release
-    // that unwedges the conversation: if it is skipped, the row stays
-    // "mid-turn" forever — the next send never gets a turn started (client
-    // times out with "did not respond in time"), the memory retrospective job
-    // requeues on a loop, and queued `POST /v1/messages` never drain. So the
-    // pre-clear work here (turn-boundary commit, tool-profiling summary) must
-    // never be able to throw past the flag clear. A fatal failure in the
-    // commit path — e.g. the Bun `memoryUsage` crash in ATL-1007 — previously
-    // escaped this `finally` and latched the flag; guard it so the clear is
-    // reached regardless of how the pre-clear work fails.
-    if (turnStarted) {
-      try {
-        ctx.turnCount++;
-        const config = getConfig();
-        const maxWait = config.workspaceGit?.turnCommitMaxWaitMs ?? 4000;
-        const deadlineMs = Date.now() + maxWait;
-
-        const commitTurnChangesFn = ctx.commitTurnChanges ?? commitTurnChanges;
-        const commitPromise = commitTurnChangesFn(
-          ctx.workingDir,
-          ctx.conversationId,
-          ctx.turnCount,
-          undefined,
-          deadlineMs,
-        );
-        const outcome = await raceWithTimeout(commitPromise, maxWait);
-        if (outcome === "timed_out") {
-          rlog.warn(
-            {
-              turnNumber: ctx.turnCount,
-              maxWaitMs: maxWait,
-              conversationId: ctx.conversationId,
-            },
-            "Turn-boundary commit timed out — continuing without waiting (commit still runs in background)",
-          );
-        }
-
-        // Recompute relationship-state.json at turn boundary (fire-and-forget).
-        // The writer swallows its own errors, but we still guard with catch()
-        // here so a regression in the writer can never bubble out of the
-        // agent loop and reject an otherwise-complete turn.
-        void writeRelationshipState().catch(() => {});
-      } catch (err) {
-        rlog.error(
-          { err, conversationId: ctx.conversationId, requestId: reqId },
-          "Turn-boundary commit work threw; clearing processing state anyway to avoid wedging the conversation mid-turn",
-        );
-      }
-    }
-
-    try {
-      emitToolProfilingSummary(ctx.conversationId, reqId);
-    } catch (err) {
-      rlog.warn(
-        { err, conversationId: ctx.conversationId, requestId: reqId },
-        "Tool profiling summary threw (non-fatal); continuing to clear processing state",
-      );
-    }
-
-    // Tear down this turn's per-turn state. Abort reliably drives the loop to
-    // this `finally` within a bounded time — cooperative signal propagation
-    // (provider fetch + tool race) backed by the abort watchdog — so a
-    // cancelled turn always unwinds before any resend can start a new one.
-    // There is therefore only ever one turn alive, and clearing the shared
-    // state below cannot clobber a concurrent turn.
-    // Stamp the turn's abnormal outcome (failed / cancelled) onto its
-    // user-message row BEFORE processing clears: the telemetry reporter's
-    // settled-turn barrier only releases this turn once the conversation
-    // stops processing, so ordering the stamp first guarantees the turn
-    // event ships with the outcome. A normally-replied turn stamps nothing.
+    // Clear the processing flag first. It is the release that frees the
+    // conversation for its next turn, so nothing that can throw (the
+    // turn-boundary commit, profiling) is allowed to run ahead of it and leave
+    // the row latched "mid-turn". Stamp the turn's abnormal outcome first
+    // because the telemetry reporter's settled-turn barrier only releases this
+    // turn once processing stops; null `abortController` first so a concurrent
+    // abort takes the force-clear branch rather than signalling a dead one.
     if (abnormalOutcome) {
       stampTurnOutcome(userMessageId, abnormalOutcome.outcome, {
         failureCode: abnormalOutcome.failureCode,
@@ -1661,6 +1597,48 @@ export async function runAgentLoopImpl(
     }
     ctx.abortController = null;
     ctx.setProcessing(false);
+
+    if (turnStarted) {
+      ctx.turnCount++;
+      const config = getConfig();
+      const maxWait = config.workspaceGit?.turnCommitMaxWaitMs ?? 4000;
+      const deadlineMs = Date.now() + maxWait;
+
+      const commitTurnChangesFn = ctx.commitTurnChanges ?? commitTurnChanges;
+      const commitPromise = commitTurnChangesFn(
+        ctx.workingDir,
+        ctx.conversationId,
+        ctx.turnCount,
+        undefined,
+        deadlineMs,
+      );
+      const outcome = await raceWithTimeout(commitPromise, maxWait);
+      if (outcome === "timed_out") {
+        rlog.warn(
+          {
+            turnNumber: ctx.turnCount,
+            maxWaitMs: maxWait,
+            conversationId: ctx.conversationId,
+          },
+          "Turn-boundary commit timed out — continuing without waiting (commit still runs in background)",
+        );
+      }
+
+      // Recompute relationship-state.json at turn boundary (fire-and-forget).
+      // The writer swallows its own errors, but we still guard with catch()
+      // here so a regression in the writer can never bubble out of the
+      // agent loop and reject an otherwise-complete turn.
+      void writeRelationshipState().catch(() => {});
+    }
+
+    emitToolProfilingSummary(ctx.conversationId, reqId);
+
+    // Tear down the remaining per-turn state. Abort reliably drives the loop to
+    // this `finally` within a bounded time — cooperative signal propagation
+    // (provider fetch + tool race) backed by the abort watchdog — so a
+    // cancelled turn always unwinds before any resend can start a new one.
+    // There is therefore only ever one turn alive, and clearing the shared
+    // state below cannot clobber a concurrent turn.
     ctx.onConfirmationOutcome = undefined;
     ctx.surfaceActionRequestIds.delete(ctx.currentRequestId ?? "");
     ctx.approvedViaPromptThisTurn = false;
