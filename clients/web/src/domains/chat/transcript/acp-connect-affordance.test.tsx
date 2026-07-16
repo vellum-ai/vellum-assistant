@@ -30,6 +30,8 @@ let popupBlocked = false;
 // The `mode` the daemon's `start` reports — drives the loopback (one-step) vs
 // manual (two-step) card layout once the flow begins.
 let startMode: "loopback" | "manual" = "loopback";
+// When true, the manual paste exchange rejects (bad/expired code, 400).
+let exchangeShouldFail = false;
 
 mock.module("@/runtime/browser", () => ({
   openUrl: async (_url: string) => {},
@@ -48,7 +50,11 @@ mock.module("@/hooks/connect-claude-api", () => ({
     state: "state-abc",
   }),
   pollConnectClaudeStatus: async () => ({ status: "pending" }),
-  exchangeConnectClaude: async () => {},
+  exchangeConnectClaude: async () => {
+    if (exchangeShouldFail) {
+      throw new Error("bad code");
+    }
+  },
   isClaudeConnected: async () => alreadyConnected,
 }));
 
@@ -88,6 +94,7 @@ beforeEach(() => {
   alreadyConnected = false;
   popupBlocked = false;
   startMode = "loopback";
+  exchangeShouldFail = false;
   useInteractionStore.getState().clearAcpContinue();
 });
 
@@ -203,5 +210,29 @@ describe("AcpConnectAffordance", () => {
     await waitFor(() =>
       expect(useInteractionStore.getState().pendingAcpContinue).toBe(true),
     );
+  });
+
+  test("surfaces a failed manual paste exchange on the paste step, keeping the input", async () => {
+    // A bad/expired/400 code returns to `awaiting_paste` with an error set; the
+    // paste step must show it (not silently no-op) and keep the field for retry.
+    startMode = "manual";
+    exchangeShouldFail = true;
+
+    render(<AcpConnectAffordance assistantId="assistant-123" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+
+    const input = await screen.findByPlaceholderText("Paste your key");
+    fireEvent.change(input, { target: { value: "bad-code" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    // The error text appears...
+    await screen.findByText(/Couldn't complete Connect Claude/i);
+    // ...and the paste field + Save remain for a retry, with the value intact.
+    const retryInput = screen.getByPlaceholderText(
+      "Paste your key",
+    ) as HTMLInputElement;
+    expect(retryInput.value).toBe("bad-code");
+    expect(screen.getByRole("button", { name: "Save" })).not.toBeNull();
   });
 });

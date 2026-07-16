@@ -306,8 +306,18 @@ function TwoStepCard({
 
         {phase === "awaiting_paste" ? (
           <>
-            <p className="text-body-medium-lighter text-[var(--content-quiet)]">
-              A browser tab opened. Paste the key it gives you to finish.
+            <p
+              className={`text-body-medium-lighter ${
+                error
+                  ? "text-[var(--system-negative-strong)]"
+                  : "text-[var(--content-quiet)]"
+              }`}
+            >
+              {/* A failed exchange (bad/expired code, 400) returns here with an
+                  error set; show it on the paste step so Save doesn't look
+                  like a no-op. The input keeps its value for a retry. */}
+              {error ??
+                "A browser tab opened. Paste the key it gives you to finish."}
             </p>
             <div className="flex items-center gap-2">
               <div className="min-w-0 flex-1">
