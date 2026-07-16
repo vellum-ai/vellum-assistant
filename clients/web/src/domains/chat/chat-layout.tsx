@@ -72,6 +72,7 @@ import { LazyBoundary } from "@/components/lazy-boundary";
 import { RuntimeUpgradeBanner } from "@/components/runtime-upgrade-banner";
 import { StatusBanner } from "@/components/status-banner";
 import { SidebarTipCard } from "@/components/tips/sidebar-tip-card";
+import { ensureTipsFirstSeenAt } from "@/utils/tips-storage";
 import { AssistantSideMenu } from "@/domains/chat/components/assistant-side-menu";
 import { PreferencesMenu } from "@/domains/chat/components/preferences-menu";
 import { useCommandPaletteOrchestrator } from "@/domains/chat/hooks/use-command-palette-orchestrator";
@@ -313,6 +314,13 @@ export function ChatLayout() {
   useEffect(() => {
     setDrawerOpen(false);
   }, [location.key]);
+
+  // The tips new-user grace clock anchors to first app use. Stamping here
+  // (not only in the tip hook) covers mobile, where the drawer-gated tip
+  // card may not mount for days.
+  useEffect(() => {
+    ensureTipsFirstSeenAt();
+  }, []);
 
   useEffect(() => {
     if (!sidebarCollapseRequested) {

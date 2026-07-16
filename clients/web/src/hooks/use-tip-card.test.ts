@@ -205,6 +205,42 @@ describe("useTipCard selection and impressions", () => {
 });
 
 describe("useTipCard rotation", () => {
+  test("restamps a pinned tip's impression when the window elapses while mounted", async () => {
+    openAllGates();
+    const { result } = renderHook(() => useTipCard());
+    expect(result.current.tip?.id).toBe(FIRST_TIP_ID);
+    expect(tipRecordsStorage.load()[FIRST_TIP_ID]?.shownCount).toBe(1);
+    emitTipEvent.mockClear();
+
+    // Rewind the stamp so the rotation boundary lands ~40ms from now. The
+    // undismissed first tip is re-selected for the new window; without the
+    // restamp its stale lastShownAt would let a late dismissal skip the
+    // next-window wait.
+    act(() => {
+      const record = tipRecordsStorage.load()[FIRST_TIP_ID];
+      tipRecordsStorage.save({
+        [FIRST_TIP_ID]: {
+          ...record,
+          shownCount: record?.shownCount ?? 1,
+          lastShownAt: Date.now() - TIP_ROTATION_INTERVAL_MS + 40,
+        },
+      });
+    });
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 120));
+    });
+
+    expect(result.current.tip?.id).toBe(FIRST_TIP_ID);
+    const record = tipRecordsStorage.load()[FIRST_TIP_ID];
+    expect(record?.shownCount).toBe(2);
+    expect(Date.now() - (record?.lastShownAt ?? 0)).toBeLessThan(
+      TIP_ROTATION_INTERVAL_MS,
+    );
+    expect(emitTipEvent).toHaveBeenCalledTimes(1);
+    expect(emitTipEvent).toHaveBeenCalledWith(FIRST_TIP_ID, "impression", "on");
+  });
+
   test("shows a dismissed tip's successor when the window elapses while mounted", async () => {
     openAllGates();
     const { result } = renderHook(() => useTipCard());

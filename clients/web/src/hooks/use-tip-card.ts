@@ -227,17 +227,20 @@ export function useTipCard(): UseTipCardResult {
     if (useBannerVisibilityStore.getState().visibleBannerCount > 0) {
       return;
     }
-    const shownAt = Date.now();
     const record = tipRecordsStorage.load()[selectedTipId];
+    // Judge the window with the same clock selection used (`now` is a dep):
+    // when the boundary timer refreshes it and the same tip stays selected,
+    // this re-runs and restamps the new window. Without that, a pinned tip's
+    // stale lastShownAt lets a late dismissal skip the next-window wait.
     const shownWithinWindow =
       record?.lastShownAt !== undefined &&
-      shownAt - record.lastShownAt < TIP_ROTATION_INTERVAL_MS;
+      now - record.lastShownAt < TIP_ROTATION_INTERVAL_MS;
     if (shownWithinWindow) {
       return;
     }
-    recordTipShown(selectedTipId, shownAt);
+    recordTipShown(selectedTipId, Date.now());
     emitTipEvent(selectedTipId, "impression", variant);
-  }, [selectedTipId, variant, browseIndex, closed]);
+  }, [selectedTipId, variant, browseIndex, closed, now]);
 
   const onPrevTip = useCallback(() => {
     setBrowseIndex(Math.max(carouselIndex - 1, 0));
