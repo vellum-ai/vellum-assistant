@@ -283,13 +283,15 @@ export function AssistantSideMenu({
       ) : null}
       {/* 4px row gap to match the conversation list. */}
       <div className="flex flex-col gap-[4px]">
-        <AssistantNavItem
-          assistantId={assistantId ?? null}
-          label={assistantName || "Your Assistant"}
-          active={isIntelligenceActive}
-          collapsed={collapsed}
-          onSelect={onOpenIntelligence ? () => { onOpenIntelligence(); onClose?.(); } : undefined}
-        />
+        <NavGateRegion item="assistant-profile">
+          <AssistantNavItem
+            assistantId={assistantId ?? null}
+            label={assistantName || "Your Assistant"}
+            active={isIntelligenceActive}
+            collapsed={collapsed}
+            onSelect={onOpenIntelligence ? () => { onOpenIntelligence(); onClose?.(); } : undefined}
+          />
+        </NavGateRegion>
         {onOpenLibrary ? (
           <NavGateRegion item="library">
             <SideMenu.Item

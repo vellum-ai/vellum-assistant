@@ -15,6 +15,7 @@ const ALL_ITEMS: NavGateItemId[] = [
   "settings",
   "assistant-access",
   "model-profile",
+  "assistant-profile",
 ];
 
 function reset() {

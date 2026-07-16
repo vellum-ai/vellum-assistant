@@ -26,7 +26,8 @@ export type NavGateItemId =
   | "history"
   | "settings"
   | "assistant-access"
-  | "model-profile";
+  | "model-profile"
+  | "assistant-profile";
 
 /** Arm of the sidenav-gating experiment flag. `none` = not in the cohort. */
 export type NavGateArm = "none" | "control" | "gated";

@@ -117,6 +117,44 @@ const COPY: Record<NavGateItemId, NavGateItemCopy> = {
       },
     ],
   },
+  "assistant-profile": {
+    variants: [
+      {
+        message:
+          "That's me in there — my memory, my personality, everything I'm learning about you. It's pretty bare right now; I fill it in by doing things with you. Give me something to remember?",
+        buttons: [
+          {
+            label: "I'll tell you something",
+            action: {
+              kind: "send",
+              text: "Let me tell you something about me worth remembering.",
+            },
+          },
+          {
+            label: "Just exploring",
+            action: {
+              kind: "send",
+              text: "What do you know about me so far?",
+            },
+          },
+        ],
+      },
+      {
+        message:
+          "My page — what I remember, how I act. It fills in as we talk, and right now you could read it in one blink. Want to give it something to say?",
+        buttons: [
+          {
+            label: "I'll tell you something",
+            action: {
+              kind: "send",
+              text: "Let me tell you something about me worth remembering.",
+            },
+          },
+          { label: "Never mind", action: { kind: "dismiss" } },
+        ],
+      },
+    ],
+  },
   "assistant-access": {
     variants: [
       {
