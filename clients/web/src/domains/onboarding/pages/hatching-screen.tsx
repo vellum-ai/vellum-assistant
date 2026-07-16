@@ -19,6 +19,7 @@ import {
     writeSelectedVersion,
 } from "@/domains/onboarding/prefs";
 import { applyPendingProviderKey } from "@/domains/onboarding/provider-key";
+import { ATTRIBUTED_PLUGIN_PARAM } from "@/domains/onboarding/plugin-attribution";
 import { getPlatformRuntimeUrl, isLocalMode, loadLockfile, primeLocalGatewayConnection, probeLocalGatewayReady, saveLockfileAssistant } from "@/lib/local-mode";
 import { clearGatewayToken } from "@/lib/auth/gateway-session";
 import { resolveNavigation } from "@/lib/navigation/navigation-resolver";
@@ -114,6 +115,10 @@ export function HatchingScreen() {
   const [searchParams] = useSearchParams();
   const hostingParam = searchParams.get("hosting");
   const failParam = searchParams.get("fail");
+  // Marketing plugin attribution, forwarded from the privacy screen. The local
+  // hatch is an intermediate route on the way to research, so carry it through
+  // (see `plugin-attribution`) — otherwise a local/Docker onboarding drops it.
+  const pluginParam = searchParams.get(ATTRIBUTED_PLUGIN_PARAM);
   const electron = isElectron();
   const useLocalHatch = isLocalMode() && hostingParam !== null && hostingParam !== "vellum-cloud";
   const sessionStatus = useAuthStore.use.sessionStatus();
@@ -248,6 +253,9 @@ export function HatchingScreen() {
             }
             if (readyAssistantId) {
               researchParams.set("assistant", readyAssistantId);
+            }
+            if (pluginParam) {
+              researchParams.set(ATTRIBUTED_PLUGIN_PARAM, pluginParam);
             }
             const researchQs = researchParams.toString();
             void navigate(
