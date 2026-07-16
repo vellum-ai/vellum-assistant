@@ -151,7 +151,7 @@ describe("tryTranscribeAudioAttachments", () => {
     expect(reason).not.toContain("OpenAI");
   });
 
-  test("API failure returns error with reason", async () => {
+  test("API failure returns a friendly, non-raw reason naming the provider", async () => {
     const audio = makeAudioAttachment("a1");
     mockAttachments = [audio];
     mockTranscriber = {
@@ -165,9 +165,37 @@ describe("tryTranscribeAudioAttachments", () => {
     const result = await tryTranscribeAudioAttachments(["a1"]);
 
     expect(result.status).toBe("error");
-    expect((result as { reason: string }).reason).toBe(
-      "API rate limit exceeded",
-    );
+    const reason = (result as { reason: string }).reason;
+    // Friendly copy replaces the raw provider string.
+    expect(reason).not.toContain("API rate limit exceeded");
+    expect(reason).toContain("OpenAI Whisper");
+  });
+
+  test("auth failure returns a friendly, JSON-free reason that names the API key", async () => {
+    const audio = makeAudioAttachment("a1");
+    mockAttachments = [audio];
+    mockTranscriber = {
+      providerId: "deepgram",
+      boundaryId: "daemon-batch",
+      transcribe: async () => {
+        // Mocked normalizeSttError returns an SttError as-is, so throw the
+        // categorized error directly (a plain 401 string would classify as
+        // provider-error under the simplified mock).
+        throw new SttError(
+          "auth",
+          'Deepgram API error (401): {"err_code":"INVALID_AUTH"}',
+        );
+      },
+    };
+
+    const result = await tryTranscribeAudioAttachments(["a1"]);
+
+    expect(result.status).toBe("error");
+    const reason = (result as { reason: string }).reason;
+    expect(reason).not.toContain("{");
+    expect(reason).not.toContain("INVALID_AUTH");
+    expect(reason).toContain("API key");
+    expect(reason).toContain("Deepgram");
   });
 
   test("30-second timeout fires and returns error without blocking", async () => {
@@ -184,7 +212,7 @@ describe("tryTranscribeAudioAttachments", () => {
     const result = await tryTranscribeAudioAttachments(["a1"]);
 
     expect(result.status).toBe("error");
-    expect((result as { reason: string }).reason).toBe(
+    expect((result as { reason: string }).reason).toContain(
       "Transcription timed out",
     );
   });
