@@ -12,6 +12,7 @@
 
 import { getConfig } from "../../config/loader.js";
 import type { TtsDeepgramProviderConfig } from "../../config/schemas/tts.js";
+import { describeTtsAuthFailure } from "../../providers/voice-error-copy.js";
 import { getProviderKeyAsync } from "../../security/secure-keys.js";
 import { getLogger } from "../../util/logger.js";
 import { resolvePcmOutputSampleRateHz } from "../pcm-sample-rates.js";
@@ -208,9 +209,17 @@ async function performTtsRequest(
 
   if (!response.ok) {
     const errorText = await response.text().catch(() => "");
+    log.debug(
+      { status: response.status, body: errorText.slice(0, 300) },
+      "Deepgram TTS non-200 response",
+    );
+    const message =
+      response.status === 401 || response.status === 403
+        ? describeTtsAuthFailure("Deepgram")
+        : `Deepgram text-to-speech failed (HTTP ${response.status}).`;
     throw new DeepgramTtsError(
       "DEEPGRAM_TTS_HTTP_ERROR",
-      `Deepgram TTS returned ${response.status}: ${errorText}`,
+      message,
       response.status,
     );
   }

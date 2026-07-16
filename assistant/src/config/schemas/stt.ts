@@ -13,6 +13,19 @@ export const VALID_STT_PROVIDERS = [
 ] as const;
 
 /**
+ * Forgiving aliases normalized to a canonical provider id before the enum
+ * check, so a natural value like `openai` or `whisper` is accepted rather than
+ * silently reset (which cascades into a full `services` section reset).
+ */
+const STT_PROVIDER_ALIASES: Record<
+  string,
+  (typeof VALID_STT_PROVIDERS)[number]
+> = {
+  openai: "openai-whisper",
+  whisper: "openai-whisper",
+};
+
+/**
  * Sparse provider config map under `services.stt.providers`.
  *
  * This is a forward-compatible record that accepts any provider ID as key
@@ -51,9 +64,18 @@ export const SttServiceSchema = z
         'STT service mode -- "your-own" uses the configured provider with your API key; "managed" transcribes through your Vellum account',
       ),
     provider: z
-      .enum(VALID_STT_PROVIDERS, {
-        error: `services.stt.provider must be one of: ${VALID_STT_PROVIDERS.join(", ")}`,
-      })
+      .preprocess(
+        (v) => {
+          if (typeof v !== "string") {
+            return v;
+          }
+          const k = v.trim().toLowerCase();
+          return STT_PROVIDER_ALIASES[k] ?? k;
+        },
+        z.enum(VALID_STT_PROVIDERS, {
+          error: `services.stt.provider must be one of: ${VALID_STT_PROVIDERS.join(", ")} (aliases: openai/whisper -> openai-whisper)`,
+        }),
+      )
       .describe("Active STT provider used for speech-to-text transcription"),
     providers: SttProvidersSchema.default({}),
   })
