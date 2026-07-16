@@ -54,10 +54,15 @@ import {
   stopLiveVoiceResponse,
   useLiveVoiceStore,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
+import { OAuthConnectSurface } from "@/domains/chat/components/surfaces/oauth-connect-surface";
+import { handleSurfaceAction } from "@/domains/chat/surface-actions";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
+import { useSupportsNoninteractiveVoiceTurns } from "@/lib/backwards-compat/use-supports-noninteractive-voice-turns";
 import { AVATAR_ACCENT_CSS_VAR } from "@/hooks/use-avatar-accent-var";
 import { useVoicePrefsStore } from "@/stores/voice-prefs-store";
-import { toneForBg } from "@/utils/surface-tone";
+import { toneForBg } from "@/utils/avatar-tone";
+
+import { useActiveConnectSurface } from "./use-active-connect-surface";
 
 import { resolveWaveAccentHex } from "./wave-accent";
 
@@ -92,7 +97,8 @@ const VOID_CAPTION_TOP = `calc(50% + ${AVATAR_SIZE / 2}px + 1.75rem)`;
  * browsers with `viewport-fit=cover`, and `0px` covers desktop / non-notch
  * devices — so these are inert everywhere except a notched iOS shell.
  */
-const SAFE_AREA_TOP = "var(--safe-area-inset-top, env(safe-area-inset-top, 0px))";
+const SAFE_AREA_TOP =
+  "var(--safe-area-inset-top, env(safe-area-inset-top, 0px))";
 const SAFE_AREA_BOTTOM =
   "var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px))";
 const SAFE_AREA_LEFT =
@@ -161,11 +167,19 @@ function VoiceRoomOverlay() {
   const showAssistantTranscript =
     useVoicePrefsStore.use.showAssistantTranscript();
 
+  // Backwards-compat fallback for assistants that can still raise
+  // `oauth_connect` mid-call — see use-supports-noninteractive-voice-turns.ts
+  // (the canonical writeup); delete with the gate.
+  const voiceTurnsAreNoninteractive =
+    useSupportsNoninteractiveVoiceTurns(assistantId);
+  const connectSurface = useActiveConnectSurface(!voiceTurnsAreNoninteractive);
+
   // Resolve the assistant's look: color-with-eyes for character avatars, the
   // ambient void otherwise. The accent var is still published for the
   // fallback look's listening waves (null for custom-image / "none" /
   // still-loading avatars, where the waves keep their aurora fallback).
-  const { components, traits, customImageUrl } = useAssistantAvatar(assistantId);
+  const { components, traits, customImageUrl } =
+    useAssistantAvatar(assistantId);
   const look = resolveVoiceRoomLook(components, traits, customImageUrl);
   const tone = look ? toneForBg(look.bgHex) : null;
   const accentHex = resolveWaveAccentHex(components, traits);
@@ -277,6 +291,33 @@ function VoiceRoomOverlay() {
           control above) and absolutely positioned, so it never shifts the
           avatar and stays absent by default. */}
       <VoiceAmbientTranscript />
+
+      {/* Backwards-compat fallback card for assistants that can still raise
+          `oauth_connect` mid-call — see use-supports-noninteractive-voice-turns.ts;
+          delete this slot with the gate. */}
+      <AnimatePresence>
+        {connectSurface ? (
+          <motion.div
+            key={`connect-${connectSurface.surfaceId}`}
+            className="pointer-events-none absolute inset-x-0 z-20 flex justify-center px-4"
+            style={{ bottom: `calc(6rem + ${SAFE_AREA_BOTTOM})` }}
+            initial={reduce ? false : { opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 12 }}
+            transition={{ duration: reduce ? 0 : 0.3 }}
+          >
+            <div className="pointer-events-auto w-full max-w-[28rem]">
+              <OAuthConnectSurface
+                surface={connectSurface}
+                assistantId={assistantId}
+                onAction={(surfaceId, actionId, data) => {
+                  void handleSurfaceAction(surfaceId, actionId, data);
+                }}
+              />
+            </div>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
 
       {/* Room controls — captions toggle and the persistent exit. Rendered
           above all room chrome; ✕ is never gated behind avatar readiness, so

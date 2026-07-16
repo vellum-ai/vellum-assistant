@@ -64,7 +64,7 @@ Apps live under `/workspace/data/apps/`:
 
 Metadata fields: `id`, `name`, `description`, `icon`, `schemaJson`, `createdAt`, `updatedAt`, `formatVersion`, `dirName`. Records: `{ "id", "appId", "data": {...}, "createdAt", "updatedAt" }` — the system auto-adds everything but `data`.
 
-All new apps use `formatVersion: 2` (multi-file TSX). No root-level `index.html` or `pages/` — those are legacy.
+Every app is multi-file TSX (`formatVersion: 2`). Never write a root-level `index.html` or `pages/` — all source lives under `src/`.
 
 ⚠️ Correct source path is `/workspace/data/apps/<slug>/src/`. Never `/workspace/apps/`.
 

@@ -367,8 +367,9 @@ export class SubagentManager {
     // ── Build conversation dependencies ─────────────────────────────
     const appConfig = getConfig();
     // Connection-aware default-provider resolution. Throws
-    // `ConnectionResolutionError` if `llm.default.provider_connection` is
-    // unset or the connection row is missing/mismatched (config bugs).
+    // `ConnectionResolutionError` if the resolved default config carries no
+    // provider_connection or the connection row is missing/mismatched
+    // (config bugs).
     // Returns null on soft credential failures (missing credential,
     // platform auth unavailable).
     const baseProvider = await resolveDefaultProvider(appConfig);
@@ -376,7 +377,7 @@ export class SubagentManager {
       throw await mainAgentResolutionError(appConfig.llm, listProviders());
     }
     // Per-call `options.config.callSite` (e.g. `subagentSpawn`) can resolve
-    // to a profile that differs from `llm.default`. The shared wrapper
+    // to a profile that differs from the default's. The shared wrapper
     // threads `appConfig` through so per-call alternate-profile routing is
     // also connection-aware (matches the canonical dispatch path).
     let provider = wrapWithCallSiteRouting(baseProvider, appConfig);

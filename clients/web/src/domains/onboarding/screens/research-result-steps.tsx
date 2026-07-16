@@ -876,8 +876,9 @@ export function SuggestionsStep({
 // ---------------------------------------------------------------------------
 
 /**
- * Terminal step for the personality-onboarding flow (replaces SuggestionsStep
- * when that flag is on). The suggestions idea is retired: instead this confirms
+ * Terminal step for the research-onboarding flow (replaces SuggestionsStep,
+ * now that the "Create my personality" step is always on). The suggestions idea
+ * is retired: instead this confirms
  * the capabilities already set up for the assistant — chosen from the user's
  * role, hobby, and what the web research surfaced — and offers a single "Let's
  * chat" button. Clicking primes a fresh chat with a hidden kickoff message so

@@ -149,6 +149,23 @@ export function createRedactedSentinelRegex(): RegExp {
 }
 
 /**
+ * Global-flag regex for locating NEUTRALIZED sentinels — the word-joiner
+ * form {@link neutralizeRedactedSentinels} produces — inside a larger text.
+ * Renderers use this to show a defused redaction marker as an inert badge
+ * instead of leaking bare sentinel glyphs into the transcript. The capture
+ * groups mirror {@link createRedactedSentinelRegex}, but consumers must NOT
+ * trust them as vault coordinates: a neutralized span is by definition text
+ * the daemon refused to vouch for. Same statefulness caveat as the genuine
+ * regex — create a fresh instance per iteration.
+ */
+export function createNeutralizedSentinelRegex(): RegExp {
+  return new RegExp(
+    `${REDACTED_SENTINEL_OPEN}\\u2060${REDACTED_SENTINEL_TAG}:([^:\\u3014\\u3015]+?)(?::([A-Za-z0-9_.%-]+):([A-Za-z0-9_.%-]+))?${REDACTED_SENTINEL_CLOSE}`,
+    "g",
+  );
+}
+
+/**
  * Map a {@link createRedactedSentinelRegex} match to a decoded sentinel.
  * Shared by {@link parseRedactedSentinel} and the web rehype plugin so the
  * segment decoding never drifts between consumers. A malformed

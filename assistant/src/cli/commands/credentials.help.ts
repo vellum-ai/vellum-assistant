@@ -191,6 +191,11 @@ Examples:
           flags: "--field <field>",
           description: "Field name",
         },
+        {
+          flags: "--for-chat",
+          description:
+            "Print a chat-safe reveal chip token instead of the plaintext",
+        },
       ],
       helpText: `
 Arguments:
@@ -204,10 +209,18 @@ captured with shell substitution.
 Use --service and --field to look up by service/field, or pass a UUID as a
 positional argument. One of the two forms is required.
 
+With --for-chat, the plaintext is never printed: the command outputs the
+credential's redaction chip token instead. Paste that token into a chat
+reply to show the credential as a click-to-reveal chip — use it whenever
+the goal is to SHOW a credential to the user in conversation rather than
+to pipe its value into another tool. Requires the chat-credential-reveal
+feature flag.
+
 Examples:
   $ assistant credentials reveal --service twilio --field auth_token
   $ assistant credentials reveal 7a3b1c2d-4e5f-6789-abcd-ef0123456789
   $ assistant credentials reveal --json --service twilio --field account_sid
+  $ assistant credentials reveal --for-chat --service twilio --field auth_token
   $ export TWILIO_TOKEN=$(assistant credentials reveal --service twilio --field auth_token)`,
     },
     {

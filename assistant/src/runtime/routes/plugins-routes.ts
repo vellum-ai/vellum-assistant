@@ -91,6 +91,7 @@ import {
 import { getPlatformBaseUrl } from "../../config/env.js";
 import { isPluginDisabled } from "../../plugins/disabled-state.js";
 import { ensurePluginApiShim } from "../../plugins/ensure-plugin-api-shim.js";
+import { reconcilePluginSourcesNow } from "../../plugins/mtime-cache.js";
 import { getLocalCategorySlugs } from "../../skills/categories-cache.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspacePluginsDir } from "../../util/platform.js";
@@ -1092,7 +1093,15 @@ async function handleUninstallPlugin({
   await ensurePluginApiShim().catch(() => {});
 
   try {
+    // `uninstallPlugin` runs the plugin's `shutdown` hook (while its files are
+    // still present) and then removes the directory — both in this daemon
+    // process. Following it with a reconcile drops the plugin's now-absent
+    // tools and hooks from the in-memory caches immediately (the `shutdown`
+    // already ran, so the reconcile's deactivation does not run it again),
+    // rather than leaving that to the background source watcher. Symmetric to
+    // the install route, which reconciles to bring a new plugin up.
     const result = await uninstallPlugin({ name: rawName });
+    await reconcilePluginSourcesNow();
     publishPluginsChanged(getOriginClientId(headers));
     return { name: result.name, target: result.target };
   } catch (err) {
@@ -1228,6 +1237,12 @@ async function handleInstallPlugin({ body = {}, headers }: RouteHandlerArgs) {
         { fetch: globalThis.fetch.bind(globalThis) },
       );
     }
+    // Bring the freshly materialized plugin up in-process right now — register
+    // its tools and run its `init` hook — instead of waiting for the resource
+    // monitor to republish the sentinel and a later turn to apply it. This is
+    // what makes `init` fire as part of the install rather than at the next
+    // daemon boot. Never throws; a failure is contained and logged.
+    await reconcilePluginSourcesNow();
     publishPluginsChanged(getOriginClientId(headers));
     return {
       ok: true as const,
@@ -1403,6 +1418,21 @@ async function handleUpgradePlugin({
       { name: rawName, dryRun, strategy },
       { fetch: globalThis.fetch.bind(globalThis) },
     );
+    // An upgrade that actually moved files (outcome `upgraded`) rewrites the
+    // plugin's on-disk source; bring the change up in-process right now — run
+    // the old version's `shutdown` and the new version's `init` via the
+    // reconcile — instead of waiting for the resource monitor to republish the
+    // sentinel and a later turn to apply it. This is what makes the lifecycle
+    // fire as part of the upgrade rather than at the next daemon boot,
+    // symmetric to the install and uninstall routes. A no-op or dry run leaves
+    // the tree unchanged, so there is nothing to reconcile. Ensure the
+    // workspace `@vellumai/plugin-api` shim first (as uninstall does) so a hook
+    // that imports the package resolves even inside the daemon boot window.
+    // Never throws; a failure is contained and logged.
+    if (result.outcome === "upgraded") {
+      await ensurePluginApiShim().catch(() => {});
+      await reconcilePluginSourcesNow();
+    }
     publishPluginsChanged(getOriginClientId(headers));
     return {
       name: result.name,

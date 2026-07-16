@@ -34,6 +34,14 @@ const onboardingResearchSuggestionSchema = z.object({
 const onboardingResearchRequestSchema = z.object({
   conversation_id: z.string().nullable(),
   status: z.enum(["done", "error"]),
+  // The onboarding-form values the turn was run ON. Optional: an older web
+  // client omits them, and the flow's own fields are optional. Kept permissive
+  // for the same reason the platform serializer is — a rejected request here
+  // would cost the whole research report, and the subject is the least
+  // important part of it.
+  self_reported_occupation: z.string().optional(),
+  self_reported_hobbies: z.array(z.string()).optional(),
+  self_reported_timezone: z.string().optional(),
   claims: z.array(onboardingResearchClaimSchema),
   suggestions: z.array(onboardingResearchSuggestionSchema),
   plugins: z.array(z.string()),
@@ -75,6 +83,9 @@ function handleRecordOnboardingResearchEvent({ body }: RouteHandlerArgs) {
   const event = recordOnboardingResearchEvent({
     conversationId: parsed.data.conversation_id,
     status: parsed.data.status,
+    selfReportedOccupation: parsed.data.self_reported_occupation,
+    selfReportedHobbies: parsed.data.self_reported_hobbies,
+    selfReportedTimezone: parsed.data.self_reported_timezone,
     claims: parsed.data.claims,
     suggestions: parsed.data.suggestions,
     plugins: parsed.data.plugins,
@@ -152,7 +163,7 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "Record onboarding-research event",
     description:
-      'Record the settled result of an onboarding "research me" web-search turn (claims, suggestions, and plugin picks). Client-orchestrated: the web client reports this once it has observed the turn complete. Gated on share_diagnostics consent (in addition to share_analytics) since the payload carries the model\'s raw inferred claims about the user.',
+      'Record the settled result of an onboarding "research me" web-search turn (claims, suggestions, and plugin picks). Client-orchestrated: the web client reports this once it has observed the turn complete. Gated on share_analytics consent like every other outbox-backed event; the platform re-checks the owner\'s consent server-side at ingest.',
     tags: ["telemetry"],
     requestBody: onboardingResearchRequestSchema,
     responseBody: z.union([
@@ -161,7 +172,7 @@ export const ROUTES: RouteDefinition[] = [
         skipped: z
           .literal(true)
           .describe(
-            "Event skipped: usage data collection or diagnostics consent is disabled/ineligible",
+            "Event skipped: usage data collection is disabled or the telemetry database is unavailable",
           ),
       }),
     ]),

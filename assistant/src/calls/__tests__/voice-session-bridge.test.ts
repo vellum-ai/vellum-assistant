@@ -345,6 +345,53 @@ describe("startVoiceTurn triage-and-escalate control prompt", () => {
   });
 });
 
+describe("startVoiceTurn channel capabilities", () => {
+  // Voice calls are non-interactive: the bridge forces supportsDynamicUi off
+  // for every voice turn so ui-surface tools never reach the model mid-call,
+  // while leaving the rest of the channel's resolved capabilities intact.
+
+  // The turn installs its capabilities, then cleanup resets them to null — so
+  // capture every applied value and read the installed (non-null) one.
+  function captureInstalledCapabilities(): () =>
+    | Record<string, unknown>
+    | undefined {
+    const fake = makeFakeConversation({ processing: false });
+    fakeConversation = fake.conversation;
+    const applied: unknown[] = [];
+    fake.conversation.setChannelCapabilities = (caps) => {
+      applied.push(caps);
+    };
+    return () =>
+      applied.find(
+        (caps): caps is Record<string, unknown> =>
+          caps != null && typeof caps === "object",
+      );
+  }
+
+  test("a vellum/macos (live-voice) turn forces supportsDynamicUi off, other fields untouched", async () => {
+    const installed = captureInstalledCapabilities();
+    await startVoiceTurn({
+      ...makeTurnOptions(),
+      userMessageChannel: "vellum",
+      userMessageInterface: "macos",
+    });
+    const caps = installed();
+    expect(caps?.supportsDynamicUi).toBe(false);
+    // The override is surgical: live-voice keeps identifying as vellum/macos.
+    expect(caps?.dashboardCapable).toBe(true);
+    expect(caps?.supportsVoiceInput).toBe(true);
+    expect(caps?.clientOS).toBe("macos");
+  });
+
+  test("phone defaults (no channel overrides) also yield supportsDynamicUi false", async () => {
+    const installed = captureInstalledCapabilities();
+    await startVoiceTurn(makeTurnOptions());
+    const caps = installed();
+    expect(caps?.channel).toBe("phone");
+    expect(caps?.supportsDynamicUi).toBe(false);
+  });
+});
+
 describe("startVoiceTurn conversation-lock wait", () => {
   test("an idle conversation starts the turn without consulting waitForIdle", async () => {
     const fake = makeFakeConversation({ processing: false });

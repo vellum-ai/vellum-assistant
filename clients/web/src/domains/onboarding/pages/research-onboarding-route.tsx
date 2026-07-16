@@ -105,7 +105,7 @@ function researchSubjectFrom(values: ResearchOnboardingValues): ResearchSubject 
     firstName: values.firstName,
     lastName: values.lastName,
     occupation: values.role,
-    hobby: values.hobbies.join(", "),
+    hobbies: values.hobbies,
     timezone: getBrowserTimezone(),
   };
 }
@@ -507,7 +507,7 @@ export function ResearchOnboardingRoute() {
                 firstName,
                 lastName,
                 occupation: role,
-                hobby: hobbies.join(", "),
+                hobbies,
               }),
             // A hidden kickoff (the "Let's chat" handoff) drives the first reply
             // without rendering a user bubble, so the chat opens as a proactive
@@ -550,7 +550,7 @@ export function ResearchOnboardingRoute() {
       });
   }
 
-  // Final personality-onboarding handoff: wait out any background capability
+  // Final research-onboarding handoff: wait out any background capability
   // installs (so the primed chat can discover their skills), any removal
   // correction (so rejected claims can't leak in), and the personality rewrite
   // (so the greeting lands in the configured persona), then drop into a fresh

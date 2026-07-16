@@ -15,6 +15,7 @@ import type {
   VoiceTurnHandle,
   VoiceTurnOptions,
 } from "../calls/voice-session-bridge.js";
+import { VOICE_NO_SETUP_FLOWS_RULE } from "../calls/voice-session-bridge.js";
 import {
   ESCALATION_CONTINUATION_CONTENT,
   ESCALATION_PROFILE,
@@ -263,10 +264,15 @@ interface ActiveAssistantTurn {
   handle: VoiceTurnHandle | null;
   assistantCompleted: boolean;
   ttsDone: boolean;
-  // A tts_audio frame actually went out to the client — the barge-in gate:
-  // speech only cancels a turn that has audibly started speaking.
+  // A tts_audio frame actually went out to the client — latches on the first
+  // forwarded chunk so the firstTtsAudio metric is marked exactly once per turn.
   ttsAudioStarted: boolean;
   finalized: boolean;
+  // When this turn started from a barge-in, the interrupted request's
+  // transcript. Appended to the turn's control prompt (both legs) so the model
+  // merges it with this turn's utterance instead of treating that utterance as
+  // a fresh follow-up. Null for an ordinary (non-barge-in) turn.
+  interruptedRequest: string | null;
   // Triage-and-escalate (Voice Mode): the front-door leg emitted [ESCALATE]
   // and the strong "escalated" leg has taken over this same turn. Guards the
   // front-door leg's trailing completion from finalizing the turn, and makes
@@ -286,6 +292,22 @@ interface ActiveAssistantTurn {
   assistantAudioChunks: Buffer[];
   assistantAudioMimeType: string;
   assistantAudioSampleRate?: number;
+}
+
+// Base control prompt for every live-voice turn. When a turn starts from a
+// barge-in, the interruption merge note is appended to it (see
+// buildInterruptionMergeNote) so the model reconciles the interrupted request
+// with the new utterance.
+const LIVE_VOICE_CONTROL_PROMPT =
+  "You are speaking in a local live voice session. Keep replies brief and conversational. You cannot display cards, forms, or any on-screen UI during the call — convey everything in speech. " +
+  VOICE_NO_SETUP_FLOWS_RULE;
+
+// System-level guidance appended to a barge-in turn's control prompt so the
+// model treats the new utterance as a continuation of the request it was cut
+// off answering, rather than a fresh follow-up. Reaches the model only; it is
+// not a user message and never renders as a transcript bubble.
+function buildInterruptionMergeNote(interruptedRequest: string): string {
+  return `The user interrupted your previous, unfinished reply. Their earlier request was: "${interruptedRequest}". Treat their current message as a continuation of that request and address both together, or stay silent if they only want you to stop.`;
 }
 
 export class LiveVoiceSession implements LiveVoiceSessionContract {
@@ -331,6 +353,11 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // the chunk's PCM duration; zeroed whenever the client flushes playback
   // (speech_started, turn_cancelled, interrupt, close).
   private assistantPlaybackTailUntilMs = 0;
+  // Set when barge-in cancels an in-flight turn: the interrupted request's
+  // transcript, carried into the next turn so the model merges the two.
+  // Consumed (and cleared) when that turn launches; cleared if the barge-in
+  // utterance is discarded, so it can never attach to a later, unrelated turn.
+  private pendingInterruptedRequest: string | null = null;
   private readonly maxPendingAudioBytes: number;
   // Set on VAD speech onset; consumed when the first speech chunk is routed
   // to an utterance so the metric lands on the right turn.
@@ -902,12 +929,14 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   }
 
   // VAD speech onset. Contract: speech_started tells the client to flush
-  // tail playback immediately; barge-in then cancels the active turn only
-  // once its first tts_audio chunk was forwarded — speech during a pre-TTS
-  // "thinking" turn never kills the unspoken reply. While a turn is audibly
-  // speaking, both are deferred behind the sustained-speech guard so a
-  // cough or noise blip cannot kill the reply; onset while listening keeps
-  // the instant speech_started (turn-taking latency is untouched).
+  // tail playback immediately; barge-in then cancels any in-flight,
+  // non-finalized turn — including a pre-TTS "thinking" turn whose reply is
+  // still being generated, so a user can cut in before the assistant starts
+  // talking (JARVIS-1266). Speaking over a thinking or audibly speaking turn
+  // is deferred behind the same sustained-speech guard, so a cough or noise
+  // blip cannot kill an unspoken reply or clip a spoken one; sustained speech
+  // aborts the turn. Onset while listening keeps the instant speech_started
+  // (turn-taking latency is untouched).
   private handleVadSpeechStart(): void {
     if (this.isClosed || this.state === "failed") {
       return;
@@ -916,25 +945,27 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     this.vadSpeechStartPending = true;
 
     const turn = this.activeAssistantTurn;
-    const speakingTurn =
-      turn && !turn.finalized && turn.ttsAudioStarted ? turn : null;
+    // Any in-flight, non-finalized turn is interruptible, whether it is still
+    // "thinking" (pre-TTS) or audibly speaking, so a user can cut in before the
+    // assistant starts talking.
+    const bargeableTurn = turn && !turn.finalized ? turn : null;
     // The client can still be draining audible playback after tts_done
     // (the turn is already cleared server-side) — that tail deserves the
     // same guard, or a noise blip clips the reply's last words.
     const drainingPlayback = Date.now() < this.assistantPlaybackTailUntilMs;
 
-    if ((speakingTurn || drainingPlayback) && this.bargeInMinSpeechMs > 0) {
+    if ((bargeableTurn || drainingPlayback) && this.bargeInMinSpeechMs > 0) {
       // Onset audio keeps flowing into the cycle/pre-roll while the guard
       // accumulates (trackBargeInGuard), so no speech is lost either way.
-      this.pendingBargeIn = { turn: speakingTurn, speechMs: 0 };
+      this.pendingBargeIn = { turn: bargeableTurn, speechMs: 0 };
       return;
     }
 
     this.pendingBargeIn = null;
     this.assistantPlaybackTailUntilMs = 0;
     void this.sendFrame({ type: "speech_started" });
-    if (speakingTurn) {
-      this.bargeIn(speakingTurn);
+    if (bargeableTurn) {
+      this.bargeIn(bargeableTurn);
     }
   }
 
@@ -973,6 +1004,13 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     // do not collide with it in the collector. turn_cancelled flushes
     // client playback, so the drain estimate resets with it.
     this.assistantPlaybackTailUntilMs = 0;
+    // Carry the interrupted request into the next turn so it merges with the
+    // barge-in utterance rather than being answered as a fresh follow-up.
+    const interruptedRequest = turn.utterance.finalTranscriptSegments
+      .join(" ")
+      .trim();
+    this.pendingInterruptedRequest =
+      interruptedRequest.length > 0 ? interruptedRequest : null;
     turn.abortController.abort();
     this.metrics.markBargeIn(turn.turnId);
     void (async () => {
@@ -1419,6 +1457,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     this.assistantPlaybackTailUntilMs = 0;
     this.takeVadPreRoll();
     this.vadPendingTurnEnd = null;
+    // A client interrupt is a hard reset: any barge-in merge context waiting for
+    // the next turn is now stale (the interrupted utterance may be discarded
+    // without ever reaching finalizePendingUtterance).
+    this.pendingInterruptedRequest = null;
     const utterance = this.currentUtterance;
     this.stopSessionTranscriber();
     if (utterance) {
@@ -1491,6 +1533,24 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       return;
     }
 
+    // Consume any pending barge-in merge context for this turn (one barge-in
+    // feeds exactly the next launched turn).
+    const interruptedRequest = this.pendingInterruptedRequest;
+    this.pendingInterruptedRequest = null;
+    await this.launchAssistantTurn(utterance, content, { interruptedRequest });
+  }
+
+  // Build the ActiveAssistantTurn for a released utterance and drive its model
+  // leg.
+  private async launchAssistantTurn(
+    utterance: UtteranceCycle,
+    content: string,
+    opts?: {
+      // Set on a barge-in follow-up turn: the interrupted request's transcript,
+      // appended to the turn's control prompt so the model merges the two.
+      interruptedRequest?: string | null;
+    },
+  ): Promise<void> {
     utterance.assistantTurnStarted = true;
     const token = Symbol("live-voice-assistant-turn");
     const turnId = this.ensureTurnId(utterance);
@@ -1506,6 +1566,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       ttsDone: false,
       ttsAudioStarted: false,
       finalized: false,
+      interruptedRequest: opts?.interruptedRequest ?? null,
       escalationHandedOff: false,
       ttsBuffer: "",
       ttsSegmentEnqueued: false,
@@ -1586,7 +1647,14 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         return;
       }
       this.markFirstAssistantDelta(utterance, turnId);
-      void this.sendFrame({ type: "assistant_text_delta", text: chunk });
+      // Same send-time abort gate as the default-leg delta path: a front-door
+      // delta queued behind a backed-up outbound frame must not be written
+      // once barge-in aborts the turn. Escalation aborts the front-door handle,
+      // not this turn's controller, so legitimate front-door text still sends.
+      void this.sendFrame(
+        { type: "assistant_text_delta", text: chunk },
+        () => !activeTurn.abortController.signal.aborted && !this.isClosed,
+      );
       this.bufferAssistantTextForTts(token, chunk);
     };
 
@@ -1631,9 +1699,11 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         assistantMessageChannel: "vellum",
         userMessageInterface: "macos",
         assistantMessageInterface: "macos",
-        voiceControlPrompt:
-          "You are speaking in a local live voice session. Keep replies brief and conversational.",
-        approvalMode: "local-live-voice",
+        voiceControlPrompt: activeTurn.interruptedRequest
+          ? `${LIVE_VOICE_CONTROL_PROMPT}\n\n${buildInterruptionMergeNote(
+              activeTurn.interruptedRequest,
+            )}`
+          : LIVE_VOICE_CONTROL_PROMPT,
         content: leg.content,
         isInbound: true,
         signal: activeTurn.abortController.signal,
@@ -1657,10 +1727,21 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
               return;
             }
             this.markFirstAssistantDelta(utterance, turnId);
-            void this.sendFrame({
-              type: "assistant_text_delta",
-              text: msg.text,
-            });
+            void this.sendFrame(
+              {
+                type: "assistant_text_delta",
+                text: msg.text,
+              },
+              // Re-check at send time (mirrors the tts_audio path): a delta
+              // already queued behind a backed-up outbound frame must not be
+              // written once barge-in has aborted the turn, or the cancelled
+              // reply's text leaks ahead of turn_cancelled. Key off this turn's
+              // own abort signal — a normal message_complete finalizes and
+              // clears activeAssistantTurn while trailing deltas may still be
+              // draining, so an activeAssistantTurn-based guard would drop them.
+              () =>
+                !activeTurn.abortController.signal.aborted && !this.isClosed,
+            );
             this.bufferAssistantTextForTts(token, msg.text);
           },
           message_complete: (msg) => {
@@ -1833,7 +1914,14 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   private isActiveAssistantTurn(token: symbol): boolean {
     const activeTurn = this.activeAssistantTurn;
     return (
-      activeTurn?.token === token && !activeTurn.finalized && !this.isClosed
+      activeTurn?.token === token &&
+      !activeTurn.finalized &&
+      // Barge-in aborts synchronously but finalizes through an async
+      // cancelAssistantTurn chain; the abort makes the turn dead at once so a
+      // rejected startVoiceTurn or a trailing onError in that window does not
+      // treat it as live (and emit a stray error frame or double-finalize).
+      !activeTurn.abortController.signal.aborted &&
+      !this.isClosed
     );
   }
 
@@ -1843,6 +1931,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       activeTurn?.token === token &&
       !activeTurn.assistantCompleted &&
       !activeTurn.finalized &&
+      // Fence a late first assistant_text_delta once barge-in aborts a pre-TTS
+      // turn, before its async teardown finalizes — mirrors isForwardingTts so
+      // no cancelled-turn text leaks after turn_cancelled.
+      !activeTurn.abortController.signal.aborted &&
       !this.isClosed
     );
   }
@@ -2126,10 +2218,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         },
         () => this.isForwardingTts(token),
       );
-      // Arm the barge-in gate only once a tts_audio frame was actually
-      // written — a backed-up outbound queue must not let speech cancel a
-      // still-unspoken reply. Token match keeps a stale turn's late send
-      // from arming a newer turn.
+      // Skip a frame that wasn't actually written — a backed-up outbound
+      // queue hasn't reached the client, so it must not extend the
+      // playback-tail estimate or latch first-audio state. Token match keeps
+      // a stale turn's late send from latching a newer turn.
       if (!sent) {
         return;
       }
@@ -2273,6 +2365,13 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     utterance: UtteranceCycle,
     reason: string,
   ): Promise<void> {
+    // An utterance that finalizes here never became a turn (empty transcript,
+    // client interrupt, transcriber close, error), so it ends the window a
+    // barge-in's merge context was waiting to attach to. Drop that context so
+    // it can't leak into a later, unrelated turn. The barged turn itself
+    // finalizes through finalizeAssistantTurn, not here, so this never clears a
+    // request that the barge-in follow-up turn is still about to consume.
+    this.pendingInterruptedRequest = null;
     utterance.completed = true;
     const turnId = utterance.turnId;
     if (!turnId) {

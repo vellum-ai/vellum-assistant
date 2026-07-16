@@ -28,7 +28,7 @@ recordTelemetryEvent(
 );
 ```
 
-`recordTelemetryEvent` stamps the base fields (`type`, `daemon_event_id`, `recorded_at`, `assistant_version`) and gates on consent; the `fields` argument is typed as everything except those.
+`recordTelemetryEvent` stamps the base fields (`type`, `daemon_event_id`, `recorded_at`, `assistant_version`) and gates on consent — dropping only on a confirmed `share_analytics` opt-out; an unknown consent state (cold cache) records, because consent is enforced again at flush time and a record-time drop would destroy the event permanently. Unknown-state buffering is bounded: the reporter prunes outbox rows older than `OUTBOX_MAX_ROW_AGE_MS` (30 days) at the start of every flush cycle, in every consent state, so a permanently-unknown state cannot grow the outbox forever. The `fields` argument is typed as everything except the base fields.
 
 Manual edits in this directory are needed **only** to override a default:
 

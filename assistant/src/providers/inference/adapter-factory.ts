@@ -120,8 +120,10 @@ const ADAPTER_FACTORIES: Record<string, AdapterFactory> = {
       streamTimeoutMs,
       ...(baseURL ? { baseURL } : {}),
     }),
+  // Keyless openai-compatible endpoints (e.g. LM Studio) ignore the key; the
+  // placeholder satisfies the OpenAI SDK, which requires a non-empty key.
   "openai-compatible": ({ apiKey, model, streamTimeoutMs, baseURL }) =>
-    new OpenAIChatCompletionsProvider(apiKey, model, {
+    new OpenAIChatCompletionsProvider(apiKey || "not-needed", model, {
       providerName: "openai-compatible",
       providerLabel: "OpenAI-compatible",
       streamTimeoutMs,
@@ -207,16 +209,23 @@ export function createAdapterFromConnection(
   const entry = PROVIDER_CATALOG.find((e) => e.id === provider);
   if (!entry) return null;
   const isKeyless = entry.setupMode === "keyless";
+  // openai-compatible is dual-mode: local endpoints (LM Studio, vLLM) are
+  // keyless, hosted ones keyed — none auth is valid for it.
+  const isOpenAICompatible = provider === "openai-compatible";
 
   // Keyed providers can't operate without a credential.
-  if (!isKeyless && resolvedAuth.kind === "none") return null;
+  if (!isKeyless && !isOpenAICompatible && resolvedAuth.kind === "none") {
+    return null;
+  }
 
   const apiKey =
     resolvedAuth.kind === "header"
       ? (resolvedAuth.headers["Authorization"] ?? "").replace(/^Bearer /, "")
       : "";
   const baseURL =
-    resolvedAuth.kind === "header" ? resolvedAuth.baseUrl : undefined;
+    resolvedAuth.kind === "header" || resolvedAuth.kind === "none"
+      ? resolvedAuth.baseUrl
+      : undefined;
 
   const codexSubscription =
     connection.auth.type === "oauth_subscription" && provider === "openai";

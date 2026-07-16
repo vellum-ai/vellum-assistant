@@ -38,7 +38,7 @@ import type {
   PluginsSearchGetResponses,
 } from "@/generated/daemon/types.gen";
 import { captureError } from "@/lib/sentry/capture-error";
-import { latestAssistantText } from "@/domains/onboarding/latest-assistant-text";
+import { latestAssistantText } from "@/utils/latest-assistant-text";
 import { detectClientOs } from "@/runtime/platform-detection";
 import {
   buildResearchPrompt,
@@ -196,6 +196,12 @@ async function installCapabilityBestEffort(
 }
 
 /**
+ * Cap on hobbies reported to telemetry. Matches the platform serializer's
+ * `self_reported_hobbies` bound so the two can't disagree.
+ */
+const MAX_REPORTED_HOBBIES = 32;
+
+/**
  * Report a research turn's outcome (claims/suggestions/plugin picks) for
  * analytics. Client-orchestrated: the daemon never detects this turn on its
  * own, so the client reports it once — either as the raw model output the
@@ -204,11 +210,18 @@ async function installCapabilityBestEffort(
  * plugins), or as whatever had been parsed so far if the poll ceiling fires
  * first (`status: "error"`). Fire-and-forget: a failure here must never
  * block or surface in the flow, mirroring `archiveResearchConversation`.
+ *
+ * Reports the `subject` the turn was run ON alongside its results, so a claim
+ * can be told apart from the form value it merely echoed back, and so
+ * `installed_plugins` is attributable (the deterministic floor is keyed on
+ * occupation). The name is deliberately NOT sent: directly identifying, and
+ * nothing downstream needs it to judge research quality.
  */
 async function sendOnboardingResearchTelemetry({
   assistantId,
   conversationId,
   status,
+  subject,
   claims,
   suggestions,
   plugins,
@@ -217,6 +230,7 @@ async function sendOnboardingResearchTelemetry({
   assistantId: string;
   conversationId: string;
   status: "done" | "error";
+  subject: ResearchSubject;
   claims: ResearchFact[];
   suggestions: ResearchSuggestion[];
   plugins: string[];
@@ -228,6 +242,17 @@ async function sendOnboardingResearchTelemetry({
       body: {
         conversation_id: conversationId,
         status,
+        self_reported_occupation: subject.occupation,
+        // Capped client-side: the chip field has no UI limit, and the
+        // platform serializer's own bound would drop the WHOLE event rather
+        // than the overflow (an invalid event is skipped while the batch
+        // still 2xxes). Truncating here keeps a pathological form from
+        // costing us the research report entirely.
+        self_reported_hobbies: (subject.hobbies ?? []).slice(
+          0,
+          MAX_REPORTED_HOBBIES,
+        ),
+        self_reported_timezone: subject.timezone,
         claims,
         suggestions,
         plugins,
@@ -287,7 +312,7 @@ export interface StartResearchOptions {
   onConversationCreated?: (conversationId: string) => void;
   /**
    * Whether to ask the model for clickable `suggestions`. Off for the "Let's
-   * chat" final step (personality-onboarding flag), which installs the picked
+   * chat" final step (now always on), which installs the picked
    * plugins and primes a chat instead of surfacing suggestion cards. Defaults to
    * true so the legacy suggestions flow is unchanged.
    */
@@ -438,12 +463,14 @@ export function useResearchRunner(): UseResearchRunner {
           // later picks), keyed by name so the suggestion click can await them and
           // a name is never installed twice.
           const installs = installPromisesRef.current;
-          // Deterministic floor: the always-install baseline plus the role's
-          // affinity matches, narrowed to the live catalog. Fired here — right
-          // after the catalog fetch, before the model has replied — so these
-          // materialize while the research turn is still streaming. The model's
-          // `plugins` picks (handled in the poll loop) union on top for the long
-          // tail of roles this map doesn't enumerate.
+          // Deterministic floor: the always-install baseline plus any
+          // marketing-attributed pick (the plugin the user clicked "Install" on
+          // before onboarding — resolved inside `resolveDeterministicPlugins`)
+          // plus the role's affinity matches, narrowed to the live catalog.
+          // Fired here — right after the catalog fetch, before the model has
+          // replied — so these materialize while the research turn is still
+          // streaming. The model's `plugins` picks (handled in the poll loop)
+          // union on top for the long tail of roles this map doesn't enumerate.
           const deterministicPlugins = resolveDeterministicPlugins(
             subject.occupation,
             validNames,
@@ -640,6 +667,7 @@ export function useResearchRunner(): UseResearchRunner {
                   assistantId,
                   conversationId,
                   status: "done",
+                  subject,
                   claims,
                   suggestions,
                   plugins,
@@ -668,6 +696,7 @@ export function useResearchRunner(): UseResearchRunner {
               assistantId,
               conversationId,
               status: "error",
+              subject,
               claims: lastClaims,
               suggestions: lastSuggestions,
               plugins: lastPlugins,

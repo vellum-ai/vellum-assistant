@@ -1,10 +1,12 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
-import { getDb } from "../../../../../persistence/db-connection.js";
+import {
+  getDb,
+  getMemorySqlite,
+} from "../../../../../persistence/db-connection.js";
 import { initializeDb } from "../../../../../persistence/db-init.js";
 import {
   conversations,
-  memoryV2ActivationLogs,
   messages,
 } from "../../../../../persistence/schema/index.js";
 import type { MemoryV2ConceptRowRecord } from "../../memory-v2-activation-log-store.js";
@@ -63,20 +65,24 @@ function insertLog(opts: {
   createdAt: number;
 }): void {
   ensureConversation(opts.conversationId);
-  getDb()
-    .insert(memoryV2ActivationLogs)
-    .values({
-      id: `log-${seq++}`,
-      conversationId: opts.conversationId,
-      messageId: opts.messageId,
-      turn: opts.turn,
-      mode: opts.mode,
-      conceptsJson: JSON.stringify(opts.concepts),
-      skillsJson: "[]",
-      configJson: CONFIG_JSON,
-      createdAt: opts.createdAt,
-    })
-    .run();
+  // The activation log lives in the dedicated memory database.
+  getMemorySqlite()!
+    .prepare(
+      `INSERT INTO memory_v2_activation_logs (
+         id, conversation_id, message_id, turn, mode,
+         concepts_json, skills_json, config_json, created_at
+       ) VALUES (?, ?, ?, ?, ?, ?, '[]', ?, ?)`,
+    )
+    .run(
+      `log-${seq++}`,
+      opts.conversationId,
+      opts.messageId,
+      opts.turn,
+      opts.mode,
+      JSON.stringify(opts.concepts),
+      CONFIG_JSON,
+      opts.createdAt,
+    );
 }
 
 function insertMessage(
@@ -98,9 +104,8 @@ function insertMessage(
 }
 
 function reset(): void {
-  const db = getDb();
-  db.delete(memoryV2ActivationLogs).run();
-  db.delete(messages).run();
+  getMemorySqlite()!.exec(`DELETE FROM memory_v2_activation_logs`);
+  getDb().delete(messages).run();
 }
 
 describe("harness/oracle extractOracleTurns", () => {

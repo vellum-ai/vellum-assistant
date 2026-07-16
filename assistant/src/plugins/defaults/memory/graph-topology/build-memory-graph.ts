@@ -17,7 +17,6 @@
 
 import { isMemoryV3Live } from "../../../../config/memory-v3-gate.js";
 import type { AssistantConfig } from "../../../../config/types.js";
-import { getDb } from "../../../../persistence/db-connection.js";
 import { getWorkspaceDir } from "../paths.js";
 import { getPageIndex, type PageIndexEntry } from "../v2/page-index.js";
 import { readPage, renderPageContent } from "../v2/page-store.js";
@@ -251,28 +250,17 @@ export async function getMemoryGraph(
 
   const workspaceDir = getWorkspaceDir();
   const pageIndex = await getPageIndex(workspaceDir);
-  // Concepts plus functionality (skills / CLI-command capabilities). Feeding the
-  // full set to the edge builders is what lets a concept's `[[skills/foo]]` link
-  // and skill↔concept co-selections resolve to real edges — buildEdgeGraph and
-  // computeLearnedEdgeGraph both drop endpoints outside the set they're given.
-  // Functionality nodes that end up disconnected are pruned in assembleMemoryGraph.
-  const entries = pageIndex.entries;
-
-  // Synthetic rows (skills / CLI commands) carry `modifiedAt: 0` and have no
-  // on-disk page. Keyed by slug (not prefix) so a real user page that happens
-  // to live under a reserved prefix is NOT mistaken for a synthetic one.
-  const syntheticSlugs = new Set(
-    entries.filter((e) => e.modifiedAt <= 0).map((e) => e.slug),
-  );
+  // The Memory graph is the assistant's learned mind: concept pages and the
+  // links between them. Skills and plugins have their own dedicated pages, so
+  // synthetic capability rows (skills / CLI commands, which carry `modifiedAt: 0`)
+  // are excluded here — the map is about what the assistant knows, not what it
+  // can do.
+  const entries = pageIndex.entries.filter((e) => e.modifiedAt > 0);
 
   // Raw (frontmatter + body) page reader, matching the v3 lane build. A read
   // that rejects drops that article's authored/wikilink edges but keeps its
-  // numeric fallbacks. Synthetic capability rows have no page, so short-circuit
-  // their guaranteed-miss read; a real page is read so its links are captured.
+  // numeric fallbacks.
   const pageRaw = async (slug: Slug): Promise<string> => {
-    if (syntheticSlugs.has(slug)) {
-      return "";
-    }
     const page = await readPage(workspaceDir, slug);
     if (!page) {
       throw new Error(`page not found: ${slug}`);
@@ -289,27 +277,20 @@ export async function getMemoryGraph(
   // little extra edge noise) is a fair trade. Floors keep the thresholds sane
   // even when the retrieval config is aggressive or disables the lane.
   const learned = config.memory.v3.learnedEdges;
-  const learnedGraph = computeLearnedEdgeGraph(
-    { db: getDb() },
-    {
-      halfLifeMs: learned.halfLifeDays * DAY_MS,
-      minCount: Math.max(1, learned.minCount * GRAPH_LEARNED_MIN_COUNT_FACTOR),
-      npmiFloor: Math.max(
-        0,
-        learned.npmiFloor * GRAPH_LEARNED_NPMI_FLOOR_FACTOR,
-      ),
-      maxPerPage: Math.max(learned.maxPerPage, GRAPH_LEARNED_MIN_MAX_PER_PAGE),
-      now: Date.now(),
-      windowMs: LEARNED_EDGES_WINDOW_DAYS * DAY_MS,
-      knownSlugs: new Set(entries.map((e) => e.slug)),
-    },
-  );
+  const learnedGraph = computeLearnedEdgeGraph({
+    halfLifeMs: learned.halfLifeDays * DAY_MS,
+    minCount: Math.max(1, learned.minCount * GRAPH_LEARNED_MIN_COUNT_FACTOR),
+    npmiFloor: Math.max(0, learned.npmiFloor * GRAPH_LEARNED_NPMI_FLOOR_FACTOR),
+    maxPerPage: Math.max(learned.maxPerPage, GRAPH_LEARNED_MIN_MAX_PER_PAGE),
+    now: Date.now(),
+    windowMs: LEARNED_EDGES_WINDOW_DAYS * DAY_MS,
+    knownSlugs: new Set(entries.map((e) => e.slug)),
+  });
 
   const assembled = assembleMemoryGraph({
     entries,
     staticAdjacency: staticGraph.adjacency,
     learnedAdjacency: learnedGraph.adjacency,
-    pruneDisconnectedNonConcepts: true,
   });
 
   return { backend: BACKEND_MEMORY_V3, supported: true, ...assembled };

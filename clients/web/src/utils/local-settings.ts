@@ -54,6 +54,23 @@ export function setLocalBool(key: string, value: boolean): void {
   setLocalSetting(key, value ? "true" : "false");
 }
 
+/**
+ * Tri-state boolean read: `true`/`false` for an explicitly stored value,
+ * `null` when the key is absent or unreadable. Lets callers distinguish
+ * "never chosen" from an explicit choice.
+ */
+export function getLocalBoolOrNull(key: string): boolean | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(key);
+    if (raw === "true") return true;
+    if (raw === "false") return false;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 export function getLocalNumber(key: string, fallback: number): number {
   if (typeof window === "undefined") return fallback;
   try {
