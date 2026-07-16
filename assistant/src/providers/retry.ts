@@ -55,6 +55,7 @@ const EFFORT_SUPPORTED_PROVIDERS = new Set([
   "vercel-ai-gateway",
   "fireworks",
   "together",
+  "baseten",
 ]);
 
 // For these providers, disabling reasoning is encoded through the same effort
@@ -66,6 +67,7 @@ const DISABLED_THINKING_USES_EFFORT_PROVIDERS = new Set([
   "together",
   "openrouter",
   "vercel-ai-gateway",
+  "baseten",
 ]);
 
 // Whether a disabled `thinking` config must be encoded as `effort: "none"`
