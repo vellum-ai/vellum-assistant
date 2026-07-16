@@ -162,26 +162,34 @@ export function PrivacyScreen() {
             Start
           </Button>
           {/*
-           * Back is local-mode only. In local mode hosting is the screen that
-           * leads here (welcome → hosting → privacy), so go there deterministically
-           * rather than `navigate(-1)`. In platform mode privacy IS the onboarding
-           * entrypoint — there's nothing before it — and hosting is local-only
+           * Back's destination is mode-specific, but always stays inside the SPA
+           * (react-router `navigate`, never a full-document nav). In local mode
+           * hosting is the screen that leads here (welcome → hosting → privacy),
+           * so go there deterministically rather than `navigate(-1)`. In platform
+           * mode privacy IS the funnel entrypoint — hosting is local-only
            * (`enforceModeBoundary` bounces a platform user off it to `/assistant`,
-           * which then trips a non-onboarding hatch). So platform gets no Back,
-           * which also keeps the post-retire redirect (`resolvePostRetire` →
-           * privacy) from escaping onboarding.
+           * which trips a non-onboarding hatch) — so Back lands on the onboarding
+           * `start` welcome screen instead. It must NOT leave the SPA for the
+           * marketing host (`/`): on a Capacitor staging/dev shell that host's CTA
+           * points at production `www.vellum.ai/assistant`, so a full-document nav
+           * would switch the native app off its own environment. `start` keeps the
+           * running environment intact on web and native alike.
            */}
-          {isLocalMode() ? (
-            <Button
-              variant="outlined"
-              size="regular"
-              fullWidth
-              onClick={() => navigate(routes.onboarding.hosting)}
-              className={electron ? undefined : "h-11 text-base"}
-            >
-              Back
-            </Button>
-          ) : null}
+          <Button
+            variant="outlined"
+            size="regular"
+            fullWidth
+            onClick={() =>
+              navigate(
+                isLocalMode()
+                  ? routes.onboarding.hosting
+                  : routes.onboarding.start,
+              )
+            }
+            className={electron ? undefined : "h-11 text-base"}
+          >
+            Back
+          </Button>
         </div>
 
       </div>

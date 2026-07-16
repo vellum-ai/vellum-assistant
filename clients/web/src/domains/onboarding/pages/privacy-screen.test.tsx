@@ -162,3 +162,63 @@ describe("PrivacyScreen — Start navigation", () => {
     expect(navigateMock).toHaveBeenCalledWith(routes.onboarding.hatching);
   });
 });
+
+describe("PrivacyScreen — Back navigation", () => {
+  const assignMock = mock((_url: string) => {});
+
+  beforeEach(() => {
+    navigateMock.mockClear();
+    assignMock.mockClear();
+    nativePlatform = false;
+    localMode = false;
+    searchParamsValue = new URLSearchParams();
+    // Guard against regressions: Back must stay inside the SPA and never reach
+    // for a full-document navigation to the marketing host.
+    Object.defineProperty(window, "location", {
+      value: { assign: assignMock },
+      configurable: true,
+      writable: true,
+    });
+  });
+  afterEach(() => {
+    cleanup();
+    nativePlatform = false;
+    localMode = false;
+  });
+
+  test("local mode: Back returns to the hosting screen deterministically", () => {
+    localMode = true;
+    render(<PrivacyScreen />);
+
+    fireEvent.click(screen.getByText("Back"));
+
+    expect(navigateMock).toHaveBeenCalledWith(routes.onboarding.hosting);
+    expect(assignMock).not.toHaveBeenCalled();
+  });
+
+  test("platform mode: Back lands on the in-SPA onboarding start screen", () => {
+    localMode = false;
+    render(<PrivacyScreen />);
+
+    fireEvent.click(screen.getByText("Back"));
+
+    expect(navigateMock).toHaveBeenCalledWith(routes.onboarding.start);
+    // Must not leave the SPA for the marketing host — that would switch a
+    // Capacitor staging/dev shell onto production.
+    expect(assignMock).not.toHaveBeenCalled();
+  });
+
+  test("native platform shell: Back stays in-SPA (no marketing-host escape)", () => {
+    // The environment-preservation case Codex flagged: on Capacitor
+    // staging/dev, isLocalMode() is false, so platform-mode Back applies. It
+    // must remain an in-SPA navigation, never a full-document nav to `/`.
+    localMode = false;
+    nativePlatform = true;
+    render(<PrivacyScreen />);
+
+    fireEvent.click(screen.getByText("Back"));
+
+    expect(navigateMock).toHaveBeenCalledWith(routes.onboarding.start);
+    expect(assignMock).not.toHaveBeenCalled();
+  });
+});

@@ -106,6 +106,10 @@ export const routes = {
   reviewTerms: r("/assistant/review-terms"),
 
   onboarding: {
+    // Platform onboarding welcome/front door. Not the funnel entrypoint
+    // (privacy still is) — it's the in-SPA landing spot for "Back" out of the
+    // privacy screen in platform mode, with a single CTA back into the flow.
+    start: r("/assistant/onboarding/start"),
     hosting: r("/assistant/onboarding/hosting"),
     apiKey: r("/assistant/onboarding/api-key"),
     privacy: r("/assistant/onboarding/privacy"),
