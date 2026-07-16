@@ -6,7 +6,6 @@
  */
 import { beforeEach, describe, expect, test } from "bun:test";
 
-import { recordTelemetryEvent } from "./telemetry-events-outbox.js";
 import {
   pendingOutboxRows,
   resetOutboxTable,
@@ -20,7 +19,10 @@ import {
   ORPHAN_OUTBOX_DRAIN_SOURCE_ID,
   orphanOutboxDrainSource,
 } from "./telemetry-event-sources.js";
-import { insertTelemetryOutboxEvents } from "./telemetry-events-outbox.js";
+import {
+  insertTelemetryOutboxEvents,
+  recordTelemetryEvent,
+} from "./telemetry-events-outbox.js";
 import { telemetryEventSchema } from "./telemetry-wire.generated.js";
 import type { TelemetryEvent } from "./types.js";
 import {

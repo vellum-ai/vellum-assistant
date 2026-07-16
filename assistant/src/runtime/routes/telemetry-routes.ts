@@ -11,11 +11,11 @@ import { z } from "zod";
 import { recordLifecycleEvent } from "../../persistence/lifecycle-events-store.js";
 import { recordTelemetryOutboxEvent } from "../../telemetry/telemetry-events-outbox.js";
 import { getWireSchemaForType } from "../../telemetry/telemetry-wire-validation.js";
+import type { TelemetryEvent } from "../../telemetry/types.js";
 import {
   CLIENT_REPORTABLE_TELEMETRY_EVENT_NAMES,
   isClientReportableTelemetryEventName,
 } from "../../telemetry/types.js";
-import type { TelemetryEvent } from "../../telemetry/types.js";
 import { getUsageTelemetryReporter } from "../../telemetry/usage-telemetry-reporter.js";
 import { getLogger } from "../../util/logger.js";
 import { APP_VERSION } from "../../version.js";
