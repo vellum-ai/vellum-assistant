@@ -14,6 +14,7 @@ import { ROUTES as MEMORY_ITEM_ROUTES } from "../../plugins/defaults/memory/rout
 import { ROUTES as MEMORY_V2_ROUTES } from "../../plugins/defaults/memory/routes/memory-v2-routes.js";
 import { ROUTES as MEMORY_V3_ROUTES } from "../../plugins/defaults/memory/routes/memory-v3-routes.js";
 import { ROUTES as MEMORY_WORKER_ROUTES } from "../../plugins/defaults/memory/routes/memory-worker-routes.js";
+import { ROUTES as PLATFORM_HOSTED_ROUTES } from "../../plugins/defaults/platform-hosted/routes/reengage-routes.js";
 import { ROUTES as ACP_ROUTES } from "./acp-routes.js";
 import { ROUTES as APP_MANAGEMENT_ROUTES } from "./app-management-routes.js";
 import { ROUTES as APP_ROUTES } from "./app-routes.js";
@@ -255,6 +256,7 @@ export const ROUTES: RouteDefinition[] = [
   ...OAUTH_PROVIDERS_ROUTES,
   ...ONBOARDING_CHECKIN_ROUTES,
   ...PLATFORM_ROUTES,
+  ...PLATFORM_HOSTED_ROUTES,
   ...PLAYGROUND_ROUTES,
   ...PLUGINS_ROUTES,
   ...PROFILER_ROUTES,

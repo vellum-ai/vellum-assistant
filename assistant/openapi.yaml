@@ -21816,6 +21816,46 @@ paths:
                       additionalProperties: false
                     description: All pending interactions (returned when no filters given)
                 additionalProperties: false
+  /v1/platform-hosted/reengage:
+    post:
+      operationId: platformhosted_reengage_post
+      summary: Generate a re-engagement email in the assistant's voice
+      description:
+        Runs a background conversation turn asking the assistant to compose a short re-engagement email drawing on
+        the user's context, then returns the parsed subject line and body for the platform to send.
+      tags:
+        - platform-hosted
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                conversationId:
+                  type: string
+                  minLength: 1
+                additionalGuidance:
+                  type: string
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  subject:
+                    type: string
+                  body:
+                    type: string
+                  conversationId:
+                    type: string
+                required:
+                  - subject
+                  - body
+                  - conversationId
+                additionalProperties: false
   /v1/platform/callback-routes:
     get:
       operationId: platform_callbackroutes_get
