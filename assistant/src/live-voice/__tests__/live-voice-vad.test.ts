@@ -1246,7 +1246,7 @@ describe("LiveVoiceSession server VAD", () => {
     expect(resurfaced?.voiceControlPrompt).not.toContain("OLDER_RESULT");
   });
 
-  test("voice-duplex-handoff on: an older continuation is rejected once a newer detach has started", async () => {
+  test("voice-duplex-handoff on: a rapid second barge-in invalidates a first continuation that finishes after it", async () => {
     setCachedOverrides({ "voice-duplex-handoff": true }, { fromGateway: true });
     const resolvers: Array<(result: string) => void> = [];
     const spawnBackgroundContinuation = mock(
@@ -1291,18 +1291,22 @@ describe("LiveVoiceSession server VAD", () => {
     await session.start();
     await session.handleBinaryAudio(LOUD_CHUNK);
     await waitFor(() => frames.some((frame) => frame.type === "thinking"));
+    // Barge #1 detaches continuation A (older); its follow-up turn stays thinking
+    // so barge #2 can land on it.
     await session.handleBinaryAudio(SUSTAINED_LOUD_CHUNK);
+    await waitFor(() => resolvers.length === 1);
     await waitFor(() => calls.some((c) => c.content === "second question"));
+    // Barge #2 is a rapid second interruption: it bumps the sequence
+    // synchronously, so A is invalidated even before barge #2's own async detach
+    // runs.
     await session.handleBinaryAudio(SUSTAINED_LOUD_CHUNK);
-    await waitFor(() => calls.some((c) => c.content === "third question"));
-    await waitFor(() => resolvers.length === 2);
-
-    // Only the OLDER continuation finishes; the NEWER one is still running. The
-    // older answer must NOT surface, because a newer interruption already
-    // superseded it (rejected without waiting for the newer to complete).
+    // A finishes AFTER barge #2 and must be rejected. The newer continuation is
+    // left pending so it can't mask the bug by superseding A itself.
     resolvers[0]?.("OLDER_RESULT");
     await flushAsyncCallbacks();
 
+    // A later turn carries no stale older result.
+    await waitFor(() => calls.some((c) => c.content === "third question"));
     await session.handleBinaryAudio(LOUD_CHUNK);
     await waitFor(() => calls.some((c) => c.content === "fourth question"));
     const resurfaced = calls.find((c) => c.content === "fourth question");
@@ -1312,6 +1316,7 @@ describe("LiveVoiceSession server VAD", () => {
     );
 
     // Cleanup the still-pending newer continuation.
+    await waitFor(() => resolvers.length === 2);
     resolvers[1]?.("");
   });
 

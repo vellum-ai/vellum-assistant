@@ -434,10 +434,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // before its async teardown; if it has changed by the time the detach would
   // spawn, a stop landed during the gap and the continuation is not started.
   private detachStopGeneration = 0;
-  // Monotonic id assigned to each detached continuation in barge-in order.
-  // Only the latest-started detach (detachSeq === detachSequence) may populate
-  // the pending result, so once a newer barge-in starts, an older continuation
-  // completing (before OR after it) can't surface a stale answer.
+  // Bumped SYNCHRONOUSLY at each barge-in (in barge order), before the async
+  // detach runs. Only the latest-started detach (detachSeq === detachSequence)
+  // may populate the pending result, so once a newer barge-in starts, an older
+  // continuation completing (before OR after it) can't surface a stale answer.
   private detachSequence = 0;
   private readonly emitMetrics: boolean;
   private readonly metrics: LiveVoiceMetricsCollector;
@@ -1150,6 +1150,12 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     // can't consume an older answer before this barge-in's own continuation
     // completes. Cleared even when no continuation ultimately detaches.
     this.pendingContinuationResult = null;
+    // Order this barge-in among concurrent detaches SYNCHRONOUSLY, in barge
+    // order — the actual detach runs after an async teardown chain, and those
+    // chains can interleave, so bumping there could assign sequences out of
+    // order and let an older continuation re-stash. A higher sequence here
+    // immediately invalidates every earlier still-running continuation.
+    const detachSeq = ++this.detachSequence;
     turn.abortController.abort();
     this.metrics.markBargeIn(turn.turnId);
     // Capture the interrupted turn's teardown promise synchronously, before the
@@ -1174,7 +1180,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       // Keep the interrupted turn's work alive on a background subagent
       // (voice-duplex-handoff); the detach waits for its teardown to settle the
       // partial into history before forking.
-      this.detachInterruptedTurn(turn, stopGeneration, teardownWait);
+      this.detachInterruptedTurn(turn, stopGeneration, teardownWait, detachSeq);
     })().catch(() => {});
   }
 
@@ -1190,6 +1196,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     turn: ActiveAssistantTurn,
     stopGeneration: number,
     teardownWait: Promise<void> | undefined,
+    detachSeq: number,
   ): void {
     const spawn = this.spawnBackgroundContinuation;
     if (
@@ -1212,9 +1219,6 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     const interruptedRequest = turn.utterance.finalTranscriptSegments
       .join(" ")
       .trim();
-    // Order this continuation among concurrent detaches so a later-completing
-    // older one can't overwrite a newer one's stashed result.
-    const detachSeq = ++this.detachSequence;
     // Register the abort handle synchronously so a stop that lands while the
     // continuation is still spawning still aborts it (abortDetachedRuns fires
     // controller.abort(), which the spawn's signal wiring honors).
