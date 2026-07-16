@@ -29052,8 +29052,20 @@ paths:
                       flushed:
                         type: boolean
                         const: true
+                      sent:
+                        type: number
+                        description: Events POSTed to the platform
+                      persisted:
+                        type: number
+                        description: Events the platform confirmed written
+                      dropped:
+                        type: number
+                        description: Events that did not land (sent - persisted)
                     required:
                       - flushed
+                      - sent
+                      - persisted
+                      - dropped
                     additionalProperties: false
                   - type: object
                     properties:

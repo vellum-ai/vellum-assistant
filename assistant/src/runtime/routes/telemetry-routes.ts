@@ -70,8 +70,7 @@ async function handleTelemetryFlush() {
   if (!reporter) {
     return { flushed: false, reason: "disabled" };
   }
-  await reporter.flush();
-  return { flushed: true };
+  return reporter.flush();
 }
 
 function handleRecordOnboardingResearchEvent({ body }: RouteHandlerArgs) {
@@ -145,7 +144,14 @@ export const ROUTES: RouteDefinition[] = [
       "Force-flush the telemetry events owned by the assistant process (turn events) to the platform. Other event types are flushed on their own cycle by the resource monitor process.",
     tags: ["telemetry"],
     responseBody: z.union([
-      z.object({ flushed: z.literal(true) }),
+      z.object({
+        flushed: z.literal(true),
+        sent: z.number().describe("Events POSTed to the platform"),
+        persisted: z.number().describe("Events the platform confirmed written"),
+        dropped: z
+          .number()
+          .describe("Events that did not land (sent - persisted)"),
+      }),
       z.object({
         flushed: z.literal(false),
         reason: z.string(),
