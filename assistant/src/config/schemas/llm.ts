@@ -581,6 +581,32 @@ export const LLMSchema = z
     pricingOverrides: z.array(PricingOverrideSchema).default([]),
   })
   .superRefine((config, ctx) => {
+    // Write-locked routing identities: dispatch cannot resolve these
+    // provider values yet, so no stored profile or call-site fragment may
+    // carry them. Every config write re-parses this schema, which closes
+    // the paths that bypass the profiles route's own guard (raw config
+    // PATCH, PUT /v1/config/llm/profiles/:name). Lifted together with that
+    // guard once dispatch resolution lands.
+    const writeLocked = new Set(["vellum", "chatgpt"]);
+    for (const [name, entry] of Object.entries(config.profiles ?? {})) {
+      if (entry?.provider && writeLocked.has(entry.provider)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["profiles", name, "provider"],
+          message: `Provider "${entry.provider}" is not yet enabled for profiles.`,
+        });
+      }
+    }
+    for (const [siteId, siteConfig] of Object.entries(config.callSites ?? {})) {
+      if (siteConfig?.provider && writeLocked.has(siteConfig.provider)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["callSites", siteId, "provider"],
+          message: `Provider "${siteConfig.provider}" is not yet enabled for call sites.`,
+        });
+      }
+    }
+
     // The always-available default profiles are code-defined
     // (`default-profile-catalog.ts`) and resolve whether or not they are
     // materialized in `llm.profiles`, so their names are always valid
