@@ -237,6 +237,14 @@ export const messageMetadataSchema = z
      */
     hidden: z.boolean().optional(),
     /**
+     * Discriminates daemon-authored rows from ordinary turns.
+     * `"system_card"` marks pre-composed status cards (the /compact, /clean,
+     * and summarize-up-to results); see {@link SYSTEM_CARD_MESSAGE_KIND}.
+     * Kept as a plain string so unknown future kinds never fail metadata
+     * validation.
+     */
+    messageKind: z.string().optional(),
+    /**
      * Structured terminal record stamped onto a `<background_event
      * source="background-tool">` wake so the web can rebuild the inline
      * bash/host_bash card from history after a daemon restart.
@@ -289,6 +297,27 @@ export function isHiddenMessageMetadata(
   metadata: Record<string, unknown> | null | undefined,
 ): boolean {
   return metadata?.hidden === true;
+}
+
+/**
+ * `messageKind` value marking a daemon-authored system card — a pre-composed
+ * status reply (the /compact, /clean, and summarize-up-to result cards) that
+ * bypasses the agent loop. Cards render as standalone system notices, never
+ * as the assistant persona speaking, and never merge into adjacent assistant
+ * display turns.
+ */
+export const SYSTEM_CARD_MESSAGE_KIND = "system_card";
+
+/**
+ * Shared predicate for the system-card marker on assistant-message metadata
+ * (see the `messageKind` field on {@link messageMetadataSchema}). One
+ * definition so display merging, transcript rendering, and turn grouping
+ * cannot drift.
+ */
+export function isSystemCardMetadata(
+  metadata: Record<string, unknown> | null | undefined,
+): boolean {
+  return metadata?.messageKind === SYSTEM_CARD_MESSAGE_KIND;
 }
 
 /**

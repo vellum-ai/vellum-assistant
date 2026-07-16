@@ -18799,6 +18799,8 @@ paths:
                             - output
                             - completedAt
                           additionalProperties: false
+                        systemCard:
+                          type: boolean
                         slackMessage:
                           type: object
                           properties:

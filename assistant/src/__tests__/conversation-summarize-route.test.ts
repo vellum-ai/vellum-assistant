@@ -3,8 +3,8 @@
  *
  * Validates that:
  * - The route 202s immediately and runs summarization async, persisting a
- *   result card via the canned-message path (assistant_text_delta +
- *   message_complete) exactly like the /compact branch.
+ *   system-card result row via the canned-message path (message_complete +
+ *   sync invalidation, no text delta) exactly like the /compact branch.
  * - Busy conversations are rejected with 409 without touching processing.
  * - Boundary UserErrors surface as a "Summarization skipped" card, not a
  *   conversation_error.
@@ -256,21 +256,24 @@ describe("POST /v1/conversations/summarize", () => {
     expect(convId).toBe("conv-summarize-test");
     expect(role).toBe("assistant");
     expect(content).toContain("Conversation summarized");
-    // Metadata mirrors the /compact card shape (channel keys + provenance);
+    // Metadata mirrors the /compact card shape (channel keys + provenance)
+    // plus the system-card marker that keeps the row a standalone notice;
     // interface keys are omitted because the route receives no interface id.
     expect(options?.metadata).toEqual({
       provenanceTrustClass: "unknown",
       userMessageChannel: "vellum",
       assistantMessageChannel: "vellum",
+      messageKind: "system_card",
     });
     expect(ctx.messages).toHaveLength(1);
 
-    // Turn-style SSE events: full text delta, then message_complete with the
-    // persisted assistant id (what the web client renders live).
+    // Cards are announced via message_complete + the messages-changed sync
+    // invalidation — never a text delta, which would stream the card into
+    // the tail assistant bubble as persona speech.
     const delta = broadcastEvents.find(
       (e) => e.type === "assistant_text_delta",
     );
-    expect(String(delta?.text)).toContain("Conversation summarized");
+    expect(delta).toBeUndefined();
     const complete = broadcastEvents.find((e) => e.type === "message_complete");
     expect(complete?.messageId).toBe("persisted-assistant-id");
     expect(publishConversationMessagesChangedMock).toHaveBeenCalledWith(

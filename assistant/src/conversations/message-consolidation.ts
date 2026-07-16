@@ -32,10 +32,30 @@
  */
 
 import type { MessageRow } from "../persistence/conversation-crud.js";
+import { isSystemCardMetadata } from "../persistence/conversation-crud.js";
 import type { ContentBlock } from "../providers/types.js";
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("message-consolidation");
+
+/**
+ * True when a row is a daemon-authored system card (`messageKind:
+ * "system_card"` metadata). Cards are standalone display turns: they never
+ * fold into an adjacent assistant run and adjacent assistant rows never
+ * fold into them.
+ */
+export function isSystemCardRow(msg: MessageRow): boolean {
+  if (msg.role !== "assistant" || !msg.metadata) {
+    return false;
+  }
+  try {
+    return isSystemCardMetadata(
+      JSON.parse(msg.metadata) as Record<string, unknown>,
+    );
+  } catch {
+    return false;
+  }
+}
 
 // ── Block predicates ────────────────────────────────────────────────
 
@@ -109,6 +129,10 @@ export function findDisplayTurnEndIndex(
   if (messages[startIdx]?.role !== "assistant") {
     return startIdx;
   }
+  // A system card is a single-row display turn — never spans neighbours.
+  if (isSystemCardRow(messages[startIdx]!)) {
+    return startIdx;
+  }
 
   let endIdx = startIdx;
   while (endIdx + 1 < messages.length) {
@@ -116,7 +140,7 @@ export function findDisplayTurnEndIndex(
     if (!next) {
       break;
     }
-    if (next.role === "assistant") {
+    if (next.role === "assistant" && !isSystemCardRow(next)) {
       endIdx += 1;
       continue;
     }
@@ -282,10 +306,15 @@ export function mergeConsecutiveAssistantMessages(messages: MessageRow[]): {
 
   for (const msg of messages) {
     const lastIdx = result.length - 1;
+    // System cards stay standalone in both directions: a card never folds
+    // into the preceding assistant run, and the following assistant row
+    // never folds into a card.
     const isConsecutiveAssistant =
       msg.role === "assistant" &&
+      !isSystemCardRow(msg) &&
       lastIdx >= 0 &&
-      result[lastIdx].role === "assistant";
+      result[lastIdx].role === "assistant" &&
+      !isSystemCardRow(result[lastIdx]);
 
     if (!isConsecutiveAssistant) {
       result.push(msg);
