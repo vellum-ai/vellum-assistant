@@ -1,15 +1,30 @@
 /**
  * Tests for `PreferencesModal`.
  *
- * The theme picker is a separate `AppearanceCard` on Settings → General (see
- * `appearance-card.test.tsx`), not part of this modal. These tests mount the
+ * The theme picker lives inline in the Preferences card on Settings → General
+ * (see `theme-picker.test.tsx`), not in this modal. These tests mount the
  * modal as a web (non-Electron) client and assert it hosts the composer send
  * toggle but no Appearance/theme control.
  */
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, render, screen } from "@testing-library/react";
 
-// Web client: not Electron. Keyboard Shortcuts + Launch at Login stay hidden.
+const applyThemePreferenceMock = mock((_theme: string) => {});
+const writeStoredThemePreferenceMock = mock((_theme: string) => {});
+const readStoredThemePreferenceMock = mock(() => "system" as const);
+
+mock.module("@/utils/theme-preferences", () => ({
+  applyThemePreference: applyThemePreferenceMock,
+  readStoredThemePreference: readStoredThemePreferenceMock,
+  writeStoredThemePreference: writeStoredThemePreferenceMock,
+}));
+
+mock.module("@/utils/device-settings", () => ({
+  watchDeviceSetting: () => () => {},
+}));
+
+// Web client: not Electron. Keyboard Shortcuts + Launch at Login stay hidden,
+// leaving Appearance (+ the composer toggle) as the modal's content.
 mock.module("@/runtime/is-electron", () => ({
   isElectron: () => false,
 }));

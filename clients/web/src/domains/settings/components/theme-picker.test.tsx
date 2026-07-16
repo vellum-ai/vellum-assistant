@@ -1,9 +1,9 @@
 /**
- * Tests for the `AppearanceCard` theme picker.
+ * Tests for the `ThemePicker` shown inline in the Preferences card.
  *
- * The card renders on every platform. `useThemePreference` and `SegmentControl`
- * are stubbed so the test exercises the card's option list and its delegation to
- * the shared theme setter.
+ * It renders on every platform. `useThemePreference` and `SegmentControl` are
+ * stubbed so the test exercises the option list and its delegation to the
+ * shared theme setter.
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
@@ -52,9 +52,9 @@ mock.module("@/stores/client-feature-flag-store", () => ({
   },
 }));
 
-import { AppearanceCard } from "@/domains/settings/components/appearance-card";
+import { ThemePicker } from "@/domains/settings/components/theme-picker";
 
-describe("AppearanceCard", () => {
+describe("ThemePicker", () => {
   beforeEach(() => {
     setThemePreferenceMock.mockClear();
     velvetValue.current = false;
@@ -64,10 +64,10 @@ describe("AppearanceCard", () => {
     cleanup();
   });
 
-  test("renders the Appearance card with theme options", () => {
-    render(<AppearanceCard />);
+  test("renders the theme options under a Theme heading", () => {
+    render(<ThemePicker />);
 
-    expect(screen.getByText("Appearance")).toBeDefined();
+    expect(screen.getByText("Theme")).toBeDefined();
     expect(screen.getByLabelText("Theme")).toBeDefined();
     expect(screen.getByRole("button", { name: "System" })).toBeDefined();
     expect(screen.getByRole("button", { name: "Light" })).toBeDefined();
@@ -77,7 +77,7 @@ describe("AppearanceCard", () => {
   });
 
   test("choosing a theme delegates to the shared theme setter", () => {
-    render(<AppearanceCard />);
+    render(<ThemePicker />);
 
     fireEvent.click(screen.getByRole("button", { name: "Dark" }));
 
@@ -86,7 +86,7 @@ describe("AppearanceCard", () => {
 
   test("exposes the Velvet option when the flag is enabled", () => {
     velvetValue.current = true;
-    render(<AppearanceCard />);
+    render(<ThemePicker />);
 
     expect(screen.getByRole("button", { name: "Velvet" })).toBeDefined();
   });

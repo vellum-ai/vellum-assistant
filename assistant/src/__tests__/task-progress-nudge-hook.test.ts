@@ -253,7 +253,7 @@ describe("task-progress-nudge post-tool-use hook", () => {
   });
 
   test("skips non-target models", async () => {
-    for (const model of ["claude-opus-4-8", "gpt-5.5"]) {
+    for (const model of ["claude-opus-4-8", "gpt-5.5", "moonshotai/kimi-k3"]) {
       const { messages, currentToolUseId } = turnWithRounds(
         TASK_PROGRESS_NUDGE_ROUND_THRESHOLD + 2,
       );

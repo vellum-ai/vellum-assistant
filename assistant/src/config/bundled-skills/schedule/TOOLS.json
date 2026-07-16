@@ -32,7 +32,7 @@
           },
           "timezone": {
             "type": "string",
-            "description": "IANA timezone (e.g. \"America/Los_Angeles\"). Defaults to system timezone if omitted."
+            "description": "IANA timezone (e.g. \"America/Los_Angeles\"). Defaults to your configured/detected timezone; the assistant's own clock only if unknown."
           },
           "message": {
             "type": "string",
