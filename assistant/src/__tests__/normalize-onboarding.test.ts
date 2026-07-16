@@ -139,6 +139,25 @@ describe("normalizeOnboardingContext", () => {
     expect(result.preferredName).toBeUndefined();
   });
 
+  test("trims research findings and drops blanks; absent stays undefined", () => {
+    const withFindings = normalizeOnboardingContext({
+      tools: [],
+      tasks: [],
+      tone: "professional",
+      researchFindings: ["  Runs a woodworking newsletter  ", "", "   "],
+    });
+    expect(withFindings.researchFindings).toEqual([
+      "Runs a woodworking newsletter",
+    ]);
+
+    const without = normalizeOnboardingContext({
+      tools: [],
+      tasks: [],
+      tone: "professional",
+    });
+    expect(without.researchFindings).toBeUndefined();
+  });
+
   test("maps occupation through, trimmed", () => {
     const ctx: OnboardingContext = {
       tools: [],

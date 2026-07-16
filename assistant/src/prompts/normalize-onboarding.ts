@@ -85,6 +85,8 @@ export interface NormalizedOnboarding {
   occupation?: string;
   commonWork: string[];
   dailyTools: string[];
+  /** User-confirmed findings from onboarding research; absent when none. */
+  researchFindings?: string[];
   tone?: string;
   assistantName?: string;
   priorAssistants?: string[];
@@ -127,6 +129,9 @@ export function normalizeOnboardingContext(
     occupation: ctx.occupation?.trim() || undefined,
     commonWork: normalizeTasks(ctx.tasks),
     dailyTools: normalizeTools(ctx.tools),
+    researchFindings: ctx.researchFindings?.length
+      ? ctx.researchFindings.map((finding) => finding.trim()).filter(Boolean)
+      : undefined,
     tone: ctx.tone,
     assistantName: ctx.assistantName,
     googleConnected: ctx.googleConnected,
