@@ -17,7 +17,6 @@ import {
   render,
   screen,
   waitFor,
-  within,
 } from "@testing-library/react";
 
 const ASSISTANT_ID = "asst-test";
@@ -99,11 +98,6 @@ function selectProvider(label: string): void {
   fireEvent.click(option);
 }
 
-function setMode(label: "Managed" | "Your Own"): void {
-  const group = screen.getByRole("radiogroup", { name: "Service mode" });
-  fireEvent.click(within(group).getByRole("radio", { name: label }));
-}
-
 describe("TextToSpeechCard — daemon provisioning on Save", () => {
   beforeEach(() => {
     localStorage.clear();
@@ -168,17 +162,11 @@ describe("TextToSpeechCard — daemon provisioning on Save", () => {
     expect(ttsBody?.services?.tts ?? {}).not.toHaveProperty("provider");
   });
 
-  test("saving a key from the Your Own panel switches a managed-mode daemon back", async () => {
-    // Managed speech was auto-defaulted on connection; toggling to "Your Own"
-    // and saving a BYOK key is explicit intent to use it, so the mode flips —
-    // otherwise the key appears to save but the daemon stays on managed.
-    daemonConfigData = {
-      services: { tts: { provider: "fish-audio", mode: "managed" } },
-    };
+  test("selecting a BYOK provider from a Vellum daemon writes that provider", async () => {
+    daemonConfigData = { services: { tts: { provider: "vellum" } } };
     renderCard();
 
-    // The card opens on the Managed panel; toggle to reach the BYOK inputs.
-    setMode("Your Own");
+    selectProvider("Fish Audio");
     fireEvent.change(screen.getByPlaceholderText(/Fish Audio API key/), {
       target: { value: "fish-secret" },
     });
@@ -186,161 +174,90 @@ describe("TextToSpeechCard — daemon provisioning on Save", () => {
 
     await waitFor(() => expect(configPatchCalls.length).toBe(1));
     expect(configPatchCalls[0]!.body).toMatchObject({
-      services: { tts: { provider: "fish-audio", mode: "your-own" } },
+      services: { tts: { provider: "fish-audio" } },
     });
-  });
-
-  test("a voice-ID-only save from the Your Own panel leaves managed mode", async () => {
-    // Reaching the voice-ID input requires toggling off Managed, so saving —
-    // even without a new key — is explicit intent to use your own provider and
-    // must flip the daemon off managed.
-    daemonConfigData = {
-      services: { tts: { provider: "fish-audio", mode: "managed" } },
-    };
-    renderCard();
-
-    setMode("Your Own");
-    fireEvent.change(screen.getByPlaceholderText("Enter a voice ID"), {
-      target: { value: "voice-456" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
-
-    await waitFor(() => expect(configPatchCalls.length).toBe(1));
-    expect(configPatchCalls[0]!.body).toMatchObject({
-      services: { tts: { provider: "fish-audio", mode: "your-own" } },
-    });
-    expect(credentialsSetCalls).toHaveLength(0);
-  });
-
-  test("a managed daemon reporting the reserved vellum provider gets a representable one", async () => {
-    // A managed daemon may report provider "vellum", which the dropdown cannot
-    // show and which is schema-invalid outside managed mode — the PATCH must
-    // carry the card's selected provider instead.
-    daemonConfigData = {
-      services: { tts: { provider: "vellum", mode: "managed" } },
-    };
-    renderCard();
-
-    setMode("Your Own");
-    // The dropdown falls back to the first representable provider
-    // (ElevenLabs, whose key placeholder is "sk_…").
-    fireEvent.change(screen.getByPlaceholderText("sk_…"), {
-      target: { value: "byok-secret" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
-
-    await waitFor(() => expect(configPatchCalls.length).toBe(1));
-    const ttsBody = configPatchCalls[0]!.body as {
-      services: { tts: Record<string, unknown> };
-    };
-    expect(ttsBody.services.tts.mode).toBe("your-own");
-    expect(ttsBody.services.tts.provider).toBeDefined();
-    expect(ttsBody.services.tts.provider).not.toBe("vellum");
-    // The credential must land under the same provider the PATCH activates —
-    // storing it under the reserved id would leave the activated provider
-    // keyless while the save appears successful.
+    // The credential must land under the provider the PATCH activates.
     expect(credentialsSetCalls).toHaveLength(1);
     expect((credentialsSetCalls[0]!.body as { service: string }).service).toBe(
-      ttsBody.services.tts.provider as string,
+      "fish-audio",
     );
   });
+});
 
-  test("renders the Managed panel (no BYOK inputs) when the daemon is managed", async () => {
-    daemonConfigData = {
-      services: { tts: { provider: "fish-audio", mode: "managed" } },
-    };
-    renderCard();
-
-    expect(
-      screen.getByText(/Managed speech synthesis is included/),
-    ).toBeDefined();
-    // The provider dropdown belongs to the Your Own panel and must be absent.
-    expect(
-      document.querySelector('button[aria-label="TTS provider"]'),
-    ).toBeNull();
+describe("TextToSpeechCard — Vellum provider", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    credentialsSetCalls.length = 0;
+    configPatchCalls.length = 0;
+    daemonConfigData = { services: {} };
   });
 
-  // Provider "vellum" routes to managed regardless of mode, so a provider-only
-  // managed config (written via the CLI) must render and escape like one
-  // written by the toggle.
-  test("renders the Managed panel for a provider-only vellum daemon", async () => {
+  afterEach(() => {
+    cleanup();
+    localStorage.clear();
+  });
+
+  test("a vellum daemon provider hides the API key field and the Test button", () => {
     daemonConfigData = { services: { tts: { provider: "vellum" } } };
     renderCard();
 
-    expect(
-      screen.getByText(/Managed speech synthesis is included/),
-    ).toBeDefined();
+    const trigger = document.querySelector<HTMLButtonElement>(
+      'button[role="combobox"][aria-label="TTS provider"]',
+    );
+    expect(trigger?.textContent).toContain("Vellum");
+    // Vellum authenticates via the platform connection, so there is no key to
+    // enter and nothing for the client-side Test path to use.
+    expect(screen.queryByText("API Key")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Test" })).toBeNull();
   });
 
-  test("escaping a provider-only vellum daemon replaces the provider", async () => {
-    daemonConfigData = { services: { tts: { provider: "vellum" } } };
+  test("selecting Vellum saves provider vellum and stores no credential", async () => {
     renderCard();
 
-    setMode("Your Own");
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
-
-    await waitFor(() => expect(configPatchCalls.length).toBe(1));
-    const ttsBody = configPatchCalls[0]!.body as {
-      services: { tts: Record<string, unknown> };
-    };
-    expect(ttsBody.services.tts.mode).toBe("your-own");
-    expect(ttsBody.services.tts.provider).toBeDefined();
-    expect(ttsBody.services.tts.provider).not.toBe("vellum");
-  });
-
-  test("Managed Save writes the effective BYOK provider as the restore value", async () => {
-    // The stored provider is the your-own restore value for toggling back;
-    // effectiveTtsProvider routes managed mode to Vellum at runtime.
-    daemonConfigData = { services: { tts: { provider: "fish-audio" } } };
-    renderCard();
-
-    setMode("Managed");
+    selectProvider("Vellum Managed");
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(configPatchCalls.length).toBe(1));
     expect(configPatchCalls[0]!.body).toMatchObject({
-      services: { tts: { mode: "managed", provider: "fish-audio" } },
+      services: { tts: { provider: "vellum" } },
     });
+    // The provider takes precedence over any mode on disk — nothing to reset.
+    expect(
+      (configPatchCalls[0]!.body as { services: { tts: object } }).services
+        .tts,
+    ).not.toHaveProperty("mode");
     expect(credentialsSetCalls).toHaveLength(0);
   });
 
-  test("Managed Save always carries a representable provider (never vellum)", async () => {
-    // A managed daemon may report the reserved "vellum" provider; the write
-    // must fall back to a representable id so the restore value stays usable
-    // and the schema (which forbids "vellum" only outside managed) is happy.
+  // A config written by the legacy mode toggle marks managed via `mode` while
+  // `provider` holds the BYOK restore value.
+  test("a legacy managed-mode daemon renders as Vellum", () => {
     daemonConfigData = {
-      services: { tts: { provider: "vellum", mode: "managed" } },
+      services: { tts: { mode: "managed", provider: "fish-audio" } },
     };
     renderCard();
 
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
-
-    await waitFor(() => expect(configPatchCalls.length).toBe(1));
-    const ttsBody = configPatchCalls[0]!.body as {
-      services: { tts: Record<string, unknown> };
-    };
-    expect(ttsBody.services.tts.mode).toBe("managed");
-    expect(ttsBody.services.tts.provider).toBeDefined();
-    expect(ttsBody.services.tts.provider).not.toBe("vellum");
+    const trigger = document.querySelector<HTMLButtonElement>(
+      'button[role="combobox"][aria-label="TTS provider"]',
+    );
+    expect(trigger?.textContent).toContain("Vellum");
+    expect(screen.queryByText("API Key")).toBeNull();
   });
 
-  test("toggling to Your Own is a saveable change on its own", async () => {
-    // A managed daemon with a stored provider has nothing else to edit —
-    // flipping the toggle must enable Save and persist mode: your-own.
+  test("escaping a legacy managed-mode daemon resets mode alongside the provider", async () => {
+    // Without the mode reset, the stale `mode: "managed"` would win over the
+    // BYOK provider choice and the user would silently stay on Vellum.
     daemonConfigData = {
-      services: { tts: { provider: "fish-audio", mode: "managed" } },
+      services: { tts: { mode: "managed", provider: "fish-audio" } },
     };
     renderCard();
 
-    setMode("Your Own");
-    const save = screen.getByRole("button", { name: "Save" });
-    expect(save.hasAttribute("disabled")).toBe(false);
-    fireEvent.click(save);
+    selectProvider("Fish Audio");
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(configPatchCalls.length).toBe(1));
     expect(configPatchCalls[0]!.body).toMatchObject({
       services: { tts: { provider: "fish-audio", mode: "your-own" } },
     });
-    expect(credentialsSetCalls).toHaveLength(0);
   });
 });

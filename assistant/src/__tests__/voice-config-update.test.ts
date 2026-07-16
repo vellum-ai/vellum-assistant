@@ -446,7 +446,22 @@ describe("voice_config_update — stt_mode / tts_mode", () => {
 // ---------------------------------------------------------------------------
 
 describe("voice_config_update — catalog-driven provider validation", () => {
+  test("rejects tts_provider vellum without a platform connection", async () => {
+    mockManagedSpeechAvailable = false;
+
+    const result = await run(
+      { setting: "tts_provider", value: "vellum" },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("assistant platform connect");
+    expect((readConfig().services as any)?.tts?.provider).toBeUndefined();
+  });
+
   test("accepts every provider ID in the catalog", async () => {
+    // The catalog includes vellum, which is gated on a platform connection.
+    mockManagedSpeechAvailable = true;
     const catalogIds = listCatalogProviderIds();
     expect(catalogIds.length).toBeGreaterThanOrEqual(1);
 

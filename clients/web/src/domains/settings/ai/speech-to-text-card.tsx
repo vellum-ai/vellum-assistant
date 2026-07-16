@@ -19,34 +19,33 @@ import { Input } from "@vellumai/design-library/components/input";
 import { toast } from "@vellumai/design-library/components/toast";
 
 import {
+  ByoServiceCard,
   CredentialsGuide,
   ResetButton,
   SaveButton,
-  ServiceCard,
 } from "@/domains/settings/ai/shared-ui";
 import {
   LS_STT_API_KEY_PREFIX,
-  LS_STT_MODE,
   LS_STT_PROVIDER,
 } from "@/domains/settings/ai/local-storage-keys";
 import {
   MACOS_NATIVE_STT_PROVIDER_ID,
   STT_PROVIDERS,
 } from "@/domains/settings/ai/provider-catalogs";
-import { parseServiceMode } from "@/domains/settings/ai/utils";
-import type { ServiceMode } from "@/generated/daemon/types.gen";
 
 /**
  * How the daemon addresses each card provider: `provider` is the
  * `services.stt.provider` value (the card id and daemon id differ for
  * Whisper), and `credentialService` is the CES namespace for its key.
  * Client-only providers (macOS native dictation) are absent — they never
- * touch the daemon.
+ * touch the daemon. `vellum` authenticates via the platform connection, so
+ * it has no credential service of its own.
  */
 const STT_DAEMON_PROVIDER: Record<
   string,
-  { provider: string; credentialService: string }
+  { provider: string; credentialService?: string }
 > = {
+  vellum: { provider: "vellum" },
   deepgram: { provider: "deepgram", credentialService: "deepgram" },
   openai: { provider: "openai-whisper", credentialService: "openai" },
 };
@@ -58,9 +57,18 @@ const STT_DAEMON_PROVIDER: Record<
  * (e.g. google-gemini/xai) are intentionally absent so we never coerce them.
  */
 const CARD_ID_BY_DAEMON_PROVIDER: Record<string, string> = {
+  vellum: "vellum",
   deepgram: "deepgram",
   "openai-whisper": "openai",
 };
+
+/**
+ * Fallback provider, as both a card id and a daemon id. Mirrors the daemon's
+ * `services.stt.provider` schema default. Deliberately not `providers[0]` —
+ * the dropdown leads with Vellum, and an unconfigured client must not claim
+ * the managed provider on its own.
+ */
+const DEFAULT_PROVIDER_ID = "deepgram";
 
 export function SpeechToTextCard() {
   const assistantId = useActiveAssistantId();
@@ -74,7 +82,7 @@ export function SpeechToTextCard() {
       (p) => !p.requiresNativeDictation || isNativeDictationSupported(),
     ),
   );
-  const defaultProviderId = providers[0]?.id ?? "deepgram";
+  const defaultProviderId = DEFAULT_PROVIDER_ID;
 
   // Seed the provider from the daemon's live config so a Save doesn't clobber a
   // provider configured elsewhere (CLI/other client) when localStorage is stale
@@ -85,32 +93,14 @@ export function SpeechToTextCard() {
     staleTime: 30_000,
   });
   // `services.stt` falls under the ConfigGetResponse index signature
-  // (`unknown`), so narrow it explicitly to read the provider and mode.
+  // (`unknown`), so narrow it explicitly to read the provider.
   const daemonStt = daemonConfig?.services?.stt as
     { provider?: string; mode?: string } | undefined;
-  const daemonSttProvider = daemonStt?.provider;
-  // Provider "vellum" routes to managed regardless of mode, so the card must
-  // treat it as managed too — otherwise a provider-only managed config (e.g.
-  // written via the CLI) would render the Your Own panel, and a save from it
-  // could never escape: nothing would look changed, so no provider write.
-  const daemonManaged =
-    daemonStt?.mode === "managed" || daemonSttProvider === "vellum";
-
-  // Managed vs. your-own toggle. Derived from the daemon (source of truth),
-  // falling back to localStorage so the toggle doesn't flash "your-own" before
-  // the config query resolves. `useDraftOverride` lets the user flip it locally
-  // until a save + refetch converges the server value.
-  const serverMode = useMemo<ServiceMode>(
-    () =>
-      daemonManaged
-        ? "managed"
-        : parseServiceMode(
-            daemonStt?.mode ?? getLocalSetting(LS_STT_MODE, "your-own"),
-            "your-own",
-          ),
-    [daemonManaged, daemonStt?.mode],
-  );
-  const [mode, setDraftMode] = useDraftOverride(serverMode);
+  // A config written by the legacy mode toggle marks managed via `mode` while
+  // `provider` holds the BYOK restore value — the daemon routes it to Vellum,
+  // so the card must render it as Vellum too.
+  const daemonSttProvider =
+    daemonStt?.mode === "managed" ? "vellum" : daemonStt?.provider;
 
   const serverProvider = useMemo(() => {
     const mapped = daemonSttProvider
@@ -166,18 +156,13 @@ export function SpeechToTextCard() {
   const hasChanges = useMemo(() => {
     const providerChanged = draftProvider !== serverProvider;
     const hasNewKey = apiKeyText.trim().length > 0;
-    // Toggling off managed is itself a saveable change: a user with a BYOK
-    // provider+key already stored has nothing else to edit.
-    const modeChanged = mode !== serverMode;
-    return providerChanged || hasNewKey || modeChanged;
-  }, [draftProvider, serverProvider, apiKeyText, mode, serverMode]);
+    return providerChanged || hasNewKey;
+  }, [draftProvider, serverProvider, apiKeyText]);
 
   const handleSave = useCallback(async () => {
     const trimmedKey = apiKeyText.trim();
 
-    // Local settings back the client-side voice path; keep them in sync. This
-    // handler serves the "Your Own" panel, so the effective mode is your-own.
-    setLocalSetting(LS_STT_MODE, "your-own");
+    // Local settings back the client-side voice path; keep them in sync.
     setLocalSetting(LS_STT_PROVIDER, draftProvider);
     if (trimmedKey.length > 0) {
       setLocalSetting(LS_STT_API_KEY_PREFIX + draftProvider, trimmedKey);
@@ -190,7 +175,7 @@ export function SpeechToTextCard() {
 
     setSaving(true);
     try {
-      if (daemon) {
+      if (daemon?.credentialService) {
         // Push the effective key (freshly typed, else the one already stored
         // locally) so re-saving wires CES even when the masked field is left
         // untouched.
@@ -217,37 +202,33 @@ export function SpeechToTextCard() {
         }
       }
 
-      // The config PATCH runs even for the client-only native choice (which has
-      // no daemon mapping): leaving managed must still flip services.stt.mode
-      // server-side, or a refetch snaps the card back to Managed. Saving from
-      // the "Your Own" panel is explicit BYOK intent, so a managed daemon flips
-      // even without a new key — the user reached these inputs by toggling off
-      // Managed.
-      const escapeManaged = daemonManaged;
-      const providerChanged =
-        !!daemon && (draftProvider !== serverProvider || !daemonHasProvider);
-      // Write `provider` only when the user changed it, or when escaping managed
-      // leaves nothing valid to keep (no stored provider, or the "vellum"
-      // provider, which routes to managed regardless of mode). Otherwise
-      // write mode only and let the daemon's deep-merge preserve the stored
-      // provider — which may be one the dropdown can't represent (e.g.
-      // google-gemini via CLI) and would be silently overwritten by the fallback.
+      // Write `provider` only when the user changed it, or when the daemon has
+      // none stored. Otherwise let the deep-merge preserve what is there — it
+      // may be a provider the dropdown can't represent (e.g. google-gemini via
+      // CLI) that the fallback would silently overwrite.
+      //
+      // Leaving Vellum for the client-only native choice still has to write:
+      // that choice has no daemon mapping, so without it the daemon would stay
+      // on Vellum and a refetch would snap the dropdown back.
+      const leavingVellum =
+        daemonSttProvider === "vellum" && draftProvider !== "vellum";
       const writeProvider =
-        providerChanged ||
-        (escapeManaged &&
-          (!daemonSttProvider || daemonSttProvider === "vellum"));
-      if (writeProvider || escapeManaged) {
-        const providerValue =
-          daemon?.provider ??
-          STT_DAEMON_PROVIDER[draftProvider]?.provider ??
-          "deepgram";
+        (!!daemon && (draftProvider !== serverProvider || !daemonHasProvider)) ||
+        leavingVellum;
+      if (writeProvider) {
+        const providerValue = daemon?.provider ?? DEFAULT_PROVIDER_ID;
         const { response: cfgRes } = await configPatch({
           path: { assistant_id: assistantId },
           body: {
             services: {
               stt: {
-                ...(writeProvider ? { provider: providerValue } : {}),
-                ...(escapeManaged ? { mode: "your-own" } : {}),
+                provider: providerValue,
+                // A stale `mode: "managed"` from the legacy toggle would win
+                // over the BYOK choice, so escaping Vellum resets it. Vellum
+                // itself needs no mode — the provider takes precedence.
+                ...(providerValue !== "vellum"
+                  ? { mode: "your-own" }
+                  : {}),
               },
             },
           },
@@ -284,62 +265,7 @@ export function SpeechToTextCard() {
     selectedProvider,
     serverProvider,
     daemonHasProvider,
-    daemonManaged,
     daemonSttProvider,
-    queryClient,
-  ]);
-
-  const handleSaveManaged = useCallback(async () => {
-    setSaving(true);
-    try {
-      // Persist the BYOK provider as the restore value for toggling back. Keep
-      // the daemon's existing provider when it has one — it may be a valid
-      // provider the dropdown can't represent (e.g. google-gemini set via CLI),
-      // which the fallback would silently overwrite. Only synthesize one for a
-      // sparse config or the client-only native dictation choice ("deepgram" is
-      // the sane default there); the schema requires a provider, and "vellum"
-      // would defeat its purpose as a your-own restore value. The daemon routes
-      // managed mode to Vellum at runtime regardless of this value.
-      const restoreProvider =
-        daemonSttProvider && daemonSttProvider !== "vellum"
-          ? daemonSttProvider
-          : STT_DAEMON_PROVIDER[draftProvider]?.provider ?? "deepgram";
-      const { response: cfgRes } = await configPatch({
-        path: { assistant_id: assistantId },
-        body: { services: { stt: { mode: "managed", provider: restoreProvider } } },
-        throwOnError: false,
-      });
-      if (!cfgRes?.ok) {
-        throw new Error(
-          `Failed to save configuration (HTTP ${cfgRes?.status ?? "?"})`,
-        );
-      }
-      setLocalSetting(LS_STT_MODE, "managed");
-      // The client-only native-dictation choice makes `prefersMacosNativeStt()`
-      // keep routing transcription locally, bypassing managed STT on this
-      // client. Repoint the stored provider at a daemon-backed one so Managed
-      // actually takes effect.
-      if (draftProvider === MACOS_NATIVE_STT_PROVIDER_ID) {
-        setLocalSetting(LS_STT_PROVIDER, defaultProviderId);
-      }
-      void queryClient.invalidateQueries({
-        queryKey: configGetQueryKey({ path: { assistant_id: assistantId } }),
-      });
-      toast.success("Speech-to-text settings saved");
-    } catch (err) {
-      toast.error(
-        err instanceof Error
-          ? err.message
-          : "Failed to save speech-to-text settings",
-      );
-    } finally {
-      setSaving(false);
-    }
-  }, [
-    assistantId,
-    daemonSttProvider,
-    draftProvider,
-    defaultProviderId,
     queryClient,
   ]);
 
@@ -354,68 +280,63 @@ export function SpeechToTextCard() {
     : selectedProvider.apiKeyPlaceholder;
 
   return (
-    <ServiceCard
+    <ByoServiceCard
       title="Speech-to-Text"
       subtitle="Configure how your assistant transcribes speech"
-      mode={mode}
-      onModeChange={(m) => setDraftMode(m)}
     >
-      {mode === "managed" ? (
-        <div className="space-y-3">
-          <p className="text-body-medium-lighter text-[var(--content-tertiary)]">
-            Managed transcription is included with your Vellum connection.
-          </p>
-          <SaveButton onClick={handleSaveManaged} disabled={saving} />
+      <div className="space-y-4">
+        <div className="space-y-1">
+          <label className="block text-body-small-default text-[var(--content-tertiary)]">
+            Provider
+          </label>
+          <Dropdown
+            value={draftProvider}
+            onChange={setDraftProvider}
+            options={providers.map((p) => ({
+              value: p.id,
+              label: p.displayName,
+            }))}
+            aria-label="STT provider"
+          />
         </div>
-      ) : (
-        <div className="space-y-4">
+
+        {requiresApiKey && (
           <div className="space-y-1">
             <label className="block text-body-small-default text-[var(--content-tertiary)]">
-              Provider
+              API Key
             </label>
-            <Dropdown
-              value={draftProvider}
-              onChange={setDraftProvider}
-              options={providers.map((p) => ({
-                value: p.id,
-                label: p.displayName,
-              }))}
-              aria-label="STT provider"
+            <Input
+              type="password"
+              value={apiKeyText}
+              onChange={(e) => setApiKeyText(e.target.value)}
+              placeholder={apiKeyPlaceholder}
+              fullWidth
             />
           </div>
+        )}
 
-          {requiresApiKey && (
-            <div className="space-y-1">
-              <label className="block text-body-small-default text-[var(--content-tertiary)]">
-                API Key
-              </label>
-              <Input
-                type="password"
-                value={apiKeyText}
-                onChange={(e) => setApiKeyText(e.target.value)}
-                placeholder={apiKeyPlaceholder}
-                fullWidth
-              />
-            </div>
-          )}
-
-          {selectedProvider.setupWarning && (
-            <div className="flex items-start gap-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-sunken)] p-3 text-body-small-default text-[var(--content-tertiary)]">
-              <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--system-mid-strong)]" />
-              <span>{selectedProvider.setupWarning}</span>
-            </div>
-          )}
-
-          {selectedProvider.credentialsGuide && (
-            <CredentialsGuide guide={selectedProvider.credentialsGuide} />
-          )}
-
-          <div className="flex items-center justify-end gap-2">
-            <SaveButton onClick={handleSave} disabled={!hasChanges || saving} />
-            {providerHasKey && <ResetButton onClick={handleReset} />}
+        {selectedProvider.setupWarning && (
+          <div className="flex items-start gap-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-sunken)] p-3 text-body-small-default text-[var(--content-tertiary)]">
+            <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--system-mid-strong)]" />
+            <span>{selectedProvider.setupWarning}</span>
           </div>
+        )}
+
+        {selectedProvider.credentialsGuide && (
+          <CredentialsGuide guide={selectedProvider.credentialsGuide} />
+        )}
+
+        {draftProvider === "vellum" && (
+          <p className="text-body-medium-lighter text-[var(--content-tertiary)]">
+            Transcription runs through your Vellum account.
+          </p>
+        )}
+
+        <div className="flex items-center justify-end gap-2">
+          <SaveButton onClick={handleSave} disabled={!hasChanges || saving} />
+          {providerHasKey && <ResetButton onClick={handleReset} />}
         </div>
-      )}
-    </ServiceCard>
+      </div>
+    </ByoServiceCard>
   );
 }

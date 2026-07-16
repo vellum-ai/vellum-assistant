@@ -186,11 +186,11 @@ export async function run(
     return { content: `Error: ${validation.error}`, isError: true };
   }
 
-  if (
-    (setting === "stt_mode" || setting === "tts_mode") &&
-    validation.coerced === "managed" &&
-    !(await managedSpeechAvailable())
-  ) {
+  const wantsManagedSpeech =
+    ((setting === "stt_mode" || setting === "tts_mode") &&
+      validation.coerced === "managed") ||
+    (setting === "tts_provider" && validation.coerced === "vellum");
+  if (wantsManagedSpeech && !(await managedSpeechAvailable())) {
     return {
       content:
         "Error: managed speech requires a Vellum platform connection. Run 'assistant platform connect' first.",
