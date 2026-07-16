@@ -72,3 +72,8 @@ export function getSilenceTimeoutMs(): number {
 export function getEndCallListenWindowMs(): number {
   return 2 * 1000;
 }
+
+/** Max time to wait for goodbye audio to drain before forcing hangup. */
+export function getEndCallDrainMaxWaitMs(): number {
+  return 15 * 1000;
+}
