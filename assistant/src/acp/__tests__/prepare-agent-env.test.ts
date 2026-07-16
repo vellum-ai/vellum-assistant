@@ -207,7 +207,7 @@ describe("prepareAgentEnv — claude-agent-acp gating", () => {
     ).rejects.toThrow("CLAUDE_CODE_OAUTH_TOKEN");
   });
 
-  test("enriches the missing-token error with the acp_claude_oauth_missing marker AND keeps the CLI message", async () => {
+  test("enriches the missing-token error with the acp_claude_oauth_missing marker AND directs the model at the inline Connect card", async () => {
     let caught: unknown;
     try {
       await prepareAgentEnv({ command: "claude-agent-acp", args: [] });
@@ -220,8 +220,15 @@ describe("prepareAgentEnv — claude-agent-acp gating", () => {
     expect((caught as FailedDependencyError).details).toEqual({
       code: ACP_CLAUDE_OAUTH_MISSING_CODE,
     });
-    // Human, CLI-friendly message is not lost.
-    expect((caught as Error).message).toContain("CLAUDE_CODE_OAUTH_TOKEN");
+    const message = (caught as Error).message;
+    // Names the missing env var (the token) so the failure is legible.
+    expect(message).toContain("CLAUDE_CODE_OAUTH_TOKEN");
+    // Directs the model at the inline card, not a CLI/token-paste workaround.
+    expect(message).toContain("Connect Claude Code");
+    expect(message).toContain("Do NOT");
+    expect(message).toContain("claude setup-token");
+    // Keeps the headless CLI fallback available.
+    expect(message).toContain("assistant credentials set");
   });
 
   test("does NOT attach the marker when a token is present (happy path unchanged)", async () => {

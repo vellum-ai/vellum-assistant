@@ -181,13 +181,21 @@ export async function prepareAgentEnv(
       );
     }
     if (!env.CLAUDE_CODE_OAUTH_TOKEN) {
-      // Carry the stable marker as structured `details` IN ADDITION to the
-      // CLI-friendly message so the client can offer the inline Connect flow
-      // without re-parsing the human text.
+      // Carry the stable marker as structured `details` so the client renders
+      // the inline "Connect Claude Code" card. The message itself is the tool
+      // result the model reads at the failure moment, so it directs the model
+      // AT that card and away from CLI/token-paste workarounds — otherwise the
+      // model relays a `claude setup-token` / paste-a-token flow that the card
+      // exists to replace. The CLI command stays only as a headless fallback.
       throw new FailedDependencyError(
-        "claude-agent-acp requires CLAUDE_CODE_OAUTH_TOKEN. " +
-          "Run: assistant credentials set --service acp --field claude_oauth_token <token> " +
-          "(or set it under acp.agents.<id>.env in config.json).",
+        "claude-agent-acp needs a Claude OAuth token (CLAUDE_CODE_OAUTH_TOKEN), " +
+          'which is not set. An inline "Connect Claude Code" card is shown to ' +
+          "the user in the app — tell them to click Connect there to sign in " +
+          "(OAuth, nothing to paste), then retry the spawn. Do NOT tell them to " +
+          "run `claude setup-token`, paste a token, or run credential CLI " +
+          "commands; the card handles it. (Headless only, where no card can " +
+          "appear: `assistant credentials set --service acp --field " +
+          "claude_oauth_token <token>`.)",
         { code: ACP_CLAUDE_OAUTH_MISSING_CODE },
       );
     }
