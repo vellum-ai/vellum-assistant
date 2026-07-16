@@ -1129,6 +1129,28 @@ describe("call-controller", () => {
     expect(getCallSession(session.id)!.status).toBe("in_progress");
   });
 
+  test("destroy during the listen window settles the wait without hanging up", async () => {
+    // Long window so destroy lands while the listen-window wait is armed;
+    // the wait must settle (not leak) and teardown must not fire endSession.
+    mockEndCallListenWindowMs = 10_000;
+    const drainPromise = Promise.resolve();
+    mockStartVoiceTurn.mockImplementation(
+      createMockVoiceTurn(["Goodbye! ", "[END_CALL]"]),
+    );
+    const { relay, controller } = setupController(undefined, {
+      awaitPlaybackDrained: () => drainPromise,
+    });
+
+    await controller.handleCallerUtterance("That is all, thanks");
+    // Let the drain phase resolve and the listen-window timer arm.
+    await new Promise((r) => setTimeout(r, 20));
+    expect(relay.endCalled).toBe(false);
+
+    controller.destroy();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(relay.endCalled).toBe(false);
+  });
+
   // ── handleUserAnswer ──────────────────────────────────────────────
 
   test("handleUserAnswer: returns true immediately and fires LLM asynchronously", async () => {

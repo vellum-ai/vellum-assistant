@@ -116,6 +116,10 @@ export class CallController {
   private destroyed = false;
   private silenceTimer: ReturnType<typeof setTimeout> | null = null;
   private endCallListenTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Safety-cap timer for the end-call playback-drain wait. */
+  private endCallDrainCapTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Settles the in-flight end-call wait so cancellation never leaves it hanging. */
+  private endCallWaitResolve: (() => void) | null = null;
   /** Cancellation token for the in-flight end-call teardown (drain → listen). */
   private pendingEndCall: { cancelled: boolean } | null = null;
   /**
@@ -1379,16 +1383,15 @@ export class CallController {
     cancelled: boolean;
   }): Promise<void> {
     if (this.transport.awaitPlaybackDrained) {
-      let capTimer: ReturnType<typeof setTimeout> | undefined;
-      await Promise.race([
-        this.transport.awaitPlaybackDrained(),
-        new Promise<void>((r) => {
-          capTimer = setTimeout(r, getEndCallDrainMaxWaitMs());
-        }),
-      ]);
-      if (capTimer) {
-        clearTimeout(capTimer);
-      }
+      await new Promise<void>((resolve) => {
+        this.endCallWaitResolve = resolve;
+        this.endCallDrainCapTimer = setTimeout(
+          resolve,
+          getEndCallDrainMaxWaitMs(),
+        );
+        void this.transport.awaitPlaybackDrained!().then(resolve, resolve);
+      });
+      this.clearEndCallWait();
     }
     if (pending.cancelled || this.destroyed) {
       return;
@@ -1401,11 +1404,10 @@ export class CallController {
     if (listenWindowMs > 0) {
       this.resetSilenceTimer();
       await new Promise<void>((resolve) => {
-        this.endCallListenTimer = setTimeout(() => {
-          this.endCallListenTimer = null;
-          resolve();
-        }, listenWindowMs);
+        this.endCallWaitResolve = resolve;
+        this.endCallListenTimer = setTimeout(resolve, listenWindowMs);
       });
+      this.clearEndCallWait();
     }
     if (pending.cancelled || this.destroyed) {
       return;
@@ -1414,15 +1416,29 @@ export class CallController {
     this.completeCallFromEndMarker();
   }
 
+  /** Clear the end-call wait's timers and resolver handle. */
+  private clearEndCallWait(): void {
+    if (this.endCallDrainCapTimer) {
+      clearTimeout(this.endCallDrainCapTimer);
+      this.endCallDrainCapTimer = null;
+    }
+    if (this.endCallListenTimer) {
+      clearTimeout(this.endCallListenTimer);
+      this.endCallListenTimer = null;
+    }
+    this.endCallWaitResolve = null;
+  }
+
   private cancelPendingEndCall(): void {
     if (this.pendingEndCall) {
       this.pendingEndCall.cancelled = true;
     }
     this.pendingEndCall = null;
-    if (this.endCallListenTimer) {
-      clearTimeout(this.endCallListenTimer);
-      this.endCallListenTimer = null;
-    }
+    // Settle any in-flight drain/listen wait so runEndCallTeardown unblocks
+    // and returns instead of leaking a pending promise.
+    const resolve = this.endCallWaitResolve;
+    this.clearEndCallWait();
+    resolve?.();
   }
 
   private clearPendingGuardianInputForCallEnd(): boolean {
