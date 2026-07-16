@@ -833,6 +833,27 @@ describe("MediaStreamCallSession", () => {
       session.handleMessage(makeMarkMessage("end-of-turn"));
     });
 
+    test("inbound mark echo is routed into the output drain tracker", () => {
+      const mock = createMockWs();
+      const session = new MediaStreamCallSession(mock.ws, "call-1");
+      const noteEcho = jest.spyOn(session.getOutput(), "notePlaybackMarkEcho");
+
+      session.handleMessage(makeMarkMessage("end-of-turn:3"));
+
+      expect(noteEcho).toHaveBeenCalledWith("end-of-turn:3");
+    });
+
+    test("mark echo after disposal does not touch the output", () => {
+      const mock = createMockWs();
+      const session = new MediaStreamCallSession(mock.ws, "call-1");
+      const noteEcho = jest.spyOn(session.getOutput(), "notePlaybackMarkEcho");
+
+      session.destroy();
+      session.handleMessage(makeMarkMessage("end-of-turn:3"));
+
+      expect(noteEcho).not.toHaveBeenCalled();
+    });
+
     test("stop events are forwarded to the STT session", () => {
       const mock = createMockWs();
       mockSessions.set("call-1", {
@@ -906,7 +927,7 @@ describe("media-stream output egress", () => {
     expect(markMessages.length).toBeGreaterThan(0);
 
     const markParsed = JSON.parse(markMessages[0]);
-    expect(markParsed.mark.name).toBe("end-of-turn");
+    expect(markParsed.mark.name).toBe("end-of-turn:1");
   });
 
   test("empty sendTextToken (end-of-turn signal) sends only a mark, no media", async () => {
