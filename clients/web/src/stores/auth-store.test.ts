@@ -241,11 +241,15 @@ const setAnalyticsConsentCurrentMock = mock((_value: boolean) => {});
 const setDiagnosticsConsentCurrentMock = mock((_value: boolean) => {});
 const setShareAnalyticsMock = mock((_value: boolean | null) => {});
 const setShareDiagnosticsMock = mock((_value: boolean | null) => {});
+const setServerAnalyticsEffectiveMock = mock((_value: boolean | null) => {});
+const setPendingAnalyticsOptInMock = mock((_value: boolean) => {});
+const setServerDiagnosticsEffectiveMock = mock((_value: boolean | null) => {});
 const setConsentHydratedMock = mock((_value: boolean) => {});
 // Mirror the store's device-initialized tri-state share values (null = never
 // asked); the backfill reads these to send an explicit device choice
 // alongside the accepted version.
 let mockStoreShareAnalytics: boolean | null = null;
+let mockStorePendingAnalyticsOptIn = false;
 let mockStoreShareDiagnostics: boolean | null = null;
 
 mock.module("@/domains/onboarding/onboarding-store", () => ({
@@ -255,10 +259,14 @@ mock.module("@/domains/onboarding/onboarding-store", () => ({
       setPrivacyConsent: setPrivacyConsentMock,
       setShareAnalytics: setShareAnalyticsMock,
       setShareDiagnostics: setShareDiagnosticsMock,
+      setServerAnalyticsEffective: setServerAnalyticsEffectiveMock,
+      setPendingAnalyticsOptIn: setPendingAnalyticsOptInMock,
+      setServerDiagnosticsEffective: setServerDiagnosticsEffectiveMock,
       setAnalyticsConsentCurrent: setAnalyticsConsentCurrentMock,
       setDiagnosticsConsentCurrent: setDiagnosticsConsentCurrentMock,
       setConsentHydrated: setConsentHydratedMock,
       shareAnalytics: mockStoreShareAnalytics,
+      pendingAnalyticsOptIn: mockStorePendingAnalyticsOptIn,
       shareDiagnostics: mockStoreShareDiagnostics,
     }),
   },
@@ -313,7 +321,8 @@ mock.module("@/assistant/api", () => ({
   listAssistants: listAssistantsMock,
 }));
 
-const { useAuthStore } = await import("@/stores/auth-store");
+const { useAuthStore, __resetConsentSyncUserForTesting } =
+  await import("@/stores/auth-store");
 const { useAssistantLifecycleStore } =
   await import("@/assistant/lifecycle-store");
 const { useResolvedAssistantsStore } =
@@ -344,6 +353,7 @@ function authenticatedLocalUserForTest() {
 }
 
 beforeEach(() => {
+  __resetConsentSyncUserForTesting();
   sessionUser = null;
   getSessionCallCount = 0;
   getSessionFailFirstCall = false;
@@ -381,8 +391,12 @@ beforeEach(() => {
   setDiagnosticsConsentCurrentMock.mockClear();
   setShareAnalyticsMock.mockClear();
   setShareDiagnosticsMock.mockClear();
+  setServerAnalyticsEffectiveMock.mockClear();
+  setPendingAnalyticsOptInMock.mockClear();
+  setServerDiagnosticsEffectiveMock.mockClear();
   setConsentHydratedMock.mockClear();
   mockStoreShareAnalytics = null;
+  mockStorePendingAnalyticsOptIn = false;
   mockStoreShareDiagnostics = null;
   fetchConsentMock.mockClear();
   patchConsentMock.mockClear();
@@ -673,6 +687,74 @@ describe("auth store onboarding flag reconciliation", () => {
     expect(setShareAnalyticsMock).toHaveBeenCalledWith(true);
   });
 
+  test("a server record adopts both effective verdicts into the store", async () => {
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    resolveServerConsentMock.mockReturnValueOnce({
+      tos: true,
+      privacy: true,
+      shareAnalytics: null,
+      shareDiagnostics: true,
+      // The platform's verdict can disagree with the raw values — it is
+      // adopted verbatim, not re-derived.
+      analyticsEffective: false,
+      diagnosticsEffective: true,
+      analyticsCurrent: true,
+      diagnosticsCurrent: true,
+      analyticsVersionCurrent: false,
+      diagnosticsVersionCurrent: true,
+      hasServerRecord: true,
+    });
+
+    await useAuthStore.getState().initSession();
+
+    expect(setServerAnalyticsEffectiveMock).toHaveBeenCalledWith(false);
+    expect(setServerDiagnosticsEffectiveMock).toHaveBeenCalledWith(true);
+  });
+
+  test("a failed consent fetch leaves the adopted effective verdicts untouched", async () => {
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    mockFetchConsentError = new Error("offline");
+
+    await useAuthStore.getState().initSession();
+
+    expect(setServerAnalyticsEffectiveMock).not.toHaveBeenCalled();
+    expect(setServerDiagnosticsEffectiveMock).not.toHaveBeenCalled();
+  });
+
+  test("a settled signed-out sync clears the adopted effective verdicts", async () => {
+    sessionUser = null;
+
+    await useAuthStore.getState().initSession();
+
+    expect(setServerAnalyticsEffectiveMock).toHaveBeenCalledWith(null);
+    expect(setServerDiagnosticsEffectiveMock).toHaveBeenCalledWith(null);
+  });
+
+  test("a server-effective diagnostics opt-out closes the gate even when raw is null", async () => {
+    // The platform computes the verdict; a raw null (never asked) with an
+    // effective false must close the reporting gate through the chokepoint.
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    resolveServerConsentMock.mockReturnValueOnce({
+      tos: true,
+      privacy: true,
+      shareAnalytics: null,
+      shareDiagnostics: null,
+      analyticsEffective: true,
+      diagnosticsEffective: false,
+      analyticsCurrent: true,
+      diagnosticsCurrent: true,
+      analyticsVersionCurrent: false,
+      diagnosticsVersionCurrent: false,
+      hasServerRecord: true,
+    });
+
+    await useAuthStore.getState().initSession();
+
+    expect(localStorage.getItem("device:diagnostics_reporting")).toBe("false");
+    // The raw tri-state (chosen-ness) is untouched by the verdict.
+    expect(setShareDiagnosticsMock).not.toHaveBeenCalled();
+  });
+
   test("never-asked diagnostics (null on a real record) hydrates current but earns no device ack", async () => {
     sessionUser = { id: "user-1", email: "user@example.com" };
     resolveServerConsentMock.mockReturnValueOnce({
@@ -699,6 +781,121 @@ describe("auth store onboarding flag reconciliation", () => {
     expect(persistDiagnosticsAckMock).not.toHaveBeenCalled();
     // A null server value never overwrites the device-local preference.
     expect(setShareDiagnosticsMock).not.toHaveBeenCalled();
+  });
+
+  test("an account switch resets the pending opt-in and adopted verdicts", async () => {
+    sessionUser = { id: "user-1", email: "one@example.com" };
+    await useAuthStore.getState().initSession();
+    setPendingAnalyticsOptInMock.mockClear();
+    setServerAnalyticsEffectiveMock.mockClear();
+
+    // Same-tab switch to a different account: the previous account's pending
+    // opt-in must never override the new account's server verdicts.
+    sessionUser = { id: "user-2", email: "two@example.com" };
+    await useAuthStore.getState().refreshSession();
+
+    expect(setPendingAnalyticsOptInMock).toHaveBeenCalledWith(false);
+    expect(setServerAnalyticsEffectiveMock).toHaveBeenCalledWith(null);
+  });
+
+  test("a stale server false is not adopted while an opt-in is pending", async () => {
+    // Same-user sync racing the opt-in PATCH: the stale record still says
+    // explicit false. Adopting it would trip the gate's explicit-false rule
+    // and silently flip the just-made opt-in back off.
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    await useAuthStore.getState().initSession();
+    setShareAnalyticsMock.mockClear();
+
+    mockStorePendingAnalyticsOptIn = true;
+    resolveServerConsentMock.mockReturnValueOnce({
+      tos: true,
+      privacy: true,
+      shareAnalytics: false,
+      shareDiagnostics: null,
+      analyticsEffective: false,
+      diagnosticsEffective: true,
+      analyticsCurrent: true,
+      diagnosticsCurrent: true,
+      analyticsVersionCurrent: true,
+      diagnosticsVersionCurrent: false,
+      hasServerRecord: true,
+    });
+    await useAuthStore.getState().refreshSession();
+
+    expect(setShareAnalyticsMock).not.toHaveBeenCalledWith(false);
+    expect(setPendingAnalyticsOptInMock).not.toHaveBeenCalledWith(false);
+  });
+
+  test("a same-user resync does not reset the pending opt-in at sync start", async () => {
+    sessionUser = { id: "user-1", email: "one@example.com" };
+    await useAuthStore.getState().initSession();
+    setPendingAnalyticsOptInMock.mockClear();
+
+    resolveServerConsentMock.mockReturnValueOnce({
+      tos: true,
+      privacy: true,
+      shareAnalytics: null,
+      shareDiagnostics: null,
+      analyticsEffective: false,
+      diagnosticsEffective: true,
+      analyticsCurrent: true,
+      diagnosticsCurrent: true,
+      analyticsVersionCurrent: false,
+      diagnosticsVersionCurrent: false,
+      hasServerRecord: true,
+    });
+    await useAuthStore.getState().refreshSession();
+
+    // Raw is null (does not reflect an opt-in) and the user is unchanged:
+    // the pending flag must survive the sync (the in-flight-PATCH race).
+    expect(setPendingAnalyticsOptInMock).not.toHaveBeenCalledWith(false);
+  });
+
+  test("a policy denial without version evidence is adopted and counted as a record", async () => {
+    // Never-asked user denied by org/platform policy: raw null, effective
+    // false, no version stamps. The verdict must be adopted (unconditional
+    // adoption — no record heuristic on the verdict path) so the gate closes.
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    resolveServerConsentMock.mockReturnValueOnce({
+      tos: false,
+      privacy: false,
+      shareAnalytics: null,
+      shareDiagnostics: null,
+      analyticsEffective: false,
+      diagnosticsEffective: false,
+      analyticsCurrent: true,
+      diagnosticsCurrent: true,
+      analyticsVersionCurrent: false,
+      diagnosticsVersionCurrent: false,
+      hasServerRecord: true,
+    });
+
+    await useAuthStore.getState().initSession();
+
+    expect(setServerAnalyticsEffectiveMock).toHaveBeenCalledWith(false);
+    expect(setServerDiagnosticsEffectiveMock).toHaveBeenCalledWith(false);
+  });
+
+  test("even a no-record response adopts the platform verdict (never-asked → enabled)", async () => {
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    resolveServerConsentMock.mockReturnValueOnce({
+      tos: false,
+      privacy: false,
+      shareAnalytics: null,
+      shareDiagnostics: null,
+      analyticsEffective: true,
+      diagnosticsEffective: true,
+      analyticsCurrent: true,
+      diagnosticsCurrent: true,
+      analyticsVersionCurrent: false,
+      diagnosticsVersionCurrent: false,
+      hasServerRecord: false,
+    });
+
+    await useAuthStore.getState().initSession();
+
+    expect(setServerAnalyticsEffectiveMock).toHaveBeenCalledWith(true);
+    expect(setServerDiagnosticsEffectiveMock).toHaveBeenCalledWith(true);
   });
 
   test("a no-record response never adopts its default share values over a local opt-out", async () => {

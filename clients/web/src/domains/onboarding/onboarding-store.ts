@@ -17,6 +17,12 @@
  * flags, so route guards can distinguish "not yet loaded" from a genuine
  * `false`.
  *
+ * **Server-effective verdicts** (`serverAnalyticsEffective`,
+ * `serverDiagnosticsEffective`) are the platform-computed effective consent
+ * values adopted at sync; `null` means no successful sync with a server
+ * record yet. In-memory only — never device-persisted, never cross-tab
+ * synced — the data-capture gates read them alongside the local tri-state.
+ *
  * Reference: {@link https://zustand.docs.pmnd.rs/}
  */
 
@@ -56,6 +62,26 @@ export interface OnboardingState {
   shareAnalytics: boolean | null;
   /** `null` = never asked; a boolean is an explicit user choice. */
   shareDiagnostics: boolean | null;
+  /**
+   * Platform-computed effective analytics consent, adopted at sync; `null`
+   * before the first sync that saw a server record.
+   */
+  serverAnalyticsEffective: boolean | null;
+  /**
+   * PER-TAB by design (like `serverAnalyticsEffective` above): a verdict
+   * adopted in one tab reaches others on their own focus/backstop refresh.
+   * The bounded staleness is acceptable because the platform's ingest gate
+   * is the enforcement point — uploads from a stale tab under a server
+   * opt-out are dropped server-side; the client gate is an efficiency.
+   *
+   * A local explicit analytics opt-in whose server write has not yet been
+   * reflected by a sync. Lets the emit gate re-enable immediately on opt-in
+   * without letting server-ADOPTED raw values bypass a divergent effective
+   * verdict. Cleared whenever a sync adopts server state. In-memory only.
+   */
+  pendingAnalyticsOptIn: boolean;
+  /** See {@link serverAnalyticsEffective}; the diagnostics verdict. */
+  serverDiagnosticsEffective: boolean | null;
   tosAccepted: boolean;
   privacyConsent: boolean;
   analyticsConsentCurrent: boolean;
@@ -70,6 +96,9 @@ export interface OnboardingState {
 export interface OnboardingActions {
   setShareAnalytics: (value: boolean | null) => void;
   setShareDiagnostics: (value: boolean | null) => void;
+  setServerAnalyticsEffective: (value: boolean | null) => void;
+  setPendingAnalyticsOptIn: (value: boolean) => void;
+  setServerDiagnosticsEffective: (value: boolean | null) => void;
   setTosAccepted: (value: boolean) => void;
   setPrivacyConsent: (value: boolean) => void;
   setAnalyticsConsentCurrent: (value: boolean) => void;
@@ -86,6 +115,9 @@ export type OnboardingStore = OnboardingState & OnboardingActions;
 const useOnboardingStoreBase = create<OnboardingStore>()((set) => ({
   shareAnalytics: getLocalBoolOrNull(KEY_SHARE_ANALYTICS),
   shareDiagnostics: getLocalBoolOrNull(KEY_SHARE_DIAGNOSTICS),
+  serverAnalyticsEffective: null,
+  pendingAnalyticsOptIn: false,
+  serverDiagnosticsEffective: null,
   tosAccepted: false,
   privacyConsent: false,
   analyticsConsentCurrent: false,
@@ -103,6 +135,17 @@ const useOnboardingStoreBase = create<OnboardingStore>()((set) => ({
     // clients via the `sentry-control.ts` watcher — is written solely by the
     // consent chokepoints in `lib/consent/diagnostics-consent.ts`.
     persistShareChoice(KEY_SHARE_DIAGNOSTICS, value);
+  },
+  // In-memory only: the server verdicts are re-adopted on every sync, so
+  // persisting them would just serve a stale verdict across reloads.
+  setPendingAnalyticsOptIn: (value) => {
+    set({ pendingAnalyticsOptIn: value });
+  },
+  setServerAnalyticsEffective: (value) => {
+    set({ serverAnalyticsEffective: value });
+  },
+  setServerDiagnosticsEffective: (value) => {
+    set({ serverDiagnosticsEffective: value });
   },
   setTosAccepted: (value) => {
     set({ tosAccepted: value });

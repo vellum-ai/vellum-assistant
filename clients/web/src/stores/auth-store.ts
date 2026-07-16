@@ -331,7 +331,30 @@ function buildDeviceConsentBackfill(axes: {
   };
 }
 
+// The account the consent flags were last synced for. `undefined` = no sync
+// yet this page load (the store boots clean, so there is nothing to reset).
+let lastConsentSyncUserId: string | null | undefined;
+
+/** Test-only: forget the last-synced account between tests. */
+export function __resetConsentSyncUserForTesting(): void {
+  lastConsentSyncUserId = undefined;
+}
+
 async function syncUserScopedState(nextUserId: string | null): Promise<void> {
+  if (
+    lastConsentSyncUserId !== undefined &&
+    lastConsentSyncUserId !== nextUserId
+  ) {
+    // The pending opt-in and adopted server verdicts belong to the previous
+    // account's session — a different account (or a signed-out state) must
+    // never inherit them: a stale pending opt-in could otherwise override
+    // the new account's server-effective opt-out.
+    const store = useOnboardingStore.getState();
+    store.setPendingAnalyticsOptIn(false);
+    store.setServerAnalyticsEffective(null);
+    store.setServerDiagnosticsEffective(null);
+  }
+  lastConsentSyncUserId = nextUserId;
   if (nextUserId) {
     try {
       const consent = await fetchConsent();
@@ -342,6 +365,21 @@ async function syncUserScopedState(nextUserId: string | null): Promise<void> {
       // device, not the just-adopted server value.
       const localShareAnalytics = store.shareAnalytics;
       const localShareDiagnostics = store.shareDiagnostics;
+      // Adopt the platform-computed effective verdicts for the data-capture
+      // gates UNCONDITIONALLY: the platform computes a verdict for every
+      // response, including no-row responses (never-asked → enabled), so
+      // there is no client-side judgment about record-ness on this path —
+      // that heuristic (hasServerRecord) guards only legal-consent fallback,
+      // backfill, and chosen-ness adoption. The pending opt-in clears only
+      // once the fetched record REFLECTS it — a sync racing the opt-in's
+      // in-flight PATCH must not flip uploads back off on the stale record.
+      // (An explicit server false is adopted into the store above, where the
+      // gate's explicit-false rule closes uploads regardless of pending.)
+      if (resolved.shareAnalytics === true) {
+        store.setPendingAnalyticsOptIn(false);
+      }
+      store.setServerAnalyticsEffective(resolved.analyticsEffective);
+      store.setServerDiagnosticsEffective(resolved.diagnosticsEffective);
       // Adopt the server's tri-state share-analytics verbatim: an explicit
       // choice is authoritative even when its legal consent versions are stale
       // (the nav layer routes to review-terms), and null (never asked)
@@ -349,12 +387,18 @@ async function syncUserScopedState(nextUserId: string | null): Promise<void> {
       // a no-record response adopts nothing — its values are API defaults
       // (older shapes materialize `true` there), and adopting one would
       // clobber the device opt-out the backfill below is about to seed the
-      // server with. And null never overwrites a local explicit opt-out —
-      // its server write may still be in flight (or have failed), and
-      // clearing it would resume uploads the user declined.
+      // server with. And a stale server value never overwrites a PENDING
+      // local edit in either direction: null must not clear an explicit
+      // local opt-out whose write may be in flight, and a stale false must
+      // not clobber a pending opt-in (the gate's explicit-false rule would
+      // silently flip the user's just-made choice back off).
       if (
         resolved.hasServerRecord &&
-        (resolved.shareAnalytics !== null || localShareAnalytics !== false)
+        (resolved.shareAnalytics !== null || localShareAnalytics !== false) &&
+        !(
+          resolved.shareAnalytics === false &&
+          useOnboardingStore.getState().pendingAnalyticsOptIn
+        )
       ) {
         store.setShareAnalytics(resolved.shareAnalytics);
       }
@@ -365,6 +409,7 @@ async function syncUserScopedState(nextUserId: string | null): Promise<void> {
       applyResolvedDiagnosticsConsent(
         {
           shareDiagnostics: resolved.shareDiagnostics,
+          diagnosticsEffective: resolved.diagnosticsEffective,
           hasServerRecord: resolved.hasServerRecord,
         },
         store.setShareDiagnostics,
@@ -479,9 +524,15 @@ async function syncUserScopedState(nextUserId: string | null): Promise<void> {
   const store = useOnboardingStore.getState();
   // Consent fetch failed for a platform user: a device that has never
   // resolved a diagnostics gate fails closed until a successful sync can
-  // reveal a server-side explicit opt-out.
+  // reveal a server-side explicit opt-out. A failed fetch keeps the last
+  // adopted server verdicts; a signed-out sync clears them — they belong to
+  // the departed user's record.
   if (nextUserId) {
     failCloseDiagnosticsGateUntilFirstSync();
+  } else {
+    store.setPendingAnalyticsOptIn(false);
+    store.setServerAnalyticsEffective(null);
+    store.setServerDiagnosticsEffective(null);
   }
   store.setTosAccepted(consent.tos);
   store.setPrivacyConsent(consent.privacy);

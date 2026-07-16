@@ -34,6 +34,7 @@ const FLOOR_CLEAR_MS = 5 * 60_000;
 
 type Resolved = {
   shareDiagnostics: boolean | null;
+  diagnosticsEffective: boolean;
   hasServerRecord: boolean;
 };
 const applyResolvedDiagnosticsConsent = mock(
@@ -51,11 +52,22 @@ mock.module("@/stores/auth-store", () => ({
 }));
 
 const setShareDiagnostics = mock((_v: boolean) => {});
+const setServerAnalyticsEffective = mock((_v: boolean | null) => {});
+const setPendingAnalyticsOptIn = mock((_v: boolean) => {});
+const setServerDiagnosticsEffective = mock((_v: boolean | null) => {});
 mock.module("@/domains/onboarding/onboarding-store", () => ({
-  useOnboardingStore: { getState: () => ({ setShareDiagnostics }) },
+  useOnboardingStore: {
+    getState: () => ({
+      setShareDiagnostics,
+      setServerAnalyticsEffective,
+      setPendingAnalyticsOptIn,
+      setServerDiagnosticsEffective,
+    }),
+  },
 }));
 
-const { DIAGNOSTICS_CONSENT_VERSION } = await import("@/lib/consent/consent-persistence");
+const { DIAGNOSTICS_CONSENT_VERSION } =
+  await import("@/lib/consent/consent-persistence");
 const { refreshDiagnosticsConsent, installConsentRefreshListeners } =
   await import("./consent-refresh");
 
@@ -100,6 +112,9 @@ beforeEach(() => {
   fetchConsent.mockClear();
   applyResolvedDiagnosticsConsent.mockClear();
   setShareDiagnostics.mockClear();
+  setServerAnalyticsEffective.mockClear();
+  setPendingAnalyticsOptIn.mockClear();
+  setServerDiagnosticsEffective.mockClear();
   currentUser = { id: "u1" };
   consentResult = Promise.resolve(consentRecord());
   clock += FLOOR_CLEAR_MS;
@@ -128,14 +143,56 @@ describe("refreshDiagnosticsConsent", () => {
     const resolved = applyResolvedDiagnosticsConsent.mock.calls[0]![0];
     expect(resolved).toMatchObject({
       shareDiagnostics: false,
+      diagnosticsEffective: false,
       hasServerRecord: true,
     });
+  });
+
+  test("adopts both server-effective verdicts on a real record", async () => {
+    consentResult = Promise.resolve(
+      consentRecord({
+        share_analytics: false,
+        share_analytics_accepted_version: "2026-06-18",
+        share_diagnostics: true,
+        share_diagnostics_accepted_version: DIAGNOSTICS_CONSENT_VERSION,
+      }),
+    );
+    await refreshDiagnosticsConsent();
+    expect(setServerAnalyticsEffective).toHaveBeenCalledWith(false);
+    expect(setServerDiagnosticsEffective).toHaveBeenCalledWith(true);
+  });
+
+  test("a refresh racing an in-flight opt-in PATCH keeps the pending flag on the stale record", async () => {
+    // The fetched record predates the opt-in (explicit false): pending must
+    // survive so the gate honors the user's fresh opt-in until the server
+    // reflects it.
+    consentResult = Promise.resolve(
+      consentRecord({
+        share_analytics: false,
+        share_analytics_accepted_version: "2026-06-18",
+      }),
+    );
+    await refreshDiagnosticsConsent();
+    expect(setPendingAnalyticsOptIn).not.toHaveBeenCalled();
+  });
+
+  test("a refresh clears the pending opt-in once the record reflects it", async () => {
+    consentResult = Promise.resolve(
+      consentRecord({
+        share_analytics: true,
+        share_analytics_accepted_version: "2026-06-18",
+      }),
+    );
+    await refreshDiagnosticsConsent();
+    expect(setPendingAnalyticsOptIn).toHaveBeenCalledWith(false);
   });
 
   test("swallows a thrown fetch and leaves state unchanged", async () => {
     consentResult = Promise.reject(new Error("offline"));
     await refreshDiagnosticsConsent();
     expect(applyResolvedDiagnosticsConsent).not.toHaveBeenCalled();
+    expect(setServerAnalyticsEffective).not.toHaveBeenCalled();
+    expect(setServerDiagnosticsEffective).not.toHaveBeenCalled();
   });
 
   test("leaves state unchanged for an empty server record", async () => {
@@ -147,6 +204,10 @@ describe("refreshDiagnosticsConsent", () => {
     await refreshDiagnosticsConsent();
     expect(fetchConsent).toHaveBeenCalledTimes(1);
     expect(applyResolvedDiagnosticsConsent).not.toHaveBeenCalled();
+    // The no-record verdicts are opt-out defaults, not adoptions — the
+    // auth resync owns the no-record posture.
+    expect(setServerAnalyticsEffective).not.toHaveBeenCalled();
+    expect(setServerDiagnosticsEffective).not.toHaveBeenCalled();
   });
 });
 

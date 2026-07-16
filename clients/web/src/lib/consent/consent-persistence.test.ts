@@ -26,6 +26,7 @@ const storeState = {
   setTosAccepted: mock(() => {}),
   setPrivacyConsent: mock(() => {}),
   setShareAnalytics: mock(() => {}),
+  setPendingAnalyticsOptIn: mock(() => {}),
   setShareDiagnostics: mock(() => {}),
   setAnalyticsConsentCurrent: mock(() => {}),
   setDiagnosticsConsentCurrent: mock(() => {}),
@@ -102,15 +103,6 @@ function makeConsent(overrides: Partial<UserConsent> = {}): UserConsent {
     share_diagnostics_effective:
       overrides.share_diagnostics_effective ?? base.share_diagnostics ?? true,
   };
-}
-
-/** A consent record from an older backend that predates `required_versions`. */
-function makeConsentWithoutRequiredVersions(
-  overrides: Partial<UserConsent> = {},
-): UserConsent {
-  const consent = makeConsent(overrides) as unknown as Record<string, unknown>;
-  delete consent.required_versions;
-  return consent as unknown as UserConsent;
 }
 
 // A server-side bump newer than every frozen build constant.
@@ -304,30 +296,6 @@ describe("resolveServerConsent", () => {
     expect(r.diagnosticsCurrent).toBe(false);
   });
 
-  test("absent effective fields (older backend) fall back to the raw values' opt-out reading", () => {
-    const legacy = (overrides: Partial<UserConsent>) => {
-      const consent = makeConsent(overrides) as unknown as Record<
-        string,
-        unknown
-      >;
-      delete consent.share_analytics_effective;
-      delete consent.share_diagnostics_effective;
-      return consent as unknown as UserConsent;
-    };
-    // Explicit values pass through...
-    const explicit = resolveServerConsent(
-      legacy({ share_analytics: false, share_diagnostics: true }),
-    );
-    expect(explicit.analyticsEffective).toBe(false);
-    expect(explicit.diagnosticsEffective).toBe(true);
-    // ...and never-asked defaults to enabled (opt-out semantics).
-    const neverAsked = resolveServerConsent(
-      legacy({ share_analytics: null, share_diagnostics: null }),
-    );
-    expect(neverAsked.analyticsEffective).toBe(true);
-    expect(neverAsked.diagnosticsEffective).toBe(true);
-  });
-
   test("an explicit grant with a version on record resolves the raw values", () => {
     const r = resolveServerConsent(makeConsent());
     expect(r.shareAnalytics).toBe(true);
@@ -467,9 +435,9 @@ describe("resolveServerConsent", () => {
     expect(r.hasServerRecord).toBe(false);
   });
 
-  test("hasServerRecord is false when share-version fields are omitted (older backend)", () => {
-    // Simulate a rollout-window response that predates the share-version
-    // fields: they are absent (undefined), not empty strings.
+  test("hasServerRecord is false when share-version fields are omitted", () => {
+    // Defensive pin: an absent version field (undefined, not "") must read
+    // as "no version on record", never as record evidence.
     const legacy = makeConsent({
       tos_accepted_version: "",
       privacy_policy_accepted_version: "",
@@ -1032,8 +1000,8 @@ describe("server-supplied required versions", () => {
     expect(r.diagnosticsCurrent).toBe(true);
   });
 
-  test("absent required_versions (older backend) falls back to the frozen constants", () => {
-    const r = resolveServerConsent(makeConsentWithoutRequiredVersions());
+  test("an empty required_versions map falls back per-key to the constants (empty-value guard)", () => {
+    const r = resolveServerConsent(makeConsent({ required_versions: {} }));
     expect(r.tos).toBe(true);
     expect(r.privacy).toBe(true);
     expect(r.analyticsCurrent).toBe(true);
@@ -1173,11 +1141,11 @@ describe("server-supplied required versions", () => {
     });
   });
 
-  test("a later resolve without required_versions restores the constants for stamps", () => {
+  test("a later resolve with empty required_versions restores the constants for stamps", () => {
     resolveServerConsent(
       makeConsent({ required_versions: BUMPED_REQUIRED_VERSIONS }),
     );
-    resolveServerConsent(makeConsentWithoutRequiredVersions());
+    resolveServerConsent(makeConsent({ required_versions: {} }));
     savePreferenceToggle("share_diagnostics", true, {
       userId: "user-1",
       hasPlatformSession: true,

@@ -7,18 +7,17 @@
  *   value (direction-asymmetric writes), so a stale-version record can't
  *   silently lose a prior explicit choice.
  * - **Effective reporting gate** (`device:diagnostics_reporting`) — what
- *   actually turns Sentry on. A pure derivation of the effective preference —
- *   explicit `false` → off, `true` or never-asked → on (diagnostics is
- *   opt-out) — kept as its own watchable key because the `sentry-control`
- *   cross-tab watcher and the Electron main mirror react to it, and because
- *   an absent key marks a device that has never resolved consent (see
- *   {@link failCloseDiagnosticsGateUntilFirstSync}). Following the preference
- *   — rather than forcing open on an unknown input — keeps an explicit local
- *   opt-out closed while its `patchConsent` write is still in flight (or
- *   failed), yet heals gates stuck closed by earlier strict-opt-in builds for
- *   users who never opted out. A stale-version grant keeps reporting on — the
- *   review-terms re-confirmation is driven by the consent-currency flags, not
- *   this gate.
+ *   actually turns Sentry on. A local explicit opt-out closes it — the
+ *   just-adopted revoke or a pending device opt-out whose `patchConsent`
+ *   write is still in flight (or failed). Otherwise, with a server record,
+ *   the platform-computed effective verdict (`diagnosticsEffective`) decides;
+ *   without one the gate derives from the device preference (absent reads
+ *   open — opt-out default). Kept as its own watchable key because the
+ *   `sentry-control` cross-tab watcher and the Electron main mirror react to
+ *   it, and because an absent key marks a device that has never resolved
+ *   consent (see {@link failCloseDiagnosticsGateUntilFirstSync}). A
+ *   stale-version grant keeps reporting on — the review-terms
+ *   re-confirmation is driven by the consent-currency flags, not this gate.
  *
  * This module is the ONLY writer of the gate key. Every path that learns a
  * diagnostics-consent value routes through one of the exported chokepoints:
@@ -38,6 +37,11 @@ import {
 export interface ResolvedDiagnosticsConsent {
   /** The server's `share_diagnostics` value; `null` when unknown/absent. */
   shareDiagnostics: boolean | null;
+  /**
+   * The platform-computed effective verdict (`share_diagnostics_effective`).
+   * Authoritative for the gate when `hasServerRecord` is set.
+   */
+  diagnosticsEffective: boolean;
   /** Whether the server returned a real consent record (not API defaults). */
   hasServerRecord: boolean;
 }
@@ -58,11 +62,13 @@ function setDiagnosticsReportingGate(enabled: boolean): void {
 /**
  * Apply a resolved server-consent input to both diagnostics values:
  *
- * 1. The saved preference, via `setShareDiagnostics` — written only for a
- *    confident grant or explicit revoke; an unknown input leaves it untouched.
- * 2. The effective reporting gate — re-derived from the effective preference:
- *    the just-applied authoritative value, or the existing device preference
- *    when the input is unknown (absent reads open — opt-out default).
+ * 1. The saved preference, via `setShareDiagnostics` — keyed on the RAW
+ *    tri-state: written only for a confident grant or explicit revoke; an
+ *    unknown input leaves it untouched.
+ * 2. The effective reporting gate — a local explicit opt-out closes it;
+ *    otherwise the server verdict (`diagnosticsEffective`) decides when a
+ *    record exists, and the device preference does when none does (absent
+ *    reads open — opt-out default).
  *
  * @returns the saved-preference decision: `true`/`false` when the preference was
  * written to that value, or `null` when the input is an unknown grant and the
@@ -77,11 +83,28 @@ export function applyResolvedDiagnosticsConsent(
     setShareDiagnostics(preference);
   }
 
-  setDiagnosticsReportingGate(
-    preference ?? getDeviceBool("shareDiagnostics", true),
-  );
+  setDiagnosticsReportingGate(deriveGate(preference, resolved));
 
   return preference;
+}
+
+/**
+ * Pure policy: resolve the EFFECTIVE REPORTING GATE value. A local explicit
+ * opt-out always wins — the just-adopted revoke, or a pending device opt-out
+ * whose server write may still be in flight (or failed). Otherwise the
+ * platform-computed effective verdict decides when a server record exists;
+ * without one the opt-out default applies (the preference already read open).
+ */
+function deriveGate(
+  preference: boolean | null,
+  resolved: ResolvedDiagnosticsConsent,
+): boolean {
+  const effectivePreference =
+    preference ?? getDeviceBool("shareDiagnostics", true);
+  if (!effectivePreference) {
+    return false;
+  }
+  return resolved.hasServerRecord ? resolved.diagnosticsEffective : true;
 }
 
 /**
@@ -94,7 +117,13 @@ export function applyExplicitDiagnosticsChoice(
   setShareDiagnostics: (value: boolean) => void,
 ): void {
   applyResolvedDiagnosticsConsent(
-    { shareDiagnostics: value, hasServerRecord: true },
+    // The choice is its own effective verdict until the next sync adopts
+    // the server's.
+    {
+      shareDiagnostics: value,
+      diagnosticsEffective: value,
+      hasServerRecord: true,
+    },
     setShareDiagnostics,
   );
 }

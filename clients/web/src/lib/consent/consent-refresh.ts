@@ -1,12 +1,11 @@
 /**
- * Re-fetch platform diagnostics consent on visibility/focus + a long-interval
- * backstop, so a platform-side revoke is picked up without a fresh login.
- *
- * Everything routes through {@link applyResolvedDiagnosticsConsent} — the single
- * direction-asymmetric chokepoint that writes the saved preference, the
- * effective Sentry gate, and the Electron main-process mirror.
- * A failed/timed-out fetch is swallowed and leaves all diagnostics state
- * unchanged (never flips the gate on or off).
+ * Re-fetch platform consent on visibility/focus + a long-interval backstop,
+ * so a platform-side revoke is picked up without a fresh login. Adopts the
+ * server-effective verdicts for both data-capture gates; diagnostics
+ * additionally routes through {@link applyResolvedDiagnosticsConsent} — the
+ * single direction-asymmetric chokepoint that writes the saved preference and
+ * the effective Sentry gate. A failed/timed-out fetch is swallowed and leaves
+ * all consent state unchanged (never flips a gate on or off).
  */
 import { fetchConsent } from "@/domains/account/profile";
 import { applyResolvedDiagnosticsConsent } from "@/lib/consent/diagnostics-consent";
@@ -46,12 +45,24 @@ export async function refreshDiagnosticsConsent(): Promise<void> {
     // unchanged, matching the failed-fetch posture; the auth resync owns the
     // no-record path.
     if (!resolved.hasServerRecord) return;
+    const store = useOnboardingStore.getState();
+    // Adopt both effective verdicts, mirroring the auth-store sync, so a
+    // platform-side revoke closes the gates without a fresh login. The
+    // pending opt-in clears only once the fetched record REFLECTS it — a
+    // refresh racing the opt-in's in-flight PATCH must not flip uploads
+    // back off on the stale record.
+    if (resolved.shareAnalytics === true) {
+      store.setPendingAnalyticsOptIn(false);
+    }
+    store.setServerAnalyticsEffective(resolved.analyticsEffective);
+    store.setServerDiagnosticsEffective(resolved.diagnosticsEffective);
     applyResolvedDiagnosticsConsent(
       {
         shareDiagnostics: resolved.shareDiagnostics,
+        diagnosticsEffective: resolved.diagnosticsEffective,
         hasServerRecord: resolved.hasServerRecord,
       },
-      useOnboardingStore.getState().setShareDiagnostics,
+      store.setShareDiagnostics,
     );
   } catch {
     // Fetch failed/timed out — leave diagnostics state untouched.
