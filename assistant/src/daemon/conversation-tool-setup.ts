@@ -539,7 +539,7 @@ const CROSS_CLIENT_EXPOSED_CAPABILITIES = new Set<HostProxyCapability>([
   "host_browser",
 ]);
 // Tools that require a connected client but no specific host proxy capability.
-const CLIENT_CAPABILITY_TOOL_NAMES = new Set(["app_open", "ask_question"]);
+const CLIENT_CAPABILITY_TOOL_NAMES = new Set(["ask_question"]);
 const PLATFORM_TOOL_NAMES = new Set(["request_system_permission"]);
 
 /**

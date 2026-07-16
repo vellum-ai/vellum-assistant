@@ -582,19 +582,12 @@ describe("isToolActiveForContext — ask_question macOS gating", () => {
     ).toBe(false);
   });
 
-  test("other client-capability tools (app_open) are NOT affected by the macos gate", () => {
+  test("app_open is skill-owned and not client-capability gated", () => {
+    // The app-builder skill provides app_open; its executor degrades
+    // gracefully when no client is connected, so the context filter does
+    // not hide it even on clientless turns.
     expect(
-      isToolActiveForContext(
-        "app_open",
-        makeCtx({
-          hasNoClient: false,
-          channelCapabilities: {
-            channel: "macos",
-            supportsDynamicUi: true,
-            clientOS: "macos",
-          },
-        }),
-      ),
+      isToolActiveForContext("app_open", makeCtx({ hasNoClient: true })),
     ).toBe(true);
   });
 });

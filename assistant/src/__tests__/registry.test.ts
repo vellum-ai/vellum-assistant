@@ -193,37 +193,26 @@ describe("baseline characterization: hardcoded tool loading", () => {
 });
 
 describe("baseline characterization: core app tool surface", () => {
-  test("non-proxy app tools are NOT in core registry (now skill-provided)", async () => {
+  test("app tools are NOT in core registry (skill-provided)", async () => {
     await initializeTools();
 
-    const nonProxyAppTools = [
+    const appSkillTools = [
       "app_create",
       "app_delete",
       "app_generate_icon",
+      "app_open",
       "app_refresh",
     ];
 
-    for (const name of nonProxyAppTools) {
+    for (const name of appSkillTools) {
       const tool = getTool(name);
       expect(tool).toBeUndefined();
     }
 
     const definitionNames = getAllToolDefinitions().map((def) => def.name);
-    for (const name of nonProxyAppTools) {
+    for (const name of appSkillTools) {
       expect(definitionNames).not.toContain(name);
     }
-  });
-
-  test("core registry includes app_open proxy tool", async () => {
-    await initializeTools();
-
-    const tool = getTool("app_open");
-    expect(tool).toBeDefined();
-
-    // app_open is core-owned (no skill owner) so it flows through
-    // `getAllToolDefinitions()` like any other core tool.
-    const definitionNames = getAllToolDefinitions().map((def) => def.name);
-    expect(definitionNames).toContain("app_open");
   });
 
   test("bundled app-builder skill has TOOLS.json manifest", async () => {
