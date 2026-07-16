@@ -18,28 +18,6 @@ Canonical example: `defaults/image-fallback` — `hooks/init.ts` opens `caption-
 
 Calling the assistant's service APIs from a default plugin (e.g. `persistence/conversation-crud.ts` reads) is fine — the boundary is about _owning state_: plugin tables, plugin migrations, and plugin files belong to the plugin.
 
-## Plugin Execution Context & Credential Scoping
-
-Host APIs that must know _which_ plugin is calling them read the plugin
-currently in context from the `AsyncLocalStorage` in
-`plugin-execution-context.ts`. The context is established around a plugin's hook
-invocation (`pipeline.ts` `runHook`, when `owner.kind === "plugin"`) and around
-a plugin tool's `execute()` (`tools/executor.ts`, when the tool's registry owner
-is a plugin). Standalone workspace hooks and non-plugin tools establish no
-context.
-
-`@vellumai/plugin-api`'s `resolveCredential(ref)` uses this to scope credential
-access: when a plugin is in context, it may only resolve credentials whose
-`field` equals the plugin's manifest name (`resolve-credential.ts`). Outside any
-plugin context the resolver is unscoped (behaves like `assistant credentials
-reveal`).
-
-**When adding a new seam that runs plugin-authored code** (a new hook type, a new
-plugin surface), wrap the invocation in `runInPluginContext(pluginName, …)` so
-scoped host APIs keep enforcing. The context must be set around the call that
-_creates_ the plugin's promise, not around the `await`, so the binding
-propagates across the plugin's internal awaits.
-
 ## Plugin HTTP Routes
 
 A plugin's HTTP routes live on disk under `<pluginDir>/routes/` and are served in the plugin's own namespace at `/x/plugins/<plugin-name>/<path>`. They are **not** a `Plugin` contribution slot and are not wired through the loader or bootstrap — the `/x/*` route dispatcher (`runtime/routes/user-route-dispatcher.ts`) resolves each request against the filesystem at request time, exactly like the workspace `/x/*` user routes it shares code with.
