@@ -36,7 +36,10 @@ import {
 } from "../providers/speech-to-text/provider-catalog.js";
 import type { ResolveStreamingTranscriberOptions } from "../providers/speech-to-text/resolve.js";
 import { publishConversationListAndMetadataChanged } from "../runtime/sync/resource-sync-events.js";
-import { detectPcm16SpeechActivity } from "../stt/speech-energy.js";
+import {
+  DEFAULT_SPEECH_ENERGY_THRESHOLD,
+  pcm16MeanAmplitude,
+} from "../stt/speech-energy.js";
 import type {
   StreamingTranscriber,
   SttStreamServerErrorEvent,
@@ -103,6 +106,10 @@ const FINALIZE_GRACE_MS = 1_000;
 // liveVoice.vad.bargeInMinSpeechMs schema default; 0 disables the guard for
 // instant barge-in.
 const DEFAULT_BARGE_IN_MIN_SPEECH_MS = 250;
+// Echo-adaptive gate knobs (see effectiveSpeechThreshold). Mirror the
+// liveVoice.vad.echoBargeInMargin / echoEmaHalfLifeMs schema defaults.
+const DEFAULT_ECHO_BARGE_IN_MARGIN = 1.5;
+const DEFAULT_ECHO_EMA_HALF_LIFE_MS = 400;
 // At most this many TTS segment jobs are open (provider stream started,
 // frames not yet fully emitted) per turn: the emitting job plus one
 // prefetching job. The prefetch buffers its chunks in memory until promoted;
@@ -188,6 +195,21 @@ export interface LiveVoiceSessionOptions {
    * defaults to `DEFAULT_BARGE_IN_MIN_SPEECH_MS`.
    */
   bargeInMinSpeechMs?: number;
+  /**
+   * Overrides the echo-adaptive gate's margin: the multiplier over the
+   * observed echo-energy EMA that a server-VAD chunk must exceed to count
+   * as speech while assistant audio is playing. The production factory
+   * seeds this from `liveVoice.vad.echoBargeInMargin` config when unset;
+   * defaults to `DEFAULT_ECHO_BARGE_IN_MARGIN`.
+   */
+  echoBargeInMargin?: number;
+  /**
+   * Overrides the half-life (ms) of the echo-energy EMA tracked while
+   * assistant audio is playing. The production factory seeds this from
+   * `liveVoice.vad.echoEmaHalfLifeMs` config when unset; defaults to
+   * `DEFAULT_ECHO_EMA_HALF_LIFE_MS`.
+   */
+  echoEmaHalfLifeMs?: number;
   /**
    * Overrides the bounded wait for the shared transcriber's finalize
    * flush in persistent mode (test hook). Defaults to `FINALIZE_GRACE_MS`.
@@ -372,9 +394,18 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   private sessionEndMetricsEmitted = false;
   // Non-null iff the start frame requested turnDetection "server_vad".
   private readonly turnDetector: MediaTurnDetector | null;
-  // Energy gate for server-VAD speech classification; undefined defers to
-  // DEFAULT_SPEECH_ENERGY_THRESHOLD.
+  // Base energy gate for server-VAD speech classification; undefined defers
+  // to DEFAULT_SPEECH_ENERGY_THRESHOLD. While assistant audio is playing the
+  // effective gate is echo-adaptive (see effectiveSpeechThreshold).
   private readonly speechEnergyThreshold: number | undefined;
+  // Echo-adaptive gate knobs (see effectiveSpeechThreshold): margin over the
+  // echo-energy EMA a chunk must exceed to count as speech during assistant
+  // playback, and that EMA's half-life.
+  private readonly echoBargeInMargin: number;
+  private readonly echoEmaHalfLifeMs: number;
+  // EMA of observed mic-chunk energy while assistant audio is playing (the
+  // echo reference); 0 outside the echo window.
+  private echoEnergyEma = 0;
   // Mutable so a mid-session `update_config` frame can retune "interrupt
   // sensitivity" live (see applyConfigUpdate).
   private bargeInMinSpeechMs: number;
@@ -471,6 +502,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       context.startFrame.bargeInMinSpeechMs ??
       options.bargeInMinSpeechMs ??
       DEFAULT_BARGE_IN_MIN_SPEECH_MS;
+    this.echoBargeInMargin =
+      options.echoBargeInMargin ?? DEFAULT_ECHO_BARGE_IN_MARGIN;
+    this.echoEmaHalfLifeMs =
+      options.echoEmaHalfLifeMs ?? DEFAULT_ECHO_EMA_HALF_LIFE_MS;
     this.finalizeGraceMs = options.finalizeGraceMs ?? FINALIZE_GRACE_MS;
     const turnDetectorConfig: TurnDetectorConfig = {
       ...(options.turnDetectorConfig ?? {}),
@@ -826,10 +861,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       return;
     }
 
-    const hasSpeech = detectPcm16SpeechActivity(
-      chunk,
-      this.speechEnergyThreshold,
-    );
+    const meanAmplitude = pcm16MeanAmplitude(chunk);
+    const hasSpeech =
+      meanAmplitude > this.effectiveSpeechThreshold(chunk, meanAmplitude);
     detector.onMediaChunk(hasSpeech);
     this.trackBargeInGuard(hasSpeech, chunk);
 
@@ -870,6 +904,60 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       await this.routeVadAudio(utterance, preRollChunk);
     }
     await this.routeVadAudio(utterance, chunk);
+  }
+
+  // The echo window: the only time the speakers can be emitting assistant
+  // audio — a turn that has audibly started speaking, or the post-tts_done
+  // drain tail the client is still playing. A thinking (pre-TTS) turn plays
+  // nothing, so it keeps base-threshold sensitivity and pre-TTS barge-in
+  // (JARVIS-1266) is unaffected.
+  private isAssistantAudioPlaying(): boolean {
+    const turn = this.activeAssistantTurn;
+    if (turn?.ttsAudioStarted && !turn.finalized) {
+      return true;
+    }
+    return Date.now() < this.assistantPlaybackTailUntilMs;
+  }
+
+  // Energy gate for classifying a server-VAD chunk as speech. While assistant
+  // audio is playing, the mic hears the assistant's own TTS through imperfect
+  // client echo cancellation, and at high speaker volume that echo exceeds
+  // any fixed threshold — no constant separates loud echo from speech. What
+  // does separate them: genuine user speech adds energy on top of the echo
+  // the mic is already hearing. So during playback the gate tracks an EMA of
+  // observed chunk energy (the echo reference) and only counts a chunk as
+  // speech above echoBargeInMargin × that reference (never below the base
+  // threshold). Steady echo converges into the EMA and cannot clear its own
+  // margin; a user talking over it still does. The EMA freezes while the
+  // sustained-speech guard is armed — the user's own accumulating speech must
+  // not inflate the reference against them — and resets outside the echo
+  // window so a loud turn's reference never leaks into the next one.
+  private effectiveSpeechThreshold(
+    chunk: Buffer,
+    meanAmplitude: number,
+  ): number {
+    const baseThreshold =
+      this.speechEnergyThreshold ?? DEFAULT_SPEECH_ENERGY_THRESHOLD;
+    if (!this.isAssistantAudioPlaying()) {
+      this.echoEnergyEma = 0;
+      return baseThreshold;
+    }
+    // Judge the chunk against the reference as it stood before the chunk
+    // arrived — a chunk must not raise the bar it is judged against.
+    const threshold = Math.max(
+      baseThreshold,
+      this.echoBargeInMargin * this.echoEnergyEma,
+    );
+    if (this.pendingBargeIn === null) {
+      const chunkMs = pcm16DurationMs(
+        chunk.byteLength,
+        this.context.startFrame.audio.sampleRate,
+      );
+      const alpha = 1 - 0.5 ** (chunkMs / this.echoEmaHalfLifeMs);
+      this.echoEnergyEma =
+        alpha * meanAmplitude + (1 - alpha) * this.echoEnergyEma;
+    }
+    return threshold;
   }
 
   private async routeVadAudio(
@@ -2792,6 +2880,10 @@ export function createLiveVoiceSession(
       options.speechEnergyThreshold ?? vadConfig?.speechEnergyThreshold,
     bargeInMinSpeechMs:
       options.bargeInMinSpeechMs ?? vadConfig?.bargeInMinSpeechMs,
+    echoBargeInMargin:
+      options.echoBargeInMargin ?? vadConfig?.echoBargeInMargin,
+    echoEmaHalfLifeMs:
+      options.echoEmaHalfLifeMs ?? vadConfig?.echoEmaHalfLifeMs,
     resolveCredentialReadiness:
       options.resolveCredentialReadiness === undefined
         ? defaultResolveLiveVoiceCredentialReadiness
