@@ -1,4 +1,4 @@
-import { Download, ExternalLink, FileText, Loader2 } from "lucide-react";
+import { Download, ExternalLink, Loader2 } from "lucide-react";
 import { useState } from "react";
 
 import { useQuery } from "@tanstack/react-query";
