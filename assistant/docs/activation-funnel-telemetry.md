@@ -53,8 +53,9 @@ Flow, end to end:
    - emission is best-effort (wrapped in try/catch) and never blocks or alters
      the surface-action flow;
    - `recordActivationEvent` respects the platform `share_analytics` consent gate
-     via `getCachedShareAnalytics()` (returns `null` / no row when the platform
-     user has not consented; default-off when there is no platform session).
+     via `getRawShareAnalytics()`: only a confirmed opt-out (`false`) drops the
+     event; an `"unknown"` state (cold cache, no platform session) records and
+     lets the flush/ingest gates enforce consent before anything ships.
 2. **Reporter flushes** every ~5 min: `usage-telemetry-reporter.ts`
    (`REPORT_INTERVAL_MS = 5 * 60 * 1000`, with a one-time
    `INITIAL_FLUSH_DELAY_MS = 30_000` after startup) POSTs queued onboarding
@@ -180,10 +181,11 @@ the conversation in `activation_sessions` on first build of the system prompt.
 Two distinct concerns: whether record-time rows reach SQLite (consent gate), and
 whether those rows reach BigQuery (flush gate, dev-disabled).
 
-1. `recordActivationEvent` no-ops when the platform `share_analytics` consent is
-   off (it reads `getCachedShareAnalytics()`), and the consent is **default-off
-   when there is no platform session**. So the dev session must be signed in to
-   the platform with `share_analytics` consent enabled, or no rows are written to
+1. `recordActivationEvent` no-ops only on a confirmed `share_analytics` opt-out
+   (it reads `getRawShareAnalytics()`); an `"unknown"` state records, but the
+   flush defers until consent resolves. So for rows to actually SHIP, the dev
+   session must be signed in to
+   the platform with `share_analytics` consent enabled, or no rows reach
    SQLite. The consent cache is refreshed by `startConsentRefresh()` in
    `assistant/src/daemon/lifecycle.ts`, which runs **regardless of dev mode** — so
    a dev session signed in with `share_analytics` consent enabled writes

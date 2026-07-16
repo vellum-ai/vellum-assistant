@@ -294,9 +294,11 @@ function buildDeviceConsentBackfill(axes: {
   diagnostics: boolean;
   shareValues?: { analytics: boolean | null; diagnostics: boolean | null };
 }): ConsentPatch {
-  // Stamps come from the adopted required versions (server-supplied when the
-  // preceding resolveServerConsent saw them, frozen constants otherwise) so a
-  // server-side version bump is never backfilled with a stale stamp.
+  // Legal and diagnostics stamps come from the adopted required versions
+  // (server-supplied when the preceding resolveServerConsent saw them, frozen
+  // constants otherwise) — their device acks were validated against those
+  // requirements, so a server-side version bump is never backfilled with a
+  // stale stamp. Analytics is the deliberate exception below.
   const required = getRequiredConsentVersions();
   return {
     ...(axes.tos ? { tos_accepted_version: required.tos } : {}),
