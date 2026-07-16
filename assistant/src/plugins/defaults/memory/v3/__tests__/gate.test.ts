@@ -10,12 +10,10 @@ import {
 import type { SectionNeedleScoredHit } from "../section-needle.js";
 
 /**
- * The SHIPPED `memory.v3.gate` tuning, parsed from the schema rather than
- * restated. A hand-copied set lived here and drifted when the schema was
- * retuned, leaving every threshold path below asserting against numbers
- * production never used — the tests stayed green and stopped meaning anything.
- * Parsing keeps them honest by construction; `parse({})` to materialize the
- * defaults is the same idiom the schema itself uses to seed `memory.v3.gate`.
+ * The SHIPPED `memory.v3.gate` tuning. Parsed from the schema, never restated:
+ * a hardcoded copy can diverge from the defaults silently, leaving these tests
+ * green while asserting against thresholds nothing runs. `parse({})` is the same
+ * idiom the schema uses to seed `memory.v3.gate`.
  *
  * The score fixtures below are chosen relative to these values, so retuning a
  * default may require revisiting them. That is intended: a threshold move
