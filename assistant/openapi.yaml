@@ -29066,6 +29066,70 @@ paths:
                       - flushed
                       - reason
                     additionalProperties: false
+  /v1/telemetry/ingest:
+    post:
+      operationId: telemetry_ingest_post
+      summary: Record a client-reportable telemetry event
+      description:
+        "Record any client-reportable outbox-backed telemetry event by its wire `type` + `fields`.
+        Client-orchestrated: for events the daemon can't observe on its own (e.g. onboarding_research). The type must be
+        on the daemon's client-reportable allowlist and the payload must pass the platform wire schema. Gated on
+        share_analytics consent like every other outbox-backed event; the platform re-checks the owner's consent
+        server-side at ingest."
+      tags:
+        - telemetry
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                type:
+                  type: string
+                  description: Wire event type; must be a client-reportable telemetry event.
+                fields:
+                  type: object
+                  propertyNames:
+                    type: string
+                  additionalProperties: {}
+                  description:
+                    Wire event fields, excluding the daemon-stamped base fields (type, daemon_event_id, recorded_at,
+                    assistant_version).
+                daemon_event_id:
+                  description:
+                    "Optional collapse key: rows sharing an id collapse downstream (e.g. a retried report). Defaults to a fresh
+                    per-row id."
+                  type: string
+                  minLength: 1
+                  maxLength: 128
+              required:
+                - type
+                - fields
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      id:
+                        type: string
+                        description: Event ID
+                    required:
+                      - id
+                    additionalProperties: false
+                  - type: object
+                    properties:
+                      skipped:
+                        type: boolean
+                        const: true
+                        description: "Event skipped: usage data collection is disabled or the telemetry database is unavailable"
+                    required:
+                      - skipped
+                    additionalProperties: false
   /v1/telemetry/lifecycle:
     post:
       operationId: telemetry_lifecycle_post
@@ -29109,113 +29173,6 @@ paths:
                         type: boolean
                         const: true
                         description: Event skipped due to usage data collection being disabled
-                    required:
-                      - skipped
-                    additionalProperties: false
-  /v1/telemetry/onboarding-research:
-    post:
-      operationId: telemetry_onboardingresearch_post
-      summary: Record onboarding-research event
-      description:
-        'Record the settled result of an onboarding "research me" web-search turn (claims, suggestions, and
-        plugin picks). Client-orchestrated: the web client reports this once it has observed the turn complete. Gated on
-        share_analytics consent like every other outbox-backed event; the platform re-checks the owner''s consent
-        server-side at ingest.'
-      tags:
-        - telemetry
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                conversation_id:
-                  anyOf:
-                    - type: string
-                    - type: "null"
-                status:
-                  type: string
-                  enum:
-                    - done
-                    - error
-                self_reported_occupation:
-                  type: string
-                self_reported_hobbies:
-                  type: array
-                  items:
-                    type: string
-                self_reported_timezone:
-                  type: string
-                claims:
-                  type: array
-                  items:
-                    type: object
-                    properties:
-                      claim:
-                        type: string
-                      confidence:
-                        type: string
-                        enum:
-                          - confident
-                          - maybe
-                          - guessing
-                      sources:
-                        type: array
-                        items:
-                          type: string
-                    required:
-                      - claim
-                      - confidence
-                      - sources
-                suggestions:
-                  type: array
-                  items:
-                    type: object
-                    properties:
-                      suggestion:
-                        type: string
-                      prompt:
-                        type: string
-                    required:
-                      - suggestion
-                      - prompt
-                plugins:
-                  type: array
-                  items:
-                    type: string
-                installed_plugins:
-                  type: array
-                  items:
-                    type: string
-              required:
-                - conversation_id
-                - status
-                - claims
-                - suggestions
-                - plugins
-                - installed_plugins
-      responses:
-        "200":
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                anyOf:
-                  - type: object
-                    properties:
-                      id:
-                        type: string
-                        description: Event ID
-                    required:
-                      - id
-                    additionalProperties: false
-                  - type: object
-                    properties:
-                      skipped:
-                        type: boolean
-                        const: true
-                        description: "Event skipped: usage data collection is disabled or the telemetry database is unavailable"
                     required:
                       - skipped
                     additionalProperties: false

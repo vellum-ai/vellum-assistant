@@ -47,6 +47,16 @@ export function resetUnknownTypeWarningsForTests(): void {
 }
 
 /**
+ * Per-event-type wire schema for one `type` discriminant, or undefined when the
+ * platform contract has no serializer for it. Lets the client-ingest boundary
+ * (`POST /v1/telemetry/ingest`) reject a malformed payload up front with the
+ * same schema pre-flush validation would have logged a silent drop for.
+ */
+export function getWireSchemaForType(type: string): z.ZodType | undefined {
+  return wireSchemaByType.get(type);
+}
+
+/**
  * Render a zod issue path for logging without leaking dynamic record keys.
  *
  * Rule: keep numeric components (array indices — structural, never data) and

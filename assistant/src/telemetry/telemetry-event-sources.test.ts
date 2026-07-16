@@ -6,7 +6,7 @@
  */
 import { beforeEach, describe, expect, test } from "bun:test";
 
-import { recordOnboardingResearchEvent } from "../onboarding/onboarding-research-events-store.js";
+import { recordTelemetryEvent } from "./telemetry-events-outbox.js";
 import {
   pendingOutboxRows,
   resetOutboxTable,
@@ -131,14 +131,23 @@ describe("onboarding_research source: flushes via the default outbox source", ()
   }
 
   function recordSample(): void {
-    recordOnboardingResearchEvent({
-      conversationId: "conv-x",
-      status: "done",
-      claims: [],
-      suggestions: [],
-      plugins: [],
-      installedPlugins: [],
-    });
+    recordTelemetryEvent(
+      "onboarding_research",
+      {
+        conversation_id: "conv-x",
+        status: "done",
+        claims: [],
+        claim_count: 0,
+        claims_confident: 0,
+        claims_maybe: 0,
+        claims_guessing: 0,
+        suggestions: [],
+        suggestion_count: 0,
+        plugins: [],
+        installed_plugins: [],
+      },
+      { conversationId: "conv-x" },
+    );
   }
 
   test("ships pending rows regardless of diagnostics consent, like every other outbox event", () => {
