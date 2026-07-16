@@ -5,6 +5,10 @@ import { subcommand } from "../../lib/cli-command-help.js";
 import { openInHostBrowser } from "../../lib/open-browser.js";
 import { getCliLogger } from "../../logger.js";
 import { shouldOutputJson, writeOutput } from "../../output.js";
+import {
+  buildOAuthConnectSurfaceRedirect,
+  isModelSpawnedConversationShell,
+} from "./connect-surface-guidance.js";
 
 const log = getCliLogger("cli");
 
@@ -125,7 +129,9 @@ export function registerConnectCommand(oauth: Command): void {
             queryParams: { provider },
           });
 
-          if (!modeResult.ok) return exitFromIpcResult(modeResult);
+          if (!modeResult.ok) {
+            return exitFromIpcResult(modeResult);
+          }
 
           const managed = modeResult.result?.mode === "managed";
 
@@ -133,6 +139,13 @@ export function registerConnectCommand(oauth: Command): void {
             // =============================================================
             // MANAGED PATH
             // =============================================================
+
+            if (isModelSpawnedConversationShell()) {
+              const redirect = buildOAuthConnectSurfaceRedirect(provider);
+              writeOutput(cmd, redirect);
+              process.exitCode = 1;
+              return;
+            }
 
             if (opts.clientId) {
               log.info(
@@ -152,7 +165,9 @@ export function registerConnectCommand(oauth: Command): void {
               body: startBody,
             });
 
-            if (!startResult.ok) return exitFromIpcResult(startResult);
+            if (!startResult.ok) {
+              return exitFromIpcResult(startResult);
+            }
 
             const connectUrl = startResult.result!.connect_url;
 
@@ -169,7 +184,9 @@ export function registerConnectCommand(oauth: Command): void {
                 queryParams: { provider },
               });
 
-              if (!snapshotResult.ok) return exitFromIpcResult(snapshotResult);
+              if (!snapshotResult.ok) {
+                return exitFromIpcResult(snapshotResult);
+              }
 
               const snapshotIds = new Set(
                 (snapshotResult.result?.connections ?? []).map((e) => e.id),
@@ -207,7 +224,9 @@ export function registerConnectCommand(oauth: Command): void {
                   queryParams: { provider },
                 });
 
-                if (!currentResult.ok || !currentResult.result) continue;
+                if (!currentResult.ok || !currentResult.result) {
+                  continue;
+                }
 
                 const found = currentResult.result.connections.find(
                   (e) => !snapshotIds.has(e.id),
@@ -282,8 +301,12 @@ export function registerConnectCommand(oauth: Command): void {
               service: provider,
               callbackTransport: opts.callbackTransport,
             };
-            if (opts.clientId) startBody.clientId = opts.clientId;
-            if (opts.scopes) startBody.requestedScopes = opts.scopes;
+            if (opts.clientId) {
+              startBody.clientId = opts.clientId;
+            }
+            if (opts.scopes) {
+              startBody.requestedScopes = opts.scopes;
+            }
 
             const startResult = await cliIpcCall<{
               auth_url: string;
