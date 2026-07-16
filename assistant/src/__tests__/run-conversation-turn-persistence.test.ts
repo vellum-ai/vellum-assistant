@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import {
   createConversation,
+  ensureConversationExists,
   getConversation,
 } from "../persistence/conversation-crud.js";
 import { getDb } from "../persistence/db-connection.js";
@@ -25,22 +26,38 @@ mock.module("../runtime/sync/resource-sync-events.js", () => ({
 // Stub the heavy machinery: the in-memory conversation build (provider wiring,
 // system prompt, history hydration) and the SSE event fan-out. The agent turn
 // itself is a no-op — this test only asserts that the `conversations` row is
-// persisted before the turn runs, which is what `ensureConversationExists`
-// guarantees. The persistence module is intentionally NOT mocked so the real
-// `ensureConversationExists` runs against the real DB.
+// persisted before the turn runs. The real `getOrCreateConversation` now
+// creates the DB row before hydrating, so the mock mirrors that by calling
+// `ensureConversationExists`. The persistence module is intentionally NOT
+// mocked so the real `ensureConversationExists` runs against the real DB.
 let lastProcessMessageConversationId: string | undefined;
 mock.module("../daemon/conversation-store.js", () => ({
-  getOrCreateConversation: async (conversationId: string) => ({
-    abortController: undefined,
-    isProcessing: () => false,
-    async processMessage() {
-      // The row must already exist by the time the turn persists its user
-      // message — record the id so the FK precondition can be asserted.
-      lastProcessMessageConversationId = conversationId;
-      return "user-message-id";
-    },
-    enqueueMessage: () => ({ rejected: false }),
-  }),
+  getOrCreateConversation: async (
+    conversationId: string,
+    options?: { conversationType?: string },
+  ) => {
+    if (!getConversation(conversationId)) {
+      if (options?.conversationType) {
+        createConversation({
+          id: conversationId,
+          conversationType: options.conversationType as "standard" | "background",
+        });
+      } else {
+        ensureConversationExists(conversationId);
+      }
+    }
+    return {
+      abortController: undefined,
+      isProcessing: () => false,
+      async processMessage() {
+        // The row must already exist by the time the turn persists its user
+        // message — record the id so the FK precondition can be asserted.
+        lastProcessMessageConversationId = conversationId;
+        return "user-message-id";
+      },
+      enqueueMessage: () => ({ rejected: false }),
+    };
+  },
 }));
 
 mock.module("../runtime/assistant-event-hub.js", () => ({

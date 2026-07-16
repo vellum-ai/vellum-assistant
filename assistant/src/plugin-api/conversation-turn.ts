@@ -143,12 +143,13 @@ export async function runConversationTurn(
     await import("../runtime/assistant-event-hub.js");
   const { resolveMediaSourceData } =
     await import("../providers/media-resolve.js");
-  const { getMessageById, getMessages } =
+  const { getConversation, getMessageById, getMessages } =
       await import("../persistence/conversation-crud.js");
   const { publishConversationListAndMetadataChanged } =
       await import("../runtime/sync/resource-sync-events.js");
 
   const conversationId = options.conversationId ?? uuidv7();
+  const rowExisted = getConversation(conversationId) != null;
   const conversation = await getOrCreateConversation(conversationId, {
     ...(options.conversationType
       ? { conversationType: options.conversationType }
@@ -158,9 +159,11 @@ export async function runConversationTurn(
   // `getOrCreateConversation` creates the DB row (with conversationType if
   // provided) before hydrating. The normal send-message route emits a
   // "created" list invalidation so sibling clients/sidebars learn about new
-  // conversations — emit it here too so background/plugin conversations
-  // appear without waiting for a reload.
-  publishConversationListAndMetadataChanged("created", conversationId);
+  // conversations — emit it here too, but only when the row is actually new
+  // so we don't spam invalidations for existing conversations.
+  if (!rowExisted) {
+    publishConversationListAndMetadataChanged("created", conversationId);
+  }
 
   // Wire the external abort signal to the conversation's internal abort
   // controller so aborting the signal terminates the in-flight agent loop.
