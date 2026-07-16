@@ -54,6 +54,7 @@ export function ConnectClaudePanel({
             {pasteInstructions}
           </Typography>
           <Input
+            type="password"
             value={pastedCode}
             onChange={(e) => onPastedCodeChange(e.target.value)}
             placeholder="Paste code here..."
@@ -66,7 +67,7 @@ export function ConnectClaudePanel({
               disabled={!pastedCode.trim()}
               onClick={() => void submitPastedCode(pastedCode)}
             >
-              Complete Connection
+              Save
             </Button>
           </div>
         </div>
