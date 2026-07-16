@@ -43,7 +43,10 @@ const COPY: Record<NavGateItemId, NavGateItemCopy> = {
         buttons: [
           {
             label: "Build something",
-            action: { kind: "prefill", text: "Let's build " },
+            action: {
+              kind: "send",
+              text: "I want to build something. Let's talk about what.",
+            },
           },
           {
             label: "Like what?",
@@ -59,7 +62,10 @@ const COPY: Record<NavGateItemId, NavGateItemCopy> = {
         buttons: [
           {
             label: "Let's build something",
-            action: { kind: "prefill", text: "Let's build " },
+            action: {
+              kind: "send",
+              text: "I want to build something. Let's talk about what.",
+            },
           },
           {
             label: "Show me examples",
