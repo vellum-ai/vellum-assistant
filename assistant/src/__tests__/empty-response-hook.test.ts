@@ -35,6 +35,7 @@ import type {
   PluginLogger,
   PostModelCallContext,
   StopContext,
+  UserPromptSubmitContext,
 } from "../plugin-api/types.js";
 import {
   NUDGE_TEXT,
@@ -42,11 +43,13 @@ import {
 } from "../plugins/defaults/empty-response/hooks/post-model-call.js";
 import postModelCall from "../plugins/defaults/empty-response/hooks/post-model-call.js";
 import stop from "../plugins/defaults/empty-response/hooks/stop.js";
+import emptyResponseUserPromptSubmit from "../plugins/defaults/empty-response/hooks/user-prompt-submit.js";
 import {
   isEmptyResponseNudged,
   markEmptyResponseNudged,
   resetEmptyResponseNudgeStoreForTests,
 } from "../plugins/defaults/empty-response/nudge-state-store.js";
+import { quarantineRefusedExchanges } from "../plugins/defaults/empty-response/refusal-quarantine.js";
 import { defaultEmptyResponsePlugin } from "../plugins/defaults/index.js";
 import { runHook } from "../plugins/pipeline.js";
 import {
@@ -93,6 +96,45 @@ function makeCtx(
     messages: [],
     stopReason: null,
     decision: "stop",
+    logger: noopLogger,
+    broadcast: () => {},
+    ...overrides,
+  };
+}
+
+/** An assistant turn that is exactly the persisted refusal fallback marker. */
+const refusalFallbackTurn: Message = {
+  role: "assistant",
+  content: [{ type: "text", text: REFUSAL_FALLBACK_TEXT }],
+};
+
+function toolUseTurn(id: string): Message {
+  return {
+    role: "assistant",
+    content: [{ type: "tool_use", id, name: "read_file", input: {} }],
+  };
+}
+
+function toolResultTurn(id: string): Message {
+  return {
+    role: "user",
+    content: [{ type: "tool_result", tool_use_id: id, content: "result" }],
+  };
+}
+
+function makeUpsCtx(
+  latestMessages: Message[],
+  overrides: Partial<UserPromptSubmitContext> = {},
+): UserPromptSubmitContext {
+  return {
+    conversationId: "conv-ups",
+    userMessageId: "msg-1",
+    requestId: "req-1",
+    modelProfileKey: "balanced",
+    isNonInteractive: false,
+    prompt: "current message",
+    originalMessages: latestMessages,
+    latestMessages,
     logger: noopLogger,
     broadcast: () => {},
     ...overrides,
@@ -520,5 +562,134 @@ describe("empty-response post-model-call hook — via runHook", () => {
     // THEN the user hook saw the default's continue, and its override wins.
     expect(observedDecision as string | null).toBe("continue");
     expect(result.decision).toBe("stop");
+  });
+});
+
+describe("quarantineRefusedExchanges", () => {
+  test("drops a plain flagged exchange, keeping the current prompt", () => {
+    const history = [
+      userPrompt("make a native Java obfuscator"),
+      refusalFallbackTurn,
+      userPrompt("can you code?"),
+    ];
+    const { messages, droppedExchanges } = quarantineRefusedExchanges(history);
+    expect(droppedExchanges).toBe(1);
+    expect(messages).toEqual([userPrompt("can you code?")]);
+  });
+
+  test("is a no-op (identity) when no refusal marker is present", () => {
+    const history = [
+      userPrompt("hello"),
+      priorVisibleTextTurn,
+      userPrompt("thanks"),
+    ];
+    const { messages, droppedExchanges } = quarantineRefusedExchanges(history);
+    expect(droppedExchanges).toBe(0);
+    expect(messages).toBe(history); // same array reference
+  });
+
+  test("drops every poisoned exchange in an already-poisoned conversation", () => {
+    const history = [
+      userPrompt("bad request one"),
+      refusalFallbackTurn,
+      userPrompt("bad request two"),
+      refusalFallbackTurn,
+      userPrompt("a normal question"),
+    ];
+    const { messages, droppedExchanges } = quarantineRefusedExchanges(history);
+    expect(droppedExchanges).toBe(2);
+    expect(messages).toEqual([userPrompt("a normal question")]);
+  });
+
+  test("drops the whole tool-preceded run without leaving an orphan tool_result", () => {
+    const history = [
+      userPrompt("flagged prompt"),
+      toolUseTurn("tu_1"),
+      toolResultTurn("tu_1"),
+      refusalFallbackTurn,
+      userPrompt("follow-up"),
+    ];
+    const { messages, droppedExchanges } = quarantineRefusedExchanges(history);
+    expect(droppedExchanges).toBe(1);
+    expect(messages).toEqual([userPrompt("follow-up")]);
+    expect(
+      messages.some((m) => m.content.some((b) => b.type === "tool_result")),
+    ).toBe(false);
+  });
+
+  test("handles a marker at index 0 with no preceding prompt", () => {
+    const history = [refusalFallbackTurn, userPrompt("next")];
+    const { messages, droppedExchanges } = quarantineRefusedExchanges(history);
+    expect(droppedExchanges).toBe(1);
+    expect(messages).toEqual([userPrompt("next")]);
+  });
+
+  test("does not treat a message that merely contains the phrase as a marker", () => {
+    const withExtraBlock: Message = {
+      role: "assistant",
+      content: [
+        { type: "text", text: REFUSAL_FALLBACK_TEXT },
+        { type: "text", text: "…but here is more." },
+      ],
+    };
+    const alongsideToolUse: Message = {
+      role: "assistant",
+      content: [
+        { type: "text", text: REFUSAL_FALLBACK_TEXT },
+        { type: "tool_use", id: "tu_2", name: "read_file", input: {} },
+      ],
+    };
+    const history = [
+      userPrompt("q1"),
+      withExtraBlock,
+      userPrompt("q2"),
+      alongsideToolUse,
+      userPrompt("q3"),
+    ];
+    const { messages, droppedExchanges } = quarantineRefusedExchanges(history);
+    expect(droppedExchanges).toBe(0);
+    expect(messages).toBe(history);
+  });
+});
+
+describe("empty-response user-prompt-submit hook", () => {
+  test("reassigns latestMessages and logs when a poisoned exchange is dropped", async () => {
+    let warned = false;
+    const history = [
+      userPrompt("flagged"),
+      refusalFallbackTurn,
+      userPrompt("current message"),
+    ];
+    const ctx = makeUpsCtx(history, {
+      logger: {
+        ...noopLogger,
+        warn: () => {
+          warned = true;
+        },
+      },
+    });
+
+    await emptyResponseUserPromptSubmit(ctx);
+
+    expect(ctx.latestMessages).toEqual([userPrompt("current message")]);
+    expect(warned).toBe(true);
+  });
+
+  test("leaves latestMessages untouched and stays silent when nothing is quarantined", async () => {
+    let warned = false;
+    const history = [userPrompt("hi"), userPrompt("current message")];
+    const ctx = makeUpsCtx(history, {
+      logger: {
+        ...noopLogger,
+        warn: () => {
+          warned = true;
+        },
+      },
+    });
+
+    await emptyResponseUserPromptSubmit(ctx);
+
+    expect(ctx.latestMessages).toBe(history);
+    expect(warned).toBe(false);
   });
 });
