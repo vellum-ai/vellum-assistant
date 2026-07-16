@@ -1,11 +1,14 @@
 /**
- * Tests for the PlanCard: verifies the plan name, renewal text, and action
- * button render correctly. The card no longer shows a credit bundle label or
- * an invoices button (invoices moved to an inline table on the billing page).
+ * Tests for the PlanCard: verifies the plan name, renewal text, the action
+ * button (now in the plan row), and the recommended-upgrade banner render
+ * correctly. The card no longer shows a credit bundle label or an invoices
+ * button (invoices moved to an inline table on the billing page).
  *
  * Strategy: pre-populate the React Query cache so the card's `useQuery` calls
  * resolve synchronously — `renderToStaticMarkup` is single-pass, so a pending
- * query would otherwise report `isLoading` and render the spinner.
+ * query would otherwise report `isLoading` and render the spinner. The avatar
+ * compositor loads lazily via `useEffect`, which doesn't fire under
+ * `renderToStaticMarkup`, so avatars render as same-size placeholders here.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -89,5 +92,26 @@ describe("PlanCard", () => {
   test("does not render the invoices button (moved to inline table)", () => {
     const html = renderCard(baseSubscription(), basePlansResponse());
     expect(html).not.toContain("plan-card-invoices-button");
+  });
+
+  test("renders the recommended-upgrade banner (Mighty from Free)", () => {
+    const html = renderCard(baseSubscription(), basePlansResponse());
+    expect(html).toContain("recommended-upgrade-button");
+    expect(html).toContain("Recommended Upgrade");
+    expect(html).toContain("Mighty");
+  });
+
+  test("delta labels are data-faithful (no bogus arrows, no fake 'Standard')", () => {
+    const html = renderCard(baseSubscription(), basePlansResponse());
+    // Mighty keeps the standard machine (machine_size null): the machine and
+    // vCPU chips must show a bare value, not an invented "X → Y" arrow, and
+    // never the literal word "Standard" as a fake upgrade target. (The `'` in
+    // "vCPU's" is HTML-escaped by renderToStaticMarkup, so match the stem.)
+    expect(html).toContain("Small Machine");
+    expect(html).toContain("2 vCPU");
+    expect(html).not.toContain("Small →");
+    expect(html).not.toContain("Standard");
+    // Storage really changes 0 → 10 GB, so the arrow form is kept.
+    expect(html).toContain("0 → 10 GB");
   });
 });

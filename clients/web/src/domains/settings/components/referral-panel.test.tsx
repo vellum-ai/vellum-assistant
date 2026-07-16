@@ -20,9 +20,7 @@ import { ReferralPanel } from "./referral-panel";
 
 const NOTICE_COPY = "not currently earning referral credits";
 
-function referralData(
-  isEligibleForCredits: boolean,
-): MyReferralCodeResponse {
+function referralData(isEligibleForCredits: boolean): MyReferralCodeResponse {
   return {
     code: "ABC123",
     referral_url: "https://vellum.ai/r/ABC123",
@@ -57,9 +55,11 @@ describe("ReferralPanel credit eligibility", () => {
     const html = renderPanel(false);
     expect(html).toContain(NOTICE_COPY);
     expect(html).toContain("Invite friends to Vellum.");
-    // Stats and copy link still render.
+    // Stat chips and both actions still render.
     expect(html).toContain("Credits Earned");
     expect(html).toContain("Friends Referred");
+    expect(html).toContain("referral-view-button");
+    expect(html).toContain("View Referrals");
     expect(html).toContain("referral-copy-button");
   });
 
@@ -69,6 +69,8 @@ describe("ReferralPanel credit eligibility", () => {
     expect(html).not.toContain("Invite friends to Vellum.");
     expect(html).toContain("Share Vellum with friends");
     expect(html).toContain("Credits Earned");
+    expect(html).toContain("referral-view-button");
+    expect(html).toContain("View Referrals");
     expect(html).toContain("referral-copy-button");
   });
 });

@@ -1,4 +1,4 @@
-import { Bolt, Info, X } from "lucide-react";
+import { Info, X } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 
@@ -493,39 +493,34 @@ export function AutoTopUpCard() {
         <div className="overflow-hidden">
           <div className="mt-3 flex flex-col gap-3">
             {!bannerDismissed && (
-              <div className="flex items-start justify-between gap-3 rounded-lg bg-[var(--system-mid-strong)] p-3">
-                <div className="flex items-start gap-2">
-                  <Info className="mt-0.5 h-4 w-4 shrink-0 text-[#E9AB17]" aria-hidden="true" />
+              <div className="flex h-8 items-center justify-between gap-3 rounded-lg bg-[var(--system-mid-weak)] px-2">
+                <div className="flex min-w-0 items-center gap-2">
+                  <Info
+                    className="h-4 w-4 shrink-0 text-[var(--system-mid-strong)]"
+                    aria-hidden="true"
+                  />
                   <Typography
                     variant="body-medium-default"
-                    className="text-[#E9AB17]"
+                    className="truncate text-[var(--system-mid-strong)]"
                   >
                     Extra usage requires you to connect a credit card.
                   </Typography>
                 </div>
-                <div className="flex shrink-0 items-center gap-2">
-                  <Typography
-                    variant="body-small-emphasised"
-                    className="text-[#E9AB17]"
-                  >
-                    ACTION
-                  </Typography>
-                  <button
-                    type="button"
-                    aria-label="Dismiss"
-                    onClick={() => setBannerDismissed(true)}
-                    className="flex shrink-0 cursor-pointer items-center justify-center rounded p-0.5 text-[#E9AB17] opacity-70 transition-opacity hover:opacity-100"
-                  >
-                    <X className="h-2.5 w-2.5" strokeWidth={2} aria-hidden="true" />
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  aria-label="Dismiss"
+                  onClick={() => setBannerDismissed(true)}
+                  className="flex shrink-0 cursor-pointer items-center justify-center rounded p-0.5 text-[var(--system-mid-strong)] opacity-70 transition-opacity hover:opacity-100"
+                >
+                  <X className="h-2.5 w-2.5" strokeWidth={2} aria-hidden="true" />
+                </button>
               </div>
             )}
             <Button
               variant="primary"
-              leftIcon={<Bolt className="h-4 w-4" />}
               onClick={() => setPmModalOpen(true)}
               data-testid="auto-top-up-add-pm-button"
+              className="self-start"
             >
               Add a Credit Card
             </Button>

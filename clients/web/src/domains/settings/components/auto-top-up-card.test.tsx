@@ -176,12 +176,39 @@ describe("AutoTopUpCard enable gate", () => {
       container.querySelector('[data-testid="auto-top-up-add-pm-button"]');
     const toggle = getByLabelText("Enable Extra Usage");
 
-    expect(addPmButton()).toBeNull();
+    // The add-a-card button stays mounted inside the collapse-animation
+    // wrapper, so it is always in the DOM; the toggle starting unchecked is
+    // the pre-condition the click flips.
+    expect(toggle.getAttribute("aria-checked")).toBe("false");
 
     fireEvent.click(toggle);
 
     expect(toggle.getAttribute("aria-checked")).toBe("true");
     expect(addPmButton()).not.toBeNull();
     expect(form()).toBeNull();
+  });
+
+  test("the no-payment-method banner shows the connect-card notice without the ACTION placeholder", () => {
+    // The banner renders the connect-a-card copy and only a dismiss control —
+    // never the Figma component's empty actions-slot "ACTION" placeholder.
+    const config: AutoTopUpConfigResponse = {
+      ...DISABLED_CONFIG,
+      enabled: false,
+      has_payment_method: false,
+      disabled_due_to_repeated_failures: false,
+    };
+
+    const { container, getByLabelText } = render(
+      <QueryClientProvider client={makeClient(config)}>
+        <AutoTopUpCard />
+      </QueryClientProvider>,
+    );
+
+    fireEvent.click(getByLabelText("Enable Extra Usage"));
+
+    expect(container.textContent).toContain(
+      "Extra usage requires you to connect a credit card.",
+    );
+    expect(container.textContent).not.toContain("ACTION");
   });
 });

@@ -1,4 +1,4 @@
-import { Coins, Loader2, Plus } from "lucide-react";
+import { Coins, Loader2 } from "lucide-react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -104,16 +104,16 @@ export function BillingPanel() {
                 <Typography
                     as="h2"
                     variant="title-medium"
-                    className="text-[var(--content-default)]"
+                    className="text-[var(--content-emphasised)]"
                 >
                     Credit Balance
                 </Typography>
                 <Typography
                     as="p"
-                    variant="body-small-default"
+                    variant="body-medium-default"
                     className="mt-2 text-[var(--content-tertiary)]"
                 >
-                    Quick overview of your balances and other things.
+                    Quick overview of your balances and other things
                 </Typography>
             </div>
             <Button
@@ -190,10 +190,7 @@ export function BillingPanel() {
             <Card padding="md">
                 {creditBalanceHeader}
                 {renderBalanceBody()}
-                <div className="mt-6 border-t border-[var(--border-base)] pt-6">
-                    <AutoTopUpCard />
-                </div>
-                <div className="mt-6 border-t border-[var(--border-base)] pt-6">
+                <div className="mt-6">
                     <div className="flex flex-col gap-4">
                         <Toggle
                             checked={lowBalanceExpanded}
@@ -202,6 +199,9 @@ export function BillingPanel() {
                         />
                         {lowBalanceExpanded && <LowBalanceAlertCard />}
                     </div>
+                </div>
+                <div className="mt-6 border-t border-[var(--border-base)] pt-6">
+                    <AutoTopUpCard />
                 </div>
             </Card>
 

@@ -12,6 +12,7 @@ import { useState } from "react";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
+import { AvatarRenderer } from "@/components/avatar-renderer";
 import {
     nextPackageUp,
     PACKAGE_PRESETS,
@@ -35,10 +36,12 @@ import type {
 } from "@/generated/api/types.gen";
 import { SIZE_DESCRIPTION, SIZE_LABEL } from "@/lib/billing/machine-sizes";
 import { openUrl } from "@/runtime/browser";
+import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
 import type { ButtonProps } from "@vellumai/design-library/components/button";
 import { Button } from "@vellumai/design-library/components/button";
 import { Card } from "@vellumai/design-library/components/card";
 import { Notice } from "@vellumai/design-library/components/notice";
+import { Tag } from "@vellumai/design-library/components/tag";
 import { Typography } from "@vellumai/design-library/components/typography";
 import { formatMonthly } from "./tier-pricing";
 
@@ -80,76 +83,72 @@ const TIER_ACCENT: Record<string, string> = {
     ultra: "#EF4300",
 };
 
-/** Simple rounded-square illustration used as a plan-tier badge. */
-function PlanTierAvatar({ tier }: { tier: string }) {
-    const accent = TIER_ACCENT[tier] ?? TIER_ACCENT.free;
+/** Vellum creature traits per plan tier, matching the Figma 6982-157482 creatures. */
+const TIER_TRAITS: Record<
+    string,
+    { bodyShape: string; eyeStyle: string; color: string }
+> = {
+    free: { bodyShape: "ninja", eyeStyle: "angry", color: "yellow" },
+    mighty: { bodyShape: "blob", eyeStyle: "grumpy", color: "green" },
+    super: { bodyShape: "urchin", eyeStyle: "goofy", color: "teal" },
+    ultra: { bodyShape: "sprout", eyeStyle: "curious", color: "orange" },
+};
+
+/**
+ * Vellum creature avatar for a plan tier. The ~48 kB bundled component payload
+ * loads lazily; a same-size placeholder holds the layout until it resolves.
+ */
+function PlanTierAvatar({ tier, size = 40 }: { tier: string; size?: number }) {
+    const traits = TIER_TRAITS[tier] ?? TIER_TRAITS.free;
+    const components = useBundledAvatarComponents();
     return (
-        <svg
-            viewBox="0 0 40 40"
-            aria-hidden="true"
-            className="h-10 w-10 shrink-0 rounded-[10px]"
-        >
-            <rect width="40" height="40" rx="10" fill={accent} />
-            <circle cx="14" cy="20" r="4.5" fill="#FFFFFF" />
-            <circle cx="26" cy="20" r="4.5" fill="#FFFFFF" />
-            <circle cx="14" cy="20" r="1.8" fill="#1A1A1A" />
-            <circle cx="26" cy="20" r="1.8" fill="#1A1A1A" />
-        </svg>
+        <div aria-hidden className="inline-flex shrink-0">
+            {components ? (
+                <AvatarRenderer
+                    components={components}
+                    bodyShapeId={traits.bodyShape}
+                    eyeStyleId={traits.eyeStyle}
+                    colorId={traits.color}
+                    size={size}
+                />
+            ) : (
+                <div style={{ width: size, height: size }} />
+            )}
+        </div>
     );
 }
 
 function PlanHeading() {
     return (
-        <div>
-            <Typography
-                as="h2"
-                variant="title-medium"
-                className="text-[var(--content-default)]"
-            >
-                Plan
-            </Typography>
-            <Typography
-                as="p"
-                variant="body-small-default"
-                className="mt-2 text-[var(--content-tertiary)]"
-            >
-                Manage which Vellum plan you&apos;re on.
-            </Typography>
-        </div>
+        <Typography
+            as="h2"
+            variant="title-medium"
+            className="text-[var(--content-emphasised)]"
+        >
+            Plan
+        </Typography>
     );
 }
 
-/** Parse a cpu_limit string like "2000m" into a display label like "2 vCPU's". */
-function cpuLimitToLabel(cpuLimit: string | null | undefined): string {
-    if (!cpuLimit) return "Standard";
-    const match = cpuLimit.match(/^(\d+)m$/);
-    if (match) {
-        const millicores = parseInt(match[1], 10);
-        const vcpus = millicores / 1000;
-        return `${vcpus % 1 === 0 ? vcpus : vcpus.toFixed(1)} vCPU${vcpus === 1 ? "" : "'s"}`;
-    }
-    return cpuLimit;
-}
+/**
+ * The "standard" machine a package with no `machine_size` runs on — 2 vCPU per
+ * `SIZE_DESCRIPTION.small`, not an invented spec.
+ */
+const STANDARD_MACHINE = { sizeLabel: "Small", vcpu: "2" } as const;
 
-/** Derive a human-readable machine size label from a ProPackage. */
-function packageMachineLabel(pkg: ProPackage): {
+/** Machine size label + vCPU count for a package (or the standard machine). */
+function machineInfo(pkg: ProPackage | null): {
     sizeLabel: string;
-    vcpuLabel: string;
+    vcpu: string;
 } {
-    if (pkg.machine_size) {
-        const size = pkg.machine_size as MachineSizeEnum;
-        const desc = SIZE_DESCRIPTION[size] ?? pkg.machine_size;
-        const vcpuMatch = desc.match(/(\d+\.?\d*)\s*vCPU/);
-        return {
-            sizeLabel: SIZE_LABEL[size] ?? pkg.machine_size,
-            vcpuLabel: vcpuMatch
-                ? `${vcpuMatch[1]} vCPU${vcpuMatch[1] === "1" ? "" : "'s"}`
-                : desc,
-        };
+    if (!pkg?.machine_size) {
+        return STANDARD_MACHINE;
     }
+    const size = pkg.machine_size as MachineSizeEnum;
+    const vcpuMatch = SIZE_DESCRIPTION[size]?.match(/(\d+\.?\d*)\s*vCPU/);
     return {
-        sizeLabel: "Standard",
-        vcpuLabel: cpuLimitToLabel(null),
+        sizeLabel: SIZE_LABEL[size] ?? pkg.machine_size,
+        vcpu: vcpuMatch ? vcpuMatch[1] : STANDARD_MACHINE.vcpu,
     };
 }
 
@@ -158,34 +157,39 @@ interface ResourceDelta {
     label: string;
 }
 
-function buildDeltas(pkg: ProPackage, currentPlanId: string): ResourceDelta[] {
-    const { sizeLabel, vcpuLabel } = packageMachineLabel(pkg);
+/** "X → Y" only when the resource actually changes; the bare value otherwise. */
+function arrow(from: string, to: string): string {
+    return from === to ? to : `${from} → ${to}`;
+}
 
-    if (currentPlanId === "base") {
-        return [
-            { icon: Computer, label: `Small → ${sizeLabel} Machine` },
-            { icon: Microchip, label: `2 → ${vcpuLabel.replace(/ vCPU.?s?$/, " vCPU's")}` },
-            { icon: HardDrive, label: `0 → ${pkg.storage_gib} GB` },
-        ];
-    }
-
+function buildDeltas(
+    recommended: ProPackage,
+    currentPackage: ProPackage | null,
+): ResourceDelta[] {
+    const from = machineInfo(currentPackage);
+    const to = machineInfo(recommended);
+    const fromStorage = currentPackage?.storage_gib ?? 0;
     return [
-        { icon: Computer, label: `${sizeLabel} Machine` },
-        { icon: Microchip, label: vcpuLabel },
-        { icon: HardDrive, label: `${pkg.storage_gib} GB` },
+        { icon: Computer, label: `${arrow(from.sizeLabel, to.sizeLabel)} Machine` },
+        {
+            icon: Microchip,
+            label: `${arrow(from.vcpu, to.vcpu)} vCPU${to.vcpu === "1" ? "" : "'s"}`,
+        },
+        {
+            icon: HardDrive,
+            label: `${arrow(String(fromStorage), String(recommended.storage_gib))} GB`,
+        },
     ];
 }
 
 interface RecommendedUpgradeProps {
     packages: ProPackage[];
-    currentPlanId: string;
     currentKey: string | null;
     onUpgrade?: () => void;
 }
 
 function RecommendedUpgrade({
     packages,
-    currentPlanId,
     currentKey,
     onUpgrade,
 }: RecommendedUpgradeProps) {
@@ -199,13 +203,16 @@ function RecommendedUpgrade({
     if (!recommended) return null;
 
     const currentPackage = currentKey
-        ? packages.find((p) => p.key === currentKey)
+        ? (packages.find((p) => p.key === currentKey) ?? null)
         : null;
     const currentPriceCents = currentPackage?.total_price_cents ?? 0;
-    const deltas = buildDeltas(recommended, currentPlanId);
+    const deltas = buildDeltas(recommended, currentPackage);
     const priceLabel = `${formatMonthly(recommended.total_price_cents).replace("/mo", "")} / Monthly`;
     const deltaCents = recommended.total_price_cents - currentPriceCents;
     const upgradeLabel = `Upgrade for ${formatMonthly(deltaCents)} more`;
+    const accent = TIER_ACCENT[recommended.key] ?? TIER_ACCENT.free;
+    const tint = `color-mix(in srgb, ${accent} 10%, transparent)`;
+    const isPending = pending || upgradeMutation.isPending;
 
     const handleUpgrade = async () => {
         if (onUpgrade) {
@@ -249,50 +256,74 @@ function RecommendedUpgrade({
     };
 
     return (
-        <div className="flex flex-col gap-3 border-t border-[var(--border-base)] pt-4">
-            <div className="flex items-center gap-2">
-                <PlanTierAvatar tier={recommended.key} />
-                <Typography as="h3" variant="title-small" className="text-[var(--content-default)]">
-                    {recommended.name}
-                </Typography>
-            </div>
-
-            <div className="flex items-center gap-1.5">
-                <Sparkles className="h-3.5 w-3.5 shrink-0 text-[var(--credits-accent)]" aria-hidden />
-                <Typography as="span" variant="body-small-emphasised" className="text-[var(--credits-accent)]">
-                    Recommended Upgrade
-                </Typography>
-            </div>
-
-            <Typography as="p" variant="body-small-default" className="text-[var(--content-tertiary)]">
-                {priceLabel}
-            </Typography>
-
-            <div className="flex flex-col gap-2">
-                {deltas.map((delta) => {
-                    const Icon = delta.icon;
-                    return (
-                        <div key={delta.label} className="flex items-center gap-2">
-                            <Icon className="h-3.5 w-3.5 shrink-0 text-[var(--content-secondary)]" aria-hidden />
-                            <Typography as="span" variant="body-medium-default" className="text-[var(--content-default)]">
-                                {delta.label}
+        <div
+            className="flex flex-col gap-6 rounded-lg p-3"
+            style={{ backgroundColor: tint }}
+        >
+            <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                    <PlanTierAvatar tier={recommended.key} />
+                    <div className="flex flex-col gap-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                            <Typography
+                                as="span"
+                                variant="body-large-default"
+                                className="text-[var(--content-default)]"
+                            >
+                                {recommended.name}
                             </Typography>
+                            <Tag
+                                className="bg-[var(--feed-digest-weak)] text-[var(--credits-accent)]"
+                                leftIcon={
+                                    <Sparkles className="h-3 w-3 text-[var(--credits-accent)]" />
+                                }
+                            >
+                                Recommended Upgrade
+                            </Tag>
                         </div>
-                    );
-                })}
+                        <Typography
+                            as="span"
+                            variant="body-small-default"
+                            className="text-[var(--content-tertiary)]"
+                        >
+                            {priceLabel}
+                        </Typography>
+                    </div>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                    {deltas.map((delta) => {
+                        const Icon = delta.icon;
+                        return (
+                            <div
+                                key={delta.label}
+                                className="flex h-8 items-center gap-1.5 rounded-lg px-2 py-1.5"
+                                style={{ backgroundColor: tint }}
+                            >
+                                <Icon
+                                    className="h-3.5 w-3.5 shrink-0 text-[var(--content-default)]"
+                                    aria-hidden
+                                />
+                                <Typography
+                                    as="span"
+                                    variant="body-medium-default"
+                                    className="whitespace-nowrap text-[var(--content-default)]"
+                                >
+                                    {delta.label}
+                                </Typography>
+                            </div>
+                        );
+                    })}
+                </div>
             </div>
-
             <Button
                 variant="primary"
-                fullWidth
+                className="self-start"
                 onClick={handleUpgrade}
-                disabled={pending || upgradeMutation.isPending}
+                disabled={isPending}
                 leftIcon={
-                    pending || upgradeMutation.isPending ? (
+                    isPending ? (
                         <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                        <Plus className="h-4 w-4" />
-                    )
+                    ) : undefined
                 }
                 data-testid="recommended-upgrade-button"
             >
@@ -363,53 +394,70 @@ export function PlanCard({ onManage }: PlanCardProps) {
     const currentTier = currentKey ?? "free";
 
     return (
-        <Card padding="lg">
+        <Card padding="md">
             <div className="flex flex-col gap-4">
-                <div className="flex items-start justify-between gap-3">
-                    <PlanHeading />
-                    <Button
-                        variant={display.actionVariant}
-                        onClick={onManage}
-                        leftIcon={ActionIcon ? <ActionIcon className="h-4 w-4" /> : undefined}
-                        data-testid={display.actionTestId}
-                    >
-                        {display.actionLabel}
-                    </Button>
-                </div>
-                <div className="flex items-center gap-3 rounded-lg bg-[var(--surface-base)] p-3">
-                    <PlanTierAvatar tier={currentTier} />
-                    <div className="min-w-0 flex-1 space-y-0.5">
-                        <Typography variant="title-small" as="div" className="text-[var(--content-default)]" data-testid="plan-card-name">
-                            {planName}
-                        </Typography>
-                        {showRenewal && (
-                            <Typography
-                                variant="body-small-default"
-                                as="div"
-                                className="leading-snug text-[var(--content-tertiary)]"
-                                data-testid="plan-card-renews"
-                            >
-                                Monthly Payment &bull; Your subscription will auto renew on {formatGraceDate(subscription.current_period_end!)}.
-                            </Typography>
-                        )}
-                        {showCancellation && (
-                            <Typography
-                                variant="body-small-default"
-                                as="div"
-                                className="leading-snug text-[var(--system-mid-strong)]"
-                                data-testid="plan-card-cancels"
-                            >
-                                Your plan ends on {formatGraceDate(cancelDate!)}.
-                            </Typography>
-                        )}
+                <PlanHeading />
+                <div className="flex flex-col gap-2">
+                    <div className="flex items-center justify-between gap-3 rounded-lg bg-[var(--surface-base)] py-1.5 pl-3 pr-2">
+                        <div className="flex min-w-0 items-center gap-3">
+                            <PlanTierAvatar tier={currentTier} />
+                            <div className="flex min-w-0 flex-col gap-1">
+                                <Typography
+                                    variant="body-large-default"
+                                    as="div"
+                                    className="text-[var(--content-default)]"
+                                    data-testid="plan-card-name"
+                                >
+                                    {planName}
+                                </Typography>
+                                {showRenewal && (
+                                    <Typography
+                                        variant="body-small-default"
+                                        as="div"
+                                        className="leading-snug text-[var(--content-tertiary)]"
+                                        data-testid="plan-card-renews"
+                                    >
+                                        Monthly Payment &bull; Your subscription
+                                        will auto renew on{" "}
+                                        {formatGraceDate(
+                                            subscription.current_period_end!,
+                                        )}
+                                        .
+                                    </Typography>
+                                )}
+                                {showCancellation && (
+                                    <Typography
+                                        variant="body-small-default"
+                                        as="div"
+                                        className="leading-snug text-[var(--system-mid-strong)]"
+                                        data-testid="plan-card-cancels"
+                                    >
+                                        Your plan ends on{" "}
+                                        {formatGraceDate(cancelDate!)}.
+                                    </Typography>
+                                )}
+                            </div>
+                        </div>
+                        <Button
+                            variant={display.actionVariant}
+                            onClick={onManage}
+                            leftIcon={
+                                ActionIcon ? (
+                                    <ActionIcon className="h-4 w-4" />
+                                ) : undefined
+                            }
+                            data-testid={display.actionTestId}
+                            className="shrink-0"
+                        >
+                            {display.actionLabel}
+                        </Button>
                     </div>
+                    <RecommendedUpgrade
+                        packages={packages}
+                        currentKey={currentKey}
+                        onUpgrade={onManage}
+                    />
                 </div>
-                <RecommendedUpgrade
-                    packages={packages}
-                    currentPlanId={currentPlan.id}
-                    currentKey={currentKey}
-                    onUpgrade={onManage}
-                />
             </div>
         </Card>
     );
