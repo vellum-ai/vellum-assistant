@@ -1502,6 +1502,42 @@ describe("orchestrate — injection gate", () => {
     ).toBeGreaterThan(0);
   });
 
+  test("an empty pool is not a selector judgment", async () => {
+    const lanes = await buildLanes();
+    // `selectPool` returns [] before it ever reaches the provider when the pool
+    // is empty, so a candidate-less turn must not count as "the selector found
+    // nothing relevant" — that would drag the relevance rate down with turns the
+    // selector never saw.
+    const needle = {
+      query: () => [],
+      queryScored: () => [],
+      bestSection: () => -1,
+      idf: () => 0,
+    };
+    denseHits = [];
+    providerStub = selectProvider([]);
+
+    await orchestrate(
+      makeTurn(1, "apple"),
+      depsOf(lanes, {
+        needle,
+        denseK: 0,
+        coreSlugs: [],
+        hotSlugs: [],
+        freshSlugs: [],
+        selectorEnabled: true,
+        gateConfig: gateConfigOf(),
+      }),
+    );
+
+    expect(recordedSelectionEvents).toHaveLength(1);
+    expect(recordedSelectionEvents[0]!.detail).toMatchObject({
+      selector_ran: false,
+      selected_count: 0,
+      pool_size: 0,
+    });
+  });
+
   test("a hard-closed gate records a zero selection with selector_ran: false", async () => {
     const lanes = await buildLanes();
     // Zero BY CONSTRUCTION — the selector was never asked. Must not be counted

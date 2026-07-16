@@ -513,19 +513,27 @@ export async function orchestrate(
   // run; the selector is told to return `[]` when no candidate is relevant, so
   // it is the real injection decision and the pass rate is an upper bound on it.
   //
-  // `selector_ran` distinguishes a judgment from a passthrough: the lean profile
-  // sets `selectorEnabled: false`, and `selectAllPoolCandidates` then returns the
-  // whole pool, so `selected_count` there is pool size, not relevance. Filter on
-  // it before reading any of these counts as a signal.
+  // `selector_ran` marks the turns where the selector actually JUDGED the pool,
+  // and is the filter that keeps a relevance rate honest. Three ways a turn can
+  // report zero selections without the selector having been asked, all of which
+  // must stay out of that rate:
+  //   - the lean profile sets `selectorEnabled: false`, so
+  //     `selectAllPoolCandidates` returns the whole pool untouched (would read
+  //     as a 100% hit rate),
+  //   - a closed gate hard-skips selection entirely (a 0%),
+  //   - the pool is empty, and `selectPool` returns `[]` before it ever reaches
+  //     the provider (also a 0%).
+  // The last is why `poolSize` decides this rather than each call site: an empty
+  // pool is not a judgment that nothing was relevant, and no caller has to
+  // remember that.
   const recordSelection = (
     selections: SelectedPage[],
     poolSize: number,
-    selectorRan: boolean,
   ): void => {
     const detail: Record<string, unknown> = {
       gate_reason: gateOutcome?.reason ?? null,
       gate_pass: gateOutcome?.pass ?? null,
-      selector_ran: selectorRan,
+      selector_ran: deps.selectorEnabled !== false && poolSize > 0,
       selected_count: selections.length,
       pool_size: poolSize,
     };
@@ -610,17 +618,13 @@ export async function orchestrate(
               stable: stableOnly,
               finder: [],
             });
-            recordSelection(
-              bypassed,
-              stableOnly.length,
-              deps.selectorEnabled !== false,
-            );
+            recordSelection(bypassed, stableOnly.length);
             return closed(bypassed);
           }
           // Hard skip: the selector is never consulted, so this is a zero
           // selection BY CONSTRUCTION, not a judgment that nothing was relevant.
           // `selector_ran: false` keeps it out of any relevance rate.
-          recordSelection([], 0, false);
+          recordSelection([], 0);
           return closed([]);
         }
       }
@@ -714,11 +718,7 @@ export async function orchestrate(
   // scaffold; `undefined` falls through to the bundled default.
   const pool = { stable, finder: finderTail };
   const selections = await runSelection(pool);
-  recordSelection(
-    selections,
-    stable.length + finderTail.length,
-    deps.selectorEnabled !== false,
-  );
+  recordSelection(selections, stable.length + finderTail.length);
 
   return {
     selections,
