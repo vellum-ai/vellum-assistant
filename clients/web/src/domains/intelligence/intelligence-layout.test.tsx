@@ -78,6 +78,14 @@ describe("IntelligenceLayout — section pages", () => {
     expect(container.querySelector("h1")?.textContent).toBe("Plugins");
   });
 
+  test("the schedules page renders as a section, including detail sub-paths", () => {
+    const { container } = renderLayoutAt("/assistant/schedules/sch_123");
+    expect(container.querySelector("h1")?.textContent).toBe("Schedules");
+    expect(container.querySelector("a")?.getAttribute("href")).toBe(
+      "/assistant/identity",
+    );
+  });
+
   test("the memory page renders as a section with the back chevron", () => {
     const { container } = renderLayoutAt("/assistant/memory");
     expect(container.querySelector("h1")?.textContent).toBe("Memory");

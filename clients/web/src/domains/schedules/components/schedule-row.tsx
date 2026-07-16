@@ -42,12 +42,11 @@ function inlineUsage(usage: ScheduleRowUsage) {
 }
 
 /**
- * Presentational row shared by `HomeScheduleRow` and `HomeHeartbeatRow` so the
- * heartbeat entry is laid out identically to user schedules: toggle on the far
+ * Presentational row layout for schedule-like entries: toggle on the far
  * left, then name + `cadence · timestamp` meta, then inline cost · runs ·
  * chevron on the right. Matches the Figma "Scheduled Jobs" design.
  */
-export function HomeScheduleRowShell({
+export function ScheduleRowShell({
   name,
   metaParts,
   usage,
@@ -113,7 +112,7 @@ export function HomeScheduleRowShell({
   );
 }
 
-export function HomeScheduleRow({
+export function ScheduleRow({
   schedule,
   usage,
   selected,
@@ -136,7 +135,7 @@ export function HomeScheduleRow({
   );
 
   return (
-    <HomeScheduleRowShell
+    <ScheduleRowShell
       name={schedule.name}
       metaParts={metaParts}
       usage={usage}

@@ -350,22 +350,16 @@ export const routeTree = [
                   path: "home",
                   lazy: { Component: () => import("@/home-page-route").then((m) => m.HomePageRoute) },
                 },
-                // Schedules tab + per-schedule deep links. Same component as
-                // `home`; HomePageRoute reads the pathname / `:scheduleId` to
-                // open the Schedules tab and focus a schedule's drawer.
-                {
-                  path: "schedules",
-                  lazy: { Component: () => import("@/home-page-route").then((m) => m.HomePageRoute) },
-                },
-                {
-                  path: "schedules/:scheduleId",
-                  lazy: { Component: () => import("@/home-page-route").then((m) => m.HomePageRoute) },
-                },
                 {
                   lazy: { Component: () => import("@/domains/intelligence/intelligence-layout").then((m) => m.IntelligenceLayout) },
                   children: [
                     { path: "identity", lazy: { Component: () => import("@/identity-page-route").then((m) => m.IdentityPageRoute) } },
                     { path: "personality", lazy: { Component: () => import("@/domains/intelligence/personality-page").then((m) => m.PersonalityPage) } },
+                    // Schedules list + per-schedule deep links. One component:
+                    // SchedulesPage reads `:scheduleId` to focus a schedule's
+                    // detail drawer.
+                    { path: "schedules", lazy: { Component: () => import("@/domains/schedules/schedules-page").then((m) => m.SchedulesPage) } },
+                    { path: "schedules/:scheduleId", lazy: { Component: () => import("@/domains/schedules/schedules-page").then((m) => m.SchedulesPage) } },
                     { path: "memory", lazy: { Component: () => import("@/memory-page-route").then((m) => m.MemoryPageRoute) } },
                     { path: "plugins", lazy: { Component: () => import("@/domains/intelligence/plugins-page").then((m) => m.PluginsPage) } },
                     { path: "plugins/:name", lazy: { Component: () => import("@/domains/intelligence/plugin-detail-page").then((m) => m.PluginDetailPage) } },

@@ -271,10 +271,9 @@ export function ChatLayout() {
     navigate(1);
   }, [navigate]);
 
-  const isHomeActive =
-    location.pathname === routes.home ||
-    location.pathname === routes.schedules.root ||
-    location.pathname.startsWith(`${routes.schedules.root}/`);
+  const isHomeActive = location.pathname === routes.home;
+  // Schedules paths count as About Assistant (via isAboutAssistantPath) —
+  // the Schedules surface is a drill-down section under the overview.
   const isIdentityActive = isAboutAssistantPath(location.pathname);
 
   // --- Sidebar collapsed / drawer state ---

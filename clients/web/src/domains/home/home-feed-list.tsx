@@ -1,7 +1,7 @@
 import { Bell, ChevronRight } from "lucide-react";
 import { useState } from "react";
 
-import { HomeEmptyState } from "./components/home-empty-state";
+import { PageEmptyState } from "@/components/page-empty-state";
 
 import type {
     FeedItem,
@@ -155,7 +155,7 @@ export function HomeFeedList({
             No items match the selected filter.
           </Typography>
         ) : (
-          <HomeEmptyState
+          <PageEmptyState
             icon={Bell}
             title="No notifications yet"
             description="Updates and activity from your assistant will appear here."

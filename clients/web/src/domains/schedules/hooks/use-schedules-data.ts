@@ -17,7 +17,7 @@ import { schedulesGetQueryKey } from "@/generated/daemon/@tanstack/react-query.g
 import { useEffectiveTimezone } from "@/utils/use-effective-timezone";
 import { toast } from "@vellumai/design-library/components/toast";
 
-export interface HomeSchedulesData {
+export interface SchedulesData {
   recurring: Schedule[];
   oneTime: Schedule[];
   /** One-shot schedules that have already fired (or been cancelled). */
@@ -30,13 +30,13 @@ export interface HomeSchedulesData {
 }
 
 /**
- * Composes the schedule list + per-schedule usage the homepage Schedules tab
+ * Composes the schedule list + per-schedule usage the Schedules page
  * needs, sharing query keys (and therefore cache) with the Settings schedules
  * page.
  */
-export function useHomeSchedulesData(
+export function useSchedulesData(
   assistantId: string | undefined,
-): HomeSchedulesData {
+): SchedulesData {
   const tz = useEffectiveTimezone();
   // Stable per-mount timestamp for grouping one-time schedules (calling
   // Date.now() directly during render is impure). Matches the Settings page.

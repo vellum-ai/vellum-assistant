@@ -47,7 +47,7 @@ export interface HomeDetailPanelProps {
   onDismiss: (itemId: string) => void;
   /**
    * Provided only when this item originated from a schedule that still exists.
-   * Opens the Schedules tab with that schedule selected.
+   * Opens the Schedules page with that schedule selected.
    */
   onViewSchedule?: () => void;
 }

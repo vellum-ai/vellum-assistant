@@ -118,11 +118,11 @@ export const routes = {
 
   home: r("/assistant/home"),
   /**
-   * Schedules surface — the same Activity page as `home`, opened with the
-   * Schedules tab active. `detail` deep-links a single schedule's drawer.
-   * Path-based (not `?tab=`) so the tab and the focused schedule are
-   * bookmarkable and shareable. Both render `HomePageRoute`, which derives
-   * the active tab + selected schedule from the URL.
+   * Schedules surface — a drill-down section under the assistant overview
+   * (`identity`), sharing the About Assistant chrome with Skills, Plugins,
+   * etc. `detail` deep-links a single schedule's drawer. Path-based (not
+   * `?tab=`) so the focused schedule is bookmarkable and shareable; both
+   * paths render `SchedulesPage`, which derives the selection from the URL.
    */
   schedules: {
     root: r("/assistant/schedules"),
@@ -224,6 +224,7 @@ export const routes = {
 const ABOUT_ASSISTANT_PATHS: readonly string[] = [
   routes.identity,
   routes.personality,
+  routes.schedules.root,
   routes.memory,
   routes.plugins,
   routes.skills.root,

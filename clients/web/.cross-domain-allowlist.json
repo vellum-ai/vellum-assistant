@@ -11,22 +11,25 @@
   "src/domains/chat/hooks/use-send-message.ts": [
     "onboarding"
   ],
-  "src/domains/home/components/home-schedule-row.tsx": [
-    "settings"
-  ],
-  "src/domains/home/components/home-schedules-panel.tsx": [
-    "settings"
-  ],
-  "src/domains/home/components/schedule-detail-panel.tsx": [
-    "settings"
-  ],
-  "src/domains/home/components/system-task-detail-panel.tsx": [
-    "settings"
-  ],
   "src/domains/home/home-page.tsx": [
     "settings"
   ],
-  "src/domains/home/hooks/use-home-schedules-data.ts": [
+  "src/domains/schedules/components/schedule-detail-panel.tsx": [
+    "settings"
+  ],
+  "src/domains/schedules/components/schedule-row.tsx": [
+    "settings"
+  ],
+  "src/domains/schedules/components/schedules-panel.tsx": [
+    "settings"
+  ],
+  "src/domains/schedules/components/system-task-detail-panel.tsx": [
+    "settings"
+  ],
+  "src/domains/schedules/hooks/use-schedules-data.ts": [
+    "settings"
+  ],
+  "src/domains/schedules/schedules-page.tsx": [
     "settings"
   ],
   "src/domains/settings/pages/privacy-page.tsx": [

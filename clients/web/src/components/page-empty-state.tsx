@@ -2,11 +2,12 @@ import type { LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 
 /**
- * Shared empty state for the Activity tabs (Schedules / Notifications).
+ * Full-page empty state shared by the Activity feed and the Schedules page.
  * Mirrors the Library empty state — a rounded-square icon over a title and a
- * one-line description, with optional action buttons beneath.
+ * one-line description, with optional action buttons beneath. For a compact
+ * inline placeholder use `EmptyState` instead.
  */
-export function HomeEmptyState({
+export function PageEmptyState({
   icon: Icon,
   title,
   description,

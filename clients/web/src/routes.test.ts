@@ -141,8 +141,9 @@ describe("credential entry route", () => {
 });
 
 describe("schedules routes", () => {
-  // The Schedules tab and per-schedule deep links render the same lazy
-  // HomePageRoute as /home, inside the auth-protected assistant tree.
+  // The Schedules page and per-schedule deep links render the same lazy
+  // SchedulesPage (under IntelligenceLayout), inside the auth-protected
+  // assistant tree.
   test.each([
     "/assistant/schedules",
     "/assistant/schedules/sch_123",
