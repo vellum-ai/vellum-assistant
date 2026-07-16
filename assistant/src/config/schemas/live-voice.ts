@@ -42,6 +42,21 @@ export const LiveVoiceVadConfigSchema = z
       .describe(
         "Sustained speech (ms) required before speech during assistant playback interrupts it — the default 'interrupt sensitivity' (higher = harder to interrupt). 0 disables the guard. Clients may override it per-session via the start frame. Raised from 60 so brief TTS bleed through imperfect echo cancellation no longer self-interrupts the assistant.",
       ),
+    echoBargeInMargin: z
+      .number({ error: "liveVoice.vad.echoBargeInMargin must be a number" })
+      .positive("liveVoice.vad.echoBargeInMargin must be a positive number")
+      .default(1.5)
+      .describe(
+        "Multiplier over the observed echo energy level (an EMA of mic energy tracked while assistant audio is playing) that input must exceed to count as speech during playback; the effective threshold is max(speechEnergyThreshold, echoBargeInMargin × echo EMA). Higher = harder to barge in over loud speakers.",
+      ),
+    echoEmaHalfLifeMs: z
+      .number({ error: "liveVoice.vad.echoEmaHalfLifeMs must be a number" })
+      .int("liveVoice.vad.echoEmaHalfLifeMs must be an integer")
+      .positive("liveVoice.vad.echoEmaHalfLifeMs must be a positive integer")
+      .default(400)
+      .describe(
+        "Half-life (ms) of the echo-level EMA; smaller adapts faster to TTS loudness changes, larger is steadier against speech transients.",
+      ),
   })
   .describe(
     "Voice-activity-detection tuning for live voice sessions (open-mic turn segmentation)",

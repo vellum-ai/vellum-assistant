@@ -19,6 +19,27 @@
 export const DEFAULT_SPEECH_ENERGY_THRESHOLD = 800;
 
 /**
+ * Mean absolute sample amplitude of a chunk of little-endian signed
+ * 16-bit mono PCM, on the 16-bit linear scale. Returns 0 for empty
+ * buffers; a trailing odd byte is ignored.
+ *
+ * @param chunk - Raw PCM16LE audio.
+ * @returns Mean absolute amplitude on the 16-bit linear scale.
+ */
+export function pcm16MeanAmplitude(chunk: Buffer): number {
+  const sampleCount = Math.floor(chunk.length / 2);
+  if (sampleCount === 0) {
+    return 0;
+  }
+
+  let totalAmplitude = 0;
+  for (let i = 0; i < sampleCount; i++) {
+    totalAmplitude += Math.abs(chunk.readInt16LE(i * 2));
+  }
+  return totalAmplitude / sampleCount;
+}
+
+/**
  * Detect speech activity in a chunk of little-endian signed 16-bit mono
  * PCM samples.
  *
@@ -34,16 +55,5 @@ export function detectPcm16SpeechActivity(
   chunk: Buffer,
   threshold = DEFAULT_SPEECH_ENERGY_THRESHOLD,
 ): boolean {
-  const sampleCount = Math.floor(chunk.length / 2);
-  if (sampleCount === 0) {
-    return false;
-  }
-
-  let totalAmplitude = 0;
-  for (let i = 0; i < sampleCount; i++) {
-    totalAmplitude += Math.abs(chunk.readInt16LE(i * 2));
-  }
-  const avgAmplitude = totalAmplitude / sampleCount;
-
-  return avgAmplitude > threshold;
+  return pcm16MeanAmplitude(chunk) > threshold;
 }

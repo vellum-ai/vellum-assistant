@@ -14,6 +14,8 @@ describe("LiveVoiceVadConfigSchema", () => {
       silenceThresholdMs: 1200,
       maxTurnDurationMs: 30_000,
       bargeInMinSpeechMs: 250,
+      echoBargeInMargin: 1.5,
+      echoEmaHalfLifeMs: 400,
     });
   });
 
@@ -55,6 +57,29 @@ describe("LiveVoiceVadConfigSchema", () => {
     });
     expect(result.success).toBe(false);
   });
+
+  test("accepts a fractional echoBargeInMargin", () => {
+    const parsed = LiveVoiceVadConfigSchema.parse({ echoBargeInMargin: 2.25 });
+    expect(parsed.echoBargeInMargin).toBe(2.25);
+  });
+
+  test("rejects non-positive echoBargeInMargin", () => {
+    expect(
+      LiveVoiceVadConfigSchema.safeParse({ echoBargeInMargin: 0 }).success,
+    ).toBe(false);
+    expect(
+      LiveVoiceVadConfigSchema.safeParse({ echoBargeInMargin: -1.5 }).success,
+    ).toBe(false);
+  });
+
+  test("rejects non-positive or non-integer echoEmaHalfLifeMs", () => {
+    expect(
+      LiveVoiceVadConfigSchema.safeParse({ echoEmaHalfLifeMs: 0 }).success,
+    ).toBe(false);
+    expect(
+      LiveVoiceVadConfigSchema.safeParse({ echoEmaHalfLifeMs: 250.5 }).success,
+    ).toBe(false);
+  });
 });
 
 describe("LiveVoiceConfigSchema", () => {
@@ -67,6 +92,8 @@ describe("LiveVoiceConfigSchema", () => {
         silenceThresholdMs: 1200,
         maxTurnDurationMs: 30_000,
         bargeInMinSpeechMs: 250,
+        echoBargeInMargin: 1.5,
+        echoEmaHalfLifeMs: 400,
       },
       maxSessionDurationSeconds: 1800,
       // Off by default: voice turns carry only their transcript, no audio
