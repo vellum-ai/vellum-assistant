@@ -349,6 +349,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // synchronously before its spawn, so interrupt()/close() abort a continuation
   // even if a stop lands while it is still spawning.
   private readonly detachControllers = new Set<AbortController>();
+  // Bumped whenever a stop (interrupt/close) fires. A barge-in captures this
+  // before its async teardown; if it has changed by the time the detach would
+  // spawn, a stop landed during the gap and the continuation is not started.
+  private detachStopGeneration = 0;
   private readonly emitMetrics: boolean;
   private readonly metrics: LiveVoiceMetricsCollector;
   private readonly createTurnId: () => string;
@@ -1048,6 +1052,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       interruptedRequest.length > 0 ? interruptedRequest : null;
     turn.abortController.abort();
     this.metrics.markBargeIn(turn.turnId);
+    // Snapshot the stop generation before the async teardown: a stop that lands
+    // during it must cancel the pending detach (checked in detachInterruptedTurn).
+    const stopGeneration = this.detachStopGeneration;
     void (async () => {
       await this.finishMetricsTurn(
         turn.utterance,
@@ -1059,7 +1066,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       await this.cancelAssistantTurn("barge_in");
       // Teardown has settled, so the interrupted turn's partial is in history;
       // keep its work alive on a background subagent (voice-duplex-handoff).
-      this.detachInterruptedTurn(turn);
+      this.detachInterruptedTurn(turn, stopGeneration);
     })().catch(() => {});
   }
 
@@ -1069,11 +1076,17 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // partial (including any completed tool calls) is already in the conversation
   // the subagent forks from. Resurfacing the subagent's result is a follow-up;
   // for now it runs silently and a later stop/interrupt aborts it.
-  private detachInterruptedTurn(turn: ActiveAssistantTurn): void {
+  private detachInterruptedTurn(
+    turn: ActiveAssistantTurn,
+    stopGeneration: number,
+  ): void {
     const spawn = this.spawnBackgroundContinuation;
     if (
       !spawn ||
       this.isClosed ||
+      // A stop (interrupt/close) landed during the barge-in teardown: honor it
+      // and do not start the continuation.
+      this.detachStopGeneration !== stopGeneration ||
       !isAssistantFeatureFlagEnabled("voice-duplex-handoff", getConfig())
     ) {
       return;
@@ -1107,6 +1120,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // handle. A client interrupt or session close is a hard stop for detached
   // work; the continuation's own `.finally` removes it from the set too.
   private abortDetachedRuns(): void {
+    // Bump the generation so a barge-in whose async teardown is still in flight
+    // (its detach not yet spawned) sees the stop and skips the continuation.
+    this.detachStopGeneration += 1;
     for (const controller of this.detachControllers) {
       controller.abort();
     }

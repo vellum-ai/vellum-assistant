@@ -721,6 +721,57 @@ describe("LiveVoiceSession server VAD", () => {
     expect(signal?.aborted).toBe(true);
   });
 
+  test("voice-duplex-handoff on: a client interrupt during barge-in cleanup skips the continuation", async () => {
+    setCachedOverrides({ "voice-duplex-handoff": true }, { fromGateway: true });
+    const spawnBackgroundContinuation = mock(
+      async (_args: {
+        parentConversationId: string;
+        objective: string;
+        label: string;
+        signal: AbortSignal;
+      }) => {},
+    );
+    const streamTtsAudio = mock(async (options: LiveVoiceTtsOptions) => {
+      options.onAudioChunk(makeTtsChunk("assistant audio"));
+      return makeTtsResult("assistant audio");
+    });
+    let releaseTurnCancelled: (() => void) | undefined;
+    const { frames, session } = createHarness({
+      finals: ["first question", "second question"],
+      streamTtsAudio,
+      spawnBackgroundContinuation,
+      // Hold the barge-in's turn_cancelled send so its teardown blocks before
+      // the detach would spawn.
+      holdSendFrame: (payload) => {
+        if (payload.type !== "turn_cancelled" || releaseTurnCancelled) {
+          return null;
+        }
+        return new Promise<void>((resolve) => {
+          releaseTurnCancelled = resolve;
+        });
+      },
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => frames.some((frame) => frame.type === "thinking"));
+
+    // Barge in; the teardown blocks on the held turn_cancelled, before the
+    // detach spawns.
+    await session.handleBinaryAudio(SUSTAINED_LOUD_CHUNK);
+    await waitFor(() => releaseTurnCancelled !== undefined);
+
+    // The stop lands during the cleanup gap. interrupt()'s abortDetachedRuns
+    // bumps the generation synchronously (even though interrupt then blocks on
+    // the same held frame's drain), so releasing the frame lets the barge-in
+    // teardown resume and see the stop.
+    const interruptDone = session.handleClientFrame({ type: "interrupt" });
+    releaseTurnCancelled?.();
+    await interruptDone;
+    await flushAsyncCallbacks();
+    expect(spawnBackgroundContinuation).not.toHaveBeenCalled();
+  });
+
   test("voice-duplex-handoff off (default): a thinking barge-in spawns no continuation", async () => {
     const spawnBackgroundContinuation = mock(
       async (_args: {
