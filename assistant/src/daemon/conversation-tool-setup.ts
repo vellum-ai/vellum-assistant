@@ -50,6 +50,7 @@ import {
   type ToolContext,
   type ToolExecutionResult,
 } from "../tools/types.js";
+import { projectUiToolsForChannel } from "../tools/ui-surface/channel-variants.js";
 import { loadWorkspaceTools } from "../tools/workspace-tools/loader.js";
 import {
   resolveUsageAttribution,
@@ -822,11 +823,19 @@ export function createResolveToolsCallback(
       ? currentWorkspaceDefs.filter((d) => wireAllowlist.has(d.name))
       : currentWorkspaceDefs;
     const excluded = new Set(getConfig().tools.exclude);
-    const allBaseDefs = [
-      ...scopedCoreDefs,
-      ...scopedWorkspaceDefs,
-      ...scopedMcpDefs,
-    ].filter((d) => !excluded.has(d.name));
+    // Swap UI surface tools for channel-appropriate variants (e.g. Slack's
+    // task_progress-only ui_show). Mirrors the pin handling in
+    // `isToolActiveForContext`: execution-gate-mode wakes pin channel
+    // capabilities to undefined, which resolves to the unprojected defs.
+    const channelForUiTools = ctx.toolContextPin
+      ? undefined
+      : ctx.channelCapabilities?.channel;
+    const allBaseDefs = projectUiToolsForChannel(
+      [...scopedCoreDefs, ...scopedWorkspaceDefs, ...scopedMcpDefs].filter(
+        (d) => !excluded.has(d.name),
+      ),
+      channelForUiTools,
+    );
 
     const effectivePreactivated = [
       ...DEFAULT_PREACTIVATED_SKILL_IDS,
