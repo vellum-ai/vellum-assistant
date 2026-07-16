@@ -89,9 +89,10 @@ const log = getLogger("memory-v3-injection-gate");
 export const MEMORY_V3_INJECTION_GATE_CHECK_NAME = "memory_v3_injection_gate";
 
 /** Record one injection-gate run to usage telemetry. `detail` keys are the
- *  platform-side contract (snake_case, scores and reason codes only — never
- *  conversation content). Never throws: the gate is pass-open by design, and a
- *  telemetry failure must not cost the turn its memory either.
+ *  platform-side contract (snake_case; scores, reason codes, and corpus-size
+ *  counts only — never page titles, slugs, or conversation content). Never
+ *  throws: the gate is pass-open by design, and a telemetry failure must not
+ *  cost the turn its memory either.
  *
  *  `detail.scored` says whether checkV3Gate actually weighed scores this run, as
  *  opposed to the run taking a pass-open shortcut (dense off, dense unavailable,
@@ -190,6 +191,12 @@ export interface OrchestrateDeps {
    *  `enabled`, assembled in observeTurn). Omitted/disabled → the gate never
    *  runs and every turn proceeds to selectPool as before. */
   gateConfig?: V3GateConfig;
+  /** Real concept-page count at lane build — the same corpus-size signal
+   *  `resolveV3Tuning` switches the lean/full profile on. Reported with each
+   *  gate run so the reason distribution can be read against
+   *  `MEMORY_V3_FULL_PROFILE_MIN_PAGES`; omitted drops the field from the
+   *  telemetry detail (the gate itself never reads it). */
+  realConceptPageCount?: number;
 }
 
 /** A finder-lane candidate: the slug, the descriptor that justified it, and
@@ -456,6 +463,17 @@ export async function orchestrate(
   //                        swallows these to `[]`), or only stale deleted-page
   //                        points. Dense SHOULD have scored this turn and did
   //                        not, so this one is worth alerting on.
+  //
+  // Every run carries the corpus size, so the reason mix can be read against the
+  // profile threshold rather than guessed at: `dense_disabled` is sub-threshold
+  // by construction, and whether those assistants sit at 1 page or 9 is the
+  // difference between "empty" and "about to cross".
+  const recordGate = (detail: Record<string, unknown>): void =>
+    recordGateRun(
+      deps.realConceptPageCount === undefined
+        ? detail
+        : { ...detail, real_concept_page_count: deps.realConceptPageCount },
+    );
   if (deps.gateConfig?.enabled) {
     if (liveDensed.length === 0) {
       const reason = denseEnabled ? "dense_unavailable" : "dense_disabled";
@@ -470,7 +488,7 @@ export async function orchestrate(
           ? "memory-v3 injection gate: dense lane unavailable, passing open"
           : "memory-v3 injection gate: dense lane disabled, passing open",
       );
-      recordGateRun({ pass: true, reason, scored: false });
+      recordGate({ pass: true, reason, scored: false });
     } else {
       let gate: V3GateResult | null = null;
       try {
@@ -487,7 +505,7 @@ export async function orchestrate(
           },
           "memory-v3 injection gate threw; passing open (proceeding with selection)",
         );
-        recordGateRun({ pass: true, reason: "gate_error", scored: false });
+        recordGate({ pass: true, reason: "gate_error", scored: false });
       }
       if (gate) {
         log.info(
@@ -498,7 +516,7 @@ export async function orchestrate(
           },
           "memory-v3 injection gate decision",
         );
-        recordGateRun({
+        recordGate({
           pass: gate.pass,
           reason: gate.reason,
           scored: true,
