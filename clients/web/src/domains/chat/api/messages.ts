@@ -42,9 +42,6 @@ import { pickConversationIdWireField } from "@/lib/backwards-compat/conversation
 import { getEffectiveTimezone } from "@/utils/effective-timezone";
 import { detectClientOs } from "@/runtime/platform-detection";
 
-const POLL_INTERVAL_MS = 1000;
-const POLL_TIMEOUT_MS = 120_000;
-
 /**
  * Subagent notification as carried by the web. The wire shape
  * (`ConversationSubagentNotification`) is enriched during history
@@ -79,50 +76,6 @@ export function toBackgroundTaskEntryFromCompletion(
     output: c.output,
     completedAt: c.completedAt,
   };
-}
-
-export async function pollForResponse(
-  assistantId: string,
-  userMessageId: string,
-  conversationId: string,
-): Promise<ConversationMessage | null> {
-  const deadline = Date.now() + POLL_TIMEOUT_MS;
-
-  while (Date.now() < deadline) {
-    const { data, error, response } = await messagesGet({
-      path: { assistant_id: assistantId },
-      query: { conversationId },
-      throwOnError: false,
-    });
-    assertHasResponse(response, error, "Failed to poll for messages");
-
-    if (!response.ok) {
-      const msg = extractErrorMessage(
-        error,
-        response,
-        "Failed to poll for messages",
-      );
-      throw new Error(msg);
-    }
-
-    const messages = data?.messages ?? [];
-
-    // Only consider assistant messages that appear after our sent user
-    // message in the list, establishing a causal boundary so delayed
-    // replies from earlier sends cannot be mis-associated.
-    const userMsgIndex = messages.findIndex((m) => m.id === userMessageId);
-    if (userMsgIndex >= 0) {
-      const afterSend = messages.slice(userMsgIndex + 1);
-      const reply = afterSend.find((m) => m.role === "assistant");
-      if (reply) {
-        return reply;
-      }
-    }
-
-    await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
-  }
-
-  return null;
 }
 
 /**
