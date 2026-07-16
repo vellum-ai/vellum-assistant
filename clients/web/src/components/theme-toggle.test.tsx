@@ -37,7 +37,7 @@ mock.module("@/utils/device-settings", () => ({
   watchDeviceSetting: () => () => {},
 }));
 
-mock.module("@/domains/settings/utils/theme-preferences", () => ({
+mock.module("@/utils/theme-preferences", () => ({
   readStoredThemePreference,
   writeStoredThemePreference,
   applyThemePreference,

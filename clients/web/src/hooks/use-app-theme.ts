@@ -12,7 +12,7 @@ import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import {
   applyThemePreference,
   readStoredThemePreference,
-} from "@/domains/settings/utils/theme-preferences";
+} from "@/utils/theme-preferences";
 
 export function useAppTheme() {
   const velvet = useClientFeatureFlagStore.use.velvet();

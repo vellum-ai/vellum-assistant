@@ -5,7 +5,7 @@ import {
   readStoredThemePreference,
   type ThemePreference,
   writeStoredThemePreference,
-} from "@/domains/settings/utils/theme-preferences";
+} from "@/utils/theme-preferences";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { watchDeviceSetting } from "@/utils/device-settings";
 
