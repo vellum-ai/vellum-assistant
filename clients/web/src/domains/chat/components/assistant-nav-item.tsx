@@ -36,7 +36,6 @@ const EYES_WIDTH = 14;
 const PILL_PADDING_X = 6;
 /** Patrol stop on the right side: grown, cut off by the bottom edge. */
 const SIDE_SCALE = 2.1;
-const SIDE_PEEK_Y = 10;
 const SIDE_RIGHT_MARGIN = 14;
 
 const sleep = (ms: number): Promise<void> =>
@@ -70,6 +69,8 @@ export function AssistantNavItem({
   const pillHeight = isMobile ? MOBILE_PILL_HEIGHT : PILL_HEIGHT;
   /** How far down the eyes dive to fully exit the pill's bottom edge. */
   const diveY = pillHeight - 4;
+  /** Side-patrol stop: the grown eyes flush with the bottom edge. */
+  const sidePeekY = pillHeight - 20;
 
   useEffect(() => {
     if (reduce) {
@@ -112,7 +113,7 @@ export function AssistantNavItem({
         width - PILL_PADDING_X - SIDE_RIGHT_MARGIN - EYES_WIDTH * SIDE_SCALE,
       );
       eyesControls.set({ x: sideX, y: diveY, scale: SIDE_SCALE });
-      await move({ y: SIDE_PEEK_Y }, spring(360, 16));
+      await move({ y: sidePeekY }, spring(360, 16));
       await blink();
       await sleep(jitter(700, 900));
       await move({ y: diveY }, { duration: 0.3, ease: "easeIn" });
@@ -148,7 +149,7 @@ export function AssistantNavItem({
       cancelled = true;
       eyesControls.stop();
     };
-  }, [reduce, collapsed, eyesControls, diveY]);
+  }, [reduce, collapsed, eyesControls, diveY, sidePeekY]);
 
   const hex =
     (components &&
@@ -246,9 +247,9 @@ export function AssistantNavItem({
       </span>
       {!collapsed && (
         <span
-          className={`truncate text-body-medium-default max-md:text-body-large-default ${
-            active ? "font-bold" : ""
-          }`}
+          className={`truncate ${
+            isMobile ? "text-body-large-default" : "text-body-medium-default"
+          } ${active ? "font-bold" : ""}`}
         >
           {label}
         </span>

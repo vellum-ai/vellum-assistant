@@ -288,7 +288,10 @@ function SectionCard({
   /** Compact one-row variant for the bottom-strip sections. */
   mini?: boolean;
   /** Uniform tile for the stacked (small-viewport) grid: every card gets
-   *  the same chrome — icon + title row, subtitle, small stat line. */
+   *  the same chrome — icon + title row, subtitle, small stat line. The
+   *  bento-only orchestration props (`hoverFill`, `flooded`, `floodOrigin`,
+   *  `linkRef`, `onHoverChange`) are ignored; the amoeba hover act never
+   *  runs in the stacked layout. */
   stacked?: boolean;
   /** The avatar has poured itself over this card — fill it with the
    *  avatar color and flip the content to the contrast tone. */
