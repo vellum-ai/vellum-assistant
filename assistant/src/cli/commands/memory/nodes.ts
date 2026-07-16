@@ -206,9 +206,8 @@ export function registerMemoryNodesCommand(memory: Command): void {
 
   // ── stats ─────────────────────────────────────────────────────────────
 
-  subcommand(nodes, "stats")
-    .option("--json", "Machine-readable compact JSON output")
-    .action(async (opts: { json?: boolean }, cmd: Command) => {
+  subcommand(nodes, "stats").action(
+    async (opts: { json?: boolean }, cmd: Command) => {
       // Deferred: loads config and the graph stats handler in-process.
       // No daemon needed — reads directly from the workspace SQLite DB.
       const [{ handleStatsMemory }, { getConfig }] = await Promise.all([
@@ -234,7 +233,8 @@ export function registerMemoryNodesCommand(memory: Command): void {
       }
 
       printStats(result.stats!);
-    });
+    },
+  );
 }
 
 const MEMORY_TYPES = [
