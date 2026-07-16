@@ -721,7 +721,10 @@ export async function classifyRisk(
     workingDir,
     manifestOverride,
   );
-  const gatewayResult = await ipcClassifyRisk(ipcParams);
+  const gatewayResult = await ipcClassifyRisk(ipcParams, signal);
+  // A mid-retry cancellation should surface as an AbortError, not the
+  // misleading fail-closed "gateway unreachable" message.
+  signal?.throwIfAborted();
 
   if (!gatewayResult) {
     throw new Error(
