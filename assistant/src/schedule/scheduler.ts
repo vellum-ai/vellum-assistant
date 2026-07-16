@@ -16,7 +16,12 @@ import { runBackgroundJob } from "../runtime/background-job-runner.js";
 import { publishConversationListChanged } from "../runtime/sync/resource-sync-events.js";
 import { runSequencesOnce } from "../sequence/engine.js";
 import type { TurnFailure } from "../telemetry/turn-outcome.js";
+import { recordWatchdogEvent } from "../telemetry/watchdog-events-store.js";
 import { getLogger } from "../util/logger.js";
+import {
+  createWorkerSupervisor,
+  type WorkerSupervisor,
+} from "../util/worker-process.js";
 import { runWatchersOnce } from "../watcher/engine.js";
 import { normalizeCapabilityManifest } from "../workflows/capabilities.js";
 import { getWorkflowRunManager } from "../workflows/run-manager.js";
@@ -37,7 +42,13 @@ import {
   scheduleRetry,
   setScheduleRunConversationId,
 } from "./schedule-store.js";
-import { startScheduleWorker, stopScheduleWorker } from "./worker-control.js";
+import {
+  isScheduleWorkerAdministrativelyStopped,
+  probeScheduleWorker,
+  spawnScheduleWorkerProcess,
+  startScheduleWorker,
+  stopScheduleWorker,
+} from "./worker-control.js";
 
 const log = getLogger("scheduler");
 
@@ -227,12 +238,88 @@ async function handleExecutionFailure(params: {
 /** The running scheduler, retained so shutdown can stop it. */
 let instance: SchedulerHandle | null = null;
 
+/** The schedule worker liveness watchdog, disposed by {@link stopScheduler}. */
+let scheduleWorkerSupervisor: WorkerSupervisor | null = null;
+
+/**
+ * Notify the user once per outage when the worker cannot be respawned after
+ * repeated attempts, so schedules being paused is not silent. A stable
+ * hourly dedupe key keeps it to one notification per outage window rather than
+ * one per tick.
+ */
+function emitScheduleWorkerDownNotification(consecutiveFailures: number): void {
+  void emitNotificationSignal({
+    sourceEventName: "activity.failed",
+    sourceChannel: "scheduler",
+    sourceContextId: "schedule-worker",
+    dedupeKey: `schedule-worker-down:${Math.floor(Date.now() / 3_600_000)}`,
+    contextPayload: {
+      jobName: "Scheduled tasks",
+      errorMessage:
+        "The assistant could not restart its schedule runner, so scheduled tasks are paused. They resume automatically once it recovers.",
+      errorKind: "exception",
+      consecutiveFailures,
+    },
+    attentionHints: {
+      requiresAction: false,
+      urgency: "medium",
+      isAsyncBackground: true,
+      visibleInSourceNow: false,
+    },
+  }).catch((emitErr) => {
+    log.warn(
+      { err: emitErr },
+      "Failed to emit schedule-worker-down notification",
+    );
+  });
+}
+
 export function startScheduler(): SchedulerHandle {
   // Schedule execution is owned by the schedule worker process; spawn it now as
   // a child of the daemon so it is running immediately. Fire-and-forget — a
   // worker failure must never block boot. The daemon's own tick below runs only
   // watchers and sequences.
   startScheduleWorker();
+
+  // Liveness watchdog: the worker calls process.exit() on any uncaught error
+  // and nothing respawned it, so schedules could stop for days silently. Probe
+  // and respawn off the existing tick — recovery latency drops from days to
+  // ~one tick. Detects process death, not a wedged-but-alive worker.
+  scheduleWorkerSupervisor = createWorkerSupervisor({
+    label: "Schedule worker",
+    probe: probeScheduleWorker,
+    respawn: () => spawnScheduleWorkerProcess({ detached: false }),
+    isSuppressed: isScheduleWorkerAdministrativelyStopped,
+    killChild: (pid) => {
+      try {
+        process.kill(pid, "SIGTERM");
+      } catch {
+        // Worker already gone — nothing to kill.
+      }
+    },
+    onRespawn: (pid) => {
+      log.warn(
+        { pid },
+        "Schedule worker was not running — respawned by watchdog",
+      );
+      recordWatchdogEvent({
+        checkName: "schedule_worker_respawn",
+        detail: { pid },
+      });
+    },
+    onPersistentFailure: (consecutiveFailures, err) => {
+      log.error(
+        { err, consecutiveFailures },
+        "Schedule worker repeatedly failed to respawn — schedules are paused",
+      );
+      recordWatchdogEvent({
+        checkName: "schedule_worker_down",
+        value: consecutiveFailures,
+        detail: { consecutiveFailures },
+      });
+      emitScheduleWorkerDownNotification(consecutiveFailures);
+    },
+  });
 
   let stopped = false;
   let tickRunning = false;
@@ -243,6 +330,9 @@ export function startScheduler(): SchedulerHandle {
     }
     tickRunning = true;
     try {
+      // Respawn the schedule worker if it has died (fire-and-forget; never
+      // throws). Idempotent — a live PID file short-circuits to alreadyRunning.
+      void scheduleWorkerSupervisor?.ensureAlive();
       await runScheduleOnce();
     } catch (err) {
       log.error({ err }, "Schedule tick failed");
@@ -284,12 +374,16 @@ export function startScheduler(): SchedulerHandle {
  * worker process if one is running.
  */
 export function stopScheduler(): void {
-  stopScheduleWorker();
-  if (!instance) {
-    return;
+  // Stop the tick FIRST so no tick can respawn the worker we are about to kill.
+  if (instance) {
+    instance.stop();
+    instance = null;
   }
-  instance.stop();
-  instance = null;
+  // No further respawns; a respawn already in flight kills its child on resolve.
+  scheduleWorkerSupervisor?.dispose();
+  scheduleWorkerSupervisor = null;
+  // Then SIGTERM the running worker via its PID file.
+  stopScheduleWorker();
 }
 
 /** The running scheduler, or null if one was never started. */
