@@ -407,14 +407,16 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // echo reference); 0 outside the echo window.
   private echoEnergyEma = 0;
   // Audio time (ms) processed since the echo window opened — drives the
-  // gate's warm-up (see isEchoGateWarmingUp); 0 outside the echo window.
+  // gate's warm-up (see effectiveSpeechThreshold); 0 outside the echo window.
   private echoWindowAudioMs = 0;
-  // True when the sustained-speech guard was already armed at the moment the
-  // echo window opened: speech that PREDATES playback is the user talking
-  // across the turn boundary (turn collision), not echo — humans cannot
-  // react to playback onset faster than the warm-up. That guard keeps
-  // user-first semantics (frozen reference, normal trips).
+  // A guard whose speech run predates the echo window is the user talking
+  // across the turn boundary (turn collision) — see effectiveSpeechThreshold.
   private echoWindowGuardCarryover = false;
+  // Warm-up state of the most recently classified in-window chunk (set by
+  // effectiveSpeechThreshold; consulted by handleVadSpeechStart and
+  // trackBargeInGuard) so classification and trip deferral agree per chunk
+  // regardless of ingress chunk size; false outside the echo window.
+  private echoGateChunkWarmingUp = false;
   // Mutable so a mid-session `update_config` frame can retune "interrupt
   // sensitivity" live (see applyConfigUpdate).
   private bargeInMinSpeechMs: number;
@@ -946,15 +948,29 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // echo chunk arms the guard, which would freeze the reference near zero and
   // let steady onset echo complete a full guard run against the base
   // threshold. So the window opens with a WARM-UP — the first
-  // echoEmaHalfLifeMs / 2 of in-window audio (200 ms at the 400 ms default) —
-  // during which the EMA learns at a fast attack rate (quarter half-life)
-  // and keeps learning even with the guard armed: echo, not speech, is the
-  // expected first signal at TTS onset. Guard trips are deferred (the run
-  // accumulates, it doesn't fire) until warm; at the default 250 ms trip the
-  // warm-up ends first, so real barge-in latency is untouched. Steady onset
-  // echo converges past its own margin inside the warm-up and its run is
-  // zeroed before it can fire. Warm-up is measured in processed audio time,
-  // the same clock that drives EMA convergence.
+  // echoEmaHalfLifeMs / 2 of in-window audio (200 ms at the 400 ms default,
+  // under the 250 ms default trip, so real barge-in latency is untouched) —
+  // during which the EMA learns despite the armed guard, at a quarter-
+  // half-life attack rate (two attack half-lives per warm-up brings the
+  // reference to ~75% of a steady echo level, putting margin × EMA above
+  // it): echo, not speech, is the expected first signal at TTS onset. Guard
+  // trips are deferred (the run accumulates, it doesn't fire) while the
+  // tripping chunk was judged against a warming reference — a per-chunk flag
+  // (echoGateChunkWarmingUp), so large ingress chunks cannot outrun the
+  // window clock. Onset echo's run is zeroed once the reference overtakes
+  // it; a genuine user run that outlasts the warm-up fires on its first warm
+  // chunk. The same warm-up floor guards the instant-barge-in config
+  // (bargeInMinSpeechMs 0), which otherwise bypasses the guard entirely (see
+  // handleVadSpeechStart). Warm-up is measured in processed audio time, the
+  // same clock that drives EMA convergence.
+  //
+  // Turn collision: a guard with a LIVE speech run when the window opens is
+  // the user already talking across the turn boundary — humans cannot react
+  // to playback onset within the warm-up — and keeps user-first semantics
+  // (frozen reference, normal trips). An armed guard whose run already
+  // zeroed is a settled noise blip and gets onset semantics. If a colliding
+  // user pauses mid-window, the collision is over and the warm-up restarts
+  // (see trackBargeInGuard) so the echo underneath is finally learned.
   private effectiveSpeechThreshold(
     chunk: Buffer,
     meanAmplitude: number,
@@ -965,12 +981,13 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       this.echoEnergyEma = 0;
       this.echoWindowAudioMs = 0;
       this.echoWindowGuardCarryover = false;
+      this.echoGateChunkWarmingUp = false;
       return baseThreshold;
     }
     if (this.echoWindowAudioMs === 0) {
-      // Window opening: a guard armed before any assistant audio played is
-      // the user mid-utterance (turn collision), not echo.
-      this.echoWindowGuardCarryover = this.pendingBargeIn !== null;
+      // Window opening: only a guard with a live run is a turn collision.
+      this.echoWindowGuardCarryover =
+        this.pendingBargeIn !== null && this.pendingBargeIn.speechMs > 0;
     } else if (this.pendingBargeIn === null) {
       // The carried-over guard settled; onset semantics resume for any
       // later speech in this window.
@@ -982,11 +999,14 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       baseThreshold,
       this.echoBargeInMargin * this.echoEnergyEma,
     );
+    const warmingUp =
+      !this.echoWindowGuardCarryover &&
+      this.echoWindowAudioMs < this.echoEmaHalfLifeMs / 2;
+    this.echoGateChunkWarmingUp = warmingUp;
     const chunkMs = pcm16DurationMs(
       chunk.byteLength,
       this.context.startFrame.audio.sampleRate,
     );
-    const warmingUp = this.echoOnsetWarmupActive();
     if (this.pendingBargeIn === null || warmingUp) {
       // Attack fast during warm-up (quarter half-life) so the reference
       // overtakes steady onset echo inside the warm-up window; settle to the
@@ -1000,26 +1020,6 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     }
     this.echoWindowAudioMs += chunkMs;
     return threshold;
-  }
-
-  // True while the echo window has processed less than echoEmaHalfLifeMs / 2
-  // of audio (200 ms at the 400 ms default) — with the warm-up's quarter-
-  // half-life attack rate that is 2 attack half-lives, enough for the
-  // reference to reach ~75% of a steady echo level, putting margin × EMA
-  // above it. See effectiveSpeechThreshold.
-  private isEchoGateWarmingUp(): boolean {
-    return (
-      this.isAssistantAudioPlaying() &&
-      this.echoWindowAudioMs < this.echoEmaHalfLifeMs / 2
-    );
-  }
-
-  // Onset-echo semantics (fast unfrozen EMA learning + deferred guard trips)
-  // apply only during the warm-up AND when the speech run did not predate
-  // playback — a guard carried across the window boundary is the user, and
-  // keeps user-first semantics.
-  private echoOnsetWarmupActive(): boolean {
-    return !this.echoWindowGuardCarryover && this.isEchoGateWarmingUp();
   }
 
   private async routeVadAudio(
@@ -1151,9 +1151,15 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     // same guard, or a noise blip clips the reply's last words.
     const drainingPlayback = Date.now() < this.assistantPlaybackTailUntilMs;
 
-    if ((bargeableTurn || drainingPlayback) && this.bargeInMinSpeechMs > 0) {
+    if (
+      (bargeableTurn || drainingPlayback) &&
+      (this.bargeInMinSpeechMs > 0 || this.echoGateChunkWarmingUp)
+    ) {
       // Onset audio keeps flowing into the cycle/pre-roll while the guard
       // accumulates (trackBargeInGuard), so no speech is lost either way.
+      // Instant barge-in (bargeInMinSpeechMs 0) still arms the guard while
+      // the echo gate is warming up — otherwise the first onset-echo chunk
+      // would cancel every turn — and resumes instant behavior once warm.
       this.pendingBargeIn = { turn: bargeableTurn, speechMs: 0 };
       return;
     }
@@ -1177,6 +1183,13 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     }
     if (!hasSpeech) {
       guard.speechMs = 0;
+      if (this.echoWindowGuardCarryover) {
+        // The colliding user paused: the collision is over. Restart the
+        // onset warm-up so whatever follows (echo, or the user again) gets
+        // onset semantics and the echo underneath is finally learned.
+        this.echoWindowGuardCarryover = false;
+        this.echoWindowAudioMs = 0;
+      }
       return;
     }
     guard.speechMs += pcm16DurationMs(
@@ -1186,13 +1199,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     if (guard.speechMs < this.bargeInMinSpeechMs) {
       return;
     }
-    // Defer trips while the echo gate's onset warm-up is active (see
-    // effectiveSpeechThreshold): the run keeps accumulating, and a genuine
-    // user run fires on the first speech chunk after warm-up, while onset
-    // echo's run is zeroed once the converged reference reclassifies it. A
-    // guard carried over from before playback started (turn collision) is
-    // the user and trips normally.
-    if (this.echoOnsetWarmupActive()) {
+    // Defer trips fed by a chunk judged against a warming echo reference —
+    // see effectiveSpeechThreshold. Turn-collision guards trip normally.
+    if (this.echoGateChunkWarmingUp) {
       return;
     }
     this.pendingBargeIn = null;

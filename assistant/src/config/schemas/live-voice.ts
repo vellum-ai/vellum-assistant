@@ -47,7 +47,7 @@ export const LiveVoiceVadConfigSchema = z
       .positive("liveVoice.vad.echoBargeInMargin must be a positive number")
       .default(1.5)
       .describe(
-        "Multiplier over the observed echo energy level (an EMA of mic energy tracked while assistant audio is playing) that input must exceed to count as speech during playback; the effective threshold is max(speechEnergyThreshold, echoBargeInMargin × echo EMA). Higher = harder to barge in over loud speakers.",
+        "Multiplier over the observed echo energy level (an EMA of mic energy tracked while assistant audio is playing) that input must exceed to count as speech during playback; the effective threshold is max(speechEnergyThreshold, echoBargeInMargin × echo EMA). Higher = harder to barge in over loud speakers; values well below 1 pin the effective threshold at speechEnergyThreshold, disabling echo suppression.",
       ),
     echoEmaHalfLifeMs: z
       .number({ error: "liveVoice.vad.echoEmaHalfLifeMs must be a number" })
@@ -55,7 +55,7 @@ export const LiveVoiceVadConfigSchema = z
       .positive("liveVoice.vad.echoEmaHalfLifeMs must be a positive integer")
       .default(400)
       .describe(
-        "Half-life (ms) of the echo-level EMA; smaller adapts faster to TTS loudness changes, larger is steadier against speech transients.",
+        "Half-life (ms) of the echo-level EMA; smaller adapts faster to TTS loudness changes, larger is steadier against speech transients. Also sets the gate's onset warm-up: the first half-life/2 of playback audio learns at a quarter-half-life attack rate and defers barge-in trips until warm. Keep half-life/2 below bargeInMinSpeechMs (true at the defaults: 200 vs 250) so genuine onset barge-ins are never deferred.",
       ),
   })
   .describe(
