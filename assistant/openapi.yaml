@@ -9675,6 +9675,8 @@ paths:
                     type: string
                   message:
                     type: string
+                  redirected:
+                    type: boolean
                 required:
                   - ok
                 additionalProperties: false

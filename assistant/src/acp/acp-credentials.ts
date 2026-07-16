@@ -14,6 +14,15 @@
 export const ACP_SERVICE = "acp";
 export const ACP_OAUTH_TOKEN_FIELD = "claude_oauth_token";
 
+/**
+ * True for the ACP vault field the "Connect Claude" flow owns
+ * (`acp/claude_oauth_token`). Used to route this credential to the inline
+ * Connect card instead of a redundant legacy secure-prompt.
+ */
+export function isAcpClaudeOauthField(service: string, field: string): boolean {
+  return service === ACP_SERVICE && field === ACP_OAUTH_TOKEN_FIELD;
+}
+
 export type AnthropicTokenKind = "oauth" | "api_key" | "unknown";
 
 /**

@@ -60,6 +60,8 @@ The `claude-agent-acp` adapter requires a Claude **OAuth token** (`sk-ant-oat…
 assistant credentials prompt --service acp --field claude_oauth_token --label "Claude OAuth Token"
 ```
 
+This is strictly for headless/channel sessions. In an interactive session the daemon **refuses** this prompt for `acp/claude_oauth_token` and returns a message pointing at the inline Connect card, so do not run it to work around the card — just wait for the user to connect.
+
 Do NOT ask the user to paste the token into chat — the secure prompt keeps it out of the conversation and the workspace config.
 
 ## Codex setup

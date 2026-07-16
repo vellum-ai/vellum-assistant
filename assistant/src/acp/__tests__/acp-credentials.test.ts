@@ -10,6 +10,7 @@ import {
   AcpCredentialFormatError,
   assertAcpCredentialFormat,
   classifyAnthropicToken,
+  isAcpClaudeOauthField,
 } from "../acp-credentials.js";
 
 describe("classifyAnthropicToken", () => {
@@ -69,5 +70,18 @@ describe("constants", () => {
   test("expose the ACP service and OAuth field names", () => {
     expect(ACP_SERVICE).toBe("acp");
     expect(ACP_OAUTH_TOKEN_FIELD).toBe("claude_oauth_token");
+  });
+});
+
+describe("isAcpClaudeOauthField", () => {
+  test("matches only the acp/claude_oauth_token pair", () => {
+    expect(isAcpClaudeOauthField("acp", "claude_oauth_token")).toBe(true);
+  });
+
+  test("rejects other services and fields", () => {
+    expect(isAcpClaudeOauthField("acp", "openai_api_key")).toBe(false);
+    expect(isAcpClaudeOauthField("acp", "codex_api_key")).toBe(false);
+    expect(isAcpClaudeOauthField("sentry", "claude_oauth_token")).toBe(false);
+    expect(isAcpClaudeOauthField("openai", "api_key")).toBe(false);
   });
 });
