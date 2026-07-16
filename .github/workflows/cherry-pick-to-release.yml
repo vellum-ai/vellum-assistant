@@ -138,7 +138,7 @@ jobs:
 
       - name: Notify Slack of cherry-pick conflict
         if: steps.cherry-pick.outputs.status == 'conflict'
-        continues-on-error: true
+        continue-on-error: true
         uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2.1.1
         with:
           webhook: ${{ secrets.SLACK_RELEASES_WEBHOOK_URL }}
