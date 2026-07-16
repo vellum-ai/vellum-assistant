@@ -43,6 +43,18 @@ export const LLMProvider = z
   .meta({ id: "LLMProvider" });
 type LLMProvider = z.infer<typeof LLMProvider>;
 
+/**
+ * Routing identities the schema admits but no write may store yet: dispatch
+ * cannot resolve them to a real upstream, so a stored profile or call-site
+ * fragment carrying one would fail every model call. Enforced both at parse
+ * time (LLMSchema.superRefine) and at the config write choke point
+ * (commitConfigWrite), and lifted together once dispatch resolution lands.
+ */
+export const WRITE_LOCKED_PROVIDERS: ReadonlySet<string> = new Set([
+  "vellum",
+  "chatgpt",
+]);
+
 // Deliberately narrower than `LLMProvider`: only providers that can serve
 // the code-defined default profile catalog.
 const DefaultProviderEnum = z.enum(DEFAULT_PROFILE_PROVIDERS);
@@ -581,13 +593,10 @@ export const LLMSchema = z
     pricingOverrides: z.array(PricingOverrideSchema).default([]),
   })
   .superRefine((config, ctx) => {
-    // Write-locked routing identities: dispatch cannot resolve these
-    // provider values yet, so no stored profile or call-site fragment may
-    // carry them. Every config write re-parses this schema, which closes
-    // the paths that bypass the profiles route's own guard (raw config
-    // PATCH, PUT /v1/config/llm/profiles/:name). Lifted together with that
-    // guard once dispatch resolution lands.
-    const writeLocked = new Set(["vellum", "chatgpt"]);
+    // Write-locked routing identities (see WRITE_LOCKED_PROVIDERS): parse
+    // rejection is the read-side defense; the write-side choke point is
+    // commitConfigWrite, which checks the raw object before persisting.
+    const writeLocked = WRITE_LOCKED_PROVIDERS;
     for (const [name, entry] of Object.entries(config.profiles ?? {})) {
       if (entry?.provider && writeLocked.has(entry.provider)) {
         ctx.addIssue({

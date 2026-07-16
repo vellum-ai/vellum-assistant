@@ -51,6 +51,7 @@ import {
   LLMConfigBase,
   LLMConfigFragment,
   ProfileEntry,
+  WRITE_LOCKED_PROVIDERS,
 } from "../../config/schemas/llm.js";
 import { VALID_MEMORY_EMBEDDING_PROVIDERS } from "../../config/schemas/memory-storage.js";
 import { ServiceModeSchema } from "../../config/schemas/services.js";
@@ -1346,6 +1347,34 @@ function completeChangedCustomProfiles(
  * Shared by `handlePatchConfig` and `handleSetConfig` so both write paths get
  * identical post-write side effects.
  */
+/**
+ * Reject writes that would store a write-locked routing identity
+ * (WRITE_LOCKED_PROVIDERS) in any profile or call-site fragment. saveRawConfig
+ * persists without schema validation, so the parse-time rejection alone would
+ * let the value reach disk and only fail on the next read.
+ */
+function assertNoWriteLockedProviders(raw: Record<string, unknown>): void {
+  const llm = raw.llm as
+    | {
+        profiles?: Record<string, { provider?: unknown } | null | undefined>;
+        callSites?: Record<string, { provider?: unknown } | null | undefined>;
+      }
+    | undefined;
+  for (const section of ["profiles", "callSites"] as const) {
+    for (const [name, entry] of Object.entries(llm?.[section] ?? {})) {
+      const provider = entry?.provider;
+      if (
+        typeof provider === "string" &&
+        WRITE_LOCKED_PROVIDERS.has(provider)
+      ) {
+        throw new BadRequestError(
+          `Provider "${provider}" is not yet enabled (llm.${section}.${name}).`,
+        );
+      }
+    }
+  }
+}
+
 export async function commitConfigWrite(
   raw: Record<string, unknown>,
   opLabel: string,
@@ -1357,6 +1386,7 @@ export async function commitConfigWrite(
   const preWrite = loadRawConfig();
   completeChangedCustomProfiles(preWrite, raw);
   assertInvariantProfilesPreserved(preWrite, raw);
+  assertNoWriteLockedProviders(raw);
 
   // Suppress the file-watcher callback for the duration of the debounce
   // window. Without this, the ConfigWatcher detects the config.json write
