@@ -29,7 +29,9 @@ import { Button } from "@vellumai/design-library/components/button";
 import { Card } from "@vellumai/design-library/components/card";
 import { Notice } from "@vellumai/design-library/components/notice";
 import { Tag } from "@vellumai/design-library/components/tag";
+import { toast } from "@vellumai/design-library/components/toast";
 import { Typography } from "@vellumai/design-library/components/typography";
+import { extractMutationError } from "./adjust-plan-utils";
 import { formatMonthly } from "./tier-pricing";
 
 interface PlanDisplay {
@@ -170,6 +172,12 @@ function buildDeltas(
 interface RecommendedUpgradeProps {
     packages: ProPackage[];
     currentKey: string | null;
+    /**
+     * Delegate for subscribers who are already on Pro — the upgrade endpoint
+     * no-ops for active Pro orgs, so package step-ups go through the manage
+     * flow instead. When absent (base plan), the CTA starts the Stripe
+     * package checkout directly.
+     */
     onUpgrade?: () => void;
 }
 
@@ -217,6 +225,9 @@ function RecommendedUpgrade({
                 },
             });
             if (result.status === "redirect" && result.checkout_url) {
+                // Stripe redirects back to the billing page with a
+                // `session_id`, which opens the post-checkout Pro onboarding
+                // wizard.
                 openUrl(result.checkout_url);
             } else {
                 await queryClient.invalidateQueries({
@@ -226,6 +237,13 @@ function RecommendedUpgrade({
                     queryKey: organizationsBillingPlansRetrieveQueryKey(),
                 });
             }
+        } catch (error) {
+            toast.error(
+                extractMutationError(
+                    error,
+                    "Failed to start the upgrade checkout. Please try again.",
+                ),
+            );
         } finally {
             setPending(false);
         }
@@ -425,7 +443,9 @@ export function PlanCard({ onManage }: PlanCardProps) {
                     <RecommendedUpgrade
                         packages={packages}
                         currentKey={currentKey}
-                        onUpgrade={onManage}
+                        onUpgrade={
+                            currentPlan.id === "base" ? undefined : onManage
+                        }
                     />
                 </div>
             </div>
