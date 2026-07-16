@@ -143,6 +143,13 @@ export function forkActivationState(
  * No-op when the child inherited no memory attachments. Synchronous so it can
  * run inside the fork's copy path. Writes the dedicated memory connection; an
  * unavailable memory database no-ops.
+ *
+ * The insert ignores a conflicting row rather than failing. This memory-DB
+ * write is not part of the main-DB fork transaction, so a transient main-DB
+ * error that rolls back the fork leaves this row behind; the retrospective
+ * fork retry then re-runs with the same fork id and would collide on the
+ * primary key. A retried fork re-inserts the same inherited slugs, so ignoring
+ * the conflict is safe.
  */
 export function seedForkActivationState(
   newConversationId: string,
@@ -160,7 +167,8 @@ export function seedForkActivationState(
     .query(
       /*sql*/ `INSERT INTO activation_state
          (conversation_id, message_id, state_json, ever_injected_json, current_turn, updated_at)
-       VALUES (?, ?, '{}', ?, 0, ?)`,
+       VALUES (?, ?, '{}', ?, 0, ?)
+       ON CONFLICT(conversation_id) DO NOTHING`,
     )
     .run(
       newConversationId,

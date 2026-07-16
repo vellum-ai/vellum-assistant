@@ -19,6 +19,7 @@ import {
   forkActivationState,
   hydrate,
   save,
+  seedForkActivationState,
 } from "../activation-store.js";
 
 // The store resolves `activation_state` through the dedicated memory
@@ -156,6 +157,42 @@ describe("activation-store", () => {
 
       const child = await hydrate("conv-child");
       expect(child?.currentTurn).toBe(7);
+    });
+  });
+
+  describe("seedForkActivationState", () => {
+    test("seeds ever-injected from inherited slugs with fresh counters", async () => {
+      seedForkActivationState("conv-child", ["alice-prefers-vscode", "bob"]);
+
+      const child = await hydrate("conv-child");
+      expect(child?.state).toEqual({});
+      expect(child?.currentTurn).toBe(0);
+      expect(child?.everInjected).toEqual([
+        { slug: "alice-prefers-vscode", turn: 0 },
+        { slug: "bob", turn: 0 },
+      ]);
+    });
+
+    test("is a no-op when no slugs were inherited", async () => {
+      seedForkActivationState("conv-child", []);
+
+      expect(await hydrate("conv-child")).toBeNull();
+    });
+
+    test("re-seeding the same fork id does not throw (retry safety)", async () => {
+      seedForkActivationState("conv-child", ["alice-prefers-vscode"]);
+
+      // The memory-DB write is outside the main-DB fork transaction, so a
+      // rolled-back-and-retried fork re-runs this seed with the same id. The
+      // second insert must ignore the conflict rather than fail.
+      expect(() =>
+        seedForkActivationState("conv-child", ["alice-prefers-vscode"]),
+      ).not.toThrow();
+
+      const child = await hydrate("conv-child");
+      expect(child?.everInjected).toEqual([
+        { slug: "alice-prefers-vscode", turn: 0 },
+      ]);
     });
   });
 
