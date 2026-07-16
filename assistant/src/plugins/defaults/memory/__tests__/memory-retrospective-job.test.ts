@@ -1,7 +1,8 @@
-import { mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
+
+import { getWorkspaceDir } from "../paths.js";
 
 // ---------------------------------------------------------------------------
 // Mock state. Reset between tests.
@@ -641,6 +642,9 @@ describe("memoryRetrospectiveJob", () => {
       "skill_load",
       "find_similar_skills",
     ]);
+    // skill-management is preactivated so the authoring trio is in the turn's
+    // active set from turn 1 (not merely on the execution allowlist).
+    expect(opts.preactivateSkillIds).toEqual(["skill-management"]);
     expect(opts.suppressWakeSurface).toBe(true);
     // Sanity: the other fork-specific opts the handler relies on are still set.
     expect(opts.skipHintInjection).toBe(true);
@@ -655,6 +659,8 @@ describe("memoryRetrospectiveJob", () => {
     expect(wakeCalls).toHaveLength(1);
     // The authoring trio is not even named on the allowlist when inactive.
     expect(wakeCalls[0]!.opts.allowedTools).toEqual(["remember"]);
+    // And skill-management is not preactivated, so its tools never go active.
+    expect(wakeCalls[0]!.opts.preactivateSkillIds).toBeUndefined();
   });
 
   test("wake pins the memory_retrospective origin on the tool-context pin so the checker's grant can fire", async () => {
@@ -810,7 +816,12 @@ describe("memoryRetrospectiveJob", () => {
   });
 
   test("honors memory.retrospective.promptPath override when set", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "retro-job-prompt-override-"));
+    // Overrides outside the workspace root are rejected, so the fixture must
+    // live under the process workspace.
+    mkdirSync(getWorkspaceDir(), { recursive: true });
+    const dir = mkdtempSync(
+      join(getWorkspaceDir(), "retro-job-prompt-override-"),
+    );
     const overridePath = join(dir, "custom-instruction.md");
     writeFileSync(
       overridePath,
@@ -1794,10 +1805,11 @@ describe("memoryRetrospectiveJob", () => {
 
     const instructionText = persistedInstructionText();
 
-    // Available-tools line names the skill-authoring trio.
+    // Available-tools line names the skill-authoring pair; skill-management is
+    // preactivated, so no `skill_load` step is instructed.
     expect(instructionText).toContain("find_similar_skills");
     expect(instructionText).toContain("scaffold_managed_skill");
-    expect(instructionText).toContain("skill_load skill-management");
+    expect(instructionText).not.toContain("skill_load skill-management");
 
     // Permissive relevance pre-check keyed on actually-executed procedures.
     expect(instructionText).toContain("a PROCEDURE you actually carried out");

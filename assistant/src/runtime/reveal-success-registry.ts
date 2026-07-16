@@ -26,12 +26,14 @@
  * local-mode web calls, where the gateway derives the `local` principal
  * from the JWT but always stamps `x-vellum-proxy-server: ipc`.
  *
- * Known limitation (shared with the --for-chat mint registry and tracked
- * as its follow-up): records are not conversation-scoped, so a concurrent
- * conversation's successful reveal of the SAME identity inside the
- * propose→result window would also satisfy the check. Deriving a trusted
- * tool-subprocess→conversation mapping daemon-side closes that gap for
- * both registries at once.
+ * Records are conversation-bound via the reveal NONCE (see
+ * `reveal-nonce.ts`): the shell tools export each conversation's secret
+ * nonce to the tool subprocess, the CLI forwards it, the route stamps it
+ * onto the record, and readers require an exact match. A concurrent
+ * conversation's reveal of the SAME identity therefore cannot satisfy
+ * another conversation's proof check — its records carry a different
+ * nonce — and a reveal with no nonce (outside any conversation's tool
+ * shell) records nothing.
  */
 
 interface RevealSuccessRecord {
@@ -47,6 +49,13 @@ interface RevealSuccessRecord {
    * registry for the length of one turn adds no new exposure surface.
    */
   readonly value: string;
+  /**
+   * The conversation-bound reveal nonce the CLI forwarded (see
+   * `reveal-nonce.ts`). Readers match on it exactly, so a record can only
+   * ever prove refs for the conversation whose tool shell executed the
+   * reveal.
+   */
+  readonly nonce: string;
   readonly recordedAtMs: number;
 }
 
@@ -192,6 +201,7 @@ export function recordRevealSuccess(
   service: string,
   field: string,
   value: string,
+  nonce: string,
 ): void {
   const nowMs = Date.now();
   expireWindows(nowMs);
@@ -199,7 +209,14 @@ export function recordRevealSuccess(
     return;
   }
   seqCounter += 1;
-  records.push({ seq: seqCounter, service, field, value, recordedAtMs: nowMs });
+  records.push({
+    seq: seqCounter,
+    service,
+    field,
+    value,
+    nonce,
+    recordedAtMs: nowMs,
+  });
   prune(nowMs);
   schedulePrune(nowMs);
 }
@@ -212,8 +229,9 @@ export function hasRevealSuccessSince(
   watermark: number,
   service: string,
   field: string,
+  nonce: string,
 ): boolean {
-  return revealedValueSince(watermark, service, field) !== undefined;
+  return revealedValueSince(watermark, service, field, nonce) !== undefined;
 }
 
 /**
@@ -224,8 +242,9 @@ export function revealedValueSince(
   watermark: number,
   service: string,
   field: string,
+  nonce: string,
 ): string | undefined {
-  return revealedValuesSince(watermark, service, field)[0];
+  return revealedValuesSince(watermark, service, field, nonce)[0];
 }
 
 /**
@@ -243,6 +262,7 @@ export function revealedValuesSince(
   watermark: number,
   service: string,
   field: string,
+  nonce: string,
 ): string[] {
   const nowMs = Date.now();
   // Evict, don't just filter: expired records hold plaintext and must
@@ -250,7 +270,11 @@ export function revealedValuesSince(
   prune(nowMs);
   const matches = records
     .filter(
-      (r) => r.seq > watermark && r.service === service && r.field === field,
+      (r) =>
+        r.seq > watermark &&
+        r.service === service &&
+        r.field === field &&
+        r.nonce === nonce,
     )
     .sort((a, b) => b.seq - a.seq);
   const seen = new Set<string>();

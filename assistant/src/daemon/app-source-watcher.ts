@@ -15,7 +15,6 @@ import {
   getApp,
   getAppDirPath,
   getAppsDir,
-  isMultifileApp,
   resolveAppIdByDirName,
 } from "../apps/app-store.js";
 import { compileApp } from "../bundler/app-compiler.js";
@@ -159,8 +158,8 @@ export class AppSourceWatcher {
 }
 
 /**
- * Handle a detected app source file change. Recompiles multifile apps and
- * refreshes surfaces across ALL conversations.
+ * Handle a detected app source file change. Recompiles the app and refreshes
+ * surfaces across ALL conversations.
  */
 function handleAppSourceChange(appId: string): void {
   const app = getApp(appId);
@@ -175,26 +174,21 @@ function handleAppSourceChange(appId: string): void {
     void updatePublishedAppDeployment(appId);
   };
 
-  if (isMultifileApp(app)) {
-    const appDir = getAppDirPath(appId);
-    void compileApp(appDir)
-      .then((result) => {
-        if (!result.ok) {
-          log.warn(
-            { appId, errors: result.errors },
-            "Recompile failed on app source change",
-          );
-        }
-        doRefresh();
-      })
-      .catch((err) => {
-        log.warn({ appId, err }, "Recompile threw on app source change");
-        doRefresh();
-      });
-    return;
-  }
-
-  doRefresh();
+  const appDir = getAppDirPath(appId);
+  void compileApp(appDir)
+    .then((result) => {
+      if (!result.ok) {
+        log.warn(
+          { appId, errors: result.errors },
+          "Recompile failed on app source change",
+        );
+      }
+      doRefresh();
+    })
+    .catch((err) => {
+      log.warn({ appId, err }, "Recompile threw on app source change");
+      doRefresh();
+    });
 }
 
 /** Start watching app source directories for the life of the daemon. */

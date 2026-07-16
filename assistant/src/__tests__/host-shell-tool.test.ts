@@ -855,6 +855,7 @@ describe("host_bash — proxy delegation", () => {
       expect(calls.length).toBe(1);
       expect(calls[0].input.env).toEqual({
         __CONVERSATION_ID: "test-conversation",
+        __REVEAL_NONCE: expect.any(String),
       });
     } finally {
       restoreEnv(envSnapshot);
@@ -888,6 +889,7 @@ describe("host_bash — proxy delegation", () => {
         VELLUM_ENVIRONMENT: "local",
         INTERNAL_GATEWAY_BASE_URL: "http://127.0.0.1:7830",
         __CONVERSATION_ID: "test-conversation",
+        __REVEAL_NONCE: expect.any(String),
       });
     } finally {
       restoreEnv(envSnapshot);

@@ -1,4 +1,5 @@
 import { Tooltip } from "@vellumai/design-library";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   CheckCircle2,
   ExternalLink,
@@ -16,6 +17,8 @@ import {
   type ManagedOAuthProviderSummary,
 } from "@/domains/chat/api/managed-oauth";
 import type { Surface } from "@/domains/chat/types/types";
+import { assistantsOauthConnectionsListQueryKey } from "@/generated/api/@tanstack/react-query.gen";
+import { resolveLocalAssistantPlatformIdentity } from "@/lib/local-platform-identity";
 
 interface OAuthConnectSurfaceData {
   providerKey?: string;
@@ -99,6 +102,7 @@ export function OAuthConnectSurface({
   assistantDisplayName,
   oauthClient = defaultManagedOAuthConnectClient,
 }: OAuthConnectSurfaceProps) {
+  const queryClient = useQueryClient();
   const data = surface.data as OAuthConnectSurfaceData;
   const providerKey = data.providerKey ?? "";
   const [provider, setProvider] = useState<ManagedOAuthProviderSummary | null>(
@@ -166,6 +170,18 @@ export function OAuthConnectSurface({
 
     if (result.status === "connected") {
       setState("connected");
+      // Refresh any mounted connections list (e.g. Settings integrations) so a
+      // just-connected account no longer reads as unconnected. Best-effort: the
+      // platform-id resolution can throw and must not block the surface action.
+      void resolveLocalAssistantPlatformIdentity(assistantId)
+        .then((platformAssistantId) =>
+          queryClient.invalidateQueries({
+            queryKey: assistantsOauthConnectionsListQueryKey({
+              path: { assistant_id: platformAssistantId },
+            }),
+          }),
+        )
+        .catch(() => {});
       onAction(surface.surfaceId, "connect", {
         status: "connected",
         providerKey,

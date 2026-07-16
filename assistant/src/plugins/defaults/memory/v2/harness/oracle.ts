@@ -15,13 +15,11 @@
  * always excluded.
  */
 
-import { and, desc, eq, inArray, isNotNull, sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 
 import type { DrizzleDb } from "../../../../../persistence/db-connection.js";
-import {
-  memoryV2ActivationLogs,
-  messages,
-} from "../../../../../persistence/schema/index.js";
+import { messages } from "../../../../../persistence/schema/index.js";
+import { memorySqliteOrNull } from "../../memory-db.js";
 import type {
   MemoryV2ConceptRowRecord,
   MemoryV2ConfigSnapshot,
@@ -68,41 +66,51 @@ export function extractOracleTurns(
   } = options;
 
   const allowedStatuses = new Set<string>(["injected", "in_context"]);
-  if (includeNotInjected) allowedStatuses.add("not_injected");
-
-  const filters = [
-    eq(memoryV2ActivationLogs.mode, "router"),
-    isNotNull(memoryV2ActivationLogs.messageId),
-  ];
-  if (conversationIds && conversationIds.length > 0) {
-    filters.push(
-      inArray(memoryV2ActivationLogs.conversationId, conversationIds),
-    );
+  if (includeNotInjected) {
+    allowedStatuses.add("not_injected");
   }
 
-  const rows = db
-    .select({
-      conversationId: memoryV2ActivationLogs.conversationId,
-      messageId: memoryV2ActivationLogs.messageId,
-      turn: memoryV2ActivationLogs.turn,
-      conceptsJson: memoryV2ActivationLogs.conceptsJson,
-      configJson: memoryV2ActivationLogs.configJson,
-      createdAt: memoryV2ActivationLogs.createdAt,
-    })
-    .from(memoryV2ActivationLogs)
-    .where(and(...filters))
-    .orderBy(
-      strategy === "random"
-        ? sql`RANDOM()`
-        : desc(memoryV2ActivationLogs.createdAt),
+  // The activation log lives in the dedicated memory database; the anchor
+  // lookup below stays on the main connection (`messages`). Fail-soft: no
+  // memory connection means no oracle turns.
+  const memoryRaw = memorySqliteOrNull("extractOracleTurns");
+  if (!memoryRaw) {
+    return [];
+  }
+
+  const params: (string | number)[] = [];
+  let where = `mode = 'router' AND message_id IS NOT NULL`;
+  if (conversationIds && conversationIds.length > 0) {
+    where += ` AND conversation_id IN (${conversationIds.map(() => "?").join(",")})`;
+    params.push(...conversationIds);
+  }
+  const orderBy = strategy === "random" ? "RANDOM()" : "created_at DESC";
+  params.push(limit);
+
+  const rows = memoryRaw
+    .query(
+      `SELECT conversation_id, message_id, turn, concepts_json, config_json,
+              created_at
+         FROM memory_v2_activation_logs
+        WHERE ${where}
+        ORDER BY ${orderBy}
+        LIMIT ?`,
     )
-    .limit(limit)
-    .all();
+    .all(...params) as Array<{
+    conversation_id: string;
+    message_id: string | null;
+    turn: number;
+    concepts_json: string;
+    config_json: string;
+    created_at: number;
+  }>;
 
   const turns: OracleTurn[] = [];
   for (const row of rows) {
-    const messageId = row.messageId;
-    if (messageId == null) continue;
+    const messageId = row.message_id;
+    if (messageId == null) {
+      continue;
+    }
 
     const anchor = db
       .select({ createdAt: messages.createdAt })
@@ -111,13 +119,15 @@ export function extractOracleTurns(
       .limit(1)
       .all();
     const anchorRow = anchor[0];
-    if (!anchorRow) continue;
+    if (!anchorRow) {
+      continue;
+    }
 
     let concepts: MemoryV2ConceptRowRecord[];
     let loggedConfig: MemoryV2ConfigSnapshot;
     try {
-      concepts = JSON.parse(row.conceptsJson) as MemoryV2ConceptRowRecord[];
-      loggedConfig = JSON.parse(row.configJson) as MemoryV2ConfigSnapshot;
+      concepts = JSON.parse(row.concepts_json) as MemoryV2ConceptRowRecord[];
+      loggedConfig = JSON.parse(row.config_json) as MemoryV2ConfigSnapshot;
     } catch {
       continue;
     }
@@ -125,22 +135,30 @@ export function extractOracleTurns(
     const seen = new Set<string>();
     const groundTruthSlugs: string[] = [];
     for (const concept of concepts) {
-      if (!allowedStatuses.has(concept.status)) continue;
-      if (pageExists && !pageExists(concept.slug)) continue;
-      if (seen.has(concept.slug)) continue;
+      if (!allowedStatuses.has(concept.status)) {
+        continue;
+      }
+      if (pageExists && !pageExists(concept.slug)) {
+        continue;
+      }
+      if (seen.has(concept.slug)) {
+        continue;
+      }
       seen.add(concept.slug);
       groundTruthSlugs.push(concept.slug);
     }
-    if (groundTruthSlugs.length === 0) continue;
+    if (groundTruthSlugs.length === 0) {
+      continue;
+    }
 
     turns.push({
-      conversationId: row.conversationId,
+      conversationId: row.conversation_id,
       turn: row.turn,
       anchorMessageId: messageId,
       anchorCreatedAt: anchorRow.createdAt,
       groundTruthSlugs,
       loggedConfig,
-      createdAt: row.createdAt,
+      createdAt: row.created_at,
     });
   }
 

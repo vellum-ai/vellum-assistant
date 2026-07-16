@@ -1,4 +1,7 @@
-import { type DisplayMessage, isSurfaceInteractive } from "@/domains/chat/types/types";
+import {
+  type DisplayMessage,
+  isSurfaceInteractive,
+} from "@/domains/chat/types/types";
 import type { IdentityGetResponse } from "@/generated/daemon/types.gen";
 import type { Conversation } from "@/types/conversation-types";
 import type { AssistantEvent } from "@/types/event-types";
@@ -29,6 +32,12 @@ const GLOBAL_STREAM_EVENT_TYPE_NAMES = [
   // (daemon emits `{ type, tab }`), so the conversation-id gate would
   // otherwise drop it before it reached `handleNavigateSettings`.
   "navigate_settings",
+  // Client directive to open/focus a conversation. Its `conversationId` is
+  // the TARGET conversation to open, not the stream the event arrived on, so
+  // the conversation-id gate (which compares against the active stream's
+  // conversation) would otherwise drop it as a mismatch before it reached
+  // `handleOpenConversation`.
+  "open_conversation",
   "identity_changed",
   "avatar_updated",
   "sync_changed",

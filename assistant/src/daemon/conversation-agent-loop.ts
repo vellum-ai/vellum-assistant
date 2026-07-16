@@ -27,9 +27,7 @@ import {
   resolveEffectiveContextWindow,
 } from "../config/llm-context-resolution.js";
 import {
-  isOverrideOrDefaultResolutionEnabled,
   resolveCallSiteConfig,
-  resolveDefaultProfileKey,
   resolveEffectiveProfileKey,
   resolveProfilelessModelKey,
   selectWinningProfile,
@@ -367,7 +365,7 @@ export async function runAgentLoopImpl(
   // contexts (heartbeat, filing, analyze, etc.) pass their own `callSite`. The
   // provider layer resolves provider/model/maxTokens via `resolveCallSiteConfig`,
   // picking up any user overrides under `llm.callSites.<id>` (falling back to
-  // `llm.default` when absent). `resolveTurnCallSite` keeps subagent
+  // the shipped call-site defaults when absent). `resolveTurnCallSite` keeps subagent
   // conversations on `subagentSpawn` when no call site is supplied.
   const turnCallSite = resolveTurnCallSite(options?.callSite, ctx);
   // Expose the turn's call site on the live conversation so the runtime
@@ -931,21 +929,16 @@ export async function runAgentLoopImpl(
     // `modelProfileKey` is the actual profile used for this turn. The
     // notice key is narrower: it only marks turns where runtime context should
     // remind the model that the profile changed.
-    // Under override-or-default semantics the reported key must come from
-    // the same winner selection dispatch used — a hand-rolled chain would
-    // credit profiles the resolver never consulted (e.g. activeProfile on a
-    // non-mainAgent turn).
+    // The reported key must come from the same winner selection dispatch used —
+    // a hand-rolled chain would credit profiles the resolver never consulted
+    // (e.g. activeProfile on a non-mainAgent turn).
     const effectiveProfileKey =
-      (isOverrideOrDefaultResolutionEnabled()
-        ? selectWinningProfile(turnCallSite, config.llm, {
-            ...(turnOverrideProfile != null
-              ? { overrideProfile: turnOverrideProfile }
-              : {}),
-            selectionSeed: ctx.conversationId,
-          }).profileName
-        : (turnOverrideProfile ??
-          config.llm.activeProfile ??
-          resolveDefaultProfileKey("mainAgent", config.llm))) ??
+      selectWinningProfile(turnCallSite, config.llm, {
+        ...(turnOverrideProfile != null
+          ? { overrideProfile: turnOverrideProfile }
+          : {}),
+        selectionSeed: ctx.conversationId,
+      }).profileName ??
       resolveProfilelessModelKey(turnCallSite, config.llm, {
         ...(turnOverrideProfile != null
           ? { overrideProfile: turnOverrideProfile }
@@ -1590,6 +1583,21 @@ export async function runAgentLoopImpl(
       publishLoopMessagesChanged();
     }
   } finally {
+    // Clear the processing flag first. It is the release that frees the
+    // conversation for its next turn, so nothing that can throw (the
+    // turn-boundary commit, profiling) is allowed to run ahead of it and leave
+    // the row latched "mid-turn". Stamp the turn's abnormal outcome first
+    // because the telemetry reporter's settled-turn barrier only releases this
+    // turn once processing stops; null `abortController` first so a concurrent
+    // abort takes the force-clear branch rather than signalling a dead one.
+    if (abnormalOutcome) {
+      stampTurnOutcome(userMessageId, abnormalOutcome.outcome, {
+        failureCode: abnormalOutcome.failureCode,
+      });
+    }
+    ctx.abortController = null;
+    ctx.setProcessing(false);
+
     if (turnStarted) {
       ctx.turnCount++;
       const config = getConfig();
@@ -1625,24 +1633,12 @@ export async function runAgentLoopImpl(
 
     emitToolProfilingSummary(ctx.conversationId, reqId);
 
-    // Tear down this turn's per-turn state. Abort reliably drives the loop to
+    // Tear down the remaining per-turn state. Abort reliably drives the loop to
     // this `finally` within a bounded time — cooperative signal propagation
     // (provider fetch + tool race) backed by the abort watchdog — so a
     // cancelled turn always unwinds before any resend can start a new one.
     // There is therefore only ever one turn alive, and clearing the shared
     // state below cannot clobber a concurrent turn.
-    // Stamp the turn's abnormal outcome (failed / cancelled) onto its
-    // user-message row BEFORE processing clears: the telemetry reporter's
-    // settled-turn barrier only releases this turn once the conversation
-    // stops processing, so ordering the stamp first guarantees the turn
-    // event ships with the outcome. A normally-replied turn stamps nothing.
-    if (abnormalOutcome) {
-      stampTurnOutcome(userMessageId, abnormalOutcome.outcome, {
-        failureCode: abnormalOutcome.failureCode,
-      });
-    }
-    ctx.abortController = null;
-    ctx.setProcessing(false);
     ctx.onConfirmationOutcome = undefined;
     ctx.surfaceActionRequestIds.delete(ctx.currentRequestId ?? "");
     ctx.approvedViaPromptThisTurn = false;

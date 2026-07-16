@@ -231,6 +231,7 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "tools/network/web-fetch.ts", // Firecrawl /scrape BYOK fetch provider API key lookup (firecrawl provider key)
       "workspace/default-provider-ensure.ts", // legacy anthropic echo disambiguation (vault key presence check)
       "providers/inference/connection-availability.ts", // shared (provider, connection) availability status (credential presence check only; value never leaves the helper)
+      "plugin-api/resolve-credential.ts", // plugin-facing resolveCredential — reveal-equivalent plaintext read, scoped to the in-context plugin's own field
     ]);
 
     const thisDir = dirname(fileURLToPath(import.meta.url));

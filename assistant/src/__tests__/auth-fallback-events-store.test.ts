@@ -69,11 +69,18 @@ describe("auth-fallback-events-store", () => {
     });
   });
 
-  test("honors the share_analytics opt-out (records nothing)", () => {
+  test("honors a confirmed share_analytics opt-out (records nothing)", () => {
     setShareAnalytics(false);
     const recorded = recordAuthFallbackCounts(1000, 2000, SAMPLE);
     expect(recorded).toBe(0);
     expect(pendingOutboxRows("auth_fallback").length).toBe(0);
+  });
+
+  test("records while consent is unknown (a cold cache never drops data)", () => {
+    setShareAnalytics("unknown");
+    const recorded = recordAuthFallbackCounts(1000, 2000, SAMPLE);
+    expect(recorded).toBe(2);
+    expect(pendingOutboxRows("auth_fallback").length).toBe(2);
   });
 
   test("empty counts batch is a no-op", () => {

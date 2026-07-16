@@ -1,19 +1,9 @@
 import { describe, expect, mock, test } from "bun:test";
 
 // Fake app records keyed by ID
-const legacyApp = {
-  id: "legacy-1",
-  name: "Legacy App",
-  htmlDefinition: "<div>Hello</div>",
-  schemaJson: "{}",
-  createdAt: 0,
-  updatedAt: 0,
-  // No formatVersion → legacy
-};
-
-const multifileApp = {
-  id: "multi-1",
-  name: "Multifile App",
+const compiledApp = {
+  id: "app-1",
+  name: "Compiled App",
   htmlDefinition: "",
   schemaJson: "{}",
   createdAt: 0,
@@ -21,10 +11,21 @@ const multifileApp = {
   formatVersion: 2,
 };
 
-const apps = new Map<string, typeof legacyApp | typeof multifileApp>([
+const legacyApp = {
+  id: "legacy-1",
+  name: "Legacy App",
+  htmlDefinition: "<div>Hello</div>",
+  schemaJson: "{}",
+  createdAt: 0,
+  updatedAt: 0,
+};
+
+const apps = new Map<string, typeof compiledApp | typeof legacyApp>([
+  ["app-1", compiledApp],
   ["legacy-1", legacyApp],
-  ["multi-1", multifileApp],
 ]);
+
+const UNSUPPORTED_HTML = `<p>This app uses the retired single-file format and can no longer be opened.</p>`;
 
 mock.module("../apps/app-store.js", () => ({
   resolveAppSource: (id: string) => {
@@ -36,10 +37,13 @@ mock.module("../apps/app-store.js", () => ({
       dirName: id,
       sourceDir: `/fake/apps/${id}`,
       origin: { kind: "workspace" as const },
-      formatVersion: (app as { formatVersion?: number }).formatVersion ?? 1,
     };
   },
   readAppFileBytesFromDir: () => Buffer.from(""),
+  // Only the legacy app's directory has a root index.html and no src/.
+  isLegacySingleFileDir: (sourceDir: string) =>
+    sourceDir === "/fake/apps/legacy-1",
+  UNSUPPORTED_LEGACY_APP_HTML: UNSUPPORTED_HTML,
 }));
 
 // Mock shared-app-links-store (imported by app-routes but unused here)
@@ -50,14 +54,13 @@ mock.module("../apps/shared-app-links-store.js", () => ({
   deleteSharedAppLinkByToken: () => false,
 }));
 
-// Stub fs so the multifile path finds a fake dist/index.html
+// Stub fs so the serve path finds a fake dist/index.html for the compiled app
 mock.module("node:fs", () => ({
-  existsSync: (p: string) => p === "/fake/apps/multi-1/dist/index.html",
+  existsSync: (p: string) => p === "/fake/apps/app-1/dist/index.html",
   readFileSync: (p: string, _enc?: string) => {
-    if (p === "/fake/apps/multi-1/dist/index.html") {
+    if (p === "/fake/apps/app-1/dist/index.html") {
       return '<!DOCTYPE html><html><head></head><body><script src="main.js"></script></body></html>';
     }
-    // Design system CSS — return empty string
     return "";
   },
 }));
@@ -99,157 +102,122 @@ function parseCsp(header: string): Record<string, string> {
 }
 
 describe("app-routes CSP headers", () => {
-  describe("legacy apps", () => {
-    test("includes 'unsafe-inline' in script-src", () => {
-      const headers = getResponseHeaders("pages_serve", {
-        pathParams: { appId: "legacy-1" },
-      });
-      const directives = parseCsp(headers["Content-Security-Policy"]);
-      expect(directives["script-src"]).toContain("'unsafe-inline'");
+  test("does NOT include 'unsafe-inline' in script-src", () => {
+    const headers = getResponseHeaders("pages_serve", {
+      pathParams: { appId: "app-1" },
     });
-
-    test("includes 'unsafe-inline' in style-src", () => {
-      const headers = getResponseHeaders("pages_serve", {
-        pathParams: { appId: "legacy-1" },
-      });
-      const directives = parseCsp(headers["Content-Security-Policy"]);
-      expect(directives["style-src"]).toContain("'unsafe-inline'");
-    });
-
-    test("has img-src with self, data, and https", () => {
-      const headers = getResponseHeaders("pages_serve", {
-        pathParams: { appId: "legacy-1" },
-      });
-      const directives = parseCsp(headers["Content-Security-Policy"]);
-      expect(directives["img-src"]).toContain("'self'");
-      expect(directives["img-src"]).toContain("data:");
-      expect(directives["img-src"]).toContain("https:");
-    });
+    const directives = parseCsp(headers["Content-Security-Policy"]);
+    expect(directives["script-src"]).not.toContain("'unsafe-inline'");
   });
 
-  describe("multifile apps", () => {
-    test("does NOT include 'unsafe-inline' in script-src", () => {
-      const headers = getResponseHeaders("pages_serve", {
-        pathParams: { appId: "multi-1" },
-      });
-      const directives = parseCsp(headers["Content-Security-Policy"]);
-      expect(directives["script-src"]).not.toContain("'unsafe-inline'");
+  test("includes 'self' in script-src for external main.js", () => {
+    const headers = getResponseHeaders("pages_serve", {
+      pathParams: { appId: "app-1" },
     });
-
-    test("includes 'self' in script-src for external main.js", () => {
-      const headers = getResponseHeaders("pages_serve", {
-        pathParams: { appId: "multi-1" },
-      });
-      const directives = parseCsp(headers["Content-Security-Policy"]);
-      expect(directives["script-src"]).toContain("'self'");
-    });
-
-    test("includes 'unsafe-inline' in style-src", () => {
-      const headers = getResponseHeaders("pages_serve", {
-        pathParams: { appId: "multi-1" },
-      });
-      const directives = parseCsp(headers["Content-Security-Policy"]);
-      expect(directives["style-src"]).toContain("'unsafe-inline'");
-    });
-
-    test("has img-src with self, data, and https", () => {
-      const headers = getResponseHeaders("pages_serve", {
-        pathParams: { appId: "multi-1" },
-      });
-      const directives = parseCsp(headers["Content-Security-Policy"]);
-      expect(directives["img-src"]).toContain("'self'");
-      expect(directives["img-src"]).toContain("data:");
-      expect(directives["img-src"]).toContain("https:");
-    });
+    const directives = parseCsp(headers["Content-Security-Policy"]);
+    expect(directives["script-src"]).toContain("'self'");
   });
 
-  describe("handleServeDistFile appId validation", () => {
-    const distHandler = getRoute("apps_dist_file").handler;
-
-    test("rejects appId with encoded path traversal (..)", () => {
-      expect(() =>
-        distHandler({ pathParams: { appId: "..", filename: "main.js" } }),
-      ).toThrow(BadRequestError);
+  test("includes 'unsafe-inline' in style-src", () => {
+    const headers = getResponseHeaders("pages_serve", {
+      pathParams: { appId: "app-1" },
     });
-
-    test("rejects appId with forward slash", () => {
-      expect(() =>
-        distHandler({
-          pathParams: { appId: "../../etc", filename: "main.js" },
-        }),
-      ).toThrow(BadRequestError);
-    });
-
-    test("rejects appId with backslash", () => {
-      expect(() =>
-        distHandler({
-          pathParams: { appId: "foo\\bar", filename: "main.js" },
-        }),
-      ).toThrow(BadRequestError);
-    });
-
-    test("rejects empty appId", () => {
-      expect(() =>
-        distHandler({ pathParams: { appId: "", filename: "main.js" } }),
-      ).toThrow(BadRequestError);
-    });
-
-    test("rejects appId with leading whitespace", () => {
-      expect(() =>
-        distHandler({
-          pathParams: { appId: " multi-1", filename: "main.js" },
-        }),
-      ).toThrow(BadRequestError);
-    });
-
-    test("rejects appId with trailing whitespace", () => {
-      expect(() =>
-        distHandler({
-          pathParams: { appId: "multi-1 ", filename: "main.js" },
-        }),
-      ).toThrow(BadRequestError);
-    });
-
-    test("rejects appId containing .. in the middle", () => {
-      expect(() =>
-        distHandler({
-          pathParams: { appId: "foo..bar", filename: "main.js" },
-        }),
-      ).toThrow(BadRequestError);
-    });
-
-    test("allows valid appId and filename (file not found throws NotFoundError)", () => {
-      expect(() =>
-        distHandler({
-          pathParams: { appId: "multi-1", filename: "main.js" },
-        }),
-      ).toThrow(NotFoundError);
-    });
+    const directives = parseCsp(headers["Content-Security-Policy"]);
+    expect(directives["style-src"]).toContain("'unsafe-inline'");
   });
 
-  describe("consistent directives across formats", () => {
-    test("both formats share the same style-src policy", () => {
-      const legacyHeaders = getResponseHeaders("pages_serve", {
-        pathParams: { appId: "legacy-1" },
-      });
-      const multiHeaders = getResponseHeaders("pages_serve", {
-        pathParams: { appId: "multi-1" },
-      });
-      const legacyCsp = parseCsp(legacyHeaders["Content-Security-Policy"]);
-      const multiCsp = parseCsp(multiHeaders["Content-Security-Policy"]);
-      expect(legacyCsp["style-src"]).toBe(multiCsp["style-src"]);
+  test("has img-src with self, data, and https", () => {
+    const headers = getResponseHeaders("pages_serve", {
+      pathParams: { appId: "app-1" },
     });
+    const directives = parseCsp(headers["Content-Security-Policy"]);
+    expect(directives["img-src"]).toContain("'self'");
+    expect(directives["img-src"]).toContain("data:");
+    expect(directives["img-src"]).toContain("https:");
+  });
+});
 
-    test("both formats share the same img-src policy", () => {
-      const legacyHeaders = getResponseHeaders("pages_serve", {
-        pathParams: { appId: "legacy-1" },
-      });
-      const multiHeaders = getResponseHeaders("pages_serve", {
-        pathParams: { appId: "multi-1" },
-      });
-      const legacyCsp = parseCsp(legacyHeaders["Content-Security-Policy"]);
-      const multiCsp = parseCsp(multiHeaders["Content-Security-Policy"]);
-      expect(legacyCsp["img-src"]).toBe(multiCsp["img-src"]);
-    });
+describe("handleServePage", () => {
+  const pageHandler = getRoute("pages_serve").handler;
+
+  test("serves compiled dist/index.html for compiled apps", () => {
+    const html = pageHandler({ pathParams: { appId: "app-1" } }) as string;
+    expect(html).toContain("/v1/apps/app-1/dist/main.js");
+  });
+
+  test("serves the unsupported-format message for legacy single-file apps", () => {
+    const html = pageHandler({ pathParams: { appId: "legacy-1" } }) as string;
+    expect(html).toContain(UNSUPPORTED_HTML);
+    expect(html).not.toContain("<div>Hello</div>");
+  });
+
+  test("throws NotFoundError for unknown apps", () => {
+    expect(() => pageHandler({ pathParams: { appId: "nope" } })).toThrow(
+      NotFoundError,
+    );
+  });
+});
+
+describe("handleServeDistFile appId validation", () => {
+  const distHandler = getRoute("apps_dist_file").handler;
+
+  test("rejects appId with encoded path traversal (..)", () => {
+    expect(() =>
+      distHandler({ pathParams: { appId: "..", filename: "main.js" } }),
+    ).toThrow(BadRequestError);
+  });
+
+  test("rejects appId with forward slash", () => {
+    expect(() =>
+      distHandler({
+        pathParams: { appId: "../../etc", filename: "main.js" },
+      }),
+    ).toThrow(BadRequestError);
+  });
+
+  test("rejects appId with backslash", () => {
+    expect(() =>
+      distHandler({
+        pathParams: { appId: "foo\\bar", filename: "main.js" },
+      }),
+    ).toThrow(BadRequestError);
+  });
+
+  test("rejects empty appId", () => {
+    expect(() =>
+      distHandler({ pathParams: { appId: "", filename: "main.js" } }),
+    ).toThrow(BadRequestError);
+  });
+
+  test("rejects appId with leading whitespace", () => {
+    expect(() =>
+      distHandler({
+        pathParams: { appId: " app-1", filename: "main.js" },
+      }),
+    ).toThrow(BadRequestError);
+  });
+
+  test("rejects appId with trailing whitespace", () => {
+    expect(() =>
+      distHandler({
+        pathParams: { appId: "app-1 ", filename: "main.js" },
+      }),
+    ).toThrow(BadRequestError);
+  });
+
+  test("rejects appId containing .. in the middle", () => {
+    expect(() =>
+      distHandler({
+        pathParams: { appId: "foo..bar", filename: "main.js" },
+      }),
+    ).toThrow(BadRequestError);
+  });
+
+  test("allows valid appId and filename (file not found throws NotFoundError)", () => {
+    expect(() =>
+      distHandler({
+        pathParams: { appId: "app-1", filename: "main.js" },
+      }),
+    ).toThrow(NotFoundError);
   });
 });

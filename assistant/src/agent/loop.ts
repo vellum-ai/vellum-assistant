@@ -1361,8 +1361,8 @@ export class AgentLoop {
         //   2. Call-site resolved values (filled by
         //      `RetryProvider.normalizeSendMessageOptions` from
         //      `resolveCallSiteConfig(callSite, llm)`)
-        //   3. Conversation defaults (`this.config.*`, sourced from
-        //      `llm.default`)
+        //   3. Conversation defaults (`this.config.*`, from the resolved
+        //      default call-site config)
         //
         // When `callSite` is present we deliberately leave
         // `max_tokens`/`thinking`/`effort`/`speed` *unset* in `providerConfig`
@@ -1423,7 +1423,8 @@ export class AgentLoop {
         // Per-call LLM call-site identifier. Surfaces on the per-call
         // `config.callSite` so `RetryProvider.normalizeSendMessageOptions`
         // can route through `resolveCallSiteConfig` against
-        // `llm.callSites.<id>` (falling back to `llm.default` when absent).
+        // `llm.callSites.<id>` (falling back to the shipped call-site
+        // defaults when absent).
         // User-initiated conversation turns default to `mainAgent` in the
         // agent loop's caller; other invocation contexts (heartbeat, filing,
         // analyze, etc.) pass their own `callSite`.

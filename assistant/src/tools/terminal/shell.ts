@@ -6,6 +6,7 @@ import type { BackgroundToolCompleted } from "../../daemon/message-types/backgro
 import { RiskLevel } from "../../permissions/types.js";
 import { wakeAgentForOpportunity } from "../../runtime/agent-wake.js";
 import { broadcastMessage } from "../../runtime/assistant-event-hub.js";
+import { conversationRevealNonce } from "../../runtime/reveal-nonce.js";
 import { redactSecrets } from "../../security/secret-scanner.js";
 import { getLogger } from "../../util/logger.js";
 import { getDataDir } from "../../util/platform.js";
@@ -271,6 +272,8 @@ export const shellTool = {
 
     const env = buildSanitizedEnv();
     env.__CONVERSATION_ID = context.conversationId;
+    // Secret binding for reveal-derived chat authority — see reveal-nonce.ts.
+    env.__REVEAL_NONCE = conversationRevealNonce(context.conversationId);
     // Surface the resolving model to assistant CLI commands so they can tailor
     // remediation guidance for weak open models (see isWeakOpenModel).
     if (context.attribution?.resolvedModel) {
@@ -337,7 +340,7 @@ export const shellTool = {
       let completed = false;
 
       child.on("close", (code, signal) => {
-        if (completed) return;
+        if (completed) {return;}
         completed = true;
         clearTimeout(timer);
         removeBackgroundTool(bgId);
@@ -427,7 +430,7 @@ export const shellTool = {
       });
 
       child.on("error", (err) => {
-        if (completed) return;
+        if (completed) {return;}
         completed = true;
         clearTimeout(timer);
         removeBackgroundTool(bgId);

@@ -45,6 +45,15 @@ export interface RunConversationTurnOptions {
    * controller fires, terminating the in-flight agent loop.
    */
   signal?: AbortSignal;
+  /**
+   * Conversation type for newly created conversations. When omitted,
+   * defaults to `"standard"` (visible in the sidebar). Set to
+   * `"background"` for plugin-driven conversations that should not
+   * appear in the sidebar's Recents grouping.
+   *
+   * Ignored when `conversationId` references an existing conversation.
+   */
+  conversationType?: "standard" | "background";
 }
 
 export interface RunConversationTurnResult {
@@ -71,7 +80,9 @@ export interface RunConversationTurnResult {
  */
 function extractContentAndAttachments(
   blocks: ContentBlock[],
-  resolveMedia: (source: MediaSource) => { data: string; media_type: string } | null,
+  resolveMedia: (
+    source: MediaSource,
+  ) => { data: string; media_type: string } | null,
 ): { text: string; attachments: UserMessageAttachment[] } {
   const textParts: string[] = [];
   const attachments: UserMessageAttachment[] = [];
@@ -126,21 +137,33 @@ export async function runConversationTurn(
   options: RunConversationTurnOptions,
 ): Promise<RunConversationTurnResult> {
   const { v7: uuidv7 } = await import("uuid");
-  const { getOrCreateConversation } = await import(
-    "../daemon/conversation-store.js"
-  );
-  const { broadcastMessage } = await import(
-    "../runtime/assistant-event-hub.js"
-  );
-  const { resolveMediaSourceData } = await import(
-    "../providers/media-resolve.js"
-  );
-  const { getMessageById, getMessages } = await import(
-    "../persistence/conversation-crud.js"
-  );
+  const { getOrCreateConversation } =
+    await import("../daemon/conversation-store.js");
+  const { broadcastMessage } =
+    await import("../runtime/assistant-event-hub.js");
+  const { resolveMediaSourceData } =
+    await import("../providers/media-resolve.js");
+  const { getConversation, getMessageById, getMessages } =
+      await import("../persistence/conversation-crud.js");
+  const { publishConversationListAndMetadataChanged } =
+      await import("../runtime/sync/resource-sync-events.js");
 
   const conversationId = options.conversationId ?? uuidv7();
-  const conversation = await getOrCreateConversation(conversationId);
+  const rowExisted = getConversation(conversationId) != null;
+  const conversation = await getOrCreateConversation(conversationId, {
+    ...(options.conversationType
+      ? { conversationType: options.conversationType }
+      : {}),
+  });
+
+  // `getOrCreateConversation` creates the DB row (with conversationType if
+  // provided) before hydrating. The normal send-message route emits a
+  // "created" list invalidation so sibling clients/sidebars learn about new
+  // conversations — emit it here too, but only when the row is actually new
+  // so we don't spam invalidations for existing conversations.
+  if (!rowExisted) {
+    publishConversationListAndMetadataChanged("created", conversationId);
+  }
 
   // Wire the external abort signal to the conversation's internal abort
   // controller so aborting the signal terminates the in-flight agent loop.

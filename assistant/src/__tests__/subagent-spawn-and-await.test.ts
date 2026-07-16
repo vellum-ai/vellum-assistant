@@ -56,6 +56,7 @@ let lastPersistedUserMessage: string | undefined;
 class FakeConversation {
   messages: Message[];
   usageStats = { inputTokens: 10, outputTokens: 5, estimatedCost: 0.001 };
+  subagentDeniedToolNames = new Set<string>();
   conversationType = "background";
   hasSystemPromptOverride = false;
 

@@ -33,8 +33,7 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import type { Message, Provider, ProviderResponse } from "@vellumai/plugin-api";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
-import { migrateAddMemoryV3Selections } from "../../../../../persistence/migrations/268-add-memory-v3-selections.js";
-import { migrateMemoryV3SelectionsMessageIdAndSections } from "../../../../../persistence/migrations/283-memory-v3-selections-message-id-and-sections.js";
+import { ensureMemoryV3SelectionsSchema } from "../../../../../persistence/migrations/338-move-memory-v3-selections-to-memory-db.js";
 import * as schema from "../../../../../persistence/schema/index.js";
 import type { PageIndexEntry } from "../../v2/page-index.js";
 import { renderCard } from "../card.js";
@@ -96,19 +95,21 @@ mock.module("../dense.js", () => ({
       : realDense.denseLaneScored(...args),
 }));
 
-// In-memory selections DB. `summarizeSelections` reads via getDb/getSqliteFrom;
-// the writer below writes through the same handles.
+// In-memory selections DB. Selection rows live on the dedicated memory
+// connection — `writeSelections` writes and `summarizeSelections` reads via
+// `getMemorySqlite`, stubbed to a DB carrying the relocated table's schema.
 const realDb = {
   ...(await import("../../../../../persistence/db-connection.js")),
 };
 let testSqlite: Database;
+let memorySqlite: Database;
 let testDb = makeDb();
 function makeDb() {
   testSqlite = new Database(":memory:");
   testSqlite.exec("PRAGMA journal_mode=WAL");
   const db = drizzle(testSqlite, { schema });
-  migrateAddMemoryV3Selections(db);
-  migrateMemoryV3SelectionsMessageIdAndSections(db);
+  memorySqlite = new Database(":memory:");
+  ensureMemoryV3SelectionsSchema(memorySqlite);
   return db;
 }
 mock.module("../../../../../persistence/db-connection.js", () => ({
@@ -118,6 +119,7 @@ mock.module("../../../../../persistence/db-connection.js", () => ({
     mockActive
       ? testSqlite
       : realDb.getSqliteFrom(db as Parameters<typeof realDb.getSqliteFrom>[0]),
+  getMemorySqlite: () => (mockActive ? memorySqlite : realDb.getMemorySqlite()),
 }));
 
 const { orchestrate } = await import("../orchestrate.js");
@@ -285,7 +287,7 @@ function selectProvider(keep: Slug[], pin: Slug[] = []): Provider {
 
 /** Read back every logged selection source for a turn, in row order. */
 function loggedSources(turn: number): Array<{ slug: Slug; source: string }> {
-  return testSqlite
+  return memorySqlite
     .query(
       `SELECT slug, source FROM memory_v3_selections
          WHERE conversation_id = ? AND turn = ? ORDER BY rowid`,

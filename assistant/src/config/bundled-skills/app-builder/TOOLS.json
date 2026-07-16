@@ -200,6 +200,29 @@
       },
       "executor": "tools/app-list.ts",
       "execution_target": "host"
+    },
+    {
+      "name": "app_open",
+      "description": "Open a persistent app in a dynamic_page surface on the connected client.",
+      "category": "apps",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app_id": {
+            "type": "string",
+            "description": "The ID of the app to open"
+          },
+          "open_mode": {
+            "type": "string",
+            "enum": ["preview", "workspace"],
+            "description": "Display mode. 'preview' shows an inline preview card in chat. 'workspace' opens the full app in a workspace panel. Defaults to 'workspace'."
+          }
+        },
+        "required": ["app_id"]
+      },
+      "executor": "tools/app-open.ts",
+      "execution_target": "host"
     }
   ]
 }

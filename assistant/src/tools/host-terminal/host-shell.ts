@@ -20,6 +20,7 @@ import {
   assistantEventHub,
   broadcastMessage,
 } from "../../runtime/assistant-event-hub.js";
+import { conversationRevealNonce } from "../../runtime/reveal-nonce.js";
 import { redactSecrets } from "../../security/secret-scanner.js";
 import { getLogger } from "../../util/logger.js";
 import type { CompletedBackgroundTool } from "../background-tool-registry.js";
@@ -84,6 +85,8 @@ function buildHostBashProxyEnv(conversationId: string): Record<string, string> {
   // Keep nested `assistant` CLI calls in host_bash aligned with the
   // originating conversation so browser IPC can resolve live proxy context.
   env.__CONVERSATION_ID = conversationId;
+  // Secret binding for reveal-derived chat authority — see reveal-nonce.ts.
+  env.__REVEAL_NONCE = conversationRevealNonce(conversationId);
   return env;
 }
 
@@ -438,6 +441,7 @@ export const hostShellTool = {
     // Match `bash` tool behavior so nested assistant CLI calls can bind to
     // the active conversation when running through host_bash.
     hostEnv.__CONVERSATION_ID = context.conversationId;
+    hostEnv.__REVEAL_NONCE = conversationRevealNonce(context.conversationId);
 
     if (background) {
       // Check the registry limit BEFORE spawning so we never leak an
@@ -496,7 +500,7 @@ export const hostShellTool = {
       let completed = false;
 
       child.on("close", (code) => {
-        if (completed) return;
+        if (completed) {return;}
         completed = true;
         clearTimeout(timer);
         const stdout = Buffer.concat(stdoutChunks).toString();
@@ -568,7 +572,7 @@ export const hostShellTool = {
       });
 
       child.on("error", (err) => {
-        if (completed) return;
+        if (completed) {return;}
         completed = true;
         clearTimeout(timer);
         const status = aborted ? "cancelled" : "failed";

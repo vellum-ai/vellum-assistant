@@ -58,6 +58,7 @@ import {
   getWorkspaceHooksDir,
   getWorkspacePluginsDir,
 } from "../util/platform.js";
+import { collectSourceVersions } from "./collect-source-versions.js";
 import {
   deriveToolName,
   listSurfaceDir,
@@ -306,6 +307,52 @@ async function maybeReconcileFromSentinel(): Promise<void> {
     await reconcileInFlight;
     return;
   }
+}
+
+/**
+ * Imperatively reconcile the plugin caches against the current on-disk state
+ * *now* — without waiting for the resource monitor to republish the
+ * source-versions sentinel or for the next hook dispatch to notice it.
+ *
+ * An install / uninstall / enable / disable materializes files on disk; the
+ * steady-state path picks that up eventually — the monitor republishes the
+ * sentinel and the dispatch-path gate applies the diff on the next turn. That
+ * is eventually-correct but not immediate: nothing runs a newly installed
+ * plugin's `init` until some later turn dispatches a hook. Callers that just
+ * changed the plugin set on disk (the install / uninstall routes, and the
+ * CLI's best-effort post-install poke) call this to bring the change up
+ * deterministically, so a freshly installed plugin's `init` fires as part of
+ * the install rather than at the next daemon boot.
+ *
+ * Reuses the same collector the monitor writes into the sentinel, so the map
+ * applied here is identical to the monitor's next publish — which then diffs to
+ * a no-op. Idempotent and safe to call redundantly: `applySourceVersions` only
+ * redeploys directories whose fingerprint moved, and activation is guarded so a
+ * plugin already up is never re-initialized. Never throws — a failure is
+ * contained inside `applySourceVersions` and logged there.
+ *
+ * Coordinates with the sentinel gate through the shared `reconcileInFlight`
+ * latch: it waits out any dispatch-driven reconcile already running, then
+ * claims the latch for its own apply, so the two paths never overlap.
+ */
+export async function reconcilePluginSourcesNow(): Promise<void> {
+  while (reconcileInFlight !== null) {
+    await reconcileInFlight;
+  }
+  // `applySourceVersions` contains its own failures, but the `collectSourceVersions()`
+  // walk that feeds it runs outside that guard — wrap the whole thing so an
+  // imperative reconcile never rejects into its callers (the install route must
+  // still return success for an install whose files already landed on disk).
+  reconcileInFlight = (async () => {
+    try {
+      await applySourceVersions(collectSourceVersions());
+    } catch (err) {
+      log.error({ err }, "imperative plugin reconcile failed");
+    }
+  })().finally(() => {
+    reconcileInFlight = null;
+  });
+  await reconcileInFlight;
 }
 
 /**

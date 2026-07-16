@@ -465,8 +465,8 @@ export interface OnboardingResearchSuggestion {
  * settled result during onboarding. Client-orchestrated: the web client
  * knows exactly when the turn completes and what it produced (claims,
  * suggestions, plugin picks), and reports it once via
- * `POST /v1/telemetry/onboarding-research` — the daemon never detects this
- * turn on its own.
+ * `POST /v1/telemetry/ingest` (as a client-reportable type) — the daemon
+ * never detects this turn on its own.
  *
  * Carries both the raw claim/suggestion text (+ source URLs) and structural
  * counts by confidence tier, so downstream consumers can aggregate cheaply
@@ -476,6 +476,14 @@ export interface OnboardingResearchTelemetryEvent extends TelemetryEventBase {
   type: "onboarding_research";
   conversation_id: string | null;
   status: "done" | "error";
+  /**
+   * The onboarding-form values the turn was run ON (its INPUT), as distinct
+   * from the inferred `claims` below (its OUTPUT). Excludes the user's name by
+   * design. Optional — an older web client omits them.
+   */
+  self_reported_occupation?: string;
+  self_reported_hobbies?: string[];
+  self_reported_timezone?: string;
   claims: OnboardingResearchClaim[];
   claim_count: number;
   claims_confident: number;

@@ -359,7 +359,7 @@ export function registerCredentialsCommand(program: Command): void {
       subcommand(credential, "reveal").action(
         async (
           id: string | undefined,
-          opts: { service?: string; field?: string },
+          opts: { service?: string; field?: string; forChat?: boolean },
           cmd: Command,
         ) => {
           if (!opts.service && !opts.field && !id) {
@@ -376,6 +376,11 @@ export function registerCredentialsCommand(program: Command): void {
               service: opts.service,
               field: opts.field,
               id,
+              ...(opts.forChat ? { forChat: true } : {}),
+              // Conversation-bound authority scope for the daemon's chat
+              // redaction seams (set by the shell tools; absent outside a
+              // conversation's tool shell, where no authority should exist).
+              revealNonce: process.env.__REVEAL_NONCE,
             },
           });
 

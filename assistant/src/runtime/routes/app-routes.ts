@@ -1,7 +1,6 @@
 /**
  * Route handlers for shareable app pages and cloud sharing.
  */
-import { randomBytes } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { extname, join } from "node:path";
 
@@ -9,8 +8,10 @@ import JSZip from "jszip";
 import { z } from "zod";
 
 import {
+  isLegacySingleFileDir,
   readAppFileBytesFromDir,
   resolveAppSource,
+  UNSUPPORTED_LEGACY_APP_HTML,
 } from "../../apps/app-store.js";
 import {
   createSharedAppLink,
@@ -19,16 +20,9 @@ import {
   incrementDownloadCount,
 } from "../../apps/shared-app-links-store.js";
 import type { AppManifest } from "../../bundler/manifest.js";
-import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError, NotFoundError, RouteError } from "./errors.js";
-import type {
-  ResponseHeaderArgs,
-  RouteDefinition,
-  RouteHandlerArgs,
-} from "./types.js";
-
-const log = getLogger("runtime-http");
+import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const HTML_ESCAPE_MAP: Record<string, string> = {
   "<": "&lt;",
@@ -36,23 +30,6 @@ const HTML_ESCAPE_MAP: Record<string, string> = {
   "&": "&amp;",
   '"': "&quot;",
 };
-
-let designSystemCssCache: string | null = null;
-
-function loadDesignSystemCss(): string {
-  if (designSystemCssCache != null) return designSystemCssCache;
-  try {
-    const cssPath = join(
-      import.meta.dirname ?? __dirname,
-      "assets/vellum-design-system.css",
-    );
-    designSystemCssCache = readFileSync(cssPath, "utf-8");
-  } catch {
-    log.warn("Design system CSS not found, pages will render without styles");
-    designSystemCssCache = "";
-  }
-  return designSystemCssCache;
-}
 
 // ---------------------------------------------------------------------------
 // CSP helpers (shared between handlers and responseHeaders)
@@ -72,18 +49,12 @@ function buildCsp(scriptSrc: string): string {
   ].join("; ");
 }
 
-function servePageHeaders({
-  pathParams,
-}: ResponseHeaderArgs): Record<string, string> {
-  const appId = pathParams?.appId as string;
-  const source = resolveAppSource(appId);
-  // Multifile apps use external scripts — no 'unsafe-inline' for script-src.
-  // Legacy apps contain inline event handlers that require 'unsafe-inline'.
-  const scriptSrc =
-    source && source.formatVersion === 2 ? "'self'" : "'self' 'unsafe-inline'";
+function servePageHeaders(): Record<string, string> {
+  // Apps load external compiled scripts only — no 'unsafe-inline' for
+  // script-src.
   return {
     "Content-Type": "text/html; charset=utf-8",
-    "Content-Security-Policy": buildCsp(scriptSrc),
+    "Content-Security-Policy": buildCsp("'self'"),
   };
 }
 
@@ -98,50 +69,15 @@ function handleServePage({ pathParams }: RouteHandlerArgs): string {
     throw new NotFoundError("App not found");
   }
 
-  // Multifile apps serve the compiled dist/index.html directly.
-  if (source.formatVersion === 2) {
-    return serveMultifileApp(source.id, source.sourceDir, source.name);
-  }
-
-  const css = loadDesignSystemCss();
-  const escapedName = source.name.replace(
-    /[<>&"]/g,
-    (c) => HTML_ESCAPE_MAP[c] ?? c,
-  );
-
-  // Per-response nonce for inline <style> and <script> tags.
-  const nonce = randomBytes(16).toString("base64");
-
-  // Single-file apps serve their root index.html.
-  const indexPath = join(source.sourceDir, "index.html");
-  const rawHtml = existsSync(indexPath) ? readFileSync(indexPath, "utf-8") : "";
-
-  // Inject the nonce into any inline <script> tags from the app HTML definition
-  // so they are allowed by the nonce-based CSP without 'unsafe-inline'.
-  const noncedHtml = rawHtml.replace(
-    /<script(?=[\s>])/gi,
-    `<script nonce="${nonce}"`,
-  );
-
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${escapedName}</title>
-  <style nonce="${nonce}">${css}</style>
-</head>
-<body>
-${noncedHtml}
-</body>
-</html>`;
+  return serveCompiledApp(source.id, source.sourceDir, source.name);
 }
 
 /**
- * Serve compiled output for multifile TSX apps.
- * Falls back to a "not compiled yet" message if dist/index.html is missing.
+ * Serve an app's compiled dist/ output. Falls back to a "not compiled yet"
+ * message if dist/index.html is missing, or an "unsupported format" message
+ * for apps in the retired single-file HTML format.
  */
-function serveMultifileApp(
+function serveCompiledApp(
   appId: string,
   appDir: string,
   appName: string,
@@ -154,9 +90,12 @@ function serveMultifileApp(
       /[<>&"]/g,
       (c) => HTML_ESCAPE_MAP[c] ?? c,
     );
+    const body = isLegacySingleFileDir(appDir)
+      ? UNSUPPORTED_LEGACY_APP_HTML
+      : `<p>App has not been compiled yet. Edit a source file to trigger a build.</p>`;
     return (
       `<!DOCTYPE html><html><head><title>${escapedName}</title></head>` +
-      `<body><p>App has not been compiled yet. Edit a source file to trigger a build.</p></body></html>`
+      `<body>${body}</body></html>`
     );
   }
 

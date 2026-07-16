@@ -15,6 +15,7 @@ import { getConfig } from "../../config/loader.js";
 import type { LLMCallSite, Speed } from "../../config/schemas/llm.js";
 import { ipcCall as gatewayIpcCall } from "../../ipc/gateway-client.js";
 import type { SecretPromptResult } from "../../permissions/secret-prompt-types.js";
+import type { ConversationCreateType } from "../../persistence/conversation-types.js";
 import { resolveMediaSourceData } from "../../providers/media-resolve.js";
 import { isPlaceholderSentinelText } from "../../providers/placeholder-sentinels.js";
 import type { MediaSource } from "../../providers/types.js";
@@ -184,6 +185,13 @@ export interface ConversationCreateOptions {
    * chronological renderer to consume.
    */
   slackInbound?: SlackInboundMessageMetadata;
+  /**
+   * Conversation type for newly created conversations. When omitted,
+   * defaults to `"standard"` (visible in the sidebar). Set to
+   * `"background"` for plugin-driven conversations that should not
+   * appear in the sidebar's Recents grouping.
+   */
+  conversationType?: ConversationCreateType;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -696,7 +704,7 @@ export function renderHistoryContent(
               continue;
             }
             const resolved = resolveMediaSourceData(source);
-            if (resolved) imageDataList.push(resolved.data);
+            if (resolved) {imageDataList.push(resolved.data);}
           }
         }
       }

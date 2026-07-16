@@ -13,7 +13,7 @@ import { join } from "node:path";
 
 import JSZip from "jszip";
 
-import { getApp, getAppDirPath, isMultifileApp } from "../apps/app-store.js";
+import { getApp, getAppDirPath } from "../apps/app-store.js";
 import { computeContentId } from "../util/content-id.js";
 import { getLogger } from "../util/logger.js";
 import { APP_VERSION } from "../version.js";
@@ -69,7 +69,7 @@ function assertMultifileSourceReady(
 
   if (missing.length > 0) {
     throw new Error(
-      `App "${app.name}" is a multi-file TSX app but is missing ${missing.join(
+      `App "${app.name}" is missing ${missing.join(
         " and ",
       )}. Write source files under src/ and call app_refresh before sharing.`,
     );
@@ -106,10 +106,8 @@ export async function packageApp(
   const version = app.version ?? "1.0.0";
   const contentId = computeContentId(app.name);
 
-  const multifile = isMultifileApp(app);
-
   const manifest: AppManifest = {
-    format_version: multifile ? 2 : 1,
+    format_version: 2,
     name: app.name,
     ...(app.description ? { description: app.description } : {}),
     ...(app.icon ? { icon: app.icon } : {}),
@@ -127,52 +125,40 @@ export async function packageApp(
 
   const appDir = getAppDirPath(appId);
 
-  if (multifile) {
-    assertMultifileSourceReady(app, appDir);
+  assertMultifileSourceReady(app, appDir);
 
-    // Multi-file TSX app: compile src/ -> dist/
-    const compileResult = await compileApp(appDir);
-    if (!compileResult.ok) {
-      const messages = compileResult.errors
-        .map((e) => {
-          const loc = e.location
-            ? ` (${e.location.file}:${e.location.line}:${e.location.column})`
-            : "";
-          return `${e.text}${loc}`;
-        })
-        .join("\n");
-      throw new Error(`Compilation failed for app "${app.name}":\n${messages}`);
-    }
+  // Compile src/ -> dist/
+  const compileResult = await compileApp(appDir);
+  if (!compileResult.ok) {
+    const messages = compileResult.errors
+      .map((e) => {
+        const loc = e.location
+          ? ` (${e.location.file}:${e.location.line}:${e.location.column})`
+          : "";
+        return `${e.text}${loc}`;
+      })
+      .join("\n");
+    throw new Error(`Compilation failed for app "${app.name}":\n${messages}`);
+  }
 
-    const distDir = join(appDir, "dist");
-    const distIndexPath = join(distDir, "index.html");
-    const distMainPath = join(distDir, "main.js");
-    if (!existsSync(distIndexPath) || !existsSync(distMainPath)) {
-      throw new Error(
-        `Compilation for app "${app.name}" did not produce dist/index.html and dist/main.js. Check src/index.html and src/main.tsx, then call app_refresh.`,
-      );
-    }
-    const indexHtml = await readFile(distIndexPath, "utf-8");
-    const mainJs = await readFile(distMainPath);
+  const distDir = join(appDir, "dist");
+  const distIndexPath = join(distDir, "index.html");
+  const distMainPath = join(distDir, "main.js");
+  if (!existsSync(distIndexPath) || !existsSync(distMainPath)) {
+    throw new Error(
+      `Compilation for app "${app.name}" did not produce dist/index.html and dist/main.js. Check src/index.html and src/main.tsx, then call app_refresh.`,
+    );
+  }
+  const indexHtml = await readFile(distIndexPath, "utf-8");
+  const mainJs = await readFile(distMainPath);
 
-    compiledFiles.push({ name: "index.html", data: Buffer.from(indexHtml) });
-    compiledFiles.push({ name: "main.js", data: mainJs });
+  compiledFiles.push({ name: "index.html", data: Buffer.from(indexHtml) });
+  compiledFiles.push({ name: "main.js", data: mainJs });
 
-    // main.css is optional — only produced when the app imports CSS
-    const cssPath = join(distDir, "main.css");
-    if (existsSync(cssPath)) {
-      compiledFiles.push({ name: "main.css", data: await readFile(cssPath) });
-    }
-  } else {
-    // Single-file HTML app: bundle index.html directly
-    const indexHtmlPath = join(appDir, "index.html");
-    if (!existsSync(indexHtmlPath)) {
-      throw new Error(
-        `App "${app.name}" has no src/ directory and no index.html`,
-      );
-    }
-    const indexHtml = await readFile(indexHtmlPath, "utf-8");
-    compiledFiles.push({ name: "index.html", data: Buffer.from(indexHtml) });
+  // main.css is optional — only produced when the app imports CSS
+  const cssPath = join(distDir, "main.css");
+  if (existsSync(cssPath)) {
+    compiledFiles.push({ name: "main.css", data: await readFile(cssPath) });
   }
 
   // Create the zip archive

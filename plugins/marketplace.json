@@ -23,9 +23,9 @@
       "source": {
         "source": "github",
         "repo": "vellum-ai/agent-wrapped",
-        "ref": "be38bd9cd57aaac6bf06b22d82885c09219320bf"
+        "ref": "7e5e7971a38a90120cee9b1e393b733622e24d17"
       },
-      "description": "Your agent's year in review: conversations, days together, memories formed, swear count, top topics, and the receipt (total tokens + LLM calls). Works with Vellum agents and Claude Code. Ships a stats collector tool, a CLI, a Claude Code plugin, and a skill for the shareable cards experience.",
+      "description": "Your agent's year in review: conversations, days together, memories formed, swear count, top topics, and the receipt (total tokens + LLM calls). Works with Vellum agents and Claude Code. Presents the stats as data in chat and publishes a shareable page at agent-wrapped.com.",
       "category": "creative",
       "license": "MIT",
       "submittedBy": "marina",
@@ -121,6 +121,20 @@
       "category": "memory",
       "homepage": "https://github.com/topoteretes/cognee-integrations/tree/main/integrations/vellum-assistant",
       "icon": "🕸️"
+    },
+    {
+      "name": "creatorland",
+      "source": {
+        "source": "github",
+        "repo": "creatorland/creatorland-mcp-skills",
+        "path": "plugins/creatorland-data",
+        "ref": "9cdbb1553645bbb746918f43d60e0df17ae91fa0"
+      },
+      "description": "Creatorland Data MCP and companion skill catalog: brief-to-shortlist, transcript-to-shortlist, brief builder, fair-price negotiation, one-number rate cards, and a guided onboarding tour for creator marketing workflows.",
+      "category": "marketing",
+      "homepage": "https://github.com/creatorland/creatorland-mcp-skills/tree/main/plugins/creatorland-data",
+      "license": "MIT",
+      "icon": "🎨"
     },
     {
       "name": "dynamic-notch",
@@ -407,6 +421,20 @@
       "homepage": "https://github.com/vellum-ai/vellum-client-qa",
       "license": "MIT",
       "icon": "🧪"
+    },
+    {
+      "name": "virlo",
+      "source": {
+        "source": "github",
+        "repo": "Virlo-AI/virlo-integrations",
+        "path": "integrations/vellum",
+        "ref": "e398cfd8a48316b9378e08efe4b42ad3dc42197e"
+      },
+      "description": "Real-time short-form video intelligence across TikTok, YouTube Shorts, and Instagram Reels, powered by Virlo Content Research Agents.",
+      "category": "marketing",
+      "homepage": "https://github.com/Virlo-AI/virlo-integrations/tree/main/integrations/vellum",
+      "license": "MIT",
+      "icon": "📱"
     },
     {
       "name": "writing-coach",

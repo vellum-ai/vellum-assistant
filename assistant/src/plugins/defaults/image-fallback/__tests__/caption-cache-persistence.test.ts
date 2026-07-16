@@ -149,9 +149,13 @@ describe("caption cache durable layer", () => {
   });
 
   test("write eviction keeps the most recently used rows within the cap", () => {
-    for (let i = 0; i < 2_000; i++) {
-      insertRow(`hash-${i}`, "conv-1", `caption ${i}`, i + 1);
-    }
+    // Seed in one transaction — 2,000 autocommit inserts fsync individually
+    // and time the test out on slow CI disks.
+    inspector.transaction(() => {
+      for (let i = 0; i < 2_000; i++) {
+        insertRow(`hash-${i}`, "conv-1", `caption ${i}`, i + 1);
+      }
+    })();
     const newestHash = imageHash("one-over-the-cap");
     setCachedCaption(newestHash, "conv-1", "The newest caption.");
     expect(rowCount()).toBe(2_000);

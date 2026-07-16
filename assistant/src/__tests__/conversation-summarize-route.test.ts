@@ -3,14 +3,13 @@
  *
  * Validates that:
  * - The route 202s immediately and runs summarization async, persisting a
- *   result card via the canned-message path (assistant_text_delta +
- *   message_complete) exactly like the /compact branch.
+ *   system-card result row via the canned-message path (message_complete +
+ *   sync invalidation, no text delta) exactly like the /compact branch.
  * - Busy conversations are rejected with 409 without touching processing.
  * - Boundary UserErrors surface as a "Summarization skipped" card, not a
  *   conversation_error.
  * - Unexpected errors broadcast a retryable conversation_error.
  * - Processing is cleared and the queue drained on every outcome.
- * - The `summarize-up-to-here` flag hides the endpoint (404) when disabled.
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
@@ -19,15 +18,6 @@ import { z } from "zod";
 mock.module("../config/env.js", () => ({
   isHttpAuthDisabled: () => true,
   hasUngatedHttpAuthDisabled: () => false,
-}));
-
-// The endpoint is gated behind the `summarize-up-to-here` flag (default
-// off). The suite's baseline is flag ON; the flag-off test flips this to
-// assert the endpoint hides as a 404.
-let summarizeFlagEnabled = true;
-mock.module("../config/assistant-feature-flags.js", () => ({
-  isAssistantFeatureFlagEnabled: (key: string) =>
-    key === "summarize-up-to-here" && summarizeFlagEnabled,
 }));
 
 const formatSummarizeUpToResultMock = mock(
@@ -94,6 +84,14 @@ mock.module("../persistence/conversation-key-store.js", () => ({
 
 mock.module("../persistence/jobs-store.js", () => ({
   enqueueMemoryJob: () => {},
+}));
+
+const linkRequestLogsToMessageMock = mock(
+  (_logIds: string[], _messageId: string) => {},
+);
+
+mock.module("../persistence/llm-request-log-store.js", () => ({
+  linkRequestLogsToMessage: linkRequestLogsToMessageMock,
 }));
 
 mock.module("../schedule/schedule-store.js", () => ({
@@ -170,6 +168,7 @@ function makeConversation(opts: { processing?: boolean } = {}) {
     summaryInputTokens: 500,
     summaryOutputTokens: 100,
     summaryModel: "test-model",
+    summaryRequestLogId: "compaction-log-1",
   }));
   const emitActivityState = mock(
     (_phase: string, _reason: string, _options?: { statusText?: string }) => {},
@@ -212,7 +211,6 @@ async function settle() {
 }
 
 beforeEach(() => {
-  summarizeFlagEnabled = true;
   addMessageMock.mockClear();
   getConversationMock.mockClear();
   formatSummarizeUpToResultMock.mockClear();
@@ -249,6 +247,12 @@ describe("POST /v1/conversations/summarize", () => {
       "context_compacting",
       { statusText: "Summarizing conversation" },
     );
+    // The thinking activity gets a paired terminal so a client that started
+    // an indicator from it always clears.
+    expect(ctx.emitActivityState).toHaveBeenLastCalledWith(
+      "idle",
+      "message_complete",
+    );
 
     // Card persisted as an assistant message and pushed onto in-memory history.
     expect(addMessageMock).toHaveBeenCalledTimes(1);
@@ -256,23 +260,32 @@ describe("POST /v1/conversations/summarize", () => {
     expect(convId).toBe("conv-summarize-test");
     expect(role).toBe("assistant");
     expect(content).toContain("Conversation summarized");
-    // Metadata mirrors the /compact card shape (channel keys + provenance);
+    // Metadata mirrors the /compact card shape (channel keys + provenance)
+    // plus the system-card marker that keeps the row a standalone notice;
     // interface keys are omitted because the route receives no interface id.
     expect(options?.metadata).toEqual({
       provenanceTrustClass: "unknown",
       userMessageChannel: "vellum",
       assistantMessageChannel: "vellum",
+      messageKind: "system_card",
     });
     expect(ctx.messages).toHaveLength(1);
 
-    // Turn-style SSE events: full text delta, then message_complete with the
-    // persisted assistant id (what the web client renders live).
+    // Cards are announced via message_complete + the messages-changed sync
+    // invalidation — never a text delta, which would stream the card into
+    // the tail assistant bubble as persona speech.
     const delta = broadcastEvents.find(
       (e) => e.type === "assistant_text_delta",
     );
-    expect(String(delta?.text)).toContain("Conversation summarized");
+    expect(delta).toBeUndefined();
     const complete = broadcastEvents.find((e) => e.type === "message_complete");
     expect(complete?.messageId).toBe("persisted-assistant-id");
+
+    // The compaction LLM call is attributed to the card it produced.
+    expect(linkRequestLogsToMessageMock).toHaveBeenCalledWith(
+      ["compaction-log-1"],
+      "persisted-assistant-id",
+    );
     expect(publishConversationMessagesChangedMock).toHaveBeenCalledWith(
       "conv-summarize-test",
       undefined,
@@ -280,33 +293,6 @@ describe("POST /v1/conversations/summarize", () => {
 
     expect(ctx.conversation.isProcessing()).toBe(false);
     expect(ctx.drainQueue).toHaveBeenCalledTimes(1);
-  });
-
-  test("feature flag off → 404 as if the endpoint does not exist", async () => {
-    summarizeFlagEnabled = false;
-    const ctx = makeConversation();
-    activeConversation = ctx.conversation;
-
-    const res = await callHandler(
-      summarizeHandler,
-      makeRequest({
-        conversationId: "conv-summarize-test",
-        beforeMessageId: "msg-42",
-      }),
-      undefined,
-      202,
-    );
-
-    expect(res.status).toBe(404);
-    // Same body shape as the router's unknown-endpoint 404 — the surface is
-    // indistinguishable from a missing route.
-    const body = (await res.json()) as {
-      error: { code: string; message: string };
-    };
-    expect(body.error.message).toBe("Not found");
-    expect(ctx.setProcessing).not.toHaveBeenCalled();
-    expect(ctx.summarizeUpToMessage).not.toHaveBeenCalled();
-    expect(getConversationMock).not.toHaveBeenCalled();
   });
 
   test("busy conversation → 409 without claiming processing", async () => {
@@ -410,6 +396,12 @@ describe("POST /v1/conversations/summarize", () => {
     expect(error?.code).toBe("UNKNOWN");
     expect(error?.retryable).toBe(true);
     expect(String(error?.userMessage)).toContain("summary call exploded");
+    // No card means no message_complete — the idle activity emit is the only
+    // terminal signal clearing a client-side indicator on this path.
+    expect(ctx.emitActivityState).toHaveBeenLastCalledWith(
+      "idle",
+      "error_terminal",
+    );
     expect(ctx.conversation.isProcessing()).toBe(false);
     expect(ctx.drainQueue).toHaveBeenCalledTimes(1);
   });

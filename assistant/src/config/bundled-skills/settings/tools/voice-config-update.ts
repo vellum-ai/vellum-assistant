@@ -186,11 +186,11 @@ export async function run(
     return { content: `Error: ${validation.error}`, isError: true };
   }
 
-  if (
-    (setting === "stt_mode" || setting === "tts_mode") &&
-    validation.coerced === "managed" &&
-    !(await managedSpeechAvailable())
-  ) {
+  const wantsManagedSpeech =
+    ((setting === "stt_mode" || setting === "tts_mode") &&
+      validation.coerced === "managed") ||
+    (setting === "tts_provider" && validation.coerced === "vellum");
+  if (wantsManagedSpeech && !(await managedSpeechAvailable())) {
     return {
       content:
         "Error: managed speech requires a Vellum platform connection. Run 'assistant platform connect' first.",
@@ -217,6 +217,14 @@ export async function run(
 
   if (setting === "tts_provider") {
     setNestedValue(raw, "services.tts.provider", validation.coerced);
+    // Written as a pair, like the settings cards: a stale `mode: "managed"`
+    // takes precedence over a BYOK provider, so switching providers must
+    // also reset it — otherwise the requested switch is silently ignored.
+    setNestedValue(
+      raw,
+      "services.tts.mode",
+      validation.coerced === "vellum" ? "managed" : "your-own",
+    );
     saveRawConfig(raw);
     invalidateConfigCache();
   }
@@ -253,10 +261,10 @@ export async function run(
 
   if (setting === "stt_mode") {
     setNestedValue(raw, "services.stt.mode", validation.coerced);
-    // SttServiceSchema requires `provider` whenever the stt object exists and
-    // forbids provider "vellum" outside managed mode, so writing `mode` alone
-    // (or keeping "vellum" when switching to your-own) would make the saved
-    // config invalid.
+    // SttServiceSchema requires `provider` whenever the stt object exists, so
+    // writing `mode` alone would invalidate a sparse config. And a provider of
+    // "vellum" routes to managed regardless of mode, so switching to your-own
+    // must also replace it with a BYOK provider.
     const currentProvider = getConfig().services.stt.provider;
     setNestedValue(
       raw,
@@ -271,7 +279,7 @@ export async function run(
 
   if (setting === "tts_mode") {
     setNestedValue(raw, "services.tts.mode", validation.coerced);
-    // TtsServiceSchema forbids provider "vellum" outside managed mode, so
+    // A provider of "vellum" routes to managed regardless of mode, so
     // switching to your-own must also replace a vellum provider.
     if (
       validation.coerced === "your-own" &&

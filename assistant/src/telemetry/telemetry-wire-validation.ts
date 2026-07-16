@@ -14,7 +14,7 @@
  * events.
  */
 
-import type { z } from "zod";
+import { z } from "zod";
 
 import type { getLogger } from "../util/logger.js";
 import { telemetryEventSchema } from "./telemetry-wire.generated.js";
@@ -26,12 +26,23 @@ type Logger = ReturnType<typeof getLogger>;
  * discriminated union (`.options` + each member's `type` literal), so a new
  * generated event type is validated with zero hand edits here.
  */
-const wireSchemaByType: ReadonlyMap<string, z.ZodType> = new Map(
+const wireSchemaByType: ReadonlyMap<string, z.ZodObject> = new Map(
   telemetryEventSchema.options.map((option) => [
     option.shape.type.value,
     option,
   ]),
 );
+
+/**
+ * Base fields stamped by the daemon at record time, never supplied by a client.
+ * Stripped when deriving the client-facing `fields` schema for a wire type.
+ */
+const TELEMETRY_BASE_FIELD_KEYS = {
+  type: true,
+  daemon_event_id: true,
+  recorded_at: true,
+  assistant_version: true,
+} as const;
 
 /**
  * Event types already warned about as absent from the wire contract.
@@ -44,6 +55,32 @@ const warnedUnknownTypes = new Set<string>();
 /** Clears the once-per-process unknown-type warning rate limit. Test-only. */
 export function resetUnknownTypeWarningsForTests(): void {
   warnedUnknownTypes.clear();
+}
+
+/**
+ * Per-event-type wire schema for one `type` discriminant, or undefined when the
+ * platform contract has no serializer for it. Lets the client-ingest boundary
+ * (`POST /v1/telemetry/ingest`) reject a malformed payload up front with the
+ * same schema pre-flush validation would have logged a silent drop for.
+ */
+export function getWireSchemaForType(type: string): z.ZodObject | undefined {
+  return wireSchemaByType.get(type);
+}
+
+/**
+ * Client-facing `fields` schema for a wire type: the wire object minus the
+ * daemon-stamped base fields. Rebuilt from `.shape` because `.omit()` rejects
+ * the refined wire schemas; this drops the claims/suggestions byte-bound
+ * superRefines, which aren't expressible in the request type anyway — the
+ * handler still validates the assembled event against the full wire schema
+ * ({@link getWireSchemaForType}) for those bounds. Undefined when the platform
+ * contract has no serializer for `type`.
+ */
+export function getWireFieldsSchema(type: string): z.ZodObject | undefined {
+  const schema = wireSchemaByType.get(type);
+  return schema
+    ? z.object(schema.shape).omit(TELEMETRY_BASE_FIELD_KEYS)
+    : undefined;
 }
 
 /**

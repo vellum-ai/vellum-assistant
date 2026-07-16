@@ -184,8 +184,8 @@ mock.module("../cli-command-store.js", () => ({
 // Activation-log store mock
 // ---------------------------------------------------------------------------
 //
-// The real `recordMemoryV2ActivationLog` writes to the singleton
-// `getDb()` — but this test uses an isolated in-memory database, so we mock
+// The real `recordMemoryV2ActivationLog` writes to the memory-DB singleton
+// connection — but this test uses an isolated in-memory database, so we mock
 // the writer to capture calls in-process. `recordCalls` is the captured log
 // array; `recordShouldThrow` makes the next call throw to verify the caller
 // swallows the failure.
@@ -307,11 +307,24 @@ mock.module("../activation-store.js", () => ({
 
 let tmpWorkspace: string;
 let previousWorkspaceEnv: string | undefined;
+let memorySqlite: Database;
 
 beforeAll(() => {
   tmpWorkspace = mkdtempSync(join(tmpdir(), "memory-v2-injection-test-"));
   previousWorkspaceEnv = process.env.VELLUM_WORKSPACE_DIR;
   process.env.VELLUM_WORKSPACE_DIR = tmpWorkspace;
+
+  // The injection-events accessors resolve the dedicated memory connection
+  // through the `memory` singleton slot. Left alone, the slot either holds a
+  // connection cached by an earlier test file (that file's workspace) or
+  // lazily opens a schema-less DB under this file's temporary workspace —
+  // both order-dependent. Install a fresh in-memory DB with the relocated
+  // table's schema so this file is hermetic either way.
+  memorySqlite = new Database(":memory:");
+  ensureInjectionEventsSchema(memorySqlite);
+  setStoredDb("memory", drizzle(memorySqlite, { schema }), () =>
+    memorySqlite.close(),
+  );
 
   // Seed the v2 directory layout the migration would normally create.
   mkdirSync(join(tmpWorkspace, "memory", "concepts"), { recursive: true });
@@ -369,6 +382,9 @@ Long-form body content that should NOT appear in the injection block when the pa
 });
 
 afterAll(() => {
+  // Drop this file's in-memory memory-DB install so later test files reopen
+  // the connection from their own (restored) workspace path.
+  clearStoredDb("memory");
   if (previousWorkspaceEnv === undefined) {
     delete process.env.VELLUM_WORKSPACE_DIR;
   } else {
@@ -384,6 +400,10 @@ import type { SkillEntry } from "../types.js";
 
 const { getSqliteFrom } =
   await import("../../../../../persistence/db-connection.js");
+const { clearStoredDb, setStoredDb } =
+  await import("../../../../../persistence/db-singleton.js");
+const { ensureInjectionEventsSchema } =
+  await import("../../../../../persistence/migrations/326-move-injection-events-to-memory-db.js");
 const { migrateActivationState } =
   await import("../../../../../persistence/migrations/232-activation-state.js");
 const { migrateMemoryV2InjectionEvents } =

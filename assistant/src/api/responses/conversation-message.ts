@@ -572,6 +572,11 @@ export const ConversationMessageSchema = z.object({
    *  (the in-memory completed ring does not survive restarts). `id` equals the
    *  spawning tool call's `{backgrounded,id}` id. */
   backgroundToolCompletion: BackgroundToolCompletionSchema.optional(),
+  /** Set on daemon-authored status cards (the /compact, /clean, and
+   *  summarize-up-to results). Clients render these rows as standalone
+   *  system notices — no avatar, no persona bubble — and never group them
+   *  with adjacent assistant turns. */
+  systemCard: z.boolean().optional(),
   slackMessage: ConversationSlackMessageSchema.optional(),
   /**
    * Queue state for a user message that is still waiting in the daemon's

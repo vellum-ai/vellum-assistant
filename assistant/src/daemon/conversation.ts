@@ -34,6 +34,10 @@ import {
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite, Speed } from "../config/schemas/llm.js";
+import {
+  derefToolResultReReads,
+  postTurnTruncateToolResults,
+} from "../context/post-turn-tool-result-truncation.js";
 import { PermissionPrompter } from "../permissions/prompter.js";
 import { SecretPrompter } from "../permissions/secret-prompter.js";
 import type { UserDecision } from "../permissions/types.js";
@@ -315,6 +319,14 @@ export class Conversation {
   /** @internal */ toolsDisabledDepth = 0;
   /** @internal */ preactivatedSkillIds?: string[];
   /** @internal */ subagentAllowedTools?: Set<string>;
+  /**
+   * Tool names a subagent attempted but that its role allowlist
+   * ({@link subagentAllowedTools}) denied. Recorded by the tool executor;
+   * surfaced to the parent in the terminal notification so it can re-spawn with
+   * a role that includes them. Ephemeral, never persisted.
+   * @internal
+   */
+  subagentDeniedToolNames = new Set<string>();
   /**
    * How {@link subagentAllowedTools} is enforced — see
    * {@link SubagentToolGateMode}. Set and restored alongside the allowlist
@@ -1258,7 +1270,38 @@ export class Conversation {
         "Repaired persisted history",
       );
     }
-    this.messages = repairedMessages;
+
+    // Recreate the post-turn tool-result view on the reloaded history. Tools
+    // exempt from the result-time spool (file_read/host_file_read, web_fetch)
+    // persist their full oversized content, while the pre-eviction in-memory
+    // history carried the post-turn stubs — so a reload would otherwise feed
+    // the provider the full content those turns already consumed. Re-running
+    // the deterministic finalize passes (deref, then truncate — same order)
+    // restores that byte-identical view (same stub bytes, same
+    // `.tool-results/` paths), keeping the provider prefix cache matching and
+    // the rebuilt context as lean as it was before eviction/restart.
+    // Best-effort like the finalize pass: a failure degrades to full-content
+    // history, never a failed load.
+    let messagesForHistory = repairedMessages;
+    if (conv) {
+      try {
+        messagesForHistory = postTurnTruncateToolResults(
+          derefToolResultReReads(repairedMessages).messages,
+          {
+            conversationDir: getResolvedConversationDirPath(
+              this.conversationId,
+              conv.createdAt,
+            ),
+          },
+        ).messages;
+      } catch (err) {
+        log.warn(
+          { conversationId: this.conversationId, err },
+          "Load-time tool result truncation failed (non-fatal)",
+        );
+      }
+    }
+    this.messages = messagesForHistory;
 
     if (contextSummaryForHistory) {
       this.messages.unshift(
@@ -1465,10 +1508,10 @@ export class Conversation {
    * Mutate the server-authoritative `processing` flag. Web/Capacitor/CLI
    * caches treat this flag as the source of truth for the avatar streaming
    * ring and thinking indicator, so the `true → false` clear must announce
-   * itself: the daemon flips it in the agent-loop `finally` (after an awaited
-   * turn-boundary commit), which is later than the user-visible terminal SSE
-   * events, and a racing metadata refetch can otherwise re-read the
-   * not-yet-cleared `true` and clobber the client's optimistic `false`.
+   * itself: the daemon flips it in the agent-loop `finally`, which runs after
+   * the user-visible terminal SSE events, and a racing metadata refetch can
+   * otherwise re-read the not-yet-cleared `true` and clobber the client's
+   * optimistic `false`.
    *
    * Emitting a metadata invalidation on the clear lets every client GET the
    * authoritative `false`, per the multi-client-sync contract in AGENTS.md
@@ -1976,6 +2019,7 @@ export class Conversation {
       }
       return await this.runCompaction(true, undefined, {
         fixedTailStartIndex: tailIndex,
+        fixedBoundaryRowIndex: boundaryRowIndex,
         // Slack projections gate on the persisted watermark, not on
         // `contextCompactedMessageCount` — without an advance, the summarized
         // rows would reappear verbatim in the projection alongside the new
@@ -2027,6 +2071,8 @@ export class Conversation {
    * `/compact`); without it the manager no-ops below the threshold.
    * `opts.fixedTailStartIndex` pins the kept tail to a caller-chosen history
    * index ("summarize up to here") instead of the token-budget cut;
+   * `opts.fixedBoundaryRowIndex` is the same boundary in row space, which
+   * bounds the compactor's image manifest to rows being summarized away;
    * `opts.fixedBoundarySlackWatermarkTs` is that path's row-space-derived
    * Slack watermark (the auto/forced Slack path derives its own from the
    * chronological projection).
@@ -2036,6 +2082,7 @@ export class Conversation {
     sizing?: CompactionSizing,
     opts?: {
       fixedTailStartIndex?: number;
+      fixedBoundaryRowIndex?: number;
       fixedBoundarySlackWatermarkTs?: string | null;
     },
   ): Promise<ContextWindowResult> {
@@ -2097,6 +2144,7 @@ export class Conversation {
       overrideProfile,
       actorTrustClass: this.trustContext?.trustClass,
       fixedTailStartIndex: opts?.fixedTailStartIndex,
+      fixedBoundaryRowIndex: opts?.fixedBoundaryRowIndex,
     });
     // Track circuit-breaker state for every compaction that ran a summary
     // call — user-initiated `/compact`, other forced paths, and the wake's

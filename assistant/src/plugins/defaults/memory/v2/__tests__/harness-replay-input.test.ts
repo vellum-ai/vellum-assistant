@@ -1,11 +1,13 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
 import type { AssistantConfig } from "../../../../../config/types.js";
-import { getDb } from "../../../../../persistence/db-connection.js";
+import {
+  getDb,
+  getMemorySqlite,
+} from "../../../../../persistence/db-connection.js";
 import { initializeDb } from "../../../../../persistence/db-init.js";
 import {
   conversations,
-  memoryV2ActivationLogs,
   messages,
 } from "../../../../../persistence/schema/index.js";
 import type { MemoryV2ConceptRowRecord } from "../../memory-v2-activation-log-store.js";
@@ -93,20 +95,23 @@ function insertRouterLog(
   createdAt: number,
 ): void {
   ensureConversation(conversationId);
-  getDb()
-    .insert(memoryV2ActivationLogs)
-    .values({
-      id: `log-${seq++}`,
+  // The activation log lives in the dedicated memory database.
+  getMemorySqlite()!
+    .prepare(
+      `INSERT INTO memory_v2_activation_logs (
+         id, conversation_id, message_id, turn, mode,
+         concepts_json, skills_json, config_json, created_at
+       ) VALUES (?, ?, ?, ?, 'router', ?, '[]', ?, ?)`,
+    )
+    .run(
+      `log-${seq++}`,
       conversationId,
       messageId,
       turn,
-      mode: "router",
-      conceptsJson: JSON.stringify(concepts),
-      skillsJson: "[]",
-      configJson: JSON.stringify(ZERO_CONFIG),
+      JSON.stringify(concepts),
+      JSON.stringify(ZERO_CONFIG),
       createdAt,
-    })
-    .run();
+    );
 }
 
 function turnFor(
@@ -127,9 +132,8 @@ function turnFor(
 }
 
 function reset(): void {
-  const db = getDb();
-  db.delete(memoryV2ActivationLogs).run();
-  db.delete(messages).run();
+  getMemorySqlite()!.exec(`DELETE FROM memory_v2_activation_logs`);
+  getDb().delete(messages).run();
 }
 
 describe("harness/replay-input reconstructInput", () => {

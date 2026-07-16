@@ -12,6 +12,7 @@ import { initializeDb } from "../persistence/db-init.js";
 import {
   backfillMessageIdOnLogs,
   getRequestLogsByMessageId,
+  linkRequestLogsToMessage,
   recordRequestLog,
   relinkLlmRequestLogs,
 } from "../persistence/llm-request-log-store.js";
@@ -462,5 +463,113 @@ describe("getRequestLogsByMessageId — turn-aware query", () => {
     expect(logs).toHaveLength(2);
     expect(logs[0]?.messageId).toBe(a1.id);
     expect(logs[1]?.messageId).toBe(a1.id);
+  });
+});
+
+describe("compaction-call attribution", () => {
+  beforeEach(() => {
+    resetTables();
+  });
+
+  test("fork: an unlinked compactionAgent row does not eclipse the source turn's calls", async () => {
+    const source = createConversation("eclipse-source");
+    await addMessage(source.id, "user", "Original question", {
+      skipIndexing: true,
+    });
+    recordRequestLog(source.id, '{"turn":"src"}', '{"answer":"hi"}');
+    const reply = await addMessage(source.id, "assistant", "Answer", {
+      skipIndexing: true,
+    });
+    backfillMessageIdOnLogs(source.id, reply.id);
+
+    const fork = forkConversation({ conversationId: source.id });
+    const forkMessages = (
+      await import("../persistence/conversation-crud.js")
+    ).getMessages(fork.id);
+    const forkReply = forkMessages.filter((m) => m.role === "assistant").at(-1);
+    expect(forkReply).toBeDefined();
+
+    // A summarize-up-to compaction call lands in the fork, unlinked, inside
+    // the pre-fork turn's open-ended time window.
+    recordRequestLog(
+      fork.id,
+      '{"compaction":true}',
+      '{"summary":"..."}',
+      undefined,
+      "openrouter",
+      "compactionAgent",
+    );
+
+    const logs = getRequestLogsByMessageId(forkReply!.id);
+    const callSites = logs.map((l) => l.callSite);
+    // The recovery may claim the companion row into the window, but the
+    // fork-source fallback must still surface the turn's real call.
+    expect(callSites).toContain(null);
+    expect(logs.some((l) => l.conversationId === source.id)).toBe(true);
+  });
+
+  test("a linked compaction row belongs to the card's own group, not the prior turn", async () => {
+    const conv = createConversation("card-group");
+    await addMessage(conv.id, "user", "Chat away", { skipIndexing: true });
+    recordRequestLog(conv.id, '{"turn":"main"}', '{"answer":"sure"}');
+    const reply = await addMessage(conv.id, "assistant", "Sure!", {
+      skipIndexing: true,
+    });
+    backfillMessageIdOnLogs(conv.id, reply.id);
+
+    // Summarize-up-to persists a card and links the compaction row to it.
+    const compactionLogId = recordRequestLog(
+      conv.id,
+      '{"compaction":true}',
+      '{"summary":"..."}',
+      undefined,
+      "openrouter",
+      "compactionAgent",
+    );
+    const card = await addMessage(
+      conv.id,
+      "assistant",
+      "**Conversation summarized**",
+      {
+        metadata: { messageKind: "system_card" },
+        skipIndexing: true,
+      },
+    );
+    linkRequestLogsToMessage([compactionLogId!], card.id);
+
+    // The prior turn keeps only its own call…
+    const turnLogs = getRequestLogsByMessageId(reply.id);
+    expect(turnLogs).toHaveLength(1);
+    expect(turnLogs[0]?.messageId).toBe(reply.id);
+
+    // …and the card's group holds exactly the compaction call.
+    const cardLogs = getRequestLogsByMessageId(card.id);
+    expect(cardLogs).toHaveLength(1);
+    expect(cardLogs[0]?.id).toBe(compactionLogId!);
+    expect(cardLogs[0]?.messageId).toBe(card.id);
+  });
+
+  test("a card that is a user message's only reply is that turn's group (/compact shape)", async () => {
+    const conv = createConversation("compact-turn");
+    const userMsg = await addMessage(conv.id, "user", "/compact", {
+      skipIndexing: true,
+    });
+    const compactionLogId = recordRequestLog(
+      conv.id,
+      '{"compaction":true}',
+      '{"summary":"..."}',
+      undefined,
+      "openrouter",
+      "compactionAgent",
+    );
+    const card = await addMessage(conv.id, "assistant", "**Compacted**", {
+      metadata: { messageKind: "system_card" },
+      skipIndexing: true,
+    });
+    linkRequestLogsToMessage([compactionLogId!], card.id);
+
+    const logs = getRequestLogsByMessageId(userMsg.id);
+    expect(logs).toHaveLength(1);
+    expect(logs[0]?.id).toBe(compactionLogId!);
   });
 });

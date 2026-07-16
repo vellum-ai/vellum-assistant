@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { PRIVACY_CONSENT_VERSION } from "@/utils/onboarding-cleanup";
+import { PRIVACY_CONSENT_VERSION } from "@/lib/consent/consent-persistence";
 import {
   privacyChangeNotes,
   tosChangeNotes,

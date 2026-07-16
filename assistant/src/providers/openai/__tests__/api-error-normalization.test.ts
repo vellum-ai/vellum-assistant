@@ -322,7 +322,9 @@ describe("captureRawErrorBodyFetch", () => {
   });
 });
 
-function n(over: Partial<NormalizedOpenAIAPIError> = {}): NormalizedOpenAIAPIError {
+function n(
+  over: Partial<NormalizedOpenAIAPIError> = {},
+): NormalizedOpenAIAPIError {
   return { message: "boom", ...over };
 }
 
@@ -389,6 +391,24 @@ describe("deriveReason", () => {
     );
   });
 
+  test("403 spend-cap 'Key limit exceeded' → insufficient_credits", () => {
+    // OpenRouter returns 403 with this body when a key's configured credit
+    // limit is reached — a billing condition, not a rejected key. The billing
+    // gate precedes the 401/403 credential branch, so it routes to credits.
+    expect(deriveReason(n({ message: "Key limit exceeded" }), 403)).toBe(
+      "insufficient_credits",
+    );
+    expect(
+      deriveReason(
+        n({
+          message: "Forbidden",
+          rawBody: '{"error":{"code":403,"message":"Key limit exceeded"}}',
+        }),
+        403,
+      ),
+    ).toBe("insufficient_credits");
+  });
+
   test("429 → rate_limited", () => {
     expect(deriveReason(n(), 429)).toBe("rate_limited");
   });
@@ -414,6 +434,8 @@ describe("deriveReason", () => {
   });
 
   test("no status, no signal → unknown", () => {
-    expect(deriveReason(n({ message: "who knows" }), undefined)).toBe("unknown");
+    expect(deriveReason(n({ message: "who knows" }), undefined)).toBe(
+      "unknown",
+    );
   });
 });

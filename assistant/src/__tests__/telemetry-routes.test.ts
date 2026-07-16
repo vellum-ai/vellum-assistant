@@ -18,9 +18,7 @@ function pendingPayloads(): OnboardingResearchTelemetryEvent[] {
   );
 }
 
-const route = ROUTES.find(
-  (r) => r.operationId === "telemetry_onboarding_research",
-);
+const route = ROUTES.find((r) => r.operationId === "telemetry_ingest");
 
 function call(body: unknown) {
   if (!route) {
@@ -29,18 +27,28 @@ function call(body: unknown) {
   return route.handler({ body } as RouteHandlerArgs);
 }
 
-const VALID_BODY = {
+/** Well-formed onboarding_research `fields` (base fields stamped by the daemon). */
+const VALID_FIELDS = {
   conversation_id: "conv-xyz",
   status: "done",
+  self_reported_occupation: "engineer",
   claims: [{ claim: "Senior engineer", confidence: "confident", sources: [] }],
-  suggestions: [
-    { suggestion: "I'll find 3 papers", prompt: "Find me 3 papers" },
-  ],
+  claim_count: 1,
+  claims_confident: 1,
+  claims_maybe: 0,
+  claims_guessing: 0,
+  suggestions: [{ suggestion: "I'll find 3 papers", prompt: "Find me 3 papers" }],
+  suggestion_count: 1,
   plugins: ["marketing-expert"],
   installed_plugins: ["marketing-expert", "web-research"],
 };
 
-describe("telemetry-routes: onboarding-research", () => {
+const VALID_BODY = {
+  type: "onboarding_research",
+  fields: VALID_FIELDS,
+};
+
+describe("telemetry-routes: ingest", () => {
   beforeEach(() => {
     setShareAnalytics(true);
     setShareDiagnostics(true);
@@ -49,13 +57,13 @@ describe("telemetry-routes: onboarding-research", () => {
 
   test("route policy matches the other client-facing telemetry routes", () => {
     expect(route).toBeDefined();
-    expect(route?.endpoint).toBe("telemetry/onboarding-research");
+    expect(route?.endpoint).toBe("telemetry/ingest");
     expect(route?.method).toBe("POST");
     expect(route?.policy?.allowedPrincipalTypes).toEqual(ACTOR_PRINCIPALS);
     expect(route?.policy?.requiredScopes).toEqual(["settings.write"]);
   });
 
-  test("valid body is persisted to the outbox as a wire onboarding_research event", () => {
+  test("valid body is persisted to the outbox as a wire event", () => {
     const result = call(VALID_BODY);
     expect(result).toEqual({ id: expect.any(String) });
 
@@ -71,6 +79,26 @@ describe("telemetry-routes: onboarding-research", () => {
       plugins: ["marketing-expert"],
       installed_plugins: ["marketing-expert", "web-research"],
     });
+    // Base fields are stamped by the daemon, not the client.
+    expect(payloads[0]?.daemon_event_id).toEqual(expect.any(String));
+    expect(payloads[0]?.recorded_at).toEqual(expect.any(Number));
+    expect(payloads[0]?.assistant_version).toEqual(expect.any(String));
+  });
+
+  test("stamps a fresh daemon_event_id by default", () => {
+    call(VALID_BODY);
+    // No override → the collapse key falls back to the row id (a uuid), not the
+    // conversation-scoped key.
+    expect(pendingPayloads()[0]?.daemon_event_id).not.toBe(
+      "onboarding_research:conv-xyz",
+    );
+  });
+
+  test("honors a client-supplied daemon_event_id collapse key", () => {
+    call({ ...VALID_BODY, daemon_event_id: "onboarding_research:conv-xyz" });
+    expect(pendingPayloads()[0]?.daemon_event_id).toBe(
+      "onboarding_research:conv-xyz",
+    );
   });
 
   test("returns skipped and persists nothing under the analytics opt-out", () => {
@@ -80,21 +108,70 @@ describe("telemetry-routes: onboarding-research", () => {
   });
 
   test("persists regardless of the diagnostics opt-out (rides analytics only)", () => {
-    // No longer diagnostics-gated: with analytics consent, the event persists
-    // even when diagnostics is opted out (and the accepted version is stale).
-    // The platform re-checks the owner's consent server-side at ingest.
     setShareDiagnostics(false, "2000-01-01");
     expect(call(VALID_BODY)).toEqual({ id: expect.any(String) });
     expect(pendingPayloads().length).toBe(1);
   });
 
-  test("rejects a malformed body without persisting", () => {
-    expect(() => call({ ...VALID_BODY, status: "not-a-status" })).toThrow(
-      RouteError,
-    );
-    expect(() => call({ ...VALID_BODY, claims: [{ claim: "x" }] })).toThrow(
-      RouteError,
-    );
+  test("rejects a non-outbox (watermark) or unknown type", () => {
+    // `turn` is a real wire type but watermark-flushed, not outbox-backed, so it
+    // has no ingest variant and a client can't inject it.
+    expect(() => call({ type: "turn", fields: {} })).toThrow(RouteError);
+    // An unknown type is rejected the same way.
+    expect(() => call({ type: "not_a_type", fields: {} })).toThrow(RouteError);
     expect(pendingPayloads().length).toBe(0);
+  });
+
+  test("accepts any outbox-backed type, e.g. config_setting", () => {
+    const result = call({
+      type: "config_setting",
+      fields: { config_key: "voice.provider", config_value: "elevenlabs" },
+    });
+    expect(result).toEqual({ id: expect.any(String) });
+
+    const payloads = pendingOutboxPayloads<{ config_key: string }>(
+      "config_setting",
+    );
+    expect(payloads.length).toBe(1);
+    expect(payloads[0]).toMatchObject({
+      type: "config_setting",
+      config_key: "voice.provider",
+      config_value: "elevenlabs",
+    });
+  });
+
+  test("rejects malformed fields (missing or mistyped) without persisting", () => {
+    // Missing the required derived counts.
+    const { claim_count: _c, suggestion_count: _s, ...missingCounts } =
+      VALID_FIELDS;
+    expect(() =>
+      call({ type: "onboarding_research", fields: missingCounts }),
+    ).toThrow(RouteError);
+
+    // Wrong type for a numeric field.
+    expect(() =>
+      call({
+        type: "onboarding_research",
+        fields: { ...VALID_FIELDS, claim_count: "one" },
+      }),
+    ).toThrow(RouteError);
+
+    expect(pendingPayloads().length).toBe(0);
+  });
+
+  test("rejects a structurally invalid request body", () => {
+    expect(() => call({ type: "onboarding_research" })).toThrow(RouteError);
+    expect(() => call({ fields: VALID_FIELDS })).toThrow(RouteError);
+    expect(pendingPayloads().length).toBe(0);
+  });
+
+  test("strips unknown fields keys (typed schema, not a passthrough record)", () => {
+    call({
+      type: "onboarding_research",
+      fields: { ...VALID_FIELDS, bogus_extra: "nope" },
+    });
+    const payloads = pendingPayloads();
+    expect(payloads.length).toBe(1);
+    expect(payloads[0]).not.toHaveProperty("bogus_extra");
   });
 });

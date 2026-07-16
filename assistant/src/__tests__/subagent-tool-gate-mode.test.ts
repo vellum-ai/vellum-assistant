@@ -52,7 +52,6 @@ mock.module("../tools/browser/browser-screencast.js", () => ({
 mock.module("../apps/app-store.js", () => ({
   getApp: mock(() => null),
   getAppDirPath: mock(() => "/tmp/test-apps/dummy"),
-  isMultifileApp: mock(() => false),
   getAppsDir: mock(() => "/tmp/test-apps"),
   resolveAppIdByDirName: mock(() => null),
   resolveAppIdFromPath: mock(() => null),
@@ -225,13 +224,13 @@ describe("createResolveToolsCallback — subagentToolGateMode", () => {
 
 describe("createResolveToolsCallback — toolContextPin", () => {
   // Core defs spanning each client-gated family: host proxy (host_bash),
-  // dynamic UI (ui_show), connected-client (app_open), client-platform
+  // dynamic UI (ui_show), connected-client (ask_question), client-platform
   // (request_system_permission), plus the always-on remember.
   const CLIENT_GATED_DEFS = [
     makeToolDef("remember"),
     makeToolDef("host_bash"),
     makeToolDef("ui_show"),
-    makeToolDef("app_open"),
+    makeToolDef("ask_question"),
     makeToolDef("request_system_permission"),
   ];
 
@@ -271,8 +270,9 @@ describe("createResolveToolsCallback — toolContextPin", () => {
       .sort();
     // request_system_permission stays out: it keys on
     // channelCapabilities.clientOS, which desktop HTTP live turns never set
-    // either — exclusion IS parity there.
-    expect(names).toEqual(["app_open", "host_bash", "remember", "ui_show"]);
+    // either — exclusion IS parity there. ask_question stays IN: its
+    // macOS-specific hide also keys on clientOS, which the pin leaves unset.
+    expect(names).toEqual(["ask_question", "host_bash", "remember", "ui_show"]);
   });
 
   test("the pin REPLACES the live context — absent pin fields do not fall through", () => {
@@ -363,6 +363,79 @@ describe("createToolExecutor — execution-layer allowlist gate", () => {
     expect(result).toEqual({ content: "ok", isError: false });
     expect(calls).toHaveLength(1);
     expect(calls[0]!.name).toBe("remember");
+  });
+
+  test("execution mode: a denied call is recorded on subagentDeniedToolNames", async () => {
+    const denied = new Set<string>();
+    const { executor } = makeCapturingExecutor();
+    const toolFn = makeToolFn(
+      executor,
+      makeSetupCtx({
+        subagentAllowedTools: new Set(["remember"]),
+        subagentToolGateMode: "execution",
+        subagentDeniedToolNames: denied,
+      }),
+    );
+
+    await toolFn("bash", { command: "echo hi" });
+
+    expect([...denied]).toEqual(["bash"]);
+  });
+
+  test("skill_execute records the resolved inner tool, not the wrapper", async () => {
+    const denied = new Set<string>();
+    const { executor } = makeCapturingExecutor();
+    const toolFn = makeToolFn(
+      executor,
+      makeSetupCtx({
+        subagentAllowedTools: new Set(["remember"]),
+        subagentToolGateMode: "execution",
+        subagentDeniedToolNames: denied,
+      }),
+    );
+
+    await toolFn("skill_execute", {
+      tool: "bash",
+      input: { command: "echo hi" },
+    });
+
+    expect(denied.has("bash")).toBe(true);
+    expect(denied.has("skill_execute")).toBe(false);
+  });
+
+  test("records a non-allowlisted attempt even in wire gate mode (observation only)", async () => {
+    const denied = new Set<string>();
+    const { executor } = makeCapturingExecutor();
+    const toolFn = makeToolFn(
+      executor,
+      // No subagentToolGateMode → "wire": the executor does not reject here, but
+      // the out-of-allowlist attempt is still recorded for parent reporting.
+      makeSetupCtx({
+        subagentAllowedTools: new Set(["remember"]),
+        subagentDeniedToolNames: denied,
+      }),
+    );
+
+    await toolFn("bash", { command: "echo hi" });
+
+    expect(denied.has("bash")).toBe(true);
+  });
+
+  test("an allowlisted call records nothing", async () => {
+    const denied = new Set<string>();
+    const { executor } = makeCapturingExecutor();
+    const toolFn = makeToolFn(
+      executor,
+      makeSetupCtx({
+        subagentAllowedTools: new Set(["remember"]),
+        subagentToolGateMode: "execution",
+        subagentDeniedToolNames: denied,
+      }),
+    );
+
+    await toolFn("remember", { content: "a fact" });
+
+    expect([...denied]).toEqual([]);
   });
 
   test("execution mode: skill_execute gates the resolved inner tool, executor never invoked", async () => {

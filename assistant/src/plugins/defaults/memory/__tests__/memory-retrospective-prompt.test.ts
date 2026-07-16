@@ -1,4 +1,4 @@
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
@@ -8,6 +8,7 @@ import {
   type ForkInstructionArgs,
   RETROSPECTIVE_INSTRUCTION_TEMPLATE,
 } from "../memory-retrospective-prompt.js";
+import { getWorkspaceDir } from "../paths.js";
 
 function makeArgs(
   overrides: Partial<ForkInstructionArgs> = {},
@@ -98,8 +99,11 @@ For everything else in your review window, use the \`remember\` tool on facts, p
   test("proc-to-skills active: tool line widens and the authoring section is appended", () => {
     const out = buildForkInstruction(makeArgs({ procToSkillsActive: true }));
     expect(out).toContain(
-      "Only `remember`, `find_similar_skills`, `scaffold_managed_skill`, and `skill_load skill-management` are available for this pass",
+      "Only `remember`, `find_similar_skills`, and `scaffold_managed_skill` are available for this pass",
     );
+    // skill-management is preactivated for the wake, so the prompt no longer
+    // instructs a `skill_load` step.
+    expect(out).not.toContain("skill_load skill-management");
     expect(out).toContain(
       "\n---\n\nIf your review window contains a PROCEDURE you actually carried out",
     );
@@ -136,7 +140,10 @@ For everything else in your review window, use the \`remember\` tool on facts, p
 });
 
 describe("promptOverridePath", () => {
-  const dir = mkdtempSync(join(tmpdir(), "retro-prompt-override-"));
+  // buildForkInstruction resolves overrides against the process workspace and
+  // rejects anything outside it, so fixtures must live under the workspace.
+  mkdirSync(getWorkspaceDir(), { recursive: true });
+  const dir = mkdtempSync(join(getWorkspaceDir(), "retro-prompt-override-"));
 
   test("override file replaces the bundled body and gets the same substitutions", () => {
     const overridePath = join(dir, "custom-instruction.md");
@@ -176,5 +183,20 @@ describe("promptOverridePath", () => {
       makeArgs({ promptOverridePath: join(dir, "does-not-exist.md") }),
     );
     expect(out).toBe(buildForkInstruction(makeArgs()));
+  });
+
+  test("an override outside the workspace root is rejected and falls back to the bundled rendering", () => {
+    // The persisted fork instruction is readable through the messages API, so
+    // an out-of-workspace override would disclose arbitrary local files.
+    const outside = mkdtempSync(join(tmpdir(), "retro-prompt-outside-"));
+    const overridePath = join(outside, "smuggled.md");
+    writeFileSync(overridePath, "SENSITIVE FILE CONTENTS\n");
+
+    const out = buildForkInstruction(
+      makeArgs({ promptOverridePath: overridePath }),
+    );
+
+    expect(out).toBe(buildForkInstruction(makeArgs()));
+    expect(out).not.toContain("SENSITIVE FILE CONTENTS");
   });
 });

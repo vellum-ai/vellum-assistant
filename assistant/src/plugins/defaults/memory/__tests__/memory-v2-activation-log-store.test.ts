@@ -1,8 +1,20 @@
-import { beforeEach, describe, expect, test } from "bun:test";
+/**
+ * Tests for the memory v2 activation-log store. The store reads and writes
+ * `memory_v2_activation_logs` over the dedicated memory connection, so each
+ * test installs a fresh in-memory database into the `memory` singleton slot
+ * with the relocated table's schema (mirroring injection-events.test.ts).
+ */
+import { Database } from "bun:sqlite";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { getDb } from "../../../../persistence/db-connection.js";
-import { initializeDb } from "../../../../persistence/db-init.js";
-import { memoryV2ActivationLogs } from "../../../../persistence/schema/index.js";
+import { drizzle } from "drizzle-orm/bun-sqlite";
+
+import {
+  clearStoredDb,
+  setStoredDb,
+} from "../../../../persistence/db-singleton.js";
+import { ensureActivationLogsSchema } from "../../../../persistence/migrations/336-move-memory-v2-activation-logs-to-memory-db.js";
+import * as schema from "../../../../persistence/schema/index.js";
 import {
   backfillMemoryV2ActivationMessageId,
   getMemoryV2ActivationLogByMessageIds,
@@ -14,18 +26,35 @@ import {
   sampleConfig,
 } from "./fixtures/memory-v2-activation-fixtures.js";
 
-await initializeDb();
+let memorySqlite: Database;
 
-function resetTables(): void {
-  const db = getDb();
-  db.delete(memoryV2ActivationLogs).run();
+beforeEach(() => {
+  memorySqlite = new Database(":memory:");
+  ensureActivationLogsSchema(memorySqlite);
+  setStoredDb("memory", drizzle(memorySqlite, { schema }), () =>
+    memorySqlite.close(),
+  );
+});
+
+afterEach(() => {
+  clearStoredDb("memory");
+});
+
+interface LogRow {
+  message_id: string | null;
+  turn: number;
+  mode: string;
+}
+
+function allRows(): LogRow[] {
+  return memorySqlite
+    .query(
+      `SELECT message_id, turn, mode FROM memory_v2_activation_logs ORDER BY turn`,
+    )
+    .all() as LogRow[];
 }
 
 describe("memory-v2-activation-log-store", () => {
-  beforeEach(() => {
-    resetTables();
-  });
-
   test("round-trip: record → backfill messageId → query by messageId", () => {
     const conversationId = "conv-1";
     const messageId = "msg-1";
@@ -122,6 +151,20 @@ describe("memory-v2-activation-log-store", () => {
     expect(result).toBeNull();
   });
 
+  test("writes land in the memory connection", () => {
+    recordMemoryV2ActivationLog({
+      conversationId: "conv-mem",
+      turn: 1,
+      mode: "per-turn",
+      concepts: sampleConcepts,
+      config: sampleConfig,
+    });
+    const { n } = memorySqlite
+      .query(`SELECT COUNT(*) AS n FROM memory_v2_activation_logs`)
+      .get() as { n: number };
+    expect(n).toBe(1);
+  });
+
   test("backfill only updates rows with NULL messageId", () => {
     const conversationId = "conv-2";
 
@@ -143,11 +186,10 @@ describe("memory-v2-activation-log-store", () => {
     // First backfill: both rows should now have msg-a.
     backfillMemoryV2ActivationMessageId(conversationId, "msg-a");
 
-    const db = getDb();
-    const afterFirstBackfill = db.select().from(memoryV2ActivationLogs).all();
+    const afterFirstBackfill = allRows();
     expect(afterFirstBackfill).toHaveLength(2);
     for (const row of afterFirstBackfill) {
-      expect(row.messageId).toBe("msg-a");
+      expect(row.message_id).toBe("msg-a");
     }
 
     // Record a third row (messageId is NULL initially).
@@ -163,11 +205,10 @@ describe("memory-v2-activation-log-store", () => {
     // and must not overwrite the first two rows already set to msg-a.
     backfillMemoryV2ActivationMessageId(conversationId, "msg-b");
 
-    const afterSecondBackfill = db.select().from(memoryV2ActivationLogs).all();
-    const byTurn = new Map(afterSecondBackfill.map((r) => [r.turn, r]));
-    expect(byTurn.get(1)!.messageId).toBe("msg-a");
-    expect(byTurn.get(2)!.messageId).toBe("msg-a");
-    expect(byTurn.get(3)!.messageId).toBe("msg-b");
+    const byTurn = new Map(allRows().map((r) => [r.turn, r]));
+    expect(byTurn.get(1)!.message_id).toBe("msg-a");
+    expect(byTurn.get(2)!.message_id).toBe("msg-a");
+    expect(byTurn.get(3)!.message_id).toBe("msg-b");
   });
 
   test("backfill skips v3_shadow rows, leaving their messageId null", () => {
@@ -192,12 +233,10 @@ describe("memory-v2-activation-log-store", () => {
 
     backfillMemoryV2ActivationMessageId(conversationId, "msg-live");
 
-    const db = getDb();
-    const rows = db.select().from(memoryV2ActivationLogs).all();
-    const byMode = new Map(rows.map((r) => [r.mode, r]));
+    const byMode = new Map(allRows().map((r) => [r.mode, r]));
     // The live router row got stamped; the shadow row stayed null (not
     // mis-attributed to the live message).
-    expect(byMode.get("router")!.messageId).toBe("msg-live");
-    expect(byMode.get("v3_shadow")!.messageId).toBeNull();
+    expect(byMode.get("router")!.message_id).toBe("msg-live");
+    expect(byMode.get("v3_shadow")!.message_id).toBeNull();
   });
 });

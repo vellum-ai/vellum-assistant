@@ -26,6 +26,7 @@ model (section-grain lanes cached as live shadow state). Each subgroup exposes
 operator-facing maintenance verbs — reindexing, backfills, validation, and evals.
 
 Examples:
+  $ assistant memory nodes stats
   $ assistant memory nodes list --search "coffee"
   $ assistant memory nodes delete "User prefers TypeScript"
   $ assistant memory nodes update "User prefers TypeScript" "User prefers TypeScript and Bun"
@@ -48,11 +49,33 @@ a remembered fact without first looking up its ID.
 All subcommands require memory v2 to be enabled and the assistant to be running.
 
 Examples:
+  $ assistant memory nodes stats
   $ assistant memory nodes list
   $ assistant memory nodes list --search "TypeScript" --limit 20
   $ assistant memory nodes delete "User prefers TypeScript"
   $ assistant memory nodes update "User prefers TypeScript" "User prefers TypeScript and Bun"`,
       subcommands: [
+        {
+          name: "stats",
+          description: "Show a health overview of the memory v2 graph",
+          options: [
+            {
+              flags: "--json",
+              description: "Machine-readable compact JSON output",
+            },
+          ],
+          helpText: `
+Behavior:
+  Scans all active memory graph nodes in a single pass and reports:
+  total count, breakdown by type and fidelity (with an ASCII bar chart),
+  nodes at risk of decay (significance < 15%), average significance,
+  oldest/newest node timestamps, last reinforcement, and the top 5 nodes
+  by significance. Does not require the daemon to be running.
+
+Examples:
+  $ assistant memory nodes stats
+  $ assistant memory nodes stats --json`,
+        },
         {
           name: "list",
           description: "List active memory graph nodes",

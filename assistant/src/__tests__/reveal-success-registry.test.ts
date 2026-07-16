@@ -37,6 +37,8 @@ afterEach(() => {
   setSystemTime();
 });
 
+const TEST_NONCE = "nonce-registry-test";
+
 describe("reveal success registry retention", () => {
   test("recent records survive the count cap while a tool window is active", () => {
     // A single command with hundreds of reveal invocations records every
@@ -45,22 +47,24 @@ describe("reveal success registry retention", () => {
     // could never become candidates.
     const watermark = currentRevealSuccessWatermark();
     for (let i = 0; i < 300; i++) {
-      recordRevealSuccess(`service-${i}`, "api_key", `value-${i}`);
+      recordRevealSuccess(`service-${i}`, "api_key", `value-${i}`, TEST_NONCE);
     }
-    expect(revealedValueSince(watermark, "service-0", "api_key")).toBe(
-      "value-0",
-    );
-    expect(revealedValueSince(watermark, "service-299", "api_key")).toBe(
-      "value-299",
-    );
+    expect(
+      revealedValueSince(watermark, "service-0", "api_key", TEST_NONCE),
+    ).toBe("value-0");
+    expect(
+      revealedValueSince(watermark, "service-299", "api_key", TEST_NONCE),
+    ).toBe("value-299");
   });
 
   test("watermark gating still excludes earlier successes", () => {
-    recordRevealSuccess("openai", "api_key", "before-watermark");
+    recordRevealSuccess("openai", "api_key", "before-watermark", TEST_NONCE);
     const watermark = currentRevealSuccessWatermark();
-    expect(revealedValueSince(watermark, "openai", "api_key")).toBeUndefined();
-    recordRevealSuccess("openai", "api_key", "after-watermark");
-    expect(revealedValueSince(watermark, "openai", "api_key")).toBe(
+    expect(
+      revealedValueSince(watermark, "openai", "api_key", TEST_NONCE),
+    ).toBeUndefined();
+    recordRevealSuccess("openai", "api_key", "after-watermark", TEST_NONCE);
+    expect(revealedValueSince(watermark, "openai", "api_key", TEST_NONCE)).toBe(
       "after-watermark",
     );
   });
@@ -70,18 +74,20 @@ describe("reveal success registry retention", () => {
     // pending proof to satisfy — retaining its plaintext for the age bound
     // would expand every CLI reveal's exposure for nothing.
     _resetRevealSuccessRegistryForTest();
-    recordRevealSuccess("svc", "f", "hunter2-no-window");
+    recordRevealSuccess("svc", "f", "hunter2-no-window", TEST_NONCE);
     expect(_recordCountForTest()).toBe(0);
-    expect(revealedValueSince(0, "svc", "f")).toBeUndefined();
+    expect(revealedValueSince(0, "svc", "f", TEST_NONCE)).toBeUndefined();
 
     // With a window open the same reveal records; closing the last window
     // both stops further recording and drops the retained plaintext.
     const token = openRevealProofWindow();
-    recordRevealSuccess("svc", "f", "hunter2-windowed");
-    expect(revealedValueSince(0, "svc", "f")).toBe("hunter2-windowed");
+    recordRevealSuccess("svc", "f", "hunter2-windowed", TEST_NONCE);
+    expect(revealedValueSince(0, "svc", "f", TEST_NONCE)).toBe(
+      "hunter2-windowed",
+    );
     closeRevealProofWindow(token);
-    recordRevealSuccess("svc", "f", "hunter2-after-close");
-    expect(revealedValueSince(0, "svc", "f")).toBeUndefined();
+    recordRevealSuccess("svc", "f", "hunter2-after-close", TEST_NONCE);
+    expect(revealedValueSince(0, "svc", "f", TEST_NONCE)).toBeUndefined();
     expect(_recordCountForTest()).toBe(0);
   });
 
@@ -92,7 +98,7 @@ describe("reveal success registry retention", () => {
     _resetRevealSuccessRegistryForTest();
     const first = openRevealProofWindow();
     const second = openRevealProofWindow();
-    recordRevealSuccess("svc", "f", "hunter2-windowed");
+    recordRevealSuccess("svc", "f", "hunter2-windowed", TEST_NONCE);
     closeRevealProofWindow(first);
     // A concurrent staging (second window) may still consume the record.
     expect(_recordCountForTest()).toBe(1);
@@ -106,12 +112,12 @@ describe("reveal success registry retention", () => {
     // reveal's secret alive indefinitely — eviction must happen on any
     // registry activity (a write, a read, or the idle timer).
     setSystemTime(new Date("2026-01-01T00:00:00Z"));
-    recordRevealSuccess("svc", "f", "hunter2-expiring");
+    recordRevealSuccess("svc", "f", "hunter2-expiring", TEST_NONCE);
     expect(_recordCountForTest()).toBe(1);
 
     // Past the 6-hour age bound with NO further writes.
     setSystemTime(new Date("2026-01-01T07:00:00Z"));
-    expect(revealedValueSince(0, "svc", "f")).toBeUndefined();
+    expect(revealedValueSince(0, "svc", "f", TEST_NONCE)).toBeUndefined();
     expect(_recordCountForTest()).toBe(0);
   });
 });

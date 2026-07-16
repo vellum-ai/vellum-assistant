@@ -26,6 +26,7 @@ import { clearEmbeddingBackendCache } from "../../persistence/embeddings/embeddi
 import { maybeReseedCapabilitiesAfterManagedCredential } from "../../plugins/defaults/memory/v2/memory-v2-startup.js";
 import { validateAnthropicApiKey } from "../../providers/anthropic/client.js";
 import { validateAtlasCloudApiKey } from "../../providers/atlascloud/client.js";
+import { validateBasetenApiKey } from "../../providers/baseten/client.js";
 import { validateGeminiApiKey } from "../../providers/gemini/client.js";
 import { validateMinimaxApiKey } from "../../providers/minimax/client.js";
 import { validateOpenAIApiKey } from "../../providers/openai/client.js";
@@ -209,6 +210,15 @@ async function handleAddSecret({ body }: RouteHandlerArgs) {
         }
       } else if (name === "atlascloud") {
         const validation = await validateAtlasCloudApiKey(value);
+        if (!validation.valid) {
+          log.warn(
+            { provider: name, reason: validation.reason },
+            "API key validation failed",
+          );
+          return { success: false, error: validation.reason };
+        }
+      } else if (name === "baseten") {
+        const validation = await validateBasetenApiKey(value);
         if (!validation.valid) {
           log.warn(
             { provider: name, reason: validation.reason },

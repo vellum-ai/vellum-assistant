@@ -19,9 +19,9 @@ and "assistant keys set <provider> <key>" to view and manage API keys.
 
 Examples:
   $ assistant config list
-  $ assistant config get llm.default.provider
+  $ assistant config get llm.defaultProvider.provider
   $ assistant config schema services
-  $ assistant config set llm.default.provider anthropic
+  $ assistant config set llm.defaultProvider.provider anthropic
   $ assistant config set calls.enabled true`,
   subcommands: [
     {
@@ -31,7 +31,7 @@ Examples:
         "Set a config value (supports dotted paths like calls.enabled)",
       helpText: `
 Arguments:
-  key     Dotted path to the config key (e.g. llm.default.provider,
+  key     Dotted path to the config key (e.g. llm.defaultProvider.provider,
           calls.enabled, twilio.accountSid). Intermediate objects are created
           automatically.
   value   The value to store. Parsed as JSON first (so "true" becomes boolean
@@ -46,7 +46,7 @@ explicit null is preserved.
 To manage API keys, use "assistant keys set <provider> <key>" instead.
 
 Examples:
-  $ assistant config set llm.default.provider anthropic
+  $ assistant config set llm.defaultProvider.provider anthropic
   $ assistant config set calls.enabled true`,
     },
     {
@@ -55,7 +55,7 @@ Examples:
       description: "Get a config value (supports dotted paths)",
       helpText: `
 Arguments:
-  key   Dotted path to the config key (e.g. llm.default.provider,
+  key   Dotted path to the config key (e.g. llm.defaultProvider.provider,
         calls.enabled)
 
 Fetches the full config from the assistant and prints the value at the
@@ -65,7 +65,7 @@ values are pretty-printed as indented JSON.
 To view API keys, use "assistant keys list" instead.
 
 Examples:
-  $ assistant config get llm.default.provider
+  $ assistant config get llm.defaultProvider.provider
   $ assistant config get calls.enabled`,
     },
     {

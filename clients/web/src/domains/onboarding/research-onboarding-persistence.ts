@@ -99,6 +99,15 @@ export interface ResearchOnboardingSnapshot {
    * starts.
    */
   researchConversationId?: string;
+  /**
+   * Claims the user explicitly KEPT on the results step (all claims minus the
+   * X-ed ones; [] after "this is not me"). Persisted so a refresh between the
+   * results review and the "Let's chat" handoff still hands the confirmed
+   * findings to the persona. Absent on older snapshots and before the user
+   * reviews the results — absent must stay distinct from [] (unreviewed vs
+   * rejected-all).
+   */
+  keptClaims?: string[] | null;
 }
 
 function storageKey(userId: string | null): string | null {

@@ -5,8 +5,9 @@ const log = getLogger("memory-db");
 
 /**
  * The plugin's accessor for the dedicated memory database
- * (`assistant-memory.db`), where the memory plugin's relocated tables live
- * (`memory_v2_injection_events`, with more to follow).
+ * (`assistant-memory.db`), where the memory plugin's relocated tables live.
+ * The `move-*-to-memory-db` migrations in `persistence/migrations/` define
+ * the current set of relocated tables.
  *
  * Fail-soft: returns `null` when the file cannot be opened, logging a warn
  * tagged with the calling context. Callers degrade rather than throw — the

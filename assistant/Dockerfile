@@ -129,6 +129,14 @@ COPY packages/twilio-client /app/packages/twilio-client
 
 COPY assistant /app/assistant
 
+# Materialize the git-ignored offline plugin manifest from its canonical source.
+# `assistant/src/cli/lib/plugin-catalog-local.ts` statically imports this JSON
+# (loaded even when platform features are enabled), so it must exist in the image
+# — the build installs with --ignore-scripts, so the postinstall sync that
+# regenerates it in dev never runs here. Mirrors how CI materializes the
+# feature-flag registry before building.
+COPY plugins/marketplace.json /app/assistant/src/cli/lib/bundled-marketplace.json
+
 # Install assistant CLI launcher backed by the bundled assistant package
 RUN printf '#!/usr/bin/env sh\nexec bun run /app/assistant/src/index.ts "$@"\n' > /usr/local/bin/assistant && \
     chmod +x /usr/local/bin/assistant

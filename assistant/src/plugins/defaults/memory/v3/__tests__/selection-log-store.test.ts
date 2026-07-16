@@ -25,8 +25,7 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import { setConfig } from "../../../../../__tests__/helpers/set-config.js";
-import { migrateAddMemoryV3Selections } from "../../../../../persistence/migrations/268-add-memory-v3-selections.js";
-import { migrateMemoryV3SelectionsMessageIdAndSections } from "../../../../../persistence/migrations/283-memory-v3-selections-message-id-and-sections.js";
+import { ensureMemoryV3SelectionsSchema } from "../../../../../persistence/migrations/338-move-memory-v3-selections-to-memory-db.js";
 import * as schema from "../../../../../persistence/schema/index.js";
 
 const realFlags = {
@@ -39,18 +38,25 @@ const realPageContent = { ...(await import("../page-content.js")) };
 
 let storeMockActive = false;
 let liveEnabled = false;
+// When false, the stubbed `getMemorySqlite` resolves to null — the contract
+// the store sees when the dedicated memory database cannot be opened.
+let memoryDbAvailable = true;
 
 let testSqlite: Database;
+// Selection rows live on the dedicated memory connection, resolved via
+// `getMemorySqlite` — stubbed to a second in-memory DB carrying the relocated
+// table's schema. The fork-source fallback still reads `messages` from main.
+let memorySqlite: Database;
 let testDb = makeDb();
 function makeDb() {
   testSqlite = new Database(":memory:");
   testSqlite.exec("PRAGMA journal_mode=WAL");
   const db = drizzle(testSqlite, { schema });
-  migrateAddMemoryV3Selections(db);
-  migrateMemoryV3SelectionsMessageIdAndSections(db);
   // The fork-source fallback reads `messages.metadata.forkSourceMessageId`; the
   // inspector store touches only these two columns, so a minimal table suffices.
   testSqlite.exec(`CREATE TABLE messages (id TEXT PRIMARY KEY, metadata TEXT)`);
+  memorySqlite = new Database(":memory:");
+  ensureMemoryV3SelectionsSchema(memorySqlite);
   return db;
 }
 
@@ -66,7 +72,7 @@ function seed(
   }>,
   messageId: string | null = null,
 ): void {
-  const stmt = testSqlite.query(
+  const stmt = memorySqlite.query(
     `INSERT INTO memory_v3_selections
        (conversation_id, turn, slug, source, pinned, created_at,
         message_id, section_ordinal, section_title)
@@ -118,6 +124,12 @@ mock.module("../../../../../persistence/db-connection.js", () => ({
     storeMockActive
       ? testSqlite
       : realDb.getSqliteFrom(db as Parameters<typeof realDb.getSqliteFrom>[0]),
+  getMemorySqlite: () =>
+    storeMockActive
+      ? memoryDbAvailable
+        ? memorySqlite
+        : null
+      : realDb.getMemorySqlite(),
 }));
 
 mock.module("../page-content.js", () => ({
@@ -143,6 +155,7 @@ const {
 beforeEach(() => {
   storeMockActive = true;
   liveEnabled = false;
+  memoryDbAvailable = true;
   // The inspector's `live` flag comes from `isMemoryV3Live(getConfig())`,
   // which reads `memory.v3.live` — seed it for real.
   setConfig("memory", { v3: { live: false } });
@@ -347,6 +360,23 @@ describe("getMemoryV3SelectionForInspectorByMessageIds", () => {
       await getMemoryV3SelectionForInspectorByMessageIds(["fork-msg"]),
     ).toBeNull();
   });
+
+  test("returns null when the memory database is unavailable", async () => {
+    // Rows exist for both lookup keys, but with the memory connection down
+    // both inspector reads (including the fork-fallback walk, which still
+    // touches the main-DB `messages` table) must degrade to null, not throw.
+    seed(
+      "conv-deg",
+      1,
+      [{ slug: "domain-a/page-1", source: "needle" }],
+      "msg-deg",
+    );
+    memoryDbAvailable = false;
+    expect(await getMemoryV3SelectionForInspector("conv-deg", 1)).toBeNull();
+    expect(
+      await getMemoryV3SelectionForInspectorByMessageIds(["msg-deg"]),
+    ).toBeNull();
+  });
 });
 
 describe("summarizeSelections", () => {
@@ -383,6 +413,28 @@ describe("summarizeSelections", () => {
 
   test("returns zeroed counts for a conversation with no rows", () => {
     expect(summarizeSelections("conv-none")).toEqual({
+      bySource: {
+        core: 0,
+        hot: 0,
+        fresh: 0,
+        needle: 0,
+        dense: 0,
+        edge: 0,
+        reply: 0,
+        learned: 0,
+        entity: 0,
+      },
+      turns: 0,
+      distinctSlugs: 0,
+    });
+  });
+
+  test("returns zeroed results when the memory database is unavailable", () => {
+    // Rows exist, but with the memory connection down the summary must
+    // degrade to zeroes rather than throw.
+    seed("conv-deg", 1, [{ slug: "domain-a/page-1", source: "needle" }]);
+    memoryDbAvailable = false;
+    expect(summarizeSelections("conv-deg")).toEqual({
       bySource: {
         core: 0,
         hot: 0,

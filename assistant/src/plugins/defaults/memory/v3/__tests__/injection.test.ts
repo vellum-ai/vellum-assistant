@@ -29,9 +29,8 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import { setConfig } from "../../../../../__tests__/helpers/set-config.js";
-import { migrateAddMemoryV3Selections } from "../../../../../persistence/migrations/268-add-memory-v3-selections.js";
 import { migrateAddMemoryV3EverInjected } from "../../../../../persistence/migrations/277-add-memory-v3-ever-injected.js";
-import { migrateMemoryV3SelectionsMessageIdAndSections } from "../../../../../persistence/migrations/283-memory-v3-selections-message-id-and-sections.js";
+import { ensureMemoryV3SelectionsSchema } from "../../../../../persistence/migrations/338-move-memory-v3-selections-to-memory-db.js";
 import * as schema from "../../../../../persistence/schema/index.js";
 import type { InjectionBlock } from "../../../../types.js";
 import { unwrapMemoryBlock } from "../../memory-marker.js";
@@ -89,14 +88,17 @@ mock.module("../../../../../util/logger.js", () => ({
 }));
 
 let testSqlite: Database;
+// The prune valve's recency ranking reads `memory_v3_selections` over the
+// dedicated memory connection, resolved via `getMemorySqlite` — stubbed to a
+// second in-memory DB carrying the relocated table's schema.
+let memorySqlite: Database;
 let testDb = makeDb();
 function makeDb() {
   testSqlite = new Database(":memory:");
   const db = drizzle(testSqlite, { schema });
   migrateAddMemoryV3EverInjected(db);
-  // The prune valve's recency ranking reads `memory_v3_selections`.
-  migrateAddMemoryV3Selections(db);
-  migrateMemoryV3SelectionsMessageIdAndSections(db);
+  memorySqlite = new Database(":memory:");
+  ensureMemoryV3SelectionsSchema(memorySqlite);
   // The prune valve plans only against slugs whose card sections are
   // locatable in persisted `memoryV3InjectedBlock` rows
   // (`collectPersistedV3Cards`) — minimal `messages` shape it reads.
@@ -122,6 +124,8 @@ mock.module("../../../../../persistence/db-connection.js", () => ({
       : realDbConnection.getSqliteFrom(
           db as Parameters<typeof realDbConnection.getSqliteFrom>[0],
         ),
+  getMemorySqlite: () =>
+    injectionMockActive ? memorySqlite : realDbConnection.getMemorySqlite(),
 }));
 
 // The injector reads `memory.enabled` / `memory.v3.live` / `memory.v3.spotlight`

@@ -26,6 +26,22 @@ mock.module("../routing/resolve-assistant.js", () => ({
   isRejection: (routing: Record<string, unknown>) => "reason" in routing,
 }));
 
+let uploadCounter = 0;
+const uploadAttachmentMock = mock(() =>
+  Promise.resolve({ id: `att-${++uploadCounter}` }),
+);
+mock.module("../runtime/client.js", () => ({
+  uploadAttachment: uploadAttachmentMock,
+  AttachmentValidationError: class extends Error {},
+  CircuitBreakerOpenError: class extends Error {},
+  resetConversation: mock(() => Promise.resolve()),
+}));
+
+const attachmentConfig = {
+  maxAttachmentBytes: { email: 25 * 1024 * 1024, default: 100 * 1024 * 1024 },
+  maxAttachmentConcurrency: 3,
+} as unknown as GatewayConfig;
+
 const { runEmailInboundPipeline } =
   await import("../email/inbound-pipeline.js");
 
@@ -76,6 +92,11 @@ beforeEach(() => {
   resolveAssistantMock.mockImplementation(() => ({
     assistantId: "assistant-1",
   }));
+  uploadCounter = 0;
+  uploadAttachmentMock.mockClear();
+  uploadAttachmentMock.mockImplementation(() =>
+    Promise.resolve({ id: `att-${++uploadCounter}` }),
+  );
 });
 
 describe("runEmailInboundPipeline", () => {
@@ -236,6 +257,59 @@ describe("runEmailInboundPipeline", () => {
     const response = await runEmailInboundPipeline(pipelineOpts());
     expect(response.status).toBe(200);
     expect(recordDenialReplyIfAllowedMock).not.toHaveBeenCalled();
+  });
+
+  it("uploads inline attachments and forwards their ids", async () => {
+    const response = await runEmailInboundPipeline(
+      pipelineOpts({
+        config: attachmentConfig,
+        vellumPayload: {
+          ...payload,
+          attachments: [
+            {
+              filename: "receipt.pdf",
+              contentType: "application/pdf",
+              size: 5,
+              content: Buffer.from("hello").toString("base64"),
+            },
+          ],
+        },
+      }),
+    );
+    expect(response.status).toBe(200);
+    expect(uploadAttachmentMock).toHaveBeenCalledTimes(1);
+    const forwardOptions = (
+      handleInboundMock.mock.calls[0] as unknown[]
+    )[2] as { attachmentIds?: string[] };
+    expect(forwardOptions.attachmentIds).toEqual(["att-1"]);
+  });
+
+  it("returns 500 and unreserves the dedup key on transient upload failure", async () => {
+    uploadAttachmentMock.mockImplementation(() =>
+      Promise.reject(new Error("runtime 503")),
+    );
+    const dedupCache = new StringDedupCache(60_000);
+    dedupCache.reserve("key-1");
+    const response = await runEmailInboundPipeline(
+      pipelineOpts({
+        config: attachmentConfig,
+        dedupCache,
+        vellumPayload: {
+          ...payload,
+          attachments: [
+            {
+              filename: "receipt.pdf",
+              contentType: "application/pdf",
+              size: 5,
+              content: Buffer.from("hello").toString("base64"),
+            },
+          ],
+        },
+      }),
+    );
+    expect(response.status).toBe(500);
+    expect(handleInboundMock).not.toHaveBeenCalled();
+    expect(dedupCache.reserve("key-1")).toBe(true);
   });
 
   it("returns 500 and unreserves the dedup key on forwarding failure", async () => {

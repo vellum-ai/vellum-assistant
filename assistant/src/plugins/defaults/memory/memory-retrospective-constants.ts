@@ -70,3 +70,11 @@ export const SKILL_CARD_MESSAGE_KIND = "skill-authored-card";
  * the `"memory_retrospective"` member of `TitleOrigin`.
  */
 export const MEMORY_RETROSPECTIVE_ORIGIN = "memory_retrospective";
+
+/**
+ * Bundled skill that provides the retrospective's authoring tools
+ * (`find_similar_skills`, `scaffold_managed_skill`, and the `skill_load`
+ * target). Preactivated for the fork wake so those tools join the turn's active
+ * set from turn 1, and matched by the permission checker's origin-scoped grant.
+ */
+export const SKILL_MANAGEMENT_SKILL_ID = "skill-management";

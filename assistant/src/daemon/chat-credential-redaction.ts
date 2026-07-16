@@ -38,7 +38,10 @@
 
 import {
   buildRedactedSentinel,
+  createRedactedSentinelRegex,
+  decodeRedactedSentinelMatch,
   neutralizeRedactedSentinels,
+  REDACTED_SENTINEL_CLOSE,
   REDACTED_SENTINEL_OPEN,
   REDACTED_SENTINEL_TAG,
 } from "@vellumai/service-contracts/redacted-credential";
@@ -117,7 +120,9 @@ const UUID_RE =
  */
 function flagValue(segment: string, re: RegExp): string | undefined {
   const m = re.exec(segment);
-  if (!m) return undefined;
+  if (!m) {
+    return undefined;
+  }
   if (m[1] !== undefined) {
     return m[1].replace(/\\(["\\])/g, "$1");
   }
@@ -149,7 +154,9 @@ function splitShellSegments(command: string): string[] {
     const ch = command[i]!;
     if (quote === "'") {
       current += ch;
-      if (ch === "'") quote = undefined;
+      if (ch === "'") {
+        quote = undefined;
+      }
       i += 1;
       continue;
     }
@@ -160,7 +167,9 @@ function splitShellSegments(command: string): string[] {
         continue;
       }
       current += ch;
-      if (ch === '"') quote = undefined;
+      if (ch === '"') {
+        quote = undefined;
+      }
       i += 1;
       continue;
     }
@@ -231,7 +240,9 @@ function revealInvocationSlices(segment: string): string[] {
 export function collectRevealRefsFromCommand(
   command: string,
 ): RevealCandidateRef[] {
-  if (!command.includes("reveal")) return [];
+  if (!command.includes("reveal")) {
+    return [];
+  }
   const refs: RevealCandidateRef[] = [];
   // Split compound commands so flags from one invocation can't bleed into
   // another (`reveal --service a --field b && reveal --service c --field d`),
@@ -241,7 +252,9 @@ export function collectRevealRefsFromCommand(
   // `revealInvocationSlices`).
   const segments = splitShellSegments(command);
   for (const segment of segments) {
-    if (!REVEAL_INVOCATION_RE.test(segment)) continue;
+    if (!REVEAL_INVOCATION_RE.test(segment)) {
+      continue;
+    }
     for (const invocation of revealInvocationSlices(segment)) {
       const service = flagValue(invocation, SERVICE_FLAG_RE);
       const field = flagValue(invocation, FIELD_FLAG_RE);
@@ -282,7 +295,9 @@ export function resolveRefIdentities(
     }
     try {
       const meta = getCredentialMetadataById(ref.id);
-      if (!meta) return ref;
+      if (!meta) {
+        return ref;
+      }
       return { ...ref, service: meta.service, field: meta.field };
     } catch (err) {
       log.debug(
@@ -309,6 +324,7 @@ export function resolveRefIdentities(
 export function filterRefsByRevealProof(
   refs: readonly RevealCandidateRef[],
   watermark: number,
+  nonce: string,
 ): RevealCandidateRef[] {
   const proven: RevealCandidateRef[] = [];
   const seenValues = new Set<string>();
@@ -321,7 +337,9 @@ export function filterRefsByRevealProof(
     ) {
       try {
         const meta = getCredentialMetadataById(ref.id);
-        if (!meta) continue;
+        if (!meta) {
+          continue;
+        }
         service = meta.service;
         field = meta.field;
       } catch (err) {
@@ -329,7 +347,9 @@ export function filterRefsByRevealProof(
         continue;
       }
     }
-    if (service === undefined || field === undefined) continue;
+    if (service === undefined || field === undefined) {
+      continue;
+    }
     // Capture the plaintexts the route served alongside the proof, in the
     // same lookup. Resolving service/field here too means each returned ref
     // is fully self-describing, so candidate resolution needs neither the
@@ -338,9 +358,16 @@ export function filterRefsByRevealProof(
     // set` → reveal v2) prints two different plaintexts to stdout, and
     // keeping only one would let the other persist raw whenever the scanner
     // cannot classify it.
-    for (const provenValue of revealedValuesSince(watermark, service, field)) {
+    for (const provenValue of revealedValuesSince(
+      watermark,
+      service,
+      field,
+      nonce,
+    )) {
       const dedupeKey = JSON.stringify([service, field, provenValue]);
-      if (seenValues.has(dedupeKey)) continue;
+      if (seenValues.has(dedupeKey)) {
+        continue;
+      }
       seenValues.add(dedupeKey);
       proven.push({ service, field, provenValue });
     }
@@ -387,9 +414,13 @@ function appendCandidateEncodings(
   value: string,
 ): void {
   for (const encoded of [value, JSON.stringify(value).slice(1, -1)]) {
-    if (encoded.length < MIN_CANDIDATE_VALUE_LENGTH) continue;
+    if (encoded.length < MIN_CANDIDATE_VALUE_LENGTH) {
+      continue;
+    }
     const dedupeKey = JSON.stringify([service, field, encoded]);
-    if (seen.has(dedupeKey)) continue;
+    if (seen.has(dedupeKey)) {
+      continue;
+    }
     seen.add(dedupeKey);
     candidates.push({ service, field, value: encoded });
   }
@@ -408,7 +439,9 @@ export function resolveProvenRevealCandidates(
   const seen = new Set<string>();
   const candidates: ResolvedRevealCandidate[] = [];
   for (const ref of refs) {
-    if (ref.service === undefined || ref.field === undefined) continue;
+    if (ref.service === undefined || ref.field === undefined) {
+      continue;
+    }
     if (ref.provenValue === undefined || ref.provenValue.length === 0) {
       continue;
     }
@@ -452,7 +485,9 @@ export async function resolveRevealCandidates(
     ) {
       try {
         const meta = getCredentialMetadataById(ref.id);
-        if (!meta) continue;
+        if (!meta) {
+          continue;
+        }
         service = meta.service;
         field = meta.field;
       } catch (err) {
@@ -460,7 +495,9 @@ export async function resolveRevealCandidates(
         continue;
       }
     }
-    if (service === undefined || field === undefined) continue;
+    if (service === undefined || field === undefined) {
+      continue;
+    }
     // Prefer the plaintext the reveal route actually served (captured at proof
     // time). Re-reading the vault here would return a rotated or deleted
     // value, so the guard/fallback could miss the exact bytes the tool
@@ -471,7 +508,9 @@ export async function resolveRevealCandidates(
       continue;
     }
     const key = credentialKey(service, field);
-    if (vaultReadKeys.has(key)) continue;
+    if (vaultReadKeys.has(key)) {
+      continue;
+    }
     vaultReadKeys.add(key);
     try {
       const value = await getSecureKeyAsync(key);
@@ -488,6 +527,142 @@ export async function resolveRevealCandidates(
     }
   }
   return candidates;
+}
+
+// ---------------------------------------------------------------------------
+// Daemon-minted sentinels and re-mint authority
+// ---------------------------------------------------------------------------
+
+/**
+ * A sentinel identity the guard may restore to its canonical daemon-minted
+ * form. Sources: route-recorded `--for-chat` mints (validated against the
+ * conversation's reveal nonce and staged identities by the agent loop
+ * before they reach the guard) and candidates proven by this
+ * conversation's own plain reveals (nonce-bound at the proof registry).
+ */
+export interface SentinelRemintAuthority {
+  service: string;
+  field: string;
+  /** The canonical sentinel to restore for this identity. */
+  sentinel: string;
+}
+
+/**
+ * The canonical daemon-minted sentinel for a credential. Used by the
+ * `--for-chat` reveal channel (the route returns this instead of the
+ * plaintext) and by candidate-derived re-mint authorities, so every path
+ * that mints for the same identity produces the same bytes. The type label
+ * comes from the same anchored scanner classification persist-time
+ * enrichment uses ({@link classifyCandidateType}).
+ */
+export function buildForChatSentinel(candidate: {
+  service: string;
+  field: string;
+  value: string;
+}): string {
+  return buildRedactedSentinel({
+    type: classifyCandidateType(candidate.value),
+    service: candidate.service,
+    field: candidate.field,
+  });
+}
+
+/**
+ * Re-mint authorities derived from this turn's PROVEN reveal candidates.
+ *
+ * A model that legitimately revealed a credential this turn holds its
+ * plaintext and could echo it verbatim — which the guards would swap into
+ * a genuine enriched sentinel. When it instead retypes the sentinel it saw
+ * in its (redacted) history, byte-equality can't prove anything, but the
+ * identity can: a sentinel-shaped span claiming a `service:field` that was
+ * proven this turn grants nothing a plaintext echo wouldn't. Re-minting it
+ * (from the candidate's own metadata — never from the span's claimed
+ * label) turns the confusing neutralized-glyph outcome into the same chip
+ * the echo would have produced. Unproven identities still neutralize.
+ *
+ * Deduped by identity: encoding-variant candidates share a service:field
+ * and must not produce duplicate authorities. Conversation scoping is
+ * inherent — candidates live in per-run state that only this
+ * conversation's own proven reveals populate.
+ */
+export function remintAuthoritiesFromCandidates(
+  candidates: readonly ResolvedRevealCandidate[],
+): SentinelRemintAuthority[] {
+  const byIdentity = new Map<string, SentinelRemintAuthority>();
+  for (const candidate of candidates) {
+    const key = credentialKey(candidate.service, candidate.field);
+    if (byIdentity.has(key)) {
+      continue;
+    }
+    byIdentity.set(key, {
+      service: candidate.service,
+      field: candidate.field,
+      sentinel: buildForChatSentinel(candidate),
+    });
+  }
+  return [...byIdentity.values()];
+}
+
+/**
+ * Sentinel guard for text that may legitimately contain daemon-minted
+ * sentinels. The forgery-guard spine assumes raw model output never
+ * carries a genuine sentinel — with two sanctioned, turn-scoped
+ * exceptions, both keyed by identity rather than trust in the span's own
+ * bytes:
+ *
+ * 1. `--for-chat` reveals: the daemon returned the sentinel as the reveal
+ *    tool's result precisely so the model can copy it into its reply
+ *    without ever touching the plaintext. Authority is the mint the
+ *    reveal ROUTE recorded this turn ({@link ForChatMint}) — the route is
+ *    the sole authority; a string parse of the requested command is not,
+ *    because a segment that merely quotes a reveal invocation never
+ *    executed one.
+ * 2. Proven plain-reveal candidates
+ *    ({@link remintAuthoritiesFromCandidates}): the model provably held
+ *    the plaintext this turn, so a span claiming that identity grants
+ *    nothing a verbatim echo wouldn't.
+ *
+ * An enriched span whose decoded `service:field` identity matches an
+ * authority is RE-MINTED — replaced with the daemon's own canonical
+ * sentinel, so a tampered type label can't survive. Everything else —
+ * plain shapes, unknown identities, malformed escapes, partial triggers —
+ * flows through `transformRest` (neutralization by default; the persist
+ * path passes its neutralize+scan pipeline so a secret embedded inside a
+ * forged sentinel is still caught). Re-minted spans are inserted verbatim
+ * and never fed to `transformRest`: a minted sentinel is not
+ * scanner-inert — its service/field segments are arbitrary user strings
+ * that can look secret-shaped, and a scanner rewrite inside a fresh
+ * sentinel would corrupt it. With no authorities this is byte-identical
+ * to `transformRest(text)`.
+ */
+export function guardForChatSentinels(
+  text: string,
+  mints: readonly SentinelRemintAuthority[],
+  transformRest: (segment: string) => string = neutralizeRedactedSentinels,
+): string {
+  if (mints.length === 0) {
+    return transformRest(text);
+  }
+  const re = createRedactedSentinelRegex();
+  let out = "";
+  let last = 0;
+  for (const m of text.matchAll(re)) {
+    const decoded = decodeRedactedSentinelMatch(m as RegExpExecArray);
+    const hit =
+      decoded.service !== undefined && decoded.field !== undefined
+        ? mints.find(
+            (c) => c.service === decoded.service && c.field === decoded.field,
+          )
+        : undefined;
+    // Between-match text can still hold partial/malformed triggers —
+    // transform it segment-wise. Splits are at full-sentinel boundaries,
+    // so no trigger ever spans a segment edge.
+    out += transformRest(text.slice(last, m.index));
+    out += hit ? hit.sentinel : transformRest(m[0]);
+    last = m.index + m[0].length;
+  }
+  out += transformRest(text.slice(last));
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -694,13 +869,14 @@ export function swapLiveRevealValues(
 export function neutralizeAndSwapLiveRevealValues(
   text: string,
   entries: readonly LiveRevealGuardEntry[],
+  forChatMints: readonly SentinelRemintAuthority[] = [],
 ): string {
   const ordered = [...entries].sort((a, b) => b.value.length - a.value.length);
   return replaceRawSpans(
     text,
     ordered.map((entry) => entry.value),
     (priority) => ordered[priority].replacement,
-    neutralizeRedactedSentinels,
+    (segment) => guardForChatSentinels(segment, forChatMints),
   );
 }
 
@@ -775,8 +951,11 @@ function stableEmitLen(buffer: string, targets: readonly string[]): number {
  * (mirrors `drainDirectiveDisplayBuffer`'s hold-back pattern). Two jobs:
  *
  * 1. **Forgery neutralization** — genuine sentinels are created by the
- *    daemon, never in raw model output, so any sentinel-shaped string the
- *    model streams is forged; neutralizing all of them is lossless.
+ *    daemon, so a sentinel-shaped string the model streams neutralizes
+ *    unless a re-mint authority for its identity exists this turn
+ *    (`--for-chat` mints and proven reveal candidates — see
+ *    `guardForChatSentinels`), in which case it is restored to the
+ *    daemon's canonical mint.
  * 2. **Live reveal swap** — a complete occurrence of a reveal candidate's
  *    plaintext is replaced with its enriched sentinel (`entries`), so the
  *    secret never flashes in the live stream: the client renders the chip
@@ -799,9 +978,19 @@ function stableEmitLen(buffer: string, targets: readonly string[]): number {
  * raw bytes, whereas a mirrored already-swapped sentinel would be
  * indistinguishable from a forgery and get neutralized.
  */
+/**
+ * Upper bound on how much tail the guard will hold back waiting for an
+ * in-flight daemon-minted sentinel to close. A genuine sentinel is far
+ * shorter (type + encoded service/field); a trigger that runs this long
+ * without closing is forged garbage and is released (neutralized) rather
+ * than buffered forever.
+ */
+const UNCLOSED_SENTINEL_HOLD_CAP = 512;
+
 export function drainSentinelGuardedText(
   buffer: string,
   entries: readonly LiveRevealGuardEntry[] = [],
+  forChatMints: readonly SentinelRemintAuthority[] = [],
 ): {
   emitText: string;
   consumedRaw: string;
@@ -815,10 +1004,49 @@ export function drainSentinelGuardedText(
     SENTINEL_TRIGGER,
     ...entries.map((entry) => entry.value),
   ].sort((a, b) => b.length - a.length);
-  const emitLen = stableEmitLen(buffer, targets);
+  let emitLen = stableEmitLen(buffer, targets);
+  // With re-mint authorities in play, a COMPLETE trigger in the emit
+  // region may be the head of a genuine daemon-minted sentinel still
+  // streaming in. The plain guard neutralizes complete triggers eagerly
+  // (any live sentinel is forged by definition); here that would mangle
+  // the sanctioned case — so hold from the first trigger whose sentinel
+  // has not fully landed inside the emit region (bounded by the cap
+  // above), letting `guardForChatSentinels` decide re-mint vs neutralize
+  // on the whole span once it closes. Triggers consumed inside a
+  // candidate-value span are skipped: the span swaps wholesale and its
+  // bytes never reach the gap transform.
+  if (forChatMints.length > 0) {
+    const spans = resolveRawSpans(buffer, targets);
+    let searchFrom = 0;
+    for (;;) {
+      const t = buffer.indexOf(SENTINEL_TRIGGER, searchFrom);
+      if (t === -1) {
+        break;
+      }
+      const host = spans.find((s) => s.start <= t && t < s.end);
+      if (host !== undefined && targets[host.priority] !== SENTINEL_TRIGGER) {
+        searchFrom = t + SENTINEL_TRIGGER.length;
+        continue;
+      }
+      const close = buffer.indexOf(REDACTED_SENTINEL_CLOSE, t);
+      const sentinelEnd = close === -1 ? -1 : close + 1;
+      if (close !== -1 && sentinelEnd <= emitLen) {
+        searchFrom = sentinelEnd;
+        continue;
+      }
+      if (buffer.length - t <= UNCLOSED_SENTINEL_HOLD_CAP) {
+        emitLen = Math.min(emitLen, t);
+      }
+      break;
+    }
+  }
   const consumedRaw = buffer.slice(0, emitLen);
   return {
-    emitText: neutralizeAndSwapLiveRevealValues(consumedRaw, entries),
+    emitText: neutralizeAndSwapLiveRevealValues(
+      consumedRaw,
+      entries,
+      forChatMints,
+    ),
     consumedRaw,
     bufferedRemainder: buffer.slice(emitLen),
   };
@@ -875,6 +1103,7 @@ export function drainCandidateGuardedChunk(
 export function redactSecretsForChat(
   text: string,
   candidates: readonly ResolvedRevealCandidate[],
+  forChatMints: readonly SentinelRemintAuthority[] = [],
 ): string {
   // Candidate spans resolve FIRST, on the raw bytes; forgery
   // neutralization and the scanner then run ONLY over the text between
@@ -894,8 +1123,13 @@ export function redactSecretsForChat(
   // Within each gap the scanner still redacts secrets the reveal registry
   // never proved (defense in depth against any secret the model emitted
   // that the vault did not serve), with the precise type label for values
-  // it classifies inline.
-  const redactGap = (segment: string): string =>
+  // it classifies inline. Sentinel-shaped spans in the gaps neutralize —
+  // except identities a re-mint authority vouches for this turn, which are
+  // restored to the daemon's canonical mint and kept out of the scanner's
+  // reach (see `guardForChatSentinels`); everything around them still runs
+  // the full neutralize+scan pipeline, so a secret embedded inside a
+  // forged sentinel cannot ride through unredacted.
+  const neutralizeAndScan = (segment: string): string =>
     redactSecretsWith(
       neutralizeRedactedSentinels(segment),
       (match, rawValue) => {
@@ -907,6 +1141,8 @@ export function redactSecretsForChat(
         );
       },
     );
+  const redactGap = (segment: string): string =>
+    guardForChatSentinels(segment, forChatMints, neutralizeAndScan);
   return protectCandidateSpans(text, candidates, redactGap);
 }
 
@@ -1022,7 +1258,9 @@ function containedInLongerScannerMatch(
 function classifyCandidateType(value: string): string {
   let best: { type: string; endIndex: number } | undefined;
   for (const m of scanText(value)) {
-    if (m.startIndex !== 0) continue;
+    if (m.startIndex !== 0) {
+      continue;
+    }
     if (best === undefined || m.endIndex > best.endIndex) {
       best = { type: m.type, endIndex: m.endIndex };
     }
