@@ -1500,10 +1500,10 @@ export class Conversation {
    * Mutate the server-authoritative `processing` flag. Web/Capacitor/CLI
    * caches treat this flag as the source of truth for the avatar streaming
    * ring and thinking indicator, so the `true → false` clear must announce
-   * itself: the daemon flips it in the agent-loop `finally` (after an awaited
-   * turn-boundary commit), which is later than the user-visible terminal SSE
-   * events, and a racing metadata refetch can otherwise re-read the
-   * not-yet-cleared `true` and clobber the client's optimistic `false`.
+   * itself: the daemon flips it in the agent-loop `finally`, which runs after
+   * the user-visible terminal SSE events, and a racing metadata refetch can
+   * otherwise re-read the not-yet-cleared `true` and clobber the client's
+   * optimistic `false`.
    *
    * Emitting a metadata invalidation on the clear lets every client GET the
    * authoritative `false`, per the multi-client-sync contract in AGENTS.md
