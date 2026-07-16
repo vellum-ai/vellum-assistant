@@ -16,6 +16,7 @@ describe("LiveVoiceVadConfigSchema", () => {
       bargeInMinSpeechMs: 250,
       echoBargeInMargin: 1.5,
       echoEmaHalfLifeMs: 400,
+      echoDrainSlackMs: 300,
     });
   });
 
@@ -94,6 +95,7 @@ describe("LiveVoiceConfigSchema", () => {
         bargeInMinSpeechMs: 250,
         echoBargeInMargin: 1.5,
         echoEmaHalfLifeMs: 400,
+        echoDrainSlackMs: 300,
       },
       maxSessionDurationSeconds: 1800,
       // Off by default: voice turns carry only their transcript, no audio

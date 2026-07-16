@@ -55,7 +55,15 @@ export const LiveVoiceVadConfigSchema = z
       .positive("liveVoice.vad.echoEmaHalfLifeMs must be a positive integer")
       .default(400)
       .describe(
-        "Half-life (ms) of the echo-level EMA; smaller adapts faster to TTS loudness changes, larger is steadier against speech transients. Also sets the gate's onset warm-up: the first half-life/2 of playback audio learns at a quarter-half-life attack rate and defers barge-in trips until warm. Keep half-life/2 below bargeInMinSpeechMs (true at the defaults: 200 vs 250) so genuine onset barge-ins are never deferred.",
+        "Half-life (ms) of the echo-level EMA; smaller adapts faster to TTS loudness changes, larger is steadier against speech transients. Also sets the gate's onset warm-up: the first half-life/2 of each playback burst's audio learns at a quarter-half-life attack rate with speech classification suppressed (presumed echo), so barge-in during a burst's first half-life/2 requires speaking past the warm-up.",
+      ),
+    echoDrainSlackMs: z
+      .number({ error: "liveVoice.vad.echoDrainSlackMs must be a number" })
+      .int("liveVoice.vad.echoDrainSlackMs must be an integer")
+      .nonnegative("liveVoice.vad.echoDrainSlackMs must be nonnegative")
+      .default(300)
+      .describe(
+        "Slack (ms) past the client playback-drain estimate during which assistant echo is still expected at the mic (one-way transport latency + client jitter buffer). The echo gate's window — and its barge-in protections — extend this far beyond the last sent audio chunk's estimated drain.",
       ),
   })
   .describe(

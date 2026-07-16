@@ -254,6 +254,10 @@ function createMultiCycleHarness(startVoiceTurn: LiveVoiceTurnStarter) {
   const session = createLiveVoiceSession(context, {
     // Credential-free harness: every leg is injected, so skip the preflight.
     resolveCredentialReadiness: null,
+    // Echo-gate window pinned shut: these cycle-mechanics tests drive
+    // discrete chunks with no continuous mic flow, so the drain slack would
+    // otherwise hold a cold window open across utterances.
+    echoDrainSlackMs: 0,
     resolveTranscriber,
     startVoiceTurn,
     streamTtsAudio,
@@ -289,6 +293,10 @@ describe("LiveVoiceSession integration smoke harness", () => {
     });
     const { context, frames } = createContext();
     const session = createLiveVoiceSession(context, {
+      // Echo-gate window pinned shut: these cycle-mechanics tests drive
+      // discrete chunks with no continuous mic flow, so the drain slack
+      // would otherwise hold a cold window open across utterances.
+      echoDrainSlackMs: 0,
       resolveCredentialReadiness: null,
       resolveTranscriber: mock(async () => transcriber),
       startVoiceTurn,
@@ -473,6 +481,10 @@ describe("LiveVoiceSession integration smoke harness", () => {
       () => frames.filter((frame) => frame.type === "tts_done").length === 1,
     );
 
+    // Let the drained echo window (tiny tts chunk + zero slack) close on the
+    // wall clock so the next utterance is judged out-of-window at the base
+    // threshold rather than suppressed as presumed onset echo.
+    await new Promise((resolve) => setTimeout(resolve, 10));
     await session.handleBinaryAudio(secondUtteranceAudio);
     await session.handleClientFrame({ type: "ptt_release" });
     await waitFor(
@@ -545,6 +557,10 @@ describe("LiveVoiceSession integration smoke harness", () => {
     const { context, frames } = createContext(VAD_START_FRAME);
     let turnCount = 0;
     const session = createLiveVoiceSession(context, {
+      // Echo-gate window pinned shut: these cycle-mechanics tests drive
+      // discrete chunks with no continuous mic flow, so the drain slack
+      // would otherwise hold a cold window open across utterances.
+      echoDrainSlackMs: 0,
       resolveCredentialReadiness: null,
       resolveTranscriber,
       startVoiceTurn,
@@ -566,6 +582,10 @@ describe("LiveVoiceSession integration smoke harness", () => {
       () => frames.filter((frame) => frame.type === "tts_done").length === 1,
     );
 
+    // Let the drained echo window (tiny tts chunk + zero slack) close on the
+    // wall clock so the next utterance is judged out-of-window at the base
+    // threshold rather than suppressed as presumed onset echo.
+    await new Promise((resolve) => setTimeout(resolve, 10));
     await session.handleBinaryAudio(secondUtteranceAudio);
     await session.handleClientFrame({ type: "ptt_release" });
     await waitFor(
@@ -639,6 +659,10 @@ describe("LiveVoiceSession integration smoke harness", () => {
     );
     expect(abort).toHaveBeenCalledTimes(1);
 
+    // Let the drained echo window (tiny tts chunk + zero slack) close on the
+    // wall clock so the next utterance is judged out-of-window at the base
+    // threshold rather than suppressed as presumed onset echo.
+    await new Promise((resolve) => setTimeout(resolve, 10));
     await session.handleBinaryAudio(secondUtteranceAudio);
     await session.handleClientFrame({ type: "ptt_release" });
     await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
