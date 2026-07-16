@@ -57,6 +57,7 @@ import {
 import { OAuthConnectSurface } from "@/domains/chat/components/surfaces/oauth-connect-surface";
 import { handleSurfaceAction } from "@/domains/chat/surface-actions";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
+import { useSupportsNoninteractiveVoiceTurns } from "@/lib/backwards-compat/use-supports-noninteractive-voice-turns";
 import { AVATAR_ACCENT_CSS_VAR } from "@/hooks/use-avatar-accent-var";
 import { useVoicePrefsStore } from "@/stores/voice-prefs-store";
 import { toneForBg } from "@/utils/avatar-tone";
@@ -166,10 +167,12 @@ function VoiceRoomOverlay() {
   const showAssistantTranscript =
     useVoicePrefsStore.use.showAssistantTranscript();
 
-  // A live `oauth_connect` card the assistant raised this turn. The transcript's
-  // copy is buried behind this modal, so the room renders its own reachable
-  // instance; completing it resumes the turn as a spoken reply (JARVIS-1287).
-  const connectSurface = useActiveConnectSurface();
+  // Backwards-compat fallback for assistants that can still raise
+  // `oauth_connect` mid-call — see use-supports-noninteractive-voice-turns.ts
+  // (the canonical writeup); delete with the gate.
+  const voiceTurnsAreNoninteractive =
+    useSupportsNoninteractiveVoiceTurns(assistantId);
+  const connectSurface = useActiveConnectSurface(!voiceTurnsAreNoninteractive);
 
   // Resolve the assistant's look: color-with-eyes for character avatars, the
   // ambient void otherwise. The accent var is still published for the
@@ -289,12 +292,9 @@ function VoiceRoomOverlay() {
           avatar and stays absent by default. */}
       <VoiceAmbientTranscript />
 
-      {/* Reachable OAuth connect card. The room takes over the whole app, so the
-          transcript's copy of this surface is invisible/unclickable underneath —
-          render our own, anchored in the lower center above the session
-          controls, with pointer events re-enabled just for the card. Completing
-          it submits the same surface action the transcript would, which the
-          daemon resumes as a spoken turn (JARVIS-1287). */}
+      {/* Backwards-compat fallback card for assistants that can still raise
+          `oauth_connect` mid-call — see use-supports-noninteractive-voice-turns.ts;
+          delete this slot with the gate. */}
       <AnimatePresence>
         {connectSurface ? (
           <motion.div

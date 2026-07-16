@@ -67,7 +67,9 @@ class ProviderCommitMessageGenerator {
   private isBreakerOpen(): boolean {
     const config = getConfig();
     const { openAfterFailures } = config.workspaceGit.commitMessageLLM.breaker;
-    if (this.consecutiveFailures < openAfterFailures) return false;
+    if (this.consecutiveFailures < openAfterFailures) {
+      return false;
+    }
     return Date.now() < this.nextAllowedAttemptMs;
   }
 
@@ -122,7 +124,7 @@ class ProviderCommitMessageGenerator {
 
     // Step 2: Resolve configured provider via the commit-message call site,
     // so model + maxTokens + temperature come from `llm.callSites.commitMessage`
-    // (with `llm.default` as the fallback). Operational fields (`enabled`,
+    // (with the shipped call-site default as the fallback). Operational fields (`enabled`,
     // `timeoutMs`, `breaker`, `maxFilesInPrompt`, `maxDiffBytes`,
     // `minRemainingTurnBudgetMs`) remain on `workspaceGit.commitMessageLLM`
     // and are read above. If nothing is resolvable, differentiate likely
@@ -241,8 +243,8 @@ class ProviderCommitMessageGenerator {
           signal: ac.signal,
           config: {
             // `callSite` lets the provider resolve model, max_tokens, and
-            // temperature from `llm.callSites.commitMessage` (with
-            // `llm.default` as the fallback). Operational fields
+            // temperature from `llm.callSites.commitMessage` (with the
+            // shipped call-site default as the fallback). Operational fields
             // (`enabled`, `timeoutMs`, `breaker`, `maxFilesInPrompt`,
             // `maxDiffBytes`, `minRemainingTurnBudgetMs`) remain on
             // `workspaceGit.commitMessageLLM` and are read above.

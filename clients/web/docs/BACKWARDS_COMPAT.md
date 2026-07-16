@@ -34,7 +34,7 @@ informing us of live clients in use so we can delete old cold paths incrementall
 | Module                                                 | Role                                                                                                                                                                                |
 | ------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `src/lib/backwards-compat/`                            | The centralized registry. One file per gated feature, each declaring its own `MIN_VERSION`. `grep` this path to find everything that can eventually be deleted.                     |
-| `src/lib/backwards-compat/utils.ts`                    | The shared gate primitives: `useAssistantSupports`, `assistantSupports`, `whenAssistantVersionKnown`. Every gate uses these so semver parsing and pre-release handling are uniform. |
+| `src/lib/backwards-compat/utils.ts`                    | The shared gate primitives: `useAssistantSupports`, `useAssistantScopedSupports`, `assistantSupports`, `whenAssistantVersionKnown`. Every gate uses these so semver parsing and pre-release handling are uniform. |
 | `src/utils/semver.ts`                                  | Low-level `parseSemver` / `compareParsed` / `comparePreRelease`. No app knowledge — just version-string math.                                                                       |
 | `src/stores/assistant-identity-store.ts`               | Zustand store holding the active assistant's `{ name, version }`. The source of truth every gate reads.                                                                             |
 | `src/assistant/identity.ts`                            | Fetches identity from the assistant's `/identity` endpoint and refreshes it on the SSE `identity_changed` event.                                                                    |
@@ -42,7 +42,7 @@ informing us of live clients in use so we can delete old cold paths incrementall
 
 ## How a gate is detected
 
-`utils.ts` exposes three variants, all reading the active assistant
+`utils.ts` exposes four variants, all reading the active assistant
 version off the identity store. Pick by call site:
 
 - **`useAssistantSupports(minVersion): boolean`** — the hook. Subscribes
@@ -52,6 +52,14 @@ version off the identity store. Pick by call site:
 - **`assistantSupports(minVersion): boolean`** — the snapshot. Reads
   `getState().version` once. Safe outside React: event handlers, async
   ops, request builders.
+- **`useAssistantScopedSupports(minVersion, ownerAssistantId): boolean`** —
+  the assistant-scoped hook. Like `useAssistantSupports`, but additionally
+  requires the identity store's version to have been fetched for
+  `ownerAssistantId` (the assistant owning the gated surface — a
+  transcript, a live voice session), read as a single atomic snapshot.
+  Conservative `false` on any mismatch or unknown. Use when the gated
+  feature belongs to a specific assistant rather than "whichever assistant
+  is active."
 - **`whenAssistantVersionKnown(timeoutMs?): Promise<void>`** — resolves
   once the version is non-null (or after a 5 s timeout). Used by write
   paths before reading a snapshot gate; see [Read vs. write
@@ -152,6 +160,7 @@ Each module owns one feature's old/new split. Current registry:
 | `default-provider-settings.ts`      | `0.10.8`                          | No default-provider marker UI in the Providers modal; status query never fires                           | "Default" tag + "Set as default" via `GET/PUT /v1/config/llm/default-provider`             |
 | `complete-profile-snapshots.ts`     | `0.10.8`                          | Blank profile fields live-inherit (deep merge); no snapshot copy in the editor                            | Blanks are baked at save time; editor shows the snapshot helper line                        |
 | `use-supports-redacted-credential-chips.ts` | `0.10.10`                 | Sentinel-shaped transcript text renders as plain text (daemon neither mints nor neutralizes sentinels)   | Assistant-message sentinels upgrade to redacted-credential reveal chips                     |
+| `use-supports-noninteractive-voice-turns.ts` | `0.11.0`                 | Voice turns can raise `oauth_connect` surfaces mid-call; the voice room renders its own reachable connect card | Voice turns force `supportsDynamicUi: false` (no mid-call surfaces); the room card stays hidden |
 
 When you delete a row here, also delete its module, its test, and the now-dead
 legacy branch at the call site.

@@ -22,20 +22,14 @@
  *   - No callSite → straight to default (no resolution work).
  */
 
-import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { setOverridesForTesting } from "../../__tests__/feature-flag-test-helpers.js";
 import { setConfig } from "../../__tests__/helpers/set-config.js";
-
 // Connection-routing plumbing over legacy-shaped fixtures (llm.default /
 // activeProfile-centric, no defaultProvider): pinned to the flag-off
 // cascade. Flag-on dispatch behavior is covered by
 // inference-no-mode-boot-e2e.test.ts and the override-or-default resolver
 // suite.
-beforeAll(() => {
-  setOverridesForTesting({ "override-or-default-resolution": false });
-});
-
 import type { Provider, ProviderResponse } from "../types.js";
 
 // ---------------------------------------------------------------------------
@@ -191,11 +185,11 @@ describe("CallSiteRoutingProvider honors provider_connection (satellite gate)", 
     );
 
     setLlmConfig({
-      default: { provider: "anthropic", model: "claude-opus-4-7" },
       profiles: {
         "managed-profile": {
           provider: "anthropic",
           provider_connection: "anthropic-managed",
+          model: "claude-opus-4-7",
         },
       },
       callSites: {
@@ -234,10 +228,10 @@ describe("CallSiteRoutingProvider honors provider_connection (satellite gate)", 
     const defaultProvider = makeFakeProvider("default-anthropic", "anthropic");
 
     setLlmConfig({
-      default: { provider: "anthropic", model: "claude-opus-4-7" },
       profiles: {
         "anthropic-bare": {
           provider: "anthropic",
+          model: "claude-opus-4-7",
           // no provider_connection — but provider matches default's name
         },
       },
@@ -270,10 +264,10 @@ describe("CallSiteRoutingProvider honors provider_connection (satellite gate)", 
     const defaultProvider = makeFakeProvider("default-anthropic", "anthropic");
 
     setLlmConfig({
-      default: { provider: "anthropic", model: "claude-opus-4-7" },
       profiles: {
         "openai-profile": {
           provider: "openai",
+          model: "gpt-5.4",
           // No provider_connection — alternate-provider routing demands
           // one; this profile is expected to throw
           // `ConnectionResolutionError(missing_connection)`.
@@ -313,11 +307,11 @@ describe("CallSiteRoutingProvider honors provider_connection (satellite gate)", 
     const defaultProvider = makeFakeProvider("default-anthropic", "anthropic");
 
     setLlmConfig({
-      default: { provider: "anthropic", model: "claude-opus-4-7" },
       profiles: {
         broken: {
           provider: "anthropic",
           provider_connection: "does-not-exist",
+          model: "claude-opus-4-7",
         },
       },
       callSites: {
@@ -369,13 +363,13 @@ describe("CallSiteRoutingProvider honors provider_connection (satellite gate)", 
     );
 
     setLlmConfig({
-      default: { provider: "anthropic", model: "claude-opus-4-7" },
       profiles: {
         mismatched: {
           provider: "openai",
           // ↑ profile says openai
           provider_connection: "anthropic-managed",
           // ↑ but connection is anthropic — mismatch
+          model: "gpt-5.4",
         },
       },
       callSites: {
@@ -431,11 +425,11 @@ describe("CallSiteRoutingProvider honors provider_connection (satellite gate)", 
     connectionsThatThrowOnResolve.add("flaky-managed");
 
     setLlmConfig({
-      default: { provider: "anthropic", model: "claude-opus-4-7" },
       profiles: {
         flaky: {
           provider: "anthropic",
           provider_connection: "flaky-managed",
+          model: "claude-opus-4-7",
         },
       },
       callSites: {
@@ -469,9 +463,7 @@ describe("CallSiteRoutingProvider honors provider_connection (satellite gate)", 
     // Note: legacy registry has nothing — if the wrapper tries to consult
     // it, the test will throw. Bare-default path proves the short-circuit.
 
-    setLlmConfig({
-      default: { provider: "anthropic", model: "claude-opus-4-7" },
-    });
+    setLlmConfig({});
 
     const wrapped = wrapWithCallSiteRouting(
       defaultProvider,

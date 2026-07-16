@@ -106,7 +106,9 @@ async function parseCustomProviderFields(
           throw new BadRequestError(`Invalid base_url: must be an http(s) URL`);
         }
       } catch (err) {
-        if (err instanceof BadRequestError) throw err;
+        if (err instanceof BadRequestError) {
+          throw err;
+        }
         throw new BadRequestError(
           `Invalid base_url: must be a valid http(s) URL`,
         );
@@ -198,10 +200,14 @@ function handleListConnections({ queryParams = {} }: RouteHandlerArgs) {
 
 function handleGetConnection({ pathParams = {} }: RouteHandlerArgs) {
   const { name } = pathParams;
-  if (!name) throw new BadRequestError("name is required");
+  if (!name) {
+    throw new BadRequestError("name is required");
+  }
 
   const conn = getConnection(getDb(), name);
-  if (!conn) throw new NotFoundError(`Connection "${name}" not found.`);
+  if (!conn) {
+    throw new NotFoundError(`Connection "${name}" not found.`);
+  }
 
   return conn;
 }
@@ -265,12 +271,12 @@ async function handleCreateConnection({ body = {} }: RouteHandlerArgs) {
     }
     if (result.error.code === "base_url_required") {
       throw new BadRequestError(
-        "base_url is required for openai-compatible connections.",
+        "base_url is required for openai-compatible providers.",
       );
     }
     if (result.error.code === "models_required") {
       throw new BadRequestError(
-        "At least one model is required for openai-compatible connections.",
+        "At least one model is required for openai-compatible providers.",
       );
     }
     throw new BadRequestError("Invalid auth configuration.");
@@ -284,10 +290,14 @@ async function handleUpdateConnection({
   body = {},
 }: RouteHandlerArgs) {
   const { name } = pathParams;
-  if (!name) throw new BadRequestError("name is required");
+  if (!name) {
+    throw new BadRequestError("name is required");
+  }
 
   const existing = getConnection(getDb(), name);
-  if (!existing) throw new NotFoundError(`Connection "${name}" not found.`);
+  if (!existing) {
+    throw new NotFoundError(`Connection "${name}" not found.`);
+  }
 
   // `auth` is optional: an explicit object wins; a bare `credential` rotates
   // the key by re-deriving from the provider; omitting both leaves the stored
@@ -353,12 +363,12 @@ async function handleUpdateConnection({
     }
     if (result.error.code === "base_url_required") {
       throw new BadRequestError(
-        "base_url is required for openai-compatible connections.",
+        "base_url is required for openai-compatible providers.",
       );
     }
     if (result.error.code === "models_required") {
       throw new BadRequestError(
-        "At least one model is required for openai-compatible connections.",
+        "At least one model is required for openai-compatible providers.",
       );
     }
     throw new BadRequestError("Invalid auth configuration.");
@@ -369,9 +379,11 @@ async function handleUpdateConnection({
 
 function handleDeleteConnection({ pathParams = {} }: RouteHandlerArgs) {
   const { name } = pathParams;
-  if (!name) throw new BadRequestError("name is required");
+  if (!name) {
+    throw new BadRequestError("name is required");
+  }
 
-  // Existence check first so a stale `llm.default.provider_connection`
+  // Existence check first so a stale profile `provider_connection`
   // reference to a missing connection returns 404 (not 409).
   const existing = getConnection(getDb(), name);
   if (!existing) {
@@ -390,17 +402,6 @@ function handleDeleteConnection({ pathParams = {} }: RouteHandlerArgs) {
   }
 
   const config = getConfigReadOnly();
-
-  // llm.default carries provider_connection (LLMConfigBase).
-  if (
-    (config.llm?.default as Record<string, unknown> | undefined)
-      ?.provider_connection === name
-  ) {
-    throw new ConflictError(
-      `Connection "${name}" is referenced by llm.default. Update llm.default.provider_connection before deleting.`,
-      { referencedBy: ["llm.default"] },
-    );
-  }
 
   // llm.defaultProvider: guards both the resolved connection name (explicit
   // `connectionName` or the `<provider>-personal` convention) and the case
