@@ -21,11 +21,13 @@ import { loadRawConfig, saveRawConfig } from "../../config/loader.js";
 import type { DrizzleDb } from "../../persistence/db-connection.js";
 import { credentialKey } from "../../security/credential-key.js";
 import { getLogger } from "../../util/logger.js";
+import { isConnectionCompatibleWithModel } from "../connection-model-compat.js";
 import { MANAGED_ROUTABLE_PROVIDERS } from "../vellum-model-routing.js";
 import { PROVIDERS_REQUIRING_BASE_URL_AND_MODELS } from "./auth.js";
 import {
   createConnection,
   getConnection,
+  listConnections,
   seedCanonicalConnections,
   VELLUM_MANAGED_CONNECTION_NAME,
 } from "./connections.js";
@@ -183,7 +185,24 @@ function ensureProviderConnection(
 
   let connectionName: string;
 
-  if (globalMode === "managed" && MANAGED_ROUTABLE_PROVIDERS.has(provider)) {
+  // An existing connection for the entry's provider always wins over the
+  // mode-derived default. Only user-brought connections can match — the
+  // canonical `vellum` row carries the `vellum` sentinel provider, never a
+  // concrete upstream. Without this, the managed branch would silently
+  // switch a connection-less BYOK-intent profile onto the billed managed
+  // connection, and the your-own branch would create a parallel `-personal`
+  // row (pointing at an empty credential slot) when a custom-named
+  // connection already exists.
+  const entryModel = typeof entry.model === "string" ? entry.model : undefined;
+  const existingForProvider = listConnections(db, { provider }).find((c) =>
+    isConnectionCompatibleWithModel(c, entryModel),
+  );
+  if (existingForProvider) {
+    connectionName = existingForProvider.name;
+  } else if (
+    globalMode === "managed" &&
+    MANAGED_ROUTABLE_PROVIDERS.has(provider)
+  ) {
     // All managed-routable providers share the single provider-agnostic
     // `vellum` connection; the upstream is recovered per-request from the
     // profile's `provider` field.
