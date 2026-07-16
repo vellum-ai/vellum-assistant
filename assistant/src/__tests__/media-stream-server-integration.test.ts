@@ -906,7 +906,7 @@ describe("media-stream output egress", () => {
     expect(markMessages.length).toBeGreaterThan(0);
 
     const markParsed = JSON.parse(markMessages[0]);
-    expect(markParsed.mark.name).toBe("end-of-turn");
+    expect(markParsed.mark.name).toBe("end-of-turn:1");
   });
 
   test("empty sendTextToken (end-of-turn signal) sends only a mark, no media", async () => {
