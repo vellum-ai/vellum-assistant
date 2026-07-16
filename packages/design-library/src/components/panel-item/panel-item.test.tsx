@@ -38,8 +38,8 @@ describe("PanelItem trailing action", () => {
     expect(html).toContain("has-[[aria-expanded=true]]:opacity-100");
   });
 
-  test("stays visible on coarse-pointer (touch) devices, which have no hover to reveal it", () => {
-    expect(renderRow()).toContain("pointer-coarse:opacity-100");
+  test("does not force-show on touch devices (long-press + swipe are the touch path)", () => {
+    expect(renderRow()).not.toContain("pointer-coarse:opacity-100");
   });
 
   test("stays visible on the active row", () => {
