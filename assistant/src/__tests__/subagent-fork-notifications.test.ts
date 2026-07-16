@@ -51,6 +51,7 @@ interface FakeManagedSubagent {
       outputTokens: number;
       estimatedCost: number;
     };
+    subagentDeniedToolNames: Set<string>;
   } | null;
   state: SubagentState;
   parentSendToClient: (msg: ServerMessage) => void;
@@ -80,6 +81,7 @@ function injectFakeSubagent(
     messages: [],
     sendToClient: () => {},
     usageStats: { inputTokens: 100, outputTokens: 50, estimatedCost: 0.005 },
+    subagentDeniedToolNames: new Set<string>(),
   };
 
   const internals = asInternals(manager);
