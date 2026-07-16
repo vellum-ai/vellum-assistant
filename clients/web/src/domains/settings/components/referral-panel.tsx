@@ -4,7 +4,6 @@ import { type ReactNode, useCallback, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 
 import { referralCodesMeRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen";
-import { openUrl } from "@/runtime/browser";
 import { Button } from "@vellumai/design-library/components/button";
 import { Card } from "@vellumai/design-library/components/card";
 import { Notice } from "@vellumai/design-library/components/notice";
@@ -21,35 +20,31 @@ interface StatChipProps {
   icon: ReactNode;
   value: ReactNode;
   label: string;
-  trailing?: ReactNode;
 }
 
-function StatChip({ icon, value, label, trailing }: StatChipProps) {
+function StatChip({ icon, value, label }: StatChipProps) {
   return (
-    <div className="flex h-8 min-w-0 flex-1 items-center justify-between gap-1.5 rounded-lg bg-[var(--surface-base)] px-2 py-1.5">
-      <div className="flex min-w-0 items-center gap-1.5">
-        <span
-          aria-hidden="true"
-          className="flex h-3.5 w-3.5 shrink-0 items-center justify-center text-[var(--content-default)]"
-        >
-          {icon}
-        </span>
-        <Typography
-          variant="body-medium-default"
-          as="span"
-          className="text-[var(--content-default)]"
-        >
-          {value}
-        </Typography>
-        <Typography
-          variant="body-small-default"
-          as="span"
-          className="text-[var(--content-tertiary)]"
-        >
-          {label}
-        </Typography>
-      </div>
-      {trailing}
+    <div className="flex h-8 min-w-0 flex-1 items-center gap-1.5 rounded-lg bg-[var(--surface-base)] px-2 py-1.5">
+      <span
+        aria-hidden="true"
+        className="flex h-3.5 w-3.5 shrink-0 items-center justify-center text-[var(--content-default)]"
+      >
+        {icon}
+      </span>
+      <Typography
+        variant="body-medium-default"
+        as="span"
+        className="text-[var(--content-default)]"
+      >
+        {value}
+      </Typography>
+      <Typography
+        variant="body-small-default"
+        as="span"
+        className="text-[var(--content-tertiary)]"
+      >
+        {label}
+      </Typography>
     </div>
   );
 }
@@ -131,16 +126,6 @@ export function ReferralPanel() {
               icon={<Users className="h-3.5 w-3.5" />}
               value={data.referred_count}
               label="Friends Referred"
-              trailing={
-                <button
-                  type="button"
-                  onClick={() => openUrl(data.referral_url)}
-                  data-testid="referral-view-button"
-                  className="shrink-0 cursor-pointer text-body-medium-default text-[var(--content-default)] hover:underline"
-                >
-                  View Referrals
-                </button>
-              }
             />
             <Button
               variant="outlined"

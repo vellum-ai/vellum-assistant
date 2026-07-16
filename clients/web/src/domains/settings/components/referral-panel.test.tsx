@@ -55,11 +55,9 @@ describe("ReferralPanel credit eligibility", () => {
     const html = renderPanel(false);
     expect(html).toContain(NOTICE_COPY);
     expect(html).toContain("Invite friends to Vellum.");
-    // Stat chips and both actions still render.
+    // Stat chips and the copy action still render.
     expect(html).toContain("Credits Earned");
     expect(html).toContain("Friends Referred");
-    expect(html).toContain("referral-view-button");
-    expect(html).toContain("View Referrals");
     expect(html).toContain("referral-copy-button");
   });
 
@@ -69,8 +67,6 @@ describe("ReferralPanel credit eligibility", () => {
     expect(html).not.toContain("Invite friends to Vellum.");
     expect(html).toContain("Share Vellum with friends");
     expect(html).toContain("Credits Earned");
-    expect(html).toContain("referral-view-button");
-    expect(html).toContain("View Referrals");
     expect(html).toContain("referral-copy-button");
   });
 });
