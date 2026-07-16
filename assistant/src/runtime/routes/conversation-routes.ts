@@ -114,6 +114,7 @@ import {
   hasMessages,
   isConversationProcessing,
   isHiddenMessageMetadata,
+  isSystemCardMetadata,
   type MessageRow,
   recordConversationPersistedSeq,
   setConversationInferenceProfile,
@@ -872,11 +873,17 @@ export function handleListMessages({
     let acpNotification: { acpSessionId: string; agent?: string } | undefined;
     let backgroundEventNotification: boolean | undefined;
     let backgroundToolCompletion: ConversationMessage["backgroundToolCompletion"];
+    let systemCard: boolean | undefined;
     if (msg.metadata) {
       try {
         const meta = JSON.parse(msg.metadata);
         if (typeof meta.sentAt === "number") {
           sentAt = meta.sentAt;
+        }
+        // Daemon-authored status cards (compact/clean/summarize results)
+        // render as standalone system notices, not persona speech.
+        if (isSystemCardMetadata(meta)) {
+          systemCard = true;
         }
         // Every wake persists a `<background_event source="...">` trigger row
         // (see `persistWakeTriggerMessage`) that the LLM reads. Flag any such
@@ -949,6 +956,7 @@ export function handleListMessages({
       acpNotification,
       backgroundEventNotification,
       backgroundToolCompletion,
+      systemCard,
       slackMessage,
       clientMessageId: msg.clientMessageId ?? undefined,
     };

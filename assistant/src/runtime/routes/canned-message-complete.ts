@@ -3,6 +3,7 @@ import type { ServerMessage } from "../../daemon/message-protocol.js";
 import {
   addMessage,
   recordConversationPersistedSeq,
+  SYSTEM_CARD_MESSAGE_KIND,
 } from "../../persistence/conversation-crud.js";
 import type { Message } from "../../providers/types.js";
 import { broadcastMessage } from "../assistant-event-hub.js";
@@ -40,16 +41,16 @@ export function emitCannedMessageComplete(
 
 /**
  * Persist a canned assistant "card" — a pre-composed reply that bypasses the
- * agent loop (the /compact, /clean, and summarize-up-to result cards) — and
- * emit the turn-style events clients expect for it: the full text as a single
- * `assistant_text_delta`, `message_complete` with the persisted assistant id,
- * the persisted-seq anchor advance (so a stale /messages reseed cannot erase
- * the card), and the messages-changed sync invalidation.
+ * agent loop (the /compact, /clean, and summarize-up-to result cards). The
+ * row is stamped `messageKind: "system_card"` so transcripts render it as a
+ * standalone system notice instead of assistant-persona speech, and display
+ * merging never folds it into an adjacent assistant turn.
  *
- * Callers that interleave other broadcasts between the persist and the
- * delta (the canned greeting and unknown-slash-command paths defer their
- * broadcasts behind the HTTP response with a `user_message_echo` in
- * between) cannot use this helper without reordering their events.
+ * Cards are announced with `message_complete` (persisted assistant id), the
+ * persisted-seq anchor advance (so a stale /messages reseed cannot erase the
+ * card), and the messages-changed sync invalidation that drives the client
+ * refetch. No `assistant_text_delta` is emitted — a delta would stream the
+ * card into the tail assistant bubble as if the persona were speaking.
  */
 export async function persistCannedAssistantCard(opts: {
   conversation: { getMessages(): Message[] };
@@ -64,14 +65,9 @@ export async function persistCannedAssistantCard(opts: {
     conversationId,
     "assistant",
     JSON.stringify(assistantMsg.content),
-    { metadata },
+    { metadata: { ...metadata, messageKind: SYSTEM_CARD_MESSAGE_KIND } },
   );
   conversation.getMessages().push(assistantMsg);
-  broadcastMessage({
-    type: "assistant_text_delta",
-    text,
-    conversationId,
-  });
   emitCannedMessageComplete(
     broadcastMessage,
     conversationId,
