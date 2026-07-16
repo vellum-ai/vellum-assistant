@@ -77,7 +77,11 @@ async function handleInferenceSend({ body = {} }: RouteHandlerArgs) {
     },
     // Runtime-observed diagnostics. `resolved_endpoint` is the base URL the
     // provider's live HTTP client actually targeted for this request, so a
-    // caller can confirm routing from evidence instead of inferring it.
+    // caller can confirm routing from evidence instead of inferring it. The
+    // provider adapter is the shared cached instance other call sites reuse for
+    // the same connection/provider/model, so this reflects the endpoint those
+    // call sites resolve to for the requested profile — not a config re-read.
+    // A caller comparing against a different profile should not assume a match.
     // Omitted when the provider does not surface an endpoint.
     ...(response.resolvedEndpoint !== undefined
       ? { evidence: { resolved_endpoint: response.resolvedEndpoint } }
