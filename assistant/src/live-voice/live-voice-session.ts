@@ -27,6 +27,7 @@ import {
 } from "../calls/voice-triage-escalate.js";
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getConfig } from "../config/loader.js";
+import { findConversation } from "../daemon/conversation-registry.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
 import { ensureConversationExists } from "../persistence/conversation-crud.js";
 import {
@@ -41,6 +42,7 @@ import type {
   SttStreamServerErrorEvent,
   SttStreamServerEvent,
 } from "../stt/types.js";
+import { getSubagentManager } from "../subagent/index.js";
 import { extractSpeakableSegments } from "../tts/speakable-segments.js";
 import { getLogger } from "../util/logger.js";
 import type {
@@ -123,6 +125,18 @@ export type LiveVoiceTtsStreamer = (
   options: LiveVoiceTtsOptions,
 ) => Promise<LiveVoiceTtsResult>;
 
+// Runs an interrupted live-voice turn to completion on a background subagent
+// (true-duplex handoff, gated behind voice-duplex-handoff). The run is silent
+// (no parent notification) until the resurface flow lands, and aborts when
+// `signal` fires. Injected for testability; the factory wires the real
+// SubagentManager-backed implementation.
+export type LiveVoiceBackgroundContinuationSpawner = (args: {
+  parentConversationId: string;
+  objective: string;
+  label: string;
+  signal: AbortSignal;
+}) => Promise<void>;
+
 export interface LiveVoiceSessionArchiveAudioInput {
   messageId?: string | null;
   sessionId: string;
@@ -179,6 +193,12 @@ export interface LiveVoiceSessionOptions {
    * flush in persistent mode (test hook). Defaults to `FINALIZE_GRACE_MS`.
    */
   finalizeGraceMs?: number;
+  /**
+   * Spawns the background continuation for a barged-in turn when the
+   * `voice-duplex-handoff` flag is on. The factory wires the real
+   * SubagentManager-backed implementation; tests inject a stub.
+   */
+  spawnBackgroundContinuation?: LiveVoiceBackgroundContinuationSpawner;
 }
 
 type LiveVoiceUtterancePhase =
@@ -310,6 +330,20 @@ function buildInterruptionMergeNote(interruptedRequest: string): string {
   return `The user interrupted your previous, unfinished reply. Their earlier request was: "${interruptedRequest}". Treat their current message as a continuation of that request and address both together, or stay silent if they only want you to stop.`;
 }
 
+// Objective handed to the background subagent that continues a barged-in turn.
+// The subagent forks the live conversation, so it already sees the interrupted
+// turn's completed tool calls in history and resumes from there. The request
+// text is embedded so the continuation still knows what to finish even in the
+// pre-persist window where the interrupted user message has not yet landed in
+// the forked history.
+function buildDuplexContinuationObjective(interruptedRequest: string): string {
+  const base =
+    "You were in the middle of responding to the user's most recent request when they interrupted you. Finish that response now. Do not repeat any tool calls whose results are already present in the conversation.";
+  return interruptedRequest.length > 0
+    ? `${base} Their request was: "${interruptedRequest}".`
+    : base;
+}
+
 export class LiveVoiceSession implements LiveVoiceSessionContract {
   private readonly context: LiveVoiceSessionFactoryContext;
   private readonly resolveTranscriber: LiveVoiceStreamingTranscriberResolver;
@@ -317,6 +351,16 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   private readonly startVoiceTurn: LiveVoiceTurnStarter | null;
   private readonly streamTtsAudio: LiveVoiceTtsStreamer | null;
   private readonly archiveAudio: LiveVoiceSessionAudioArchiver | null;
+  private readonly spawnBackgroundContinuation: LiveVoiceBackgroundContinuationSpawner | null;
+  // Abort handles for background continuations started when a barge-in detached
+  // an interrupted turn (voice-duplex-handoff). Each controller is registered
+  // synchronously before its spawn, so interrupt()/close() abort a continuation
+  // even if a stop lands while it is still spawning.
+  private readonly detachControllers = new Set<AbortController>();
+  // Bumped whenever a stop (interrupt/close) fires. A barge-in captures this
+  // before its async teardown; if it has changed by the time the detach would
+  // spawn, a stop landed during the gap and the continuation is not started.
+  private detachStopGeneration = 0;
   private readonly emitMetrics: boolean;
   private readonly metrics: LiveVoiceMetricsCollector;
   private readonly createTurnId: () => string;
@@ -407,6 +451,8 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     this.startVoiceTurn = options.startVoiceTurn ?? null;
     this.streamTtsAudio = options.streamTtsAudio ?? null;
     this.archiveAudio = options.archiveAudio ?? null;
+    this.spawnBackgroundContinuation =
+      options.spawnBackgroundContinuation ?? null;
     this.emitMetrics = options.emitMetrics ?? false;
     this.createTurnId = options.createTurnId ?? randomUUID;
     this.conversationId =
@@ -539,6 +585,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     this.state = "closed";
     this.turnDetector?.dispose();
     this.stopSessionTranscriber();
+    this.abortDetachedRuns();
     await this.cancelAssistantTurn("session_closed");
     if (shouldEmitSessionEndMetrics) {
       await this.emitSessionEndMetrics();
@@ -1013,6 +1060,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       interruptedRequest.length > 0 ? interruptedRequest : null;
     turn.abortController.abort();
     this.metrics.markBargeIn(turn.turnId);
+    // Snapshot the stop generation before the async teardown: a stop that lands
+    // during it must cancel the pending detach (checked in detachInterruptedTurn).
+    const stopGeneration = this.detachStopGeneration;
     void (async () => {
       await this.finishMetricsTurn(
         turn.utterance,
@@ -1022,7 +1072,79 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       );
       await this.sendFrame({ type: "turn_cancelled", turnId: turn.turnId });
       await this.cancelAssistantTurn("barge_in");
+      // Teardown has settled, so the interrupted turn's partial is in history;
+      // keep its work alive on a background subagent (voice-duplex-handoff).
+      this.detachInterruptedTurn(turn, stopGeneration);
     })().catch(() => {});
+  }
+
+  // True-duplex handoff (voice-duplex-handoff): keep a barged-in turn's work
+  // alive by continuing it on a background subagent instead of discarding it.
+  // Called after the barge-in teardown settles so the interrupted turn's
+  // partial (including any completed tool calls) is already in the conversation
+  // the subagent forks from. Resurfacing the subagent's result is a follow-up;
+  // for now it runs silently and a later stop/interrupt aborts it.
+  private detachInterruptedTurn(
+    turn: ActiveAssistantTurn,
+    stopGeneration: number,
+  ): void {
+    const spawn = this.spawnBackgroundContinuation;
+    if (
+      !spawn ||
+      this.isClosed ||
+      // The model already finished generating (barge-in during TTS playback of a
+      // complete reply): there is nothing to continue, so a continuation would
+      // just re-do a finished answer.
+      turn.assistantCompleted ||
+      // A stop (interrupt/close) landed during the barge-in teardown: honor it
+      // and do not start the continuation.
+      this.detachStopGeneration !== stopGeneration ||
+      !isAssistantFeatureFlagEnabled("voice-duplex-handoff", getConfig())
+    ) {
+      return;
+    }
+    // Embed the interrupted request in the objective so the continuation knows
+    // what to finish even if the forked history predates the user message being
+    // persisted (barge-in can fire while the turn is still acquiring the lock).
+    const interruptedRequest = turn.utterance.finalTranscriptSegments
+      .join(" ")
+      .trim();
+    // Register the abort handle synchronously so a stop that lands while the
+    // continuation is still spawning still aborts it (abortDetachedRuns fires
+    // controller.abort(), which the spawn's signal wiring honors).
+    const controller = new AbortController();
+    this.detachControllers.add(controller);
+    void spawn({
+      parentConversationId: this.conversationId,
+      objective: buildDuplexContinuationObjective(interruptedRequest),
+      label: `voice-continue-${turn.turnId}`,
+      signal: controller.signal,
+    })
+      .catch((err) => {
+        // A stop/interrupt aborts via the signal; that rejection is expected.
+        if (!controller.signal.aborted) {
+          log.warn(
+            { err, turnId: turn.turnId },
+            "Voice duplex handoff continuation failed",
+          );
+        }
+      })
+      .finally(() => {
+        this.detachControllers.delete(controller);
+      });
+  }
+
+  // Abort every background continuation this session started and drop its
+  // handle. A client interrupt or session close is a hard stop for detached
+  // work; the continuation's own `.finally` removes it from the set too.
+  private abortDetachedRuns(): void {
+    // Bump the generation so a barge-in whose async teardown is still in flight
+    // (its detach not yet spawned) sees the stop and skips the continuation.
+    this.detachStopGeneration += 1;
+    for (const controller of this.detachControllers) {
+      controller.abort();
+    }
+    this.detachControllers.clear();
   }
 
   // VAD closed the utterance — the analog of ptt_release: emit
@@ -1461,6 +1583,8 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     // the next turn is now stale (the interrupted utterance may be discarded
     // without ever reaching finalizePendingUtterance).
     this.pendingInterruptedRequest = null;
+    // ...and it hard-stops any detached background continuations.
+    this.abortDetachedRuns();
     const utterance = this.currentUtterance;
     this.stopSessionTranscriber();
     if (utterance) {
@@ -2677,6 +2801,8 @@ export function createLiveVoiceSession(
       options.streamTtsAudio === undefined
         ? defaultStreamLiveVoiceTtsAudio
         : options.streamTtsAudio,
+    spawnBackgroundContinuation:
+      options.spawnBackgroundContinuation ?? defaultSpawnBackgroundContinuation,
     // Off by default (see the `liveVoice.archiveAudio` schema): voice turns
     // persist only their transcribed text, so the recorded audio never lands
     // as an attachment on the conversation messages. Enable via config for
@@ -2690,6 +2816,41 @@ export function createLiveVoiceSession(
         : options.archiveAudio,
     emitMetrics: options.emitMetrics ?? true,
   });
+}
+
+// Forks the live voice conversation into a background subagent that continues
+// the interrupted turn. The fork inherits the conversation's current messages
+// (which include the interrupted turn's completed tool calls after teardown),
+// so it resumes without repeating them. Uses spawnAndAwait (synchronous mode)
+// so the terminal parent-notification is skipped — the continuation stays
+// silent until the resurface flow lands, and this call ignores its result. The
+// `signal` aborts the child on a stop/interrupt.
+async function defaultSpawnBackgroundContinuation(args: {
+  parentConversationId: string;
+  objective: string;
+  label: string;
+  signal: AbortSignal;
+}): Promise<void> {
+  const parentConversation = findConversation(args.parentConversationId);
+  if (!parentConversation) {
+    throw new Error(
+      `Cannot detach interrupted voice turn: conversation ${args.parentConversationId} is not resident.`,
+    );
+  }
+  await getSubagentManager().spawnAndAwait(
+    {
+      parentConversationId: args.parentConversationId,
+      label: args.label,
+      objective: args.objective,
+      fork: true,
+      sendResultToUser: false,
+      parentMessages: [...parentConversation.messages],
+      parentSystemPrompt: parentConversation.getCurrentSystemPrompt(),
+    },
+    // No client-facing events: the continuation is silent until resurface.
+    () => {},
+    { signal: args.signal },
+  );
 }
 
 async function defaultResolveStreamingTranscriber(

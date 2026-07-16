@@ -1,10 +1,14 @@
-import { describe, expect, mock, test } from "bun:test";
+import { afterEach, describe, expect, mock, test } from "bun:test";
 
 import type { TurnDetectorConfig } from "../../calls/media-turn-detector.js";
 import type {
   VoiceTurnCallbacks,
   VoiceTurnOptions,
 } from "../../calls/voice-session-bridge.js";
+import {
+  clearCachedOverrides,
+  setCachedOverrides,
+} from "../../config/feature-flag-cache.js";
 import {
   getConfig,
   loadRawConfig,
@@ -17,6 +21,7 @@ import type {
 import type { LiveVoiceAudioArchiveResult } from "../live-voice-archive.js";
 import {
   createLiveVoiceSession,
+  type LiveVoiceBackgroundContinuationSpawner,
   LiveVoiceSession,
   type LiveVoiceSessionAudioArchiver,
   type LiveVoiceTtsStreamer,
@@ -131,6 +136,7 @@ function createHarness(options: {
   // preflight skipped) instead of the constructor, so the liveVoice.vad
   // config path is exercised: unset thresholds come from getConfig().
   viaFactory?: boolean;
+  spawnBackgroundContinuation?: LiveVoiceBackgroundContinuationSpawner;
 }) {
   const sequencer = createLiveVoiceServerFrameSequencer();
   const frames: LiveVoiceServerFrame[] = [];
@@ -179,6 +185,9 @@ function createHarness(options: {
       (options.viaFactory ? undefined : { silenceThresholdMs: 40 }),
     speechEnergyThreshold: options.speechEnergyThreshold,
     bargeInMinSpeechMs: options.bargeInMinSpeechMs,
+    ...(options.spawnBackgroundContinuation
+      ? { spawnBackgroundContinuation: options.spawnBackgroundContinuation }
+      : {}),
   };
   const session = options.viaFactory
     ? createLiveVoiceSession(context, {
@@ -270,6 +279,10 @@ async function flushAsyncCallbacks(): Promise<void> {
 }
 
 describe("LiveVoiceSession server VAD", () => {
+  // The voice-duplex-handoff flag is toggled via the override cache in a few
+  // tests below; reset it so it never leaks into the flag-off default cases.
+  afterEach(() => clearCachedOverrides());
+
   test("ready echoes turnDetection server_vad", async () => {
     const { frames, session } = createHarness({});
 
@@ -629,6 +642,219 @@ describe("LiveVoiceSession server VAD", () => {
     const laterTurn = startVoiceTurn.mock.calls.at(-1)?.[0];
     expect(laterTurn?.voiceControlPrompt).not.toContain("interrupted");
     expect(laterTurn?.voiceControlPrompt).not.toContain("first question");
+  });
+
+  test("voice-duplex-handoff on: a thinking barge-in spawns a background continuation", async () => {
+    setCachedOverrides({ "voice-duplex-handoff": true }, { fromGateway: true });
+    const spawnBackgroundContinuation = mock(
+      async (_args: {
+        parentConversationId: string;
+        objective: string;
+        label: string;
+        signal: AbortSignal;
+      }) => {},
+    );
+    const streamTtsAudio = mock(async (options: LiveVoiceTtsOptions) => {
+      options.onAudioChunk(makeTtsChunk("assistant audio"));
+      return makeTtsResult("assistant audio");
+    });
+    const { frames, session } = createHarness({
+      finals: ["first question", "second question"],
+      streamTtsAudio,
+      spawnBackgroundContinuation,
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => frames.some((frame) => frame.type === "thinking"));
+
+    // Barge in during thinking; the interrupted turn is continued in the
+    // background rather than discarded.
+    await session.handleBinaryAudio(SUSTAINED_LOUD_CHUNK);
+    await waitFor(() => spawnBackgroundContinuation.mock.calls.length === 1);
+
+    const spawnArgs = spawnBackgroundContinuation.mock.calls[0]?.[0];
+    expect(spawnArgs?.parentConversationId).toBe("conversation-123");
+    expect(spawnArgs?.label).toContain("live-turn-1");
+    // The objective carries the interrupted request so the continuation knows
+    // what to finish even before the user message is persisted into history.
+    expect(spawnArgs?.objective).toContain("first question");
+  });
+
+  test("voice-duplex-handoff on: a client interrupt aborts an in-flight continuation", async () => {
+    setCachedOverrides({ "voice-duplex-handoff": true }, { fromGateway: true });
+    // Hang the continuation so it is still in flight when the interrupt lands;
+    // resolve it when its signal aborts.
+    const spawnBackgroundContinuation = mock(
+      (args: {
+        parentConversationId: string;
+        objective: string;
+        label: string;
+        signal: AbortSignal;
+      }) =>
+        new Promise<void>((resolve) => {
+          args.signal.addEventListener("abort", () => resolve(), {
+            once: true,
+          });
+        }),
+    );
+    const streamTtsAudio = mock(async (options: LiveVoiceTtsOptions) => {
+      options.onAudioChunk(makeTtsChunk("assistant audio"));
+      return makeTtsResult("assistant audio");
+    });
+    const { frames, session } = createHarness({
+      finals: ["first question", "second question"],
+      streamTtsAudio,
+      spawnBackgroundContinuation,
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => frames.some((frame) => frame.type === "thinking"));
+    await session.handleBinaryAudio(SUSTAINED_LOUD_CHUNK);
+    await waitFor(() => spawnBackgroundContinuation.mock.calls.length === 1);
+
+    const signal = spawnBackgroundContinuation.mock.calls[0]?.[0]?.signal;
+    expect(signal?.aborted).toBe(false);
+
+    // A stop hard-ends the still-running continuation via its abort signal.
+    await session.handleClientFrame({ type: "interrupt" });
+    await flushAsyncCallbacks();
+    expect(signal?.aborted).toBe(true);
+  });
+
+  test("voice-duplex-handoff on: a client interrupt during barge-in cleanup skips the continuation", async () => {
+    setCachedOverrides({ "voice-duplex-handoff": true }, { fromGateway: true });
+    const spawnBackgroundContinuation = mock(
+      async (_args: {
+        parentConversationId: string;
+        objective: string;
+        label: string;
+        signal: AbortSignal;
+      }) => {},
+    );
+    const streamTtsAudio = mock(async (options: LiveVoiceTtsOptions) => {
+      options.onAudioChunk(makeTtsChunk("assistant audio"));
+      return makeTtsResult("assistant audio");
+    });
+    let releaseTurnCancelled: (() => void) | undefined;
+    const { frames, session } = createHarness({
+      finals: ["first question", "second question"],
+      streamTtsAudio,
+      spawnBackgroundContinuation,
+      // Hold the barge-in's turn_cancelled send so its teardown blocks before
+      // the detach would spawn.
+      holdSendFrame: (payload) => {
+        if (payload.type !== "turn_cancelled" || releaseTurnCancelled) {
+          return null;
+        }
+        return new Promise<void>((resolve) => {
+          releaseTurnCancelled = resolve;
+        });
+      },
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => frames.some((frame) => frame.type === "thinking"));
+
+    // Barge in; the teardown blocks on the held turn_cancelled, before the
+    // detach spawns.
+    await session.handleBinaryAudio(SUSTAINED_LOUD_CHUNK);
+    await waitFor(() => releaseTurnCancelled !== undefined);
+
+    // The stop lands during the cleanup gap. interrupt()'s abortDetachedRuns
+    // bumps the generation synchronously (even though interrupt then blocks on
+    // the same held frame's drain), so releasing the frame lets the barge-in
+    // teardown resume and see the stop.
+    const interruptDone = session.handleClientFrame({ type: "interrupt" });
+    releaseTurnCancelled?.();
+    await interruptDone;
+    await flushAsyncCallbacks();
+    expect(spawnBackgroundContinuation).not.toHaveBeenCalled();
+  });
+
+  test("voice-duplex-handoff off (default): a thinking barge-in spawns no continuation", async () => {
+    const spawnBackgroundContinuation = mock(
+      async (_args: {
+        parentConversationId: string;
+        objective: string;
+        label: string;
+        signal: AbortSignal;
+      }) => {},
+    );
+    const streamTtsAudio = mock(async (options: LiveVoiceTtsOptions) => {
+      options.onAudioChunk(makeTtsChunk("assistant audio"));
+      return makeTtsResult("assistant audio");
+    });
+    const { frames, session } = createHarness({
+      finals: ["first question", "second question"],
+      streamTtsAudio,
+      spawnBackgroundContinuation,
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => frames.some((frame) => frame.type === "thinking"));
+    await session.handleBinaryAudio(SUSTAINED_LOUD_CHUNK);
+    await waitFor(() =>
+      frames.some((frame) => frame.type === "turn_cancelled"),
+    );
+    await flushAsyncCallbacks();
+    expect(spawnBackgroundContinuation).not.toHaveBeenCalled();
+  });
+
+  test("voice-duplex-handoff on: no continuation when the model already completed", async () => {
+    setCachedOverrides({ "voice-duplex-handoff": true }, { fromGateway: true });
+    let callbacks: VoiceTurnCallbacks | undefined;
+    const spawnBackgroundContinuation = mock(
+      async (_args: {
+        parentConversationId: string;
+        objective: string;
+        label: string;
+        signal: AbortSignal;
+      }) => {},
+    );
+    const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
+      callbacks ??= options.callbacks;
+      return { turnId: "bridge-turn", abort: mock() };
+    });
+    let releaseTts: (() => void) | undefined;
+    const streamTtsAudio = mock(async (options: LiveVoiceTtsOptions) => {
+      options.onAudioChunk(makeTtsChunk("assistant audio"));
+      // Hang so tts_done never fires: the turn stays completed-but-not-finalized.
+      await new Promise<void>((resolve) => {
+        releaseTts = resolve;
+      });
+      return makeTtsResult("assistant audio");
+    });
+    const { frames, session } = createHarness({
+      finals: ["first question", "second question"],
+      startVoiceTurn,
+      streamTtsAudio,
+      spawnBackgroundContinuation,
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => callbacks !== undefined);
+
+    // The model finishes generating (assistantCompleted), but TTS is still
+    // playing, so the turn is not finalized.
+    callbacks?.assistant_text_delta?.(makeTextDelta("done"));
+    callbacks?.message_complete?.(makeMessageComplete());
+    await waitFor(() => frames.some((frame) => frame.type === "tts_audio"));
+
+    // Barge in over the playing, already-complete reply.
+    await session.handleBinaryAudio(SUSTAINED_LOUD_CHUNK);
+    await waitFor(() =>
+      frames.some((frame) => frame.type === "turn_cancelled"),
+    );
+    await flushAsyncCallbacks();
+
+    // Nothing to continue: no background subagent is spawned.
+    expect(spawnBackgroundContinuation).not.toHaveBeenCalled();
+    releaseTts?.();
   });
 
   test("a late assistant_text_delta after a thinking barge-in never reaches the client", async () => {
