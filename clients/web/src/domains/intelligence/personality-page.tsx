@@ -18,6 +18,12 @@ import { useNavigate } from "react-router";
 
 import { toast } from "@vellumai/design-library";
 
+import {
+  completeSliderValues,
+  fetchPersonalitySliders,
+  personalitySlidersQueryKey,
+  savePersonalitySliders,
+} from "@/assistant/personality-sliders";
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { routes } from "@/utils/routes";
@@ -29,12 +35,6 @@ import {
   PERSONALITY_AXES,
   PERSONALITY_AXIS_DEFAULT,
 } from "./identity-actions/personality-axes";
-import {
-  completeSliderValues,
-  fetchPersonalitySliders,
-  personalitySlidersQueryKey,
-  savePersonalitySliders,
-} from "./identity-actions/personality-sliders";
 import {
   assistantIdentityDetailsQueryKey,
   useAssistantIdentityDetails,
