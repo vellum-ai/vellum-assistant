@@ -10,12 +10,15 @@ import { z } from "zod";
 
 import { recordLifecycleEvent } from "../../persistence/lifecycle-events-store.js";
 import { recordTelemetryOutboxEvent } from "../../telemetry/telemetry-events-outbox.js";
-import { getWireSchemaForType } from "../../telemetry/telemetry-wire-validation.js";
-import type { TelemetryEvent } from "../../telemetry/types.js";
 import {
-  CLIENT_REPORTABLE_TELEMETRY_EVENT_NAMES,
-  isClientReportableTelemetryEventName,
+  getWireFieldsSchema,
+  getWireSchemaForType,
+} from "../../telemetry/telemetry-wire-validation.js";
+import type {
+  ClientReportableTelemetryEventName,
+  TelemetryEvent,
 } from "../../telemetry/types.js";
+import { CLIENT_REPORTABLE_TELEMETRY_EVENT_NAMES } from "../../telemetry/types.js";
 import { getUsageTelemetryReporter } from "../../telemetry/usage-telemetry-reporter.js";
 import { getLogger } from "../../util/logger.js";
 import { APP_VERSION } from "../../version.js";
@@ -27,32 +30,56 @@ const log = getLogger("telemetry-routes");
 
 const VALID_EVENT_NAMES = new Set(["app_open", "hatch"]);
 
+const ingestDaemonEventIdSchema = z
+  .string()
+  .min(1)
+  .max(128)
+  .optional()
+  .describe(
+    "Optional collapse key: rows sharing an id collapse downstream " +
+      "(e.g. a retried report). Defaults to a fresh per-row id.",
+  );
+
 /**
- * Request shape for `POST /v1/telemetry/ingest`. `fields` carries every wire
- * field EXCEPT the daemon-stamped base fields (`type`, `daemon_event_id`,
- * `recorded_at`, `assistant_version`); the handler assembles the full event and
- * validates it against the wire schema for `type`.
+ * One request variant per client-reportable type: `{ type, fields, daemon_event_id? }`
+ * where `fields` is the wire schema for that type minus the daemon-stamped base
+ * fields. Throws at module load if a client-reportable name has no wire schema
+ * (the allowlist and wire contract drifted).
  */
-const telemetryIngestRequestSchema = z.object({
-  type: z
-    .string()
-    .describe("Wire event type; must be a client-reportable telemetry event."),
-  fields: z
-    .record(z.string(), z.unknown())
-    .describe(
+function buildIngestVariant(name: ClientReportableTelemetryEventName) {
+  const fields = getWireFieldsSchema(name);
+  if (!fields) {
+    throw new Error(
+      `No wire schema for client-reportable telemetry type "${name}".`,
+    );
+  }
+  return z.object({
+    type: z.literal(name),
+    fields: fields.describe(
       "Wire event fields, excluding the daemon-stamped base fields " +
         "(type, daemon_event_id, recorded_at, assistant_version).",
     ),
-  daemon_event_id: z
-    .string()
-    .min(1)
-    .max(128)
-    .optional()
-    .describe(
-      "Optional collapse key: rows sharing an id collapse downstream " +
-        "(e.g. a retried report). Defaults to a fresh per-row id.",
-    ),
-});
+    daemon_event_id: ingestDaemonEventIdSchema,
+  });
+}
+
+/**
+ * Request shape for `POST /v1/telemetry/ingest`: a discriminated union over the
+ * client-reportable event types, each carrying that type's wire `fields`.
+ * Derived from the wire contract, so the generated SDK body is strongly typed
+ * and stays in sync as the allowlist and wire schemas evolve.
+ */
+const telemetryIngestRequestSchema = z.discriminatedUnion(
+  "type",
+  // `.map` widens to `ZodObject[]`, but `discriminatedUnion` wants a non-empty
+  // tuple. The allowlist is a non-empty const, and the RUNTIME schema (not this
+  // static type) is what codegen introspects, so the cast doesn't affect the
+  // emitted OpenAPI/SDK types.
+  CLIENT_REPORTABLE_TELEMETRY_EVENT_NAMES.map(buildIngestVariant) as [
+    ReturnType<typeof buildIngestVariant>,
+    ...ReturnType<typeof buildIngestVariant>[],
+  ],
+);
 
 /** Placeholder id satisfying the wire schema's `daemon_event_id` bound during
  * the up-front validation pass; the real id is stamped at record time. */
@@ -93,11 +120,13 @@ async function handleTelemetryFlush() {
  *
  * Three guarantees before a row lands:
  *   1. `type` must be on the {@link CLIENT_REPORTABLE_TELEMETRY_EVENT_NAMES}
- *      allowlist — a client can never inject a daemon-authoritative type
- *      (`turn`, `config_setting`, …) and corrupt the event stream.
- *   2. The assembled event (base fields stamped) must pass the platform wire
- *      schema for `type` — a malformed payload 400s here instead of being
- *      silently dropped at flush.
+ *      allowlist and `fields` must match the type's wire shape — both enforced
+ *      by the discriminated-union parse, so a client can never inject a
+ *      daemon-authoritative type (`turn`, `config_setting`, …) nor a malformed
+ *      payload.
+ *   2. The assembled event must additionally pass the full wire schema for the
+ *      byte-bound superRefines the request `fields` schema drops (oversize
+ *      claims/suggestions).
  *   3. Consent is enforced by {@link recordTelemetryOutboxEvent} (the
  *      `share_analytics` gate), same as every daemon-internal emitter.
  *
@@ -114,23 +143,19 @@ function handleTelemetryIngest({ body }: RouteHandlerArgs) {
   }
   const { type, fields, daemon_event_id: daemonEventId } = parsed.data;
 
-  if (!isClientReportableTelemetryEventName(type)) {
-    throw new BadRequestError(
-      `type must be one of: ${CLIENT_REPORTABLE_TELEMETRY_EVENT_NAMES.join(", ")}`,
+  // `type` is allowlisted (the parse matched a union variant), so a wire schema
+  // is guaranteed — its absence is an invariant breach, not a client error.
+  const wireSchema = getWireSchemaForType(type);
+  if (!wireSchema) {
+    throw new Error(
+      `No wire schema registered for client-reportable type "${type}".`,
     );
   }
 
-  // Every client-reportable type is in the wire contract, so a schema is
-  // guaranteed; guard rather than assert.
-  const wireSchema = getWireSchemaForType(type);
-  if (!wireSchema) {
-    throw new BadRequestError(`No wire schema registered for type "${type}".`);
-  }
-
-  // Validate the assembled event up front (with placeholder base values) so a
-  // malformed payload 400s regardless of consent — the record path below
-  // short-circuits on an opt-out before it would otherwise validate. The
-  // `.trim()`-transformed parse output is discarded: `fields` are recorded
+  // Re-validate the assembled event against the full wire schema for the
+  // byte-bound superRefines the request `fields` schema drops. Up front (with
+  // placeholder base values) so an oversize payload 400s regardless of consent.
+  // The `.trim()`-transformed parse output is discarded: `fields` are recorded
   // verbatim, matching pre-flush validation's non-mutating contract.
   const validation = wireSchema.safeParse({
     ...fields,
@@ -144,7 +169,9 @@ function handleTelemetryIngest({ body }: RouteHandlerArgs) {
   }
 
   const conversationId =
-    typeof fields.conversation_id === "string" ? fields.conversation_id : null;
+    "conversation_id" in fields && typeof fields.conversation_id === "string"
+      ? fields.conversation_id
+      : null;
 
   const event = recordTelemetryOutboxEvent(
     type,

@@ -735,12 +735,3 @@ export const CLIENT_REPORTABLE_TELEMETRY_EVENT_NAMES = [
 
 export type ClientReportableTelemetryEventName =
   (typeof CLIENT_REPORTABLE_TELEMETRY_EVENT_NAMES)[number];
-
-/** Whether an arbitrary string is a client-reportable telemetry event name. */
-export function isClientReportableTelemetryEventName(
-  name: string,
-): name is ClientReportableTelemetryEventName {
-  return (
-    CLIENT_REPORTABLE_TELEMETRY_EVENT_NAMES as readonly string[]
-  ).includes(name);
-}
