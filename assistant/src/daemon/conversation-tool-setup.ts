@@ -16,6 +16,7 @@ import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
 import { getBindingByConversation } from "../persistence/external-conversation-store.js";
 import { getAllDefaultPluginNames } from "../plugins/defaults/main.js";
+import { isActivationSession } from "../plugins/defaults/memory/activation-session-store.js";
 import { isPluginDisabled } from "../plugins/disabled-state.js";
 import type { Message, ToolDefinition } from "../providers/types.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
@@ -50,7 +51,10 @@ import {
   type ToolContext,
   type ToolExecutionResult,
 } from "../tools/types.js";
-import { projectUiToolsForChannel } from "../tools/ui-surface/channel-variants.js";
+import {
+  injectActivationMomentParam,
+  projectUiToolsForChannel,
+} from "../tools/ui-surface/channel-variants.js";
 import { loadWorkspaceTools } from "../tools/workspace-tools/loader.js";
 import {
   resolveUsageAttribution,
@@ -830,12 +834,19 @@ export function createResolveToolsCallback(
     const channelForUiTools = ctx.toolContextPin
       ? undefined
       : ctx.channelCapabilities?.channel;
-    const allBaseDefs = projectUiToolsForChannel(
+    let allBaseDefs = projectUiToolsForChannel(
       [...scopedCoreDefs, ...scopedWorkspaceDefs, ...scopedMcpDefs].filter(
         (d) => !excluded.has(d.name),
       ),
       channelForUiTools,
     );
+    // Activation-rail conversations carry the optional `activation_moment`
+    // telemetry param on ui_show. The marker is written before the first
+    // tool resolution (see `applyBootstrapTemplate` in system-prompt.ts), so
+    // the projected schema is stable for the conversation's lifetime.
+    if (isActivationSession(ctx.conversationId)) {
+      allBaseDefs = injectActivationMomentParam(allBaseDefs);
+    }
 
     const effectivePreactivated = [
       ...DEFAULT_PREACTIVATED_SKILL_IDS,
