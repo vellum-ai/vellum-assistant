@@ -48,6 +48,7 @@ import { installFeedbackIpc } from "./feedback";
 import { installGlobalShortcuts } from "./global-shortcuts";
 import { installHotkeyHelper } from "./hotkey-helper";
 import { installHotkeysIpc } from "./hotkeys";
+import { installImageContextMenu } from "./image-context-menu";
 import { installPopoutWindows } from "./popout-window";
 import { installQuickInput } from "./quick-input-window";
 import { installLocalMode, resolveCliInvocation } from "./local-mode";
@@ -486,6 +487,10 @@ app.on("web-contents-created", (_event, contents) => {
   // exceed the default 10-listener cap per WebContents, triggering a spurious
   // MaxListenersExceededWarning. Bump the limit to silence it.
   contents.setMaxListeners(20);
+
+  // Right-click on an image → native "Copy Image" menu. Wired here so every
+  // surface (main window, popouts, command palette, child popups) gets it.
+  installImageContextMenu(contents);
 
   // Mirror renderer console output (info and up) into the main log file.
   // The packaged app has no devtools, so without this the renderer's
