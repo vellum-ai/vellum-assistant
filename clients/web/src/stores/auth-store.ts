@@ -387,12 +387,18 @@ async function syncUserScopedState(nextUserId: string | null): Promise<void> {
       // a no-record response adopts nothing — its values are API defaults
       // (older shapes materialize `true` there), and adopting one would
       // clobber the device opt-out the backfill below is about to seed the
-      // server with. And null never overwrites a local explicit opt-out —
-      // its server write may still be in flight (or have failed), and
-      // clearing it would resume uploads the user declined.
+      // server with. And a stale server value never overwrites a PENDING
+      // local edit in either direction: null must not clear an explicit
+      // local opt-out whose write may be in flight, and a stale false must
+      // not clobber a pending opt-in (the gate's explicit-false rule would
+      // silently flip the user's just-made choice back off).
       if (
         resolved.hasServerRecord &&
-        (resolved.shareAnalytics !== null || localShareAnalytics !== false)
+        (resolved.shareAnalytics !== null || localShareAnalytics !== false) &&
+        !(
+          resolved.shareAnalytics === false &&
+          useOnboardingStore.getState().pendingAnalyticsOptIn
+        )
       ) {
         store.setShareAnalytics(resolved.shareAnalytics);
       }

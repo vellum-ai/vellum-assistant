@@ -249,6 +249,7 @@ const setConsentHydratedMock = mock((_value: boolean) => {});
 // asked); the backfill reads these to send an explicit device choice
 // alongside the accepted version.
 let mockStoreShareAnalytics: boolean | null = null;
+let mockStorePendingAnalyticsOptIn = false;
 let mockStoreShareDiagnostics: boolean | null = null;
 
 mock.module("@/domains/onboarding/onboarding-store", () => ({
@@ -265,6 +266,7 @@ mock.module("@/domains/onboarding/onboarding-store", () => ({
       setDiagnosticsConsentCurrent: setDiagnosticsConsentCurrentMock,
       setConsentHydrated: setConsentHydratedMock,
       shareAnalytics: mockStoreShareAnalytics,
+      pendingAnalyticsOptIn: mockStorePendingAnalyticsOptIn,
       shareDiagnostics: mockStoreShareDiagnostics,
     }),
   },
@@ -394,6 +396,7 @@ beforeEach(() => {
   setServerDiagnosticsEffectiveMock.mockClear();
   setConsentHydratedMock.mockClear();
   mockStoreShareAnalytics = null;
+  mockStorePendingAnalyticsOptIn = false;
   mockStoreShareDiagnostics = null;
   fetchConsentMock.mockClear();
   patchConsentMock.mockClear();
@@ -793,6 +796,34 @@ describe("auth store onboarding flag reconciliation", () => {
 
     expect(setPendingAnalyticsOptInMock).toHaveBeenCalledWith(false);
     expect(setServerAnalyticsEffectiveMock).toHaveBeenCalledWith(null);
+  });
+
+  test("a stale server false is not adopted while an opt-in is pending", async () => {
+    // Same-user sync racing the opt-in PATCH: the stale record still says
+    // explicit false. Adopting it would trip the gate's explicit-false rule
+    // and silently flip the just-made opt-in back off.
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    await useAuthStore.getState().initSession();
+    setShareAnalyticsMock.mockClear();
+
+    mockStorePendingAnalyticsOptIn = true;
+    resolveServerConsentMock.mockReturnValueOnce({
+      tos: true,
+      privacy: true,
+      shareAnalytics: false,
+      shareDiagnostics: null,
+      analyticsEffective: false,
+      diagnosticsEffective: true,
+      analyticsCurrent: true,
+      diagnosticsCurrent: true,
+      analyticsVersionCurrent: true,
+      diagnosticsVersionCurrent: false,
+      hasServerRecord: true,
+    });
+    await useAuthStore.getState().refreshSession();
+
+    expect(setShareAnalyticsMock).not.toHaveBeenCalledWith(false);
+    expect(setPendingAnalyticsOptInMock).not.toHaveBeenCalledWith(false);
   });
 
   test("a same-user resync does not reset the pending opt-in at sync start", async () => {

@@ -68,6 +68,12 @@ export interface OnboardingState {
    */
   serverAnalyticsEffective: boolean | null;
   /**
+   * PER-TAB by design (like `serverAnalyticsEffective` above): a verdict
+   * adopted in one tab reaches others on their own focus/backstop refresh.
+   * The bounded staleness is acceptable because the platform's ingest gate
+   * is the enforcement point — uploads from a stale tab under a server
+   * opt-out are dropped server-side; the client gate is an efficiency.
+   *
    * A local explicit analytics opt-in whose server write has not yet been
    * reflected by a sync. Lets the emit gate re-enable immediately on opt-in
    * without letting server-ADOPTED raw values bypass a divergent effective
