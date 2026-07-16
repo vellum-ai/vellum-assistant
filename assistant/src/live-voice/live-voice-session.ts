@@ -111,6 +111,16 @@ const DEFAULT_BARGE_IN_MIN_SPEECH_MS = 250;
 // schema defaults.
 const DEFAULT_ECHO_BARGE_IN_MARGIN = 1.5;
 const DEFAULT_ECHO_EMA_HALF_LIFE_MS = 400;
+// Bound (audio ms) on the echo-first assumption within a window: a burst's
+// echo reaches the mic within transport latency + jitter of the window
+// opening, so if nothing at or above the base threshold arrives within this
+// much in-window audio, the playback is effectively silent at the mic (good
+// AEC / low volume) and the gate goes inert at the base threshold — a user
+// barging over quiet playback must not be absorbed as presumed echo. The
+// same bound expires a learned reference after a sub-base run longer than
+// any real in-window echo gap, so an absorbed early barger recovers by
+// pausing and retrying.
+const ECHO_ONSET_ELIGIBILITY_MS = 300;
 // Slack (ms) past the client playback-drain estimate during which echo is
 // still expected at the mic: covers one-way transport latency + the client
 // jitter buffer, so the echo window outlives the send-time estimate by the
@@ -419,9 +429,20 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // EMA of observed mic-chunk energy while assistant audio is playing (the
   // echo reference); 0 outside the echo window.
   private echoEnergyEma = 0;
-  // Audio time (ms) processed since the echo window opened — drives the
-  // gate's warm-up (see effectiveSpeechThreshold); 0 outside the echo window.
+  // Signal-bearing audio time (ms) processed since the echo window opened —
+  // drives the gate's warm-up (see effectiveSpeechThreshold); 0 outside the
+  // echo window.
   private echoWindowAudioMs = 0;
+  // Total in-window audio time (ms), signal-bearing or not — bounds the
+  // echo-first eligibility (see ECHO_ONSET_ELIGIBILITY_MS).
+  private echoWindowTotalAudioMs = 0;
+  // Consecutive sub-base in-window audio (ms) — expires the learned
+  // reference (see ECHO_ONSET_ELIGIBILITY_MS).
+  private echoSubBaseRunMs = 0;
+  // Sticky once true for the window's remainder: the echo-first assumption
+  // lapsed (no signal within the eligibility bound, or the reference
+  // expired), so no further input may be absorbed as presumed echo.
+  private echoOnsetLapsed = false;
   // A guard whose speech run predates the echo window is the user talking
   // across the turn boundary (turn collision) — see effectiveSpeechThreshold.
   private echoWindowGuardCarryover = false;
@@ -898,17 +919,21 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     detector.onMediaChunk(hasSpeech);
     this.trackBargeInGuard(hasSpeech, chunk);
 
+    // Warm-up chunks are presumed assistant echo, not user audio: after
+    // feeding the detector's silence timing and the guard above, drop them
+    // entirely — they must not be pre-rolled as leading context NOR routed
+    // into a still-active utterance (a noise-blip silence-timer hangover
+    // spanning TTS onset), where they would stream transcribable assistant
+    // audio to STT and the archive.
+    if (this.echoGateChunkWarmingUp) {
+      return;
+    }
+
     // Idle mic: hold silent chunks in the bounded pre-roll instead of
     // collecting or streaming them; flushed on speech onset so the
     // transcriber still gets leading context ahead of the first syllable.
-    // Warm-up-suppressed chunks are presumed assistant echo, not leading
-    // user context: pre-rolling them would flush transcribable assistant
-    // audio into the next genuine utterance's STT and archive, so they are
-    // dropped instead.
     if (!hasSpeech && !detector.isActive) {
-      if (!this.echoGateChunkWarmingUp) {
-        this.pushVadPreRoll(chunk, false);
-      }
+      this.pushVadPreRoll(chunk, false);
       return;
     }
 
@@ -924,11 +949,8 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       }
       if (!this.canArmNextUtterance(utterance)) {
         // Speech in the release→turn-start window: hold it in the pre-roll
-        // ring so it flushes into the next utterance once it arms. Warm-up
-        // chunks are presumed echo and dropped, as above.
-        if (!this.echoGateChunkWarmingUp) {
-          this.pushVadPreRoll(chunk, hasSpeech);
-        }
+        // ring so it flushes into the next utterance once it arms.
+        this.pushVadPreRoll(chunk, hasSpeech);
         return;
       }
       // Sets currentUtterance synchronously; the transcriber resolves async
@@ -992,11 +1014,17 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // TTS pause closes the window and every speech burst re-opens it with a
   // fresh warm-up — the reference never goes stale against resumed echo. A
   // user starting to speak inside a warm-up is absorbed into the reference
-  // (echo-first assumption) and recovers by pausing and speaking again once
-  // the gate is warm. Warm-up is measured in SIGNAL-BEARING audio time
-  // (chunks at or above the base threshold): silence carries no echo-level
-  // information, so drain-gap or transport-lag silence neither decays the
-  // reference nor burns the warm-up before echo has arrived to be learned.
+  // (echo-first assumption) and recovers via the reference expiry below.
+  // Warm-up is measured in SIGNAL-BEARING audio time (chunks at or above
+  // the base threshold): silence carries no echo-level information, so
+  // drain-gap or transport-lag silence neither decays the reference nor
+  // burns the warm-up before echo has arrived to be learned. The echo-first
+  // assumption itself is BOUNDED (ECHO_ONSET_ELIGIBILITY_MS): if no signal
+  // reaches the mic within the window's first 300 ms of audio, the playback
+  // is silent at the mic (good AEC — the common case) and the gate goes
+  // inert at the base threshold; and a sub-base run longer than that bound
+  // expires the learned reference, so an absorbed early barger recovers by
+  // pausing and retrying.
   //
   // Known limitation (accepted): within one continuous burst, a slow
   // crescendo (~300 ms+ ramp from sub-threshold) or a dip that stays above
@@ -1023,6 +1051,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     if (!this.isAssistantAudioPlaying()) {
       this.echoEnergyEma = 0;
       this.echoWindowAudioMs = 0;
+      this.echoWindowTotalAudioMs = 0;
+      this.echoSubBaseRunMs = 0;
+      this.echoOnsetLapsed = false;
       this.echoWindowGuardCarryover = false;
       this.echoGateChunkWarmingUp = false;
       return baseThreshold;
@@ -1042,21 +1073,45 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       baseThreshold,
       this.echoBargeInMargin * this.echoEnergyEma,
     );
+    // The echo-first assumption is bounded: a burst's echo reaches the mic
+    // within transport latency + jitter of the window opening, so echo
+    // learning may only BEGIN while the window is younger than the
+    // eligibility bound (or once signal has already been learned). A window
+    // whose playback is silent at the mic (good AEC, low volume) passes the
+    // bound with a zero reference and the gate goes inert at the base
+    // threshold — a user barging over quiet playback is heard instantly.
+    if (
+      !this.echoOnsetLapsed &&
+      this.echoEnergyEma === 0 &&
+      this.echoWindowTotalAudioMs >= ECHO_ONSET_ELIGIBILITY_MS
+    ) {
+      // Nothing signal-bearing reached the mic in the window's first
+      // eligibility span: quiet playback. Sticky — later input (the user!)
+      // seeding the reference must not re-open the echo-first assumption.
+      this.echoOnsetLapsed = true;
+    }
     const warmingUp =
       !this.echoWindowGuardCarryover &&
+      !this.echoOnsetLapsed &&
       this.echoWindowAudioMs < this.echoEmaHalfLifeMs / 2;
     this.echoGateChunkWarmingUp = warmingUp;
+    const chunkMs = pcm16DurationMs(
+      chunk.byteLength,
+      this.context.startFrame.audio.sampleRate,
+    );
     // Sub-base chunks carry no echo-level information: in-window silence —
     // a drain gap shorter than the slack, or the transport lag before the
     // first echo of a burst reaches the mic — must neither decay the
     // reference toward the noise floor (resumed echo would then beat a
     // stale, lowered threshold) nor burn the warm-up clock before any echo
     // has arrived to be learned. Only signal-bearing chunks advance either.
+    // A sub-base run longer than the eligibility bound EXPIRES the learned
+    // reference: real in-window echo never pauses that long while audio
+    // drains, so whatever was learned (possibly an absorbed early barger's
+    // own voice) no longer describes the playback — and with eligibility
+    // spent, the gate goes inert rather than re-absorbing.
     if (meanAmplitude >= baseThreshold) {
-      const chunkMs = pcm16DurationMs(
-        chunk.byteLength,
-        this.context.startFrame.audio.sampleRate,
-      );
+      this.echoSubBaseRunMs = 0;
       if (this.pendingBargeIn === null || warmingUp) {
         // Attack fast during warm-up (quarter half-life) so the reference
         // overtakes steady onset echo inside the warm-up window; settle to
@@ -1070,7 +1125,15 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
           alpha * meanAmplitude + (1 - alpha) * this.echoEnergyEma;
       }
       this.echoWindowAudioMs += chunkMs;
+    } else {
+      this.echoSubBaseRunMs += chunkMs;
+      if (this.echoSubBaseRunMs >= ECHO_ONSET_ELIGIBILITY_MS) {
+        this.echoEnergyEma = 0;
+        this.echoWindowAudioMs = 0;
+        this.echoOnsetLapsed = true;
+      }
     }
+    this.echoWindowTotalAudioMs += chunkMs;
     return threshold;
   }
 

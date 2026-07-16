@@ -2498,10 +2498,12 @@ describe("LiveVoiceSession sustained-speech barge-in guard", () => {
       for (let index = 0; index < 10; index += 1) {
         await session.handleBinaryAudio(pcm(3_000));
       }
-      // A sub-slack drain gap: 300 ms of sub-base silence. Silence carries
-      // no echo-level information, so the reference must hold rather than
-      // decay toward the noise floor.
-      for (let index = 0; index < 30; index += 1) {
+      // A sub-slack drain gap: 200 ms of sub-base silence — under the
+      // 300 ms reference-expiry bound. Silence carries no echo-level
+      // information, so the reference must hold rather than decay toward
+      // the noise floor. (A longer sub-base run intentionally EXPIRES the
+      // reference instead — covered by the early-barger recovery test.)
+      for (let index = 0; index < 20; index += 1) {
         await session.handleBinaryAudio(pcm(200));
       }
       // Resumed echo at the same level sits under the HELD margin. Were the
@@ -2544,6 +2546,64 @@ describe("LiveVoiceSession sustained-speech barge-in guard", () => {
       expect(countType(frames, "speech_started")).toBe(baseline);
       expect(countType(frames, "turn_cancelled")).toBe(0);
       expect(abort).not.toHaveBeenCalled();
+    });
+
+    test("quiet playback (echo below base) leaves barge-in at full base-threshold sensitivity", async () => {
+      const { frames, session, abort, speakFirstReply } =
+        createSpeakingTurnHarness({
+          bargeInMinSpeechMs: 60,
+          echoEmaHalfLifeMs: 40,
+        });
+      await speakFirstReply();
+
+      // Effective client AEC: the playback never registers at the mic.
+      // Past the 300 ms eligibility bound the echo-first assumption lapses
+      // and the gate goes inert at the base threshold.
+      for (let index = 0; index < 31; index += 1) {
+        await session.handleBinaryAudio(pcm(200));
+      }
+      // The user barges in at ordinary loudness: heard immediately at the
+      // 800 floor and trips the 60 ms guard — no warm-up absorption.
+      for (let index = 0; index < 7; index += 1) {
+        await session.handleBinaryAudio(pcm(3_000));
+      }
+      await waitFor(() =>
+        frames.some((frame) => frame.type === "turn_cancelled"),
+      );
+      await waitFor(() => abort.mock.calls.length === 1);
+    });
+
+    test("an early barger absorbed as presumed echo recovers after a pause (reference expiry)", async () => {
+      const { frames, session, abort, speakFirstReply } =
+        createSpeakingTurnHarness({
+          bargeInMinSpeechMs: 60,
+          echoEmaHalfLifeMs: 40,
+        });
+      await speakFirstReply();
+
+      // The user starts talking within the eligibility bound of a
+      // quiet-playback window: echo-first absorbs their voice into the
+      // reference and their run dissolves under its own margin.
+      for (let index = 0; index < 10; index += 1) {
+        await session.handleBinaryAudio(pcm(3_000));
+      }
+      await flushAsyncCallbacks();
+      expect(countType(frames, "turn_cancelled")).toBe(0);
+
+      // They pause: a sub-base run past the 300 ms bound expires the
+      // absorbed reference (real echo never gaps that long while audio
+      // drains), with eligibility already spent.
+      for (let index = 0; index < 31; index += 1) {
+        await session.handleBinaryAudio(pcm(200));
+      }
+      // Their retry is judged at the base threshold and trips normally.
+      for (let index = 0; index < 7; index += 1) {
+        await session.handleBinaryAudio(pcm(3_000));
+      }
+      await waitFor(() =>
+        frames.some((frame) => frame.type === "turn_cancelled"),
+      );
+      await waitFor(() => abort.mock.calls.length === 1);
     });
 
     test("warm-up echo is dropped, not pre-rolled into the next utterance's STT audio", async () => {
