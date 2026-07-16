@@ -172,8 +172,8 @@ describe("PrivacyScreen — Back navigation", () => {
     nativePlatform = false;
     localMode = false;
     searchParamsValue = new URLSearchParams();
-    // window.location.assign drives the platform-mode Back (a full-document nav
-    // to the marketing landing page, which the SPA does not own).
+    // Guard against regressions: Back must stay inside the SPA and never reach
+    // for a full-document navigation to the marketing host.
     Object.defineProperty(window, "location", {
       value: { assign: assignMock },
       configurable: true,
@@ -196,13 +196,29 @@ describe("PrivacyScreen — Back navigation", () => {
     expect(assignMock).not.toHaveBeenCalled();
   });
 
-  test("platform mode: Back leaves onboarding for the marketing landing page", () => {
+  test("platform mode: Back lands on the in-SPA onboarding start screen", () => {
     localMode = false;
     render(<PrivacyScreen />);
 
     fireEvent.click(screen.getByText("Back"));
 
-    expect(assignMock).toHaveBeenCalledWith("/");
-    expect(navigateMock).not.toHaveBeenCalled();
+    expect(navigateMock).toHaveBeenCalledWith(routes.onboarding.start);
+    // Must not leave the SPA for the marketing host — that would switch a
+    // Capacitor staging/dev shell onto production.
+    expect(assignMock).not.toHaveBeenCalled();
+  });
+
+  test("native platform shell: Back stays in-SPA (no marketing-host escape)", () => {
+    // The environment-preservation case Codex flagged: on Capacitor
+    // staging/dev, isLocalMode() is false, so platform-mode Back applies. It
+    // must remain an in-SPA navigation, never a full-document nav to `/`.
+    localMode = false;
+    nativePlatform = true;
+    render(<PrivacyScreen />);
+
+    fireEvent.click(screen.getByText("Back"));
+
+    expect(navigateMock).toHaveBeenCalledWith(routes.onboarding.start);
+    expect(assignMock).not.toHaveBeenCalled();
   });
 });

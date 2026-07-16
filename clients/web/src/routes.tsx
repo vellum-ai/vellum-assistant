@@ -247,6 +247,10 @@ export const routeTree = [
               ],
             },
             {
+              path: "onboarding/start",
+              lazy: { Component: () => import("@/domains/onboarding/pages/start-screen").then((m) => m.StartScreen) },
+            },
+            {
               path: "onboarding/privacy",
               lazy: { Component: () => import("@/domains/onboarding/pages/privacy-screen").then((m) => m.PrivacyScreen) },
             },
