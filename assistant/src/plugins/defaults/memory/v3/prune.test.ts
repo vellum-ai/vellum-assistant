@@ -31,8 +31,8 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import type { Message } from "@vellumai/plugin-api";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
-import { migrateAddMemoryV3EverInjected } from "../../../../persistence/migrations/277-add-memory-v3-ever-injected.js";
 import { ensureMemoryV3SelectionsSchema } from "../../../../persistence/migrations/338-move-memory-v3-selections-to-memory-db.js";
+import { ensureMemoryV3EverInjectedSchema } from "../../../../persistence/migrations/345-move-memory-v3-ever-injected-to-memory-db.js";
 import * as schema from "../../../../persistence/schema/index.js";
 import { wrapMemoryBlock } from "../memory-marker.js";
 
@@ -56,7 +56,6 @@ let testDb = makeDb();
 function makeDb() {
   testSqlite = new Database(":memory:");
   const db = drizzle(testSqlite, { schema });
-  migrateAddMemoryV3EverInjected(db);
   // Minimal `messages` shape — `collectPersistedV3Cards` reads only
   // `conversation_id` and `metadata`.
   testSqlite.run(/*sql*/ `
@@ -71,6 +70,7 @@ function makeDb() {
   `);
   memorySqlite = new Database(":memory:");
   ensureMemoryV3SelectionsSchema(memorySqlite);
+  ensureMemoryV3EverInjectedSchema(memorySqlite);
   return db;
 }
 

@@ -18,6 +18,8 @@ export const CONVERSATION_KEYED_MEMORY_TABLES: readonly string[] = [
   "activation_sessions",
   "activation_state",
   "conversation_graph_memory_state",
+  "memory_v3_ever_injected",
+  "memory_retrospective_state",
 ];
 
 /**

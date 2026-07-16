@@ -28,8 +28,8 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import { setConfig } from "../../../../../__tests__/helpers/set-config.js";
 import { MemoryV3GateSchema } from "../../../../../config/schemas/memory-v3.js";
-import { migrateAddMemoryV3EverInjected } from "../../../../../persistence/migrations/277-add-memory-v3-ever-injected.js";
 import { ensureMemoryV3SelectionsSchema } from "../../../../../persistence/migrations/338-move-memory-v3-selections-to-memory-db.js";
+import { ensureMemoryV3EverInjectedSchema } from "../../../../../persistence/migrations/345-move-memory-v3-ever-injected-to-memory-db.js";
 import * as schema from "../../../../../persistence/schema/index.js";
 import type { HotSetEntry, HotSetOptions } from "../hot-set.js";
 import type { OrchestrateResult } from "../orchestrate.js";
@@ -169,9 +169,9 @@ let hotSetOpts: HotSetOptions | null = null;
 // page body.
 let capturedPageBody: ((slug: string) => Promise<string>) | null = null;
 
-// Shared in-memory DBs so writes are observable from the test. Selection rows
-// live on the dedicated memory connection (`memorySqlite`, resolved through
-// the stubbed `getMemorySqlite`); the everInjected store stays in main.
+// Shared in-memory DBs so writes are observable from the test. The selection
+// and everInjected rows live on the dedicated memory connection (`memorySqlite`,
+// resolved through the stubbed `getMemorySqlite`).
 let testSqlite: Database;
 let memorySqlite: Database;
 // When false, the stubbed `getMemorySqlite` resolves to null — the contract
@@ -182,10 +182,10 @@ function makeDb() {
   testSqlite = new Database(":memory:");
   testSqlite.exec("PRAGMA journal_mode=WAL");
   const db = drizzle(testSqlite, { schema });
-  // The live injector's net-new dedup reads/writes the everInjected store.
-  migrateAddMemoryV3EverInjected(db);
   memorySqlite = new Database(":memory:");
   ensureMemoryV3SelectionsSchema(memorySqlite);
+  // The live injector's net-new dedup reads/writes the everInjected store.
+  ensureMemoryV3EverInjectedSchema(memorySqlite);
   return db;
 }
 

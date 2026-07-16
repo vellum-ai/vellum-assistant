@@ -68,6 +68,24 @@ export function seedRelocatedMemoryRow(
         )
         .run(conversationId, now, now);
       return;
+    case "memory_v3_ever_injected":
+      raw
+        .query(
+          `INSERT INTO memory_v3_ever_injected
+             (conversation_id, slug, injected_at, bytes, pruned_at)
+           VALUES (?, 'domain/page', ?, 0, NULL)`,
+        )
+        .run(conversationId, now);
+      return;
+    case "memory_retrospective_state":
+      raw
+        .query(
+          `INSERT INTO memory_retrospective_state
+             (conversation_id, last_processed_message_id, last_run_at, remembered_log)
+           VALUES (?, '', ?, NULL)`,
+        )
+        .run(conversationId, now);
+      return;
     default:
       throw new Error(`unhandled relocated memory table ${table}`);
   }
