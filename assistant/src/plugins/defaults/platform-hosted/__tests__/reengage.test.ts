@@ -1,18 +1,22 @@
 /**
- * Unit tests for the platform-hosted /reengage route handler.
+ * Unit tests for the platform-hosted /reengage route handler (userland
+ * `export const POST` form).
  *
  * Covers:
  * - Happy path: background turn returns bare JSON → parsed subject/body
  * - Fenced JSON: model wraps the object in a ```json fence → still parsed
+ * - The turn always runs in a fresh background conversation (no caller id)
  * - additionalGuidance is appended to the base prompt
- * - Queued turn (busy conversation) → ServiceUnavailableError
- * - Unparseable output → InternalError
+ * - Invalid JSON body → 400
+ * - Unparseable model output → 502
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { RunConversationTurnOptions } from "../../../../plugin-api/conversation-turn.js";
-import type { ContentBlock } from "../../../../providers/types.js";
+import type {
+  ContentBlock,
+  RunConversationTurnOptions,
+} from "@vellumai/plugin-api";
 
 // ---------------------------------------------------------------------------
 // Mock — defined before importing the module under test
@@ -36,18 +40,27 @@ let mockTurnResult: {
 
 let lastOptions: RunConversationTurnOptions | undefined;
 
-mock.module("../../../../plugin-api/conversation-turn.js", () => ({
+mock.module("@vellumai/plugin-api", () => ({
   runConversationTurn: async (options: RunConversationTurnOptions) => {
     lastOptions = options;
     return mockTurnResult;
   },
 }));
 
-const { ROUTES } = await import("../routes/reengage-routes.js");
+const { POST } = await import("../routes/reengage.js");
 
-const handler = ROUTES[0].handler;
+function postRequest(body?: unknown): Request {
+  return new Request(
+    "http://plugin.internal/x/plugins/platform-hosted/reengage",
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    },
+  );
+}
 
-describe("platform-hosted /reengage", () => {
+describe("platform-hosted /reengage POST", () => {
   beforeEach(() => {
     lastOptions = undefined;
     mockTurnResult = {
@@ -62,25 +75,21 @@ describe("platform-hosted /reengage", () => {
     };
   });
 
-  test("exposes a single POST platform-hosted/reengage route", () => {
-    expect(ROUTES).toHaveLength(1);
-    expect(ROUTES[0].endpoint).toBe("platform-hosted/reengage");
-    expect(ROUTES[0].method).toBe("POST");
-  });
-
   test("parses a bare JSON object into subject and body", async () => {
-    const result = (await handler({ body: {} })) as {
+    const response = await POST(postRequest({}));
+    expect(response.status).toBe(200);
+    const json = (await response.json()) as {
       subject: string;
       body: string;
       conversationId: string;
     };
-    expect(result.subject).toBe("Ready when you are");
-    expect(result.body).toBe("Just picking up where we left off.");
-    expect(result.conversationId).toBe("conv-1");
+    expect(json.subject).toBe("Ready when you are");
+    expect(json.body).toBe("Just picking up where we left off.");
+    expect(json.conversationId).toBe("conv-1");
   });
 
-  test("runs the turn in a background conversation", async () => {
-    await handler({ body: {} });
+  test("always runs the turn in a fresh background conversation", async () => {
+    await POST(postRequest({}));
     expect(lastOptions?.conversationType).toBe("background");
     expect(lastOptions?.conversationId).toBeUndefined();
   });
@@ -96,44 +105,38 @@ describe("platform-hosted /reengage", () => {
       userMessageId: "msg-2",
       conversationId: "conv-2",
     };
-    const result = (await handler({ body: {} })) as {
-      subject: string;
-      body: string;
-    };
-    expect(result.subject).toBe("A quick nudge");
-    expect(result.body).toBe("Let me know if you want to continue.");
+    const response = await POST(postRequest({}));
+    const json = (await response.json()) as { subject: string; body: string };
+    expect(json.subject).toBe("A quick nudge");
+    expect(json.body).toBe("Let me know if you want to continue.");
   });
 
-  test("appends additionalGuidance to the prompt and honors conversationId", async () => {
-    await handler({
-      body: {
-        conversationId: "conv-existing",
-        additionalGuidance: "Mention the launch.",
-      },
-    });
-    expect(lastOptions?.conversationId).toBe("conv-existing");
+  test("appends additionalGuidance to the prompt", async () => {
+    await POST(postRequest({ additionalGuidance: "Mention the launch." }));
     const promptText = (lastOptions?.content[0] as { text: string }).text;
     expect(promptText).toContain("Mention the launch.");
   });
 
-  test("throws when the turn was queued because the conversation is busy", async () => {
-    mockTurnResult = {
-      content: [],
-      userMessageId: "msg-3",
-      conversationId: "conv-3",
-      queued: true,
-    };
-    await expect(
-      handler({ body: { conversationId: "conv-3" } }),
-    ).rejects.toThrow(/busy/i);
+  test("returns 400 for a malformed JSON body", async () => {
+    const request = new Request(
+      "http://plugin.internal/x/plugins/platform-hosted/reengage",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{not json",
+      },
+    );
+    const response = await POST(request);
+    expect(response.status).toBe(400);
   });
 
-  test("throws when the response has no usable subject/body", async () => {
+  test("returns 502 when the response has no usable subject/body", async () => {
     mockTurnResult = {
       content: [{ type: "text", text: "" }],
-      userMessageId: "msg-4",
-      conversationId: "conv-4",
+      userMessageId: "msg-3",
+      conversationId: "conv-3",
     };
-    await expect(handler({ body: {} })).rejects.toThrow(/usable subject/i);
+    const response = await POST(postRequest({}));
+    expect(response.status).toBe(502);
   });
 });
