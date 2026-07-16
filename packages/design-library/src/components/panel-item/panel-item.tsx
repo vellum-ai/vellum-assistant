@@ -284,6 +284,13 @@ function PanelItem({
       className={cn(
         TRAILING_ACTION_CLASSES,
         !hideTrailingActionOnTouch && "pointer-coarse:opacity-100",
+        // When the caller opts out of touch-visible trailing actions, also
+        // disable pointer events on coarse pointers so taps pass through to
+        // the row's own long-press / swipe handlers. Re-enable for the
+        // states where the action is still visible (active row, open menu,
+        // keyboard focus) so those interaction paths stay reachable.
+        hideTrailingActionOnTouch &&
+          "pointer-coarse:pointer-events-none pointer-coarse:has-[[aria-expanded=true]]:pointer-events-auto pointer-coarse:group-focus-within:pointer-events-auto pointer-coarse:group-aria-[current=page]:pointer-events-auto",
       )}
       onClick={(event: MouseEvent<HTMLSpanElement>) => {
         event.stopPropagation();

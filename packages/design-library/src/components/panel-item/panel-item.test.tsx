@@ -47,7 +47,17 @@ describe("PanelItem trailing action", () => {
   });
 
   test("is hidden on touch when hideTrailingActionOnTouch is set (caller has long-press + swipe)", () => {
-    expect(renderRow(undefined, true)).not.toContain("pointer-coarse:opacity-100");
+    const html = renderRow(undefined, true);
+    expect(html).not.toContain("pointer-coarse:opacity-100");
+  });
+
+  test("disables pointer events on touch when hideTrailingActionOnTouch is set (taps pass through to the row)", () => {
+    const html = renderRow(undefined, true);
+    expect(html).toContain("pointer-coarse:pointer-events-none");
+  });
+
+  test("keeps pointer events on touch by default (trailing action is visible and tappable)", () => {
+    expect(renderRow()).not.toContain("pointer-coarse:pointer-events-none");
   });
 
   test("stays visible on the active row", () => {
