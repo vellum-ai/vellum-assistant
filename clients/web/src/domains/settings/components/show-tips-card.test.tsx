@@ -1,10 +1,14 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 
-import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
-import { tipsEnabledStorage } from "@/utils/tips-storage";
+const emitTipEvent = mock(() => {});
+mock.module("@/utils/tips-telemetry", () => ({ emitTipEvent }));
 
-import { ShowTipsCard } from "./show-tips-card";
+const { useClientFeatureFlagStore } = await import(
+  "@/stores/client-feature-flag-store"
+);
+const { tipsEnabledStorage } = await import("@/utils/tips-storage");
+const { ShowTipsCard } = await import("./show-tips-card");
 
 function setProactiveTipsFlag(value: "off" | "on") {
   act(() => {
@@ -17,6 +21,7 @@ function setProactiveTipsFlag(value: "off" | "on") {
 beforeEach(() => {
   tipsEnabledStorage.remove();
   setProactiveTipsFlag("off");
+  emitTipEvent.mockClear();
 });
 
 afterEach(() => {
@@ -61,6 +66,25 @@ describe("ShowTipsCard", () => {
 
     expect(tipsEnabledStorage.load()).toBe(true);
     expect(toggle.getAttribute("aria-checked")).toBe("true");
+  });
+
+  test("turning tips off emits the opt-out event; turning back on does not", () => {
+    setProactiveTipsFlag("on");
+    render(<ShowTipsCard />);
+
+    const toggle = screen.getByRole("switch", { name: "Show tips" });
+    fireEvent.click(toggle);
+
+    expect(emitTipEvent).toHaveBeenCalledTimes(1);
+    expect(emitTipEvent).toHaveBeenCalledWith(
+      "settings",
+      "dont_show_again",
+      "on",
+    );
+
+    fireEvent.click(toggle);
+
+    expect(emitTipEvent).toHaveBeenCalledTimes(1);
   });
 
   test("reacts to storage writes made outside the component", () => {

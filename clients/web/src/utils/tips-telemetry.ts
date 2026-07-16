@@ -2,8 +2,8 @@
  * Telemetry for proactive tips, riding the existing onboarding funnel
  * pipeline: same event shape, ingest path, and analytics-consent gating
  * (`readShareAnalytics()` inside the base emitter). Each event lands with
- * `funnel_version: "proactive-tips-v1"`, `screen` = tip id, and
- * `step_name` = the action taken.
+ * `funnel_version: "proactive-tips-v1"`, `screen` = tip id (or `"settings"`
+ * for the global Settings-page toggle), and `step_name` = the action taken.
  */
 
 import { emitOnboardingFunnelStepCompleted } from "@/domains/onboarding/funnel-events";
@@ -14,6 +14,7 @@ export type TipTelemetryAction =
   | "impression"
   | "dismiss"
   | "learn_more"
+  // Global opt-out via the Settings "Show tips" toggle (screen: "settings").
   | "dont_show_again"
   // Reserved for action tips, so funnels stay comparable across phases.
   | "click"
@@ -29,7 +30,7 @@ const ACTION_STEP_INDICES: Record<TipTelemetryAction, number> = {
 };
 
 export function emitTipEvent(
-  tipId: string,
+  screen: string,
   action: TipTelemetryAction,
   variant: string,
 ): void {
@@ -37,7 +38,7 @@ export function emitTipEvent(
     { stepName: action, stepIndex: ACTION_STEP_INDICES[action] },
     {
       funnelVersion: TIPS_FUNNEL_VERSION,
-      screen: tipId,
+      screen,
       variant,
     },
   );
