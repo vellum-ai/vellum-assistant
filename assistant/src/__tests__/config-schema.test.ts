@@ -1283,15 +1283,11 @@ describe("AssistantConfigSchema", () => {
     expect(result.success).toBe(true);
   });
 
-  test("rejects tts provider vellum outside managed mode", () => {
+  test("accepts tts provider vellum regardless of mode", () => {
     const result = AssistantConfigSchema.safeParse({
       services: { tts: { mode: "your-own", provider: "vellum" } },
     });
-    expect(result.success).toBe(false);
-    if (!result.success) {
-      const msgs = result.error.issues.map((i) => i.message);
-      expect(msgs.some((m) => m.includes("managed"))).toBe(true);
-    }
+    expect(result.success).toBe(true);
   });
 
   // ── hostBrowser.cdpInspect.desktopAuto config ───────────────────────
@@ -1446,15 +1442,11 @@ describe("AssistantConfigSchema", () => {
     expect(result.success).toBe(true);
   });
 
-  test("rejects provider vellum outside managed mode", () => {
+  test("accepts stt provider vellum regardless of mode", () => {
     const result = AssistantConfigSchema.safeParse({
       services: { stt: { mode: "your-own", provider: "vellum" } },
     });
-    expect(result.success).toBe(false);
-    if (!result.success) {
-      const msgs = result.error.issues.map((i) => i.message);
-      expect(msgs.some((m) => m.includes("managed"))).toBe(true);
-    }
+    expect(result.success).toBe(true);
   });
 
   test("rejects invalid services.stt.provider", () => {

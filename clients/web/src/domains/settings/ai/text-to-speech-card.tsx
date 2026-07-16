@@ -74,7 +74,12 @@ export function TextToSpeechCard() {
   const daemonTts = daemonConfig?.services?.tts as
     { provider?: string; mode?: string } | undefined;
   const daemonTtsProvider = daemonTts?.provider;
-  const daemonManaged = daemonTts?.mode === "managed";
+  // Provider "vellum" routes to managed regardless of mode, so the card must
+  // treat it as managed too — otherwise a provider-only managed config (e.g.
+  // written via the CLI) would render the Your Own panel, and a save from it
+  // could never escape: nothing would look changed, so no provider write.
+  const daemonManaged =
+    daemonTts?.mode === "managed" || daemonTtsProvider === "vellum";
 
   // Managed vs. your-own toggle. Derived from the daemon (source of truth),
   // falling back to localStorage so the toggle doesn't flash "your-own" before
@@ -82,11 +87,13 @@ export function TextToSpeechCard() {
   // until a save + refetch converges the server value.
   const serverMode = useMemo<ServiceMode>(
     () =>
-      parseServiceMode(
-        daemonTts?.mode ?? getLocalSetting(LS_TTS_MODE, "your-own"),
-        "your-own",
-      ),
-    [daemonTts?.mode],
+      daemonManaged
+        ? "managed"
+        : parseServiceMode(
+            daemonTts?.mode ?? getLocalSetting(LS_TTS_MODE, "your-own"),
+            "your-own",
+          ),
+    [daemonManaged, daemonTts?.mode],
   );
   const [mode, setDraftMode] = useDraftOverride(serverMode);
 
@@ -258,9 +265,9 @@ export function TextToSpeechCard() {
     try {
       // Persist the effective BYOK provider as the restore value for toggling
       // back — `selectedProvider.id` is always representable (never the reserved
-      // "vellum" id). The daemon's `effectiveTtsProvider` routes managed mode to
-      // Vellum at runtime regardless; the schema only forbids "vellum" outside
-      // managed mode, which this write is not.
+      // "vellum" id, which would defeat its purpose as a restore value). The
+      // daemon's `effectiveTtsProvider` routes managed mode to Vellum at
+      // runtime regardless of this value.
       const { response: cfgRes } = await configPatch({
         path: { assistant_id: assistantId },
         body: {

@@ -89,7 +89,12 @@ export function SpeechToTextCard() {
   const daemonStt = daemonConfig?.services?.stt as
     { provider?: string; mode?: string } | undefined;
   const daemonSttProvider = daemonStt?.provider;
-  const daemonManaged = daemonStt?.mode === "managed";
+  // Provider "vellum" routes to managed regardless of mode, so the card must
+  // treat it as managed too — otherwise a provider-only managed config (e.g.
+  // written via the CLI) would render the Your Own panel, and a save from it
+  // could never escape: nothing would look changed, so no provider write.
+  const daemonManaged =
+    daemonStt?.mode === "managed" || daemonSttProvider === "vellum";
 
   // Managed vs. your-own toggle. Derived from the daemon (source of truth),
   // falling back to localStorage so the toggle doesn't flash "your-own" before
@@ -97,11 +102,13 @@ export function SpeechToTextCard() {
   // until a save + refetch converges the server value.
   const serverMode = useMemo<ServiceMode>(
     () =>
-      parseServiceMode(
-        daemonStt?.mode ?? getLocalSetting(LS_STT_MODE, "your-own"),
-        "your-own",
-      ),
-    [daemonStt?.mode],
+      daemonManaged
+        ? "managed"
+        : parseServiceMode(
+            daemonStt?.mode ?? getLocalSetting(LS_STT_MODE, "your-own"),
+            "your-own",
+          ),
+    [daemonManaged, daemonStt?.mode],
   );
   const [mode, setDraftMode] = useDraftOverride(serverMode);
 
@@ -220,8 +227,8 @@ export function SpeechToTextCard() {
       const providerChanged =
         !!daemon && (draftProvider !== serverProvider || !daemonHasProvider);
       // Write `provider` only when the user changed it, or when escaping managed
-      // leaves nothing valid to keep (no stored provider, or the managed-only
-      // "vellum" sentinel the schema rejects outside managed mode). Otherwise
+      // leaves nothing valid to keep (no stored provider, or the "vellum"
+      // provider, which routes to managed regardless of mode). Otherwise
       // write mode only and let the daemon's deep-merge preserve the stored
       // provider — which may be one the dropdown can't represent (e.g.
       // google-gemini via CLI) and would be silently overwritten by the fallback.
@@ -290,9 +297,9 @@ export function SpeechToTextCard() {
       // provider the dropdown can't represent (e.g. google-gemini set via CLI),
       // which the fallback would silently overwrite. Only synthesize one for a
       // sparse config or the client-only native dictation choice ("deepgram" is
-      // the sane default there); the schema requires a provider and rejects
-      // "vellum" outside managed. `effectiveSttProvider` routes managed mode to
-      // Vellum at runtime regardless of this value.
+      // the sane default there); the schema requires a provider, and "vellum"
+      // would defeat its purpose as a your-own restore value. The daemon routes
+      // managed mode to Vellum at runtime regardless of this value.
       const restoreProvider =
         daemonSttProvider && daemonSttProvider !== "vellum"
           ? daemonSttProvider

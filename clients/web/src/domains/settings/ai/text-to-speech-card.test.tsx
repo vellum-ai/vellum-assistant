@@ -260,6 +260,34 @@ describe("TextToSpeechCard — daemon provisioning on Save", () => {
     ).toBeNull();
   });
 
+  // Provider "vellum" routes to managed regardless of mode, so a provider-only
+  // managed config (written via the CLI) must render and escape like one
+  // written by the toggle.
+  test("renders the Managed panel for a provider-only vellum daemon", async () => {
+    daemonConfigData = { services: { tts: { provider: "vellum" } } };
+    renderCard();
+
+    expect(
+      screen.getByText(/Managed speech synthesis is included/),
+    ).toBeDefined();
+  });
+
+  test("escaping a provider-only vellum daemon replaces the provider", async () => {
+    daemonConfigData = { services: { tts: { provider: "vellum" } } };
+    renderCard();
+
+    setMode("Your Own");
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(configPatchCalls.length).toBe(1));
+    const ttsBody = configPatchCalls[0]!.body as {
+      services: { tts: Record<string, unknown> };
+    };
+    expect(ttsBody.services.tts.mode).toBe("your-own");
+    expect(ttsBody.services.tts.provider).toBeDefined();
+    expect(ttsBody.services.tts.provider).not.toBe("vellum");
+  });
+
   test("Managed Save writes the effective BYOK provider as the restore value", async () => {
     // The stored provider is the your-own restore value for toggling back;
     // effectiveTtsProvider routes managed mode to Vellum at runtime.
