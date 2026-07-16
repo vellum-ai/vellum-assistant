@@ -1,7 +1,7 @@
 import type {
   FeedItem,
   FeedItemCategory,
-  FeedItemSourceType,
+  FeedItemStatus,
 } from "@vellumai/assistant-api";
 
 /**
@@ -80,6 +80,41 @@ export function excludeHighUrgency(items: FeedItem[]): FeedItem[] {
 }
 
 /**
+ * The items the notification surfaces show: dismissed items are hidden and
+ * high-urgency items surface through their own channels. Shared by the
+ * Activity page and the notifications bell so the bell's unread dot and
+ * bulk actions always agree with the page it links to.
+ */
+export function getVisibleFeedItems(items: FeedItem[]): FeedItem[] {
+  return excludeHighUrgency(items.filter((i) => i.status !== "dismissed"));
+}
+
+/** Arguments for the feed's bulk status mutation (`markAll`). */
+export interface FeedMarkAllArgs {
+  from: FeedItemStatus[];
+  to: FeedItemStatus;
+  ids: string[];
+}
+
+/** Bulk payload marking every visible unread item as read. */
+export function markAllReadArgs(visibleItems: FeedItem[]): FeedMarkAllArgs {
+  return {
+    from: ["new"],
+    to: "seen",
+    ids: visibleItems.filter((i) => i.status === "new").map((i) => i.id),
+  };
+}
+
+/** Bulk payload dismissing every visible item ("Clear all"). */
+export function clearAllArgs(visibleItems: FeedItem[]): FeedMarkAllArgs {
+  return {
+    from: ["new", "seen", "acted_on"],
+    to: "dismissed",
+    ids: visibleItems.map((i) => i.id),
+  };
+}
+
+/**
  * Return deduplicated list of categories present in the items.
  */
 export function getPresentCategories(items: FeedItem[]): FeedItemCategory[] {
@@ -90,57 +125,3 @@ export function getPresentCategories(items: FeedItem[]): FeedItemCategory[] {
   return [...categories];
 }
 
-/**
- * A distinct producer of feed items, identified by `key`. Schedules each
- * get their own key (`schedule:<id>`); other producers (heartbeat, memory
- * consolidation, …) share a key per `type`. Used to build the source filter.
- */
-export interface FeedSource {
-  key: string;
-  label: string;
-  type: FeedItemSourceType;
-}
-
-// Display order for the source filter: producer types first in a fixed
-// order, schedules grouped together and sorted by name within that band.
-const SOURCE_TYPE_ORDER: Record<FeedItemSourceType, number> = {
-  heartbeat: 0,
-  memory_consolidation: 1,
-  schedule: 2,
-  auto_analysis: 3,
-  user: 4,
-  other: 5,
-};
-
-/**
- * Return the distinct sources present in the items, ordered for display.
- * Items missing a `sourceKey` (e.g. not yet enriched) are skipped — they
- * remain visible under the "All sources" option.
- */
-export function getPresentSources(items: FeedItem[]): FeedSource[] {
-  const byKey = new Map<string, FeedSource>();
-  for (const item of items) {
-    const key = item.sourceKey;
-    if (!key || byKey.has(key)) continue;
-    byKey.set(key, {
-      key,
-      label: item.sourceLabel ?? key,
-      type: item.sourceType ?? "other",
-    });
-  }
-  return [...byKey.values()].sort((a, b) => {
-    const rankDiff = SOURCE_TYPE_ORDER[a.type] - SOURCE_TYPE_ORDER[b.type];
-    return rankDiff !== 0 ? rankDiff : a.label.localeCompare(b.label);
-  });
-}
-
-/**
- * Filter items by source key. If sourceKey is null, return all items.
- */
-export function filterBySource(
-  items: FeedItem[],
-  sourceKey: string | null,
-): FeedItem[] {
-  if (sourceKey === null) return items;
-  return items.filter((item) => item.sourceKey === sourceKey);
-}

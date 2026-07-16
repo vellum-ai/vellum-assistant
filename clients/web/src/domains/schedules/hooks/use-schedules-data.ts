@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useCallback, useMemo, useState } from "react";
 
 import {
-  fetchSchedules,
+  schedulesListQueryOptions,
   toggleSchedule,
 } from "@/domains/settings/api/schedules";
 import type { Schedule } from "@/domains/settings/types/schedules";
@@ -13,11 +13,10 @@ import {
   zeroScheduleUsageSummary,
 } from "@/domains/settings/utils/schedule-formatters";
 import { captureError } from "@/lib/sentry/capture-error";
-import { schedulesGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 import { useEffectiveTimezone } from "@/utils/use-effective-timezone";
 import { toast } from "@vellumai/design-library/components/toast";
 
-export interface HomeSchedulesData {
+export interface SchedulesData {
   recurring: Schedule[];
   oneTime: Schedule[];
   /** One-shot schedules that have already fired (or been cancelled). */
@@ -30,13 +29,13 @@ export interface HomeSchedulesData {
 }
 
 /**
- * Composes the schedule list + per-schedule usage the homepage Schedules tab
+ * Composes the schedule list + per-schedule usage the Schedules page
  * needs, sharing query keys (and therefore cache) with the Settings schedules
  * page.
  */
-export function useHomeSchedulesData(
+export function useSchedulesData(
   assistantId: string | undefined,
-): HomeSchedulesData {
+): SchedulesData {
   const tz = useEffectiveTimezone();
   // Stable per-mount timestamp for grouping one-time schedules (calling
   // Date.now() directly during render is impure). Matches the Settings page.
@@ -47,12 +46,7 @@ export function useHomeSchedulesData(
     isLoading,
     isError,
     refetch: refetchSchedules,
-  } = useQuery({
-    queryKey: schedulesGetQueryKey({ path: { assistant_id: assistantId ?? "" } }),
-    queryFn: () =>
-      assistantId ? fetchSchedules(assistantId) : Promise.resolve([]),
-    staleTime: 10_000,
-  });
+  } = useQuery(schedulesListQueryOptions(assistantId));
 
   const {
     data: usageSummaries,

@@ -1,0 +1,231 @@
+import { Bell } from "lucide-react";
+import { useMemo, useState } from "react";
+import { useLocation, useNavigate } from "react-router";
+
+import { useIsMobile } from "@/hooks/use-is-mobile";
+import { useSupportsBulkFeedStatus } from "@/lib/backwards-compat/bulk-feed-status";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
+import { routes } from "@/utils/routes";
+import type { FeedItem } from "@vellumai/assistant-api";
+import {
+    BottomSheet,
+    Button,
+    Popover,
+    Tooltip,
+    Typography,
+} from "@vellumai/design-library";
+
+import { HomeRecapRow } from "../home-recap-row";
+import { useHomeFeedQuery } from "../hooks/use-home-feed-query";
+import {
+    clearAllArgs,
+    getVisibleFeedItems,
+    markAllReadArgs,
+    sortFeedItems,
+} from "../utils";
+
+/**
+ * Router state consumed by `HomePageRoute`: opening a notification from the
+ * bell lands on the Activity page with that item's detail drawer open.
+ */
+export interface ActivityLocationState {
+  feedItemId?: string;
+}
+
+// Caps the visible list at roughly five rows (48px rows + 4px gaps);
+// older notifications stay reachable by scrolling.
+const LIST_MAX_HEIGHT_CLASS = "max-h-[280px]";
+
+/**
+ * Notification bell for the top nav: a ghost icon button with an unread dot
+ * that opens the latest notifications in a popover (desktop) or bottom sheet
+ * (mobile) — the same split the sidebar preferences menu uses. Rows reuse
+ * `HomeRecapRow`, so mark-read and dismiss work inline; clicking a row (or
+ * "View all") continues to the full Activity page.
+ *
+ * Owned by the home domain (it renders the home feed), so the chat layout
+ * can't import it directly (cross-domain); `routes.tsx` injects it into
+ * `ChatLayout` as `topBarAccessory` instead. Self-contained: reads the
+ * active assistant from the resolved-assistants store — same source as
+ * ChatLayout — so the injection site needs no wiring.
+ */
+export function NotificationsBell() {
+  const [isOpen, setIsOpen] = useState(false);
+  const isMobile = useIsMobile();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
+  const feedQuery = useHomeFeedQuery(assistantId);
+  const supportsBulkStatus = useSupportsBulkFeedStatus();
+
+  // Memoized: the bell lives in the persistent top bar and re-renders with
+  // every layout update, so the filter + sort must only re-run when the feed
+  // data itself changes.
+  const items = feedQuery.data?.items;
+  const visibleItems = useMemo(
+    () => sortFeedItems(getVisibleFeedItems(items ?? [])),
+    [items],
+  );
+  const hasUnread = visibleItems.some((item) => item.status === "new");
+
+  const openActivityPage = (item?: FeedItem) => {
+    setIsOpen(false);
+    void navigate(routes.home, {
+      // Re-clicking from the Activity page itself must not stack history
+      // entries (each carrying stale feedItemId state that would replay
+      // closed drawers on Back).
+      replace: location.pathname === routes.home,
+      state: item
+        ? ({ feedItemId: item.id } satisfies ActivityLocationState)
+        : undefined,
+    });
+  };
+
+  const handleSelectItem = (item: FeedItem) => {
+    if (item.status === "new") {
+      feedQuery.updateStatus.mutate({ itemId: item.id, status: "seen" });
+    }
+    openActivityPage(item);
+  };
+
+  const handleMarkAllRead = () => {
+    feedQuery.markAll.mutate(markAllReadArgs(visibleItems));
+  };
+
+  const handleClearAll = () => {
+    feedQuery.markAll.mutate(clearAllArgs(visibleItems));
+  };
+
+  // No `tooltip` prop on the Button: it would wrap the button in a Tooltip
+  // component, breaking the popover/sheet Trigger's `asChild` prop merge.
+  // Desktop nests Tooltip *around* the Trigger instead (the
+  // CollapsedGroupIcon pattern); mobile is touch, so no tooltip.
+  const trigger = (
+    <Button
+      variant="ghost"
+      iconOnly={
+        <span className="relative flex" aria-hidden>
+          <Bell />
+          {hasUnread ? (
+            // Same top-left amber dot as the unread rows inside
+            // (HomeRecapRow), so the bell and its list speak one language.
+            <span className="absolute -left-0.5 -top-0.5 h-2 w-2 rounded-full bg-[var(--system-mid-strong)]" />
+          ) : null}
+        </span>
+      }
+      aria-label={hasUnread ? "Notifications (unread)" : "Notifications"}
+    />
+  );
+
+  const list =
+    visibleItems.length === 0 ? (
+      <Typography
+        variant="body-medium-lighter"
+        className="px-[var(--app-spacing-lg)] py-[var(--app-spacing-xl)] text-center text-[var(--content-tertiary)]"
+      >
+        {feedQuery.isError
+          ? "Couldn't load notifications."
+          : "No notifications yet."}
+      </Typography>
+    ) : (
+      <div
+        className={`flex flex-col gap-[var(--app-spacing-xs)] overflow-y-auto ${
+          isMobile ? "max-h-[60dvh]" : LIST_MAX_HEIGHT_CLASS
+        }`}
+      >
+        {visibleItems.map((item) => (
+          <HomeRecapRow
+            key={item.id}
+            item={item}
+            onSelect={handleSelectItem}
+            onDismiss={(itemId) =>
+              feedQuery.updateStatus.mutate({ itemId, status: "dismissed" })
+            }
+            onToggleRead={(itemId, status) =>
+              feedQuery.updateStatus.mutate({ itemId, status })
+            }
+          />
+        ))}
+      </div>
+    );
+
+  const panel = (
+    <div className="flex min-w-0 flex-col">
+      <div className="flex items-center justify-between gap-2 pb-[var(--app-spacing-sm)] pl-[var(--app-spacing-md)]">
+        <Typography
+          variant="body-medium-default"
+          as="h2"
+          className="text-[var(--content-default)]"
+        >
+          Notifications
+        </Typography>
+        <Button variant="ghost" size="compact" onClick={() => openActivityPage()}>
+          View all
+        </Button>
+      </div>
+
+      {list}
+
+      {supportsBulkStatus && visibleItems.length > 0 ? (
+        <div className="mt-[var(--app-spacing-sm)] flex items-center justify-end gap-[var(--app-spacing-sm)] border-t border-[var(--border-base)] pt-[var(--app-spacing-sm)]">
+          {hasUnread ? (
+            <Button
+              variant="ghost"
+              size="compact"
+              onClick={handleMarkAllRead}
+              disabled={feedQuery.markAll.isPending}
+            >
+              Mark all as read
+            </Button>
+          ) : null}
+          <Button
+            variant="ghost"
+            size="compact"
+            onClick={handleClearAll}
+            disabled={feedQuery.markAll.isPending}
+          >
+            Clear all
+          </Button>
+        </div>
+      ) : null}
+    </div>
+  );
+
+  if (isMobile) {
+    return (
+      <BottomSheet.Root open={isOpen} onOpenChange={setIsOpen}>
+        <BottomSheet.Trigger asChild>{trigger}</BottomSheet.Trigger>
+        <BottomSheet.Content className="max-h-[85dvh]">
+          <BottomSheet.Header className="sr-only">
+            <BottomSheet.Title>Notifications</BottomSheet.Title>
+          </BottomSheet.Header>
+          <BottomSheet.Body className="pt-0">{panel}</BottomSheet.Body>
+        </BottomSheet.Content>
+      </BottomSheet.Root>
+    );
+  }
+
+  return (
+    <Popover.Root open={isOpen} onOpenChange={setIsOpen}>
+      <Tooltip content="Notifications">
+        <Popover.Trigger asChild>{trigger}</Popover.Trigger>
+      </Tooltip>
+      <Popover.Content
+        side="bottom"
+        align="end"
+        sideOffset={8}
+        tabIndex={-1}
+        onOpenAutoFocus={(event) => {
+          // Focus the panel itself so the first row doesn't light up (and
+          // show its hover actions) before the user interacts.
+          const content = event.currentTarget as HTMLElement | null;
+          event.preventDefault();
+          content?.focus();
+        }}
+        className="w-96 max-w-[calc(100vw-2rem)] rounded-lg p-2"
+      >
+        {panel}
+      </Popover.Content>
+    </Popover.Root>
+  );
+}

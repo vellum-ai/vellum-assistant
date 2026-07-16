@@ -1,8 +1,8 @@
 import { Calendar, ChevronRight } from "lucide-react";
 import type { ReactNode } from "react";
 
-import { HomeEmptyState } from "@/domains/home/components/home-empty-state";
-import { HomeScheduleRow } from "@/domains/home/components/home-schedule-row";
+import { PageEmptyState } from "@/components/page-empty-state";
+import { ScheduleRow } from "@/domains/schedules/components/schedule-row";
 import { Button } from "@vellumai/design-library";
 import { Collapsible } from "@vellumai/design-library/components/collapsible";
 import { Notice } from "@vellumai/design-library/components/notice";
@@ -10,7 +10,7 @@ import { Notice } from "@vellumai/design-library/components/notice";
 import type { Schedule } from "@/domains/settings/types/schedules";
 import type { ScheduleRowUsage } from "@/domains/settings/utils/schedule-formatters";
 
-export interface HomeSchedulesPanelProps {
+export interface SchedulesPanelProps {
   recurring: Schedule[];
   oneTime: Schedule[];
   /** One-shot schedules that have already fired — shown read-only in a collapsible. */
@@ -36,7 +36,7 @@ export interface HomeSchedulesPanelProps {
   systemTasksSlot?: ReactNode;
 }
 
-export function HomeSchedulesPanel({
+export function SchedulesPanel({
   recurring,
   oneTime,
   pastOneTime,
@@ -52,9 +52,9 @@ export function HomeSchedulesPanel({
   pastOpen,
   onPastOpenChange,
   systemTasksSlot,
-}: HomeSchedulesPanelProps) {
+}: SchedulesPanelProps) {
   const renderScheduleRow = (schedule: Schedule) => (
-    <HomeScheduleRow
+    <ScheduleRow
       key={schedule.id}
       schedule={schedule}
       usage={usageForSchedule(schedule.id)}
@@ -67,7 +67,7 @@ export function HomeSchedulesPanel({
   // One-shots are read-only: no toggle. Upcoming ones fire once (nothing to
   // pause/re-enable meaningfully); past ones have already fired.
   const renderOneTimeRow = (schedule: Schedule) => (
-    <HomeScheduleRow
+    <ScheduleRow
       key={schedule.id}
       schedule={schedule}
       usage={usageForSchedule(schedule.id)}
@@ -140,7 +140,7 @@ export function HomeSchedulesPanel({
       pastOneTime.length === 0
     ) {
       return (
-        <HomeEmptyState
+        <PageEmptyState
           icon={Calendar}
           title="No schedules yet"
           description="Ask your assistant to set one up, or create one yourself."

@@ -1,7 +1,7 @@
 import { Bell, ChevronRight } from "lucide-react";
 import { useState } from "react";
 
-import { HomeEmptyState } from "./components/home-empty-state";
+import { PageEmptyState } from "@/components/page-empty-state";
 
 import type {
     FeedItem,
@@ -10,15 +10,12 @@ import type {
 } from "@vellumai/assistant-api";
 import { Collapsible, Typography } from "@vellumai/design-library";
 import { HomeFeedFilterBar } from "./home-feed-filter-bar";
-import { HomeFeedSourceFilter } from "./home-feed-source-filter";
 import { HomeRecapRow } from "./home-recap-row";
 import type { FeedTimeGroup } from "./utils";
 import {
     excludeHighUrgency,
     filterByCategory,
-    filterBySource,
     getPresentCategories,
-    getPresentSources,
     groupByTime,
     sortFeedItems,
 } from "./utils";
@@ -75,7 +72,6 @@ export function HomeFeedList({
   const [activeFilter, setActiveFilter] = useState<FeedItemCategory | null>(
     null,
   );
-  const [activeSource, setActiveSource] = useState<string | null>(null);
   // Stable per-mount "now" for the read-archive cutoff — calling Date.now()
   // during render is impure (and flagged by react-hooks/purity).
   const [now] = useState(() => Date.now());
@@ -91,34 +87,23 @@ export function HomeFeedList({
   );
 
   const presentCategories = getPresentCategories(recent);
-  const presentSources = getPresentSources(recent);
   const effectiveFilter =
     activeFilter && presentCategories.includes(activeFilter)
       ? activeFilter
       : null;
-  const effectiveSource =
-    activeSource && presentSources.some((s) => s.key === activeSource)
-      ? activeSource
-      : null;
 
-  // Reset stale active filters during render when their value disappears
+  // Reset a stale active filter during render when its value disappears
   // from the feed. Without this, a previously-selected filter would
   // silently re-activate if it later reappeared (e.g. a new notification
-  // of that category/source arrives). React bails out when the next state
+  // of that category arrives). React bails out when the next state
   // equals the current, so this is safe and preferable to a
   // synchronization Effect.
   // https://react.dev/reference/react/useState#storing-information-from-previous-renders
   if (activeFilter !== effectiveFilter) {
     setActiveFilter(effectiveFilter);
   }
-  if (activeSource !== effectiveSource) {
-    setActiveSource(effectiveSource);
-  }
 
-  const filtered = filterBySource(
-    filterByCategory(recent, effectiveFilter),
-    effectiveSource,
-  );
+  const filtered = filterByCategory(recent, effectiveFilter);
   const sorted = sortFeedItems(filtered);
   const grouped = groupByTime(sorted);
 
@@ -131,23 +116,14 @@ export function HomeFeedList({
 
   return (
     <div className="flex flex-col gap-[var(--app-spacing-lg)]">
-      {(presentCategories.length > 1 || presentSources.length > 1) && (
-        <div className="flex flex-wrap items-center gap-[var(--app-spacing-sm)]">
-          <HomeFeedFilterBar
-            categories={presentCategories}
-            activeFilter={effectiveFilter}
-            onFilterChange={setActiveFilter}
-          />
-          <HomeFeedSourceFilter
-            sources={presentSources}
-            activeSource={effectiveSource}
-            onSourceChange={setActiveSource}
-          />
-        </div>
-      )}
+      <HomeFeedFilterBar
+        categories={presentCategories}
+        activeFilter={effectiveFilter}
+        onFilterChange={setActiveFilter}
+      />
 
       {grouped.size === 0 ? (
-        effectiveFilter || effectiveSource ? (
+        effectiveFilter ? (
           <Typography
             variant="body-medium-lighter"
             className="py-[var(--app-spacing-xl)] text-center text-[var(--content-disabled)]"
@@ -155,7 +131,7 @@ export function HomeFeedList({
             No items match the selected filter.
           </Typography>
         ) : (
-          <HomeEmptyState
+          <PageEmptyState
             icon={Bell}
             title="No notifications yet"
             description="Updates and activity from your assistant will appear here."

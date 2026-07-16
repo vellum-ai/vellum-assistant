@@ -65,7 +65,7 @@ export interface SystemTaskDetailPanelProps {
 
 /**
  * Inline detail for a built-in system task (heartbeat, consolidation, memory
- * retrospective) shown in the home right pane. Mirrors `ScheduleDetailPanel`'s
+ * retrospective) shown in the Schedules page right pane. Mirrors `ScheduleDetailPanel`'s
  * chrome so system and user schedules share one side-panel UX, while reusing
  * the system-task config/runs/mutations from `useSystemTasks`.
  */

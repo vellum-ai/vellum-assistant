@@ -10,6 +10,7 @@ import { AccountLayout } from "@/domains/account/account-layout";
 import { ChatLayout } from "@/domains/chat/chat-layout";
 import { ChatPage } from "@/domains/chat/chat-page";
 import { ConversationRedirect } from "@/domains/chat/conversation-redirect";
+import { NotificationsBell } from "@/domains/home/components/notifications-bell";
 import { NotFound } from "@/components/not-found";
 import { RouteErrorBoundary } from "@/components/route-error-boundary";
 import { RootHydrateFallback } from "@/components/root-hydrate-fallback";
@@ -50,6 +51,16 @@ function AdvancedSettingsRedirect() {
   return (
     <Navigate to={`${routes.settings.debug}${qs ? `?${qs}` : ""}`} replace />
   );
+}
+
+/**
+ * ChatLayout with its cross-domain header chrome injected. The bell is home
+ * domain (it renders the home feed) and the layout is chat domain, so the
+ * composition happens here at the route level — neither domain imports the
+ * other (see STYLE_GUIDE.md — Shared UI components).
+ */
+function ChatLayoutRoute() {
+  return <ChatLayout topBarAccessory={<NotificationsBell />} />;
 }
 
 export function getRouterBasename(): string | undefined {
@@ -323,7 +334,7 @@ export const routeTree = [
         },
 
         {
-          Component: ChatLayout,
+          Component: ChatLayoutRoute,
           children: [
             // Inner pathless wrapper: catches every error from chat-side
             // routes (home, library, identity, inspector, etc.) one layer
@@ -354,22 +365,16 @@ export const routeTree = [
                   path: "home",
                   lazy: { Component: () => import("@/home-page-route").then((m) => m.HomePageRoute) },
                 },
-                // Schedules tab + per-schedule deep links. Same component as
-                // `home`; HomePageRoute reads the pathname / `:scheduleId` to
-                // open the Schedules tab and focus a schedule's drawer.
-                {
-                  path: "schedules",
-                  lazy: { Component: () => import("@/home-page-route").then((m) => m.HomePageRoute) },
-                },
-                {
-                  path: "schedules/:scheduleId",
-                  lazy: { Component: () => import("@/home-page-route").then((m) => m.HomePageRoute) },
-                },
                 {
                   lazy: { Component: () => import("@/domains/intelligence/intelligence-layout").then((m) => m.IntelligenceLayout) },
                   children: [
                     { path: "identity", lazy: { Component: () => import("@/identity-page-route").then((m) => m.IdentityPageRoute) } },
                     { path: "personality", lazy: { Component: () => import("@/domains/intelligence/personality-page").then((m) => m.PersonalityPage) } },
+                    // Schedules list + per-schedule deep links. One component:
+                    // SchedulesPage reads `:scheduleId` to focus a schedule's
+                    // detail drawer.
+                    { path: "schedules", lazy: { Component: () => import("@/domains/schedules/schedules-page").then((m) => m.SchedulesPage) } },
+                    { path: "schedules/:scheduleId", lazy: { Component: () => import("@/domains/schedules/schedules-page").then((m) => m.SchedulesPage) } },
                     { path: "memory", lazy: { Component: () => import("@/memory-page-route").then((m) => m.MemoryPageRoute) } },
                     { path: "plugins", lazy: { Component: () => import("@/domains/intelligence/plugins-page").then((m) => m.PluginsPage) } },
                     { path: "plugins/:name", lazy: { Component: () => import("@/domains/intelligence/plugin-detail-page").then((m) => m.PluginDetailPage) } },

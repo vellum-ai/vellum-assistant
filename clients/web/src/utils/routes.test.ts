@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  isAboutAssistantPath,
   isConversationChatPath,
   isConversationPath,
   routes,
@@ -37,6 +38,20 @@ describe("routes", () => {
     expect(routes.skills.detail("org/repo/shared-skill")).toBe(
       "/assistant/skills/org%2Frepo%2Fshared-skill",
     );
+  });
+});
+
+describe("isAboutAssistantPath", () => {
+  test("matches the drill-down sections, including schedule detail sub-paths", () => {
+    expect(isAboutAssistantPath(routes.identity)).toBe(true);
+    expect(isAboutAssistantPath(routes.skills.root)).toBe(true);
+    expect(isAboutAssistantPath(routes.schedules.root)).toBe(true);
+    expect(isAboutAssistantPath(routes.schedules.detail("sch_123"))).toBe(true);
+  });
+
+  test("rejects the Activity page and conversations", () => {
+    expect(isAboutAssistantPath(routes.home)).toBe(false);
+    expect(isAboutAssistantPath(routes.conversation("conv-1"))).toBe(false);
   });
 });
 
