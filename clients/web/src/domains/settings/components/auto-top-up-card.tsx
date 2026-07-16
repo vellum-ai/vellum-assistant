@@ -1,3 +1,4 @@
+import { Bolt, Info, X } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 
@@ -126,8 +127,9 @@ export function formatSavedPaymentMethodLine(args: {
  * `AutoTopUpPaymentMethodModal`) for the no-PM gate below.
  *
  * - Off: just the toggle.
- * - On + no payment method: toggle + "Add payment method" button that opens
- *   the Stripe setup modal; saving a card advances straight into the form.
+ * - On + no payment method: toggle + an amber "connect a credit card" banner
+ *   and an "Add a Credit Card" button that opens the Stripe setup modal;
+ *   saving a card advances straight into the form.
  * - On + view: toggle + inline summary ("Add $X when balance falls under
  *   $Y") + spend-vs-cap when a monthly cap is set + Adjust button.
  * - On + configuring (mode === "form"): toggle + 3-input row (threshold,
@@ -145,6 +147,7 @@ export function AutoTopUpCard() {
   const [pendingEnable, setPendingEnable] = useState(false);
   const [confirmingDisable, setConfirmingDisable] = useState(false);
   const [showAddPm, setShowAddPm] = useState(false);
+  const [bannerDismissed, setBannerDismissed] = useState(false);
   const [pmModalOpen, setPmModalOpen] = useState(false);
 
   // Auto-dismiss the no-PM gate once a PM appears (e.g. after the user saves
@@ -300,7 +303,7 @@ export function AutoTopUpCard() {
               // in `handlePmSaved` below: it reads `priorMarker` from this
               // same cache, then polls until the backend's marker advances
               // past it. If we seed `null` after disable, the user's next
-              // "Add payment method" click takes a priorMarker=null
+              // "Add a Credit Card" click takes a priorMarker=null
               // snapshot, the first poll reads the backend's still-set
               // timestamp, and the poll exits immediately with stale data.
               // Carry forward the prior marker so the snapshot matches
@@ -318,12 +321,12 @@ export function AutoTopUpCard() {
   };
 
   /**
-   * Click handler for the "Enable Auto-Reload" toggle. The toggle itself is
+   * Click handler for the "Enable Extra Usage" toggle. The toggle itself is
    * never disabled — turning it on always flips visually to reflect intent
    * (`pendingEnable`), even when a payment method still needs to be added.
    *
    * - Toggle on while disabled, no usable PM (missing, or cut off after
-   *   repeated declines) → flip on and gate on the "Add payment method"
+   *   repeated declines) → flip on and gate on the "Add a Credit Card"
    *   button instead of entering the form. In the cutoff case the saved
    *   card is still attached (`has_payment_method: true`), so gating here
    *   stops the user from re-enabling with the SAME declined card — they
@@ -342,6 +345,7 @@ export function AutoTopUpCard() {
       setPendingEnable(true);
       if (!config.has_payment_method || disabledAfterDeclines) {
         setShowAddPm(true);
+        setBannerDismissed(false);
         return;
       }
       setShowAddPm(false);
@@ -425,7 +429,7 @@ export function AutoTopUpCard() {
         <Toggle
           checked={toggleChecked}
           onChange={handleToggleChange}
-          label="Enable Auto-Reload"
+          label="Enable Extra Usage"
         />
 
         {enabled && !isFormMode && (
@@ -487,19 +491,43 @@ export function AutoTopUpCard() {
         }}
       >
         <div className="overflow-hidden">
-          <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-lg bg-[var(--surface-base)] p-3">
-            <Typography
-              variant="body-small-default"
-              className="text-[var(--content-tertiary)]"
-            >
-              Add a payment method to enable automatic credit reloads.
-            </Typography>
+          <div className="mt-3 flex flex-col gap-3">
+            {!bannerDismissed && (
+              <div className="flex items-start justify-between gap-3 rounded-lg bg-[var(--system-mid-strong)] p-3">
+                <div className="flex items-start gap-2">
+                  <Info className="mt-0.5 h-4 w-4 shrink-0 text-[#E9AB17]" aria-hidden="true" />
+                  <Typography
+                    variant="body-medium-default"
+                    className="text-[#E9AB17]"
+                  >
+                    Extra usage requires you to connect a credit card.
+                  </Typography>
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  <Typography
+                    variant="body-small-emphasised"
+                    className="text-[#E9AB17]"
+                  >
+                    ACTION
+                  </Typography>
+                  <button
+                    type="button"
+                    aria-label="Dismiss"
+                    onClick={() => setBannerDismissed(true)}
+                    className="flex shrink-0 cursor-pointer items-center justify-center rounded p-0.5 text-[#E9AB17] opacity-70 transition-opacity hover:opacity-100"
+                  >
+                    <X className="h-2.5 w-2.5" strokeWidth={2} aria-hidden="true" />
+                  </button>
+                </div>
+              </div>
+            )}
             <Button
               variant="primary"
+              leftIcon={<Bolt className="h-4 w-4" />}
               onClick={() => setPmModalOpen(true)}
               data-testid="auto-top-up-add-pm-button"
             >
-              Add payment method
+              Add a Credit Card
             </Button>
           </div>
         </div>

@@ -1,10 +1,9 @@
 import {
     Computer,
-    Crown,
     HardDrive,
     Loader2,
     Microchip,
-    Palmtree,
+    Plus,
     Sparkles,
     type LucideIcon,
 } from "lucide-react";
@@ -40,30 +39,28 @@ import type { ButtonProps } from "@vellumai/design-library/components/button";
 import { Button } from "@vellumai/design-library/components/button";
 import { Card } from "@vellumai/design-library/components/card";
 import { Notice } from "@vellumai/design-library/components/notice";
-import { Tag } from "@vellumai/design-library/components/tag";
 import { Typography } from "@vellumai/design-library/components/typography";
 import { formatMonthly } from "./tier-pricing";
 
 interface PlanDisplay {
-    icon: LucideIcon;
     actionLabel: string;
     actionVariant: ButtonProps["variant"];
+    actionIcon?: LucideIcon;
     actionTestId: string;
     showsRenewal: boolean;
 }
 
 const PLAN_DISPLAY: Record<string, PlanDisplay> = {
     pro: {
-        icon: Crown,
         actionLabel: "Manage",
         actionVariant: "outlined",
         actionTestId: "plan-card-manage-button",
         showsRenewal: true,
     },
     base: {
-        icon: Palmtree,
         actionLabel: "Upgrade",
         actionVariant: "primary",
+        actionIcon: Plus,
         actionTestId: "plan-card-upgrade-button",
         showsRenewal: true,
     },
@@ -73,6 +70,32 @@ const DEFAULT_DISPLAY: PlanDisplay = PLAN_DISPLAY.base;
 
 export interface PlanCardProps {
     onManage: () => void;
+}
+
+/** Accent color per Pro package tier, keyed by `ProPackage.key` ("free" for the base plan). */
+const TIER_ACCENT: Record<string, string> = {
+    free: "#E9C91A",
+    mighty: "#4C9B50",
+    super: "#0E9B8B",
+    ultra: "#EF4300",
+};
+
+/** Simple rounded-square illustration used as a plan-tier badge. */
+function PlanTierAvatar({ tier }: { tier: string }) {
+    const accent = TIER_ACCENT[tier] ?? TIER_ACCENT.free;
+    return (
+        <svg
+            viewBox="0 0 40 40"
+            aria-hidden="true"
+            className="h-10 w-10 shrink-0 rounded-[10px]"
+        >
+            <rect width="40" height="40" rx="10" fill={accent} />
+            <circle cx="14" cy="20" r="4.5" fill="#FFFFFF" />
+            <circle cx="26" cy="20" r="4.5" fill="#FFFFFF" />
+            <circle cx="14" cy="20" r="1.8" fill="#1A1A1A" />
+            <circle cx="26" cy="20" r="1.8" fill="#1A1A1A" />
+        </svg>
+    );
 }
 
 function PlanHeading() {
@@ -226,44 +249,37 @@ function RecommendedUpgrade({
     };
 
     return (
-        <div className="flex flex-col gap-4 rounded-xl bg-[var(--system-positive-weak)] p-4">
-            <div className="flex flex-wrap items-start justify-between gap-4">
-                <div className="flex flex-col gap-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                        <span
-                            aria-hidden
-                            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[var(--surface-lift)]"
-                        >
-                            <Sparkles className="h-4 w-4 text-[var(--system-positive-strong)]" />
-                        </span>
-                        <Typography as="h3" variant="title-small" className="text-[var(--content-default)]">
-                            {recommended.name}
-                        </Typography>
-                        <Tag tone="positive" leftIcon={<Sparkles />}>
-                            Recommended Upgrade
-                        </Tag>
-                    </div>
-                    <Typography as="p" variant="title-medium" className="text-[var(--content-default)]">
-                        {priceLabel}
-                    </Typography>
-                </div>
+        <div className="flex flex-col gap-3 border-t border-[var(--border-base)] pt-4">
+            <div className="flex items-center gap-2">
+                <PlanTierAvatar tier={recommended.key} />
+                <Typography as="h3" variant="title-small" className="text-[var(--content-default)]">
+                    {recommended.name}
+                </Typography>
+            </div>
 
-                <div className="flex flex-wrap items-center gap-2">
-                    {deltas.map((delta) => {
-                        const Icon = delta.icon;
-                        return (
-                            <div
-                                key={delta.label}
-                                className="flex items-center gap-1.5 whitespace-nowrap rounded-lg bg-[var(--surface-lift)] px-2.5 py-1.5"
-                            >
-                                <Icon className="h-3.5 w-3.5 shrink-0 text-[var(--content-tertiary)]" aria-hidden />
-                                <Typography as="span" variant="body-small-default" className="text-[var(--content-secondary)]">
-                                    {delta.label}
-                                </Typography>
-                            </div>
-                        );
-                    })}
-                </div>
+            <div className="flex items-center gap-1.5">
+                <Sparkles className="h-3.5 w-3.5 shrink-0 text-[var(--credits-accent)]" aria-hidden />
+                <Typography as="span" variant="body-small-emphasised" className="text-[var(--credits-accent)]">
+                    Recommended Upgrade
+                </Typography>
+            </div>
+
+            <Typography as="p" variant="body-small-default" className="text-[var(--content-tertiary)]">
+                {priceLabel}
+            </Typography>
+
+            <div className="flex flex-col gap-2">
+                {deltas.map((delta) => {
+                    const Icon = delta.icon;
+                    return (
+                        <div key={delta.label} className="flex items-center gap-2">
+                            <Icon className="h-3.5 w-3.5 shrink-0 text-[var(--content-secondary)]" aria-hidden />
+                            <Typography as="span" variant="body-medium-default" className="text-[var(--content-default)]">
+                                {delta.label}
+                            </Typography>
+                        </div>
+                    );
+                })}
             </div>
 
             <Button
@@ -274,7 +290,9 @@ function RecommendedUpgrade({
                 leftIcon={
                     pending || upgradeMutation.isPending ? (
                         <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : undefined
+                    ) : (
+                        <Plus className="h-4 w-4" />
+                    )
                 }
                 data-testid="recommended-upgrade-button"
             >
@@ -319,7 +337,7 @@ export function PlanCard({ onManage }: PlanCardProps) {
     }
 
     const display = PLAN_DISPLAY[currentPlan.id] ?? DEFAULT_DISPLAY;
-    const PlanIcon = display.icon;
+    const ActionIcon = display.actionIcon;
     const planName = currentPlan.name ?? currentPlan.id;
 
     const isCancelling =
@@ -342,6 +360,7 @@ export function PlanCard({ onManage }: PlanCardProps) {
     const currentKey =
         (subscription as unknown as { package_key?: string | null })
             .package_key ?? null;
+    const currentTier = currentKey ?? "free";
 
     return (
         <Card padding="lg">
@@ -351,20 +370,16 @@ export function PlanCard({ onManage }: PlanCardProps) {
                     <Button
                         variant={display.actionVariant}
                         onClick={onManage}
+                        leftIcon={ActionIcon ? <ActionIcon className="h-4 w-4" /> : undefined}
                         data-testid={display.actionTestId}
                     >
                         {display.actionLabel}
                     </Button>
                 </div>
                 <div className="flex items-center gap-3 rounded-lg bg-[var(--surface-base)] p-3">
-                    <span
-                        aria-hidden
-                        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-[var(--border-base)] bg-[var(--surface-overlay)]"
-                    >
-                        <PlanIcon className="h-4 w-4 text-[var(--content-default)]" />
-                    </span>
+                    <PlanTierAvatar tier={currentTier} />
                     <div className="min-w-0 flex-1 space-y-0.5">
-                        <Typography variant="body-medium-default" as="div" data-testid="plan-card-name">
+                        <Typography variant="title-small" as="div" className="text-[var(--content-default)]" data-testid="plan-card-name">
                             {planName}
                         </Typography>
                         {showRenewal && (

@@ -120,7 +120,7 @@ describe("AutoTopUpCard enable gate", () => {
     // The form is not present before the click.
     expect(form()).toBeNull();
 
-    fireEvent.click(getByLabelText("Enable Auto-Reload"));
+    fireEvent.click(getByLabelText("Enable Extra Usage"));
 
     // The enable gate tripped: still no form, and the cutoff notice persists.
     expect(form()).toBeNull();
@@ -149,7 +149,7 @@ describe("AutoTopUpCard enable gate", () => {
 
     expect(form()).toBeNull();
 
-    fireEvent.click(getByLabelText("Enable Auto-Reload"));
+    fireEvent.click(getByLabelText("Enable Extra Usage"));
 
     expect(form()).not.toBeNull();
   });
@@ -174,7 +174,7 @@ describe("AutoTopUpCard enable gate", () => {
       container.querySelector('[data-testid="auto-top-up-save-button"]');
     const addPmButton = () =>
       container.querySelector('[data-testid="auto-top-up-add-pm-button"]');
-    const toggle = getByLabelText("Enable Auto-Reload");
+    const toggle = getByLabelText("Enable Extra Usage");
 
     expect(addPmButton()).toBeNull();
 
