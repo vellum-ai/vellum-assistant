@@ -25,6 +25,9 @@ let alreadyConnected = false;
 // Whether the plain-web sign-in tab is "pop-up blocked": `openUrlInNewTab`
 // resolves `false` in that case (see runtime/browser).
 let popupBlocked = false;
+// The `mode` the daemon's `start` reports — drives the loopback (one-step) vs
+// manual (two-step) card layout once the flow begins.
+let startMode: "loopback" | "manual" = "loopback";
 
 mock.module("@/runtime/browser", () => ({
   openUrl: async (_url: string) => {},
@@ -38,7 +41,7 @@ mock.module("@/lib/backwards-compat/use-supports-acp-connect", () => ({
 
 mock.module("@/hooks/connect-claude-api", () => ({
   startConnectClaude: async () => ({
-    mode: "loopback",
+    mode: startMode,
     authorize_url: "https://claude.ai/oauth",
     state: "state-abc",
   }),
@@ -82,6 +85,7 @@ beforeEach(() => {
   supported = true;
   alreadyConnected = false;
   popupBlocked = false;
+  startMode = "loopback";
 });
 
 afterEach(() => {
@@ -156,5 +160,25 @@ describe("AcpConnectAffordance", () => {
       expect(screen.getByText(/blocked the sign-in tab/)).not.toBeNull(),
     );
     expect(screen.getByRole("button", { name: "Connect" })).not.toBeNull();
+  });
+
+  test("shows the paste step when the daemon returns manual mode (e.g. desktop app on a cloud assistant)", async () => {
+    // The desktop app reports isElectron() = true, but a containerized/cloud
+    // assistant forces `mode: "manual"`. The card must follow the daemon's mode
+    // and render the two-step paste UI — not get stuck in a one-step "waiting"
+    // state with no input.
+    startMode = "manual";
+
+    render(<AcpConnectAffordance assistantId="assistant-123" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+
+    // Once the daemon reports manual, the paste field + Save must appear.
+    await waitFor(() =>
+      expect(
+        screen.getByPlaceholderText("Paste your key"),
+      ).not.toBeNull(),
+    );
+    expect(screen.getByRole("button", { name: "Save" })).not.toBeNull();
   });
 });

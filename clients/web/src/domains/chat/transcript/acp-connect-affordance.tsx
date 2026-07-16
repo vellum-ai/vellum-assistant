@@ -97,7 +97,18 @@ function AcpConnectAffordanceInner({ assistantId }: { assistantId: string }) {
 
   const dismiss = () => useInteractionStore.getState().dismissAcpConnect();
 
-  return isElectron() ? (
+  // The daemon has the final say on loopback (one-step) vs manual (two-step): a
+  // containerized/cloud assistant forces manual even in the desktop app, whose
+  // localhost callback can't reach the pod. So once the flow starts and the
+  // daemon reports its `mode`, trust that; before the first click, guess from
+  // the host (`isElectron()` ⇒ likely loopback). The guess self-corrects the
+  // instant `mode` resolves, so the desktop app on a cloud assistant lands on
+  // the paste step instead of a dead one-step "waiting" state with no input.
+  const oneStep = connection.mode
+    ? connection.mode === "loopback"
+    : isElectron();
+
+  return oneStep ? (
     <OneStepCard connection={connection} onDismiss={dismiss} />
   ) : (
     <TwoStepCard
