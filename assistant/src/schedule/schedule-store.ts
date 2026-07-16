@@ -13,6 +13,10 @@ import {
   isValidScheduleExpression,
 } from "./recurrence-engine.js";
 import type { ScheduleSyntax } from "./recurrence-types.js";
+import {
+  expressionCarriesOwnTimezone,
+  resolveScheduleTimezone,
+} from "./schedule-timezone.js";
 
 const logger = getLogger("schedule-store");
 
@@ -154,7 +158,14 @@ export async function createSchedule(params: {
   const id = uuid();
   const now = Date.now();
   const enabled = params.enabled ?? true;
-  const timezone = params.timezone ?? null;
+  // A recurring wall-clock schedule with no zone otherwise evaluates in the host
+  // clock (UTC on managed containers). Default it to the user's configured/detected
+  // zone so it fires at the intended local hour. One-shot schedules (absolute epoch)
+  // and expressions that carry their own zone keep the caller's value verbatim.
+  const timezone =
+    isOneShot || expressionCarriesOwnTimezone(syntax, expression)
+      ? (params.timezone ?? null)
+      : resolveScheduleTimezone(params.timezone);
   const mode = params.mode ?? "execute";
   const routingIntent = params.routingIntent ?? "all_channels";
   const routingHints = params.routingHints ?? {};
