@@ -124,6 +124,7 @@ import {
   getOrCreateConversation,
 } from "../../persistence/conversation-key-store.js";
 import { searchConversations } from "../../persistence/conversation-queries.js";
+import { linkRequestLogsToMessage } from "../../persistence/llm-request-log-store.js";
 import { MEMORY_RETROSPECTIVE_FORK_SOURCE } from "../../plugins/defaults/memory/memory-retrospective-constants.js";
 import { normalizeOnboardingContext } from "../../prompts/normalize-onboarding.js";
 import { writeOnboardingSection } from "../../prompts/persona-resolver.js";
@@ -2357,13 +2358,18 @@ export async function handleSendMessage(
         publishConversationMessagesChanged(conversationId, originClientId);
         conversation.emitActivityState("thinking", "context_compacting");
         const result = await conversation.forceCompact();
-        await persistCannedAssistantCard({
+        const cardId = await persistCannedAssistantCard({
           conversation,
           conversationId,
           text: formatCompactResult(result),
           metadata: channelMeta,
           originClientId,
         });
+        // Attribute the compaction LLM call to the card it produced — same
+        // linkage as the summarize-up-to route.
+        if (result.summaryRequestLogId) {
+          linkRequestLogsToMessage([result.summaryRequestLogId], cardId);
+        }
       } catch (err) {
         log.error({ err, conversationId }, "Compact command failed");
         broadcastMessage({

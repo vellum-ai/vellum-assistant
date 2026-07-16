@@ -32,7 +32,7 @@
  */
 
 import type { MessageRow } from "../persistence/conversation-crud.js";
-import { isSystemCardMetadata } from "../persistence/conversation-crud.js";
+import { isSystemCardMessage } from "../persistence/conversation-crud.js";
 import type { ContentBlock } from "../providers/types.js";
 import { getLogger } from "../util/logger.js";
 
@@ -45,16 +45,7 @@ const log = getLogger("message-consolidation");
  * fold into them.
  */
 export function isSystemCardRow(msg: MessageRow): boolean {
-  if (msg.role !== "assistant" || !msg.metadata) {
-    return false;
-  }
-  try {
-    return isSystemCardMetadata(
-      JSON.parse(msg.metadata) as Record<string, unknown>,
-    );
-  } catch {
-    return false;
-  }
+  return isSystemCardMessage(msg.role, msg.metadata);
 }
 
 // ── Block predicates ────────────────────────────────────────────────
