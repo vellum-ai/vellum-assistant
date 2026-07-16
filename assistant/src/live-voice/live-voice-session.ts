@@ -901,8 +901,14 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     // Idle mic: hold silent chunks in the bounded pre-roll instead of
     // collecting or streaming them; flushed on speech onset so the
     // transcriber still gets leading context ahead of the first syllable.
+    // Warm-up-suppressed chunks are presumed assistant echo, not leading
+    // user context: pre-rolling them would flush transcribable assistant
+    // audio into the next genuine utterance's STT and archive, so they are
+    // dropped instead.
     if (!hasSpeech && !detector.isActive) {
-      this.pushVadPreRoll(chunk, false);
+      if (!this.echoGateChunkWarmingUp) {
+        this.pushVadPreRoll(chunk, false);
+      }
       return;
     }
 
@@ -918,8 +924,11 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       }
       if (!this.canArmNextUtterance(utterance)) {
         // Speech in the release→turn-start window: hold it in the pre-roll
-        // ring so it flushes into the next utterance once it arms.
-        this.pushVadPreRoll(chunk, hasSpeech);
+        // ring so it flushes into the next utterance once it arms. Warm-up
+        // chunks are presumed echo and dropped, as above.
+        if (!this.echoGateChunkWarmingUp) {
+          this.pushVadPreRoll(chunk, hasSpeech);
+        }
         return;
       }
       // Sets currentUtterance synchronously; the transcriber resolves async
@@ -984,8 +993,19 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // fresh warm-up — the reference never goes stale against resumed echo. A
   // user starting to speak inside a warm-up is absorbed into the reference
   // (echo-first assumption) and recovers by pausing and speaking again once
-  // the gate is warm. Warm-up is measured in processed audio time, the same
-  // clock that drives EMA convergence.
+  // the gate is warm. Warm-up is measured in SIGNAL-BEARING audio time
+  // (chunks at or above the base threshold): silence carries no echo-level
+  // information, so drain-gap or transport-lag silence neither decays the
+  // reference nor burns the warm-up before echo has arrived to be learned.
+  //
+  // Known limitation (accepted): within one continuous burst, a slow
+  // crescendo (~300 ms+ ramp from sub-threshold) or a dip that stays above
+  // the base threshold can leave the armed-guard-frozen reference below the
+  // live echo level, and sustained echo can then run out the guard. Real
+  // TTS onsets attack far faster than the warm-up learns, so this needs an
+  // unusually shaped burst; the alternatives (letting the reference chase
+  // upward while armed) raise the bar for genuine barge-ins to ~2× echo,
+  // which is worse.
   //
   // Turn collision: a guard with a LIVE speech run when the window opens is
   // the user already talking across the turn boundary — humans cannot react
@@ -1026,22 +1046,31 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       !this.echoWindowGuardCarryover &&
       this.echoWindowAudioMs < this.echoEmaHalfLifeMs / 2;
     this.echoGateChunkWarmingUp = warmingUp;
-    const chunkMs = pcm16DurationMs(
-      chunk.byteLength,
-      this.context.startFrame.audio.sampleRate,
-    );
-    if (this.pendingBargeIn === null || warmingUp) {
-      // Attack fast during warm-up (quarter half-life) so the reference
-      // overtakes steady onset echo inside the warm-up window; settle to the
-      // configured half-life afterwards for stability against transients.
-      const halfLifeMs = warmingUp
-        ? this.echoEmaHalfLifeMs / 4
-        : this.echoEmaHalfLifeMs;
-      const alpha = 1 - 0.5 ** (chunkMs / halfLifeMs);
-      this.echoEnergyEma =
-        alpha * meanAmplitude + (1 - alpha) * this.echoEnergyEma;
+    // Sub-base chunks carry no echo-level information: in-window silence —
+    // a drain gap shorter than the slack, or the transport lag before the
+    // first echo of a burst reaches the mic — must neither decay the
+    // reference toward the noise floor (resumed echo would then beat a
+    // stale, lowered threshold) nor burn the warm-up clock before any echo
+    // has arrived to be learned. Only signal-bearing chunks advance either.
+    if (meanAmplitude >= baseThreshold) {
+      const chunkMs = pcm16DurationMs(
+        chunk.byteLength,
+        this.context.startFrame.audio.sampleRate,
+      );
+      if (this.pendingBargeIn === null || warmingUp) {
+        // Attack fast during warm-up (quarter half-life) so the reference
+        // overtakes steady onset echo inside the warm-up window; settle to
+        // the configured half-life afterwards for stability against
+        // transients.
+        const halfLifeMs = warmingUp
+          ? this.echoEmaHalfLifeMs / 4
+          : this.echoEmaHalfLifeMs;
+        const alpha = 1 - 0.5 ** (chunkMs / halfLifeMs);
+        this.echoEnergyEma =
+          alpha * meanAmplitude + (1 - alpha) * this.echoEnergyEma;
+      }
+      this.echoWindowAudioMs += chunkMs;
     }
-    this.echoWindowAudioMs += chunkMs;
     return threshold;
   }
 

@@ -1327,10 +1327,12 @@ describe("LiveVoiceSession server VAD", () => {
     );
     await waitFor(() => frames.some((frame) => frame.type === "tts_audio"));
 
-    // Age the echo window past its (pinned-tiny) warm-up with a silent
-    // chunk, so the barge-in below trips synchronously inside
-    // handleBinaryAudio and can race the queued completion.
-    await session.handleBinaryAudio(SILENT_CHUNK);
+    // Age the echo window past its (pinned-tiny) warm-up with a chunk at
+    // exactly the base threshold — signal-bearing (advances the warm-up
+    // clock) but not speech (strict > comparison) — so the barge-in below
+    // trips synchronously inside handleBinaryAudio and can race the queued
+    // completion.
+    await session.handleBinaryAudio(pcm(800));
 
     // The LLM finishes just as the user barges in: message_complete queues
     // the completion continuation and the abort fires before it runs.
@@ -2180,7 +2182,6 @@ describe("LiveVoiceSession sustained-speech barge-in guard", () => {
       }
       await flushAsyncCallbacks();
 
-      console.log("FRAMES:", frameTypes(frames).join(","));
       expect(countType(frames, "speech_started")).toBe(baseline);
       expect(countType(frames, "turn_cancelled")).toBe(0);
       expect(abort).not.toHaveBeenCalled();
@@ -2482,6 +2483,97 @@ describe("LiveVoiceSession sustained-speech barge-in guard", () => {
       await flushAsyncCallbacks();
       expect(countType(frames, "turn_cancelled")).toBe(baseline);
       expect(abort).not.toHaveBeenCalled();
+    });
+
+    test("a drain gap shorter than the slack does not decay the reference against resumed echo", async () => {
+      const { frames, session, abort, speakFirstReply } =
+        createSpeakingTurnHarness({
+          bargeInMinSpeechMs: 60,
+          echoEmaHalfLifeMs: 40,
+        });
+      await speakFirstReply();
+      const baseline = countType(frames, "speech_started");
+
+      // Converge on the burst's echo.
+      for (let index = 0; index < 10; index += 1) {
+        await session.handleBinaryAudio(pcm(3_000));
+      }
+      // A sub-slack drain gap: 300 ms of sub-base silence. Silence carries
+      // no echo-level information, so the reference must hold rather than
+      // decay toward the noise floor.
+      for (let index = 0; index < 30; index += 1) {
+        await session.handleBinaryAudio(pcm(200));
+      }
+      // Resumed echo at the same level sits under the HELD margin. Were the
+      // reference decaying through the gap, this would classify as speech
+      // and run out the guard.
+      for (let index = 0; index < 40; index += 1) {
+        await session.handleBinaryAudio(pcm(3_000));
+      }
+      await flushAsyncCallbacks();
+
+      expect(countType(frames, "speech_started")).toBe(baseline);
+      expect(countType(frames, "turn_cancelled")).toBe(0);
+      expect(abort).not.toHaveBeenCalled();
+    });
+
+    test("transport-lag silence before the first echo does not burn the warm-up", async () => {
+      const { frames, session, abort, speakFirstReply } =
+        createSpeakingTurnHarness({
+          bargeInMinSpeechMs: 60,
+          echoEmaHalfLifeMs: 40,
+        });
+      await speakFirstReply();
+      const baseline = countType(frames, "speech_started");
+
+      // 150 ms of sub-base silence: the window is open (audio sent) but the
+      // burst's echo has not reached the mic yet. The warm-up clock counts
+      // signal-bearing audio only, so it must not tick here.
+      for (let index = 0; index < 15; index += 1) {
+        await session.handleBinaryAudio(pcm(200));
+      }
+      // The echo finally arrives and gets the FULL warm-up: learned and
+      // suppressed, never tripping the guard. Were the warm-up burned by the
+      // lag silence, this echo would be judged post-warm-up against a cold
+      // reference at the base threshold and cancel the turn.
+      for (let index = 0; index < 40; index += 1) {
+        await session.handleBinaryAudio(pcm(3_000));
+      }
+      await flushAsyncCallbacks();
+
+      expect(countType(frames, "speech_started")).toBe(baseline);
+      expect(countType(frames, "turn_cancelled")).toBe(0);
+      expect(abort).not.toHaveBeenCalled();
+    });
+
+    test("warm-up echo is dropped, not pre-rolled into the next utterance's STT audio", async () => {
+      const { frames, session, transcribers, speakFirstReply } =
+        createSpeakingTurnHarness({
+          bargeInMinSpeechMs: 60,
+          echoEmaHalfLifeMs: 40,
+        });
+      await speakFirstReply();
+
+      // Two warm-up chunks of presumed onset echo: suppressed AND dropped
+      // (not held as pre-roll "leading context").
+      const echoChunk = pcm(3_000);
+      await session.handleBinaryAudio(echoChunk);
+      await session.handleBinaryAudio(echoChunk);
+      // The user barges in loudly enough to clear the converged margin; the
+      // pre-roll flush must not prepend the assistant's own echo to their
+      // utterance's transcription audio.
+      for (let index = 0; index < 7; index += 1) {
+        await session.handleBinaryAudio(pcm(6_000));
+      }
+      await waitFor(() =>
+        frames.some((frame) => frame.type === "turn_cancelled"),
+      );
+
+      const echoBuffer = Buffer.from(echoChunk);
+      const echoForwarded = transcribers.some((transcriber) =>
+        transcriber.received.some((buffer) => buffer.equals(echoBuffer)),
+      );
+      expect(echoForwarded).toBe(false);
     });
 
     test("the echo reference freezes while the barge-in guard is armed", async () => {
