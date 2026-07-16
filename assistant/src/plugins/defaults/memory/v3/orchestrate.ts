@@ -89,9 +89,18 @@ const log = getLogger("memory-v3-injection-gate");
 export const MEMORY_V3_INJECTION_GATE_CHECK_NAME = "memory_v3_injection_gate";
 
 /** Record one injection-gate run to usage telemetry. `detail` keys are the
- *  platform-side contract (snake_case, scores and reason codes only — never
- *  conversation content). Never throws: the gate is pass-open by design, and a
- *  telemetry failure must not cost the turn its memory either. */
+ *  platform-side contract (snake_case; scores, reason codes, and corpus-size
+ *  counts only — never page titles, slugs, or conversation content). Never
+ *  throws: the gate is pass-open by design, and a telemetry failure must not
+ *  cost the turn its memory either.
+ *
+ *  `detail.scored` says whether checkV3Gate actually weighed scores this run, as
+ *  opposed to the run taking a pass-open shortcut (dense off, dense unavailable,
+ *  gate threw). Pass rate is only meaningful over scored runs — the shortcuts are
+ *  all unconditional passes and would otherwise inflate it. It is derivable from
+ *  `reason`, but the daemon owns the reason set and adds to it freely, so it is
+ *  reported explicitly rather than left for the platform to re-derive from a
+ *  hardcoded list that would silently miscount the next reason we add. */
 function recordGateRun(detail: Record<string, unknown>): void {
   try {
     recordWatchdogEvent({
@@ -182,6 +191,12 @@ export interface OrchestrateDeps {
    *  `enabled`, assembled in observeTurn). Omitted/disabled → the gate never
    *  runs and every turn proceeds to selectPool as before. */
   gateConfig?: V3GateConfig;
+  /** Real concept-page count at lane build — the same corpus-size signal
+   *  `resolveV3Tuning` switches the lean/full profile on. Reported with each
+   *  gate run so the reason distribution can be read against
+   *  `MEMORY_V3_FULL_PROFILE_MIN_PAGES`; omitted drops the field from the
+   *  telemetry detail (the gate itself never reads it). */
+  realConceptPageCount?: number;
 }
 
 /** A finder-lane candidate: the slug, the descriptor that justified it, and
@@ -430,29 +445,50 @@ export async function orchestrate(
   //
   // The gate is dense-gated: it only runs when the live dense lane produced hits
   // (`liveDensed.length > 0`). In healthy operation dense returns top-k hits for
-  // any query, so zero live dense hits means dense is unavailable — denseK=0 (the
-  // new-user/small-corpus profile), a degraded embedding backend, a Qdrant error
-  // (`denseLaneScored` swallows these to `[]`), or only stale deleted-page points
-  // returned — NOT low relevance. checkV3Gate reads only finder scores and cannot
-  // tell those apart, so without live dense signal we pass open rather than
-  // suppress all memory (not even the core/hot/fresh prefix) on every
-  // lexically-weak turn.
+  // any query, so zero live dense hits means dense is unavailable, NOT low
+  // relevance. checkV3Gate reads only finder scores and cannot tell those apart,
+  // so without live dense signal we pass open rather than suppress all memory
+  // (not even the core/hot/fresh prefix) on every lexically-weak turn.
+  //
+  // Two very different situations reach that pass-open, and they carry distinct
+  // reason codes because only one of them is a problem:
+  //   - dense_disabled:    `denseK === 0`, so the lane never ran. The lean
+  //                        new-user profile (`MEMORY_V3_NEW_USER_TUNING`) sets it
+  //                        for sub-threshold corpora, and that same profile sets
+  //                        `selectorEnabled: false` — so there is no selectPool
+  //                        call for the gate to save and passing open is free.
+  //                        Expected, benign, and the bulk of gate runs.
+  //   - dense_unavailable: the lane ran and yielded nothing live — a degraded
+  //                        embedding backend, a Qdrant error (`denseLaneScored`
+  //                        swallows these to `[]`), or only stale deleted-page
+  //                        points. Dense SHOULD have scored this turn and did
+  //                        not, so this one is worth alerting on.
+  //
+  // Every run carries the corpus size, so the reason mix can be read against the
+  // profile threshold rather than guessed at: `dense_disabled` is sub-threshold
+  // by construction, and whether those assistants sit at 1 page or 9 is the
+  // difference between "empty" and "about to cross".
+  const recordGate = (detail: Record<string, unknown>): void =>
+    recordGateRun(
+      deps.realConceptPageCount === undefined
+        ? detail
+        : { ...detail, real_concept_page_count: deps.realConceptPageCount },
+    );
   if (deps.gateConfig?.enabled) {
     if (liveDensed.length === 0) {
-      // No live dense hits (denseK=0 / degraded backend / Qdrant error swallowed
-      // to [] / only stale deleted-page points returned). That means dense is
-      // unavailable, not low relevance, so pass open — but record it so rollout
-      // telemetry sees these turns instead of silently skipping the gate.
+      const reason = denseEnabled ? "dense_unavailable" : "dense_disabled";
       log.info(
         {
           conversationId: turn.conversationId,
           turnNumber: turn.turnNumber,
-          reason: "dense_unavailable",
+          reason,
           pass: true,
         },
-        "memory-v3 injection gate: dense lane unavailable, passing open",
+        denseEnabled
+          ? "memory-v3 injection gate: dense lane unavailable, passing open"
+          : "memory-v3 injection gate: dense lane disabled, passing open",
       );
-      recordGateRun({ pass: true, reason: "dense_unavailable" });
+      recordGate({ pass: true, reason, scored: false });
     } else {
       let gate: V3GateResult | null = null;
       try {
@@ -469,7 +505,7 @@ export async function orchestrate(
           },
           "memory-v3 injection gate threw; passing open (proceeding with selection)",
         );
-        recordGateRun({ pass: true, reason: "gate_error" });
+        recordGate({ pass: true, reason: "gate_error", scored: false });
       }
       if (gate) {
         log.info(
@@ -480,9 +516,10 @@ export async function orchestrate(
           },
           "memory-v3 injection gate decision",
         );
-        recordGateRun({
+        recordGate({
           pass: gate.pass,
           reason: gate.reason,
+          scored: true,
           top_dense_score: gate.topDenseScore,
           top_norm_sparse_score: gate.topNormSparseScore,
           checked_articles: gate.checkedArticles,

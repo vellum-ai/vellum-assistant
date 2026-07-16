@@ -12,15 +12,10 @@ export const ONBOARDING_FUNNEL_VARIANTS = {
 export type OnboardingFunnelVariant =
   (typeof ONBOARDING_FUNNEL_VARIANTS)[keyof typeof ONBOARDING_FUNNEL_VARIANTS];
 
+// Steps for the privacy/ToS consent screen shown ahead of onboarding. The
+// research-onboarding funnel below carries its own step catalog.
 export const ONBOARDING_FUNNEL_STEPS = {
   privacyTos: { stepName: "privacy_tos", stepIndex: 0 },
-  nameVibe: { stepName: "name_vibe", stepIndex: 1 },
-  controlWorkType: { stepName: "work_type", stepIndex: 2 },
-  controlTools: { stepName: "tools", stepIndex: 3 },
-  controlPriorAssistants: { stepName: "prior_assistants", stepIndex: 4 },
-  controlGmailConnect: { stepName: "gmail_connect", stepIndex: 5 },
-  controlGetApp: { stepName: "get_app", stepIndex: 6 },
-  gmailConnect: { stepName: "gmail_connect", stepIndex: 2 },
 } as const;
 
 export type OnboardingFunnelStep =
@@ -30,8 +25,9 @@ export type OnboardingFunnelStepName = OnboardingFunnelStep["stepName"];
 
 /**
  * Structural shape every funnel step descriptor satisfies. Lets the emit/build
- * helpers serve multiple funnels (the pre-chat funnel and the research-onboarding
- * funnel below) without pinning the step-name union to one funnel's steps.
+ * helpers serve multiple funnels (the privacy/ToS consent step above and the
+ * research-onboarding funnel below) without pinning the step-name union to one
+ * funnel's steps.
  */
 export interface OnboardingFunnelStepDescriptor {
   stepName: string;

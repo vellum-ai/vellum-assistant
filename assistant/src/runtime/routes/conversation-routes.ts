@@ -1259,6 +1259,7 @@ export function persistOnboardingArtifacts(onboarding: {
   cohort?: string;
   websiteUrl?: string;
   contentSourceUrl?: string;
+  researchFindings?: string[];
 }): void {
   writeOnboardingSidecar(onboarding);
 
@@ -1391,6 +1392,7 @@ export async function handleSendMessage(
       tasks: string[];
       tone: string;
       userName?: string;
+      occupation?: string;
       assistantName?: string;
       googleConnected?: boolean;
       googleScopes?: string[];
@@ -1401,6 +1403,7 @@ export async function handleSendMessage(
       bootstrapTemplate?: string;
       initialMessage?: string;
       skills?: string[];
+      researchFindings?: string[];
       title?: string;
     };
   };
@@ -3044,6 +3047,12 @@ export const ROUTES: RouteDefinition[] = [
           bootstrapTemplate: z.string().optional(),
           initialMessage: z.string().optional(),
           skills: z.array(z.string()).optional(),
+          researchFindings: z
+            .array(z.string())
+            .optional()
+            .describe(
+              "Findings from pre-chat onboarding research that the user explicitly kept on the results screen. Written into the persona's onboarding section so the first turn can reference them.",
+            ),
           title: z
             .string()
             .optional()

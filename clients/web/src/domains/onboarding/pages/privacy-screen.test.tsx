@@ -110,22 +110,20 @@ describe("PrivacyScreen — Start navigation", () => {
     localMode = false;
   });
 
-  test("preview mode replays forward into prechat without persisting consent", () => {
+  test("preview mode no-ops on Start without persisting consent", () => {
     searchParamsValue = new URLSearchParams("preview=true");
     render(<PrivacyScreen />);
 
     clickStart();
 
-    // Developer "Replay Onboarding" advances privacy → prechat (sandboxed),
-    // never to the side-effecting hatching route, and never persists consent.
-    expect(navigateMock).toHaveBeenCalledWith(
-      `${routes.onboarding.prechat}?preview=true`,
-    );
+    // Developer "Replay Onboarding": preview mode allows only non-side-effecting
+    // routes, so Start is a no-op — it neither navigates nor persists consent.
+    expect(navigateMock).not.toHaveBeenCalled();
     expect(saveConsentMock).not.toHaveBeenCalled();
     expect(emitFunnelStepCompletedMock).not.toHaveBeenCalled();
   });
 
-  test("web persists consent and advances to the research flow (now the default), preserving hosting", () => {
+  test("web persists consent and advances to the research flow, preserving hosting", () => {
     nativePlatform = false;
     searchParamsValue = new URLSearchParams("hosting=managed");
     render(<PrivacyScreen />);

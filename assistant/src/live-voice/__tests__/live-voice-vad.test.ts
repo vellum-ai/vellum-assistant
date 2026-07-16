@@ -137,6 +137,8 @@ function createHarness(options: {
   // config path is exercised: unset thresholds come from getConfig().
   viaFactory?: boolean;
   spawnBackgroundContinuation?: LiveVoiceBackgroundContinuationSpawner;
+  getTurnTeardown?: (conversationId: string) => Promise<void> | undefined;
+  detachTeardownSettleTimeoutMs?: number;
 }) {
   const sequencer = createLiveVoiceServerFrameSequencer();
   const frames: LiveVoiceServerFrame[] = [];
@@ -187,6 +189,12 @@ function createHarness(options: {
     bargeInMinSpeechMs: options.bargeInMinSpeechMs,
     ...(options.spawnBackgroundContinuation
       ? { spawnBackgroundContinuation: options.spawnBackgroundContinuation }
+      : {}),
+    ...(options.getTurnTeardown
+      ? { getTurnTeardown: options.getTurnTeardown }
+      : {}),
+    ...(options.detachTeardownSettleTimeoutMs !== undefined
+      ? { detachTeardownSettleTimeoutMs: options.detachTeardownSettleTimeoutMs }
       : {}),
   };
   const session = options.viaFactory
@@ -855,6 +863,143 @@ describe("LiveVoiceSession server VAD", () => {
     // Nothing to continue: no background subagent is spawned.
     expect(spawnBackgroundContinuation).not.toHaveBeenCalled();
     releaseTts?.();
+  });
+
+  test("voice-duplex-handoff on: the continuation fork waits for the interrupted turn's teardown to settle", async () => {
+    setCachedOverrides({ "voice-duplex-handoff": true }, { fromGateway: true });
+    const spawnBackgroundContinuation = mock(
+      async (_args: {
+        parentConversationId: string;
+        objective: string;
+        label: string;
+        signal: AbortSignal;
+      }) => {},
+    );
+    // Hold the interrupted turn's teardown open. Its partial (completed tool
+    // calls) is only in forked history once the teardown settles, so the fork
+    // must not spawn before then.
+    let resolveTeardown: (() => void) | undefined;
+    const teardown = new Promise<void>((resolve) => {
+      resolveTeardown = resolve;
+    });
+    const getTurnTeardown = mock((_conversationId: string) => teardown);
+    const streamTtsAudio = mock(async (options: LiveVoiceTtsOptions) => {
+      options.onAudioChunk(makeTtsChunk("assistant audio"));
+      return makeTtsResult("assistant audio");
+    });
+    const { frames, session } = createHarness({
+      finals: ["first question", "second question"],
+      streamTtsAudio,
+      spawnBackgroundContinuation,
+      getTurnTeardown,
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => frames.some((frame) => frame.type === "thinking"));
+
+    // Barge in during thinking; the detach captures the teardown promise
+    // synchronously but blocks the fork on it.
+    await session.handleBinaryAudio(SUSTAINED_LOUD_CHUNK);
+    await waitFor(() =>
+      frames.some((frame) => frame.type === "turn_cancelled"),
+    );
+    await flushAsyncCallbacks();
+    // Teardown still pending -> no fork yet.
+    expect(getTurnTeardown).toHaveBeenCalledWith("conversation-123");
+    expect(spawnBackgroundContinuation).not.toHaveBeenCalled();
+
+    // Teardown settles -> the fork proceeds.
+    resolveTeardown?.();
+    await waitFor(() => spawnBackgroundContinuation.mock.calls.length === 1);
+  });
+
+  test("voice-duplex-handoff on: the continuation is skipped when the teardown wait times out", async () => {
+    setCachedOverrides({ "voice-duplex-handoff": true }, { fromGateway: true });
+    const spawnBackgroundContinuation = mock(
+      async (_args: {
+        parentConversationId: string;
+        objective: string;
+        label: string;
+        signal: AbortSignal;
+      }) => {},
+    );
+    // A teardown that never settles: the bounded wait times out, and the fork
+    // must be skipped rather than snapshot history that may still be missing the
+    // interrupted turn's completed tool calls.
+    const getTurnTeardown = mock(
+      (_conversationId: string) => new Promise<void>(() => {}),
+    );
+    const streamTtsAudio = mock(async (options: LiveVoiceTtsOptions) => {
+      options.onAudioChunk(makeTtsChunk("assistant audio"));
+      return makeTtsResult("assistant audio");
+    });
+    const { frames, session } = createHarness({
+      finals: ["first question", "second question"],
+      streamTtsAudio,
+      spawnBackgroundContinuation,
+      getTurnTeardown,
+      // Tiny timeout so the bounded wait elapses within the test.
+      detachTeardownSettleTimeoutMs: 10,
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => frames.some((frame) => frame.type === "thinking"));
+    await session.handleBinaryAudio(SUSTAINED_LOUD_CHUNK);
+    await waitFor(() =>
+      frames.some((frame) => frame.type === "turn_cancelled"),
+    );
+    // Wait comfortably past the bounded teardown timeout, then confirm the
+    // detach fell through without forking.
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    expect(spawnBackgroundContinuation).not.toHaveBeenCalled();
+  });
+
+  test("voice-duplex-handoff on: a client interrupt during the teardown wait skips the continuation", async () => {
+    setCachedOverrides({ "voice-duplex-handoff": true }, { fromGateway: true });
+    const spawnBackgroundContinuation = mock(
+      async (_args: {
+        parentConversationId: string;
+        objective: string;
+        label: string;
+        signal: AbortSignal;
+      }) => {},
+    );
+    // Never resolves: the detach is parked in the teardown wait until the stop
+    // aborts it.
+    let resolveTeardown: (() => void) | undefined;
+    const teardown = new Promise<void>((resolve) => {
+      resolveTeardown = resolve;
+    });
+    const getTurnTeardown = mock((_conversationId: string) => teardown);
+    const streamTtsAudio = mock(async (options: LiveVoiceTtsOptions) => {
+      options.onAudioChunk(makeTtsChunk("assistant audio"));
+      return makeTtsResult("assistant audio");
+    });
+    const { frames, session } = createHarness({
+      finals: ["first question", "second question"],
+      streamTtsAudio,
+      spawnBackgroundContinuation,
+      getTurnTeardown,
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => frames.some((frame) => frame.type === "thinking"));
+    await session.handleBinaryAudio(SUSTAINED_LOUD_CHUNK);
+    await waitFor(() =>
+      frames.some((frame) => frame.type === "turn_cancelled"),
+    );
+    await flushAsyncCallbacks();
+    expect(spawnBackgroundContinuation).not.toHaveBeenCalled();
+
+    // The stop aborts the detach's controller mid-wait; the fork is skipped
+    // even once the teardown later settles.
+    await session.handleClientFrame({ type: "interrupt" });
+    resolveTeardown?.();
+    await flushAsyncCallbacks();
+    expect(spawnBackgroundContinuation).not.toHaveBeenCalled();
   });
 
   test("a late assistant_text_delta after a thinking barge-in never reaches the client", async () => {

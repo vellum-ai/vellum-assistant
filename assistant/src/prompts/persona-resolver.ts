@@ -421,6 +421,14 @@ function buildOnboardingSection(normalized: NormalizedOnboarding): string {
   if (normalized.dailyTools.length > 0) {
     lines.push(`- **Daily tools:** ${normalized.dailyTools.join(", ")}`);
   }
+  if (normalized.researchFindings?.length) {
+    lines.push(
+      "- **Research findings** (surfaced during onboarding, confirmed by the user):",
+    );
+    for (const finding of normalized.researchFindings) {
+      lines.push(`  - ${finding}`);
+    }
+  }
 
   lines.push("");
   return lines.join("\n");
