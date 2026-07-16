@@ -476,6 +476,14 @@ export interface OnboardingResearchTelemetryEvent extends TelemetryEventBase {
   type: "onboarding_research";
   conversation_id: string | null;
   status: "done" | "error";
+  /**
+   * The onboarding-form values the turn was run ON (its INPUT), as distinct
+   * from the inferred `claims` below (its OUTPUT). Excludes the user's name by
+   * design. Optional — an older web client omits them.
+   */
+  self_reported_occupation?: string;
+  self_reported_hobbies?: string[];
+  self_reported_timezone?: string;
   claims: OnboardingResearchClaim[];
   claim_count: number;
   claims_confident: number;

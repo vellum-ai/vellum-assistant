@@ -15,6 +15,18 @@ export interface OnboardingResearchEvent {
 export interface RecordOnboardingResearchEventParams {
   conversationId: string | null;
   status: "done" | "error";
+  /**
+   * The onboarding-form values the research turn was run ON — its INPUT, as
+   * distinct from the claims/suggestions below (its OUTPUT). Without these a
+   * claim cannot be told apart from the form value it merely echoed back, and
+   * `installedPlugins` is unattributable (the deterministic floor is keyed on
+   * occupation). Excludes the user's name by design: directly identifying, and
+   * not needed to judge research quality. Optional throughout — an older web
+   * client omits them.
+   */
+  selfReportedOccupation?: string;
+  selfReportedHobbies?: string[];
+  selfReportedTimezone?: string;
   claims: OnboardingResearchClaim[];
   suggestions: OnboardingResearchSuggestion[];
   /** The model's raw top-level `plugins` picks, before the deterministic-floor merge. */
@@ -76,6 +88,9 @@ export function recordOnboardingResearchEvent(
       recorded_at: createdAt,
       conversation_id: params.conversationId,
       status: params.status,
+      self_reported_occupation: params.selfReportedOccupation,
+      self_reported_hobbies: params.selfReportedHobbies,
+      self_reported_timezone: params.selfReportedTimezone,
       claims: params.claims,
       claim_count: params.claims.length,
       claims_confident: countByConfidence(params.claims, "confident"),

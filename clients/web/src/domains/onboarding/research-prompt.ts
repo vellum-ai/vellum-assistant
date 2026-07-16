@@ -24,7 +24,14 @@ export interface ResearchSubject {
   firstName: string;
   lastName: string;
   occupation: string;
-  hobby?: string;
+  /**
+   * The form's multi-select chips, verbatim. Kept as the array the user
+   * actually picked rather than a pre-joined string: this is the shape the
+   * onboarding-research telemetry event records, and chips are free-typed, so
+   * a hobby containing a comma could not be split back out of a join. The
+   * prompt's `", "` rendering is applied below, at the point of use.
+   */
+  hobbies?: string[];
   /**
    * IANA timezone of the user's browser (e.g. "America/Denver"). A soft
    * location signal the prompt's identity gate checks candidate matches
@@ -92,7 +99,7 @@ export interface BuildResearchPromptOptions {
 }
 
 export function buildResearchPrompt(
-  { firstName, lastName, occupation, hobby, timezone }: ResearchSubject,
+  { firstName, lastName, occupation, hobbies, timezone }: ResearchSubject,
   availableCapabilities: AvailableCapability[] = [],
   { includeSuggestions = true }: BuildResearchPromptOptions = {},
 ): string {
@@ -100,7 +107,10 @@ export function buildResearchPrompt(
     .filter(Boolean)
     .join(" ");
   const role = occupation.trim();
-  const hobbyText = hobby?.trim() ?? "";
+  const hobbyText = (hobbies ?? [])
+    .map((h) => h.trim())
+    .filter(Boolean)
+    .join(", ");
   const timezoneText = timezone?.trim() ?? "";
   const capabilitiesBlock = renderCapabilitiesBlock(
     availableCapabilities,

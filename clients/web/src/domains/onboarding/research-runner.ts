@@ -196,6 +196,12 @@ async function installCapabilityBestEffort(
 }
 
 /**
+ * Cap on hobbies reported to telemetry. Matches the platform serializer's
+ * `self_reported_hobbies` bound so the two can't disagree.
+ */
+const MAX_REPORTED_HOBBIES = 32;
+
+/**
  * Report a research turn's outcome (claims/suggestions/plugin picks) for
  * analytics. Client-orchestrated: the daemon never detects this turn on its
  * own, so the client reports it once — either as the raw model output the
@@ -204,11 +210,18 @@ async function installCapabilityBestEffort(
  * plugins), or as whatever had been parsed so far if the poll ceiling fires
  * first (`status: "error"`). Fire-and-forget: a failure here must never
  * block or surface in the flow, mirroring `archiveResearchConversation`.
+ *
+ * Reports the `subject` the turn was run ON alongside its results, so a claim
+ * can be told apart from the form value it merely echoed back, and so
+ * `installed_plugins` is attributable (the deterministic floor is keyed on
+ * occupation). The name is deliberately NOT sent: directly identifying, and
+ * nothing downstream needs it to judge research quality.
  */
 async function sendOnboardingResearchTelemetry({
   assistantId,
   conversationId,
   status,
+  subject,
   claims,
   suggestions,
   plugins,
@@ -217,6 +230,7 @@ async function sendOnboardingResearchTelemetry({
   assistantId: string;
   conversationId: string;
   status: "done" | "error";
+  subject: ResearchSubject;
   claims: ResearchFact[];
   suggestions: ResearchSuggestion[];
   plugins: string[];
@@ -228,6 +242,17 @@ async function sendOnboardingResearchTelemetry({
       body: {
         conversation_id: conversationId,
         status,
+        self_reported_occupation: subject.occupation,
+        // Capped client-side: the chip field has no UI limit, and the
+        // platform serializer's own bound would drop the WHOLE event rather
+        // than the overflow (an invalid event is skipped while the batch
+        // still 2xxes). Truncating here keeps a pathological form from
+        // costing us the research report entirely.
+        self_reported_hobbies: (subject.hobbies ?? []).slice(
+          0,
+          MAX_REPORTED_HOBBIES,
+        ),
+        self_reported_timezone: subject.timezone,
         claims,
         suggestions,
         plugins,
@@ -642,6 +667,7 @@ export function useResearchRunner(): UseResearchRunner {
                   assistantId,
                   conversationId,
                   status: "done",
+                  subject,
                   claims,
                   suggestions,
                   plugins,
@@ -670,6 +696,7 @@ export function useResearchRunner(): UseResearchRunner {
               assistantId,
               conversationId,
               status: "error",
+              subject,
               claims: lastClaims,
               suggestions: lastSuggestions,
               plugins: lastPlugins,

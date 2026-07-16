@@ -105,7 +105,7 @@ function researchSubjectFrom(values: ResearchOnboardingValues): ResearchSubject 
     firstName: values.firstName,
     lastName: values.lastName,
     occupation: values.role,
-    hobby: values.hobbies.join(", "),
+    hobbies: values.hobbies,
     timezone: getBrowserTimezone(),
   };
 }
@@ -507,7 +507,7 @@ export function ResearchOnboardingRoute() {
                 firstName,
                 lastName,
                 occupation: role,
-                hobby: hobbies.join(", "),
+                hobbies,
               }),
             // A hidden kickoff (the "Let's chat" handoff) drives the first reply
             // without rendering a user bubble, so the chat opens as a proactive

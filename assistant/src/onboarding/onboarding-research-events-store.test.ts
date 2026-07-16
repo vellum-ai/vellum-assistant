@@ -92,6 +92,9 @@ describe("onboarding-research-events-store", () => {
     recordOnboardingResearchEvent({
       conversationId: "conv-xyz",
       status: "done",
+      selfReportedOccupation: "Chief Technology Officer",
+      selfReportedHobbies: ["gardening", "chess"],
+      selfReportedTimezone: "America/New_York",
       claims: SAMPLE_CLAIMS,
       suggestions: [
         { suggestion: "I'll find 3 papers", prompt: "Find me 3 papers" },
@@ -117,6 +120,11 @@ describe("onboarding-research-events-store", () => {
       recorded_at: row.createdAt,
       conversation_id: "conv-xyz",
       status: "done",
+      // The turn's INPUT, so a claim can be told apart from the form value it
+      // echoed back. No name field by design.
+      self_reported_occupation: "Chief Technology Officer",
+      self_reported_hobbies: ["gardening", "chess"],
+      self_reported_timezone: "America/New_York",
       claims: SAMPLE_CLAIMS,
       claim_count: 4,
       claims_confident: 2,
@@ -130,6 +138,27 @@ describe("onboarding-research-events-store", () => {
       installed_plugins: ["marketing-expert", "web-research"],
       assistant_version: APP_VERSION,
     });
+  });
+
+  test("an older client that omits the self-reported subject still records (the fields are absent, not null)", () => {
+    recordOnboardingResearchEvent({
+      conversationId: "conv-xyz",
+      status: "done",
+      claims: SAMPLE_CLAIMS,
+      suggestions: [],
+      plugins: [],
+      installedPlugins: [],
+    });
+
+    const row = pendingRows()[0]!;
+    const payload = row.payload as Record<string, unknown>;
+    expect(payload.status).toBe("done");
+    // Absent rather than an explicit null: the platform serializer treats the
+    // fields as optional, and a null would be a claim about the subject the
+    // client never made.
+    expect(payload.self_reported_occupation).toBeUndefined();
+    expect(payload.self_reported_hobbies).toBeUndefined();
+    expect(payload.self_reported_timezone).toBeUndefined();
   });
 
   test("empty claims/suggestions/plugins ship as empty arrays with zeroed counts; daemon_event_id falls back to the row id without a conversation", () => {
