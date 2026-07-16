@@ -300,6 +300,31 @@ describe("SpeechToTextCard — macOS Native Dictation option", () => {
     ).toBeNull();
   });
 
+  // Provider "vellum" routes to managed regardless of mode, so a provider-only
+  // managed config (written via the CLI) must render and escape like one
+  // written by the toggle.
+  test("renders the Managed panel for a provider-only vellum daemon", () => {
+    daemonConfigData = { services: { stt: { provider: "vellum" } } };
+    renderCard();
+
+    expect(
+      screen.getByText(/Managed transcription is included/),
+    ).toBeDefined();
+  });
+
+  test("escaping a provider-only vellum daemon replaces the provider", async () => {
+    daemonConfigData = { services: { stt: { provider: "vellum" } } };
+    renderCard();
+
+    setMode("Your Own");
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(configPatchCalls.length).toBe(1));
+    expect(configPatchCalls[0]!.body).toMatchObject({
+      services: { stt: { provider: "deepgram", mode: "your-own" } },
+    });
+  });
+
   test("Managed Save writes a daemon-mapped provider as the restore value", async () => {
     // The stored provider is the your-own restore value for toggling back and
     // must be a valid daemon id; effectiveSttProvider routes managed mode to

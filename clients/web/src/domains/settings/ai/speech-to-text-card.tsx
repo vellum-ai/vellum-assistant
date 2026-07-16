@@ -89,7 +89,12 @@ export function SpeechToTextCard() {
   const daemonStt = daemonConfig?.services?.stt as
     { provider?: string; mode?: string } | undefined;
   const daemonSttProvider = daemonStt?.provider;
-  const daemonManaged = daemonStt?.mode === "managed";
+  // Provider "vellum" routes to managed regardless of mode, so the card must
+  // treat it as managed too — otherwise a provider-only managed config (e.g.
+  // written via the CLI) would render the Your Own panel, and a save from it
+  // could never escape: nothing would look changed, so no provider write.
+  const daemonManaged =
+    daemonStt?.mode === "managed" || daemonSttProvider === "vellum";
 
   // Managed vs. your-own toggle. Derived from the daemon (source of truth),
   // falling back to localStorage so the toggle doesn't flash "your-own" before
@@ -97,11 +102,13 @@ export function SpeechToTextCard() {
   // until a save + refetch converges the server value.
   const serverMode = useMemo<ServiceMode>(
     () =>
-      parseServiceMode(
-        daemonStt?.mode ?? getLocalSetting(LS_STT_MODE, "your-own"),
-        "your-own",
-      ),
-    [daemonStt?.mode],
+      daemonManaged
+        ? "managed"
+        : parseServiceMode(
+            daemonStt?.mode ?? getLocalSetting(LS_STT_MODE, "your-own"),
+            "your-own",
+          ),
+    [daemonManaged, daemonStt?.mode],
   );
   const [mode, setDraftMode] = useDraftOverride(serverMode);
 
