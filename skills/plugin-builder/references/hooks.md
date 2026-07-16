@@ -101,7 +101,7 @@ These are the lifecycle hooks. The full set of wired hook names lives in the [`H
 
 **Context:** `PostModelCallContext`
 **When:** At every model-call outcome: a finalized assistant message, or a provider rejection. Fires once per model call, before a finalized reply is persisted and streamed.
-**Use it to:** Transform the reply's text blocks (leave tool_use intact), and own the continue decision. On a degenerate no-tool reply or a recoverable rejection, repair the history and set decision to continue to re-query the model.
+**Use it to:** Transform the reply's text blocks (leave tool_use intact), and own the continue decision. On a degenerate no-tool reply or a recoverable rejection, repair the history and set decision to continue to re-query the model. Use `isMaxTokensStopReason()` from `@vellumai/plugin-api` on `ctx.stopReason` to detect truncated replies that may need continuation.
 **Example:** [advisor](https://github.com/vellum-ai/vellum-assistant/blob/5a79f009573790dd085223a0133135410a6fe41d/assistant/src/plugins/defaults/advisor/hooks/post-model-call.ts)
 
 | Field            | Type                    | Access    | Description                                                                                                                                                                                                                                                       |
@@ -205,6 +205,8 @@ These are the hook-related exports from [`@vellumai/plugin-api`](https://github.
 | `ConversationDeletedContext` | type  | Passed to conversation-deleted, after a conversation is deleted from storage.                                                     |
 | `PostModelCallDecision`      | type  | The post-model-call decision shape: whether to end the turn or continue.                                                          |
 | `AgentLoopExitReason`        | type  | Which terminal state a turn reached, carried on StopContext.                                                                      |
+| `isMaxTokensStopReason`      | value | Classify a provider stop reason: true when the turn was truncated at the output token cap. Read it off `PostModelCallContext.stopReason` to decide whether to continue a cut-off reply. |
+| `INTERNAL_NUDGE_OUTPUT_SUPPRESSION` | const | String clause appended to internal continuation nudges to prevent weaker models from narrating agent-loop scaffolding. Exported for plugins that construct their own continuation nudges; most plugins will not need it. |
 
 ## Anatomy of a hook
 
