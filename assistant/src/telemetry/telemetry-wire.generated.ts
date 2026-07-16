@@ -332,6 +332,12 @@ export const onboardingResearchTelemetryEventSchema = z
     assistant_version: z.string().trim().min(1).max(64).nullable().optional(),
     conversation_id: z.string().trim().min(1).max(64).nullable().optional(),
     status: z.string().trim().min(1).max(32),
+    self_reported_occupation: z.string().max(256).nullable().optional(),
+    self_reported_hobbies: z
+      .array(z.string().trim().min(1).max(128))
+      .max(32)
+      .optional(),
+    self_reported_timezone: z.string().max(64).nullable().optional(),
     claims: z.array(jsonValueSchema).max(20),
     claim_count: z.number().int().min(0),
     claims_confident: z.number().int().min(0),
