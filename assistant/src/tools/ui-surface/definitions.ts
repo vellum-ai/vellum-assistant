@@ -15,6 +15,12 @@ import type {
   ToolDefinition,
   ToolExecutionResult,
 } from "../types.js";
+import {
+  asRecord,
+  hasContent,
+  SURFACE_TYPE_NAMES,
+  uiShowTeachingError,
+} from "./surface-shape-docs.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -36,6 +42,13 @@ function proxyExecute(toolName: string) {
     input: Record<string, unknown>,
     context: ToolContext,
   ): Promise<ToolExecutionResult> => {
+    if (toolName === "ui_show") {
+      const teachingError = uiShowTeachingError(input);
+      if (teachingError !== null) {
+        return { content: teachingError, isError: true };
+      }
+    }
+
     if (toolName === "ui_show" && isEmptyDynamicPage(input)) {
       return {
         content: isWeakOpenModel(context.attribution?.resolvedModel)
@@ -135,22 +148,6 @@ function isEmptyUpdate(input: Record<string, unknown>): boolean {
   return data === null || !hasContent(data);
 }
 
-function hasContent(value: unknown): boolean {
-  if (value === null || value === undefined) {
-    return false;
-  }
-  if (Array.isArray(value)) {
-    return value.length > 0;
-  }
-  if (typeof value === "object") {
-    return Object.values(value).some(hasContent);
-  }
-  if (typeof value === "string") {
-    return value.trim().length > 0;
-  }
-  return true;
-}
-
 function isEmptyDynamicPage(input: Record<string, unknown>): boolean {
   if (input.surface_type !== "dynamic_page") {
     return false;
@@ -211,12 +208,6 @@ function collectRoutingText(input: Record<string, unknown>): string[] {
   return values;
 }
 
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return value !== null && typeof value === "object"
-    ? (value as Record<string, unknown>)
-    : null;
-}
-
 function addString(values: string[], value: unknown): void {
   if (typeof value === "string") {
     values.push(value);
@@ -255,21 +246,7 @@ export const uiShowTool = {
     properties: {
       surface_type: {
         type: "string",
-        enum: [
-          "card",
-          "channel_setup",
-          "choice",
-          "copy_block",
-          "oauth_connect",
-          "form",
-          "list",
-          "table",
-          "confirmation",
-          "dynamic_page",
-          "file_upload",
-          "task_preferences",
-          "work_result",
-        ],
+        enum: SURFACE_TYPE_NAMES,
         description: "The type of surface to display",
       },
       title: {
