@@ -755,7 +755,9 @@ process imports the retrospective machinery and calls it in-process, so no
 running daemon is required.
 
 Examples:
-  $ assistant memory retrospective run <conversationId>`,
+  $ assistant memory retrospective run <conversationId>
+  $ assistant memory retrospective list
+  $ assistant memory retrospective list --limit 20 --json`,
       subcommands: [
         {
           name: "run",
@@ -780,6 +782,31 @@ CLI process — no IPC round-trip to the daemon.
 
 Examples:
   $ assistant memory retrospective run abc123`,
+        },
+        {
+          name: "list",
+          description: "List the most-recently-run retrospective state rows",
+          options: [
+            {
+              flags: "--limit <n>",
+              description: "Max rows to return (default 10, max 200)",
+            },
+            {
+              flags: "--json",
+              description: "Machine-readable compact JSON output",
+            },
+          ],
+          helpText: `
+Reads the memory_retrospective_state table directly from the workspace SQLite
+database and prints the most-recently-run state rows, newest first. No daemon
+required. Each row shows the source conversation ID, when the retrospective last
+ran, how many memories were saved across all passes, and whether any pass has
+yet succeeded (status "ok") or only failed attempts exist ("pending").
+
+Examples:
+  $ assistant memory retrospective list
+  $ assistant memory retrospective list --limit 20
+  $ assistant memory retrospective list --json`,
         },
       ],
     },
