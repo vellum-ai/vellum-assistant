@@ -46,11 +46,12 @@
  * ignores the decision — so the hook returns early for both.
  */
 
-import type {
-  ContentBlock,
-  HookFunction,
-  Message,
-  PostModelCallContext,
+import {
+  type ContentBlock,
+  type HookFunction,
+  INTERNAL_NUDGE_OUTPUT_SUPPRESSION,
+  type Message,
+  type PostModelCallContext,
 } from "@vellumai/plugin-api";
 
 import {
@@ -75,7 +76,9 @@ export { REFUSAL_FALLBACK_TEXT };
  * model behavior but not end-user UX directly.
  */
 export const NUDGE_TEXT =
-  "<system_notice>Your previous response was empty. You must respond to the user with a summary of what you found or did. Do not use any tools — just respond with text.</system_notice>";
+  "<system_notice>Your previous response was empty. You must respond to the user with a summary of what you found or did. Do not use any tools — just respond with text." +
+  INTERNAL_NUDGE_OUTPUT_SUPPRESSION +
+  "</system_notice>";
 
 function hasVisibleText(content: ReadonlyArray<ContentBlock>): boolean {
   return content.some(
