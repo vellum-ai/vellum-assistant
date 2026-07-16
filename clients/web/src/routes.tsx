@@ -54,6 +54,24 @@ function AdvancedSettingsRedirect() {
 }
 
 /**
+ * Forwards legacy `/assistant/onboarding/prechat` links to the research
+ * onboarding flow. The pre-chat funnel was removed, but existing sessions,
+ * bookmarks, and older desktop builds may still hold that URL — redirecting
+ * (query string preserved so `?hosting=` carries through) keeps them out of
+ * the NotFound page during a deploy. Safe to drop after a deprecation period.
+ */
+function PrechatLegacyRedirect() {
+  const [searchParams] = useSearchParams();
+  const qs = searchParams.toString();
+  return (
+    <Navigate
+      to={`${routes.onboarding.research}${qs ? `?${qs}` : ""}`}
+      replace
+    />
+  );
+}
+
+/**
  * ChatLayout with its cross-domain header chrome injected. The bell is home
  * domain (it renders the home feed) and the layout is chat domain, so the
  * composition happens here at the route level — neither domain imports the
@@ -264,6 +282,12 @@ export const routeTree = [
             {
               path: "onboarding/privacy",
               lazy: { Component: () => import("@/domains/onboarding/pages/privacy-screen").then((m) => m.PrivacyScreen) },
+            },
+            {
+              // Legacy redirect — the pre-chat funnel was removed. Forward stale
+              // `/onboarding/prechat` links to the research flow, not NotFound.
+              path: "onboarding/prechat",
+              Component: PrechatLegacyRedirect,
             },
             {
               path: "onboarding/hatching",
