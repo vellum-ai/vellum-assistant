@@ -43,10 +43,7 @@ const COPY: Record<NavGateItemId, NavGateItemCopy> = {
         buttons: [
           {
             label: "Build something",
-            action: {
-              kind: "send",
-              text: "I want to build something. Let's talk about what.",
-            },
+            action: { kind: "prefill", text: "Let's build " },
           },
           {
             label: "Like what?",
@@ -62,10 +59,7 @@ const COPY: Record<NavGateItemId, NavGateItemCopy> = {
         buttons: [
           {
             label: "Let's build something",
-            action: {
-              kind: "send",
-              text: "I want to build something. Let's talk about what.",
-            },
+            action: { kind: "prefill", text: "Let's build " },
           },
           {
             label: "Show me examples",
@@ -85,7 +79,7 @@ const COPY: Record<NavGateItemId, NavGateItemCopy> = {
         buttons: [
           {
             label: "New topic",
-            action: { kind: "send", text: "Let's switch topics." },
+            action: { kind: "prefill", text: "New topic: " },
           },
           { label: "Never mind", action: { kind: "dismiss" } },
         ],
@@ -95,7 +89,7 @@ const COPY: Record<NavGateItemId, NavGateItemCopy> = {
         buttons: [
           {
             label: "New topic",
-            action: { kind: "send", text: "Let's switch topics." },
+            action: { kind: "prefill", text: "New topic: " },
           },
           { label: "Never mind", action: { kind: "dismiss" } },
         ],
