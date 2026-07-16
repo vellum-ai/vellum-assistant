@@ -150,10 +150,10 @@ const COPY: Record<NavGateItemId, NavGateItemCopy> = {
         message: "That's me and what I know about you. Mostly blank so far.",
         buttons: [
           {
-            label: "Tell me something",
+            label: "Share something",
             action: {
-              kind: "send",
-              text: "Let me tell you something worth remembering.",
+              kind: "prefill",
+              text: "Something to know about me: ",
             },
           },
           {
@@ -169,10 +169,10 @@ const COPY: Record<NavGateItemId, NavGateItemCopy> = {
         message: "It fills in as we talk. Give it something to say?",
         buttons: [
           {
-            label: "Tell me something",
+            label: "Share something",
             action: {
-              kind: "send",
-              text: "Let me tell you something worth remembering.",
+              kind: "prefill",
+              text: "Something to know about me: ",
             },
           },
           { label: "Never mind", action: { kind: "dismiss" } },
