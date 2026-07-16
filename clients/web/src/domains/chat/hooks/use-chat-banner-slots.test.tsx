@@ -57,10 +57,12 @@ function makeTipCardResult(): UseTipCardResult {
   return {
     tip: null,
     placement: "sidebar",
+    carouselIndex: 0,
+    carouselCount: 0,
     onDismiss: () => {},
     onLearnMore: () => {},
-    onDontShowAgain: () => {},
-    onNextTip: undefined,
+    onPrevTip: () => {},
+    onNextTip: () => {},
   };
 }
 

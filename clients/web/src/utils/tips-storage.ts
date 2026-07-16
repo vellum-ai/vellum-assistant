@@ -72,18 +72,6 @@ export const tipsEnabledStorage = createStorageAccessor<boolean>({
   fallback: true,
 });
 
-/**
- * Dev/demo-only cycler chevron on the tip card. No UI writes this — enable
- * via console: `localStorage.setItem("device:tips:demo_cycler", "true")`.
- */
-export const tipsDemoCyclerStorage = createStorageAccessor<boolean>({
-  key: "device:tips:demo_cycler",
-  scope: "device",
-  parse: parseBool,
-  serialize: String,
-  fallback: false,
-});
-
 /** Where the tip surfaces: sidebar footer, composer banner slot, or nav popover. */
 export type TipsPlacement = "sidebar" | "banner" | "popover";
 

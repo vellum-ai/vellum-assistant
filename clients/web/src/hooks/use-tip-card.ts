@@ -33,7 +33,6 @@ import {
   recordTipDismissed,
   recordTipShown,
   tipRecordsStorage,
-  tipsDemoCyclerStorage,
   tipsEnabledStorage,
   tipsFirstSeenAtStorage,
   tipsPlacementStorage,
@@ -91,11 +90,15 @@ export interface UseTipCardResult {
   tip: Tip | null;
   /** Experimental placement switcher value (`device:tips:placement`). */
   placement: TipsPlacement;
+  /** Zero-based position of the shown tip among the browsable tips. */
+  carouselIndex: number;
+  /** Number of browsable (gate-passing) tips — drives the carousel dots. */
+  carouselCount: number;
   onDismiss: () => void;
   onLearnMore: () => void;
-  onDontShowAgain: () => void;
-  /** Dev/demo cycler — defined only when `tipsDemoCyclerStorage` is on. */
-  onNextTip: (() => void) | undefined;
+  /** Carousel navigation — clamped at the catalog edges. */
+  onPrevTip: () => void;
+  onNextTip: () => void;
 }
 
 export function useTipCard(options?: UseTipCardOptions): UseTipCardResult {
@@ -109,7 +112,6 @@ export function useTipCard(options?: UseTipCardOptions): UseTipCardResult {
   const supportsPluginsSurface = useSupportsPluginsSurface();
   const tipsEnabled = tipsEnabledStorage.useValue();
   const placement = tipsPlacementStorage.useValue();
-  const demoCyclerEnabled = tipsDemoCyclerStorage.useValue();
   const records = tipRecordsStorage.useValue();
   const firstSeenAt = tipsFirstSeenAtStorage.useValue();
 
@@ -120,7 +122,12 @@ export function useTipCard(options?: UseTipCardOptions): UseTipCardResult {
   // timer below refreshes whenever the selection outcome can change.
   const [now, setNow] = useState(() => Date.now());
   const [ageEligible, setAgeEligible] = useState(false);
-  const [demoIndex, setDemoIndex] = useState<number | null>(null);
+  // Carousel browse position (null = show the cadence-selected tip), and a
+  // session-local "closed" latch for dismissing while browsed away from the
+  // selected tip (which stays pinned for the day, so selection alone can't
+  // blank the slot).
+  const [browseIndex, setBrowseIndex] = useState<number | null>(null);
+  const [closed, setClosed] = useState(false);
 
   useEffect(() => {
     ensureTipsFirstSeenAt();
@@ -193,29 +200,50 @@ export function useTipCard(options?: UseTipCardOptions): UseTipCardResult {
     }),
   );
 
-  // Demo override: cycle the raw catalog, deliberately ignoring per-tip gates
-  // and dismissal records — a demo should show every card. The global gates
-  // above still apply.
-  const demoTip =
-    demoCyclerEnabled && demoIndex !== null
-      ? TIPS_CATALOG[demoIndex % TIPS_CATALOG.length]
-      : null;
-  const demoActive = demoTip !== null;
-
-  const tip = gatesOpen
-    ? (demoTip ?? selectCurrentTip(eligibleCatalog, records, now))
+  const selectedTip = gatesOpen
+    ? selectCurrentTip(eligibleCatalog, records, now)
     : null;
+  const selectedTipId = selectedTip?.id ?? null;
+
+  // A new rotation window (or dismissal of the selected tip) resets the
+  // carousel back to the cadence view and reopens a closed card.
+  useEffect(() => {
+    setBrowseIndex(null);
+    setClosed(false);
+  }, [selectedTipId]);
+
+  // Carousel browsing moves through the gate-passing catalog in order —
+  // including previously dismissed tips, since paging to one is deliberate.
+  const browsedTip =
+    gatesOpen && browseIndex !== null && eligibleCatalog.length > 0
+      ? eligibleCatalog[
+          Math.min(Math.max(browseIndex, 0), eligibleCatalog.length - 1)
+        ]
+      : null;
+
+  const tip = closed ? null : (browsedTip ?? selectedTip);
   const tipId = tip?.id ?? null;
+
+  const carouselCount = eligibleCatalog.length;
+  const carouselIndex =
+    tipId === null
+      ? 0
+      : Math.max(
+          0,
+          eligibleCatalog.findIndex((entry) => entry.id === tipId),
+        );
 
   // Impression stamping is driven off the persisted record (not component
   // lifecycle), so remounts and re-renders within a rotation window never
   // double-count: a tip already shown within the window is skipped.
   useEffect(() => {
-    if (tipId === null) {
+    if (selectedTipId === null || closed) {
       return;
     }
-    // Demo cycling must not consume the real rotation state.
-    if (demoActive) {
+    // Carousel browsing must not consume the real rotation state — only the
+    // cadence-selected tip counts as an impression, and only while it is the
+    // one actually displayed.
+    if (browseIndex !== null) {
       return;
     }
     if (!recordImpressions) {
@@ -231,27 +259,31 @@ export function useTipCard(options?: UseTipCardOptions): UseTipCardResult {
       return;
     }
     const shownAt = Date.now();
-    const record = tipRecordsStorage.load()[tipId];
+    const record = tipRecordsStorage.load()[selectedTipId];
     const shownWithinWindow =
       record?.lastShownAt !== undefined &&
       shownAt - record.lastShownAt < TIP_ROTATION_INTERVAL_MS;
     if (shownWithinWindow) {
       return;
     }
-    recordTipShown(tipId, shownAt);
-    emitTipEvent(tipId, "impression", variant);
-  }, [tipId, variant, demoActive, placement, recordImpressions]);
+    recordTipShown(selectedTipId, shownAt);
+    emitTipEvent(selectedTipId, "impression", variant);
+  }, [
+    selectedTipId,
+    variant,
+    browseIndex,
+    closed,
+    placement,
+    recordImpressions,
+  ]);
 
-  const cycleToNextTip = useCallback(() => {
-    setDemoIndex((current) => {
-      if (current !== null) {
-        return current + 1;
-      }
-      // First click: start from the shown tip's successor (0 if none shown).
-      const shownIndex = TIPS_CATALOG.findIndex((entry) => entry.id === tipId);
-      return shownIndex === -1 ? 0 : (shownIndex + 1) % TIPS_CATALOG.length;
-    });
-  }, [tipId]);
+  const onPrevTip = useCallback(() => {
+    setBrowseIndex(Math.max(carouselIndex - 1, 0));
+  }, [carouselIndex]);
+
+  const onNextTip = useCallback(() => {
+    setBrowseIndex(Math.min(carouselIndex + 1, carouselCount - 1));
+  }, [carouselIndex, carouselCount]);
 
   const onDismiss = useCallback(() => {
     if (tipId === null) {
@@ -259,6 +291,10 @@ export function useTipCard(options?: UseTipCardOptions): UseTipCardResult {
     }
     recordTipDismissed(tipId, Date.now());
     emitTipEvent(tipId, "dismiss", variant);
+    // Dismissing a browsed tip leaves the selected tip pinned for the day, so
+    // latch the card closed; the latch resets when the selection changes.
+    setBrowseIndex(null);
+    setClosed(true);
   }, [tipId, variant]);
 
   const onLearnMore = useCallback(() => {
@@ -268,20 +304,14 @@ export function useTipCard(options?: UseTipCardOptions): UseTipCardResult {
     emitTipEvent(tipId, "learn_more", variant);
   }, [tipId, variant]);
 
-  const onDontShowAgain = useCallback(() => {
-    if (tipId === null) {
-      return;
-    }
-    tipsEnabledStorage.save(false);
-    emitTipEvent(tipId, "dont_show_again", variant);
-  }, [tipId, variant]);
-
   return {
     tip,
     placement,
+    carouselIndex,
+    carouselCount,
     onDismiss,
     onLearnMore,
-    onDontShowAgain,
-    onNextTip: demoCyclerEnabled ? cycleToNextTip : undefined,
+    onPrevTip,
+    onNextTip,
   };
 }

@@ -3,8 +3,8 @@
  * the composer banner slot with the same look as the app nudges. Mirrors
  * `NudgeChatBanner`'s markup (`components/nudges/nudge-chat-banner.tsx`)
  * instead of composing it because the CTA here is optional: not every tip
- * has a learn-more route. No "Don't show again" in this placement — the
- * dismiss X covers the demo.
+ * has a learn-more route. The banner strip only carries a forward chevron —
+ * the sidebar card's full carousel doesn't fit this layout.
  */
 
 import { ChevronRight, Lightbulb, X } from "lucide-react";
@@ -18,7 +18,7 @@ export interface TipChatBannerProps {
   tip: Tip;
   onDismiss: () => void;
   onLearnMore: () => void;
-  /** Dev/demo-only cycler — omitted in production, so no button renders. */
+  /** Advances the carousel; omit to hide the chevron. */
   onNextTip?: () => void;
 }
 
