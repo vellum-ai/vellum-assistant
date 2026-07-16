@@ -59,8 +59,8 @@ interface SurfaceShapeDoc {
   /**
    * Returns a description of the missing load-bearing content, or null when
    * the payload has enough to render. Absent for types the daemon normalizes
-   * leniently (card), that render fine with defaults (file_upload,
-   * task_preferences), or that have bespoke handling (dynamic_page).
+   * leniently (card), that render fine with defaults (file_upload), or that
+   * have bespoke handling (dynamic_page).
    */
   missingContent?: (data: Record<string, unknown>) => string | null;
 }
@@ -69,11 +69,12 @@ export const SURFACE_SHAPE_DOCS: Record<string, SurfaceShapeDoc> = {
   card: {
     purpose: "structured info card, supports templates like task_progress",
     shape:
-      '{ title, subtitle?, body, metadata?: [{ label, value }], template?, templateData? }. Templates: "task_progress" (live step tracker — update via ui_update on data.templateData; shape: { title, status: "in_progress"|"completed"|"failed", steps: [{ label, status: "pending"|"in_progress"|"completed"|"failed", detail? }] }), "weather_forecast" (native weather widget)',
+      '{ title, subtitle?, body, metadata?: [{ label, value }], template?, templateData? }. Template "task_progress" renders a live step tracker — templateData: { title, status: "in_progress"|"completed"|"failed", steps: [{ label, status: "pending"|"in_progress"|"completed"|"failed", detail? }] }; advance it via ui_update as steps finish. Other card templates are documented by the skills that use them',
   },
   copy_block: {
     purpose: "copyable text with a visible copy button",
-    shape: "{ text, label?, language? }",
+    shape:
+      "{ text, label?, language? } — shows copyable text with a visible copy button; use for prompts, commands, paths, or snippets the user should copy",
     missingContent: (data) =>
       isNonEmptyString(data.text)
         ? null
@@ -100,7 +101,7 @@ export const SURFACE_SHAPE_DOCS: Record<string, SurfaceShapeDoc> = {
   work_result: {
     purpose: "structured receipt after completed work",
     shape:
-      '{ eyebrow?, status?: "completed"|"partial"|"failed"|"in_progress", summary?, metrics?: [{ label, value, detail?, tone?: "neutral"|"positive"|"warning"|"negative" }], sections?: [{ id?, title, description?, type?: "items"|"timeline"|"diff"|"artifacts"|"warnings", items?: [{ id?, title, description?, status?, tone?, metadata?: [{ label, value }], href? }], diffs?: [{ label?, before?, after? }] }] }',
+      '{ eyebrow?, status?: "completed"|"partial"|"failed"|"in_progress", summary?, metrics?: [{ label, value, detail?, tone?: "neutral"|"positive"|"warning"|"negative" }], sections?: [{ id?, title, description?, type?: "items"|"timeline"|"diff"|"artifacts"|"warnings", items?: [{ id?, title, description?, status?, tone?, metadata?: [{ label, value }], href? }], diffs?: [{ label?, before?, after? }] }] } — structured receipt after real work; keep display-only unless follow-up buttons are needed',
     missingContent: (data) =>
       hasContent(data)
         ? null
@@ -109,7 +110,7 @@ export const SURFACE_SHAPE_DOCS: Record<string, SurfaceShapeDoc> = {
   oauth_connect: {
     purpose: "managed OAuth connection button for an integration account",
     shape:
-      "{ providerKey, displayName?, description?, logoUrl? }. Do not include OAuth scopes; managed providers use the platform's configured scopes",
+      "{ providerKey, displayName?, description?, logoUrl? } — managed OAuth connection CTA; use when the task needs a managed integration account (Google, Linear, GitHub, ...) instead of settings or shell OAuth. Do not include OAuth scopes; managed providers use the platform's configured scopes",
     missingContent: (data) =>
       isNonEmptyString(data.providerKey)
         ? null
@@ -133,15 +134,6 @@ export const SURFACE_SHAPE_DOCS: Record<string, SurfaceShapeDoc> = {
         ? null
         : "`data.message` must be a non-empty string",
   },
-  list: {
-    purpose: "selectable item list",
-    shape:
-      '{ items: [{ id, title, subtitle?, icon?, selected? }], selectionMode: "single"|"multiple"|"none" }',
-    missingContent: (data) =>
-      isNonEmptyArray(data.items)
-        ? null
-        : "`data.items` must be a non-empty array",
-  },
   file_upload: {
     purpose: "prompt the user to upload files",
     shape: "{ prompt, acceptedTypes?, maxFiles? }",
@@ -149,7 +141,7 @@ export const SURFACE_SHAPE_DOCS: Record<string, SurfaceShapeDoc> = {
   dynamic_page: {
     purpose: "custom HTML page for transient UI only, never app-like builds",
     shape:
-      "{ html, width?, height?, preview?: { title, subtitle?, description?, icon?, metrics?: [{ label, value }] } }",
+      "{ html, width?, height?, preview?: { title, subtitle?, description?, icon?, metrics?: [{ label, value }] } } — custom visual HTML for transient surfaces only, never app-like builds",
   },
   channel_setup: {
     purpose: "open the Slack/Telegram/Phone setup panel",
@@ -161,10 +153,6 @@ export const SURFACE_SHAPE_DOCS: Record<string, SurfaceShapeDoc> = {
         ? null
         : '`data.channel` must be one of "slack", "telegram", "phone"',
   },
-  task_preferences: {
-    purpose: "task-preference picker",
-    shape: "{} (no data needed — categories are rendered client-side)",
-  },
 };
 
 /** Model-facing surface_type enum, derived so docs and schema cannot drift. */
@@ -173,6 +161,37 @@ export const SURFACE_TYPE_NAMES = Object.keys(SURFACE_SHAPE_DOCS);
 const SURFACE_TYPE_INDEX = SURFACE_TYPE_NAMES.map(
   (name) => `${name} (${SURFACE_SHAPE_DOCS[name]!.purpose})`,
 ).join("; ");
+
+/**
+ * Types whose full shape rides in the always-present tool description —
+ * together they cover ~95% of fleet ui_show calls. The rest appear there as
+ * a one-line index and get their shape from the teaching error on first
+ * misuse.
+ */
+const HOT_SURFACE_TYPES = [
+  "card",
+  "copy_block",
+  "choice",
+  "table",
+  "work_result",
+  "oauth_connect",
+  "dynamic_page",
+] as const;
+
+const COLD_SURFACE_INDEX = SURFACE_TYPE_NAMES.filter(
+  (name) => !(HOT_SURFACE_TYPES as readonly string[]).includes(name),
+)
+  .map((name) => `${name} (${SURFACE_SHAPE_DOCS[name]!.purpose})`)
+  .join(", ");
+
+/** The surface-types section of the ui_show tool description. */
+export const UI_SHOW_TYPE_DOCS = [
+  "Surface types (data shapes):",
+  ...HOT_SURFACE_TYPES.map(
+    (name) => `- ${name}: ${SURFACE_SHAPE_DOCS[name]!.shape}`,
+  ),
+  `Other types: ${COLD_SURFACE_INDEX}. Send your best-guess data — if required content is missing, the error returns the exact shape.`,
+].join("\n");
 
 /**
  * Teaching error for a ui_show payload that would render nothing, or null
