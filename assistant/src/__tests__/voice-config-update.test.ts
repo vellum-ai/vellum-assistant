@@ -31,7 +31,11 @@ function ensureTestDir(): void {
   }
 }
 
-import { run } from "../config/bundled-skills/settings/tools/voice-config-update.js";
+import settingsSkillTools from "../config/bundled-skills/settings/TOOLS.json" with { type: "json" };
+import {
+  run,
+  VALID_SETTINGS,
+} from "../config/bundled-skills/settings/tools/voice-config-update.js";
 import { invalidateConfigCache } from "../config/loader.js";
 import type { ToolContext } from "../tools/types.js";
 import { listCatalogProviderIds } from "../tts/provider-catalog.js";
@@ -305,6 +309,21 @@ describe("voice_config_update — conversation_timeout", () => {
 // ---------------------------------------------------------------------------
 // Tests: validation edge cases
 // ---------------------------------------------------------------------------
+
+describe("voice_config_update — manifest parity", () => {
+  // The skill's TOOLS.json schema gates calls before the executor runs: a
+  // setting missing from the enum is rejected by JSON-schema validation, and
+  // an enum entry the executor doesn't know dies with "Unknown setting". The
+  // two lists must stay identical.
+  test("the TOOLS.json setting enum matches the executor's settings", () => {
+    const manifest = settingsSkillTools.tools.find(
+      (t) => t.name === "voice_config_update",
+    );
+    const enumValues = manifest?.input_schema.properties.setting
+      ?.enum as readonly string[];
+    expect([...enumValues].sort()).toEqual([...VALID_SETTINGS].sort());
+  });
+});
 
 describe("voice_config_update — validation", () => {
   test("missing setting returns error", async () => {

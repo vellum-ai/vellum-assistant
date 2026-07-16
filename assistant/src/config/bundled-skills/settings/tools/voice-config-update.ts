@@ -43,7 +43,10 @@ const VOICE_SETTINGS = {
 
 type VoiceSettingName = keyof typeof VOICE_SETTINGS;
 
-const VALID_SETTINGS = Object.keys(VOICE_SETTINGS) as VoiceSettingName[];
+/** Exported so tests can assert parity with the TOOLS.json `setting` enum. */
+export const VALID_SETTINGS = Object.keys(
+  VOICE_SETTINGS,
+) as VoiceSettingName[];
 
 const VALID_TIMEOUTS: readonly number[] = VALID_CONVERSATION_TIMEOUTS;
 
