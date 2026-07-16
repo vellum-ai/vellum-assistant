@@ -56,6 +56,7 @@ import {
   setConversationKeyIfAbsent,
 } from "../../persistence/conversation-key-store.js";
 import { enqueueMemoryJob } from "../../persistence/jobs-store.js";
+import { linkRequestLogsToMessage } from "../../persistence/llm-request-log-store.js";
 import { deleteSchedule } from "../../schedule/schedule-store.js";
 import { UserError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
@@ -272,7 +273,13 @@ async function handleSummarizeConversation({
         statusText: "Summarizing conversation",
       });
       const result = await conversation.summarizeUpToMessage(beforeMessageId);
-      await persistCard(formatSummarizeUpToResult(result));
+      const cardId = await persistCard(formatSummarizeUpToResult(result));
+      // Attribute the compaction LLM call to the card it produced, so the
+      // inspector shows it there instead of the unlinked-row recovery
+      // guessing an enclosing turn.
+      if (result.summaryRequestLogId) {
+        linkRequestLogsToMessage([result.summaryRequestLogId], cardId);
+      }
     } catch (err) {
       // Boundary/mapping UserErrors are expected user-facing outcomes, not
       // failures: surface them as a skipped card rather than an error event.

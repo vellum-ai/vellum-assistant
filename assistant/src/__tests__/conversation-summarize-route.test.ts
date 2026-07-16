@@ -96,6 +96,14 @@ mock.module("../persistence/jobs-store.js", () => ({
   enqueueMemoryJob: () => {},
 }));
 
+const linkRequestLogsToMessageMock = mock(
+  (_logIds: string[], _messageId: string) => {},
+);
+
+mock.module("../persistence/llm-request-log-store.js", () => ({
+  linkRequestLogsToMessage: linkRequestLogsToMessageMock,
+}));
+
 mock.module("../schedule/schedule-store.js", () => ({
   deleteSchedule: async () => {},
 }));
@@ -170,6 +178,7 @@ function makeConversation(opts: { processing?: boolean } = {}) {
     summaryInputTokens: 500,
     summaryOutputTokens: 100,
     summaryModel: "test-model",
+    summaryRequestLogId: "compaction-log-1",
   }));
   const emitActivityState = mock(
     (_phase: string, _reason: string, _options?: { statusText?: string }) => {},
@@ -282,6 +291,12 @@ describe("POST /v1/conversations/summarize", () => {
     expect(delta).toBeUndefined();
     const complete = broadcastEvents.find((e) => e.type === "message_complete");
     expect(complete?.messageId).toBe("persisted-assistant-id");
+
+    // The compaction LLM call is attributed to the card it produced.
+    expect(linkRequestLogsToMessageMock).toHaveBeenCalledWith(
+      ["compaction-log-1"],
+      "persisted-assistant-id",
+    );
     expect(publishConversationMessagesChangedMock).toHaveBeenCalledWith(
       "conv-summarize-test",
       undefined,

@@ -82,10 +82,13 @@ function recordCompactionRequestLog(
   conversationId: string,
   response: ProviderResponse,
   provider: Provider,
-): void {
-  if (!response.rawRequest || !response.rawResponse) return;
+): string | null {
+  if (!response.rawRequest || !response.rawResponse) return null;
   try {
-    recordRequestLog(
+    // Inserted unlinked (no message id) — user-initiated compaction flows
+    // (/compact, summarize-up-to) link the row to their result card after
+    // it persists, via `linkRequestLogsToMessage`.
+    return recordRequestLog(
       conversationId,
       JSON.stringify(response.rawRequest),
       JSON.stringify(response.rawResponse),
@@ -98,6 +101,7 @@ function recordCompactionRequestLog(
       { err, conversationId },
       "Failed to persist compaction LLM request log (non-fatal)",
     );
+    return null;
   }
 }
 
@@ -313,6 +317,14 @@ export interface CompactionRunResult {
   summaryCacheCreationInputTokens?: number;
   summaryCacheReadInputTokens?: number;
   summaryRawResponses?: unknown[];
+  /**
+   * `llm_request_logs.id` of this pass's compaction call, `null` when the
+   * row was not written (logging disabled, missing raw payloads, DB error).
+   * User-initiated flows (/compact, summarize-up-to) link the row to their
+   * persisted result card so the inspector attributes the call to the card
+   * instead of the unlinked-row recovery guessing an enclosing turn.
+   */
+  summaryRequestLogId?: string | null;
   summaryText: string;
   /** Inline structured pending state from the model's `<key_state>` block. */
   keyState?: string;
@@ -1177,7 +1189,11 @@ export async function runAssistantDrivenCompaction(
 
   // Persist the compaction LLM call into `llm_request_logs` with
   // `call_site = "compactionAgent"`. Non-fatal on DB error — see helper.
-  recordCompactionRequestLog(args.conversationId, response, args.provider);
+  const summaryRequestLogId = recordCompactionRequestLog(
+    args.conversationId,
+    response,
+    args.provider,
+  );
 
   const rawText = extractTextFromResponse(response.content);
   const parsed = parseCompactionResult(rawText, {
@@ -1200,6 +1216,7 @@ export async function runAssistantDrivenCompaction(
       summaryCallSite: COMPACTION_CALL_SITE,
       summaryOverrideProfile: args.overrideProfile ?? null,
       summaryRawResponses: response.rawResponse ? [response.rawResponse] : [],
+      summaryRequestLogId,
       summaryCalls: 1,
     };
   }
@@ -1405,6 +1422,7 @@ export async function runAssistantDrivenCompaction(
       summaryCallSite: COMPACTION_CALL_SITE,
       summaryOverrideProfile: args.overrideProfile ?? null,
       summaryRawResponses: response.rawResponse ? [response.rawResponse] : [],
+      summaryRequestLogId,
       summaryCalls: 1,
     };
   }
@@ -1477,6 +1495,7 @@ export async function runAssistantDrivenCompaction(
       response.usage.cacheCreationInputTokens ?? 0,
     summaryCacheReadInputTokens: response.usage.cacheReadInputTokens ?? 0,
     summaryRawResponses: response.rawResponse ? [response.rawResponse] : [],
+    summaryRequestLogId,
     summaryText: finalSummaryText,
     keyState: parsed.keyState,
     summaryFailed: false,

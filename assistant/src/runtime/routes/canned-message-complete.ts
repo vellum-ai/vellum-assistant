@@ -51,6 +51,9 @@ export function emitCannedMessageComplete(
  * card), and the messages-changed sync invalidation that drives the client
  * refetch. No `assistant_text_delta` is emitted — a delta would stream the
  * card into the tail assistant bubble as if the persona were speaking.
+ *
+ * Returns the persisted card's message id so callers can link related
+ * records to it (e.g. the compaction `llm_request_logs` row).
  */
 export async function persistCannedAssistantCard(opts: {
   conversation: { getMessages(): Message[] };
@@ -58,7 +61,7 @@ export async function persistCannedAssistantCard(opts: {
   text: string;
   metadata: Record<string, unknown>;
   originClientId?: string;
-}): Promise<void> {
+}): Promise<string> {
   const { conversation, conversationId, text, metadata, originClientId } = opts;
   const assistantMsg = createAssistantMessage(text);
   const persistedAssistant = await addMessage(
@@ -75,4 +78,5 @@ export async function persistCannedAssistantCard(opts: {
   );
   recordConversationPersistedSeq(conversationId, getCurrentSeq());
   publishConversationMessagesChanged(conversationId, originClientId);
+  return persistedAssistant.id;
 }

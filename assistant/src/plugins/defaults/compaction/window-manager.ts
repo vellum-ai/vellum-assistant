@@ -87,6 +87,8 @@ export interface ContextWindowResult {
   summaryCacheCreationInputTokens?: number;
   summaryCacheReadInputTokens?: number;
   summaryRawResponses?: unknown[];
+  /** See {@link CompactionRunResult.summaryRequestLogId}. */
+  summaryRequestLogId?: string | null;
   summaryText: string;
   reason?: string;
   summaryFailed?: boolean;
