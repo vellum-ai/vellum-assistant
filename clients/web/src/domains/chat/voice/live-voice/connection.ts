@@ -38,6 +38,8 @@
  * cookie + CSRF + `Vellum-Organization-Id`.
  */
 
+import { velayHostForPlatformHost } from "@vellumai/service-contracts/ingress";
+
 import { authLiveVoiceTokenCreate } from "@/generated/api/sdk.gen";
 import type { LiveVoiceTokenResponse } from "@/generated/api/types.gen";
 import { getPlatformRuntimeUrl } from "@/lib/platform-runtime-url";
@@ -99,21 +101,6 @@ export async function mintLiveVoiceToken(
     throw new LiveVoiceTokenError(0, "Live-voice token response was malformed");
   }
   return data;
-}
-
-/**
- * Map a Vellum platform host onto its environment's velay host, following the
- * deployment naming convention (`platform.vellum.ai` → `velay.vellum.ai`,
- * `{env}-platform.vellum.ai` → `velay-{env}.vellum.ai`). Returns null for
- * hosts outside that convention (localhost, custom domains). Mirrors
- * `velayOriginForPlatformHost` in the gateway's speech-relay route.
- */
-export function velayHostForPlatformHost(host: string): string | null {
-  if (host === "platform.vellum.ai") {
-    return "velay.vellum.ai";
-  }
-  const match = /^([a-z0-9-]+)-platform\.vellum\.ai$/.exec(host);
-  return match ? `velay-${match[1]}.vellum.ai` : null;
 }
 
 /**
