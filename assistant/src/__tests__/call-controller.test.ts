@@ -248,6 +248,7 @@ interface MockTransport extends CallTransport {
   sentPlayUrls: string[];
   endCalled: boolean;
   endReason: string | undefined;
+  cancelPendingSpeechCount: number;
 }
 
 function createMockTransport(): MockTransport {
@@ -256,6 +257,7 @@ function createMockTransport(): MockTransport {
     sentPlayUrls: [] as string[],
     _endCalled: false,
     _endReason: undefined as string | undefined,
+    _cancelPendingSpeechCount: 0,
   };
 
   return {
@@ -271,6 +273,9 @@ function createMockTransport(): MockTransport {
     get endReason() {
       return state._endReason;
     },
+    get cancelPendingSpeechCount() {
+      return state._cancelPendingSpeechCount;
+    },
     sendTextToken(token: string, last: boolean) {
       state.sentTokens.push({ token, last });
     },
@@ -280,6 +285,9 @@ function createMockTransport(): MockTransport {
     endSession(reason?: string) {
       state._endCalled = true;
       state._endReason = reason;
+    },
+    cancelPendingSpeech() {
+      state._cancelPendingSpeechCount++;
     },
   } as MockTransport;
 }
@@ -1018,6 +1026,9 @@ describe("call-controller", () => {
     expect(turnContents).toContain("Wait, one more thing");
     const allText = relay.sentTokens.map((t) => t.token).join("");
     expect(allText).toContain("I'm still here.");
+    // The abandoned goodbye's queued speech must be cancelled so it can't
+    // play over the caller's follow-up.
+    expect(relay.cancelPendingSpeechCount).toBeGreaterThan(0);
 
     controller.destroy();
   });

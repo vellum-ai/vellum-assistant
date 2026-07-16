@@ -289,6 +289,10 @@ export class CallController {
     // re-engaging after we tried to hang up. Track it so we can cap repeats.
     if (this.endCallListenTimer || this.pendingEndCall) {
       this.endCallDeferralCount++;
+      // The goodbye's speech was queued while state was idle, so the
+      // media-stream barge-in ignored it. Cancel it here so it can't play
+      // over the caller's follow-up or the next turn.
+      this.transport.cancelPendingSpeech?.();
     }
     this.cancelPendingEndCall();
 
