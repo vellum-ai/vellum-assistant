@@ -553,7 +553,7 @@ export async function runDaemon(): Promise<void> {
   }
 
   // Refresh the consent cache regardless of dev mode so record-time telemetry
-  // writes (gated on getCachedShareAnalytics()) work in dev too. The usage
+  // writes (which drop on a confirmed opt-out) work in dev too. The usage
   // telemetry reporter re-checks share_analytics on every flush, so dev still
   // never sends telemetry to the platform. Fire-and-forget: startConsentRefresh()
   // runs an immediate non-blocking refresh, so the startup hot path is never

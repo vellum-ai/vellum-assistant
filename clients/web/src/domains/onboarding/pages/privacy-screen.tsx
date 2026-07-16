@@ -22,7 +22,7 @@ import {
 import { isElectron } from "@/runtime/is-electron";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import { useAuthStore, useHasPlatformSession } from "@/stores/auth-store";
-import { saveConsent } from "@/utils/onboarding-cleanup";
+import { saveConsent } from "@/lib/consent/consent-persistence";
 import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
 
@@ -33,6 +33,10 @@ export function PrivacyScreen() {
   const electron = isElectron();
   const isNative = useIsNativePlatform();
   const [shareDiagnostics, setShareDiagnosticsReal] = useShareDiagnostics();
+  // Never-asked (null) displays as on — diagnostics is opt-out — and the
+  // toggle is on screen, so Start records the displayed value as an explicit
+  // choice.
+  const shareDiagnosticsChecked = shareDiagnostics ?? true;
   const [tosAccepted, setTosAcceptedReal] = useTosAccepted();
   const [privacyConsent, setPrivacyConsentReal] = usePrivacyConsent();
   const hasPlatformSession = useHasPlatformSession();
@@ -61,7 +65,7 @@ export function PrivacyScreen() {
 
     // Analytics isn't asked here — the server keeps share_analytics null
     // until the user opts in via settings or review-terms.
-    saveConsent({ userId, tos: tosAccepted, privacy: privacyConsent, shareAnalytics: null, shareDiagnostics, hasPlatformSession });
+    saveConsent({ userId, tos: tosAccepted, privacy: privacyConsent, shareAnalytics: null, shareDiagnostics: shareDiagnosticsChecked, hasPlatformSession });
     if (!isNative) {
       emitOnboardingFunnelStepCompleted(ONBOARDING_FUNNEL_STEPS.privacyTos, {
         userId,
@@ -90,7 +94,7 @@ export function PrivacyScreen() {
     isPreview,
     navigate,
     searchParams,
-    shareDiagnostics,
+    shareDiagnosticsChecked,
     tosAccepted,
     userId,
   ]);
@@ -126,7 +130,7 @@ export function PrivacyScreen() {
           electron={electron}
           showAnalytics={false}
           shareAnalytics={false}
-          shareDiagnostics={shareDiagnostics}
+          shareDiagnostics={shareDiagnosticsChecked}
           onShareAnalyticsChange={noop}
           onShareDiagnosticsChange={setShareDiagnostics}
           className="mt-8 w-full"

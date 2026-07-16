@@ -21,7 +21,7 @@ import type { UserConsent } from "@/domains/account/profile";
 let consentResult: Promise<UserConsent>;
 const fetchConsent = mock(() => consentResult);
 // `mock.module` is process-global and replaces the whole module, so re-export
-// `patchConsent` (imported transitively by onboarding-cleanup).
+// `patchConsent` (imported transitively by consent-persistence).
 mock.module("@/domains/account/profile", () => ({
   fetchConsent,
   patchConsent: mock(() => Promise.resolve()),
@@ -41,7 +41,8 @@ const applyResolvedDiagnosticsConsent = mock(
 );
 mock.module("@/lib/consent/diagnostics-consent", () => ({
   applyResolvedDiagnosticsConsent,
-  setDiagnosticsReportingGate: mock(() => {}),
+  applyExplicitDiagnosticsChoice: mock(() => {}),
+  failCloseDiagnosticsGateUntilFirstSync: mock(() => {}),
 }));
 
 let currentUser: { id: string } | null = { id: "u1" };
@@ -54,12 +55,12 @@ mock.module("@/domains/onboarding/onboarding-store", () => ({
   useOnboardingStore: { getState: () => ({ setShareDiagnostics }) },
 }));
 
-const { DIAGNOSTICS_CONSENT_VERSION } = await import("@/utils/onboarding-cleanup");
+const { DIAGNOSTICS_CONSENT_VERSION } = await import("@/lib/consent/consent-persistence");
 const { refreshDiagnosticsConsent, installConsentRefreshListeners } =
   await import("./consent-refresh");
 
 function consentRecord(overrides: Partial<UserConsent> = {}): UserConsent {
-  return {
+  const base: UserConsent = {
     tos_accepted_version: "",
     tos_accepted_at: null,
     privacy_policy_accepted_version: "",
@@ -68,11 +69,22 @@ function consentRecord(overrides: Partial<UserConsent> = {}): UserConsent {
     ai_data_sharing_accepted_at: null,
     share_analytics: true,
     share_diagnostics: true,
+    share_analytics_effective: true,
+    share_diagnostics_effective: true,
     share_analytics_accepted_version: "",
     share_analytics_accepted_at: null,
     share_diagnostics_accepted_version: "",
     share_diagnostics_accepted_at: null,
+    required_versions: {},
     ...overrides,
+  };
+  // Mirror the wire contract: the platform serves effective = value ?? true.
+  return {
+    ...base,
+    share_analytics_effective:
+      overrides.share_analytics_effective ?? base.share_analytics ?? true,
+    share_diagnostics_effective:
+      overrides.share_diagnostics_effective ?? base.share_diagnostics ?? true,
   };
 }
 

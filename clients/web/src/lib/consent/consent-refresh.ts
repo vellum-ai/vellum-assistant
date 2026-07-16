@@ -12,7 +12,7 @@ import { fetchConsent } from "@/domains/account/profile";
 import { applyResolvedDiagnosticsConsent } from "@/lib/consent/diagnostics-consent";
 import { useAuthStore } from "@/stores/auth-store";
 import { useOnboardingStore } from "@/domains/onboarding/onboarding-store";
-import { resolveServerConsent } from "@/utils/onboarding-cleanup";
+import { resolveServerConsent } from "@/lib/consent/consent-persistence";
 
 // Skip a refresh that fires within this window of the last one, so rapid
 // focus/visibility events coalesce to one fetch.

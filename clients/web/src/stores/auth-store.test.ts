@@ -1,13 +1,5 @@
-import {
-  afterEach,
-  beforeEach,
-  describe,
-  expect,
-  mock,
-  test,
-} from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { cleanup } from "@testing-library/react";
-
 
 type MockSessionUser = {
   id?: string;
@@ -51,24 +43,17 @@ const restoreConsentForUserMock = mock(
   ): {
     tos: boolean;
     privacy: boolean;
-    analyticsCurrent: boolean;
     diagnosticsCurrent: boolean;
   } => ({
     tos: false,
     privacy: false,
-    analyticsCurrent: false,
     diagnosticsCurrent: false,
   }),
 );
 const persistConsentForUserMock = mock(
   (_userId: string | null, _tos: boolean, _privacy: boolean) => {},
 );
-const persistToggleConsentMock = mock(
-  (
-    _userId: string | null,
-    _acks: { analyticsCurrent?: boolean; diagnosticsCurrent?: boolean },
-  ) => {},
-);
+const persistDiagnosticsAckMock = mock((_userId: string | null) => {});
 const resolveServerConsentMock = mock(
   (
     _consent: unknown,
@@ -77,6 +62,8 @@ const resolveServerConsentMock = mock(
     privacy: boolean;
     shareAnalytics: boolean | null;
     shareDiagnostics: boolean | null;
+    analyticsEffective: boolean;
+    diagnosticsEffective: boolean;
     analyticsCurrent: boolean;
     diagnosticsCurrent: boolean;
     analyticsVersionCurrent: boolean;
@@ -87,6 +74,8 @@ const resolveServerConsentMock = mock(
     privacy: false,
     shareAnalytics: null,
     shareDiagnostics: null,
+    analyticsEffective: true,
+    diagnosticsEffective: true,
     analyticsCurrent: false,
     diagnosticsCurrent: false,
     analyticsVersionCurrent: false,
@@ -94,6 +83,19 @@ const resolveServerConsentMock = mock(
     hasServerRecord: false,
   }),
 );
+
+// Adopted-or-fallback required versions served by the mocked accessor; the
+// backfill stamps from these. Defaults mirror the frozen constants; tests
+// override to simulate a server-side required_versions bump.
+const DEFAULT_REQUIRED_VERSIONS = {
+  tos: "2026-06-08",
+  privacyPolicy: "2026-06-08",
+  aiDataSharing: "2026-06-08",
+  shareAnalytics: "2026-06-08",
+  shareDiagnostics: "2026-06-08",
+};
+let mockRequiredVersions = { ...DEFAULT_REQUIRED_VERSIONS };
+const getRequiredConsentVersionsMock = mock(() => mockRequiredVersions);
 
 const EMPTY_CONSENT = {
   tos_accepted_version: "",
@@ -221,11 +223,12 @@ mock.module("@/domains/account/profile", () => ({
   patchConsent: patchConsentMock,
 }));
 
-mock.module("@/utils/onboarding-cleanup", () => ({
+mock.module("@/lib/consent/consent-persistence", () => ({
   restoreConsentForUser: restoreConsentForUserMock,
   persistConsentForUser: persistConsentForUserMock,
-  persistToggleConsent: persistToggleConsentMock,
+  persistDiagnosticsAck: persistDiagnosticsAckMock,
   resolveServerConsent: resolveServerConsentMock,
+  getRequiredConsentVersions: getRequiredConsentVersionsMock,
   TOS_CONSENT_VERSION: "2026-06-08",
   PRIVACY_CONSENT_VERSION: "2026-06-08",
   ANALYTICS_CONSENT_VERSION: "2026-06-08",
@@ -236,13 +239,14 @@ const setTosAcceptedMock = mock((_value: boolean) => {});
 const setPrivacyConsentMock = mock((_value: boolean) => {});
 const setAnalyticsConsentCurrentMock = mock((_value: boolean) => {});
 const setDiagnosticsConsentCurrentMock = mock((_value: boolean) => {});
-const setShareAnalyticsMock = mock((_value: boolean) => {});
-const setShareDiagnosticsMock = mock((_value: boolean) => {});
+const setShareAnalyticsMock = mock((_value: boolean | null) => {});
+const setShareDiagnosticsMock = mock((_value: boolean | null) => {});
 const setConsentHydratedMock = mock((_value: boolean) => {});
-// Mirror the store's device-initialized share values; the backfill reads these
-// to send the device opt-out value alongside the accepted version.
-let mockStoreShareAnalytics = true;
-let mockStoreShareDiagnostics = true;
+// Mirror the store's device-initialized tri-state share values (null = never
+// asked); the backfill reads these to send an explicit device choice
+// alongside the accepted version.
+let mockStoreShareAnalytics: boolean | null = null;
+let mockStoreShareDiagnostics: boolean | null = null;
 
 mock.module("@/domains/onboarding/onboarding-store", () => ({
   useOnboardingStore: {
@@ -310,12 +314,10 @@ mock.module("@/assistant/api", () => ({
 }));
 
 const { useAuthStore } = await import("@/stores/auth-store");
-const { useAssistantLifecycleStore } = await import(
-  "@/assistant/lifecycle-store"
-);
-const { useResolvedAssistantsStore } = await import(
-  "@/stores/resolved-assistants-store"
-);
+const { useAssistantLifecycleStore } =
+  await import("@/assistant/lifecycle-store");
+const { useResolvedAssistantsStore } =
+  await import("@/stores/resolved-assistants-store");
 
 function resetAuthStore(): void {
   useAuthStore.setState({
@@ -369,8 +371,10 @@ beforeEach(() => {
   refreshRemoteGatewaySessionMock.mockClear();
   restoreConsentForUserMock.mockClear();
   persistConsentForUserMock.mockClear();
-  persistToggleConsentMock.mockClear();
+  persistDiagnosticsAckMock.mockClear();
   resolveServerConsentMock.mockClear();
+  mockRequiredVersions = { ...DEFAULT_REQUIRED_VERSIONS };
+  getRequiredConsentVersionsMock.mockClear();
   setTosAcceptedMock.mockClear();
   setPrivacyConsentMock.mockClear();
   setAnalyticsConsentCurrentMock.mockClear();
@@ -378,8 +382,8 @@ beforeEach(() => {
   setShareAnalyticsMock.mockClear();
   setShareDiagnosticsMock.mockClear();
   setConsentHydratedMock.mockClear();
-  mockStoreShareAnalytics = true;
-  mockStoreShareDiagnostics = true;
+  mockStoreShareAnalytics = null;
+  mockStoreShareDiagnostics = null;
   fetchConsentMock.mockClear();
   patchConsentMock.mockClear();
   mockFetchConsentResult = EMPTY_CONSENT;
@@ -567,6 +571,8 @@ describe("auth store onboarding flag reconciliation", () => {
       privacy: true,
       shareAnalytics: true,
       shareDiagnostics: true,
+      analyticsEffective: true,
+      diagnosticsEffective: true,
       analyticsCurrent: true,
       diagnosticsCurrent: true,
       analyticsVersionCurrent: true,
@@ -579,13 +585,13 @@ describe("auth store onboarding flag reconciliation", () => {
     expect(fetchConsentMock).toHaveBeenCalled();
     expect(resolveServerConsentMock).toHaveBeenCalled();
     expect(restoreConsentForUserMock).not.toHaveBeenCalled();
+    // The explicit server choice is adopted unconditionally.
+    expect(setShareAnalyticsMock).toHaveBeenCalledWith(true);
     // Currency flags hydrate from the resolved server consent.
     expect(setAnalyticsConsentCurrentMock).toHaveBeenCalledWith(true);
     expect(setDiagnosticsConsentCurrentMock).toHaveBeenCalledWith(true);
-    expect(persistToggleConsentMock).toHaveBeenCalledWith("user-1", {
-      analyticsCurrent: true,
-      diagnosticsCurrent: true,
-    });
+    // Only diagnostics carries a device ack — analytics has none.
+    expect(persistDiagnosticsAckMock).toHaveBeenCalledWith("user-1");
     expect(useAuthStore.getState().sessionStatus).toBe("authenticated");
   });
 
@@ -596,6 +602,8 @@ describe("auth store onboarding flag reconciliation", () => {
       privacy: true,
       shareAnalytics: null,
       shareDiagnostics: true,
+      analyticsEffective: true,
+      diagnosticsEffective: true,
       // The resolver reads a null share_analytics as "nothing to re-review".
       analyticsCurrent: true,
       diagnosticsCurrent: true,
@@ -610,11 +618,59 @@ describe("auth store onboarding flag reconciliation", () => {
     expect(setAnalyticsConsentCurrentMock).toHaveBeenCalledWith(true);
     // ...but no versioned ack either: only an explicit choice may attest a
     // confirmation that could later backfill a server version stamp.
-    expect(persistToggleConsentMock).toHaveBeenCalledWith("user-1", {
+    expect(persistDiagnosticsAckMock).toHaveBeenCalledWith("user-1");
+    // Never-asked propagates: the store adopts null so tri-state chosen-ness
+    // mirrors the server.
+    expect(setShareAnalyticsMock).toHaveBeenCalledWith(null);
+  });
+
+  test("server null never overwrites a pending local explicit analytics opt-out", async () => {
+    // The user opted out on this device; the patchConsent write is still in
+    // flight (or failed), so the server still reports null. Adopting null
+    // would clear the opt-out and resume uploads the user declined.
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    mockStoreShareAnalytics = false;
+    resolveServerConsentMock.mockReturnValueOnce({
+      tos: true,
+      privacy: true,
+      shareAnalytics: null,
+      shareDiagnostics: true,
+      analyticsEffective: true,
+      diagnosticsEffective: true,
+      analyticsCurrent: true,
       diagnosticsCurrent: true,
+      analyticsVersionCurrent: false,
+      diagnosticsVersionCurrent: true,
+      hasServerRecord: true,
     });
-    // A null server value never overwrites the device-local preference.
+
+    await useAuthStore.getState().initSession();
+
     expect(setShareAnalyticsMock).not.toHaveBeenCalled();
+  });
+
+  test("an explicit server analytics value overrides a local opt-out", async () => {
+    // The server is authoritative for explicit choices — e.g. the user opted
+    // back in from another device.
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    mockStoreShareAnalytics = false;
+    resolveServerConsentMock.mockReturnValueOnce({
+      tos: true,
+      privacy: true,
+      shareAnalytics: true,
+      shareDiagnostics: true,
+      analyticsEffective: true,
+      diagnosticsEffective: true,
+      analyticsCurrent: true,
+      diagnosticsCurrent: true,
+      analyticsVersionCurrent: true,
+      diagnosticsVersionCurrent: true,
+      hasServerRecord: true,
+    });
+
+    await useAuthStore.getState().initSession();
+
+    expect(setShareAnalyticsMock).toHaveBeenCalledWith(true);
   });
 
   test("never-asked diagnostics (null on a real record) hydrates current but earns no device ack", async () => {
@@ -624,6 +680,8 @@ describe("auth store onboarding flag reconciliation", () => {
       privacy: true,
       shareAnalytics: true,
       shareDiagnostics: null,
+      analyticsEffective: true,
+      diagnosticsEffective: true,
       analyticsCurrent: true,
       // The resolver reads a null share_diagnostics as "nothing to re-review".
       diagnosticsCurrent: true,
@@ -638,11 +696,34 @@ describe("auth store onboarding flag reconciliation", () => {
     expect(setDiagnosticsConsentCurrentMock).toHaveBeenCalledWith(true);
     // ...but no versioned ack either: only an explicit choice may attest a
     // confirmation that could later backfill a server version stamp.
-    expect(persistToggleConsentMock).toHaveBeenCalledWith("user-1", {
-      analyticsCurrent: true,
-    });
+    expect(persistDiagnosticsAckMock).not.toHaveBeenCalled();
     // A null server value never overwrites the device-local preference.
     expect(setShareDiagnosticsMock).not.toHaveBeenCalled();
+  });
+
+  test("a no-record response never adopts its default share values over a local opt-out", async () => {
+    // Older/default consent shapes materialize share_analytics: true on a
+    // record-less response; adopting it would clobber the device opt-out the
+    // backfill is about to seed the server with.
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    localStorage.setItem("device:share_analytics", "false");
+    resolveServerConsentMock.mockReturnValueOnce({
+      tos: false,
+      privacy: false,
+      shareAnalytics: true,
+      shareDiagnostics: true,
+      analyticsEffective: true,
+      diagnosticsEffective: true,
+      analyticsCurrent: true,
+      diagnosticsCurrent: true,
+      analyticsVersionCurrent: false,
+      diagnosticsVersionCurrent: false,
+      hasServerRecord: false,
+    });
+
+    await useAuthStore.getState().initSession();
+
+    expect(setShareAnalyticsMock).not.toHaveBeenCalled();
   });
 
   test("no-record fallback without any device acks stays current and backfills neither toggle", async () => {
@@ -650,7 +731,6 @@ describe("auth store onboarding flag reconciliation", () => {
     restoreConsentForUserMock.mockReturnValueOnce({
       tos: true,
       privacy: true,
-      analyticsCurrent: false,
       diagnosticsCurrent: false,
     });
 
@@ -666,7 +746,7 @@ describe("auth store onboarding flag reconciliation", () => {
     expect("share_analytics_accepted_version" in body).toBe(false);
     expect("share_diagnostics_accepted_version" in body).toBe(false);
     // No ack keys are written for never-asked toggles.
-    expect(persistToggleConsentMock).toHaveBeenCalledWith("user-1", {});
+    expect(persistDiagnosticsAckMock).not.toHaveBeenCalled();
   });
 
   test("no-record fallback without an analytics device ack stays current and backfills without analytics", async () => {
@@ -674,7 +754,6 @@ describe("auth store onboarding flag reconciliation", () => {
     restoreConsentForUserMock.mockReturnValueOnce({
       tos: true,
       privacy: true,
-      analyticsCurrent: false,
       diagnosticsCurrent: true,
     });
 
@@ -689,9 +768,7 @@ describe("auth store onboarding flag reconciliation", () => {
     expect("share_analytics" in body).toBe(false);
     expect("share_analytics_accepted_version" in body).toBe(false);
     expect(body.share_diagnostics_accepted_version).toEqual(expect.any(String));
-    expect(persistToggleConsentMock).toHaveBeenCalledWith("user-1", {
-      diagnosticsCurrent: true,
-    });
+    expect(persistDiagnosticsAckMock).toHaveBeenCalledWith("user-1");
   });
 
   test("initSession falls through to device keys when server versions are empty", async () => {
@@ -710,7 +787,6 @@ describe("auth store onboarding flag reconciliation", () => {
     restoreConsentForUserMock.mockReturnValueOnce({
       tos: true,
       privacy: true,
-      analyticsCurrent: true,
       diagnosticsCurrent: true,
     });
 
@@ -722,10 +798,7 @@ describe("auth store onboarding flag reconciliation", () => {
     expect(setDiagnosticsConsentCurrentMock).toHaveBeenCalledWith(true);
     // Acks are persisted from the device-restored values, not the empty
     // server values — otherwise the fallback would clobber its own input.
-    expect(persistToggleConsentMock).toHaveBeenLastCalledWith("user-1", {
-      analyticsCurrent: true,
-      diagnosticsCurrent: true,
-    });
+    expect(persistDiagnosticsAckMock).toHaveBeenLastCalledWith("user-1");
     // Legal consent is persisted with the restored (true) values, after the
     // fallback — never the empty server values that would erase device acks.
     expect(persistConsentForUserMock).toHaveBeenLastCalledWith(
@@ -733,16 +806,25 @@ describe("auth store onboarding flag reconciliation", () => {
       true,
       true,
     );
-    // The backfill patch carries the current toggle versions so the next
-    // server fetch doesn't re-mark them stale and re-route to review-terms.
+    // The backfill patch carries the diagnostics version (device-attested) so
+    // the next server fetch doesn't re-mark it stale and re-route to
+    // review-terms. Analytics has never been chosen on this device (store is
+    // null), so no analytics fields are seeded — the server keeps null.
     expect(patchConsentMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        share_analytics_accepted_version: expect.any(String),
         share_diagnostics_accepted_version: expect.any(String),
       }),
     );
-    // The empty server record's default share booleans must NOT overwrite the
-    // device-local choices the store already holds.
+    const backfillBody = patchConsentMock.mock.calls[0][0] as Record<
+      string,
+      unknown
+    >;
+    expect("share_analytics" in backfillBody).toBe(false);
+    expect("share_analytics_accepted_version" in backfillBody).toBe(false);
+    // A no-record response adopts nothing — its share values are API
+    // defaults, not a stored row, and adopting one would clobber the device
+    // state the backfill is seeding from. The diagnostics preference is
+    // likewise left untouched by the chokepoint on an unknown input.
     expect(setShareAnalyticsMock).not.toHaveBeenCalled();
     expect(setShareDiagnosticsMock).not.toHaveBeenCalled();
   });
@@ -757,7 +839,6 @@ describe("auth store onboarding flag reconciliation", () => {
     restoreConsentForUserMock.mockReturnValueOnce({
       tos: true,
       privacy: true,
-      analyticsCurrent: true,
       diagnosticsCurrent: true,
     });
 
@@ -767,6 +848,45 @@ describe("auth store onboarding flag reconciliation", () => {
       expect.objectContaining({
         share_analytics_accepted_version: "2026-06-08",
         share_analytics: false,
+      }),
+    );
+  });
+
+  test("backfill stamps adopted required versions for acked axes; analytics stays at the build constant", async () => {
+    // The server bumped required_versions past the build constants. The sync
+    // flow adopts them (via resolveServerConsent) before the backfill runs.
+    // Device-ACKED axes (tos/privacy/diagnostics) stamp the adopted versions
+    // — their acks were validated against those requirements, and frozen
+    // stamps would write a stale server row that re-prompts other devices.
+    // Analytics has NO versioned device ack: a device value proves only a
+    // choice made under some build's disclosure, so it stamps the frozen
+    // build constant — stamping a bumped version would attest a disclosure
+    // the user never saw.
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    mockRequiredVersions = {
+      tos: "2026-09-01",
+      privacyPolicy: "2026-09-02",
+      aiDataSharing: "2026-09-03",
+      shareAnalytics: "2026-09-04",
+      shareDiagnostics: "2026-09-05",
+    };
+    mockStoreShareAnalytics = false;
+    restoreConsentForUserMock.mockReturnValueOnce({
+      tos: true,
+      privacy: true,
+      diagnosticsCurrent: true,
+    });
+
+    await useAuthStore.getState().initSession();
+
+    expect(patchConsentMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tos_accepted_version: "2026-09-01",
+        privacy_policy_accepted_version: "2026-09-02",
+        ai_data_sharing_accepted_version: "2026-09-03",
+        share_analytics: false,
+        share_analytics_accepted_version: "2026-06-08",
+        share_diagnostics_accepted_version: "2026-09-05",
       }),
     );
   });
@@ -784,7 +904,6 @@ describe("auth store onboarding flag reconciliation", () => {
     restoreConsentForUserMock.mockReturnValueOnce({
       tos: true,
       privacy: true,
-      analyticsCurrent: true,
       diagnosticsCurrent: true,
     });
 
@@ -804,7 +923,6 @@ describe("auth store onboarding flag reconciliation", () => {
     restoreConsentForUserMock.mockReturnValueOnce({
       tos: true,
       privacy: true,
-      analyticsCurrent: true,
       diagnosticsCurrent: true,
     });
 
@@ -848,6 +966,8 @@ describe("auth store onboarding flag reconciliation", () => {
       privacy: false,
       shareAnalytics: false,
       shareDiagnostics: true,
+      analyticsEffective: false,
+      diagnosticsEffective: true,
       analyticsCurrent: false,
       diagnosticsCurrent: false,
       analyticsVersionCurrent: false,
@@ -871,6 +991,8 @@ describe("auth store onboarding flag reconciliation", () => {
       privacy: true,
       shareAnalytics: true,
       shareDiagnostics: true,
+      analyticsEffective: true,
+      diagnosticsEffective: true,
       analyticsCurrent: true,
       diagnosticsCurrent: true,
       analyticsVersionCurrent: true,
@@ -888,13 +1010,16 @@ describe("auth store onboarding flag reconciliation", () => {
     // acceptance of the CURRENT terms — the stale server record just means
     // the fire-and-forget backfill write never landed. The in-memory flags
     // must stay true (no bounce into onboarding/review-terms) and the
-    // backfill must be re-sent.
+    // backfill must be re-sent. Analytics has no device ack, so its stale
+    // explicit choice stays stale (re-review) and is never backfilled.
     sessionUser = { id: "user-1", email: "user@example.com" };
     resolveServerConsentMock.mockReturnValueOnce({
       tos: false,
       privacy: false,
       shareAnalytics: true,
       shareDiagnostics: true,
+      analyticsEffective: true,
+      diagnosticsEffective: true,
       analyticsCurrent: false,
       diagnosticsCurrent: false,
       analyticsVersionCurrent: false,
@@ -904,7 +1029,6 @@ describe("auth store onboarding flag reconciliation", () => {
     restoreConsentForUserMock.mockReturnValueOnce({
       tos: true,
       privacy: true,
-      analyticsCurrent: true,
       diagnosticsCurrent: true,
     });
 
@@ -912,7 +1036,7 @@ describe("auth store onboarding flag reconciliation", () => {
 
     expect(setTosAcceptedMock).toHaveBeenCalledWith(true);
     expect(setPrivacyConsentMock).toHaveBeenCalledWith(true);
-    expect(setAnalyticsConsentCurrentMock).toHaveBeenCalledWith(true);
+    expect(setAnalyticsConsentCurrentMock).toHaveBeenCalledWith(false);
     expect(setDiagnosticsConsentCurrentMock).toHaveBeenCalledWith(true);
     expect(persistConsentForUserMock).toHaveBeenLastCalledWith(
       "user-1",
@@ -925,13 +1049,14 @@ describe("auth store onboarding flag reconciliation", () => {
         tos_accepted_version: expect.any(String),
         privacy_policy_accepted_version: expect.any(String),
         ai_data_sharing_accepted_version: expect.any(String),
-        share_analytics_accepted_version: expect.any(String),
         share_diagnostics_accepted_version: expect.any(String),
       }),
     );
-    // …but never the share booleans: a real record's values are authoritative.
+    // …but never the share booleans (a real record's values are
+    // authoritative) nor an analytics stamp (nothing device-side attests it).
     const body = patchConsentMock.mock.calls[0]![0] as Record<string, unknown>;
     expect(body).not.toContainKey("share_analytics");
+    expect(body).not.toContainKey("share_analytics_accepted_version");
     expect(body).not.toContainKey("share_diagnostics");
   });
 
@@ -944,6 +1069,8 @@ describe("auth store onboarding flag reconciliation", () => {
       privacy: false,
       shareAnalytics: true,
       shareDiagnostics: true,
+      analyticsEffective: true,
+      diagnosticsEffective: true,
       analyticsCurrent: true,
       diagnosticsCurrent: true,
       analyticsVersionCurrent: true,
@@ -953,7 +1080,6 @@ describe("auth store onboarding flag reconciliation", () => {
     restoreConsentForUserMock.mockReturnValueOnce({
       tos: true,
       privacy: true,
-      analyticsCurrent: true,
       diagnosticsCurrent: true,
     });
 
@@ -976,6 +1102,8 @@ describe("auth store onboarding flag reconciliation", () => {
       privacy: false,
       shareAnalytics: true,
       shareDiagnostics: true,
+      analyticsEffective: true,
+      diagnosticsEffective: true,
       analyticsCurrent: false,
       diagnosticsCurrent: false,
       analyticsVersionCurrent: false,
@@ -985,7 +1113,6 @@ describe("auth store onboarding flag reconciliation", () => {
     restoreConsentForUserMock.mockReturnValueOnce({
       tos: false,
       privacy: false,
-      analyticsCurrent: false,
       diagnosticsCurrent: false,
     });
 
@@ -1034,7 +1161,6 @@ describe("auth store onboarding flag reconciliation", () => {
     restoreConsentForUserMock.mockReturnValueOnce({
       tos: true,
       privacy: true,
-      analyticsCurrent: true,
       diagnosticsCurrent: true,
     });
 

@@ -60,6 +60,24 @@ describe("config-setting-snapshot", () => {
     expect(recordedPairs()).toEqual([["memory.v2.enabled", "false"]]);
   });
 
+  test("unknown consent skips entirely — no rows, no memo", () => {
+    setShareAnalytics("unknown");
+    recordConfigSettingSnapshot(makeConfig(true, false));
+
+    // A snapshot is re-derivable state (unlike outbox events), so nothing is
+    // recorded while consent is unresolved...
+    expect(recordedPairs()).toHaveLength(0);
+
+    // ...and nothing was memoized: once consent resolves, the next snapshot
+    // records the complete current set.
+    setShareAnalytics(true);
+    recordConfigSettingSnapshot(makeConfig(true, false));
+    expect(recordedPairs().sort()).toEqual([
+      ["memory.enabled", "true"],
+      ["memory.v2.enabled", "false"],
+    ]);
+  });
+
   test("consent off drops the snapshot without poisoning the memo", () => {
     setShareAnalytics(false);
     recordConfigSettingSnapshot(makeConfig(true, true));

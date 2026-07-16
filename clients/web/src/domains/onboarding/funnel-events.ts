@@ -1,4 +1,4 @@
-import { readShareAnalytics } from "@/domains/onboarding/prefs";
+import { isAnalyticsEnabled } from "@/domains/onboarding/prefs";
 import { postTelemetryEvents } from "@/lib/telemetry/ingest";
 import type { ResearchStep } from "@/domains/onboarding/research-onboarding-persistence";
 
@@ -177,7 +177,7 @@ export function emitOnboardingFunnelStepCompleted(
   options: OnboardingFunnelStepCompletedOptions = {},
 ): void {
   if (typeof window === "undefined") return;
-  if (!readShareAnalytics()) return;
+  if (!isAnalyticsEnabled()) return;
 
   postTelemetryEvents([buildOnboardingFunnelEvent(screen, options)]);
 }

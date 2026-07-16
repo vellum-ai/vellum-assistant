@@ -1,13 +1,13 @@
 /**
- * Matrix tests for the diagnostics-consent chokepoint.
+ * Matrix tests for the diagnostics-consent chokepoints.
  *
- * The chokepoint splits two values: the SAVED PREFERENCE
+ * The module splits two values: the SAVED PREFERENCE
  * (`device:share_diagnostics`, applied via the `setShareDiagnostics` mock) and
- * the EFFECTIVE GATE (`device:diagnostics_reporting` + the main-process sync,
- * written by `setDiagnosticsReportingGate`). The preference tracks the server's
- * share value direction-asymmetrically; the gate applies an explicit server
- * value directly and follows the saved device preference on an unknown one
- * (absent reads open — opt-out default).
+ * the EFFECTIVE GATE (`device:diagnostics_reporting`), of which this module is
+ * the sole writer. The preference tracks the server's share value
+ * direction-asymmetrically; the gate is a derivation of the effective
+ * preference — an explicit server value applies directly, an unknown one
+ * follows the saved device preference (absent reads open — opt-out default).
  *
  * `@/runtime/diagnostics` and `@/utils/device-settings` are mocked so the gate
  * writes are observable without a DOM/localStorage.
@@ -23,22 +23,31 @@ const syncDiagnosticsToMain = mock((_enabled: boolean) => {});
 // The saved device preference (`device:share_diagnostics`); null models
 // "never written", which resolves to the opt-out default via the fallback.
 let devicePreference: boolean | null = null;
+// The stored effective gate (`device:diagnostics_reporting`); "" models a
+// device that has never resolved a gate (unhydrated).
+let storedGate = "";
 
 mock.module("@/utils/device-settings", () => ({
   setDeviceBool,
   getDeviceBool: (_name: string, fallback: boolean) =>
     devicePreference ?? fallback,
+  getDeviceSetting: (_name: string, fallback: string) =>
+    storedGate === "" ? fallback : storedGate,
   watchDeviceSetting: () => () => {},
 }));
 mock.module("@/runtime/diagnostics", () => ({ syncDiagnosticsToMain }));
 
-const { applyResolvedDiagnosticsConsent, setDiagnosticsReportingGate } =
-  await import("./diagnostics-consent");
+const {
+  applyResolvedDiagnosticsConsent,
+  applyExplicitDiagnosticsChoice,
+  failCloseDiagnosticsGateUntilFirstSync,
+} = await import("./diagnostics-consent");
 
 beforeEach(() => {
   setDeviceBool.mockClear();
   syncDiagnosticsToMain.mockClear();
   devicePreference = null;
+  storedGate = "";
 });
 
 /**
@@ -162,17 +171,87 @@ describe("applyResolvedDiagnosticsConsent — saved preference", () => {
     expect(setShareDiagnostics).toHaveBeenCalledWith(false);
     expectGate(false);
   });
+
+  // The derivation ignores prior hydration: whatever the stored gate says, an
+  // unknown input re-derives the gate from the saved preference — explicit
+  // false closes, true or never-asked opens.
+  for (const stored of ["", "true", "false"]) {
+    for (const preference of [null, true, false]) {
+      const expected = preference !== false;
+      test(`unknown input re-derives: stored gate ${JSON.stringify(stored)} + preference ${String(preference)} → gate ${String(expected)}`, () => {
+        storedGate = stored;
+        devicePreference = preference;
+        applyResolvedDiagnosticsConsent(
+          { shareDiagnostics: null, hasServerRecord: true },
+          mock((_: boolean) => {}),
+        );
+        expectGate(expected);
+      });
+    }
+  }
 });
 
-describe("setDiagnosticsReportingGate", () => {
-  test("writes the device bool AND the main-process sync with the effective value", () => {
-    setDiagnosticsReportingGate(true);
+describe("applyExplicitDiagnosticsChoice", () => {
+  test("true → preference true, gate true", () => {
+    const setShareDiagnostics = mock((_: boolean) => {});
+    applyExplicitDiagnosticsChoice(true, setShareDiagnostics);
+    expect(setShareDiagnostics).toHaveBeenCalledWith(true);
     expectGate(true);
+  });
 
-    setDeviceBool.mockClear();
-    syncDiagnosticsToMain.mockClear();
-
-    setDiagnosticsReportingGate(false);
+  test("false → preference false, gate false — even over a prior open gate", () => {
+    storedGate = "true";
+    const setShareDiagnostics = mock((_: boolean) => {});
+    applyExplicitDiagnosticsChoice(false, setShareDiagnostics);
+    expect(setShareDiagnostics).toHaveBeenCalledWith(false);
     expectGate(false);
+  });
+});
+
+describe("failCloseDiagnosticsGateUntilFirstSync", () => {
+  // An unhydrated device (gate never written) fails closed whatever the
+  // saved preference says — the server may hold an opt-out it hasn't seen.
+  for (const preference of [null, true, false]) {
+    test(`never-resolved gate closes (preference ${String(preference)})`, () => {
+      devicePreference = preference;
+      failCloseDiagnosticsGateUntilFirstSync();
+      expectGate(false);
+    });
+  }
+
+  // A hydrated device keeps its resolved gate — the failed sync says nothing
+  // new, and closing an open gate here would flap Sentry on every outage.
+  for (const stored of ["true", "false"]) {
+    test(`already-resolved gate ${stored} is left untouched`, () => {
+      storedGate = stored;
+      failCloseDiagnosticsGateUntilFirstSync();
+      expect(setDeviceBool).not.toHaveBeenCalled();
+    });
+  }
+});
+
+describe("single-writer invariant", () => {
+  test("only diagnostics-consent.ts writes the diagnostics_reporting gate key", async () => {
+    // Structural guard for the module contract: every gate write routes
+    // through this module's chokepoints. Reads (`getDeviceSetting`/
+    // `getDeviceBool`/`watchDeviceSetting`) and the device-settings registry
+    // entry are fine anywhere.
+    const srcRoot = new URL("../..", import.meta.url).pathname;
+    const writePatterns = [
+      /\bset(?:DeviceBool|DeviceSetting)\(\s*["']diagnosticsReporting["']/,
+      /\bset(?:LocalBool|LocalSetting)\(\s*["']device:diagnostics_reporting["']/,
+      /localStorage\.setItem\(\s*["']device:diagnostics_reporting["']/,
+    ];
+    const writers: string[] = [];
+    for await (const file of new Bun.Glob("**/*.{ts,tsx}").scan(srcRoot)) {
+      if (/\.test\.tsx?$/.test(file)) {
+        continue;
+      }
+      const text = await Bun.file(`${srcRoot}${file}`).text();
+      if (writePatterns.some((pattern) => pattern.test(text))) {
+        writers.push(file);
+      }
+    }
+    expect(writers).toEqual(["lib/consent/diagnostics-consent.ts"]);
   });
 });
