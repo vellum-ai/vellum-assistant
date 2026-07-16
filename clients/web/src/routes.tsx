@@ -62,18 +62,21 @@ function AdvancedSettingsRedirect() {
  * (query string preserved so `?hosting=` carries through) keeps them out of
  * the NotFound page during a deploy. Safe to drop after a deprecation period.
  *
- * Consent-gated exactly like the removed pre-chat page (`usePreChatConsentGate`):
- * on web, a user who hasn't recorded ToS + privacy consent is sent to the
- * privacy screen rather than skipping straight into the research/background-hatch
- * flow, which does not itself gate on consent. Native defers consent to the
- * downstream privacy screen, so it always proceeds to research.
+ * Only a web user who has already recorded ToS + privacy consent is forwarded
+ * to the research flow. Two cases go to the privacy screen (the native-safe
+ * onboarding entry, which then routes on to hatching/chat) instead:
+ *   - missing-consent web users, so a stale link can't skip the consent the
+ *     removed `usePreChatConsentGate` enforced before the background hatch; and
+ *   - native (Capacitor/iOS) sessions, because the research flow isn't wired for
+ *     the native shell — its onboarding runs privacy → hatching, not research.
  */
 function PrechatLegacyRedirect() {
   const [searchParams] = useSearchParams();
   const isNative = useIsNativePlatform();
   const qs = searchParams.toString();
-  const consentOk = isNative || (readTosAccepted() && readPrivacyConsent());
-  const target = consentOk
+  const forwardToResearch =
+    !isNative && readTosAccepted() && readPrivacyConsent();
+  const target = forwardToResearch
     ? routes.onboarding.research
     : routes.onboarding.privacy;
   return <Navigate to={`${target}${qs ? `?${qs}` : ""}`} replace />;
