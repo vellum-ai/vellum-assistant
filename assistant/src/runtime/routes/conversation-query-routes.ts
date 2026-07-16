@@ -695,7 +695,6 @@ const ConfigGetResponseSchema = z
           .optional(),
         "web-fetch": z
           .object({
-            mode: ServiceModeSchema.optional(),
             provider: z.string().optional(),
           })
           .passthrough()
@@ -800,7 +799,6 @@ const ConfigPatchRequestSchema = z
           .optional(),
         "web-fetch": z
           .object({
-            mode: ServiceModeSchema.optional(),
             provider: z.string().optional(),
           })
           .passthrough()

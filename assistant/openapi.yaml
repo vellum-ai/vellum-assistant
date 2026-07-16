@@ -31594,8 +31594,6 @@ components:
               anyOf:
                 - type: object
                   properties:
-                    mode:
-                      $ref: "#/components/schemas/ServiceMode"
                     provider:
                       type: string
                   additionalProperties: {}
@@ -32394,8 +32392,6 @@ components:
             web-fetch:
               type: object
               properties:
-                mode:
-                  $ref: "#/components/schemas/ServiceMode"
                 provider:
                   type: string
               additionalProperties: {}

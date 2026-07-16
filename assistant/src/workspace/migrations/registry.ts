@@ -127,6 +127,7 @@ import { stripManagedProfileBodiesMigration } from "./126-strip-managed-profile-
 import { backfillDefaultProviderMigration } from "./127-backfill-default-provider.js";
 import { repairStaleOpenrouterGrokModelIdsMigration } from "./128-repair-stale-openrouter-grok-model-ids.js";
 import { removeAnalyzeConversationConfigMigration } from "./129-remove-analyze-conversation-config.js";
+import { dropWebFetchModeMigration } from "./131-drop-web-fetch-mode.js";
 import { migrateToWorkspaceVolumeMigration } from "./migrate-to-workspace-volume.js";
 import type { WorkspaceMigration } from "./types.js";
 
@@ -265,4 +266,5 @@ export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   backfillDefaultProviderMigration,
   repairStaleOpenrouterGrokModelIdsMigration,
   removeAnalyzeConversationConfigMigration,
+  dropWebFetchModeMigration,
 ];
