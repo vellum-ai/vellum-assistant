@@ -57,7 +57,6 @@ export type VellumCommand =
   | { kind: "quickInputSubmit"; message: string }
   | { kind: "cancelDictation" }
   | { kind: "replayOnboarding" }
-  | { kind: "previewPrechat" }
   | { kind: "replayHatchFailure" }
   | { kind: "openComponentGallery" };
 
