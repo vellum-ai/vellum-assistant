@@ -2,16 +2,20 @@ import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
 import { useDiskPressureMonitor } from "@/assistant/use-disk-pressure-monitor";
+import { AppearanceCard } from "@/domains/settings/components/appearance-card";
 import { DetailCard } from "@/components/detail-card";
-import { DiskPressureBanner, type DiskPressureBannerMode } from "@/components/disk-pressure-banner";
+import {
+  DiskPressureBanner,
+  type DiskPressureBannerMode,
+} from "@/components/disk-pressure-banner";
 import { PlatformLoginNotice } from "@/components/platform-login-notice";
 import { ProfileCard } from "@/components/profile-card";
 import { AssistantPicker } from "@/domains/settings/components/assistant-picker";
 import { AssistantSleepPolicy } from "@/domains/settings/components/assistant-sleep-policy";
 import { useAssistantWithHealthz } from "@/domains/settings/components/assistant-status-panel";
 import {
-    AssistantUpgrades,
-    LocalAssistantUpgrades,
+  AssistantUpgrades,
+  LocalAssistantUpgrades,
 } from "@/domains/settings/components/assistant-upgrades";
 import { DeleteAccountSection } from "@/domains/settings/components/delete-account-section";
 import { DevModeVersionUnlock } from "@/domains/settings/components/dev-mode-version-unlock";
@@ -26,17 +30,21 @@ import { TwoFactorSection } from "@/domains/settings/security/two-factor-section
 import { TeleportCard } from "@/domains/settings/teleport/teleport-card";
 import { Button } from "@vellumai/design-library/components/button";
 
-import { useActiveAssistantIsPlatformHosted, usePlatformGate } from "@/hooks/use-platform-gate";
 import {
-    getSelectedAssistant,
-    isLocalAssistant,
-    isLocalMode,
-    isRemoteGatewayMode,
+  useActiveAssistantIsPlatformHosted,
+  usePlatformGate,
+} from "@/hooks/use-platform-gate";
+import {
+  getSelectedAssistant,
+  isLocalAssistant,
+  isLocalMode,
+  isRemoteGatewayMode,
 } from "@/lib/local-mode";
 import { isElectron } from "@/runtime/is-electron";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useIsAuthenticated } from "@/stores/auth-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
+import { isPointerCoarse } from "@/utils/pointer";
 import { routes } from "@/utils/routes";
 
 export function GeneralPage() {
@@ -48,10 +56,12 @@ export function GeneralPage() {
     refetch,
     refetchUntilResized,
   } = useAssistantWithHealthz();
-  const multiPlatformAssistant = useClientFeatureFlagStore.use.multiPlatformAssistant();
+  const multiPlatformAssistant =
+    useClientFeatureFlagStore.use.multiPlatformAssistant();
   const teleportEnabled = useClientFeatureFlagStore.use.teleport();
   const accountMfaEnabled = useClientFeatureFlagStore.use.accountMfa();
-  const settingsSleepPolicy = useAssistantFeatureFlagStore.use.settingsSleepPolicy();
+  const settingsSleepPolicy =
+    useAssistantFeatureFlagStore.use.settingsSleepPolicy();
   const isAuthenticated = useIsAuthenticated();
   const navigate = useNavigate();
   const platformGate = usePlatformGate();
@@ -78,13 +88,13 @@ export function GeneralPage() {
     setPreferencesOpen(true);
   }, [searchParams, setSearchParams]);
 
-  const platformAssistant = assistant?.is_local && !isLocalMode() ? null : assistant;
+  const platformAssistant =
+    assistant?.is_local && !isLocalMode() ? null : assistant;
   const selected = getSelectedAssistant();
   const hasSelectedLocalAssistant =
     isLocalMode() && !!assistant && !!selected && isLocalAssistant(selected);
   const canRetireLocally = hasSelectedLocalAssistant;
-  const canUpgradeLocally =
-    hasSelectedLocalAssistant && !isRemoteGatewayMode();
+  const canUpgradeLocally = hasSelectedLocalAssistant && !isRemoteGatewayMode();
   // Whether an upgrade panel (platform or local) is on screen. Both panels
   // render the "Current" version line that carries the 7-tap developer-mode
   // unlock, so when neither shows we must render a standalone version line to
@@ -116,6 +126,11 @@ export function GeneralPage() {
   // Mirrors DeleteAccountSection's internal platformHostedOnly gate — it
   // returns null when gated, so the card must not render an empty shell.
   const showDeleteAccount = infraGate !== "gated";
+  // The Preferences modal's remaining sections are Electron-only (shortcuts,
+  // Launch at Login) or fine-pointer-only (composer send toggle). With the
+  // theme picker pulled out into its own always-visible card, hide the
+  // Preferences card on touch/non-Electron surfaces where the modal is empty.
+  const showPreferences = isElectron() || !isPointerCoarse();
 
   return (
     <div className="space-y-4">
@@ -126,7 +141,9 @@ export function GeneralPage() {
           isAcknowledging={diskPressure.isAcknowledging}
           acknowledgeError={diskPressure.acknowledgeError?.message ?? null}
           onAcknowledge={() => void diskPressure.acknowledge()}
-          onReviewWorkspaceData={() => void navigate(`${routes.workspace}?sort=size`)}
+          onReviewWorkspaceData={() =>
+            void navigate(`${routes.workspace}?sort=size`)
+          }
           onUpgradeStorage={
             infraGate === "full"
               ? () => void navigate(`${routes.settings.billing}?adjust_plan=1`)
@@ -257,19 +274,28 @@ export function GeneralPage() {
         </DetailCard>
       )}
 
-      <DetailCard
-        title="Preferences"
-        subtitle="Customize appearance, shortcuts, and how Vellum behaves on this device."
-        accessory={
-          <Button variant="outlined" onClick={() => setPreferencesOpen(true)}>
-            Customize
-          </Button>
-        }
-      />
-      <PreferencesModal
-        open={preferencesOpen}
-        onClose={() => setPreferencesOpen(false)}
-      />
+      <AppearanceCard />
+
+      {showPreferences && (
+        <>
+          <DetailCard
+            title="Preferences"
+            subtitle="Customize shortcuts and how Vellum behaves on this device."
+            accessory={
+              <Button
+                variant="outlined"
+                onClick={() => setPreferencesOpen(true)}
+              >
+                Customize
+              </Button>
+            }
+          />
+          <PreferencesModal
+            open={preferencesOpen}
+            onClose={() => setPreferencesOpen(false)}
+          />
+        </>
+      )}
 
       {teleportEnabled && isElectron() && <TeleportCard />}
 
