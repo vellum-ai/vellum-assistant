@@ -25,7 +25,7 @@ describe("PanelItem trailing action", () => {
   test("is hidden by default and revealed on hover", () => {
     const html = renderRow();
     expect(html).toContain("opacity-0");
-    expect(html).toContain("group-hover:opacity-100");
+    expect(html).toContain("[@media(hover:hover)]:group-hover:opacity-100");
   });
 
   test("is revealed on focus-within so keyboard users can reach it", () => {
@@ -47,3 +47,4 @@ describe("PanelItem trailing action", () => {
     expect(html).toContain("group-aria-[current=page]:opacity-100");
   });
 });
+

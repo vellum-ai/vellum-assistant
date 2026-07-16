@@ -145,7 +145,7 @@ const ROW_BASE_CLASSES = [
 ].join(" ");
 
 const INTERACTIVE_CLASSES = [
-  "hover:bg-[var(--surface-hover)]",
+  "[@media(hover:hover)]:hover:bg-[var(--surface-hover)]",
   "keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]",
   "cursor-pointer select-none",
 ].join(" ");
@@ -167,7 +167,7 @@ const LEFT_CLUSTER_CLASSES = "flex min-w-0 flex-1 items-center gap-[8px]";
 const LEADING_ICON_BASE_CLASSES = [
   "shrink-0",
   "text-[var(--content-tertiary)]",
-  "group-hover:text-[var(--content-secondary)]",
+  "[@media(hover:hover)]:group-hover:text-[var(--content-secondary)]",
 ].join(" ");
 
 const ICON_ACTIVE_DEFAULT =
@@ -187,8 +187,8 @@ const BADGE_BASE_CLASSES = [
   "text-label-small-default leading-none",
   "text-[var(--content-tertiary)]",
   "rounded-[4px] bg-[var(--surface-base)] px-[4px] py-[2px]",
-  "group-hover:bg-transparent group-hover:rounded-none",
-  "group-hover:px-0 group-hover:py-0",
+  "[@media(hover:hover)]:group-hover:bg-transparent [@media(hover:hover)]:group-hover:rounded-none",
+  "[@media(hover:hover)]:group-hover:px-0 [@media(hover:hover)]:group-hover:py-0",
   "group-aria-[current=page]:bg-transparent group-aria-[current=page]:rounded-none",
   "group-aria-[current=page]:px-0 group-aria-[current=page]:py-0",
 ].join(" ");
@@ -196,7 +196,7 @@ const BADGE_BASE_CLASSES = [
 const TRAILING_ACTION_CLASSES = [
   "flex items-center shrink-0",
   "opacity-0 transition-opacity",
-  "group-hover:opacity-100",
+  "[@media(hover:hover)]:group-hover:opacity-100",
   // Keyboard path: reveal when the row or the action itself has focus, and
   // keep it visible while its menu is open (focus moves into the portal'd
   // menu content, so focus-within alone would let it fade mid-interaction).
@@ -429,3 +429,4 @@ export {
   ACTIVE_DEFAULT_CLASSES,
   ACTIVE_BRANDED_CLASSES,
 };
+
