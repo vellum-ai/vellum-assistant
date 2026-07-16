@@ -185,18 +185,26 @@ function ensureProviderConnection(
 
   let connectionName: string;
 
-  // An existing connection for the entry's provider always wins over the
-  // mode-derived default. Only user-brought connections can match — the
-  // canonical `vellum` row carries the `vellum` sentinel provider, never a
-  // concrete upstream. Without this, the managed branch would silently
-  // switch a connection-less BYOK-intent profile onto the billed managed
-  // connection, and the your-own branch would create a parallel `-personal`
-  // row (pointing at an empty credential slot) when a custom-named
-  // connection already exists.
+  // For user-owned entries, an existing connection for the entry's provider
+  // wins over the mode-derived default. Only user-brought connections can
+  // match — the canonical `vellum` row carries the `vellum` sentinel
+  // provider, never a concrete upstream. Without this, the managed branch
+  // would silently switch a connection-less BYOK-intent profile onto the
+  // billed managed connection, and the your-own branch would create a
+  // parallel `-personal` row (pointing at an empty credential slot) when a
+  // custom-named connection already exists.
+  //
+  // Managed-owned entries (`source: "managed"`, the legacy upgrade-path
+  // shape) are excluded: a managed preset must stay on the platform-managed
+  // route, not start dispatching against a key the user brought for their
+  // own profiles.
   const entryModel = typeof entry.model === "string" ? entry.model : undefined;
-  const existingForProvider = listConnections(db, { provider }).find((c) =>
-    isConnectionCompatibleWithModel(c, entryModel),
-  );
+  const existingForProvider =
+    entry.source === "managed"
+      ? undefined
+      : listConnections(db, { provider }).find((c) =>
+          isConnectionCompatibleWithModel(c, entryModel),
+        );
   if (existingForProvider) {
     connectionName = existingForProvider.name;
   } else if (

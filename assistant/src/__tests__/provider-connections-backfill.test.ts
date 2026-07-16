@@ -79,6 +79,29 @@ test("managed mode still stamps vellum when no user connection exists", () => {
   expect(backfilledConnection("byok")).toBe("vellum");
 });
 
+test("managed-source entries keep the vellum stamp even when a user connection exists", () => {
+  process.env.IS_PLATFORM = "true";
+  const created = createConnection(getDb(), {
+    name: "anthropic-personal",
+    provider: "anthropic",
+    auth: { type: "api_key", credential: "credential/anthropic/api_key" },
+  });
+  expect(created.ok).toBe(true);
+  seedConfig({
+    balanced: {
+      source: "managed",
+      provider: "anthropic",
+      model: "claude-sonnet-4-6",
+    },
+    byok: { provider: "anthropic", model: "claude-fable-5" },
+  });
+
+  runProviderConnectionsBackfill(getDb());
+
+  expect(backfilledConnection("balanced")).toBe("vellum");
+  expect(backfilledConnection("byok")).toBe("anthropic-personal");
+});
+
 test("your-own mode reuses a custom-named connection instead of creating -personal", () => {
   delete process.env.IS_PLATFORM;
   const created = createConnection(getDb(), {
