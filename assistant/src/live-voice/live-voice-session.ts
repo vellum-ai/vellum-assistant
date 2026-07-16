@@ -406,6 +406,15 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // EMA of observed mic-chunk energy while assistant audio is playing (the
   // echo reference); 0 outside the echo window.
   private echoEnergyEma = 0;
+  // Audio time (ms) processed since the echo window opened — drives the
+  // gate's warm-up (see isEchoGateWarmingUp); 0 outside the echo window.
+  private echoWindowAudioMs = 0;
+  // True when the sustained-speech guard was already armed at the moment the
+  // echo window opened: speech that PREDATES playback is the user talking
+  // across the turn boundary (turn collision), not echo — humans cannot
+  // react to playback onset faster than the warm-up. That guard keeps
+  // user-first semantics (frozen reference, normal trips).
+  private echoWindowGuardCarryover = false;
   // Mutable so a mid-session `update_config` frame can retune "interrupt
   // sensitivity" live (see applyConfigUpdate).
   private bargeInMinSpeechMs: number;
@@ -932,6 +941,20 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // sustained-speech guard is armed — the user's own accumulating speech must
   // not inflate the reference against them — and resets outside the echo
   // window so a loud turn's reference never leaks into the next one.
+  //
+  // The freeze has a cold-start hole: at playback onset the very first loud
+  // echo chunk arms the guard, which would freeze the reference near zero and
+  // let steady onset echo complete a full guard run against the base
+  // threshold. So the window opens with a WARM-UP — the first
+  // echoEmaHalfLifeMs / 2 of in-window audio (200 ms at the 400 ms default) —
+  // during which the EMA learns at a fast attack rate (quarter half-life)
+  // and keeps learning even with the guard armed: echo, not speech, is the
+  // expected first signal at TTS onset. Guard trips are deferred (the run
+  // accumulates, it doesn't fire) until warm; at the default 250 ms trip the
+  // warm-up ends first, so real barge-in latency is untouched. Steady onset
+  // echo converges past its own margin inside the warm-up and its run is
+  // zeroed before it can fire. Warm-up is measured in processed audio time,
+  // the same clock that drives EMA convergence.
   private effectiveSpeechThreshold(
     chunk: Buffer,
     meanAmplitude: number,
@@ -940,7 +963,18 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       this.speechEnergyThreshold ?? DEFAULT_SPEECH_ENERGY_THRESHOLD;
     if (!this.isAssistantAudioPlaying()) {
       this.echoEnergyEma = 0;
+      this.echoWindowAudioMs = 0;
+      this.echoWindowGuardCarryover = false;
       return baseThreshold;
+    }
+    if (this.echoWindowAudioMs === 0) {
+      // Window opening: a guard armed before any assistant audio played is
+      // the user mid-utterance (turn collision), not echo.
+      this.echoWindowGuardCarryover = this.pendingBargeIn !== null;
+    } else if (this.pendingBargeIn === null) {
+      // The carried-over guard settled; onset semantics resume for any
+      // later speech in this window.
+      this.echoWindowGuardCarryover = false;
     }
     // Judge the chunk against the reference as it stood before the chunk
     // arrived — a chunk must not raise the bar it is judged against.
@@ -948,16 +982,44 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       baseThreshold,
       this.echoBargeInMargin * this.echoEnergyEma,
     );
-    if (this.pendingBargeIn === null) {
-      const chunkMs = pcm16DurationMs(
-        chunk.byteLength,
-        this.context.startFrame.audio.sampleRate,
-      );
-      const alpha = 1 - 0.5 ** (chunkMs / this.echoEmaHalfLifeMs);
+    const chunkMs = pcm16DurationMs(
+      chunk.byteLength,
+      this.context.startFrame.audio.sampleRate,
+    );
+    const warmingUp = this.echoOnsetWarmupActive();
+    if (this.pendingBargeIn === null || warmingUp) {
+      // Attack fast during warm-up (quarter half-life) so the reference
+      // overtakes steady onset echo inside the warm-up window; settle to the
+      // configured half-life afterwards for stability against transients.
+      const halfLifeMs = warmingUp
+        ? this.echoEmaHalfLifeMs / 4
+        : this.echoEmaHalfLifeMs;
+      const alpha = 1 - 0.5 ** (chunkMs / halfLifeMs);
       this.echoEnergyEma =
         alpha * meanAmplitude + (1 - alpha) * this.echoEnergyEma;
     }
+    this.echoWindowAudioMs += chunkMs;
     return threshold;
+  }
+
+  // True while the echo window has processed less than echoEmaHalfLifeMs / 2
+  // of audio (200 ms at the 400 ms default) — with the warm-up's quarter-
+  // half-life attack rate that is 2 attack half-lives, enough for the
+  // reference to reach ~75% of a steady echo level, putting margin × EMA
+  // above it. See effectiveSpeechThreshold.
+  private isEchoGateWarmingUp(): boolean {
+    return (
+      this.isAssistantAudioPlaying() &&
+      this.echoWindowAudioMs < this.echoEmaHalfLifeMs / 2
+    );
+  }
+
+  // Onset-echo semantics (fast unfrozen EMA learning + deferred guard trips)
+  // apply only during the warm-up AND when the speech run did not predate
+  // playback — a guard carried across the window boundary is the user, and
+  // keeps user-first semantics.
+  private echoOnsetWarmupActive(): boolean {
+    return !this.echoWindowGuardCarryover && this.isEchoGateWarmingUp();
   }
 
   private async routeVadAudio(
@@ -1122,6 +1184,15 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       this.context.startFrame.audio.sampleRate,
     );
     if (guard.speechMs < this.bargeInMinSpeechMs) {
+      return;
+    }
+    // Defer trips while the echo gate's onset warm-up is active (see
+    // effectiveSpeechThreshold): the run keeps accumulating, and a genuine
+    // user run fires on the first speech chunk after warm-up, while onset
+    // echo's run is zeroed once the converged reference reclassifies it. A
+    // guard carried over from before playback started (turn collision) is
+    // the user and trips normally.
+    if (this.echoOnsetWarmupActive()) {
       return;
     }
     this.pendingBargeIn = null;

@@ -124,6 +124,7 @@ function createHarness(options: {
   speechEnergyThreshold?: number;
   bargeInMinSpeechMs?: number;
   echoEmaHalfLifeMs?: number;
+  echoBargeInMargin?: number;
   emitMetrics?: boolean;
   metricsClock?: () => number;
   // Return a promise to hold a frame's transport write open (a backed-up
@@ -187,6 +188,7 @@ function createHarness(options: {
     speechEnergyThreshold: options.speechEnergyThreshold,
     bargeInMinSpeechMs: options.bargeInMinSpeechMs,
     echoEmaHalfLifeMs: options.echoEmaHalfLifeMs,
+    echoBargeInMargin: options.echoBargeInMargin,
     ...(options.spawnBackgroundContinuation
       ? { spawnBackgroundContinuation: options.spawnBackgroundContinuation }
       : {}),
@@ -1805,6 +1807,7 @@ describe("LiveVoiceSession sustained-speech barge-in guard", () => {
   function createSpeakingTurnHarness(options: {
     bargeInMinSpeechMs: number;
     echoEmaHalfLifeMs?: number;
+    echoBargeInMargin?: number;
     finals?: string[];
     startFrame?: LiveVoiceClientStartFrame;
   }) {
@@ -1824,6 +1827,7 @@ describe("LiveVoiceSession sustained-speech barge-in guard", () => {
       streamTtsAudio,
       bargeInMinSpeechMs: options.bargeInMinSpeechMs,
       echoEmaHalfLifeMs: options.echoEmaHalfLifeMs,
+      echoBargeInMargin: options.echoBargeInMargin,
       turnDetectorConfig: { silenceThresholdMs: 5_000 },
       ...(options.startFrame ? { startFrame: options.startFrame } : {}),
     });
@@ -1883,8 +1887,15 @@ describe("LiveVoiceSession sustained-speech barge-in guard", () => {
   });
 
   test("sustained speech reaching the guard flushes playback and cancels the turn", async () => {
+    // Tiny margin + half-life neutralize the echo-adaptive gate (threshold
+    // pinned to the 800 floor, warm-up over after one chunk) so this test
+    // isolates the guard's accumulation mechanics.
     const { frames, session, abort, speakFirstReply } =
-      createSpeakingTurnHarness({ bargeInMinSpeechMs: 60 });
+      createSpeakingTurnHarness({
+        bargeInMinSpeechMs: 60,
+        echoBargeInMargin: 0.001,
+        echoEmaHalfLifeMs: 4,
+      });
     await speakFirstReply();
 
     // 50 ms of consecutive speech: one chunk short of the 60 ms guard.
@@ -1915,8 +1926,11 @@ describe("LiveVoiceSession sustained-speech barge-in guard", () => {
   });
 
   test("a non-speech chunk resets the sustained-speech run", async () => {
+    // Tiny margin + half-life neutralize the echo-adaptive gate — see above.
     const { frames, session, speakFirstReply } = createSpeakingTurnHarness({
       bargeInMinSpeechMs: 60,
+      echoBargeInMargin: 0.001,
+      echoEmaHalfLifeMs: 4,
     });
     await speakFirstReply();
 
@@ -1994,6 +2008,11 @@ describe("LiveVoiceSession sustained-speech barge-in guard", () => {
       startVoiceTurn,
       streamTtsAudio,
       bargeInMinSpeechMs: 60,
+      // Tiny margin + half-life neutralize the echo-adaptive gate (threshold
+      // pinned to the floor, warm-up over after one chunk) so this test
+      // isolates the guard's playback-tail coverage.
+      echoBargeInMargin: 0.001,
+      echoEmaHalfLifeMs: 4,
       turnDetectorConfig: { silenceThresholdMs: 5_000 },
     });
 
@@ -2073,6 +2092,32 @@ describe("LiveVoiceSession sustained-speech barge-in guard", () => {
       // before the guard arms; every later chunk sits under 1.5 × EMA and
       // classifies as silence, so the guard never accumulates.
       for (let index = 0; index < 40; index += 1) {
+        await session.handleBinaryAudio(pcm(3_000));
+      }
+      await flushAsyncCallbacks();
+
+      expect(countType(frames, "speech_started")).toBe(baseline);
+      expect(countType(frames, "turn_cancelled")).toBe(0);
+      expect(abort).not.toHaveBeenCalled();
+    });
+
+    test("abrupt loud echo at playback onset is absorbed by the warm-up, not fired as barge-in", async () => {
+      // Cold-start case: steady loud echo from the very first in-window
+      // chunk. The onset chunk arms the guard, but the warm-up (half-life/2
+      // = 20 ms of audio here) keeps the reference learning at the fast
+      // attack rate despite the armed guard, so it overtakes the echo and
+      // zeroes the run before the 60 ms guard can trip — no deferred trip
+      // ever fires. Mirrors 250 ms guard vs 200 ms warm-up at the 400 ms
+      // production half-life.
+      const { frames, session, abort, speakFirstReply } =
+        createSpeakingTurnHarness({
+          bargeInMinSpeechMs: 60,
+          echoEmaHalfLifeMs: 40,
+        });
+      await speakFirstReply();
+      const baseline = countType(frames, "speech_started");
+
+      for (let index = 0; index < 30; index += 1) {
         await session.handleBinaryAudio(pcm(3_000));
       }
       await flushAsyncCallbacks();
@@ -2182,19 +2227,21 @@ describe("LiveVoiceSession sustained-speech barge-in guard", () => {
       });
       await speakFirstReply();
 
-      // The onset chunk arms the guard and freezes the reference at
-      // EMA 2250 (threshold 3375).
-      await session.handleBinaryAudio(pcm(3_000));
-      // 100 ms at 3300 sits under the frozen threshold (silence). Were the
-      // EMA still tracking, it would converge to ~3300 and lift the
-      // threshold to ~4950 — swallowing the 4000 override below.
+      // The onset chunk arms the guard and seeds the reference during the
+      // single-chunk warm-up (fast attack converges EMA to ~2400, threshold
+      // ~3600); the warm-up then ends and the reference freezes while the
+      // guard stays armed.
+      await session.handleBinaryAudio(pcm(2_400));
+      // 100 ms at 3300 sits under the frozen ~3600 threshold (silence).
+      // Were the EMA still tracking, it would converge to ~3300 and lift
+      // the threshold to ~4950 — swallowing the 4000 override below.
       for (let index = 0; index < 10; index += 1) {
         await session.handleBinaryAudio(pcm(3_300));
       }
       await flushAsyncCallbacks();
       expect(countType(frames, "turn_cancelled")).toBe(0);
 
-      // 4000 clears the frozen 3375 threshold and sustains past the guard —
+      // 4000 clears the frozen ~3600 threshold and sustains past the guard —
       // the reference did not move while the guard was armed.
       for (let index = 0; index < 7; index += 1) {
         await session.handleBinaryAudio(pcm(4_000));
