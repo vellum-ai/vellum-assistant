@@ -21,7 +21,6 @@ import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import { useAutoGreetGate } from "@/domains/chat/hooks/use-auto-greet-gate";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useAuthStore } from "@/stores/auth-store";
-import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useActiveConversation } from "@/domains/chat/hooks/use-active-conversation";
 import { useViewerStore } from "@/stores/viewer-store";
@@ -402,12 +401,7 @@ export function ActiveChatView() {
   // "Summarize up to here" confirm dialog. The hover action only records the
   // target message; the POST fires from the dialog's confirm button — a
   // misfired summarize mutates the assistant's live context with no undo, so
-  // it always goes through an explicit confirmation. Gated by the
-  // `summarize-up-to-here` flag at the callback source: with the flag off no
-  // `onSummarizeUpToHere` is provided, so the hover button never renders and
-  // the dialog is unreachable.
-  const summarizeUpToHereEnabled =
-    useClientFeatureFlagStore.use.summarizeUpToHere();
+  // it always goes through an explicit confirmation.
   const [pendingSummarizeMessageId, setPendingSummarizeMessageId] =
     useState<string | null>(null);
   const [summarizePending, setSummarizePending] = useState(false);
@@ -491,9 +485,7 @@ export function ActiveChatView() {
 
     // Conversation secondary actions
     handleForkConversation,
-    onSummarizeUpToHere: summarizeUpToHereEnabled
-      ? handleSummarizeUpToHere
-      : undefined,
+    onSummarizeUpToHere: handleSummarizeUpToHere,
     handleInspectMessage: showLlmInspector ? handleInspectMessage : undefined,
 
     // History pagination

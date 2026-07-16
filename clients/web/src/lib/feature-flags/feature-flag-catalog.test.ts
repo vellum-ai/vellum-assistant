@@ -55,9 +55,9 @@ describe("feature flag catalog", () => {
     expect(ASSISTANT_FLAG_DEFAULTS.mcpAddServer).toBe(false);
   });
 
-  test("exposes summarize-up-to-here to client and assistant flag stores", () => {
-    expect(CLIENT_FLAG_DEFAULTS.summarizeUpToHere).toBe(false);
-    expect(ASSISTANT_FLAG_DEFAULTS.summarizeUpToHere).toBe(false);
+  test("does not expose GA summarize-up-to-here as a feature flag", () => {
+    expect("summarizeUpToHere" in CLIENT_FLAG_DEFAULTS).toBe(false);
+    expect("summarizeUpToHere" in ASSISTANT_FLAG_DEFAULTS).toBe(false);
   });
 });
 

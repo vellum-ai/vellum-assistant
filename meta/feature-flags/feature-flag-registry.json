@@ -355,14 +355,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "summarize-up-to-here",
-      "scope": "both",
-      "key": "summarize-up-to-here",
-      "label": "Summarize Up To Here",
-      "description": "Show the per-message Summarize up to here action and enable the conversation summarize endpoint",
-      "defaultEnabled": false
-    },
-    {
       "id": "chat-credential-reveal",
       "scope": "assistant",
       "key": "chat-credential-reveal",
