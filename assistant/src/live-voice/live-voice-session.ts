@@ -125,18 +125,17 @@ export type LiveVoiceTtsStreamer = (
   options: LiveVoiceTtsOptions,
 ) => Promise<LiveVoiceTtsResult>;
 
-// Spawns a background subagent that continues an interrupted live-voice turn
-// (true-duplex handoff, gated behind voice-duplex-handoff). Returns the
-// subagent id so a later stop/interrupt can abort it. Injected for testability;
-// the factory wires the real SubagentManager-backed implementation.
+// Runs an interrupted live-voice turn to completion on a background subagent
+// (true-duplex handoff, gated behind voice-duplex-handoff). The run is silent
+// (no parent notification) until the resurface flow lands, and aborts when
+// `signal` fires. Injected for testability; the factory wires the real
+// SubagentManager-backed implementation.
 export type LiveVoiceBackgroundContinuationSpawner = (args: {
   parentConversationId: string;
   objective: string;
   label: string;
-}) => Promise<string>;
-
-// Aborts a background continuation subagent by id.
-export type LiveVoiceBackgroundRunAborter = (subagentId: string) => void;
+  signal: AbortSignal;
+}) => Promise<void>;
 
 export interface LiveVoiceSessionArchiveAudioInput {
   messageId?: string | null;
@@ -200,8 +199,6 @@ export interface LiveVoiceSessionOptions {
    * SubagentManager-backed implementation; tests inject a stub.
    */
   spawnBackgroundContinuation?: LiveVoiceBackgroundContinuationSpawner;
-  /** Aborts a background continuation started via spawnBackgroundContinuation. */
-  abortBackgroundRun?: LiveVoiceBackgroundRunAborter;
 }
 
 type LiveVoiceUtterancePhase =
@@ -347,11 +344,11 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   private readonly streamTtsAudio: LiveVoiceTtsStreamer | null;
   private readonly archiveAudio: LiveVoiceSessionAudioArchiver | null;
   private readonly spawnBackgroundContinuation: LiveVoiceBackgroundContinuationSpawner | null;
-  private readonly abortBackgroundRun: LiveVoiceBackgroundRunAborter | null;
-  // Subagent ids of background continuations started when a barge-in detached
-  // an interrupted turn (voice-duplex-handoff). A barge-in adds to the set;
-  // interrupt()/close() abort every id so a "stop" ends them.
-  private readonly detachedRuns = new Set<string>();
+  // Abort handles for background continuations started when a barge-in detached
+  // an interrupted turn (voice-duplex-handoff). Each controller is registered
+  // synchronously before its spawn, so interrupt()/close() abort a continuation
+  // even if a stop lands while it is still spawning.
+  private readonly detachControllers = new Set<AbortController>();
   private readonly emitMetrics: boolean;
   private readonly metrics: LiveVoiceMetricsCollector;
   private readonly createTurnId: () => string;
@@ -444,7 +441,6 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     this.archiveAudio = options.archiveAudio ?? null;
     this.spawnBackgroundContinuation =
       options.spawnBackgroundContinuation ?? null;
-    this.abortBackgroundRun = options.abortBackgroundRun ?? null;
     this.emitMetrics = options.emitMetrics ?? false;
     this.createTurnId = options.createTurnId ?? randomUUID;
     this.conversationId =
@@ -1077,43 +1073,44 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     const spawn = this.spawnBackgroundContinuation;
     if (
       !spawn ||
+      this.isClosed ||
       !isAssistantFeatureFlagEnabled("voice-duplex-handoff", getConfig())
     ) {
       return;
     }
-    void (async () => {
-      try {
-        const subagentId = await spawn({
-          parentConversationId: this.conversationId,
-          objective: DUPLEX_CONTINUATION_OBJECTIVE,
-          label: `voice-continue-${turn.turnId}`,
-        });
-        // A stop/close that landed while the spawn was in flight already
-        // cleared the set, so abort the just-started run rather than leak it.
-        if (this.isClosed) {
-          this.abortBackgroundRun?.(subagentId);
-          return;
+    // Register the abort handle synchronously so a stop that lands while the
+    // continuation is still spawning still aborts it (abortDetachedRuns fires
+    // controller.abort(), which the spawn's signal wiring honors).
+    const controller = new AbortController();
+    this.detachControllers.add(controller);
+    void spawn({
+      parentConversationId: this.conversationId,
+      objective: DUPLEX_CONTINUATION_OBJECTIVE,
+      label: `voice-continue-${turn.turnId}`,
+      signal: controller.signal,
+    })
+      .catch((err) => {
+        // A stop/interrupt aborts via the signal; that rejection is expected.
+        if (!controller.signal.aborted) {
+          log.warn(
+            { err, turnId: turn.turnId },
+            "Voice duplex handoff continuation failed",
+          );
         }
-        this.detachedRuns.add(subagentId);
-      } catch (err) {
-        log.warn(
-          { err, turnId: turn.turnId },
-          "Voice duplex handoff continuation spawn failed",
-        );
-      }
-    })();
+      })
+      .finally(() => {
+        this.detachControllers.delete(controller);
+      });
   }
 
-  // Abort every background continuation this session started and clear the set.
-  // A client interrupt or session close is a hard stop for detached work.
+  // Abort every background continuation this session started and drop its
+  // handle. A client interrupt or session close is a hard stop for detached
+  // work; the continuation's own `.finally` removes it from the set too.
   private abortDetachedRuns(): void {
-    if (this.detachedRuns.size === 0) {
-      return;
+    for (const controller of this.detachControllers) {
+      controller.abort();
     }
-    for (const subagentId of this.detachedRuns) {
-      this.abortBackgroundRun?.(subagentId);
-    }
-    this.detachedRuns.clear();
+    this.detachControllers.clear();
   }
 
   // VAD closed the utterance — the analog of ptt_release: emit
@@ -2772,7 +2769,6 @@ export function createLiveVoiceSession(
         : options.streamTtsAudio,
     spawnBackgroundContinuation:
       options.spawnBackgroundContinuation ?? defaultSpawnBackgroundContinuation,
-    abortBackgroundRun: options.abortBackgroundRun ?? defaultAbortBackgroundRun,
     // Off by default (see the `liveVoice.archiveAudio` schema): voice turns
     // persist only their transcribed text, so the recorded audio never lands
     // as an attachment on the conversation messages. Enable via config for
@@ -2791,20 +2787,23 @@ export function createLiveVoiceSession(
 // Forks the live voice conversation into a background subagent that continues
 // the interrupted turn. The fork inherits the conversation's current messages
 // (which include the interrupted turn's completed tool calls after teardown),
-// so it resumes without repeating them. Runs silently: resurfacing the result
-// is a follow-up.
+// so it resumes without repeating them. Uses spawnAndAwait (synchronous mode)
+// so the terminal parent-notification is skipped — the continuation stays
+// silent until the resurface flow lands, and this call ignores its result. The
+// `signal` aborts the child on a stop/interrupt.
 async function defaultSpawnBackgroundContinuation(args: {
   parentConversationId: string;
   objective: string;
   label: string;
-}): Promise<string> {
+  signal: AbortSignal;
+}): Promise<void> {
   const parentConversation = findConversation(args.parentConversationId);
   if (!parentConversation) {
     throw new Error(
       `Cannot detach interrupted voice turn: conversation ${args.parentConversationId} is not resident.`,
     );
   }
-  return getSubagentManager().spawn(
+  await getSubagentManager().spawnAndAwait(
     {
       parentConversationId: args.parentConversationId,
       label: args.label,
@@ -2814,13 +2813,10 @@ async function defaultSpawnBackgroundContinuation(args: {
       parentMessages: [...parentConversation.messages],
       parentSystemPrompt: parentConversation.getCurrentSystemPrompt(),
     },
-    // Silent continuation: no client-facing events until resurface lands.
+    // No client-facing events: the continuation is silent until resurface.
     () => {},
+    { signal: args.signal },
   );
-}
-
-function defaultAbortBackgroundRun(subagentId: string): void {
-  getSubagentManager().abort(subagentId);
 }
 
 async function defaultResolveStreamingTranscriber(

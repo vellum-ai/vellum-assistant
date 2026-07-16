@@ -22,7 +22,6 @@ import type { LiveVoiceAudioArchiveResult } from "../live-voice-archive.js";
 import {
   createLiveVoiceSession,
   type LiveVoiceBackgroundContinuationSpawner,
-  type LiveVoiceBackgroundRunAborter,
   LiveVoiceSession,
   type LiveVoiceSessionAudioArchiver,
   type LiveVoiceTtsStreamer,
@@ -138,7 +137,6 @@ function createHarness(options: {
   // config path is exercised: unset thresholds come from getConfig().
   viaFactory?: boolean;
   spawnBackgroundContinuation?: LiveVoiceBackgroundContinuationSpawner;
-  abortBackgroundRun?: LiveVoiceBackgroundRunAborter;
 }) {
   const sequencer = createLiveVoiceServerFrameSequencer();
   const frames: LiveVoiceServerFrame[] = [];
@@ -189,9 +187,6 @@ function createHarness(options: {
     bargeInMinSpeechMs: options.bargeInMinSpeechMs,
     ...(options.spawnBackgroundContinuation
       ? { spawnBackgroundContinuation: options.spawnBackgroundContinuation }
-      : {}),
-    ...(options.abortBackgroundRun
-      ? { abortBackgroundRun: options.abortBackgroundRun }
       : {}),
   };
   const session = options.viaFactory
@@ -656,9 +651,9 @@ describe("LiveVoiceSession server VAD", () => {
         parentConversationId: string;
         objective: string;
         label: string;
-      }) => "subagent-1",
+        signal: AbortSignal;
+      }) => {},
     );
-    const abortBackgroundRun = mock((_id: string) => {});
     const streamTtsAudio = mock(async (options: LiveVoiceTtsOptions) => {
       options.onAudioChunk(makeTtsChunk("assistant audio"));
       return makeTtsResult("assistant audio");
@@ -667,7 +662,6 @@ describe("LiveVoiceSession server VAD", () => {
       finals: ["first question", "second question"],
       streamTtsAudio,
       spawnBackgroundContinuation,
-      abortBackgroundRun,
     });
 
     await session.start();
@@ -685,16 +679,23 @@ describe("LiveVoiceSession server VAD", () => {
     expect((spawnArgs?.objective.length ?? 0) > 0).toBe(true);
   });
 
-  test("voice-duplex-handoff on: a client interrupt aborts the background continuation", async () => {
+  test("voice-duplex-handoff on: a client interrupt aborts an in-flight continuation", async () => {
     setCachedOverrides({ "voice-duplex-handoff": true }, { fromGateway: true });
+    // Hang the continuation so it is still in flight when the interrupt lands;
+    // resolve it when its signal aborts.
     const spawnBackgroundContinuation = mock(
-      async (_args: {
+      (args: {
         parentConversationId: string;
         objective: string;
         label: string;
-      }) => "subagent-1",
+        signal: AbortSignal;
+      }) =>
+        new Promise<void>((resolve) => {
+          args.signal.addEventListener("abort", () => resolve(), {
+            once: true,
+          });
+        }),
     );
-    const abortBackgroundRun = mock((_id: string) => {});
     const streamTtsAudio = mock(async (options: LiveVoiceTtsOptions) => {
       options.onAudioChunk(makeTtsChunk("assistant audio"));
       return makeTtsResult("assistant audio");
@@ -703,7 +704,6 @@ describe("LiveVoiceSession server VAD", () => {
       finals: ["first question", "second question"],
       streamTtsAudio,
       spawnBackgroundContinuation,
-      abortBackgroundRun,
     });
 
     await session.start();
@@ -712,10 +712,13 @@ describe("LiveVoiceSession server VAD", () => {
     await session.handleBinaryAudio(SUSTAINED_LOUD_CHUNK);
     await waitFor(() => spawnBackgroundContinuation.mock.calls.length === 1);
 
-    // A stop hard-ends the detached continuation.
+    const signal = spawnBackgroundContinuation.mock.calls[0]?.[0]?.signal;
+    expect(signal?.aborted).toBe(false);
+
+    // A stop hard-ends the still-running continuation via its abort signal.
     await session.handleClientFrame({ type: "interrupt" });
     await flushAsyncCallbacks();
-    expect(abortBackgroundRun).toHaveBeenCalledWith("subagent-1");
+    expect(signal?.aborted).toBe(true);
   });
 
   test("voice-duplex-handoff off (default): a thinking barge-in spawns no continuation", async () => {
@@ -724,7 +727,8 @@ describe("LiveVoiceSession server VAD", () => {
         parentConversationId: string;
         objective: string;
         label: string;
-      }) => "subagent-1",
+        signal: AbortSignal;
+      }) => {},
     );
     const streamTtsAudio = mock(async (options: LiveVoiceTtsOptions) => {
       options.onAudioChunk(makeTtsChunk("assistant audio"));
