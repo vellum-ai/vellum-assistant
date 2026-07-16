@@ -47,3 +47,28 @@ export function purgeConversationMemoryTables(conversationId: string): void {
     }
   }
 }
+
+/**
+ * Wipe every table in {@link CONVERSATION_KEYED_MEMORY_TABLES} wholesale on the
+ * memory connection. The clear-all reset drops all conversations at once, so
+ * there is no id to key on — every row in these per-conversation tables is
+ * orphaned by the wipe. Best-effort with the same guarantees as
+ * {@link purgeConversationMemoryTables}: an unavailable memory database no-ops,
+ * and a single table's failing delete is logged and swallowed.
+ */
+export function clearAllConversationMemoryTables(): void {
+  const raw = memorySqliteOrNull("clearAllConversationMemoryTables");
+  if (!raw) {
+    return;
+  }
+  for (const table of CONVERSATION_KEYED_MEMORY_TABLES) {
+    try {
+      raw.query(`DELETE FROM ${table}`).run();
+    } catch (err) {
+      log.warn(
+        { err, table },
+        "Failed to clear memory table during clear-all; continuing",
+      );
+    }
+  }
+}

@@ -1,11 +1,7 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
 import type { AssistantConfig } from "../config/schema.js";
-import {
-  getDb,
-  getMemorySqlite,
-  getTelemetryDb,
-} from "../persistence/db-connection.js";
+import { getDb, getTelemetryDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { pruneOldConversationsJob } from "../persistence/job-handlers/cleanup.js";
 import type { MemoryJob } from "../persistence/jobs-store.js";
@@ -14,12 +10,12 @@ import {
   telemetryEvents,
   toolInvocations,
 } from "../persistence/schema/index.js";
-import {
-  relocatedMemoryRowCount,
-  seedRelocatedMemoryRow,
-} from "../plugins/defaults/memory/__tests__/relocated-memory-test-rows.js";
-import { CONVERSATION_KEYED_MEMORY_TABLES } from "../plugins/defaults/memory/conversation-memory-purge.js";
 
+// Prune fires the `conversation-deleted` hook per pruned id; the memory
+// plugin's hook is what purges the relocated per-conversation tables. That
+// cascade is covered directly in the memory plugin's
+// `conversation-memory-purge.test.ts`, so this suite only asserts the
+// persistence-owned deletes.
 await initializeDb();
 
 const STALE_ID = "conv-prune-job-stale";
@@ -87,9 +83,6 @@ describe("pruneOldConversationsJob", () => {
     getTelemetryDb()!.delete(telemetryEvents).run();
     db.delete(toolInvocations).run();
     db.delete(conversations).run();
-    for (const table of CONVERSATION_KEYED_MEMORY_TABLES) {
-      getMemorySqlite()!.exec(`DELETE FROM ${table}`);
-    }
   });
 
   test("deletes non-cascading rows — including pending telemetry_events — for pruned conversations only", () => {
@@ -103,26 +96,6 @@ describe("pruneOldConversationsJob", () => {
     expect(countRows(FRESH_ID)).toEqual({ invocations: 1, telemetryRows: 1 });
     const remaining = getDb().select().from(conversations).all();
     expect(remaining.map((c) => c.id)).toEqual([FRESH_ID]);
-  });
-
-  test("purges every relocated conversation-keyed memory table for pruned conversations only", () => {
-    const staleUpdatedAt = Date.now() - 60 * 86_400_000;
-    seedConversation(STALE_ID, staleUpdatedAt);
-    seedConversation(FRESH_ID, Date.now());
-    for (const table of CONVERSATION_KEYED_MEMORY_TABLES) {
-      seedRelocatedMemoryRow(table, STALE_ID);
-      seedRelocatedMemoryRow(table, FRESH_ID);
-    }
-
-    pruneOldConversationsJob(JOB, CONFIG);
-
-    // A table added to the shared array is purged here without touching this
-    // test. The pruned conversation's rows are gone while the fresh one's
-    // survive.
-    for (const table of CONVERSATION_KEYED_MEMORY_TABLES) {
-      expect(relocatedMemoryRowCount(table, STALE_ID)).toBe(0);
-      expect(relocatedMemoryRowCount(table, FRESH_ID)).toBe(1);
-    }
   });
 
   test("retentionDays of 0 is a no-op (keep forever)", () => {

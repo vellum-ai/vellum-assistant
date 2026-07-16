@@ -1,5 +1,6 @@
 import type { AssistantConfig } from "../../config/types.js";
-import { purgeConversationMemoryTables } from "../../plugins/defaults/memory/conversation-memory-purge.js";
+import { HOOKS } from "../../plugin-api/constants.js";
+import { runHook } from "../../plugins/pipeline.js";
 import { rotateToolInvocations } from "../../telemetry/tool-usage-store.js";
 import { getLogger } from "../../util/logger.js";
 import { getLogsDbPath } from "../../util/logs-db-path.js";
@@ -181,7 +182,7 @@ export function pruneOldConversationsJob(
   if (stale.length === 0) return;
 
   const db = getDb();
-  let pruned = 0;
+  const prunedIds: string[] = [];
   for (const { id } of stale) {
     db.transaction(() => {
       // Re-check staleness inside the transaction to avoid racing with a conversation
@@ -211,11 +212,6 @@ export function pruneOldConversationsJob(
         `DELETE FROM telemetry_events WHERE conversation_id = ?`,
         id,
       );
-      // Conversation-keyed tables relocated to the memory connection lost their
-      // main-DB cascade, so purge them here on that connection. The purge is
-      // best-effort because a stray orphan row in these derived tables is
-      // harmless garbage.
-      purgeConversationMemoryTables(id);
       rawRun(
         "cleanup:pruneOldConversations:toolInv",
         `DELETE FROM tool_invocations WHERE conversation_id = ?`,
@@ -232,9 +228,19 @@ export function pruneOldConversationsJob(
         `DELETE FROM conversations WHERE id = ?`,
         id,
       );
-      pruned++;
+      prunedIds.push(id);
     });
   }
+
+  // Fire the conversation-deleted signal for each pruned id, mirroring the
+  // single-delete primitive: the memory plugin's hook purges its relocated
+  // per-conversation tables and cancels the conversation's pending jobs.
+  // Fire-and-forget, after the rows are gone — a lost cleanup only leaves
+  // harmless orphan rows in derived tables.
+  for (const id of prunedIds) {
+    void runHook(HOOKS.CONVERSATION_DELETED, { conversationId: id });
+  }
+  const pruned = prunedIds.length;
 
   if (stale.length === PRUNE_BATCH_LIMIT) {
     enqueueMemoryJob("prune_old_conversations", { retentionDays });
