@@ -17,6 +17,7 @@
  * default profile and on any legacy bare-`provider` callsite override.
  */
 
+import { MANAGED_PROFILE_NAMES } from "../../config/default-profile-catalog.js";
 import { loadRawConfig, saveRawConfig } from "../../config/loader.js";
 import type { DrizzleDb } from "../../persistence/db-connection.js";
 import { credentialKey } from "../../security/credential-key.js";
@@ -194,17 +195,24 @@ function ensureProviderConnection(
   // parallel `-personal` row (pointing at an empty credential slot) when a
   // custom-named connection already exists.
   //
-  // Managed-owned entries (`source: "managed"`, the legacy upgrade-path
-  // shape) are excluded: a managed preset must stay on the platform-managed
-  // route, not start dispatching against a key the user brought for their
-  // own profiles.
+  // Managed-owned entries are excluded: a managed preset must stay on the
+  // platform-managed route, not start dispatching against a key the user
+  // brought for their own profiles. Managed-owned means `source: "managed"`
+  // or a canonical managed name without an explicit `source: "user"` —
+  // legacy seeders wrote canonical entries source-less, and only an explicit
+  // user source marks a shadow the user took ownership of (mirrors
+  // workspace migration 109). `entryLabel` is the profile name for the
+  // `llm.profiles.*` walk; the other walks pass bracketed labels that never
+  // collide with canonical names.
+  const isManagedOwned =
+    entry.source === "managed" ||
+    (entry.source !== "user" && MANAGED_PROFILE_NAMES.has(entryLabel));
   const entryModel = typeof entry.model === "string" ? entry.model : undefined;
-  const existingForProvider =
-    entry.source === "managed"
-      ? undefined
-      : listConnections(db, { provider }).find((c) =>
-          isConnectionCompatibleWithModel(c, entryModel),
-        );
+  const existingForProvider = isManagedOwned
+    ? undefined
+    : listConnections(db, { provider }).find((c) =>
+        isConnectionCompatibleWithModel(c, entryModel),
+      );
   if (existingForProvider) {
     connectionName = existingForProvider.name;
   } else if (

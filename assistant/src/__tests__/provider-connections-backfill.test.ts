@@ -79,7 +79,7 @@ test("managed mode still stamps vellum when no user connection exists", () => {
   expect(backfilledConnection("byok")).toBe("vellum");
 });
 
-test("managed-source entries keep the vellum stamp even when a user connection exists", () => {
+test("managed-owned entries keep the vellum stamp even when a user connection exists", () => {
   process.env.IS_PLATFORM = "true";
   const created = createConnection(getDb(), {
     name: "anthropic-personal",
@@ -93,12 +93,27 @@ test("managed-source entries keep the vellum stamp even when a user connection e
       provider: "anthropic",
       model: "claude-sonnet-4-6",
     },
+    // Legacy seeders wrote canonical entries without `source` — still
+    // managed-owned (workspace migration 109's rule).
+    "quality-optimized": {
+      provider: "anthropic",
+      model: "claude-opus-4-8",
+    },
+    // An explicit user source on a canonical name is a shadow the user took
+    // ownership of — the preference applies.
+    "cost-optimized": {
+      source: "user",
+      provider: "anthropic",
+      model: "claude-haiku-4-5-20251001",
+    },
     byok: { provider: "anthropic", model: "claude-fable-5" },
   });
 
   runProviderConnectionsBackfill(getDb());
 
   expect(backfilledConnection("balanced")).toBe("vellum");
+  expect(backfilledConnection("quality-optimized")).toBe("vellum");
+  expect(backfilledConnection("cost-optimized")).toBe("anthropic-personal");
   expect(backfilledConnection("byok")).toBe("anthropic-personal");
 });
 
