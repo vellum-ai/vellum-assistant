@@ -9,7 +9,6 @@
 
 import { RiskLevel } from "../../permissions/types.js";
 import { isWeakOpenModel } from "../../providers/weak-open-model.js";
-import { ACTIVATION_MOMENT_PARAMS } from "../../telemetry/activation-funnel.js";
 import type {
   ToolContext,
   ToolDefinition,
@@ -276,12 +275,6 @@ export const uiShowTool = {
         type: "boolean",
         description:
           "Keep the surface visible after an action is clicked (clicked actions are marked spent). For launcher/menu cards. Defaults to false.",
-      },
-      activation_moment: {
-        type: "string",
-        enum: ACTIVATION_MOMENT_PARAMS,
-        description:
-          "Activation-rail telemetry tag (cohort only). Set this when this surface IS one of the activation funnel moments; the milestone is recorded automatically when the user commits the surface. Omit for all non-activation surfaces.",
       },
     },
     required: ["surface_type", "data"],

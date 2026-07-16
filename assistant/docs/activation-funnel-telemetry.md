@@ -36,7 +36,11 @@ Flow, end to end:
    `assistant/src/onboarding/onboarding-events-store.ts`:
    - emission is **deterministic, tied to a `ui_show` surface** — there is no
      model-facing tool. The model tags the surface it is already rendering for a
-     rail move with an optional `activation_moment` parameter on `ui_show`; the
+     rail move with an optional `activation_moment` parameter on `ui_show` (the
+     param is present in ui_show's schema only for activation-rail
+     conversations — `injectActivationMomentParam` in
+     `tools/ui-surface/channel-variants.ts`, applied at tool resolution when
+     `isActivationSession` is true); the
      daemon captures that tag on the surface's server-side state and records the
      milestone (gated on `isActivationSession`). **Timing is per-moment**
      (`ACTIVATION_MOMENT_EMIT_AT` in `activation-funnel.ts`): most moments record
