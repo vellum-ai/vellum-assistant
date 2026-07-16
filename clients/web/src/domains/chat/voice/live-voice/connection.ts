@@ -40,7 +40,7 @@
 
 import { authLiveVoiceTokenCreate } from "@/generated/api/sdk.gen";
 import type { LiveVoiceTokenResponse } from "@/generated/api/types.gen";
-import { getPlatformRuntimeUrl } from "@/lib/local-mode";
+import { getPlatformRuntimeUrl } from "@/lib/platform-runtime-url";
 import {
   getSelfHostedActorToken,
   getSelfHostedIngressUrl,
