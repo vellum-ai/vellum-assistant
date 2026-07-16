@@ -1237,6 +1237,51 @@ describe("installPlugin — direct (untrusted) install", () => {
     expect(pkg.version).toBe("0.0.0");
     expect(pkg.peerDependencies["@vellumai/plugin-api"]).toBeDefined();
   });
+
+  test("synthesizes a minimal package.json for a marketplace install with no upstream manifest", async () => {
+    // GIVEN a marketplace entry whose upstream tree ships no package.json
+    const NO_PKG_SHA = "5e".repeat(20);
+    const NO_PKG_MANIFEST = {
+      name: "vellum-assistant",
+      plugins: [
+        {
+          name: "manifest-less",
+          source: {
+            source: "github",
+            repo: "example-org/manifest-less",
+            ref: NO_PKG_SHA,
+          },
+          description: "A plugin with skills but no Vellum package.json.",
+        },
+      ],
+    };
+    const fetch = makeContentsFetch({
+      tree: {},
+      manifest: NO_PKG_MANIFEST,
+    });
+    const runGit = fakeGitRunner({
+      tree: {
+        "skills/onboarding/SKILL.md": "# Onboarding",
+        "README.md": "# manifest-less",
+      },
+      commit: NO_PKG_SHA,
+    });
+
+    // WHEN we install by name from the marketplace
+    await installPlugin(
+      { name: "manifest-less", ref: "main" },
+      { fetch, runGit, workspacePluginsDir: pluginsDir },
+    );
+
+    // THEN a minimal package.json is synthesized so the loader does not
+    // silently skip the plugin
+    const pkgPath = join(pluginsDir, "manifest-less", "package.json");
+    expect(existsSync(pkgPath)).toBe(true);
+    const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
+    expect(pkg.name).toBe("manifest-less");
+    expect(pkg.version).toBe("0.0.0");
+    expect(pkg.peerDependencies["@vellumai/plugin-api"]).toBeDefined();
+  });
 });
 
 describe("sanitizePluginName", () => {
