@@ -5,12 +5,22 @@ import { useSupportsAcpConnect } from "@/lib/backwards-compat/use-supports-acp-c
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 
 function setVersion(version: string | null) {
-  useAssistantIdentityStore.getState().setIdentity("test-asst", version);
+  // setIdentity(name, version, assistantId) — the scoped gate compares the
+  // rendered transcript's owner against the identity store's `assistantId`, so
+  // that (not the name) is what must be "test-asst" for the gate to resolve.
+  useAssistantIdentityStore.getState().setIdentity("Test", version, "test-asst");
 }
 
-function check(version: string | null): boolean {
+// The identity store hydrates for "test-asst"; pass the same id as the rendered
+// transcript's owner so the scoped gate resolves (mismatch is exercised below).
+function check(
+  version: string | null,
+  transcriptAssistantId: string | null | undefined = "test-asst",
+): boolean {
   setVersion(version);
-  const { result } = renderHook(() => useSupportsAcpConnect());
+  const { result } = renderHook(() =>
+    useSupportsAcpConnect(transcriptAssistantId),
+  );
   return result.current;
 }
 
@@ -51,5 +61,25 @@ describe("useSupportsAcpConnect", () => {
   test("returns false for unparseable versions", () => {
     expect(check("not-a-version")).toBe(false);
     expect(check("0.10")).toBe(false);
+  });
+
+  test("returns false when the supported version belongs to a DIFFERENT assistant (version-skew scope)", () => {
+    // The identity store is hydrated for "test-asst" at a supported version,
+    // but the rendered transcript is owned by another assistant — whose daemon
+    // may be older and 404 the Connect routes. The scoped gate must not light
+    // the CTA off the stale global identity.
+    expect(check("0.10.10", "other-asst")).toBe(false);
+  });
+
+  test("returns false when no transcript assistant id is provided", () => {
+    // Render directly rather than via `check` — passing `undefined` to a
+    // defaulted param would resolve to the default id, masking the guard.
+    setVersion("0.10.10");
+    expect(renderHook(() => useSupportsAcpConnect(null)).result.current).toBe(
+      false,
+    );
+    expect(
+      renderHook(() => useSupportsAcpConnect(undefined)).result.current,
+    ).toBe(false);
   });
 });

@@ -22,7 +22,10 @@ import {
   ACP_SERVICE,
   classifyAnthropicToken,
 } from "./acp-credentials.js";
-import { ensureAcpCredentialPolicy } from "./prepare-agent-env.js";
+import {
+  acpSpawnCanReadCredential,
+  ensureAcpCredentialPolicy,
+} from "./prepare-agent-env.js";
 
 /**
  * Verified Claude Code public OAuth client. PKCE-only (no client secret);
@@ -117,6 +120,12 @@ export async function storeAcpClaudeToken(token: string): Promise<void> {
  * treated as NOT connected: it 401s when injected as `CLAUDE_CODE_OAUTH_TOKEN` at
  * spawn, so keeping Connect offered (rather than self-dismissing) lets the user
  * repair the bad entry by connecting a real OAuth token.
+ *
+ * Likewise, a token the `acp_spawn` policy can't read (an explicit
+ * `allowedTools` that omits `acp_spawn`) is NOT connected: the vault holds a
+ * value but the spawn's broker read is denied, so self-dismissing the card would
+ * hide the only repair CTA while every spawn keeps failing. Keep the card up in
+ * that denied-policy case too.
  */
 export async function hasAcpClaudeToken(): Promise<boolean> {
   const token = await getSecureKeyAsync(
@@ -125,6 +134,7 @@ export async function hasAcpClaudeToken(): Promise<boolean> {
   return (
     token != null &&
     token.length > 0 &&
-    classifyAnthropicToken(token) !== "api_key"
+    classifyAnthropicToken(token) !== "api_key" &&
+    acpSpawnCanReadCredential(ACP_OAUTH_TOKEN_FIELD)
   );
 }

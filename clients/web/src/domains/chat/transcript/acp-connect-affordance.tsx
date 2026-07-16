@@ -48,10 +48,11 @@ export function AcpConnectAffordance({
 }: {
   assistantId: string | null | undefined;
 }) {
-  const supported = useSupportsAcpConnect();
+  const supported = useSupportsAcpConnect(assistantId);
   if (!supported || !assistantId) {
-    // Daemon too old to serve the Connect routes, or no active assistant yet →
-    // plain error rendering.
+    // This assistant's daemon is too old to serve the Connect routes (scoped to
+    // the rendered assistant so a version-skew switch can't 404), or no active
+    // assistant yet → plain error rendering.
     return null;
   }
   return <AcpConnectAffordanceInner assistantId={assistantId} />;

@@ -82,6 +82,24 @@ export function ensureAcpCredentialPolicy(
 }
 
 /**
+ * Whether the `acp_spawn` broker read for `acp/<field>` would actually be
+ * permitted, mirroring {@link ensureAcpCredentialPolicy}'s grant rules: a
+ * missing or empty `allowedTools` is auto-granted `acp_spawn` at spawn time, so
+ * it can read; a non-empty explicit policy is respected as-is, so it can read
+ * only when it lists `acp_spawn`. Lets a connected-status check avoid reporting
+ * "connected" for a token the spawn is policy-denied from reading (which would
+ * otherwise hide the repair CTA and trap the user in a missing-token loop).
+ */
+export function acpSpawnCanReadCredential(field: string): boolean {
+  const meta = getCredentialMetadata(ACP_SERVICE, field);
+  if (!meta) {
+    return true;
+  }
+  const tools = meta.allowedTools ?? [];
+  return tools.length === 0 || tools.includes(ACP_SPAWN_TOOL);
+}
+
+/**
  * Read an `acp/<field>` credential through the broker and inject it into
  * `env` under `envVar`. Returns the broker's failure reason when the value
  * was not injected (missing credential, denied policy, no stored value),

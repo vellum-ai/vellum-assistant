@@ -22,12 +22,17 @@ const getSecureKeyAsync = mock(async (_account: string) => getReturn);
 const ensureAcpCredentialPolicy = mock(
   (_field: string, _usageDescription: string) => {},
 );
+let spawnCanRead = true;
+const acpSpawnCanReadCredential = mock((_field: string) => spawnCanRead);
 
 mock.module("../../security/secure-keys.js", () => ({
   setSecureKeyAsync,
   getSecureKeyAsync,
 }));
-mock.module("../prepare-agent-env.js", () => ({ ensureAcpCredentialPolicy }));
+mock.module("../prepare-agent-env.js", () => ({
+  ensureAcpCredentialPolicy,
+  acpSpawnCanReadCredential,
+}));
 
 const {
   CLAUDE_OAUTH_CONFIG,
@@ -41,9 +46,11 @@ const {
 beforeEach(() => {
   storeReturn = true;
   getReturn = undefined;
+  spawnCanRead = true;
   setSecureKeyAsync.mockClear();
   getSecureKeyAsync.mockClear();
   ensureAcpCredentialPolicy.mockClear();
+  acpSpawnCanReadCredential.mockClear();
 });
 
 // ---------------------------------------------------------------------------
@@ -184,6 +191,16 @@ describe("hasAcpClaudeToken", () => {
 
   test("reports false for a legacy Anthropic API key so Connect stays offered", async () => {
     getReturn = "sk-ant-api03-legacy-bad-entry";
+    expect(await hasAcpClaudeToken()).toBe(false);
+  });
+
+  test("reports false when the spawn policy can't read the token (denied allowedTools)", async () => {
+    // A valid OAuth token is stored, but an explicit `allowedTools` that omits
+    // `acp_spawn` means the broker denies the spawn read. Reporting "connected"
+    // would self-dismiss the card and trap the user in a missing-token loop, so
+    // it stays not-connected to keep the repair CTA visible.
+    getReturn = "sk-ant-oat-token";
+    spawnCanRead = false;
     expect(await hasAcpClaudeToken()).toBe(false);
   });
 });

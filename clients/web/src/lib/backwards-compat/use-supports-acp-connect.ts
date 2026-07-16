@@ -18,12 +18,22 @@
  * MIN_VERSION targets 0.10.10 — the release that ships the Connect Claude auth
  * routes.
  */
-import { useAssistantSupports } from "./utils";
+import { useAssistantScopedSupports } from "./utils";
 
 export const MIN_VERSION = "0.10.10";
 
-/** Returns `true` when the active assistant is new enough to serve the Connect
- *  Claude auth routes. Conservative (`false`) until the version hydrates. */
-export function useSupportsAcpConnect(): boolean {
-  return useAssistantSupports(MIN_VERSION);
+/**
+ * Returns `true` when the assistant that OWNS the rendered transcript
+ * (`transcriptAssistantId`) is new enough to serve the Connect Claude auth
+ * routes. Scoped rather than global: in a version-skew / multi-assistant
+ * session, switching from a new assistant to an older one leaves the global
+ * active version briefly stale, which would keep the CTA lit and 404 the
+ * `/acp/claude/auth/*` calls against the old daemon. `useAssistantScopedSupports`
+ * only reports `true` when the identity store's version was fetched for this
+ * `assistantId`. Conservative (`false`) until the scoped version hydrates.
+ */
+export function useSupportsAcpConnect(
+  transcriptAssistantId: string | null | undefined,
+): boolean {
+  return useAssistantScopedSupports(MIN_VERSION, transcriptAssistantId);
 }
