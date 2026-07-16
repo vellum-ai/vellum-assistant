@@ -17,6 +17,8 @@ import { RootHydrateFallback } from "@/components/root-hydrate-fallback";
 import { ActiveAssistantGate } from "@/components/layout/active-assistant-gate";
 import { remoteGatewayPublicPathPrefix } from "@/lib/auth/remote-gateway-session";
 import { isRemoteGatewayMode } from "@/lib/local-mode";
+import { readPrivacyConsent, readTosAccepted } from "@/domains/onboarding/prefs";
+import { useIsNativePlatform } from "@/runtime/native-auth";
 import { routes } from "@/utils/routes";
 
 /**
@@ -59,16 +61,22 @@ function AdvancedSettingsRedirect() {
  * bookmarks, and older desktop builds may still hold that URL — redirecting
  * (query string preserved so `?hosting=` carries through) keeps them out of
  * the NotFound page during a deploy. Safe to drop after a deprecation period.
+ *
+ * Consent-gated exactly like the removed pre-chat page (`usePreChatConsentGate`):
+ * on web, a user who hasn't recorded ToS + privacy consent is sent to the
+ * privacy screen rather than skipping straight into the research/background-hatch
+ * flow, which does not itself gate on consent. Native defers consent to the
+ * downstream privacy screen, so it always proceeds to research.
  */
 function PrechatLegacyRedirect() {
   const [searchParams] = useSearchParams();
+  const isNative = useIsNativePlatform();
   const qs = searchParams.toString();
-  return (
-    <Navigate
-      to={`${routes.onboarding.research}${qs ? `?${qs}` : ""}`}
-      replace
-    />
-  );
+  const consentOk = isNative || (readTosAccepted() && readPrivacyConsent());
+  const target = consentOk
+    ? routes.onboarding.research
+    : routes.onboarding.privacy;
+  return <Navigate to={`${target}${qs ? `?${qs}` : ""}`} replace />;
 }
 
 /**
