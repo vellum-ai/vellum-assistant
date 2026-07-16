@@ -1350,7 +1350,7 @@ export class CallController {
       this.endCallListenTimer = null;
     }
 
-    // The call always continues past END_CALL now — either flushing queued
+    // The call always continues past END_CALL — either flushing queued
     // instructions or waiting for playback drain — so restore in_progress if
     // we just cleared a pending guardian consultation for the end.
     if (clearedPendingGuardianInput) {
@@ -1386,9 +1386,13 @@ export class CallController {
           capTimer = setTimeout(r, getEndCallDrainMaxWaitMs());
         }),
       ]);
-      if (capTimer) clearTimeout(capTimer);
+      if (capTimer) {
+        clearTimeout(capTimer);
+      }
     }
-    if (pending.cancelled || this.destroyed) return;
+    if (pending.cancelled || this.destroyed) {
+      return;
+    }
 
     // After one deferral, subsequent END_CALL markers skip the listen window
     // (the caller already had their grace re-engagement).
@@ -1403,13 +1407,17 @@ export class CallController {
         }, listenWindowMs);
       });
     }
-    if (pending.cancelled || this.destroyed) return;
+    if (pending.cancelled || this.destroyed) {
+      return;
+    }
 
     this.completeCallFromEndMarker();
   }
 
   private cancelPendingEndCall(): void {
-    if (this.pendingEndCall) this.pendingEndCall.cancelled = true;
+    if (this.pendingEndCall) {
+      this.pendingEndCall.cancelled = true;
+    }
     this.pendingEndCall = null;
     if (this.endCallListenTimer) {
       clearTimeout(this.endCallListenTimer);
