@@ -319,7 +319,8 @@ mock.module("@/assistant/api", () => ({
   listAssistants: listAssistantsMock,
 }));
 
-const { useAuthStore } = await import("@/stores/auth-store");
+const { useAuthStore, __resetConsentSyncUserForTesting } =
+  await import("@/stores/auth-store");
 const { useAssistantLifecycleStore } =
   await import("@/assistant/lifecycle-store");
 const { useResolvedAssistantsStore } =
@@ -350,6 +351,7 @@ function authenticatedLocalUserForTest() {
 }
 
 beforeEach(() => {
+  __resetConsentSyncUserForTesting();
   sessionUser = null;
   getSessionCallCount = 0;
   getSessionFailFirstCall = false;
@@ -785,6 +787,46 @@ describe("auth store onboarding flag reconciliation", () => {
     expect(persistDiagnosticsAckMock).not.toHaveBeenCalled();
     // A null server value never overwrites the device-local preference.
     expect(setShareDiagnosticsMock).not.toHaveBeenCalled();
+  });
+
+  test("an account switch resets the pending opt-in and adopted verdicts", async () => {
+    sessionUser = { id: "user-1", email: "one@example.com" };
+    await useAuthStore.getState().initSession();
+    setPendingAnalyticsOptInMock.mockClear();
+    setServerAnalyticsEffectiveMock.mockClear();
+
+    // Same-tab switch to a different account: the previous account's pending
+    // opt-in must never override the new account's server verdicts.
+    sessionUser = { id: "user-2", email: "two@example.com" };
+    await useAuthStore.getState().refreshSession();
+
+    expect(setPendingAnalyticsOptInMock).toHaveBeenCalledWith(false);
+    expect(setServerAnalyticsEffectiveMock).toHaveBeenCalledWith(null);
+  });
+
+  test("a same-user resync does not reset the pending opt-in at sync start", async () => {
+    sessionUser = { id: "user-1", email: "one@example.com" };
+    await useAuthStore.getState().initSession();
+    setPendingAnalyticsOptInMock.mockClear();
+
+    resolveServerConsentMock.mockReturnValueOnce({
+      tos: true,
+      privacy: true,
+      shareAnalytics: null,
+      shareDiagnostics: null,
+      analyticsEffective: false,
+      diagnosticsEffective: true,
+      analyticsCurrent: true,
+      diagnosticsCurrent: true,
+      analyticsVersionCurrent: false,
+      diagnosticsVersionCurrent: false,
+      hasServerRecord: true,
+    });
+    await useAuthStore.getState().refreshSession();
+
+    // Raw is null (does not reflect an opt-in) and the user is unchanged:
+    // the pending flag must survive the sync (the in-flight-PATCH race).
+    expect(setPendingAnalyticsOptInMock).not.toHaveBeenCalledWith(false);
   });
 
   test("a no-record response never adopts its default share values over a local opt-out", async () => {

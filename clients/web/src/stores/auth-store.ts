@@ -331,7 +331,30 @@ function buildDeviceConsentBackfill(axes: {
   };
 }
 
+// The account the consent flags were last synced for. `undefined` = no sync
+// yet this page load (the store boots clean, so there is nothing to reset).
+let lastConsentSyncUserId: string | null | undefined;
+
+/** Test-only: forget the last-synced account between tests. */
+export function __resetConsentSyncUserForTesting(): void {
+  lastConsentSyncUserId = undefined;
+}
+
 async function syncUserScopedState(nextUserId: string | null): Promise<void> {
+  if (
+    lastConsentSyncUserId !== undefined &&
+    lastConsentSyncUserId !== nextUserId
+  ) {
+    // The pending opt-in and adopted server verdicts belong to the previous
+    // account's session — a different account (or a signed-out state) must
+    // never inherit them: a stale pending opt-in could otherwise override
+    // the new account's server-effective opt-out.
+    const store = useOnboardingStore.getState();
+    store.setPendingAnalyticsOptIn(false);
+    store.setServerAnalyticsEffective(null);
+    store.setServerDiagnosticsEffective(null);
+  }
+  lastConsentSyncUserId = nextUserId;
   if (nextUserId) {
     try {
       const consent = await fetchConsent();
