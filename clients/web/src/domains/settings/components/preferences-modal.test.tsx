@@ -1,125 +1,62 @@
 /**
- * Tests for the `PreferencesModal` Appearance section.
+ * Tests for `PreferencesModal`.
  *
- * Appearance renders on every platform, not just Electron, so the modal mounts
- * as a web (non-Electron) client here. `SegmentControl` is stubbed with a
- * minimal harness exposing its `onChange` via buttons; the theme persistence
- * helpers and the Electron probe are mocked.
+ * The theme picker is a separate `AppearanceCard` on Settings → General (see
+ * `appearance-card.test.tsx`), not part of this modal. These tests mount the
+ * modal as a web (non-Electron) client and assert it hosts the composer send
+ * toggle but no Appearance/theme control.
  */
-import {
-  afterEach,
-  beforeEach,
-  describe,
-  expect,
-  mock,
-  test,
-} from "bun:test";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, mock, test } from "bun:test";
+import { cleanup, render, screen } from "@testing-library/react";
 
-const applyThemePreferenceMock = mock((_theme: string) => {});
-const writeStoredThemePreferenceMock = mock((_theme: string) => {});
-const readStoredThemePreferenceMock = mock(() => "system" as const);
-
-mock.module("@/utils/theme-preferences", () => ({
-  applyThemePreference: applyThemePreferenceMock,
-  readStoredThemePreference: readStoredThemePreferenceMock,
-  writeStoredThemePreference: writeStoredThemePreferenceMock,
-}));
-
-mock.module("@/utils/device-settings", () => ({
-  watchDeviceSetting: () => () => {},
-}));
-
-// Web client: not Electron. Keyboard Shortcuts + Launch at Login stay hidden,
-// leaving Appearance (+ the composer toggle) as the modal's content.
+// Web client: not Electron. Keyboard Shortcuts + Launch at Login stay hidden.
 mock.module("@/runtime/is-electron", () => ({
   isElectron: () => false,
 }));
 
-// Desktop-width pointer so the composer section is not force-nulled; keeps the
-// test independent of that section while exercising the always-on Appearance.
+// Fine pointer so the composer section renders (it is force-nulled on touch).
 mock.module("@/utils/pointer", () => ({
   isPointerCoarse: () => false,
+}));
+
+mock.module("@/runtime/platform-detection", () => ({
+  isMacOSBrowser: () => true,
+}));
+
+mock.module("@/utils/composer-settings", () => ({
+  cmdEnterToSend: {
+    useValue: () => false,
+    save: () => {},
+  },
 }));
 
 mock.module("@/domains/settings/keyboard-shortcuts/shortcuts-sections", () => ({
   ShortcutsSections: () => null,
 }));
 
-// Minimal SegmentControl harness: render one button per item exposing onChange.
-mock.module("@vellumai/design-library/components/segment-control", () => ({
-  SegmentControl: ({
-    items,
-    onChange,
-    ariaLabel,
-  }: {
-    items: Array<{ value: string; label: string }>;
-    onChange: (value: string) => void;
-    ariaLabel: string;
-  }) => (
-    <div aria-label={ariaLabel}>
-      {items.map((item) => (
-        <button
-          key={item.value}
-          type="button"
-          onClick={() => onChange(item.value)}
-        >
-          {item.label}
-        </button>
-      ))}
-    </div>
-  ),
-}));
-
-// Feature-flag store: `velvet` off so the theme list is System/Light/Dark.
-const velvetValue = { current: false };
-mock.module("@/stores/client-feature-flag-store", () => ({
-  useClientFeatureFlagStore: {
-    use: {
-      velvet: () => velvetValue.current,
-    },
-  },
+mock.module("@/runtime/launch-at-login", () => ({
+  getLaunchAtLogin: () => Promise.resolve(false),
+  setLaunchAtLogin: () => Promise.resolve(),
 }));
 
 import { PreferencesModal } from "@/domains/settings/components/preferences-modal";
 
-describe("PreferencesModal — Appearance section", () => {
-  beforeEach(() => {
-    applyThemePreferenceMock.mockClear();
-    writeStoredThemePreferenceMock.mockClear();
-    readStoredThemePreferenceMock.mockClear();
-    velvetValue.current = false;
-  });
-
+describe("PreferencesModal", () => {
   afterEach(() => {
     cleanup();
   });
 
-  test("renders the Appearance section with theme options on web", () => {
+  test("renders the composer send toggle on web", () => {
     render(<PreferencesModal open onClose={() => {}} />);
 
-    expect(screen.getByText("Appearance")).toBeDefined();
-    expect(screen.getByLabelText("Theme")).toBeDefined();
-    expect(screen.getByRole("button", { name: "System" })).toBeDefined();
-    expect(screen.getByRole("button", { name: "Light" })).toBeDefined();
-    expect(screen.getByRole("button", { name: "Dark" })).toBeDefined();
-    // Velvet is gated behind the flag (off here).
-    expect(screen.queryByRole("button", { name: "Velvet" })).toBeNull();
+    expect(screen.getByText("Composer")).toBeDefined();
+    expect(screen.getByText("Send with Cmd+Enter")).toBeDefined();
   });
 
-  test("choosing a theme writes and applies it", () => {
+  test("does not host the Appearance theme picker", () => {
     render(<PreferencesModal open onClose={() => {}} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Dark" }));
-
-    expect(writeStoredThemePreferenceMock).toHaveBeenCalledWith("dark");
-    expect(applyThemePreferenceMock).toHaveBeenCalledWith("dark");
-  });
-
-  test("exposes the Velvet option when the flag is enabled", () => {
-    velvetValue.current = true;
-    render(<PreferencesModal open onClose={() => {}} />);
-
-    expect(screen.getByRole("button", { name: "Velvet" })).toBeDefined();
+    expect(screen.queryByText("Appearance")).toBeNull();
+    expect(screen.queryByLabelText("Theme")).toBeNull();
   });
 });
