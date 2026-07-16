@@ -87,7 +87,7 @@ export async function initializeDb(): Promise<{ migrationsOk: boolean }> {
   // broken migration doesn't prevent independent later ones from succeeding.
   // The runner creates the checkpoint ledger, recovers crashed migrations, then
   // records each step so an already-migrated database skips it on later boots.
-  const { applied, failed, skipped } = await runMigrationSteps(
+  const { applied, failed, skipped, deferred } = await runMigrationSteps(
     database,
     migrationSteps,
   );
@@ -108,6 +108,13 @@ export async function initializeDb(): Promise<{ migrationsOk: boolean }> {
     );
   }
 
+  if (deferred.length > 0) {
+    log.error(
+      { deferredMigrations: deferred, count: deferred.length },
+      `DB initialization completed with ${deferred.length} deferred migration(s) whose prerequisites are not applied`,
+    );
+  }
+
   // A passing post-run validation is part of readiness: validateMigrationState
   // flags schema inconsistencies (e.g. a completed step missing a declared
   // dependsOn checkpoint) that no individual step body surfaces as a failure.
@@ -119,7 +126,11 @@ export async function initializeDb(): Promise<{ migrationsOk: boolean }> {
     log.error({ err }, "validateMigrationState failed");
   }
 
-  // migrationsOk reflects BOTH no failed migration steps AND a passing
+  // migrationsOk requires no failed steps, no deferred steps, and a passing
   // post-run validation, so an inconsistent schema keeps /readyz at 503.
-  return { migrationsOk: failed.length === 0 && validationOk };
+  // Deferrals count because a mis-declared dependsOn would otherwise leave a
+  // step silently never running while the daemon reports ready.
+  return {
+    migrationsOk: failed.length === 0 && deferred.length === 0 && validationOk,
+  };
 }
