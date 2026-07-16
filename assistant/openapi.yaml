@@ -29133,6 +29133,14 @@ paths:
                   enum:
                     - done
                     - error
+                self_reported_occupation:
+                  type: string
+                self_reported_hobbies:
+                  type: array
+                  items:
+                    type: string
+                self_reported_timezone:
+                  type: string
                 claims:
                   type: array
                   items:
