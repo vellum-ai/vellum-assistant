@@ -60,7 +60,7 @@ import { NotificationsBell } from "@/domains/home/components/notifications-bell"
 // The same amber dot HomeRecapRow puts on unread rows, top-right of the bell,
 // ringed in the top-bar surface color to separate it from the bell outline.
 const UNREAD_DOT_CLASS =
-  "-right-1 -top-1 h-3 w-3 rounded-full border-2 border-[var(--surface-base)] bg-[var(--system-mid-strong)]";
+  "-right-1 -top-1 h-3 w-3 rounded-full border-2 border-[var(--surface-base)] bg-[var(--system-mid-strong)] touch-mobile:border-[var(--surface-lift)]";
 
 function feedItem(overrides: Partial<FeedItem>): FeedItem {
   return {
