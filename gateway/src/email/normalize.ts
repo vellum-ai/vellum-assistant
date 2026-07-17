@@ -188,7 +188,8 @@ function domainsAligned(fromDomain: string, authDomain: string): boolean {
  *
  * Returns:
  *  - `true`  — DMARC passed, or (when the receiver reported no DMARC
- *              determination — `dmarc=none` or no `dmarc=` verdict at all) DKIM
+ *              determination — `dmarc=none`, Microsoft 365's
+ *              `dmarc=bestguesspass`, or no `dmarc=` verdict at all) DKIM
  *              passed for a domain aligned with the `From:` domain.
  *  - `false` — authentication results were present but did not authenticate the
  *              `From:` address (spoofable sender). A present non-pass DMARC
@@ -221,6 +222,9 @@ export function evaluateSenderAuthentication(args: {
   //  - `none` → the domain publishes no DMARC policy, i.e. no determination
   //    exists (materially the same as an absent header); fall through to the
   //    aligned-DKIM check, which is exactly the signal the fallback exists for.
+  //  - `bestguesspass` → Microsoft 365's verdict for the same no-policy
+  //    situation (no DMARC record published, but an implicit policy would have
+  //    passed) — a non-failure, so it also falls through.
   //  - anything else (`fail`, `temperror`, `permerror`, …) → the receiver did
   //    not affirm the From:, so we must NOT substitute our own alignment
   //    heuristic and re-authenticate a sender it declined. Fail closed.
@@ -230,14 +234,14 @@ export function evaluateSenderAuthentication(args: {
     if (verdict === "pass") {
       return true;
     }
-    if (verdict !== "none") {
+    if (verdict !== "none" && verdict !== "bestguesspass") {
       return false;
     }
   }
 
   // Fallback: a DKIM pass whose signing domain aligns with the From: domain.
   // Reached only when the receiver made no DMARC determination (no `dmarc=`
-  // token, or `dmarc=none`). Methods in Authentication-Results are
+  // token, `dmarc=none`, or `dmarc=bestguesspass`). Methods in Authentication-Results are
   // `;`-separated (RFC 8601), so scope each DKIM verdict to the domain in its
   // own method chunk.
   const fromDomain = domainOfEmail(args.fromEmail);
