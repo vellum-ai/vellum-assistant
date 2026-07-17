@@ -30,8 +30,12 @@ import {
   needsFallbackBridge,
   type VoiceRoutingLeg,
 } from "../calls/voice-triage-escalate.js";
-import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
+import {
+  isAssistantFeatureFlagEnabled,
+  isVoiceFrontModelEnabled,
+} from "../config/assistant-feature-flags.js";
 import { getConfig } from "../config/loader.js";
+import type { LiveVoiceFrontModelConfig } from "../config/schemas/live-voice.js";
 import { ABORT_WATCHDOG_MS } from "../daemon/abort-watchdog.js";
 import { findConversation } from "../daemon/conversation-registry.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
@@ -51,6 +55,7 @@ import type {
 import { getSubagentManager } from "../subagent/index.js";
 import { extractSpeakableSegments } from "../tts/speakable-segments.js";
 import { getLogger } from "../util/logger.js";
+import { pickAckPhrase } from "./ack-phrases.js";
 import type {
   LiveVoiceAudioArchiveResult,
   LiveVoiceAudioArchiveRole,
@@ -109,6 +114,10 @@ const FINALIZE_GRACE_MS = 1_000;
 // liveVoice.vad.bargeInMinSpeechMs schema default; 0 disables the guard for
 // instant barge-in.
 const DEFAULT_BARGE_IN_MIN_SPEECH_MS = 250;
+// Budget (ms) for the model's first delta before a spoken ack holds the floor
+// (voice-front-model). Mirrors the `liveVoice.frontModel.ackFirstDeltaTimeoutMs`
+// schema default.
+const DEFAULT_ACK_FIRST_DELTA_TIMEOUT_MS = 2_500;
 // At most this many TTS segment jobs are open (provider stream started,
 // frames not yet fully emitted) per turn: the emitting job plus one
 // prefetching job. The prefetch buffers its chunks in memory until promoted;
@@ -200,6 +209,12 @@ export interface LiveVoiceSessionOptions {
    * flush in persistent mode (test hook). Defaults to `FINALIZE_GRACE_MS`.
    */
   finalizeGraceMs?: number;
+  /**
+   * Front-model presence tuning (spoken acks). The production factory seeds
+   * this from `liveVoice.frontModel` config when unset; absent fields fall
+   * back to in-code defaults.
+   */
+  frontModelConfig?: Partial<LiveVoiceFrontModelConfig>;
   /**
    * Spawns the background continuation for a barged-in turn when the
    * `voice-duplex-handoff` flag is on. The factory wires the real
@@ -323,6 +338,14 @@ interface ActiveAssistantTurn {
   // The agent run started a definitive tool use this turn — tool use implies
   // a guaranteed-slow turn, so acknowledgment logic can key off this.
   toolUseStarted: boolean;
+  // The model's first streamed delta reached this session — the spoken-ack
+  // timer (voice-front-model) is moot once real output is flowing.
+  firstDeltaSeen: boolean;
+  // A spoken ack was enqueued this turn. Every ack trigger shares this
+  // one-per-turn budget so a slow turn never stacks fillers.
+  ackSpoken: boolean;
+  // Pending slow-first-delta ack timer; null once cleared or fired.
+  ackTimer: ReturnType<typeof setTimeout> | null;
   // Triage-and-escalate (Voice Mode): the front-door leg emitted [ESCALATE]
   // and the strong "escalated" leg has taken over this same turn. Guards the
   // front-door leg's trailing completion from finalizing the turn, and makes
@@ -524,6 +547,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   /** The cycle whose grace timer is armed (only the newest release has one). */
   private finalizeGraceCycle: UtteranceCycle | null = null;
   private readonly finalizeGraceMs: number;
+  private readonly ackFirstDeltaTimeoutMs: number;
+  // Rotates through the ack phrase list across the session's turns.
+  private ackPhraseCounter = 0;
 
   constructor(
     context: LiveVoiceSessionFactoryContext,
@@ -562,6 +588,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       options.bargeInMinSpeechMs ??
       DEFAULT_BARGE_IN_MIN_SPEECH_MS;
     this.finalizeGraceMs = options.finalizeGraceMs ?? FINALIZE_GRACE_MS;
+    this.ackFirstDeltaTimeoutMs =
+      options.frontModelConfig?.ackFirstDeltaTimeoutMs ??
+      DEFAULT_ACK_FIRST_DELTA_TIMEOUT_MS;
     const turnDetectorConfig: TurnDetectorConfig = {
       ...(options.turnDetectorConfig ?? {}),
       ...(context.startFrame.silenceThresholdMs !== undefined
@@ -1159,6 +1188,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     // order and let an older continuation re-stash. A higher sequence here
     // immediately invalidates every earlier still-running continuation.
     const detachSeq = ++this.detachSequence;
+    this.clearAckTimer(turn);
     turn.abortController.abort();
     this.metrics.markBargeIn(turn.turnId);
     // Capture the interrupted turn's teardown promise synchronously, before the
@@ -1866,6 +1896,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       interruptedRequest: opts?.interruptedRequest ?? null,
       continuationResult: opts?.continuationResult ?? null,
       toolUseStarted: false,
+      firstDeltaSeen: false,
+      ackSpoken: false,
+      ackTimer: null,
       escalationHandedOff: false,
       ttsBuffer: "",
       ttsSegmentEnqueued: false,
@@ -1882,11 +1915,20 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       return;
     }
 
+    const cfg = getConfig();
+
+    // Slow-first-delta spoken ack (voice-front-model): if the model produces
+    // no delta within the budget, a short static phrase holds the floor.
+    // Only meaningful on TTS sessions — a text-only session has no audio gap
+    // to bridge.
+    if (this.streamTtsAudio && isVoiceFrontModelEnabled(cfg)) {
+      this.armAckTimer(activeTurn);
+    }
+
     // Triage-and-escalate (Voice Mode): active only when BOTH the voice-mode
     // surface flag and the voice-triage-escalate routing flag are on. A
     // live-voice session already implies voice-mode client-side; the explicit
     // check keeps the "gated behind both flags" contract true server-side.
-    const cfg = getConfig();
     const escalateEnabled =
       isAssistantFeatureFlagEnabled("voice-mode", cfg) &&
       isVoiceTriageEscalateEnabled(cfg);
@@ -1946,6 +1988,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         return;
       }
       this.markFirstAssistantDelta(utterance, turnId);
+      this.markFirstDeltaForAck(activeTurn);
       // Same send-time abort gate as the default-leg delta path: a front-door
       // delta queued behind a backed-up outbound frame must not be written
       // once barge-in aborts the turn. Escalation aborts the front-door handle,
@@ -2022,6 +2065,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
               return;
             }
             this.markFirstAssistantDelta(utterance, turnId);
+            this.markFirstDeltaForAck(activeTurn);
             void this.sendFrame(
               {
                 type: "assistant_text_delta",
@@ -2138,6 +2182,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         return;
       }
 
+      this.clearAckTimer(activeTurn);
       this.activeAssistantTurn = null;
       await this.sendFrame({
         type: "error",
@@ -2166,6 +2211,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       return;
     }
     activeTurn.escalationHandedOff = true;
+    // The escalation bridge below holds the floor, so a pending
+    // slow-first-delta ack would only stack a second filler on top of it.
+    this.clearAckTimer(activeTurn);
     // Abort the front-door leg so a model that keeps generating past the marker
     // adds no latency before the escalated leg starts.
     activeTurn.handle?.abort();
@@ -2196,6 +2244,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     const turn = this.activeAssistantTurn;
     this.activeAssistantTurn = null;
     if (turn) {
+      this.clearAckTimer(turn);
       turn.abortController.abort();
       turn.handle?.abort();
       if (!turn.finalized) {
@@ -2253,6 +2302,57 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     );
   }
 
+  // Arms the slow-first-delta ack timer for a just-launched turn: on expiry,
+  // if no assistant delta has arrived and the turn is still live, one short
+  // phrase is spoken to hold the floor.
+  private armAckTimer(activeTurn: ActiveAssistantTurn): void {
+    const { token } = activeTurn;
+    activeTurn.ackTimer = setTimeout(() => {
+      activeTurn.ackTimer = null;
+      if (
+        !this.isActiveAssistantTurn(token) ||
+        activeTurn.firstDeltaSeen ||
+        activeTurn.ackSpoken
+      ) {
+        return;
+      }
+      this.speakAck(activeTurn);
+    }, this.ackFirstDeltaTimeoutMs);
+  }
+
+  private clearAckTimer(turn: ActiveAssistantTurn): void {
+    if (turn.ackTimer !== null) {
+      clearTimeout(turn.ackTimer);
+      turn.ackTimer = null;
+    }
+  }
+
+  // The model produced real output for this turn, so a pending ack is moot.
+  private markFirstDeltaForAck(turn: ActiveAssistantTurn): void {
+    turn.firstDeltaSeen = true;
+    this.clearAckTimer(turn);
+  }
+
+  // Speak the turn's one floor-holding ack (every ack trigger shares the
+  // `ackSpoken` budget). The ack is audio-only — no assistant_text_delta frame
+  // — so captions and the persisted assistant message carry only the model's
+  // own output. It enqueues as a complete standalone sentence on the turn's
+  // ordered TTS queue, so the model's audio always follows it cleanly; it
+  // never consumes the eager first-clause flush reserved for the model's real
+  // first segment.
+  private speakAck(activeTurn: ActiveAssistantTurn): void {
+    activeTurn.ackSpoken = true;
+    const phrase = sanitizeForTts(
+      pickAckPhrase(this.ackPhraseCounter++),
+    ).trim();
+    if (phrase.length === 0) {
+      return;
+    }
+    this.enqueueTtsSegment(activeTurn.token, phrase, {
+      countsAsFirstSegment: false,
+    });
+  }
+
   private bufferAssistantTextForTts(token: symbol, text: string): void {
     if (!this.streamTtsAudio || text.length === 0) {
       return;
@@ -2273,6 +2373,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       return;
     }
 
+    this.clearAckTimer(activeTurn);
     this.flushTtsBuffer(token, true);
     activeTurn.ttsQueue = activeTurn.ttsQueue
       .catch(() => {})
@@ -2351,13 +2452,21 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     }
   }
 
-  private enqueueTtsSegment(token: symbol, segment: string): void {
+  private enqueueTtsSegment(
+    token: symbol,
+    segment: string,
+    options: { countsAsFirstSegment?: boolean } = {},
+  ): void {
     const activeTurn = this.activeAssistantTurn;
     if (activeTurn?.token !== token || !this.streamTtsAudio) {
       return;
     }
 
-    activeTurn.ttsSegmentEnqueued = true;
+    // A spoken ack (countsAsFirstSegment: false) leaves the eager
+    // first-clause flush available for the model's real first segment.
+    if (options.countsAsFirstSegment ?? true) {
+      activeTurn.ttsSegmentEnqueued = true;
+    }
     const job: TtsSegmentJob = {
       text: segment,
       started: false,
@@ -2710,6 +2819,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     }
 
     turn.finalized = true;
+    this.clearAckTimer(turn);
     turn.utterance.completed = true;
     await this.archiveBufferedAudio({
       turnId: turn.turnId,
@@ -2978,6 +3088,7 @@ export function createLiveVoiceSession(
       options.speechEnergyThreshold ?? vadConfig?.speechEnergyThreshold,
     bargeInMinSpeechMs:
       options.bargeInMinSpeechMs ?? vadConfig?.bargeInMinSpeechMs,
+    frontModelConfig: options.frontModelConfig ?? liveVoiceConfig?.frontModel,
     resolveCredentialReadiness:
       options.resolveCredentialReadiness === undefined
         ? defaultResolveLiveVoiceCredentialReadiness
