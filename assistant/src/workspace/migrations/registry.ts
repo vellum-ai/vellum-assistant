@@ -267,6 +267,10 @@ export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   backfillDefaultProviderMigration,
   repairStaleOpenrouterGrokModelIdsMigration,
   removeAnalyzeConversationConfigMigration,
-  dropWebFetchModeMigration,
+  // 130 sits before 131 despite landing later: getLastWorkspaceMigrationId()
+  // reports the final array entry as the registry ceiling (identity/rollback
+  // routes), so the highest id must stay last. The two touch disjoint config
+  // keys, so relative execution order is irrelevant.
   speechModeToProviderMigration,
+  dropWebFetchModeMigration,
 ];

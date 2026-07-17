@@ -11,6 +11,8 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import { AssistantConfigSchema } from "../config/schema.js";
 import { speechModeToProviderMigration } from "../workspace/migrations/130-speech-mode-to-provider.js";
+import { WORKSPACE_MIGRATIONS } from "../workspace/migrations/registry.js";
+import { getLastWorkspaceMigrationId } from "../workspace/migrations/runner.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -60,6 +62,21 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("130-speech-mode-to-provider", () => {
+  // This migration's id (130) is below the already-shipped 131, so it must
+  // not sit last in the registry: getLastWorkspaceMigrationId() reports the
+  // final entry as the registry ceiling to the identity and rollback routes.
+  test("the registry ceiling stays at the highest-numbered migration", () => {
+    const numericId = (id: string) => Number.parseInt(id, 10);
+    const highest = Math.max(
+      ...WORKSPACE_MIGRATIONS.map((m) => numericId(m.id)).filter(
+        Number.isFinite,
+      ),
+    );
+    const last = getLastWorkspaceMigrationId(WORKSPACE_MIGRATIONS);
+    expect(last).not.toBeNull();
+    expect(numericId(last!)).toBe(highest);
+  });
+
   test("rewrites a managed service to provider vellum", () => {
     writeConfig({
       services: {

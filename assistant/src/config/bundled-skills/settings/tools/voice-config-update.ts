@@ -152,6 +152,28 @@ function validateSetting(
   }
 }
 
+/**
+ * Remove a legacy `mode` key from a raw `services.<svc>` block. The schema
+ * no longer has the field, but the settings cards still write it (for
+ * compatibility with older daemons) and read `mode: "managed"` as the
+ * Vellum marker — left stale after a provider switch here, the cards would
+ * render Vellum while the daemon routes the newly chosen provider.
+ */
+function deleteLegacySpeechMode(
+  raw: Record<string, unknown>,
+  svc: "stt" | "tts",
+): void {
+  const services = raw.services;
+  if (!services || typeof services !== "object" || Array.isArray(services)) {
+    return;
+  }
+  const entry = (services as Record<string, unknown>)[svc];
+  if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+    return;
+  }
+  delete (entry as Record<string, unknown>).mode;
+}
+
 export async function run(
   input: Record<string, unknown>,
   context: ToolContext,
@@ -210,6 +232,7 @@ export async function run(
 
   if (setting === "tts_provider") {
     setNestedValue(raw, "services.tts.provider", validation.coerced);
+    deleteLegacySpeechMode(raw, "tts");
     saveRawConfig(raw);
     invalidateConfigCache();
   }
@@ -246,6 +269,7 @@ export async function run(
 
   if (setting === "stt_provider") {
     setNestedValue(raw, "services.stt.provider", validation.coerced);
+    deleteLegacySpeechMode(raw, "stt");
     saveRawConfig(raw);
     invalidateConfigCache();
   }

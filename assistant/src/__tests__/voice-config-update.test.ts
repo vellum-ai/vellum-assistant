@@ -124,9 +124,10 @@ describe("voice_config_update — tts_provider", () => {
     expect(result.content).toContain("tts_provider must be one of");
   });
 
-  test("a provider switch away from vellum takes effect over a legacy mode key", async () => {
-    // A raw config may still carry a legacy `mode` key; the schema strips it,
-    // so the provider write alone decides the routing.
+  test("a provider switch scrubs a legacy mode key from the raw config", async () => {
+    // The daemon ignores a legacy `mode` key, but the settings cards read
+    // `mode: "managed"` as the Vellum marker — left behind, they would render
+    // Vellum while the daemon routes the newly chosen provider.
     writeConfig({ services: { tts: { mode: "managed", provider: "vellum" } } });
     invalidateConfigCache();
 
@@ -136,7 +137,9 @@ describe("voice_config_update — tts_provider", () => {
     );
 
     expect(result.isError).toBe(false);
-    expect((readConfig().services as any).tts.provider).toBe("elevenlabs");
+    const tts = (readConfig().services as any).tts;
+    expect(tts.provider).toBe("elevenlabs");
+    expect(tts).not.toHaveProperty("mode");
   });
 
   test("tts_provider vellum persists when a platform connection is available", async () => {
@@ -436,6 +439,21 @@ describe("voice_config_update — stt_provider", () => {
 
     expect(result.isError).toBe(false);
     expect((readConfig().services as any)?.stt?.provider).toBe("deepgram");
+  });
+
+  test("a provider switch scrubs a legacy mode key from the raw config", async () => {
+    writeConfig({ services: { stt: { mode: "managed", provider: "vellum" } } });
+    invalidateConfigCache();
+
+    const result = await run(
+      { setting: "stt_provider", value: "deepgram" },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    const stt = (readConfig().services as any).stt;
+    expect(stt.provider).toBe("deepgram");
+    expect(stt).not.toHaveProperty("mode");
   });
 
   test("rejects an unknown provider", async () => {
