@@ -531,15 +531,15 @@ describe("createToolExecutor — execution-layer allowlist gate", () => {
 // ---------------------------------------------------------------------------
 
 describe("subagentDenySideEffects — read-only continuation", () => {
-  test("filters side-effecting tool defs off the wire; read-only defs stay", () => {
-    const toolDefs = [makeToolDef("bash"), makeToolDef("tool_b")];
+  test("filters non-read-only tool defs off the wire; allowlisted read tools stay", () => {
+    const toolDefs = [makeToolDef("bash"), makeToolDef("file_read")];
     const ctx = makeProjectionCtx({ subagentDenySideEffects: true });
     const resolve = createResolveToolsCallback(toolDefs, ctx)!;
 
     const tools = resolve(EMPTY_HISTORY);
 
-    // `bash` is side-effecting and removed; `tool_b` (read-only) remains.
-    expect(tools.map((t) => t.name)).toEqual(["tool_b"]);
+    // `bash` is not read-only and removed; `file_read` (on the allowlist) stays.
+    expect(tools.map((t) => t.name)).toEqual(["file_read"]);
   });
 
   test("rejects a side-effecting call and never invokes the executor (wire/default gate mode)", async () => {
@@ -565,17 +565,38 @@ describe("subagentDenySideEffects — read-only continuation", () => {
     expect([...denied]).toEqual(["bash"]);
   });
 
-  test("lets a read-only tool execute normally", async () => {
+  test("lets a read-only core tool execute normally", async () => {
     const { executor, calls } = makeCapturingExecutor();
     const toolFn = makeToolFn(
       executor,
       makeSetupCtx({ subagentDenySideEffects: true }),
     );
 
-    const result = await toolFn("remember", { content: "a fact" });
+    // `recall` (memory read) is on the read-only allowlist.
+    const result = await toolFn("recall", { query: "a fact" });
 
     expect(result).toEqual({ content: "ok", isError: false });
     expect(calls).toHaveLength(1);
+  });
+
+  test("refuses a low-risk core mutator not on the read-only allowlist", async () => {
+    const denied = new Set<string>();
+    const { executor, calls } = makeCapturingExecutor();
+    const toolFn = makeToolFn(
+      executor,
+      makeSetupCtx({
+        subagentDenySideEffects: true,
+        subagentDeniedToolNames: denied,
+      }),
+    );
+
+    // `remember` writes memory but is low-risk and not in the core side-effect
+    // list — the fail-safe allowlist refuses it anyway.
+    const result = await toolFn("remember", { content: "a fact" });
+
+    expect(result?.isError).toBe(true);
+    expect(calls).toHaveLength(0);
+    expect([...denied]).toEqual(["remember"]);
   });
 
   test("rejects a side-effecting inner tool reached via skill_execute", async () => {
@@ -603,61 +624,69 @@ describe("subagentDenySideEffects — read-only continuation", () => {
 });
 
 describe("isRefusedInReadOnlyPass — read-only tool classification", () => {
-  test("refuses a core side-effect tool regardless of owner/risk", () => {
-    expect(
-      isRefusedInReadOnlyPass({
-        name: "bash",
-        executionTarget: "sandbox",
-        defaultRiskLevel: RiskLevel.Low,
-        hasOwner: false,
-      }),
-    ).toBe(true);
-  });
-
   test("refuses any host-target tool (can leak local data)", () => {
     expect(
       isRefusedInReadOnlyPass({
-        name: "some_read_tool",
+        name: "file_read",
         executionTarget: "host",
         defaultRiskLevel: RiskLevel.Low,
-        hasOwner: false,
+        ownerKind: "default",
       }),
     ).toBe(true);
   });
 
-  test("refuses a non-low-risk owned skill/MCP/plugin tool", () => {
-    for (const risk of [RiskLevel.Medium, RiskLevel.High, undefined]) {
-      expect(
-        isRefusedInReadOnlyPass({
-          name: "messaging_send",
-          executionTarget: "sandbox",
-          defaultRiskLevel: risk,
-          hasOwner: true,
-        }),
-      ).toBe(true);
+  test("refuses a non-low-risk third-party (skill/MCP/plugin/workspace) tool", () => {
+    for (const ownerKind of ["skill", "mcp", "plugin", "workspace"] as const) {
+      for (const risk of [RiskLevel.Medium, RiskLevel.High, undefined]) {
+        expect(
+          isRefusedInReadOnlyPass({
+            name: "messaging_send",
+            executionTarget: "sandbox",
+            defaultRiskLevel: risk,
+            ownerKind,
+          }),
+        ).toBe(true);
+      }
     }
   });
 
-  test("allows a low-risk owned tool (declared read-only)", () => {
+  test("allows a low-risk third-party tool (declared read-only)", () => {
     expect(
       isRefusedInReadOnlyPass({
         name: "search_docs",
         executionTarget: "sandbox",
         defaultRiskLevel: RiskLevel.Low,
-        hasOwner: true,
+        ownerKind: "plugin",
       }),
     ).toBe(false);
   });
 
-  test("allows a built-in read tool even at medium risk (not owned, not host)", () => {
-    expect(
-      isRefusedInReadOnlyPass({
-        name: "file_read",
-        executionTarget: "sandbox",
-        defaultRiskLevel: RiskLevel.Medium,
-        hasOwner: false,
-      }),
-    ).toBe(false);
+  test("refuses a core/default tool not on the read-only allowlist, even low-risk", () => {
+    // remember/notify_parent are low-risk sandbox core mutators, not in the core
+    // side-effect list; the fail-safe allowlist refuses them.
+    for (const name of ["remember", "notify_parent", "delete_memory_page"]) {
+      expect(
+        isRefusedInReadOnlyPass({
+          name,
+          executionTarget: "sandbox",
+          defaultRiskLevel: RiskLevel.Low,
+          ownerKind: "default",
+        }),
+      ).toBe(true);
+    }
+  });
+
+  test("allows core tools on the read-only allowlist", () => {
+    for (const name of ["file_read", "web_search", "recall", "skill_execute"]) {
+      expect(
+        isRefusedInReadOnlyPass({
+          name,
+          executionTarget: "sandbox",
+          defaultRiskLevel: RiskLevel.Low,
+          ownerKind: "default",
+        }),
+      ).toBe(false);
+    }
   });
 });
 

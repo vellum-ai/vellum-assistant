@@ -36,7 +36,6 @@ import {
   ACTIVITY_SKIP_SET,
   injectActivityField,
 } from "../tools/schema-transforms.js";
-import { isSideEffectTool } from "../tools/side-effects.js";
 import {
   augmentSkillExecuteError,
   recoverSkillExecuteEnvelope,
@@ -51,6 +50,7 @@ import type {
 import { RiskLevel } from "../tools/tool-types.js";
 import {
   isDiskPressureCleanupToolName,
+  type OwnerKind,
   type ToolContext,
   type ToolExecutionResult,
 } from "../tools/types.js";
@@ -174,33 +174,52 @@ export function getEffectiveEnabledPluginSet(conv: {
 // ── read-only pass classification ────────────────────────────────────
 
 /**
+ * Core / default tools known to be read-only, allowed in a read-only subagent
+ * pass. This is a fail-safe ALLOWLIST for built-in tools: a name-based denylist
+ * of side-effecting tools is inherently incomplete (low-risk core mutators like
+ * `remember`, `notify_parent`, or `computer_use_*` are not on the core
+ * side-effect name list), so anything not listed here is refused rather than
+ * silently run. `skill_execute` is the dispatcher for owned tools — its resolved
+ * inner tool is classified separately (see the executor gate), so it is safe to
+ * expose.
+ */
+const READ_ONLY_SAFE_CORE_TOOLS: ReadonlySet<string> = new Set([
+  "file_read",
+  "file_list",
+  "code_search",
+  "web_search",
+  "recall",
+  "skill_execute",
+]);
+
+/**
  * Whether a tool must be refused in a read-only subagent pass (the live-voice
- * background continuation, `subagentDenySideEffects`). It refuses more than the
- * core {@link isSideEffectTool} name list, because side-effecting skill / MCP /
- * plugin tools (e.g. `messaging_send`, `app_create`, `run_workflow`) are not in
- * that list. Refused: the core side-effect names; host-target execution (which
- * can leak local data); and owned (skill/MCP/plugin) tools that are not declared
- * low-risk — the metadata by which the system classifies the consequence of
- * tools outside the core list (MCP defaults to high; consequential skills
- * declare medium/high). Built-in read tools and low-risk owned tools stay
- * available. Pure so the classification is unit-testable.
+ * background continuation, `subagentDenySideEffects`), so no unapproved action
+ * runs while the user is not watching. Rules:
+ * - Host-target execution is always refused (can leak local data).
+ * - Third-party owned tools (skill/MCP/plugin/workspace) are dynamic and cannot
+ *   be name-allowlisted, so they are allowed only when declared low-risk (MCP
+ *   defaults to high; consequential skills/workspace tools declare medium/high).
+ * - Core / default tools use the fail-safe {@link READ_ONLY_SAFE_CORE_TOOLS}
+ *   allowlist — anything not listed is refused, so an unanticipated core mutator
+ *   is never silently run.
+ * Pure so the classification is unit-testable.
  */
 export function isRefusedInReadOnlyPass(params: {
   name: string;
   executionTarget: ExecutionTarget | undefined;
   defaultRiskLevel: RiskLevel | undefined;
-  hasOwner: boolean;
+  ownerKind: OwnerKind | undefined;
 }): boolean {
-  if (isSideEffectTool(params.name)) {
-    return true;
-  }
   if (params.executionTarget === "host") {
     return true;
   }
-  if (params.hasOwner && params.defaultRiskLevel !== RiskLevel.Low) {
-    return true;
+  if (params.ownerKind && params.ownerKind !== "default") {
+    // skill / mcp / plugin / workspace: allow only low-risk (read-only).
+    return params.defaultRiskLevel !== RiskLevel.Low;
   }
-  return false;
+  // Core / default (or unowned) tools: allow only the curated read-only set.
+  return !READ_ONLY_SAFE_CORE_TOOLS.has(params.name);
 }
 
 /** Resolve a tool's metadata from the registry and classify it (see above). */
@@ -210,7 +229,7 @@ function readOnlyPassRefusesTool(name: string): boolean {
     name,
     executionTarget: def?.executionTarget,
     defaultRiskLevel: def?.defaultRiskLevel,
-    hasOwner: getToolOwner(name) !== undefined,
+    ownerKind: getToolOwner(name)?.kind,
   });
 }
 
