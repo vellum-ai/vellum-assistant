@@ -623,69 +623,33 @@ describe("subagentDenySideEffects — read-only continuation", () => {
   });
 });
 
-describe("isRefusedInReadOnlyPass — read-only tool classification", () => {
-  test("refuses any host-target tool (can leak local data)", () => {
-    expect(
-      isRefusedInReadOnlyPass({
-        name: "file_read",
-        executionTarget: "host",
-        defaultRiskLevel: RiskLevel.Low,
-        ownerKind: "default",
-      }),
-    ).toBe(true);
-  });
-
-  test("refuses a non-low-risk third-party (skill/MCP/plugin/workspace) tool", () => {
-    for (const ownerKind of ["skill", "mcp", "plugin", "workspace"] as const) {
-      for (const risk of [RiskLevel.Medium, RiskLevel.High, undefined]) {
-        expect(
-          isRefusedInReadOnlyPass({
-            name: "messaging_send",
-            executionTarget: "sandbox",
-            defaultRiskLevel: risk,
-            ownerKind,
-          }),
-        ).toBe(true);
-      }
+describe("isRefusedInReadOnlyPass — strict read-only allowlist", () => {
+  test("allows only the known read-only tools", () => {
+    for (const name of [
+      "file_read",
+      "file_list",
+      "code_search",
+      "web_search",
+      "recall",
+      "skill_execute",
+    ]) {
+      expect(isRefusedInReadOnlyPass(name)).toBe(false);
     }
   });
 
-  test("allows a low-risk third-party tool (declared read-only)", () => {
-    expect(
-      isRefusedInReadOnlyPass({
-        name: "search_docs",
-        executionTarget: "sandbox",
-        defaultRiskLevel: RiskLevel.Low,
-        ownerKind: "plugin",
-      }),
-    ).toBe(false);
-  });
-
-  test("refuses a core/default tool not on the read-only allowlist, even low-risk", () => {
-    // remember/notify_parent are low-risk sandbox core mutators, not in the core
-    // side-effect list; the fail-safe allowlist refuses them.
-    for (const name of ["remember", "notify_parent", "delete_memory_page"]) {
-      expect(
-        isRefusedInReadOnlyPass({
-          name,
-          executionTarget: "sandbox",
-          defaultRiskLevel: RiskLevel.Low,
-          ownerKind: "default",
-        }),
-      ).toBe(true);
-    }
-  });
-
-  test("allows core tools on the read-only allowlist", () => {
-    for (const name of ["file_read", "web_search", "recall", "skill_execute"]) {
-      expect(
-        isRefusedInReadOnlyPass({
-          name,
-          executionTarget: "sandbox",
-          defaultRiskLevel: RiskLevel.Low,
-          ownerKind: "default",
-        }),
-      ).toBe(false);
+  test("refuses everything else — core mutators, side-effects, host, and extension tools", () => {
+    for (const name of [
+      "remember", // low-risk core memory write
+      "notify_parent", // enqueues a parent turn
+      "delete_memory_page",
+      "computer_use_click", // desktop action
+      "bash", // core side-effect
+      "file_write",
+      "host_file_read", // host read (can leak local data)
+      "messaging_send", // extension tool, any risk
+      "srv_send", // unknown/MCP tool
+    ]) {
+      expect(isRefusedInReadOnlyPass(name)).toBe(true);
     }
   });
 });
@@ -782,23 +746,30 @@ describe("createResolveToolsCallback — read-only hides dynamic MCP tools", () 
     __clearRegistryForTesting();
   });
 
-  test("filters a non-low-risk MCP tool off the wire for a read-only continuation", () => {
-    registerMcpTools("srv", [mcpTool("srv_send", RiskLevel.High)]);
+  test("filters an MCP tool off the wire even when it declares low risk", () => {
+    // Low risk is only an author-asserted band, not a read-only guarantee, so an
+    // extension tool is refused regardless; an allowlisted read tool stays.
+    registerMcpTools("srv", [mcpTool("srv_send", RiskLevel.Low)]);
     const ctx = makeProjectionCtx({ subagentDenySideEffects: true });
-    const resolve = createResolveToolsCallback([makeToolDef("remember")], ctx)!;
+    const resolve = createResolveToolsCallback(
+      [makeToolDef("file_read")],
+      ctx,
+    )!;
 
-    const tools = resolve(EMPTY_HISTORY);
+    const names = resolve(EMPTY_HISTORY).map((t) => t.name);
 
-    expect(tools.map((t) => t.name)).not.toContain("srv_send");
+    expect(names).not.toContain("srv_send");
+    expect(names).toContain("file_read");
   });
 
   test("keeps the MCP tool on the wire without the read-only flag (control)", () => {
-    registerMcpTools("srv", [mcpTool("srv_send", RiskLevel.High)]);
+    registerMcpTools("srv", [mcpTool("srv_send", RiskLevel.Low)]);
     const ctx = makeProjectionCtx({});
-    const resolve = createResolveToolsCallback([makeToolDef("remember")], ctx)!;
+    const resolve = createResolveToolsCallback(
+      [makeToolDef("file_read")],
+      ctx,
+    )!;
 
-    const tools = resolve(EMPTY_HISTORY);
-
-    expect(tools.map((t) => t.name)).toContain("srv_send");
+    expect(resolve(EMPTY_HISTORY).map((t) => t.name)).toContain("srv_send");
   });
 });

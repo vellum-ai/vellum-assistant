@@ -390,7 +390,7 @@ function buildVoiceControlPrompt(turn: ActiveAssistantTurn): string {
 // the forked history.
 function buildDuplexContinuationObjective(interruptedRequest: string): string {
   const base =
-    "You were in the middle of responding to the user's most recent request when they interrupted you. Finish that response now. Do not repeat any tool calls whose results are already present in the conversation. You are running unattended in the background, so you cannot take any action that sends, writes, deletes, purchases, or otherwise changes anything outside this conversation - those tools are unavailable here. If finishing the request needs such an action, do not attempt it; instead say plainly which action you would take, so the user can approve it on their next turn.";
+    "You were in the middle of responding to the user's most recent request when they interrupted you. Finish that response now. Do not repeat any tool calls whose results are already present in the conversation. You are running unattended in the background with a read-only toolset: you cannot send, write, delete, purchase, or otherwise change anything, and most tools (including memory writes and any that take an action) are unavailable here. Do the read-only work you can. If finishing the request needs an action or a tool you do not have, do not attempt it; instead say plainly what you would do, so the user can approve it on their next turn.";
   return interruptedRequest.length > 0
     ? `${base} Their request was: "${interruptedRequest}".`
     : base;

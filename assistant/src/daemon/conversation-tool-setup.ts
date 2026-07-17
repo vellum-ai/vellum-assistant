@@ -43,14 +43,11 @@ import {
 } from "../tools/skills/execute.js";
 import { resolveToolInvocationAlias } from "../tools/tool-name-aliases.js";
 import type {
-  ExecutionTarget,
   ProxyApprovalCallback,
   ProxyApprovalRequest,
 } from "../tools/tool-types.js";
-import { RiskLevel } from "../tools/tool-types.js";
 import {
   isDiskPressureCleanupToolName,
-  type OwnerKind,
   type ToolContext,
   type ToolExecutionResult,
 } from "../tools/types.js";
@@ -174,16 +171,21 @@ export function getEffectiveEnabledPluginSet(conv: {
 // ── read-only pass classification ────────────────────────────────────
 
 /**
- * Core / default tools known to be read-only, allowed in a read-only subagent
- * pass. This is a fail-safe ALLOWLIST for built-in tools: a name-based denylist
- * of side-effecting tools is inherently incomplete (low-risk core mutators like
- * `remember`, `notify_parent`, or `computer_use_*` are not on the core
- * side-effect name list), so anything not listed here is refused rather than
- * silently run. `skill_execute` is the dispatcher for owned tools — its resolved
- * inner tool is classified separately (see the executor gate), so it is safe to
- * expose.
+ * The ONLY tools allowed in a read-only subagent pass (the live-voice background
+ * continuation, `subagentDenySideEffects`). This is a strict fail-safe allowlist
+ * of tools known to be read-only. Everything else is refused, because:
+ * - A side-effect denylist is inherently incomplete — low-risk core mutators
+ *   (`remember`, `notify_parent`, `computer_use_*`, `delete_memory_page`, …) are
+ *   not on the core side-effect name list.
+ * - `defaultRiskLevel` on skill/MCP/plugin/workspace tools is an author-asserted
+ *   permission band, NOT a read-only guarantee; a "low" sandbox extension tool
+ *   can still write storage, call an API, or run arbitrary code.
+ * So an unattended continuation must fail closed: run only these, and surface
+ * the intended action for the user to approve on their next turn otherwise.
+ * `skill_execute` is the dispatcher — its resolved inner tool is classified by
+ * the same check in the executor gate, so exposing the wrapper is safe.
  */
-const READ_ONLY_SAFE_CORE_TOOLS: ReadonlySet<string> = new Set([
+const READ_ONLY_ALLOWED_TOOLS: ReadonlySet<string> = new Set([
   "file_read",
   "file_list",
   "code_search",
@@ -193,44 +195,12 @@ const READ_ONLY_SAFE_CORE_TOOLS: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * Whether a tool must be refused in a read-only subagent pass (the live-voice
- * background continuation, `subagentDenySideEffects`), so no unapproved action
- * runs while the user is not watching. Rules:
- * - Host-target execution is always refused (can leak local data).
- * - Third-party owned tools (skill/MCP/plugin/workspace) are dynamic and cannot
- *   be name-allowlisted, so they are allowed only when declared low-risk (MCP
- *   defaults to high; consequential skills/workspace tools declare medium/high).
- * - Core / default tools use the fail-safe {@link READ_ONLY_SAFE_CORE_TOOLS}
- *   allowlist — anything not listed is refused, so an unanticipated core mutator
- *   is never silently run.
- * Pure so the classification is unit-testable.
+ * Whether a tool must be refused in a read-only subagent pass — true for
+ * anything not on the {@link READ_ONLY_ALLOWED_TOOLS} allowlist. Pure and
+ * name-based so the classification is trivially complete and unit-testable.
  */
-export function isRefusedInReadOnlyPass(params: {
-  name: string;
-  executionTarget: ExecutionTarget | undefined;
-  defaultRiskLevel: RiskLevel | undefined;
-  ownerKind: OwnerKind | undefined;
-}): boolean {
-  if (params.executionTarget === "host") {
-    return true;
-  }
-  if (params.ownerKind && params.ownerKind !== "default") {
-    // skill / mcp / plugin / workspace: allow only low-risk (read-only).
-    return params.defaultRiskLevel !== RiskLevel.Low;
-  }
-  // Core / default (or unowned) tools: allow only the curated read-only set.
-  return !READ_ONLY_SAFE_CORE_TOOLS.has(params.name);
-}
-
-/** Resolve a tool's metadata from the registry and classify it (see above). */
-function readOnlyPassRefusesTool(name: string): boolean {
-  const def = getTool(name);
-  return isRefusedInReadOnlyPass({
-    name,
-    executionTarget: def?.executionTarget,
-    defaultRiskLevel: def?.defaultRiskLevel,
-    ownerKind: getToolOwner(name)?.kind,
-  });
+export function isRefusedInReadOnlyPass(name: string): boolean {
+  return !READ_ONLY_ALLOWED_TOOLS.has(name);
 }
 
 // ── createToolExecutor ───────────────────────────────────────────────
@@ -269,7 +239,7 @@ export function createToolExecutor(
     // gate mode or trust class, so no unapproved action can run in the
     // background. Records the attempt for parent-visible surfacing, then rejects
     // before dispatch.
-    if (ctx.subagentDenySideEffects && readOnlyPassRefusesTool(toolName)) {
+    if (ctx.subagentDenySideEffects && isRefusedInReadOnlyPass(toolName)) {
       ctx.subagentDeniedToolNames?.add(toolName);
       return {
         content: `The "${toolName}" tool can change state and cannot run in this read-only background pass. State the action you would take so the user can approve it on their next turn.`,
@@ -699,7 +669,7 @@ export function isToolActiveForContext(
   if (
     ctx.subagentDenySideEffects &&
     ctx.subagentToolGateMode !== "execution" &&
-    readOnlyPassRefusesTool(name)
+    isRefusedInReadOnlyPass(name)
   ) {
     return false;
   }
@@ -948,7 +918,7 @@ export function createResolveToolsCallback(
     const readOnlyHidesFromWire = (name: string): boolean =>
       ctx.subagentDenySideEffects === true &&
       ctx.subagentToolGateMode !== "execution" &&
-      readOnlyPassRefusesTool(name);
+      isRefusedInReadOnlyPass(name);
     const scopedMcpDefs = (
       wireAllowlist
         ? currentMcpDefs.filter((d) => wireAllowlist.has(d.name))
