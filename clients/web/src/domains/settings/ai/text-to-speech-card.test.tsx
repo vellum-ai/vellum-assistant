@@ -294,6 +294,34 @@ describe("TextToSpeechCard — Vellum provider", () => {
     expect(options).not.toContain("Vellum");
   });
 
+  test("a gated platform coerces a vellum config to a representable provider", async () => {
+    // The gated filter withholds vellum from the options, so a config still
+    // pointing at it must coerce to an offered value — otherwise the dropdown
+    // selects nothing while the card styles itself as managed. Saving must
+    // then force the provider write: the coerced serverProvider hides the
+    // divergence from the daemon, which would otherwise stay on vellum.
+    platformGate = "gated";
+    daemonConfigData = { services: { tts: { provider: "vellum" } } };
+    renderCard();
+
+    const trigger = document.querySelector<HTMLButtonElement>(
+      'button[role="combobox"][aria-label="TTS provider"]',
+    );
+    expect(trigger?.textContent).toContain("ElevenLabs");
+    // BYOK controls are back — the card no longer styles itself as managed.
+    expect(screen.getByText("API Key")).toBeTruthy();
+
+    fireEvent.change(screen.getByPlaceholderText("sk_…"), {
+      target: { value: "el-secret" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(configPatchCalls.length).toBe(1));
+    expect(configPatchCalls[0]!.body).toMatchObject({
+      services: { tts: { provider: "elevenlabs", mode: "your-own" } },
+    });
+  });
+
   test("a vellum selection while logged out shows the login notice and blocks Save", () => {
     platformGate = "disabled";
     daemonConfigData = { services: { tts: { provider: "vellum" } } };

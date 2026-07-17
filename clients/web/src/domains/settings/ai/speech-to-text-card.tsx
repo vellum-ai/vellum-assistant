@@ -137,7 +137,9 @@ export function SpeechToTextCard() {
   // ONLY the capability-dependent native id is corrected — legacy aliases
   // like "whisper" must survive untouched for normalizeSttProviderId() /
   // migrateLegacyLocalSttSettings() in stt-api.ts to map at transcribe
-  // time. Both deps are set-once, so this runs only on mount.
+  // time. The provider list recomputes when the platform gate changes, so
+  // the effect can re-run — the correction is idempotent, so extra runs
+  // are no-ops.
   useEffect(() => {
     const stored = getLocalSetting(LS_STT_PROVIDER, defaultProviderId);
     if (

@@ -103,11 +103,14 @@ export function TextToSpeechCard() {
   // not `providers[0]` — the catalog leads with Vellum, and an unconfigured
   // client must not claim the managed provider on its own.
   const defaultProviderId = "elevenlabs";
-  const serverProvider = useMemo(
-    () =>
-      daemonTtsProvider ?? getLocalSetting(LS_TTS_PROVIDER, defaultProviderId),
-    [daemonTtsProvider, defaultProviderId],
-  );
+  const serverProvider = useMemo(() => {
+    const stored =
+      daemonTtsProvider ?? getLocalSetting(LS_TTS_PROVIDER, defaultProviderId);
+    // Keep the dropdown on an offered value: under a gated platform the
+    // vellum option is withheld, and a config still pointing at it would
+    // otherwise select nothing while the card styles itself as managed.
+    return providers.some((p) => p.id === stored) ? stored : defaultProviderId;
+  }, [daemonTtsProvider, providers, defaultProviderId]);
   const daemonHasProvider = !!daemonTtsProvider;
   const [draftProvider, setDraftProvider] = useDraftOverride(serverProvider);
   const [apiKeyText, setApiKeyText] = useState("");
@@ -193,8 +196,17 @@ export function TextToSpeechCard() {
       // Only PATCH the provider when it truly diverges from the persisted
       // value (or the daemon has none yet); otherwise a re-save with just a new
       // key/voice would silently switch a provider set elsewhere.
+      // When the daemon points at a provider the dropdown does not offer
+      // (vellum under a gated platform), `serverProvider` was coerced away
+      // from it, so a draft-vs-server comparison can no longer see the
+      // divergence — the write must be forced or the daemon stays on vellum.
+      const escapingUnofferedVellum =
+        daemonTtsProvider === "vellum" &&
+        !providers.some((p) => p.id === "vellum");
       const shouldSetProvider =
-        draftProvider !== serverProvider || !daemonHasProvider;
+        draftProvider !== serverProvider ||
+        !daemonHasProvider ||
+        escapingUnofferedVellum;
       const ttsBody = {
         // The provider is always written as a pair with `mode`, which keeps
         // the write valid on every daemon version: older schemas reject
