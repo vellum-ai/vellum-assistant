@@ -6,7 +6,7 @@
 
 The single HTTP send endpoint is `POST /v1/messages`. Key behaviors:
 
-- **Queue if busy**: When the conversation is genuinely processing a turn, messages are queued and processed when the current agent turn completes — no 409. The one exception is a _stuck_ (phantom) processing flag: `processing === true` with no live turn to ever drain the queue (see `Conversation.isProcessingStuck`). Sending into that state returns `409 CONFLICT` with `details.reason: "conversation_stuck"` so the client surfaces a recoverable error instead of enqueuing forever behind a dead turn (ATL-1010). Hidden machine-signal sends skip this check.
+- **Queue if busy**: When the conversation is processing, messages are queued and processed when the current agent turn completes. No 409 rejections.
 - **Fire-and-forget**: Returns `202 { accepted: true }` immediately. The client observes progress via SSE (`GET /v1/events`).
 - **Hub publishing**: All agent events are published to `assistantEventHub`, making them observable via SSE.
 

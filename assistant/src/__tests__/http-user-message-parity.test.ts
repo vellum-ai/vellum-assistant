@@ -201,7 +201,6 @@ function makeConversation(overrides: Record<string, unknown> = {}) {
     ensureActorScopedHistory: async () => {},
     usageStats: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
     isProcessing: () => false,
-    isProcessingStuck: () => false,
     hasAnyPendingConfirmation: () => false,
     denyAllPendingConfirmations: () => {},
     enqueueMessage: () => ({ queued: true, requestId: "queued-id" }),

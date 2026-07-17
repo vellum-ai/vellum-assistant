@@ -615,23 +615,6 @@ export async function postChatMessage(
         ? (errorBody.error as Record<string, unknown>)
         : {};
 
-    // A machine-readable reason nested under the standard error envelope's
-    // `details` (e.g. `{ error: { code: "CONFLICT", details: { reason:
-    // "conversation_stuck" } } }`). Preferred as the client-facing `code` so
-    // callers can map a specific message per reason rather than keying off the
-    // generic HTTP-status code (`CONFLICT`). See the stuck-conversation 409 in
-    // the daemon's send handler.
-    const nestedDetails =
-      nestedError.details &&
-      typeof nestedError.details === "object" &&
-      !Array.isArray(nestedError.details)
-        ? (nestedError.details as Record<string, unknown>)
-        : {};
-    const detailsReason =
-      typeof nestedDetails.reason === "string"
-        ? nestedDetails.reason
-        : undefined;
-
     // The daemon's non-standard error envelopes use `errorBody.error` as a
     // bare code string (e.g. "secret_blocked") and `errorBody.message` for
     // the user-facing copy. Treat `errorBody.error` (string) only as a code
@@ -642,14 +625,13 @@ export async function postChatMessage(
       status: sendResponse.status,
       error: {
         code:
-          detailsReason ??
-          (typeof errorBody.code === "string"
+          typeof errorBody.code === "string"
             ? errorBody.code
             : typeof nestedError.code === "string"
               ? nestedError.code
               : typeof errorBody.error === "string"
                 ? errorBody.error
-                : undefined),
+                : undefined,
         detail:
           (typeof errorBody.detail === "string"
             ? errorBody.detail

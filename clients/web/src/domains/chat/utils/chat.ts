@@ -22,11 +22,6 @@ export const ERROR_MESSAGES: Record<string, string> = {
   rate_limit_exceeded: "Too many requests. Please wait a moment and try again.",
   invalid_api_key:
     "The API key for this provider is invalid or expired. Check your API key in Settings → Models & Services.",
-  // Sent as the `details.reason` of the daemon's 409 when a message lands on a
-  // conversation whose processing flag is stuck (no live turn will ever drain
-  // the queue). Distinct from a genuine timeout — tell the user how to recover.
-  conversation_stuck:
-    "This conversation is stuck and can't accept new messages. Cancel the current response or start a new conversation.",
 };
 
 const GLOBAL_STREAM_EVENT_TYPE_NAMES = [

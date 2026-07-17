@@ -174,13 +174,6 @@ describe("resolvePostError", () => {
     expect(result).toBe("Too many requests. Please wait a moment and try again.");
   });
 
-  it("maps the conversation_stuck code to the recoverable-state message", () => {
-    const result = resolvePostError("conversation_stuck", undefined, "fallback");
-    expect(result).toBe(
-      "This conversation is stuck and can't accept new messages. Cancel the current response or start a new conversation.",
-    );
-  });
-
   it("returns the detail when the code is unrecognized", () => {
     const result = resolvePostError("unknown_code", "Some detail", "fallback");
     expect(result).toBe("Some detail");

@@ -479,29 +479,8 @@ export function useSendMessage({
         };
       }
 
-      // No live SSE stream was pointed at this conversation when the send
-      // dispatched — a brand-new conversation whose stream context hasn't
-      // switched to the minted id yet, or a hidden send whose suppressed user
-      // row has no transcript boundary. Delivery and turn settlement are the
-      // server's job, carried over the always-connected per-assistant SSE
-      // stream: `assistant_text_delta` → `message_complete` /
-      // `assistant_activity_state(idle)` fold the reply and settle the turn,
-      // and an `error` / `conversation_error` event surfaces a real,
-      // server-authored failure (see `stream-handlers/`). `setStreamContext`
-      // above already re-pointed the stream at this conversation, so those
-      // events route into the transcript once the active conversation commits.
-      //
-      // `startReconciliationLoop` is the disconnect-safe backstop: it pulls the
-      // latest `/messages` snapshot (no user-message causal boundary needed) and
-      // settles the turn from the server's authoritative `processing` flag if a
-      // terminal SSE event was dropped in flight. Above the events-tail floor it
-      // is a no-op and event-driven reconciles (reopen / seq-gap / the
-      // turn-end metadata sync tag) do the same job.
-      //
-      // We deliberately do NOT poll `/messages` on a client-side timer here. A
-      // timer can only guess: its 120s timeout used to fire a misleading
-      // "Assistant did not respond in time." even when the turn had already
-      // failed with a real (server-reported) error, or was simply still running.
+      // No matching live stream: SSE delivers the reply and settles the turn;
+      // startReconciliationLoop is the disconnect-safe backstop.
       startReconciliationLoop(epoch);
       return {
         status: "ok",

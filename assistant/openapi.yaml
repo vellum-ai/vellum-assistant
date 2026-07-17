@@ -19083,13 +19083,6 @@ paths:
                 required:
                   - accepted
                 additionalProperties: false
-        "409":
-          description: >-
-            The conversation has a stuck processing flag (marked busy with no
-            live turn to drain the queue). Returned with the standard error
-            envelope and `details.reason: "conversation_stuck"`. The client
-            should prompt the user to cancel the current response or start a new
-            conversation rather than retrying.
   /v1/messages/{id}/content:
     get:
       operationId: messages_by_id_content_get

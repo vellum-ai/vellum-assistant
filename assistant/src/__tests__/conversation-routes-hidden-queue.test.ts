@@ -174,8 +174,6 @@ function makeConversationWithPendingConfirmation(
     getTurnInterfaceContext: () => null,
     ensureActorScopedHistory: async () => {},
     isProcessing: () => processing,
-    // A live turn owns the abort controller above — never a phantom flag.
-    isProcessingStuck: () => false,
     setProcessing: () => {},
     hasAnyPendingConfirmation: () => true,
     denyAllPendingConfirmations: () => {
