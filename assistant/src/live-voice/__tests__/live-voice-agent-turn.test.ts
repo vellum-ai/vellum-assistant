@@ -1,18 +1,27 @@
-import { describe, expect, mock, test } from "bun:test";
+import { afterEach, describe, expect, mock, test } from "bun:test";
 
+import { sanitizeForTts } from "../../calls/tts-text-sanitizer.js";
 import type {
   VoiceTurnCallbacks,
   VoiceTurnOptions,
 } from "../../calls/voice-session-bridge.js";
+import {
+  clearCachedOverrides,
+  setCachedOverrides,
+} from "../../config/feature-flag-cache.js";
+import type { LiveVoiceFrontModelConfig } from "../../config/schemas/live-voice.js";
 import type {
   StreamingTranscriber,
   SttStreamServerEvent,
 } from "../../stt/types.js";
+import { pickAckPhrase, pickToolAckPhrase } from "../ack-phrases.js";
 import {
   LiveVoiceSession,
+  type LiveVoiceTtsStreamer,
   type LiveVoiceTurnStarter,
 } from "../live-voice-session.js";
 import type { LiveVoiceSessionFactoryContext } from "../live-voice-session-manager.js";
+import type { LiveVoiceTtsOptions } from "../live-voice-tts.js";
 import {
   createLiveVoiceServerFrameSequencer,
   type LiveVoiceClientStartFrame,
@@ -90,6 +99,8 @@ function createSessionHarness(
     startVoiceTurn?: LiveVoiceTurnStarter;
     createTurnId?: () => string;
     emitMetrics?: boolean;
+    streamTtsAudio?: LiveVoiceTtsStreamer;
+    frontModelConfig?: Partial<LiveVoiceFrontModelConfig>;
   } = {},
 ) {
   const transcriber =
@@ -108,6 +119,12 @@ function createSessionHarness(
     startVoiceTurn,
     createTurnId: options.createTurnId ?? (() => "live-turn-1"),
     emitMetrics: options.emitMetrics ?? false,
+    ...(options.streamTtsAudio
+      ? { streamTtsAudio: options.streamTtsAudio }
+      : {}),
+    ...(options.frontModelConfig
+      ? { frontModelConfig: options.frontModelConfig }
+      : {}),
   });
 
   return { frames, session, startVoiceTurn, transcriber };
@@ -439,5 +456,162 @@ describe("LiveVoiceSession assistant turn", () => {
       "stt_final",
       "thinking",
     ]);
+  });
+});
+
+describe("LiveVoiceSession tool-use spoken ack (voice-front-model)", () => {
+  afterEach(() => clearCachedOverrides());
+
+  const ACK_TIMEOUT_MS = 40;
+  // Acks pass through the same TTS sanitizer as regular segments; each fresh
+  // session's phrase counter starts at 0.
+  const EXPECTED_TOOL_ACK = sanitizeForTts(pickToolAckPhrase(0)).trim();
+  const EXPECTED_FIRST_DELTA_ACK = sanitizeForTts(pickAckPhrase(0)).trim();
+
+  function enableFrontModel(): void {
+    setCachedOverrides({ "voice-front-model": true }, { fromGateway: true });
+  }
+
+  function createCapturingTurnStarter(): {
+    startVoiceTurn: LiveVoiceTurnStarter;
+    getCallbacks: () => VoiceTurnCallbacks | undefined;
+  } {
+    let callbacks: VoiceTurnCallbacks | undefined;
+    const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
+      callbacks = options.callbacks;
+      return { turnId: "bridge-turn-1", abort: mock() };
+    });
+    return { startVoiceTurn, getCallbacks: () => callbacks };
+  }
+
+  function createRecordingTtsStreamer(): {
+    streamTtsAudio: LiveVoiceTtsStreamer;
+    ttsTexts: string[];
+  } {
+    const ttsTexts: string[] = [];
+    const streamTtsAudio = mock(async (options: LiveVoiceTtsOptions) => {
+      ttsTexts.push(options.text);
+      return {
+        provider: "fish-audio" as const,
+        contentType: "audio/pcm",
+        sampleRate: 24_000,
+        chunks: 1,
+        bytes: Buffer.byteLength(options.text),
+      };
+    });
+    return { streamTtsAudio, ttsTexts };
+  }
+
+  function emitTextDelta(
+    getCallbacks: () => VoiceTurnCallbacks | undefined,
+    text: string,
+  ): void {
+    getCallbacks()?.assistant_text_delta?.({
+      type: "assistant_text_delta",
+      text,
+      conversationId: "conversation-123",
+    });
+  }
+
+  function emitMessageComplete(
+    getCallbacks: () => VoiceTurnCallbacks | undefined,
+  ): void {
+    getCallbacks()?.message_complete?.({
+      type: "message_complete",
+      conversationId: "conversation-123",
+      messageId: "assistant-message-123",
+    });
+  }
+
+  function createAckHarness() {
+    const { startVoiceTurn, getCallbacks } = createCapturingTurnStarter();
+    const { streamTtsAudio, ttsTexts } = createRecordingTtsStreamer();
+    const harness = createSessionHarness({
+      startVoiceTurn,
+      streamTtsAudio,
+      frontModelConfig: { ackFirstDeltaTimeoutMs: ACK_TIMEOUT_MS },
+    });
+    return { ...harness, getCallbacks, ttsTexts };
+  }
+
+  async function startReleasedTurn(
+    session: LiveVoiceSession,
+    getCallbacks: () => VoiceTurnCallbacks | undefined,
+  ): Promise<void> {
+    await session.start();
+    await session.handleClientFrame({ type: "ptt_release" });
+    await waitFor(() => getCallbacks() !== undefined);
+  }
+
+  test("tool_use_start before any delta speaks an immediate tool ack and cancels the timer", async () => {
+    enableFrontModel();
+    const { frames, session, getCallbacks, ttsTexts } = createAckHarness();
+
+    await startReleasedTurn(session, getCallbacks);
+    getCallbacks()?.tool_use_start?.("web_search");
+    await waitFor(() => ttsTexts.length === 1);
+    expect(ttsTexts).toEqual([EXPECTED_TOOL_ACK]);
+
+    // The pending first-delta timer was cancelled: letting its budget elapse
+    // speaks no second ack.
+    await new Promise((resolve) => setTimeout(resolve, ACK_TIMEOUT_MS + 40));
+    expect(ttsTexts).toEqual([EXPECTED_TOOL_ACK]);
+
+    // The ack is audio-only — no caption frame carries it.
+    expect(frames.some((frame) => frame.type === "assistant_text_delta")).toBe(
+      false,
+    );
+
+    emitTextDelta(getCallbacks, "Hello there.");
+    emitMessageComplete(getCallbacks);
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+    expect(ttsTexts).toEqual([EXPECTED_TOOL_ACK, "Hello there."]);
+  });
+
+  test("tool_use_start after the first delta speaks no ack", async () => {
+    enableFrontModel();
+    const { frames, session, getCallbacks, ttsTexts } = createAckHarness();
+
+    await startReleasedTurn(session, getCallbacks);
+    emitTextDelta(getCallbacks, "Hello there.");
+    getCallbacks()?.tool_use_start?.("web_search");
+    emitMessageComplete(getCallbacks);
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+    await new Promise((resolve) => setTimeout(resolve, ACK_TIMEOUT_MS + 40));
+
+    expect(ttsTexts).toEqual(["Hello there."]);
+  });
+
+  test("tool_use_start after a first-delta ack already spoke adds no second ack", async () => {
+    enableFrontModel();
+    const { frames, session, getCallbacks, ttsTexts } = createAckHarness();
+
+    await startReleasedTurn(session, getCallbacks);
+    // Let the slow-first-delta timer speak the turn's one ack first.
+    await waitFor(() => ttsTexts.length === 1);
+    expect(ttsTexts).toEqual([EXPECTED_FIRST_DELTA_ACK]);
+
+    getCallbacks()?.tool_use_start?.("web_search");
+    await flushAsyncCallbacks();
+    expect(ttsTexts).toEqual([EXPECTED_FIRST_DELTA_ACK]);
+
+    emitTextDelta(getCallbacks, "Hello there.");
+    emitMessageComplete(getCallbacks);
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+    expect(ttsTexts).toEqual([EXPECTED_FIRST_DELTA_ACK, "Hello there."]);
+  });
+
+  test("tool_use_start speaks no ack when the flag is off", async () => {
+    const { frames, session, getCallbacks, ttsTexts } = createAckHarness();
+
+    await startReleasedTurn(session, getCallbacks);
+    getCallbacks()?.tool_use_start?.("web_search");
+    await new Promise((resolve) => setTimeout(resolve, ACK_TIMEOUT_MS + 40));
+    expect(ttsTexts).toEqual([]);
+
+    emitTextDelta(getCallbacks, "Hello there.");
+    emitMessageComplete(getCallbacks);
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+    expect(ttsTexts).toEqual(["Hello there."]);
   });
 });

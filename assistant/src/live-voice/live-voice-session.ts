@@ -55,7 +55,7 @@ import type {
 import { getSubagentManager } from "../subagent/index.js";
 import { extractSpeakableSegments } from "../tts/speakable-segments.js";
 import { getLogger } from "../util/logger.js";
-import { pickAckPhrase } from "./ack-phrases.js";
+import { pickAckPhrase, pickToolAckPhrase } from "./ack-phrases.js";
 import {
   createVoiceFrontDecider,
   type VoiceFrontDecider,
@@ -2152,6 +2152,18 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
             }
             current.toolUseStarted = true;
             log.debug({ turnId, toolName }, "Live voice turn started tool use");
+            // Definitive tool use means the turn is guaranteed slow: speak
+            // the floor-holding ack now instead of waiting out the
+            // first-delta timer (same one-ack-per-turn `ackSpoken` budget).
+            if (
+              this.streamTtsAudio &&
+              isVoiceFrontModelEnabled(getConfig()) &&
+              !current.firstDeltaSeen &&
+              !current.ackSpoken
+            ) {
+              this.clearAckTimer(current);
+              this.speakAck(current, "tool-use");
+            }
           },
         },
         onError: (message) => {
@@ -2333,7 +2345,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       ) {
         return;
       }
-      this.speakAck(activeTurn);
+      this.speakAck(activeTurn, "slow-first-delta");
     }, this.ackFirstDeltaTimeoutMs);
   }
 
@@ -2357,16 +2369,24 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // ordered TTS queue, so the model's audio always follows it cleanly; it
   // never consumes the eager first-clause flush reserved for the model's real
   // first segment.
-  private speakAck(activeTurn: ActiveAssistantTurn): void {
+  private speakAck(
+    activeTurn: ActiveAssistantTurn,
+    kind: "slow-first-delta" | "tool-use",
+  ): void {
     activeTurn.ackSpoken = true;
     if (this.llmAckText && this.frontDecider) {
       // Optimistic ackSpoken above keeps the one-per-turn budget honest for
       // any other ack trigger while the generation is in flight; the async
       // path undoes it if the ack turns out moot.
-      void this.speakGeneratedAck(activeTurn, this.frontDecider);
+      void this.speakGeneratedAck(activeTurn, this.frontDecider, kind);
       return;
     }
-    this.enqueueAckPhrase(activeTurn, pickAckPhrase(this.ackPhraseCounter++));
+    this.enqueueAckPhrase(activeTurn, this.pickStaticAckPhrase(kind));
+  }
+
+  private pickStaticAckPhrase(kind: "slow-first-delta" | "tool-use"): string {
+    const pickPhrase = kind === "tool-use" ? pickToolAckPhrase : pickAckPhrase;
+    return pickPhrase(this.ackPhraseCounter++);
   }
 
   // LLM-phrased ack (liveVoice.frontModel.llmAckText): ask the front model
@@ -2376,6 +2396,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   private async speakGeneratedAck(
     activeTurn: ActiveAssistantTurn,
     frontDecider: VoiceFrontDecider,
+    kind: "slow-first-delta" | "tool-use",
   ): Promise<void> {
     const { token } = activeTurn;
     const transcript = activeTurn.utterance.finalTranscriptSegments
@@ -2398,7 +2419,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     }
     this.enqueueAckPhrase(
       activeTurn,
-      generated ?? pickAckPhrase(this.ackPhraseCounter++),
+      generated ?? this.pickStaticAckPhrase(kind),
     );
   }
 

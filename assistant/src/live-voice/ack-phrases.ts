@@ -10,8 +10,24 @@ export const ACK_PHRASES: readonly string[] = [
   "Just a moment.",
 ];
 
+// Tool-flavored variant spoken the moment a turn starts tool use (a
+// guaranteed-slow turn). Same rules as ACK_PHRASES: persona-neutral, no
+// domain content, ≤ 6 words.
+export const TOOL_ACK_PHRASES: readonly string[] = [
+  "Let me check that.",
+  "Looking that up now.",
+  "Let me pull that up.",
+  "One moment, checking.",
+  "Give me a second here.",
+];
+
 // Deterministic rotation through ACK_PHRASES: callers hold a nonnegative
 // monotonic counter, so consecutive acks vary while tests stay reproducible.
 export function pickAckPhrase(counter: number): string {
   return ACK_PHRASES[counter % ACK_PHRASES.length];
+}
+
+// Same deterministic rotation over the tool-flavored list.
+export function pickToolAckPhrase(counter: number): string {
+  return TOOL_ACK_PHRASES[counter % TOOL_ACK_PHRASES.length];
 }
