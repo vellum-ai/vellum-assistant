@@ -180,6 +180,8 @@ export interface VoiceTurnCallbacks {
   ) => void;
   persisted_user_message_id?: (messageId: string) => void;
   persisted_assistant_message_id?: (messageId: string) => void;
+  /** Fired when the agent run starts a definitive tool use this turn. */
+  tool_use_start?: (toolName: string) => void;
 }
 
 export interface VoiceTurnOptions {
@@ -420,6 +422,7 @@ export async function startVoiceTurn(
     },
     onToolUse: (toolName, input) => {
       log.debug({ toolName, input }, "Voice turn tool_use event");
+      opts.callbacks?.tool_use_start?.(toolName);
     },
   };
 
