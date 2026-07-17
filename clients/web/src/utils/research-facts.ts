@@ -210,15 +210,18 @@ function classifyClaim(entry: unknown): ClassifiedClaim {
 
 /**
  * Partition raw claim entries into the facts rendered on the card and the claim
- * texts dropped from it because every source was an aggregator. Non-array input
- * (or entries with no usable claim) contributes nothing.
+ * texts dropped from it because every source was an aggregator. A claim the
+ * model emits twice — once with a real source (shown/kept) and once aggregator-
+ * only — is kept only as a shown fact and never reported as dropped, so a later
+ * memory scrub can't disregard a fact the user can still see on the card.
+ * Non-array input (or entries with no usable claim) contributes nothing.
  */
 function collectClaims(raw: unknown): {
   claims: ResearchFact[];
   droppedClaims: string[];
 } {
   const claims: ResearchFact[] = [];
-  const droppedClaims: string[] = [];
+  const dropped: string[] = [];
   if (Array.isArray(raw)) {
     for (const entry of raw) {
       const classified = classifyClaim(entry);
@@ -226,10 +229,14 @@ function collectClaims(raw: unknown): {
       if (classified.kind === "fact") {
         claims.push(classified.fact);
       } else {
-        droppedClaims.push(classified.claim);
+        dropped.push(classified.claim);
       }
     }
   }
+  // Keep only drops whose exact text never surfaced as a shown claim: an
+  // aggregator-only twin of a kept claim must not be scrubbed from memory.
+  const shownClaims = new Set(claims.map((c) => c.claim));
+  const droppedClaims = dropped.filter((claim) => !shownClaims.has(claim));
   return { claims, droppedClaims };
 }
 

@@ -298,10 +298,21 @@ export function ResearchOnboardingRoute() {
   // minted — otherwise the rejected facts could still be pulled into its context.
   // Resolves immediately when nothing was corrected (never rejects).
   const researchCorrectionRef = useRef<Promise<void>>(Promise.resolve());
-  // Guards the one-shot dropped-claims correction (below) so a search that
-  // surfaced no card claims scrubs its hidden aggregator-only drops exactly
-  // once. Reset when a fresh research run starts (see fireResearch).
-  const droppedClaimsCorrectedRef = useRef(false);
+  // Guards the one-shot dropped-claims scrub (below) so the hidden aggregator-
+  // only drops are corrected out of memory exactly once per run — whether the
+  // scrub fires from the empty-card effect, the results-step prune, a "this is
+  // not me" rejection, or a resume that landed past the results step. The ref is
+  // the synchronous guard (StrictMode-safe); the state mirror is persisted so a
+  // resume never re-sends a scrub the prior session already dispatched. Both
+  // reset when a fresh research run starts (see fireResearch).
+  const droppedClaimsScrubbedRef = useRef(false);
+  const [droppedClaimsScrubbed, setDroppedClaimsScrubbed] = useState(false);
+  // Keep the sync guard and its persisted mirror in lockstep — every mutation
+  // (dispatch, reset, resume-seed) flows through here so they can't diverge.
+  const syncDroppedClaimsScrubbed = useCallback((scrubbed: boolean) => {
+    droppedClaimsScrubbedRef.current = scrubbed;
+    setDroppedClaimsScrubbed(scrubbed);
+  }, []);
   // Findings the user explicitly KEPT on the results step (claims minus the
   // X-ed ones), captured at the moment of confirmation. Null until the user
   // has actually reviewed the results — a "Skip to Chat" before that must not
@@ -393,18 +404,23 @@ export function ResearchOnboardingRoute() {
       setResearchConversationId(snapshot.researchConversationId ?? null);
       // Re-enqueue the named plugin installs against the re-hatched assistant so
       // a suggestion click awaits real (idempotent) installs, not an empty map.
-      if (snapshot.research)
+      if (snapshot.research) {
         hydrateResearch(
           {
             ...snapshot.research,
             pluginCatalog: snapshot.research.pluginCatalog ?? {},
-            // Not persisted: a fully-settled resume lands on the suggestions
-            // step (past the results correction), and the prior session already
-            // scrubbed any drops. Default to none so the state stays well-formed.
-            droppedClaims: [],
+            // Restore the hidden aggregator-only drops (absent on older
+            // snapshots) so a resume that lands past the results correction can
+            // still scrub them from memory — see the drops-scrub effect below.
+            droppedClaims: snapshot.research.droppedClaims ?? [],
           },
           awaitHatchReady,
         );
+        // Seed the scrub guard from the snapshot: if the prior session already
+        // dispatched the correction, don't re-send it; if it didn't, the effect
+        // below re-fires once the resumed suggestions step renders.
+        syncDroppedClaimsScrubbed(snapshot.droppedClaimsScrubbed ?? false);
+      }
       // A snapshot written before the calendar steps were dropped from the
       // local flow (or by a signed-in web session) may resume onto them —
       // remap to the research reveal the skip lands on.
@@ -417,7 +433,14 @@ export function ResearchOnboardingRoute() {
       setForwardStack([]);
     }
     setRestored(true);
-  }, [restored, userId, hydrateResearch, awaitHatchReady, skipCheckinSteps]);
+  }, [
+    restored,
+    userId,
+    hydrateResearch,
+    awaitHatchReady,
+    skipCheckinSteps,
+    syncDroppedClaimsScrubbed,
+  ]);
 
   // Persist the journey as it advances so a refresh can resume it. Gated on
   // `restored` so we don't overwrite the snapshot before reading it, and only
@@ -437,6 +460,9 @@ export function ResearchOnboardingRoute() {
           ? {
               status: "done",
               claims: research.claims,
+              // Persist the hidden aggregator-only drops so a resume past the
+              // results step can still scrub them (see the drops-scrub effect).
+              droppedClaims: research.droppedClaims,
               suggestions: research.suggestions,
               installedPlugins: research.installedPlugins,
               pluginCatalog: research.pluginCatalog,
@@ -446,6 +472,7 @@ export function ResearchOnboardingRoute() {
         ? { researchConversationId }
         : {}),
       ...(keptFindings ? { keptClaims: keptFindings } : {}),
+      ...(droppedClaimsScrubbed ? { droppedClaimsScrubbed: true } : {}),
     });
   }, [
     restored,
@@ -459,9 +486,11 @@ export function ResearchOnboardingRoute() {
     researchConversationId,
     research.status,
     research.claims,
+    research.droppedClaims,
     research.suggestions,
     research.installedPlugins,
     research.pluginCatalog,
+    droppedClaimsScrubbed,
   ]);
 
   // Mid-flow resume: we restored a journey whose research turn hadn't settled.
@@ -531,19 +560,23 @@ export function ResearchOnboardingRoute() {
     }
   }, [step, noClaims]);
 
-  // A search that surfaced no card claims still needs its aggregator-only drops
-  // scrubbed from the assistant's memory: the results step (where drops are
-  // folded into the correction) is skipped when there's nothing to show, so
-  // issue that correction here once research settles (done or timed-out error —
-  // matching how the results step itself renders on both). Gated to the
-  // empty-card case so it never double-fires with the results step, and once
-  // per run via the ref (reset in fireResearch).
+  // Scrub the hidden aggregator-only drops from the assistant's memory when the
+  // results step won't do it itself. The results step folds drops into its own
+  // correction, but it's skipped in two cases: a search that surfaced no card
+  // claims (nothing to review), and a refresh that restored completed research
+  // straight onto the suggestions step (past the results correction). In either
+  // case issue the scrub here once research settles (done or timed-out error —
+  // matching how the results step renders on both), once per run via the guard
+  // (reset in fireResearch, seeded from the snapshot on resume).
   useEffect(() => {
-    if (droppedClaimsCorrectedRef.current) return;
-    if (researchLoading || research.claims.length > 0) return;
+    if (droppedClaimsScrubbedRef.current) return;
+    if (researchLoading) return;
     if (research.droppedClaims.length === 0) return;
     if (!researchConversationId || !hatchedAssistantId) return;
-    droppedClaimsCorrectedRef.current = true;
+    // With card claims present the results step owns the scrub — unless we've
+    // resumed straight onto the suggestions step, past that correction.
+    if (research.claims.length > 0 && step !== "suggestions") return;
+    syncDroppedClaimsScrubbed(true);
     researchCorrectionRef.current = sendResearchCorrection({
       assistantId: hatchedAssistantId,
       conversationId: researchConversationId,
@@ -556,6 +589,8 @@ export function ResearchOnboardingRoute() {
     research.droppedClaims,
     researchConversationId,
     hatchedAssistantId,
+    step,
+    syncDroppedClaimsScrubbed,
   ]);
 
   // Build the pre-chat context and hand off to the chat pipeline. The chosen
@@ -679,7 +714,7 @@ export function ResearchOnboardingRoute() {
   // it starts at the later of the caller's submit and the background hatch.
   function fireResearch(values: ResearchOnboardingValues) {
     // A fresh run produces fresh drops — re-arm the one-shot scrub above.
-    droppedClaimsCorrectedRef.current = false;
+    syncDroppedClaimsScrubbed(false);
     research.start({
       awaitAssistantId: awaitHatchReady,
       subject: researchSubjectFrom(values),
@@ -902,14 +937,20 @@ export function ResearchOnboardingRoute() {
               // they don't leak into the real chat (the research turn taught its
               // memory these facts). Fold in the aggregator-only claims the card
               // hid: they live in the same memory but were never shown, so the
-              // user couldn't prune them. The chat handoff awaits this promise, so
-              // the correction is persisted before the first conversation is minted.
-              const toDisregard = [...removed, ...research.droppedClaims];
+              // user couldn't prune them. Skip that fold if a resume already
+              // scrubbed them, so stepping back to this card can't re-send them.
+              // The chat handoff awaits this promise, so the correction is
+              // persisted before the first conversation is minted.
+              const dropsToFold = droppedClaimsScrubbedRef.current
+                ? []
+                : research.droppedClaims;
+              const toDisregard = [...removed, ...dropsToFold];
               if (
                 researchConversationId &&
                 hatchedAssistantId &&
                 toDisregard.length > 0
               ) {
+                if (dropsToFold.length > 0) syncDroppedClaimsScrubbed(true);
                 researchCorrectionRef.current = sendResearchCorrection({
                   assistantId: hatchedAssistantId,
                   conversationId: researchConversationId,
@@ -922,8 +963,10 @@ export function ResearchOnboardingRoute() {
             onRejectAll={() => {
               setKeptFindings([]);
               // "This is not me" — the search matched someone else. Disown the
-              // whole result so none of it carries into the assistant's context.
+              // whole result so none of it carries into the assistant's context;
+              // that covers the hidden drops too, so mark them scrubbed.
               if (researchConversationId && hatchedAssistantId) {
+                syncDroppedClaimsScrubbed(true);
                 researchCorrectionRef.current = sendResearchCorrection({
                   assistantId: hatchedAssistantId,
                   conversationId: researchConversationId,
