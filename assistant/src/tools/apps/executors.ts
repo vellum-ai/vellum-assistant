@@ -23,6 +23,13 @@ export interface ExecutorResult {
   isError: boolean;
   /** Optional status message for display (e.g. progress indicator). */
   status?: string;
+  /**
+   * App id this executor operated on, threaded to the post-execution
+   * side-effect hooks as a typed channel so they need not re-parse `content`
+   * to recover an id the skill script resolved from the active app. See
+   * `ToolExecutionResult.resolvedAppId`.
+   */
+  resolvedAppId?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -302,6 +309,7 @@ render(<App />, document.getElementById('app')!);
         ...nextStepsField,
       }),
       isError: false,
+      resolvedAppId: app.id,
     };
   }
 
@@ -327,6 +335,7 @@ render(<App />, document.getElementById('app')!);
             ...nextStepsField,
           }),
           isError: false,
+          resolvedAppId: app.id,
         };
       }
       return {
@@ -337,6 +346,7 @@ render(<App />, document.getElementById('app')!);
           ...nextStepsField,
         }),
         isError: false,
+        resolvedAppId: app.id,
       };
     } catch {
       // Preview emission failure is non-fatal - the app was created successfully.
@@ -349,6 +359,7 @@ render(<App />, document.getElementById('app')!);
           ...nextStepsField,
         }),
         isError: false,
+        resolvedAppId: app.id,
       };
     }
   }
@@ -359,6 +370,7 @@ render(<App />, document.getElementById('app')!);
       ...nextStepsField,
     }),
     isError: false,
+    resolvedAppId: app.id,
   };
 }
 
@@ -418,6 +430,7 @@ export async function executeAppRefresh(
       ...compileResultPayload(compileResult),
     }),
     isError: false,
+    resolvedAppId: updated.id,
   };
 }
 
@@ -485,6 +498,7 @@ export async function executeAppUpdate(
       ...compileResultPayload(compileResult),
     }),
     isError: false,
+    resolvedAppId: updated.id,
   };
 }
 
@@ -535,6 +549,7 @@ export async function executeAppGenerateIcon(
     return {
       content: JSON.stringify({ generated: true, appId: input.app_id }),
       isError: false,
+      resolvedAppId: input.app_id,
     };
   }
 
