@@ -35,8 +35,12 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "live_voice_preflight_post",
     endpoint: "live-voice/preflight",
     method: "POST",
+    // Requires settings.write, not a read scope: the handler runs
+    // maybeDefaultSpeechToManaged(), which can persist config changes
+    // (switching services.stt/tts.provider to "vellum"). This matches the
+    // secret/settings config writers, which all require settings.write.
     policy: {
-      requiredScopes: ["chat.read"],
+      requiredScopes: ["settings.write"],
       allowedPrincipalTypes: ACTOR_PRINCIPALS,
     },
     summary: "Live voice preflight",
