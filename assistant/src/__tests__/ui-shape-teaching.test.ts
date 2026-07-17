@@ -160,6 +160,24 @@ describe("ui_show missing-content teaching", () => {
       data: { channel: "email" },
       expectInError: '"slack", "telegram", "phone"',
     },
+    {
+      // Snake_case constraint keys are stripped by the schema, so without the
+      // guard the uploader would render silently unconstrained.
+      surfaceType: "file_upload",
+      data: { accepted_types: ["application/pdf"], max_files: 1 },
+      expectInError: "`accepted_types`",
+    },
+    {
+      // A valid prompt must not mask a mis-named constraint: the snake_case
+      // key still drops silently, so the guard fires even with prompt present.
+      surfaceType: "file_upload",
+      data: {
+        prompt: "Upload your resume",
+        maxFiles: 2,
+        allowedFormats: ["pdf"],
+      },
+      expectInError: "`allowedFormats`",
+    },
   ];
 
   for (const { surfaceType, data, expectInError } of cases) {
@@ -236,8 +254,37 @@ describe("ui_show displayable payloads proxy through", () => {
         },
       },
       {
-        surfaceType: "file_upload",
+        // Empty data still renders a functional uploader (context can come from
+        // a top-level title), and carries no unknown keys, so it proxies.
+        surfaceType: "file_upload (empty)",
         input: { surface_type: "file_upload", data: {} },
+      },
+      {
+        surfaceType: "file_upload (prompt only)",
+        input: {
+          surface_type: "file_upload",
+          data: { prompt: "Upload your resume" },
+        },
+      },
+      {
+        surfaceType: "file_upload (camelCase constraints)",
+        input: {
+          surface_type: "file_upload",
+          data: {
+            prompt: "Upload your resume",
+            acceptedTypes: ["application/pdf"],
+            maxFiles: 1,
+          },
+        },
+      },
+      {
+        // maxSizeBytes is a real schema field the renderer honors even though
+        // it is not advertised in the shape doc, so it must not be flagged.
+        surfaceType: "file_upload (maxSizeBytes)",
+        input: {
+          surface_type: "file_upload",
+          data: { prompt: "Upload a photo", maxSizeBytes: 1_000_000 },
+        },
       },
       {
         surfaceType: "channel_setup",
