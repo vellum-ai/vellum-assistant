@@ -8,7 +8,7 @@ const { useClientFeatureFlagStore } = await import(
   "@/stores/client-feature-flag-store"
 );
 const { tipsEnabledStorage } = await import("@/utils/tips-storage");
-const { ShowTipsCard } = await import("./show-tips-card");
+const { ShowTipsRow } = await import("./show-tips-row");
 
 function setProactiveTipsFlag(value: "off" | "on") {
   act(() => {
@@ -28,16 +28,16 @@ afterEach(() => {
   cleanup();
 });
 
-describe("ShowTipsCard", () => {
+describe("ShowTipsRow", () => {
   test("renders nothing when the proactive-tips flag is off", () => {
-    render(<ShowTipsCard />);
+    render(<ShowTipsRow />);
 
     expect(screen.queryByRole("switch", { name: "Show tips" })).toBeNull();
   });
 
   test("renders on by default when the flag is on (storage fallback)", () => {
     setProactiveTipsFlag("on");
-    render(<ShowTipsCard />);
+    render(<ShowTipsRow />);
 
     const toggle = screen.getByRole("switch", { name: "Show tips" });
     expect(toggle.getAttribute("aria-checked")).toBe("true");
@@ -46,7 +46,7 @@ describe("ShowTipsCard", () => {
   test("reflects a stored disabled value", () => {
     setProactiveTipsFlag("on");
     tipsEnabledStorage.save(false);
-    render(<ShowTipsCard />);
+    render(<ShowTipsRow />);
 
     const toggle = screen.getByRole("switch", { name: "Show tips" });
     expect(toggle.getAttribute("aria-checked")).toBe("false");
@@ -54,7 +54,7 @@ describe("ShowTipsCard", () => {
 
   test("clicking the toggle writes the new value to storage", () => {
     setProactiveTipsFlag("on");
-    render(<ShowTipsCard />);
+    render(<ShowTipsRow />);
 
     const toggle = screen.getByRole("switch", { name: "Show tips" });
     fireEvent.click(toggle);
@@ -70,7 +70,7 @@ describe("ShowTipsCard", () => {
 
   test("turning tips off emits the opt-out event; turning back on does not", () => {
     setProactiveTipsFlag("on");
-    render(<ShowTipsCard />);
+    render(<ShowTipsRow />);
 
     const toggle = screen.getByRole("switch", { name: "Show tips" });
     fireEvent.click(toggle);
@@ -89,7 +89,7 @@ describe("ShowTipsCard", () => {
 
   test("reacts to storage writes made outside the component", () => {
     setProactiveTipsFlag("on");
-    render(<ShowTipsCard />);
+    render(<ShowTipsRow />);
 
     act(() => {
       tipsEnabledStorage.save(false);
