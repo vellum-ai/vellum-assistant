@@ -16286,6 +16286,50 @@ paths:
       responses:
         "200":
           description: Successful response
+  /v1/live-voice/preflight:
+    post:
+      operationId: livevoice_preflight_post
+      summary: Live voice preflight
+      description: Ensure managed speech defaulting has run, then report whether live voice can start.
+      tags:
+        - live-voice
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum:
+                      - ready
+                      - not-ready
+                  missing:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        kind:
+                          type: string
+                          enum:
+                            - stt
+                            - tts
+                        providerId:
+                          type: string
+                        reason:
+                          type: string
+                      required:
+                        - kind
+                        - providerId
+                        - reason
+                      additionalProperties: false
+                  userMessage:
+                    type: string
+                required:
+                  - status
+                additionalProperties: false
   /v1/llm-request-logs/{id}/context:
     get:
       operationId: llmrequestlogs_by_id_context_get
