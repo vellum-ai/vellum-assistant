@@ -113,6 +113,9 @@ describe("sttErrorFromManagedSpeech", () => {
       );
       expect(err).toBeInstanceOf(SttError);
       expect(err.category).toBe(category as SttError["category"]);
+      // Managed messages carry their own remediation — flagged so
+      // describeSttFailure surfaces them verbatim, not the BYOK rewrite.
+      expect(err.userFacing).toBe(true);
       if (messageIncludes) {
         expect(err.message).toContain(messageIncludes);
       }
