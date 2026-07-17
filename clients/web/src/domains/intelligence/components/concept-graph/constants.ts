@@ -24,15 +24,18 @@ export const NODE_KIND_COLORS: Record<ConceptNodeKind, string> = {
  * trailing comment. Vellum has no ready-made categorical/series palette (its
  * accent hues are curated one-offs), so this brand-derived ramp lives here.
  * Callers index modulo the length; `NODE_KIND_COLORS` stays as the per-kind
- * fallback.
+ * fallback. No entry reuses the `skill`/`capability` hues from
+ * `NODE_KIND_COLORS`: concepts are drawn from this palette but non-concept
+ * nodes from `NODE_KIND_COLORS`, so a themed concept must stay distinguishable
+ * from a skill/capability node if those ever render alongside concepts.
  *
  * TODO(design): confirm exact Vellum brand ramp — see
  * .private/plans/memory-viz-v2-spec.md open question */
 export const CLUSTER_PALETTE: string[] = [
   "#467CC8", // system-info-strong — blue
   "#E86B40", // danger-600 / system-negative-hover — orange
-  "#0E9B8B", // credits-accent / feed-digest-strong — teal
-  "#DB4B77", // feed-nudge-strong — pink
+  "#7A5AF5", // violet — fills a brand hue gap; distinct from node-kind colors
+  "#22B8CF", // cyan — distinct from capability teal + skill pink
   "#3DB85E", // forest-500 — green
   "#E9C91A", // feed-thread-strong — yellow
   "#E83F5B", // velvet primary-base — brand red
