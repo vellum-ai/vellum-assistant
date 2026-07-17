@@ -1625,6 +1625,32 @@ paths:
           description: ''
       x-vellum-api-clients:
       - platform
+  /v1/assistants/{assistant_id}/managed-speech/tts/voices/:
+    get:
+      operationId: assistants_managed_speech_tts_voices_retrieve
+      description: List the voices offered by Vellum's managed text-to-speech, in
+        display order, with the platform's default voice. Only voices that are currently
+        priced (and therefore usable via the synthesize endpoint) are returned.
+      parameters:
+      - in: path
+        name: assistant_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - assistants
+      security:
+      - AssistantAPIKey: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManagedSpeechTTSVoicesResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
   /v1/assistants/{assistant_id}/oauth/{provider}/start/:
     post:
       operationId: assistants_oauth_start_create
@@ -7295,6 +7321,41 @@ components:
           maxLength: 64
       required:
       - text
+    ManagedSpeechTTSVoice:
+      type: object
+      description: One voice offered by the managed TTS voice picker.
+      properties:
+        model:
+          type: string
+        label:
+          type: string
+        description:
+          type: string
+        sampleUrl:
+          type: string
+          format: uri
+        source:
+          type: string
+      required:
+      - description
+      - label
+      - model
+      - sampleUrl
+      - source
+    ManagedSpeechTTSVoicesResponse:
+      type: object
+      description: Response body for the managed speech TTS voices endpoint.
+      properties:
+        voices:
+          type: array
+          items:
+            $ref: '#/components/schemas/ManagedSpeechTTSVoice'
+        defaultModel:
+          type: string
+          nullable: true
+      required:
+      - defaultModel
+      - voices
     MfaEnrollResponse:
       type: object
       properties:
