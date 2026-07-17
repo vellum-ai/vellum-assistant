@@ -46,6 +46,10 @@ import {
 import { isBackgroundConversationType } from "../persistence/conversation-types.js";
 import { createContextSummaryMessage } from "../plugins/defaults/compaction/window-manager.js";
 import {
+  computeRefusedExchangeDrops,
+  quarantineRefusedExchanges,
+} from "../plugins/defaults/empty-response/refusal-quarantine.js";
+import {
   countMemoryPrefixBlocks,
   extractMemoryPrefixBlocks,
   getLiveGraphMemory,
@@ -1312,8 +1316,17 @@ function assembleSlackChronologicalContext(
   }
   const renderable = rowsToRenderableSlackMessages(rows);
   const rendered = renderSlackTranscriptWithProvenance(renderable);
+  // Drop previously-refused exchanges — a persisted safety-classifier refusal
+  // and the prompt that tripped it — so the model isn't re-fed a refusal it
+  // will just repeat (the dead-end `empty-response` sweeps off Slack turns).
+  // `renderedMessages` is filtered by the same indices to stay aligned with the
+  // `messages` projection compaction slices.
+  const { dropIndices } = computeRefusedExchangeDrops(rendered.messages);
+  const renderedMessages =
+    dropIndices.size > 0
+      ? rendered.renderedMessages.filter((_, i) => !dropIndices.has(i))
+      : rendered.renderedMessages;
   const contextSummary = options.contextSummary?.trim();
-  const renderedMessages = rendered.renderedMessages;
   if (contextSummary) {
     const withSummary: RenderedSlackTranscriptMessage[] = [
       {
@@ -1533,12 +1546,14 @@ function buildActiveThreadBlockFromRenderable(
   });
 
   const rendered = renderSlackTranscriptWithProvenance(labeledMembers);
-  if (rendered.renderedMessages.length === 0) {
+  // Exclude previously-refused exchanges: the block is appended to the user
+  // tail, so a surviving refusal line would let the model re-refuse just as
+  // replaying it in the chronological transcript would.
+  const { messages } = quarantineRefusedExchanges(rendered.messages);
+  if (messages.length === 0) {
     return null;
   }
-  const lines = rendered.renderedMessages
-    .map((entry) => extractTagLineTexts([entry.message])[0] ?? "")
-    .join("\n");
+  const lines = extractTagLineTexts(messages).join("\n");
   return `<active_thread>\n${lines}\n</active_thread>`;
 }
 

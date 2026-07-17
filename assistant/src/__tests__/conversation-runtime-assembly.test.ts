@@ -147,6 +147,7 @@ import type { MessageRow } from "../persistence/conversation-crud.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { conversations, messages } from "../persistence/schema/index.js";
+import { REFUSAL_FALLBACK_TEXT } from "../plugins/defaults/empty-response/refusal-quarantine.js";
 import { registerDefaultPluginInjectors } from "../plugins/defaults/index.js";
 import { ConversationGraphMemory } from "../plugins/defaults/memory/graph/conversation-graph-memory.js";
 import postCompact from "../plugins/defaults/memory/hooks/post-compact.js";
@@ -5278,6 +5279,59 @@ describe("assembleSlackActiveThreadFocusBlock", () => {
     expect(result!).toContain("Lone reply");
     expect(result!).toContain("<active_thread>");
   });
+
+  test("drops a previously-refused exchange from the focus block", () => {
+    // A refusal persisted inside the active thread (the flagged prompt plus the
+    // canned apology the empty-response plugin rewrote the turn into) must not
+    // survive into the `<active_thread>` block. The block is appended to the
+    // user tail, so a surviving refusal line would let the safety classifier
+    // re-refuse every turn — the same dead-end quarantined off Slack.
+    const FLAGGED_TS = "1700000010.000002";
+    const REFUSAL_TS = "1700000011.000003";
+    const BENIGN_TS = "1700000020.000004";
+    const rows: SlackTranscriptInputRow[] = [
+      buildRow(
+        "user",
+        "Parent",
+        1_000,
+        buildMeta({ channelTs: PARENT_TS, displayName: "@alice" }),
+      ),
+      buildRow(
+        "user",
+        "disallowed question",
+        2_000,
+        buildMeta({
+          channelTs: FLAGGED_TS,
+          threadTs: PARENT_TS,
+          displayName: "@alice",
+        }),
+      ),
+      buildRow(
+        "assistant",
+        REFUSAL_FALLBACK_TEXT,
+        2_100,
+        buildMeta({ channelTs: REFUSAL_TS, threadTs: PARENT_TS }),
+      ),
+      buildRow(
+        "user",
+        "back to normal",
+        3_000,
+        buildMeta({
+          channelTs: BENIGN_TS,
+          threadTs: PARENT_TS,
+          displayName: "@alice",
+        }),
+      ),
+    ];
+    const result = assembleSlackActiveThreadFocusBlock(rows, SLACK_CAPS);
+    expect(result).not.toBeNull();
+    // Surrounding benign turns survive …
+    expect(result!).toContain("Parent");
+    expect(result!).toContain("back to normal");
+    // … but the refusal and the prompt that tripped it are gone.
+    expect(result!).not.toContain(REFUSAL_FALLBACK_TEXT);
+    expect(result!).not.toContain("disallowed question");
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -6114,6 +6168,48 @@ describe("assembleSlackChronologicalMessages", () => {
         },
       ],
     });
+  });
+
+  test("quarantines a previously-refused exchange from the transcript", () => {
+    // A safety-classifier refusal persisted in Slack history — the flagged
+    // prompt plus the canned apology the empty-response plugin rewrote the turn
+    // into — must not be replayed to the model. Left in, the classifier
+    // re-refuses every turn, the poisoned dead-end the plugin's turn-start
+    // sweep prevents off Slack. The whole exchange is excised here so it never
+    // reaches the model request.
+    const TS_14_30 = "1699972200.000400"; // 14:30 UTC
+    const meta = (channelTs: string): SlackMessageMetadata => ({
+      source: "slack",
+      channelId: DM_CHANNEL_ID,
+      channelTs,
+      eventKind: "message",
+      displayName: "@alice",
+    });
+    const rows: SlackTranscriptInputRow[] = [
+      row("user", "hi assistant", MS_14_25, metadataEnvelope(meta(TS_14_25))),
+      row(
+        "user",
+        "disallowed question",
+        MS_14_26,
+        metadataEnvelope(meta(TS_14_26)),
+      ),
+      row(
+        "assistant",
+        REFUSAL_FALLBACK_TEXT,
+        MS_14_28,
+        metadataEnvelope(meta(TS_14_28)),
+      ),
+      row("user", "back to normal", MS_14_30, metadataEnvelope(meta(TS_14_30))),
+    ];
+
+    const result = assembleSlackChronologicalMessages(rows, DM_CAPS);
+    const serialized = JSON.stringify(result);
+    // The refusal and the prompt that tripped it are both gone …
+    expect(serialized).not.toContain(REFUSAL_FALLBACK_TEXT);
+    expect(serialized).not.toContain("disallowed question");
+    // … while the benign turns on either side survive.
+    expect(serialized).toContain("hi assistant");
+    expect(serialized).toContain("back to normal");
   });
 });
 
