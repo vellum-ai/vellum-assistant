@@ -10,7 +10,11 @@ import {
   type ManagedSpeechResult,
   managedSpeechTranscribe,
 } from "../../platform/managed-speech.js";
-import { SttError, type SttTranscribeResult } from "../../stt/types.js";
+import {
+  SttError,
+  type SttErrorCategory,
+  type SttTranscribeResult,
+} from "../../stt/types.js";
 
 type ManagedSpeechFailure = Extract<ManagedSpeechResult<never>, { ok: false }>;
 
@@ -28,15 +32,24 @@ export async function vellumManagedSpeechAvailable(): Promise<boolean> {
  *
  * `insufficient_balance` gets a user-actionable message — the fix is topping
  * up Vellum credits, not editing provider config.
+ *
+ * Every returned error is flagged `userFacing`: managed speech has no provider
+ * API key on this machine, so the messages here (reconnect the platform,
+ * top up credits, the platform's own detail) already carry the correct
+ * remediation. `describeSttFailure` surfaces them verbatim instead of
+ * rewriting to the BYOK "check your API key" copy that never applies.
  */
 export function sttErrorFromManagedSpeech(
   failure: ManagedSpeechFailure,
 ): SttError {
+  const managed = (category: SttErrorCategory, message: string): SttError =>
+    new SttError(category, message, { userFacing: true });
+
   if (failure.kind === "unavailable") {
-    return new SttError("auth", failure.message);
+    return managed("auth", failure.message);
   }
   if (failure.code === "insufficient_balance") {
-    return new SttError(
+    return managed(
       "provider-error",
       "Vellum credits are exhausted — add funds to your Vellum account to continue using managed transcription.",
     );
@@ -44,13 +57,13 @@ export function sttErrorFromManagedSpeech(
   switch (failure.status) {
     case 401:
     case 403:
-      return new SttError("auth", failure.message);
+      return managed("auth", failure.message);
     case 429:
-      return new SttError("rate-limit", failure.message);
+      return managed("rate-limit", failure.message);
     case 413:
-      return new SttError("invalid-audio", failure.message);
+      return managed("invalid-audio", failure.message);
     default:
-      return new SttError("provider-error", failure.message);
+      return managed("provider-error", failure.message);
   }
 }
 
