@@ -36,7 +36,15 @@ export function CreateMemoryModal({
 
     setIsSaving(true);
     try {
-      await createMemory(assistantId, trimmed);
+      // The route returns HTTP 200 with `{ success: false }` for business
+      // failures (e.g. memory disabled, empty fact), so `throwOnError` won't
+      // reject — honor the flag before claiming success. Keep the modal open on
+      // failure so the fact isn't lost and the user can retry.
+      const result = await createMemory(assistantId, trimmed);
+      if (!result.success) {
+        toast.error(result.message || "Couldn't save that memory.");
+        return;
+      }
       toast.success("Got it — I'll remember that.");
       setContent("");
       onOpenChange(false);
