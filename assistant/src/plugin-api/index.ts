@@ -229,6 +229,11 @@ export {
   embedAndUpsert,
   selectedBackendSupportsMultimodal,
 } from "../persistence/embeddings/plugin-facade.js";
+// Graph-node orphan sweep — deletes `graph_node` Qdrant points whose backing
+// `memory_graph_nodes` row is gone (cacheless points the cache-driven sweep
+// cannot see). The memory plugin's `sweep_orphaned_graph_node_points` job
+// handler drains it once Qdrant is up.
+export { sweepOrphanedGraphNodePoints } from "../persistence/embeddings/graph-node-orphan-sweep.js";
 // Skills — the installed skill catalog with resolved states, and the remote
 // skill catalog. Host-resolved: catalog load, install-state resolution,
 // feature-flag gating, and install-meta reads are composed internally, so
