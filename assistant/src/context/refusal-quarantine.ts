@@ -81,9 +81,19 @@ export function isRefusalFallbackMessage(message: Message): boolean {
  *   1:1 with `messages`, `threadTs ?? channelTs`) fixes this: when the
  *   fallback's thread is shared by another message — i.e. it is a real thread,
  *   not a lone top-level/DM row whose key is just its own `channelTs` — the
- *   walk-back skips over messages from other threads and pairs the fallback
- *   with the nearest genuine prompt in its own thread. A `null` key (non-Slack
- *   / legacy rows with no provenance) always uses adjacency.
+ *   walk-back keeps only the refused exchange and leaves the rest in place:
+ *     - a row in another (non-null) thread is a genuine interleaved post —
+ *       left in place;
+ *     - a null-keyed row has no Slack provenance. Synthetic tool churn
+ *       (assistant `tool_use` turns and their `tool_result` rows) is never
+ *       Slack-visible, so it always keys `null` even mid-thread; it belongs to
+ *       the refused exchange and is dropped. Leaving it behind would strand
+ *       half a tool pair, and the Slack transcript's orphan-tool prune runs
+ *       *before* this sweep, so nothing would repair the resulting invalid
+ *       history. A null-keyed genuine user prompt is a different turn
+ *       (legacy/provenance-less), so it is left in place and the walk continues
+ *       to the same-thread prompt.
+ *   A `null` fallback key (non-Slack / legacy) always uses adjacency.
  *
  * Exposed as a set of indices (rather than only the filtered messages) so a
  * caller holding an array rendered in lockstep with `messages` — e.g. the Slack
@@ -131,14 +141,24 @@ export function computeRefusedExchangeDrops(
       fallbackThreadKey !== null && sharedThreadKeys.has(fallbackThreadKey)
         ? threadKeys
         : undefined;
-    // Walk back to the genuine prompt over tool-result / assistant tool churn,
-    // skipping (leaving in place) any interleaved message from another thread.
+    // Walk back to the genuine prompt over tool-result / assistant tool churn.
     for (let s = r - 1; s >= 0; s--) {
-      if (threadScope && (threadScope[s] ?? null) !== fallbackThreadKey) {
-        continue;
+      const isGenuinePrompt =
+        messages[s].role === "user" && !isToolResultMessage(messages[s]);
+      // Under thread scope, leave rows outside the fallback's thread in place —
+      // genuine interleaved posts from other (non-null) threads, and
+      // provenance-less genuine prompts (someone else's turn). Drop only
+      // null-keyed tool churn: this refused exchange's own synthetic
+      // tool_use / tool_result rows, which would otherwise strand half a tool
+      // pair past the earlier orphan prune.
+      if (threadScope) {
+        const key = threadScope[s] ?? null;
+        if (key !== fallbackThreadKey && (key !== null || isGenuinePrompt)) {
+          continue;
+        }
       }
       dropIndices.add(s);
-      if (messages[s].role === "user" && !isToolResultMessage(messages[s])) {
+      if (isGenuinePrompt) {
         break; // the genuine user prompt that was refused
       }
     }
