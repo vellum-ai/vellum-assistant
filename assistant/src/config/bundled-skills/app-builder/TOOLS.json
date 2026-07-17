@@ -98,7 +98,7 @@
         "properties": {
           "app_id": {
             "type": "string",
-            "description": "The ID of the app to update"
+            "description": "The ID of the app to update. Omit to update the conversation's most recently updated app."
           },
           "name": {
             "type": "string",
@@ -120,7 +120,7 @@
             }
           }
         },
-        "required": ["app_id"]
+        "required": []
       },
       "executor": "tools/app-update.ts",
       "execution_target": "host"
@@ -153,10 +153,10 @@
         "properties": {
           "app_id": {
             "type": "string",
-            "description": "The ID of the app to refresh"
+            "description": "The ID of the app to refresh. Omit to refresh the conversation's most recently updated app."
           }
         },
-        "required": ["app_id"]
+        "required": []
       },
       "executor": "tools/app-refresh.ts",
       "execution_target": "host"
@@ -171,14 +171,14 @@
         "properties": {
           "app_id": {
             "type": "string",
-            "description": "The ID of the app to generate an icon for"
+            "description": "The ID of the app to generate an icon for. Omit to use the conversation's most recently updated app."
           },
           "description": {
             "type": "string",
             "description": "Optional description to guide icon generation (e.g. 'a blue calendar with a checkmark'). If omitted, the app name and description are used."
           }
         },
-        "required": ["app_id"]
+        "required": []
       },
       "executor": "tools/app-generate-icon.ts",
       "execution_target": "host"
@@ -211,7 +211,7 @@
         "properties": {
           "app_id": {
             "type": "string",
-            "description": "The ID of the app to open"
+            "description": "The ID of the app to open. Omit to open the conversation's most recently updated app."
           },
           "open_mode": {
             "type": "string",
@@ -219,7 +219,7 @@
             "description": "Display mode. 'preview' shows an inline preview card in chat. 'workspace' opens the full app in a workspace panel. Defaults to 'workspace'."
           }
         },
-        "required": ["app_id"]
+        "required": []
       },
       "executor": "tools/app-open.ts",
       "execution_target": "host"
