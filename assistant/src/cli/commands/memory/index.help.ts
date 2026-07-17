@@ -800,8 +800,10 @@ Examples:
 Reads the memory_retrospective_state table directly from the workspace SQLite
 database and prints the most-recently-run state rows, newest first. No daemon
 required. Each row shows the source conversation ID, when the retrospective last
-ran, how many memories were saved across all passes, and whether any pass has
-yet succeeded (status "ok") or only failed attempts exist ("pending").
+ran, how many memory entries are currently retained in the dedup log (capped at
+100 entries / 8 KB — older entries are dropped as new ones arrive, so RETAINED
+reflects the live dedup window, not a cumulative save count), and whether any
+pass has yet succeeded (status "ok") or only failed attempts exist ("pending").
 
 Examples:
   $ assistant memory retrospective list

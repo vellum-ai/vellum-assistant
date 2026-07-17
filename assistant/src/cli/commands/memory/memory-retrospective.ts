@@ -103,10 +103,10 @@ function renderList(rows: RetrospectiveStateRow[]): void {
 
   const DATE_WIDTH = 20;
   const CONV_WIDTH = 12;
-  const MEM_WIDTH = 8;
+  const MEM_WIDTH = 10;
 
   console.log(
-    `${"CONVERSATION".padEnd(CONV_WIDTH)}  ${"LAST RUN".padEnd(DATE_WIDTH)}  ${"MEMORIES".padEnd(MEM_WIDTH)}  STATUS`,
+    `${"CONVERSATION".padEnd(CONV_WIDTH)}  ${"LAST RUN".padEnd(DATE_WIDTH)}  ${"RETAINED".padEnd(MEM_WIDTH)}  STATUS`,
   );
 
   for (const row of rows) {
@@ -118,10 +118,10 @@ function renderList(rows: RetrospectiveStateRow[]): void {
       hour: "numeric",
       minute: "2-digit",
     });
-    const memories = String(row.rememberedLog.length).padEnd(MEM_WIDTH);
+    const retained = String(row.rememberedLog.length).padEnd(MEM_WIDTH);
     const status =
       row.lastProcessedMessageId === "" ? "pending (no success yet)" : "ok";
-    console.log(`${conv}  ${runAt.padEnd(DATE_WIDTH)}  ${memories}  ${status}`);
+    console.log(`${conv}  ${runAt.padEnd(DATE_WIDTH)}  ${retained}  ${status}`);
   }
 
   console.log(`\n${rows.length} row${rows.length === 1 ? "" : "s"}`);
