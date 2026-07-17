@@ -35,7 +35,10 @@ import {
   isVoiceFrontModelEnabled,
 } from "../config/assistant-feature-flags.js";
 import { getConfig } from "../config/loader.js";
-import type { LiveVoiceFrontModelConfig } from "../config/schemas/live-voice.js";
+import {
+  type LiveVoiceFrontModelConfig,
+  LiveVoiceFrontModelConfigSchema,
+} from "../config/schemas/live-voice.js";
 import { ABORT_WATCHDOG_MS } from "../daemon/abort-watchdog.js";
 import { findConversation } from "../daemon/conversation-registry.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
@@ -122,6 +125,17 @@ const DEFAULT_BARGE_IN_MIN_SPEECH_MS = 250;
 // (voice-front-model). Mirrors the `liveVoice.frontModel.ackFirstDeltaTimeoutMs`
 // schema default.
 const DEFAULT_ACK_FIRST_DELTA_TIMEOUT_MS = 2_500;
+// How long (ms) a semantic-endpointing "hold" keeps the utterance open before
+// the silence turn-end replays (voice-front-model). Mirrors the
+// `liveVoice.frontModel.endpointExtensionMs` schema default.
+const DEFAULT_ENDPOINT_EXTENSION_MS = 1_500;
+// Cap on consecutive "hold" extensions per utterance (voice-front-model).
+// Mirrors the `liveVoice.frontModel.endpointMaxExtensions` schema default.
+const DEFAULT_ENDPOINT_MAX_EXTENSIONS = 2;
+// Mirrors MediaTurnDetector's DEFAULT_SILENCE_THRESHOLD_MS: the session
+// tracks the effective trailing-silence threshold (the detector keeps its own
+// copy private) so the endpoint decider can report the pause length.
+const DEFAULT_SILENCE_THRESHOLD_MS = 800;
 // At most this many TTS segment jobs are open (provider stream started,
 // frames not yet fully emitted) per turn: the emitting job plus one
 // prefetching job. The prefetch buffers its chunks in memory until promoted;
@@ -214,15 +228,17 @@ export interface LiveVoiceSessionOptions {
    */
   finalizeGraceMs?: number;
   /**
-   * Front-model presence tuning (spoken acks). The production factory seeds
-   * this from `liveVoice.frontModel` config when unset; absent fields fall
-   * back to in-code defaults.
+   * Front-model presence tuning (semantic endpointing + spoken acks). The
+   * production factory seeds this from `liveVoice.frontModel` config when
+   * unset; absent fields fall back to in-code defaults.
    */
   frontModelConfig?: Partial<LiveVoiceFrontModelConfig>;
   /**
-   * Front-model decision/phrasing service (LLM-phrased acks). The production
-   * factory constructs it from `liveVoice.frontModel` config when unset;
-   * `null` disables front-model LLM calls (static ack phrasing only).
+   * Front-model decision/phrasing service: semantic endpointing on
+   * silence-fired turn-ends (a "hold" keeps the utterance open through a
+   * bounded extension window) and LLM-phrased acks. The production factory
+   * constructs it from `liveVoice.frontModel` config when unset; `null`
+   * disables front-model LLM calls (energy endpointing + static ack phrasing).
    */
   frontDecider?: VoiceFrontDecider | null;
   /**
@@ -277,6 +293,12 @@ interface UtteranceCycle {
   pendingAudioChunks: Buffer[];
   pendingAudioBytes: number;
   finalTranscriptSegments: string[];
+  // Latest non-final STT partial trailing the finals, fed to the semantic
+  // endpoint decider (voice-front-model). Cleared when a final commits it.
+  latestPartialText: string | null;
+  // Consecutive semantic-endpointing "hold" extensions this utterance has
+  // consumed, bounded by `endpointMaxExtensions`.
+  endpointExtensionCount: number;
   turnId: string | null;
   userMessageId: string | null;
   userAudioChunks: Buffer[];
@@ -560,11 +582,29 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   private readonly ackFirstDeltaTimeoutMs: number;
   // Rotates through the ack phrase list across the session's turns.
   private ackPhraseCounter = 0;
+  // Front-model service (voice-front-model): semantic endpointing on
+  // silence-fired turn-ends and LLM-phrased acks; null disables both LLM
+  // capabilities (energy endpointing + static ack phrasing remain).
+  private readonly frontDecider: VoiceFrontDecider | null;
   // LLM-phrased contextual acks (liveVoice.frontModel.llmAckText): when on
   // and a decider is wired, the ack text comes from the front model with the
   // static phrase as fallback.
   private readonly llmAckText: boolean;
-  private readonly frontDecider: VoiceFrontDecider | null;
+  private readonly endpointExtensionMs: number;
+  private readonly endpointMaxExtensions: number;
+  // Effective trailing-silence threshold, mirroring the detector's private
+  // copy (constructor seed + update_config), reported to the endpoint decider.
+  private silenceThresholdMs: number;
+  // Pending replay of a held silence turn-end. The detector cannot extend an
+  // in-flight countdown (setSilenceThresholdMs applies only from the next
+  // arm), so this timer IS the extension mechanism: on expiry it replays
+  // handleVadUtteranceEnd("silence") iff the held utterance is still current
+  // and speech has not resumed.
+  private endpointExtensionTimer: ReturnType<typeof setTimeout> | null = null;
+  // Bumped on every VAD speech onset so an endpoint decision that resolves
+  // after speech resumed defers to the detector's fresh boundary instead of
+  // releasing an utterance the user is still adding to.
+  private vadSpeechGeneration = 0;
 
   constructor(
     context: LiveVoiceSessionFactoryContext,
@@ -606,14 +646,22 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     this.ackFirstDeltaTimeoutMs =
       options.frontModelConfig?.ackFirstDeltaTimeoutMs ??
       DEFAULT_ACK_FIRST_DELTA_TIMEOUT_MS;
-    this.llmAckText = options.frontModelConfig?.llmAckText ?? false;
     this.frontDecider = options.frontDecider ?? null;
+    this.llmAckText = options.frontModelConfig?.llmAckText ?? false;
+    this.endpointExtensionMs =
+      options.frontModelConfig?.endpointExtensionMs ??
+      DEFAULT_ENDPOINT_EXTENSION_MS;
+    this.endpointMaxExtensions =
+      options.frontModelConfig?.endpointMaxExtensions ??
+      DEFAULT_ENDPOINT_MAX_EXTENSIONS;
     const turnDetectorConfig: TurnDetectorConfig = {
       ...(options.turnDetectorConfig ?? {}),
       ...(context.startFrame.silenceThresholdMs !== undefined
         ? { silenceThresholdMs: context.startFrame.silenceThresholdMs }
         : {}),
     };
+    this.silenceThresholdMs =
+      turnDetectorConfig.silenceThresholdMs ?? DEFAULT_SILENCE_THRESHOLD_MS;
     this.turnDetector =
       context.startFrame.turnDetection === "server_vad"
         ? new MediaTurnDetector(turnDetectorConfig, {
@@ -702,6 +750,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   private applyConfigUpdate(frame: LiveVoiceClientUpdateConfigFrame): void {
     if (frame.silenceThresholdMs !== undefined) {
       this.turnDetector?.setSilenceThresholdMs(frame.silenceThresholdMs);
+      this.silenceThresholdMs = frame.silenceThresholdMs;
     }
     if (frame.bargeInMinSpeechMs !== undefined) {
       this.bargeInMinSpeechMs = frame.bargeInMinSpeechMs;
@@ -720,6 +769,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     const shouldEmitSessionEndMetrics = this.state !== "failed";
     this.state = "closed";
     this.turnDetector?.dispose();
+    this.clearEndpointExtensionTimer();
     this.stopSessionTranscriber();
     this.abortDetachedRuns();
     await this.cancelAssistantTurn("session_closed");
@@ -746,6 +796,8 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       pendingAudioChunks: [],
       pendingAudioBytes: 0,
       finalTranscriptSegments: [],
+      latestPartialText: null,
+      endpointExtensionCount: 0,
       turnId: null,
       userMessageId: null,
       userAudioChunks: [],
@@ -905,6 +957,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     }
 
     this.state = "failed";
+    this.clearEndpointExtensionTimer();
     await this.sendFrame({
       type: "error",
       code:
@@ -1126,6 +1179,11 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     }
 
     this.vadSpeechStartPending = true;
+    // Speech resumed: an endpoint decision still in flight is stale (the
+    // generation bump defers it), and a pending hold replay is moot — the
+    // utterance keeps accumulating and the detector fires a fresh turn-end.
+    this.vadSpeechGeneration += 1;
+    this.clearEndpointExtensionTimer();
 
     const turn = this.activeAssistantTurn;
     // Any in-flight, non-finalized turn is interruptible, whether it is still
@@ -1370,6 +1428,11 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       // The detector turn is over: an untripped guard was noise, not
       // barge-in — leave playback untouched.
       this.pendingBargeIn = null;
+      if (reason === "max-duration") {
+        // A max-duration boundary always releases: drop any pending hold
+        // replay so it cannot re-fire a boundary this one already owns.
+        this.clearEndpointExtensionTimer();
+      }
       const utterance = this.currentUtterance;
       if (!utterance || utterance.released || utterance.completed) {
         // The ended turn's speech sits parked in the pre-roll ring (the
@@ -1380,9 +1443,121 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         }
         return;
       }
+      // Semantic endpointing (voice-front-model): a silence boundary may be a
+      // thinking pause — let the front decider hold the utterance open. Only
+      // silence boundaries qualify; max-duration always releases. The gate is
+      // synchronous (null) whenever the decider is not consulted, so the
+      // flag-off release path keeps its exact event ordering — an extra await
+      // here would shift utterance release across the persistent-transcriber
+      // flush attribution.
+      if (reason === "silence") {
+        const holdDecision = this.maybeHoldUtteranceOpen(utterance);
+        if (holdDecision && (await holdDecision)) {
+          return;
+        }
+      }
       await this.sendFrame({ type: "utterance_end", reason });
       await this.releaseUtterance();
     })().catch(() => {});
+  }
+
+  /**
+   * Semantic-endpointing gate for a silence-fired turn-end. Returns `null`
+   * synchronously when the decider is not consulted (feature off, no decider,
+   * extension cap reached, nothing transcribed) — the boundary then releases
+   * exactly as before. Otherwise resolves `true` when the boundary must NOT
+   * release the utterance now: either the decider held it open (the extension
+   * timer replays the boundary), or the world moved on during the decision
+   * (speech resumed, utterance superseded) and a fresh boundary owns the
+   * release. Every decider failure resolves as "release" within
+   * `endpointDecisionTimeoutMs` (fail-open), so consulting it adds at most
+   * that much end-of-turn latency.
+   */
+  private maybeHoldUtteranceOpen(
+    utterance: UtteranceCycle,
+  ): Promise<boolean> | null {
+    const decider = this.frontDecider;
+    if (!decider || !isVoiceFrontModelEnabled(getConfig())) {
+      return null;
+    }
+    if (utterance.endpointExtensionCount >= this.endpointMaxExtensions) {
+      return null;
+    }
+    const transcriptSoFar = utterance.finalTranscriptSegments.join(" ").trim();
+    const latestPartial = utterance.latestPartialText;
+    if (transcriptSoFar.length === 0 && !latestPartial) {
+      // Nothing transcribed yet: there is no text to judge.
+      return null;
+    }
+    return this.decideUtteranceHold(
+      decider,
+      utterance,
+      transcriptSoFar,
+      latestPartial,
+    );
+  }
+
+  private async decideUtteranceHold(
+    decider: VoiceFrontDecider,
+    utterance: UtteranceCycle,
+    transcriptSoFar: string,
+    latestPartial: string | null,
+  ): Promise<boolean> {
+    const generation = this.vadSpeechGeneration;
+    const decision = await decider.decideEndpoint({
+      transcriptSoFar,
+      latestPartial,
+      silenceThresholdMs: this.silenceThresholdMs,
+      extensionCount: utterance.endpointExtensionCount,
+    });
+    // Re-check the world after the await: the decision window is bounded but
+    // real, and a release based on a stale snapshot could cut off speech.
+    if (
+      this.isUtteranceStale(utterance) ||
+      utterance.released ||
+      utterance.completed
+    ) {
+      return true;
+    }
+    if (generation !== this.vadSpeechGeneration) {
+      // Speech resumed during the decision: the utterance keeps accumulating
+      // and the detector's next turn-end re-runs the whole decision.
+      return true;
+    }
+    if (decision.action !== "hold") {
+      return false;
+    }
+    utterance.endpointExtensionCount += 1;
+    this.armEndpointExtensionTimer(utterance);
+    return true;
+  }
+
+  // Arms the hold-extension replay: after `endpointExtensionMs` of continued
+  // silence the deferred silence boundary re-fires (and the decider is
+  // consulted again, bounded by `endpointMaxExtensions`).
+  private armEndpointExtensionTimer(utterance: UtteranceCycle): void {
+    this.clearEndpointExtensionTimer();
+    this.endpointExtensionTimer = setTimeout(() => {
+      this.endpointExtensionTimer = null;
+      if (
+        this.currentUtterance !== utterance ||
+        utterance.released ||
+        utterance.completed ||
+        // Speech resumed (the detector owns the next boundary). Onset also
+        // clears this timer, so this is a belt to that suspender.
+        this.turnDetector?.isActive
+      ) {
+        return;
+      }
+      this.handleVadUtteranceEnd("silence");
+    }, this.endpointExtensionMs);
+  }
+
+  private clearEndpointExtensionTimer(): void {
+    if (this.endpointExtensionTimer !== null) {
+      clearTimeout(this.endpointExtensionTimer);
+      this.endpointExtensionTimer = null;
+    }
   }
 
   // In server_vad mode a client ptt_release still works as a manual
@@ -1579,6 +1754,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
 
     switch (event.type) {
       case "partial":
+        utterance.latestPartialText = event.text;
         this.markFirstPartial(utterance);
         await this.sendFrame({ type: "stt_partial", text: event.text });
         return;
@@ -1651,6 +1827,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         if (!target || target.assistantTurnStarted || target.completed) {
           return;
         }
+        target.latestPartialText = event.text;
         this.markFirstPartial(target);
         await this.sendFrame({ type: "stt_partial", text: event.text });
         return;
@@ -1758,6 +1935,8 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     if (transcript.length > 0) {
       utterance.finalTranscriptSegments.push(transcript);
     }
+    // The final commits (and supersedes) whatever partial was trailing it.
+    utterance.latestPartialText = null;
     this.markFinalTranscript(utterance);
     await this.sendFrame({ type: "stt_final", text });
     await this.startAssistantTurnIfReady();
@@ -1791,6 +1970,8 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     this.assistantPlaybackTailUntilMs = 0;
     this.takeVadPreRoll();
     this.vadPendingTurnEnd = null;
+    // ...and abandons any semantic-endpointing hold still awaiting replay.
+    this.clearEndpointExtensionTimer();
     // A client interrupt is a hard reset: any barge-in merge context waiting for
     // the next turn is now stale (the interrupted utterance may be discarded
     // without ever reaching finalizePendingUtterance).
@@ -3156,6 +3337,8 @@ export function createLiveVoiceSession(
   // absent config falls through to the in-code defaults.
   const liveVoiceConfig = getConfig().liveVoice;
   const vadConfig = liveVoiceConfig?.vad;
+  const frontModelConfig =
+    options.frontModelConfig ?? liveVoiceConfig?.frontModel;
   return new LiveVoiceSession(context, {
     ...options,
     turnDetectorConfig:
@@ -3170,17 +3353,21 @@ export function createLiveVoiceSession(
       options.speechEnergyThreshold ?? vadConfig?.speechEnergyThreshold,
     bargeInMinSpeechMs:
       options.bargeInMinSpeechMs ?? vadConfig?.bargeInMinSpeechMs,
-    frontModelConfig: options.frontModelConfig ?? liveVoiceConfig?.frontModel,
-    // An explicit option (incl. `null`) wins — the test seam. Without a
-    // parsed `liveVoice.frontModel` config there is no decider (hand-built
-    // test configs may predate the namespace); its features are all off in
-    // that case anyway.
+    frontModelConfig,
+    // The decider only runs when the voice-front-model flag allows it (the
+    // session checks per boundary), so eager construction is flag-safe even
+    // when the `liveVoice.frontModel` config namespace is absent (schema
+    // defaults fill the tunables). An explicit option (incl. `null`) always
+    // wins — the test seam.
     frontDecider:
       options.frontDecider !== undefined
         ? options.frontDecider
-        : liveVoiceConfig?.frontModel
-          ? createVoiceFrontDecider({ config: liveVoiceConfig.frontModel })
-          : null,
+        : createVoiceFrontDecider({
+            config: {
+              ...LiveVoiceFrontModelConfigSchema.parse({}),
+              ...frontModelConfig,
+            },
+          }),
     resolveCredentialReadiness:
       options.resolveCredentialReadiness === undefined
         ? defaultResolveLiveVoiceCredentialReadiness

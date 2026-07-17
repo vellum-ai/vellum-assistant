@@ -14,10 +14,15 @@ import {
   loadRawConfig,
   saveRawConfig,
 } from "../../config/loader.js";
+import type { LiveVoiceFrontModelConfig } from "../../config/schemas/live-voice.js";
 import type {
   StreamingTranscriber,
   SttStreamServerEvent,
 } from "../../stt/types.js";
+import type {
+  VoiceEndpointDecisionInput,
+  VoiceFrontDecider,
+} from "../front-decision.js";
 import type { LiveVoiceAudioArchiveResult } from "../live-voice-archive.js";
 import {
   createLiveVoiceSession,
@@ -123,6 +128,8 @@ function createHarness(options: {
   turnDetectorConfig?: TurnDetectorConfig;
   speechEnergyThreshold?: number;
   bargeInMinSpeechMs?: number;
+  frontDecider?: VoiceFrontDecider | null;
+  frontModelConfig?: Partial<LiveVoiceFrontModelConfig>;
   emitMetrics?: boolean;
   metricsClock?: () => number;
   // Return a promise to hold a frame's transport write open (a backed-up
@@ -187,6 +194,12 @@ function createHarness(options: {
       (options.viaFactory ? undefined : { silenceThresholdMs: 40 }),
     speechEnergyThreshold: options.speechEnergyThreshold,
     bargeInMinSpeechMs: options.bargeInMinSpeechMs,
+    ...(options.frontDecider !== undefined
+      ? { frontDecider: options.frontDecider }
+      : {}),
+    ...(options.frontModelConfig
+      ? { frontModelConfig: options.frontModelConfig }
+      : {}),
     ...(options.spawnBackgroundContinuation
       ? { spawnBackgroundContinuation: options.spawnBackgroundContinuation }
       : {}),
@@ -2574,5 +2587,260 @@ describe("LiveVoiceSession sustained-speech barge-in guard", () => {
       frames.find((frame) => frame.type === "turn_cancelled"),
     ).toMatchObject({ type: "turn_cancelled", turnId: "live-turn-1" });
     await waitFor(() => abort.mock.calls.length === 1);
+  });
+});
+
+// Stub semantic-endpointing decider: scripted hold/release decisions consumed
+// in order, with every consulted input captured. Falls back to "release" once
+// the script is exhausted, mirroring the real decider's fail-open bias.
+function makeFrontDecider(decisions: Array<"hold" | "release">): {
+  decider: VoiceFrontDecider;
+  calls: VoiceEndpointDecisionInput[];
+} {
+  const calls: VoiceEndpointDecisionInput[] = [];
+  return {
+    calls,
+    decider: {
+      decideEndpoint: async (input) => {
+        calls.push(input);
+        return { action: decisions[calls.length - 1] ?? "release" };
+      },
+      generateAckText: async () => null,
+    },
+  };
+}
+
+describe("LiveVoiceSession semantic endpointing", () => {
+  afterEach(() => clearCachedOverrides());
+
+  const enableFrontModel = () =>
+    setCachedOverrides({ "voice-front-model": true }, { fromGateway: true });
+
+  // Arms the harness session, waits for its transcriber, and seeds a partial
+  // so the silence boundary has transcript text for the decider to judge.
+  async function startWithPartial(
+    session: LiveVoiceSession,
+    transcribers: MockStreamingTranscriber[],
+    partialText = "hello wor",
+  ): Promise<void> {
+    await session.start();
+    await waitFor(() => transcribers.length === 1);
+    // Let the transcriber's start() wiring settle before emitting events.
+    await flushAsyncCallbacks();
+    transcribers[0]?.emit({ type: "partial", text: partialText });
+  }
+
+  test("a held silence boundary sends no utterance_end and replays after the extension", async () => {
+    enableFrontModel();
+    const { decider, calls } = makeFrontDecider(["hold", "release"]);
+    const turnStarter = makeAutoCompletingTurnStarter(["Hi there."]);
+    const { frames, session, transcribers } = createHarness({
+      finals: ["hello world"],
+      startVoiceTurn: turnStarter.startVoiceTurn,
+      frontDecider: decider,
+      frontModelConfig: { endpointExtensionMs: 30 },
+    });
+
+    await startWithPartial(session, transcribers);
+    await session.handleBinaryAudio(LOUD_CHUNK);
+
+    // First silence boundary: the decider holds — no utterance_end, no turn.
+    await waitFor(() => calls.length === 1);
+    expect(calls[0]).toEqual({
+      transcriptSoFar: "",
+      latestPartial: "hello wor",
+      silenceThresholdMs: 40,
+      extensionCount: 0,
+    });
+    expect(countType(frames, "utterance_end")).toBe(0);
+    expect(countType(frames, "thinking")).toBe(0);
+
+    // The extension elapses in continued silence: the boundary replays, the
+    // decider releases, and the turn launches normally.
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+    expect(calls).toHaveLength(2);
+    expect(calls[1]).toMatchObject({ extensionCount: 1 });
+    expect(frameTypes(frames)).toEqual([
+      "ready",
+      "stt_partial",
+      "speech_started",
+      "utterance_end",
+      "stt_final",
+      "thinking",
+      "assistant_text_delta",
+      "tts_done",
+    ]);
+    expect(
+      frames.find((frame) => frame.type === "utterance_end"),
+    ).toMatchObject({ reason: "silence" });
+    expect(turnStarter.calls[0]).toMatchObject({ content: "hello world" });
+  });
+
+  test("speech resuming during a hold cancels the replay and the utterance keeps accumulating", async () => {
+    enableFrontModel();
+    const { decider, calls } = makeFrontDecider(["hold", "release"]);
+    const turnStarter = makeAutoCompletingTurnStarter(["Okay."]);
+    const { frames, session, transcribers } = createHarness({
+      finals: ["hello there world"],
+      startVoiceTurn: turnStarter.startVoiceTurn,
+      frontDecider: decider,
+      // Comfortably longer than the resumed speech's own silence boundary,
+      // so a leaked (uncancelled) replay would surface as a third decider
+      // consult / second utterance_end below.
+      frontModelConfig: { endpointExtensionMs: 200 },
+    });
+
+    await startWithPartial(session, transcribers, "hello");
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => calls.length === 1);
+    expect(countType(frames, "utterance_end")).toBe(0);
+
+    // Speech resumes during the hold; the fresh silence boundary after it —
+    // not the cancelled replay timer — drives the next decision.
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => calls.length === 2);
+    expect(calls[1]).toMatchObject({ extensionCount: 1 });
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+
+    // Wait out the original extension window: the cancelled replay never
+    // re-fires the boundary.
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    expect(calls).toHaveLength(2);
+    expect(countType(frames, "utterance_end")).toBe(1);
+    // Both speech bursts fed the same utterance's transcriber (the second
+    // resolves only when the completed turn re-arms), producing one released
+    // turn end-to-end.
+    expect(transcribers[0]?.received.length).toBeGreaterThanOrEqual(2);
+    expect(turnStarter.calls).toHaveLength(1);
+    expect(turnStarter.calls[0]).toMatchObject({
+      content: "hello there world",
+    });
+  });
+
+  test("a release decision produces the same frame sequence as the flag-off path", async () => {
+    enableFrontModel();
+    const { decider, calls } = makeFrontDecider(["release"]);
+    const turnStarter = makeAutoCompletingTurnStarter(["Hi there."]);
+    const { frames, session, transcribers } = createHarness({
+      finals: ["hello world"],
+      startVoiceTurn: turnStarter.startVoiceTurn,
+      frontDecider: decider,
+    });
+
+    await startWithPartial(session, transcribers);
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+
+    expect(calls).toHaveLength(1);
+    expect(frameTypes(frames)).toEqual([
+      "ready",
+      "stt_partial",
+      "speech_started",
+      "utterance_end",
+      "stt_final",
+      "thinking",
+      "assistant_text_delta",
+      "tts_done",
+    ]);
+    expect(
+      frames.find((frame) => frame.type === "utterance_end"),
+    ).toMatchObject({ reason: "silence" });
+  });
+
+  test("endpointMaxExtensions caps consecutive holds and forces the release", async () => {
+    enableFrontModel();
+    const { decider, calls } = makeFrontDecider(["hold", "hold", "hold"]);
+    const turnStarter = makeAutoCompletingTurnStarter(["Hi there."]);
+    const { frames, session, transcribers } = createHarness({
+      finals: ["hello world"],
+      startVoiceTurn: turnStarter.startVoiceTurn,
+      frontDecider: decider,
+      frontModelConfig: { endpointExtensionMs: 20, endpointMaxExtensions: 1 },
+    });
+
+    await startWithPartial(session, transcribers);
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+
+    // The single allowed hold consumed the decider's one consult; the replay
+    // hit the cap and released without asking again.
+    expect(calls).toHaveLength(1);
+    expect(countType(frames, "utterance_end")).toBe(1);
+    expect(turnStarter.calls).toHaveLength(1);
+    expect(turnStarter.calls[0]).toMatchObject({ content: "hello world" });
+  });
+
+  test("with the voice-front-model flag off the decider is never consulted", async () => {
+    const { decider, calls } = makeFrontDecider(["hold"]);
+    const turnStarter = makeAutoCompletingTurnStarter(["Hi there."]);
+    const { frames, session, transcribers } = createHarness({
+      finals: ["hello world"],
+      startVoiceTurn: turnStarter.startVoiceTurn,
+      frontDecider: decider,
+    });
+
+    await startWithPartial(session, transcribers);
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+
+    expect(calls).toHaveLength(0);
+    expect(frameTypes(frames)).toEqual([
+      "ready",
+      "stt_partial",
+      "speech_started",
+      "utterance_end",
+      "stt_final",
+      "thinking",
+      "assistant_text_delta",
+      "tts_done",
+    ]);
+  });
+
+  test("a max-duration boundary bypasses the decider entirely", async () => {
+    enableFrontModel();
+    const { decider, calls } = makeFrontDecider(["hold"]);
+    const turnStarter = makeAutoCompletingTurnStarter(["Hi there."]);
+    const { frames, session, transcribers } = createHarness({
+      finals: ["hello world"],
+      startVoiceTurn: turnStarter.startVoiceTurn,
+      frontDecider: decider,
+      // Silence can never fire; the max-duration cap ends the turn instead.
+      turnDetectorConfig: { silenceThresholdMs: 10_000, maxTurnDurationMs: 40 },
+    });
+
+    await startWithPartial(session, transcribers);
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+
+    expect(calls).toHaveLength(0);
+    expect(
+      frames.find((frame) => frame.type === "utterance_end"),
+    ).toMatchObject({ reason: "max-duration" });
+    expect(turnStarter.calls).toHaveLength(1);
+  });
+
+  test("session close during a hold clears the extension timer", async () => {
+    enableFrontModel();
+    const { decider, calls } = makeFrontDecider(["hold", "hold"]);
+    const { frames, session, transcribers } = createHarness({
+      finals: ["hello world"],
+      frontDecider: decider,
+      frontModelConfig: { endpointExtensionMs: 30 },
+    });
+
+    await startWithPartial(session, transcribers);
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => calls.length === 1);
+    expect(countType(frames, "utterance_end")).toBe(0);
+
+    await session.close("client_end");
+    const framesAtClose = frames.length;
+
+    // Well past the extension window: the cleared timer never replays the
+    // boundary — no utterance_end, no second decider consult, no new frames.
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(calls).toHaveLength(1);
+    expect(countType(frames, "utterance_end")).toBe(0);
+    expect(frames.length).toBe(framesAtClose);
   });
 });
