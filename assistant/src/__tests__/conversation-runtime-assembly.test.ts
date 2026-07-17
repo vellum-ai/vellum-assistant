@@ -6211,6 +6211,84 @@ describe("assembleSlackChronologicalMessages", () => {
     expect(serialized).toContain("hi assistant");
     expect(serialized).toContain("back to normal");
   });
+
+  test("quarantines the refused exchange across an interleaved sibling thread", () => {
+    // Multi-party channel: @alice's flagged prompt roots a thread, the
+    // assistant's refusal fallback replies inside it (`threadTs` = the prompt's
+    // ts), and @bob posts in a different thread in between. Chronological
+    // adjacency would pair the fallback with @bob's unrelated post — dropping
+    // it and stranding the actual refused prompt, which then re-trips the
+    // classifier every turn. Thread provenance pairs the fallback with @alice's
+    // prompt instead and leaves @bob's post in place.
+    const CHANNEL_ID = "C0MULTI01";
+    const SLACK_CAPS_CHANNEL: ChannelCapabilities = {
+      channel: "slack",
+      dashboardCapable: false,
+      supportsDynamicUi: false,
+      supportsVoiceInput: false,
+      chatType: "channel",
+    };
+    const T_HI = "1699971900.000100";
+    const T_PROMPT = "1699972000.000200"; // roots @alice's thread
+    const T_BOB = "1699972030.000300"; // sibling-thread post, interleaved
+    const T_FALLBACK = "1699972060.000400"; // assistant refusal, in @alice's thread
+    const T_LATER = "1699972200.000500";
+    const meta = (
+      channelTs: string,
+      displayName: string,
+      threadTs?: string,
+    ): SlackMessageMetadata => ({
+      source: "slack",
+      channelId: CHANNEL_ID,
+      channelTs,
+      ...(threadTs ? { threadTs } : {}),
+      eventKind: "message",
+      displayName,
+    });
+    const rows: SlackTranscriptInputRow[] = [
+      row(
+        "user",
+        "hi assistant",
+        1699971900_000,
+        metadataEnvelope(meta(T_HI, "@alice")),
+      ),
+      row(
+        "user",
+        "disallowed question",
+        1699972000_000,
+        metadataEnvelope(meta(T_PROMPT, "@alice")),
+      ),
+      row(
+        "user",
+        "what's for lunch",
+        1699972030_000,
+        metadataEnvelope(meta(T_BOB, "@bob")),
+      ),
+      row(
+        "assistant",
+        REFUSAL_FALLBACK_TEXT,
+        1699972060_000,
+        metadataEnvelope(meta(T_FALLBACK, "@assistant", T_PROMPT)),
+      ),
+      row(
+        "user",
+        "back to normal",
+        1699972200_000,
+        metadataEnvelope(meta(T_LATER, "@alice")),
+      ),
+    ];
+
+    const result = assembleSlackChronologicalMessages(rows, SLACK_CAPS_CHANNEL);
+    const serialized = JSON.stringify(result);
+    // The refusal and the prompt that tripped it are both gone …
+    expect(serialized).not.toContain(REFUSAL_FALLBACK_TEXT);
+    expect(serialized).not.toContain("disallowed question");
+    // … the interleaved sibling-thread post from another user is untouched …
+    expect(serialized).toContain("what's for lunch");
+    // … as are the benign turns on either side.
+    expect(serialized).toContain("hi assistant");
+    expect(serialized).toContain("back to normal");
+  });
 });
 
 // ---------------------------------------------------------------------------
