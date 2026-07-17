@@ -43,12 +43,12 @@ import {
   resolveSkillExecuteInput,
 } from "../tools/skills/execute.js";
 import { resolveToolInvocationAlias } from "../tools/tool-name-aliases.js";
-import { RiskLevel } from "../tools/tool-types.js";
 import type {
   ExecutionTarget,
   ProxyApprovalCallback,
   ProxyApprovalRequest,
 } from "../tools/tool-types.js";
+import { RiskLevel } from "../tools/tool-types.js";
 import {
   isDiskPressureCleanupToolName,
   type ToolContext,
@@ -920,12 +920,26 @@ export function createResolveToolsCallback(
       },
       "MCP and workspace tools resolved for turn",
     );
-    const scopedMcpDefs = wireAllowlist
-      ? currentMcpDefs.filter((d) => wireAllowlist.has(d.name))
-      : currentMcpDefs;
-    const scopedWorkspaceDefs = wireAllowlist
-      ? currentWorkspaceDefs.filter((d) => wireAllowlist.has(d.name))
-      : currentWorkspaceDefs;
+    // Dynamic MCP/workspace defs are appended straight to the wire (they do not
+    // pass through isToolActiveForContext), so apply the read-only pass filter
+    // here too — otherwise a read-only continuation would still see consequential
+    // MCP/workspace tools and select them, producing denial loops instead of
+    // being steered to state the deferred action. The executor gate rejects them
+    // regardless; this just keeps them off the model's tool surface (wire mode).
+    const readOnlyHidesFromWire = (name: string): boolean =>
+      ctx.subagentDenySideEffects === true &&
+      ctx.subagentToolGateMode !== "execution" &&
+      readOnlyPassRefusesTool(name);
+    const scopedMcpDefs = (
+      wireAllowlist
+        ? currentMcpDefs.filter((d) => wireAllowlist.has(d.name))
+        : currentMcpDefs
+    ).filter((d) => !readOnlyHidesFromWire(d.name));
+    const scopedWorkspaceDefs = (
+      wireAllowlist
+        ? currentWorkspaceDefs.filter((d) => wireAllowlist.has(d.name))
+        : currentWorkspaceDefs
+    ).filter((d) => !readOnlyHidesFromWire(d.name));
     const excluded = new Set(getConfig().tools.exclude);
     // Swap UI surface tools for channel-appropriate variants (e.g. Slack's
     // task_progress-only ui_show). Mirrors the pin handling in

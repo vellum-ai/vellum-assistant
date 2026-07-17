@@ -80,6 +80,7 @@ import {
 } from "../daemon/conversation-tool-setup.js";
 import {
   __clearRegistryForTesting,
+  registerMcpTools,
   registerPluginTools,
 } from "../tools/registry.js";
 import { RiskLevel } from "../tools/tool-types.js";
@@ -729,5 +730,46 @@ describe("createToolExecutor — per-chat plugin scope (skill_execute dispatch)"
 
     expect(result).toEqual({ content: "ok", isError: false });
     expect(calls).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Resolver — read-only continuation hides dynamic MCP/workspace tools too
+// (they bypass isToolActiveForContext, so the read-only filter is applied to
+// them explicitly when the defs are appended to the wire).
+// ---------------------------------------------------------------------------
+
+describe("createResolveToolsCallback — read-only hides dynamic MCP tools", () => {
+  function mcpTool(name: string, risk: RiskLevel): Tool {
+    return {
+      name,
+      description: name,
+      input_schema: { type: "object" },
+      defaultRiskLevel: risk,
+    } as unknown as Tool;
+  }
+
+  afterEach(() => {
+    __clearRegistryForTesting();
+  });
+
+  test("filters a non-low-risk MCP tool off the wire for a read-only continuation", () => {
+    registerMcpTools("srv", [mcpTool("srv_send", RiskLevel.High)]);
+    const ctx = makeProjectionCtx({ subagentDenySideEffects: true });
+    const resolve = createResolveToolsCallback([makeToolDef("remember")], ctx)!;
+
+    const tools = resolve(EMPTY_HISTORY);
+
+    expect(tools.map((t) => t.name)).not.toContain("srv_send");
+  });
+
+  test("keeps the MCP tool on the wire without the read-only flag (control)", () => {
+    registerMcpTools("srv", [mcpTool("srv_send", RiskLevel.High)]);
+    const ctx = makeProjectionCtx({});
+    const resolve = createResolveToolsCallback([makeToolDef("remember")], ctx)!;
+
+    const tools = resolve(EMPTY_HISTORY);
+
+    expect(tools.map((t) => t.name)).toContain("srv_send");
   });
 });
