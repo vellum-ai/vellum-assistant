@@ -15,7 +15,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, ArrowRight, Dices, Pencil } from "lucide-react";
+import { ArrowLeft, ArrowRight, Dices, Loader2, Pencil, Volume2 } from "lucide-react";
 
 import { OnboardingCharacterStage } from "@/domains/onboarding/components/onboarding-character-stage";
 import { OnboardingTopBar } from "@/domains/onboarding/components/onboarding-top-bar";
@@ -24,9 +24,11 @@ import {
   useElementSize,
 } from "@/domains/onboarding/hooks/use-onboarding-stage-size";
 import { useOnboardingAvatarPoolStore } from "@/domains/onboarding/onboarding-avatar-pool-store";
+import { synthesizeManagedVoiceSample } from "@/domains/onboarding/onboarding-voice-sample";
 import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
 import type { CharacterTraits } from "@/types/avatar";
 import { Button } from "@vellumai/design-library/components/button";
+import { toast } from "@vellumai/design-library/components/toast";
 
 export interface GiveMeAFaceValues {
   traits: CharacterTraits;
@@ -38,6 +40,17 @@ interface GiveMeAFaceScreenProps {
   onBack: () => void;
   /** Redo into the next step — only set when the user has stepped back. */
   onForward?: () => void;
+  /**
+   * When true (the `voice-mode` flag), show a "Hear my voice" audition — every
+   * assistant gets the default Vellum managed voice. This is the only place voice
+   * is surfaced in onboarding.
+   */
+  voiceEnabled?: boolean;
+  /**
+   * The background-hatched assistant, needed to synthesize the managed-voice
+   * sample. Null until the hatch is ready — the audition warns and no-ops.
+   */
+  assistantId?: string | null;
 }
 
 /** Prefill names, cycled across the pool and swapped in as you change avatars. */
@@ -61,6 +74,8 @@ export function GiveMeAFaceScreen({
   onContinue,
   onBack,
   onForward,
+  voiceEnabled = false,
+  assistantId = null,
 }: GiveMeAFaceScreenProps) {
   const components = useBundledAvatarComponents();
   const characters = useOnboardingAvatarPoolStore.use.characters();
@@ -152,6 +167,70 @@ export function GiveMeAFaceScreen({
     if (centeredTraits) onContinue({ traits: centeredTraits, name: name.trim() });
   }
 
+  // Audition the assistant's voice (the default Vellum managed voice) on demand.
+  // Synthesis is a network round-trip, so a loading state covers the wait; the
+  // audio + its object URL are torn down on a repeat tap, when it ends, or on
+  // unmount so nothing leaks or double-plays.
+  const [voiceLoading, setVoiceLoading] = useState(false);
+  const voiceAudioRef = useRef<HTMLAudioElement | null>(null);
+  const voiceUrlRef = useRef<string | null>(null);
+  // Bumped on every request AND on unmount, so an in-flight synthesis that
+  // resolves after the user has left the step (or after a newer click) bails
+  // instead of starting playback on the next screen with no later cleanup.
+  const voiceRequestRef = useRef(0);
+  function stopVoice() {
+    voiceAudioRef.current?.pause();
+    voiceAudioRef.current = null;
+    if (voiceUrlRef.current) {
+      URL.revokeObjectURL(voiceUrlRef.current);
+      voiceUrlRef.current = null;
+    }
+  }
+  useEffect(
+    () => () => {
+      voiceRequestRef.current++;
+      stopVoice();
+    },
+    [],
+  );
+
+  async function hearVoice() {
+    if (!assistantId) {
+      toast.error("Your assistant is still warming up — try again in a moment.");
+      return;
+    }
+    stopVoice();
+    const requestId = ++voiceRequestRef.current;
+    const isCurrent = () => voiceRequestRef.current === requestId;
+    setVoiceLoading(true);
+    try {
+      const trimmed = name.trim();
+      const sampleText = trimmed
+        ? `Hi! It's ${trimmed}. This is how I sound.`
+        : "Hi there! This is how I sound.";
+      const blob = await synthesizeManagedVoiceSample(assistantId, sampleText);
+      // Unmounted or superseded by a newer click while synthesizing — don't
+      // start playback on a step the user has already left.
+      if (!isCurrent()) return;
+      if (!blob) {
+        toast.error("Couldn't play a sample just now — give it another try.");
+        return;
+      }
+      const url = URL.createObjectURL(blob);
+      voiceUrlRef.current = url;
+      const audio = new Audio(url);
+      voiceAudioRef.current = audio;
+      audio.onended = () => stopVoice();
+      await audio.play();
+    } catch {
+      if (isCurrent()) {
+        toast.error("Couldn't play a sample just now — give it another try.");
+      }
+    } finally {
+      if (isCurrent()) setVoiceLoading(false);
+    }
+  }
+
   // Roll a random name from the pool (different from the current one). Counts as
   // a deliberate pick, so — like editing — it sticks across avatar cycling
   // instead of being re-prefilled from the centered avatar.
@@ -230,7 +309,8 @@ export function GiveMeAFaceScreen({
       </button>
 
       {/* Name (view ↔ edit) + Continue, grouped with room between them. */}
-      <div className="absolute left-1/2 top-[51%] z-10 flex -translate-x-1/2 flex-col items-center gap-12">
+      <div className="absolute left-1/2 top-[51%] z-10 flex -translate-x-1/2 flex-col items-center gap-10">
+        <div className="flex flex-col items-center gap-4">
         {editingName ? (
           <input
             ref={nameInputRef}
@@ -276,6 +356,27 @@ export function GiveMeAFaceScreen({
             </button>
           </div>
         )}
+
+        {/* The only place voice is surfaced in onboarding: an audition of the
+            assistant's (managed) voice. Its presence implies "I can speak". */}
+        {voiceEnabled && (
+          <button
+            type="button"
+            onClick={hearVoice}
+            disabled={voiceLoading}
+            title="Hear my voice"
+            aria-label="Hear my voice"
+            className="flex cursor-pointer items-center gap-2 rounded-full border border-[color-mix(in_srgb,var(--content-default)_22%,transparent)] px-4 py-2 text-sm text-[var(--content-default)] transition-colors duration-150 hover:bg-[color-mix(in_srgb,var(--content-default)_10%,transparent)] disabled:cursor-default disabled:opacity-70"
+          >
+            {voiceLoading ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Volume2 className="h-4 w-4" />
+            )}
+            Hear my voice
+          </button>
+        )}
+        </div>
 
         <Button
           type="button"
