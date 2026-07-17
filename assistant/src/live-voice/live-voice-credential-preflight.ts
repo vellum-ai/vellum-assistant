@@ -16,7 +16,6 @@ import {
   ttsSecretResolves,
 } from "../calls/telephony-tts-capability.js";
 import { getConfig } from "../config/loader.js";
-import { effectiveSttProvider } from "../config/schemas/stt.js";
 import { managedSpeechAvailable } from "../platform/managed-speech.js";
 import { getProviderEntry } from "../providers/speech-to-text/provider-catalog.js";
 import {
@@ -108,7 +107,7 @@ async function resolveSttGap(): Promise<GapWithClause | null> {
     return null;
   }
 
-  const providerId = effectiveSttProvider(getConfig().services.stt);
+  const providerId = getConfig().services.stt.provider;
   const entry = getProviderEntry(providerId as SttProviderId);
   if (!entry) {
     return {

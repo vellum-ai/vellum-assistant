@@ -6,13 +6,13 @@ import type {
 } from "../../../../tools/types.js";
 import { listCatalogProviderIds } from "../../../../tts/provider-catalog.js";
 import {
-  getConfig,
   invalidateConfigCache,
   loadRawConfig,
   saveRawConfig,
   setNestedValue,
 } from "../../../loader.js";
 import { VALID_CONVERSATION_TIMEOUTS } from "../../../schemas/elevenlabs.js";
+import { VALID_STT_PROVIDERS } from "../../../schemas/stt.js";
 
 /**
  * Valid voice config settings and their UserDefaults key mappings.
@@ -38,13 +38,15 @@ const VOICE_SETTINGS = {
     userDefaultsKey: "fishAudioReferenceId",
     type: "string",
   },
-  stt_mode: { type: "string" },
-  tts_mode: { type: "string" },
+  stt_provider: { type: "string" },
 } satisfies Record<string, VoiceSettingMeta>;
 
 type VoiceSettingName = keyof typeof VOICE_SETTINGS;
 
-const VALID_SETTINGS = Object.keys(VOICE_SETTINGS) as VoiceSettingName[];
+/** Exported so tests can assert parity with the TOOLS.json `setting` enum. */
+export const VALID_SETTINGS = Object.keys(
+  VOICE_SETTINGS,
+) as VoiceSettingName[];
 
 const VALID_TIMEOUTS: readonly number[] = VALID_CONVERSATION_TIMEOUTS;
 
@@ -54,11 +56,8 @@ const FRIENDLY_NAMES: Record<VoiceSettingName, string> = {
   tts_provider: "TTS provider",
   tts_voice_id: "ElevenLabs voice",
   fish_audio_reference_id: "Fish Audio voice",
-  stt_mode: "Speech-to-text mode",
-  tts_mode: "Text-to-speech mode",
+  stt_provider: "Speech-to-text provider",
 };
-
-const VALID_SPEECH_MODES = ["your-own", "managed"] as const;
 
 function validateSetting(
   setting: string,
@@ -129,17 +128,12 @@ function validateSetting(
       }
       return { ok: true, coerced: value.trim() };
     }
-    case "stt_mode":
-    case "tts_mode": {
-      if (
-        typeof value !== "string" ||
-        !VALID_SPEECH_MODES.includes(
-          value.trim() as (typeof VALID_SPEECH_MODES)[number],
-        )
-      ) {
+    case "stt_provider": {
+      const sttIds: readonly string[] = VALID_STT_PROVIDERS;
+      if (typeof value !== "string" || !sttIds.includes(value.trim())) {
         return {
           ok: false,
-          error: `${setting} must be one of: ${VALID_SPEECH_MODES.join(", ")}`,
+          error: `stt_provider must be one of: ${sttIds.join(", ")}`,
         };
       }
       return { ok: true, coerced: value.trim() };
@@ -156,6 +150,28 @@ function validateSetting(
     default:
       return { ok: false, error: `Unknown setting "${setting}"` };
   }
+}
+
+/**
+ * Remove a legacy `mode` key from a raw `services.<svc>` block. The schema
+ * no longer has the field, but the settings cards still write it (for
+ * compatibility with older daemons) and read `mode: "managed"` as the
+ * Vellum marker — left stale after a provider switch here, the cards would
+ * render Vellum while the daemon routes the newly chosen provider.
+ */
+function deleteLegacySpeechMode(
+  raw: Record<string, unknown>,
+  svc: "stt" | "tts",
+): void {
+  const services = raw.services;
+  if (!services || typeof services !== "object" || Array.isArray(services)) {
+    return;
+  }
+  const entry = (services as Record<string, unknown>)[svc];
+  if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+    return;
+  }
+  delete (entry as Record<string, unknown>).mode;
 }
 
 export async function run(
@@ -187,9 +203,8 @@ export async function run(
   }
 
   const wantsManagedSpeech =
-    ((setting === "stt_mode" || setting === "tts_mode") &&
-      validation.coerced === "managed") ||
-    (setting === "tts_provider" && validation.coerced === "vellum");
+    (setting === "stt_provider" || setting === "tts_provider") &&
+    validation.coerced === "vellum";
   if (wantsManagedSpeech && !(await managedSpeechAvailable())) {
     return {
       content:
@@ -217,14 +232,7 @@ export async function run(
 
   if (setting === "tts_provider") {
     setNestedValue(raw, "services.tts.provider", validation.coerced);
-    // Written as a pair, like the settings cards: a stale `mode: "managed"`
-    // takes precedence over a BYOK provider, so switching providers must
-    // also reset it — otherwise the requested switch is silently ignored.
-    setNestedValue(
-      raw,
-      "services.tts.mode",
-      validation.coerced === "vellum" ? "managed" : "your-own",
-    );
+    deleteLegacySpeechMode(raw, "tts");
     saveRawConfig(raw);
     invalidateConfigCache();
   }
@@ -259,34 +267,9 @@ export async function run(
     invalidateConfigCache();
   }
 
-  if (setting === "stt_mode") {
-    setNestedValue(raw, "services.stt.mode", validation.coerced);
-    // SttServiceSchema requires `provider` whenever the stt object exists, so
-    // writing `mode` alone would invalidate a sparse config. And a provider of
-    // "vellum" routes to managed regardless of mode, so switching to your-own
-    // must also replace it with a BYOK provider.
-    const currentProvider = getConfig().services.stt.provider;
-    setNestedValue(
-      raw,
-      "services.stt.provider",
-      currentProvider === "vellum" && validation.coerced === "your-own"
-        ? "deepgram"
-        : currentProvider,
-    );
-    saveRawConfig(raw);
-    invalidateConfigCache();
-  }
-
-  if (setting === "tts_mode") {
-    setNestedValue(raw, "services.tts.mode", validation.coerced);
-    // A provider of "vellum" routes to managed regardless of mode, so
-    // switching to your-own must also replace a vellum provider.
-    if (
-      validation.coerced === "your-own" &&
-      getConfig().services.tts.provider === "vellum"
-    ) {
-      setNestedValue(raw, "services.tts.provider", "elevenlabs");
-    }
+  if (setting === "stt_provider") {
+    setNestedValue(raw, "services.stt.provider", validation.coerced);
+    deleteLegacySpeechMode(raw, "stt");
     saveRawConfig(raw);
     invalidateConfigCache();
   }
