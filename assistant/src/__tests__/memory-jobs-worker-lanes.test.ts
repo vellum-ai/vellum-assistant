@@ -11,11 +11,26 @@
  * jobs alongside fast jobs and asserts that every fast job completes before
  * any slow job's promise resolves — proving the lanes are truly independent.
  */
-import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  setDefaultTimeout,
+  test,
+} from "bun:test";
 
 import { eq } from "drizzle-orm";
 
 import { setConfig } from "./helpers/set-config.js";
+
+// beforeAll runs initializeDb(), which can exceed bun's 5s default hook
+// timeout when the CI runner is saturated (one bun process per test file,
+// workers = CPU count). Raise the file-level default so DB setup isn't
+// killed mid-flight. Each test file runs in its own process, so this
+// doesn't leak.
+setDefaultTimeout(30_000);
 
 // ── Config seed (before the tested module reads config) ────────────
 
