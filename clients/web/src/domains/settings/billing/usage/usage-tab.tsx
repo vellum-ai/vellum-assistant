@@ -60,6 +60,8 @@ import {
     schedulesGetQueryKey,
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import { PromptLaunchButton } from "@/components/prompt-launch-button";
+import { navigateToConversation } from "@/utils/conversation-navigation";
+import { isModifiedLinkClick } from "@/utils/link-click";
 import { extractUsageProfileMetadata } from "@/utils/profile-metadata";
 import { routes } from "@/utils/routes";
 import { fetchSchedules, type AssistantSchedule } from "@/utils/schedules";
@@ -920,7 +922,7 @@ function BreakdownTable({
                         if ((event.target as HTMLElement).closest("a")) {
                           return;
                         }
-                        navigate(routes.conversation(conversationId));
+                        navigateToConversation(navigate, conversationId);
                       }
                     : undefined
                 }
@@ -938,6 +940,18 @@ function BreakdownTable({
                       to={routes.conversation(conversationId)}
                       className="block truncate text-body-medium-lighter"
                       title={group.group}
+                      onClick={(event) => {
+                        // Modifier and middle clicks fall through to the
+                        // native <a> so Cmd/Ctrl-click opens a new tab and
+                        // "Copy link address" works. Plain left-clicks route
+                        // through the shared navigator, which resets viewer
+                        // state before navigating.
+                        if (isModifiedLinkClick(event)) {
+                          return;
+                        }
+                        event.preventDefault();
+                        navigateToConversation(navigate, conversationId);
+                      }}
                     >
                       {group.group}
                     </Link>
