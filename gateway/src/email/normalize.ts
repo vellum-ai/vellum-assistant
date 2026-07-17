@@ -187,10 +187,14 @@ function domainsAligned(fromDomain: string, authDomain: string): boolean {
  * trust.
  *
  * Returns:
- *  - `true`  — DMARC passed, or DKIM passed for a domain aligned with the
- *              `From:` domain.
+ *  - `true`  — DMARC passed, or (when the receiver reported no DMARC
+ *              determination — `dmarc=none` or no `dmarc=` verdict at all) DKIM
+ *              passed for a domain aligned with the `From:` domain.
  *  - `false` — authentication results were present but did not authenticate the
- *              `From:` address (spoofable sender).
+ *              `From:` address (spoofable sender). A present non-pass DMARC
+ *              verdict (`fail`/`temperror`/`permerror`) is authoritative and is
+ *              NOT overridden by an aligned DKIM pass — the receiver, which read
+ *              the domain's own policy, declined to affirm the visible `From:`.
  *  - `undefined` — no `Authentication-Results` header, so authentication could
  *              not be evaluated (e.g. the receiving-API fetch failed). Callers
  *              omit the signal so `handleInbound` preserves existing behavior
@@ -209,16 +213,33 @@ export function evaluateSenderAuthentication(args: {
   }
   const results = raw.toLowerCase();
 
-  // DMARC validates the visible RFC5322.From domain, so a pass is
-  // authoritative for "this From: is not spoofed".
+  // The receiver's DMARC verdict is authoritative for the visible RFC5322.From
+  // domain: it applied that domain's own published policy (including its
+  // alignment mode), which the relaxed DKIM-alignment heuristic below cannot
+  // see. So honor a present verdict before falling back:
+  //  - `pass` → the From: is authenticated.
+  //  - `none` → the domain publishes no DMARC policy, i.e. no determination
+  //    exists (materially the same as an absent header); fall through to the
+  //    aligned-DKIM check, which is exactly the signal the fallback exists for.
+  //  - anything else (`fail`, `temperror`, `permerror`, …) → the receiver did
+  //    not affirm the From:, so we must NOT substitute our own alignment
+  //    heuristic and re-authenticate a sender it declined. Fail closed.
   const dmarc = results.match(/\bdmarc=(\w+)/);
-  if (dmarc && dmarc[1] === "pass") {
-    return true;
+  if (dmarc) {
+    const verdict = dmarc[1];
+    if (verdict === "pass") {
+      return true;
+    }
+    if (verdict !== "none") {
+      return false;
+    }
   }
 
   // Fallback: a DKIM pass whose signing domain aligns with the From: domain.
-  // Methods in Authentication-Results are `;`-separated (RFC 8601), so scope
-  // each DKIM verdict to the domain in its own method chunk.
+  // Reached only when the receiver made no DMARC determination (no `dmarc=`
+  // token, or `dmarc=none`). Methods in Authentication-Results are
+  // `;`-separated (RFC 8601), so scope each DKIM verdict to the domain in its
+  // own method chunk.
   const fromDomain = domainOfEmail(args.fromEmail);
   for (const chunk of results.split(";")) {
     const dkim = chunk.match(/\bdkim=(\w+)/);

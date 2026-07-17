@@ -234,6 +234,40 @@ describe("evaluateSenderAuthentication", () => {
     );
   });
 
+  it("treats dmarc=fail as authoritative even when an aligned DKIM passes", () => {
+    // The receiver applied the From: domain's own DMARC policy and reported
+    // failure, so the aligned `dkim=pass` must not re-authenticate the visible
+    // From: — a fail verdict overrides the DKIM-alignment fallback.
+    const authResults =
+      "mx.resend.com; dkim=pass header.d=example.com; " +
+      "dmarc=fail header.from=mail.example.com";
+    expect(
+      evaluateSenderAuthentication({
+        authResults,
+        // generic-examples:ignore-next-line — reason: relaxed DMARC alignment needs a subdomain of the reserved example.com
+        fromEmail: "alice@mail.example.com",
+      }),
+    ).toBe(false);
+  });
+
+  it("treats a DMARC permerror as unauthenticated despite an aligned DKIM", () => {
+    // An evaluation error is not a clean pass: the receiver could not confirm
+    // the domain's policy, so we do not substitute our alignment heuristic.
+    const authResults =
+      "mx.resend.com; dkim=pass header.d=example.com; dmarc=permerror";
+    expect(evaluateSenderAuthentication({ authResults, fromEmail: FROM })).toBe(
+      false,
+    );
+  });
+
+  it("treats a DMARC temperror as unauthenticated despite an aligned DKIM", () => {
+    const authResults =
+      "mx.resend.com; dkim=pass header.d=example.com; dmarc=temperror";
+    expect(evaluateSenderAuthentication({ authResults, fromEmail: FROM })).toBe(
+      false,
+    );
+  });
+
   it("returns undefined when there is no Authentication-Results header", () => {
     // No signal → undefined so the caller omits it and handleInbound preserves
     // existing behavior rather than downgrading every sender on missing data.
@@ -251,6 +285,27 @@ describe("evaluateSenderAuthentication", () => {
       "dkim=pass header.d=example.com header.s=sel";
     expect(evaluateSenderAuthentication({ authResults, fromEmail: FROM })).toBe(
       true,
+    );
+  });
+
+  it("falls back to aligned DKIM when DMARC reports no policy (dmarc=none)", () => {
+    // `dmarc=none` means the From: domain publishes no DMARC policy — no
+    // determination — so an aligned DKIM pass still authenticates, exactly as
+    // when the header carries no DMARC verdict at all.
+    const authResults =
+      "mx.resend.com; dkim=pass header.d=example.com; dmarc=none";
+    expect(evaluateSenderAuthentication({ authResults, fromEmail: FROM })).toBe(
+      true,
+    );
+  });
+
+  it("still requires DKIM alignment when DMARC reports no policy (dmarc=none)", () => {
+    // `dmarc=none` is not a free pass: without an aligned DKIM the From:
+    // remains unauthenticated.
+    const authResults =
+      "mx.resend.com; dkim=pass header.d=attacker.net; dmarc=none";
+    expect(evaluateSenderAuthentication({ authResults, fromEmail: FROM })).toBe(
+      false,
     );
   });
 
