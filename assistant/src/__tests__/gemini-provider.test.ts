@@ -1463,6 +1463,48 @@ describe("GeminiProvider", () => {
     ).toBe("model_not_found");
   });
 
+  test("maps 404 with empty message to network_error (proxy interception)", async () => {
+    const reason = await reasonForApiError(404, "");
+    expect(reason).toBe("network_error");
+  });
+
+  test("maps 403 with empty message to network_error (proxy interception)", async () => {
+    const reason = await reasonForApiError(403, "");
+    expect(reason).toBe("network_error");
+  });
+
+  test("surfaces actionable network/proxy message for 404 with empty body", async () => {
+    shouldThrow = new FakeApiError(404, "");
+    try {
+      await provider.sendMessage([
+        { role: "user", content: [{ type: "text", text: "Hi" }] },
+      ]);
+      throw new Error("expected sendMessage to throw");
+    } catch (error) {
+      expect(error).toBeInstanceOf(ProviderError);
+      const msg = (error as Error).message;
+      expect(msg).toContain("no response body");
+      expect(msg).toContain("network proxy or egress filter");
+      expect(msg).not.toContain("Gemini API error (404):");
+    }
+  });
+
+  test("preserves existing message format for 404 with a real body", async () => {
+    shouldThrow = new FakeApiError(404, "NOT_FOUND: model does not exist");
+    try {
+      await provider.sendMessage([
+        { role: "user", content: [{ type: "text", text: "Hi" }] },
+      ]);
+      throw new Error("expected sendMessage to throw");
+    } catch (error) {
+      expect(error).toBeInstanceOf(ProviderError);
+      const msg = (error as Error).message;
+      expect(msg).toBe(
+        "Gemini API error (404): NOT_FOUND: model does not exist",
+      );
+    }
+  });
+
   test("maps a plain 429 (no token signal) to rate_limited, not context overflow", async () => {
     shouldThrow = new FakeApiError(
       429,

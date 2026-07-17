@@ -556,6 +556,14 @@ function reasonToClassification(
       return contextTooLargeClassification();
     case "vision_unsupported":
       return visionNotSupportedClassification();
+    case "network_error":
+      return {
+        code: "PROVIDER_NETWORK",
+        userMessage:
+          "The provider returned an empty response with no body — this typically indicates a network proxy or egress filter intercepting the request, not a genuine provider error. Check your network configuration.",
+        retryable: true,
+        errorCategory: "provider_network_proxy_intercepted",
+      };
     case "model_not_found":
       return {
         code: "PROVIDER_API",
