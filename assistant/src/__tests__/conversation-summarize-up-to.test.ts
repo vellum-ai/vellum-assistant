@@ -2,9 +2,11 @@
  * Tests for Conversation.summarizeUpToMessage ("summarize up to here").
  *
  * Verifies the row→history boundary mapping (including the leading
- * context-summary message and the already-compacted row prefix), the guardian
- * trust swap around the fresh history load, the fail-safe mapping
- * verification, and that boundary-resolver UserErrors propagate untouched.
+ * context-summary message, the already-compacted row prefix, and load-time
+ * history-repair merges/insertions), the row-exact watermark advance and
+ * merged-boundary snap-back, the guardian trust swap around the fresh history
+ * load, the fail-safe mapping verification, and that boundary-resolver
+ * UserErrors propagate untouched.
  * The compaction plugin entry (`defaultCompact`) is mocked so no summary LLM
  * runs — the assertions target the CompactionContext it receives.
  */
@@ -261,6 +263,36 @@ function threeTurnRows(): MockRow[] {
     row("m3", "assistant", "a2"),
     row("m4", "user", "u3"),
     row("m5", "assistant", "a3"),
+  ];
+}
+
+/**
+ * An awaiting-user-action surface pause mid-history: the turn ends on a
+ * tool_result-only user row (m2) and the user's reply is the next row (m3),
+ * so load-time repair merges the pair into one in-memory message and history
+ * indices run one behind row indices from there on. Rows m0..m6 load as
+ * [u1, a1(tool_use), merged(m2+m3), a2, u3, a3].
+ */
+function awaitingUserActionRows(): MockRow[] {
+  return [
+    row("m0", "user", "u1"),
+    {
+      ...row("m1", "assistant", "a1"),
+      content: [
+        { type: "text", text: "a1" },
+        { type: "tool_use", id: "tu_1", name: "surface", input: {} },
+      ],
+    },
+    {
+      ...row("m2", "user", ""),
+      content: [
+        { type: "tool_result", tool_use_id: "tu_1", content: "displayed" },
+      ],
+    },
+    row("m3", "user", "u2"),
+    row("m4", "assistant", "a2"),
+    row("m5", "user", "u3"),
+    row("m6", "assistant", "a3"),
   ];
 }
 
@@ -594,10 +626,11 @@ describe("Conversation.summarizeUpToMessage", () => {
     expect(slackWatermarkCalls).toHaveLength(0);
   });
 
-  test("throws the retryable UserError and skips compaction when the mapping cannot be verified", async () => {
+  test("maps across a synthetic tool_result insertion from history repair", async () => {
     // History repair inserts a synthetic tool_result user message after the
-    // dangling tool_use, so in-memory indices run ahead of row indices and
-    // the mapped index lands on the wrong message.
+    // dangling tool_use, so in-memory indices run one ahead of row indices
+    // past the insertion point. The load's row→history mapping accounts for
+    // it: row 3 (u2) lands at history index 4.
     mockDbMessages = [
       row("m0", "user", "u1"),
       {
@@ -612,9 +645,118 @@ describe("Conversation.summarizeUpToMessage", () => {
     ];
     const conversation = makeConversation();
 
+    await conversation.summarizeUpToMessage("m3");
+
+    expect(compactCalls).toHaveLength(1);
+    expect(compactCalls[0].fixedTailStartIndex).toBe(4);
+    expect(compactCalls[0].fixedBoundaryRowIndex).toBe(3);
+    // [u1, a1(tool_use), synthetic tool_result, continued, u2, a2]
+    expect(compactCalls[0].messages).toHaveLength(6);
+  });
+
+  test("maps across a merged user(tool_result)+user(text) pair from an awaiting-user-action pause", async () => {
+    // A surface pause ends the turn on a tool_result-only user row; the
+    // user's reply lands as a second consecutive user row. Load-time repair
+    // merges the pair into ONE in-memory message, so past that point history
+    // indices run one BEHIND row indices — offset arithmetic would land the
+    // boundary on the wrong message (the bug behind "Conversation history is
+    // being reorganized" on healthy conversations).
+    mockDbMessages = awaitingUserActionRows();
+    const conversation = makeConversation();
+
+    await conversation.summarizeUpToMessage("m5");
+
+    expect(compactCalls).toHaveLength(1);
+    // Row 5 (u3) sits at history index 4: [u1, a1, merged(m2+m3), a2, u3, a3].
+    expect(compactCalls[0].fixedTailStartIndex).toBe(4);
+    expect(compactCalls[0].fixedBoundaryRowIndex).toBe(5);
+    expect(compactCalls[0].messages).toHaveLength(6);
+  });
+
+  test("advances the row watermark to the exact boundary row despite repair merges", async () => {
+    // The compactor's generic compactedPersistedMessages counts in-memory
+    // messages (4 here), which under-advances the row watermark when repair
+    // merged rows in the summarized range. The fixed-boundary path must land
+    // the watermark exactly on the chosen row (5).
+    mockDbMessages = awaitingUserActionRows();
+    const conversation = makeConversation();
+    mockCompactResult = {
+      ...makeNoopResult(),
+      compacted: true,
+      compactedMessages: 4,
+      compactedPersistedMessages: 4,
+      summaryText: "merged-range summary",
+    };
+
+    await conversation.summarizeUpToMessage("m5");
+
+    expect(mockConversation.contextCompactedMessageCount).toBe(5);
+  });
+
+  test("snaps the row boundary back when the clicked turn's row was merged into the pause row's message", async () => {
+    // Clicking the reply that follows the surface pause: its row (m3) shares
+    // an in-memory message with the pause's tool_result row (m2). The summary
+    // call reads messages[0..2), which excludes both rows' content — the row
+    // watermark must retreat to m2 so the unsummarized rows stay visible to
+    // future loads.
+    mockDbMessages = awaitingUserActionRows();
+    const conversation = makeConversation();
+    mockCompactResult = {
+      ...makeNoopResult(),
+      compacted: true,
+      compactedMessages: 2,
+      compactedPersistedMessages: 2,
+      summaryText: "pre-pause summary",
+    };
+
+    await conversation.summarizeUpToMessage("m3");
+
+    expect(compactCalls).toHaveLength(1);
+    expect(compactCalls[0].fixedTailStartIndex).toBe(2);
+    expect(compactCalls[0].fixedBoundaryRowIndex).toBe(2);
+    expect(mockConversation.contextCompactedMessageCount).toBe(2);
+  });
+
+  test("throws 'Nothing to summarize' when everything before the boundary merged into its own message", async () => {
+    // An error turn left two consecutive real user rows at the head; repair
+    // merges them, so the clicked second row's message IS the first message —
+    // there is no earlier content for the summary call to read.
+    mockDbMessages = [
+      row("m0", "user", "u1"),
+      row("m1", "user", "u2"),
+      row("m2", "assistant", "a1"),
+    ];
+    const conversation = makeConversation();
+
     let thrown: unknown;
     try {
-      await conversation.summarizeUpToMessage("m3");
+      await conversation.summarizeUpToMessage("m1");
+    } catch (err) {
+      thrown = err;
+    }
+
+    expect(thrown).toBeInstanceOf(UserError);
+    expect((thrown as UserError).message).toBe(
+      "Nothing to summarize before this message",
+    );
+    expect(compactCalls).toHaveLength(0);
+  });
+
+  test("throws the retryable UserError when the boundary row has no in-memory counterpart", async () => {
+    // Pre-clean stripping drops a fully-injected user row entirely, so the
+    // clicked row maps to nothing — fail safe rather than guess a boundary.
+    mockConversation.historyStrippedAt = 1_000_000;
+    mockDbMessages = [
+      row("m0", "user", "u1"),
+      row("m1", "assistant", "a1"),
+      row("m2", "user", "<system_reminder>injected-only row"),
+      row("m3", "assistant", "a2"),
+    ];
+    const conversation = makeConversation();
+
+    let thrown: unknown;
+    try {
+      await conversation.summarizeUpToMessage("m2");
     } catch (err) {
       thrown = err;
     }

@@ -931,6 +931,102 @@ describe("repairHistory", () => {
   });
 });
 
+describe("repairHistory inputToOutputIndex", () => {
+  test("identity mapping for a clean history", () => {
+    const messages: Message[] = [
+      { role: "user", content: [{ type: "text", text: "Hello" }] },
+      { role: "assistant", content: [{ type: "text", text: "Hi" }] },
+      { role: "user", content: [{ type: "text", text: "More" }] },
+      { role: "assistant", content: [{ type: "text", text: "Sure" }] },
+    ];
+
+    const { inputToOutputIndex } = repairHistory(messages);
+
+    expect(inputToOutputIndex).toEqual([0, 1, 2, 3]);
+  });
+
+  test("consecutive same-role inputs map to the same output index", () => {
+    // The awaiting-user-action surface shape: the turn ends on a
+    // user(tool_result-only) row and the user's next real message lands as a
+    // second consecutive user row; the merge collapses them into one message.
+    const messages: Message[] = [
+      { role: "user", content: [{ type: "text", text: "Hello" }] },
+      {
+        role: "assistant",
+        content: [{ type: "tool_use", id: "tu_1", name: "surface", input: {} }],
+      },
+      {
+        role: "user",
+        content: [
+          { type: "tool_result", tool_use_id: "tu_1", content: "shown" },
+        ],
+      },
+      {
+        role: "user",
+        content: [{ type: "text", text: "Love it — keep going" }],
+      },
+      { role: "assistant", content: [{ type: "text", text: "Will do" }] },
+    ];
+
+    const { messages: repaired, inputToOutputIndex } = repairHistory(messages);
+
+    expect(repaired).toHaveLength(4);
+    expect(inputToOutputIndex).toEqual([0, 1, 2, 2, 3]);
+  });
+
+  test("synthetic tool_result insertion shifts later outputs without consuming input slots", () => {
+    // assistant(tool_use) followed directly by another assistant message —
+    // repair inserts a synthetic user(tool_result) between them, so every
+    // input from the second assistant on lands one output slot later.
+    const messages: Message[] = [
+      { role: "user", content: [{ type: "text", text: "Run it" }] },
+      {
+        role: "assistant",
+        content: [
+          { type: "tool_use", id: "tu_1", name: "bash", input: { cmd: "ls" } },
+        ],
+      },
+      { role: "assistant", content: [{ type: "text", text: "continued" }] },
+      { role: "user", content: [{ type: "text", text: "next" }] },
+      { role: "assistant", content: [{ type: "text", text: "done" }] },
+    ];
+
+    const { messages: repaired, inputToOutputIndex } = repairHistory(messages);
+
+    expect(repaired).toHaveLength(6);
+    expect(repaired[2].role).toBe("user");
+    expect(inputToOutputIndex).toEqual([0, 1, 3, 4, 5]);
+  });
+
+  test("trailing synthetic tool_result occupies no input slot", () => {
+    const messages: Message[] = [
+      { role: "user", content: [{ type: "text", text: "Run it" }] },
+      {
+        role: "assistant",
+        content: [
+          { type: "tool_use", id: "tu_1", name: "bash", input: { cmd: "ls" } },
+        ],
+      },
+    ];
+
+    const { messages: repaired, inputToOutputIndex } = repairHistory(messages);
+
+    expect(repaired).toHaveLength(3);
+    expect(inputToOutputIndex).toEqual([0, 1]);
+  });
+
+  test("deepRepairHistory returns no mapping — its pre-passes are untraceable", () => {
+    const messages: Message[] = [
+      { role: "assistant", content: [{ type: "text", text: "leading" }] },
+      { role: "user", content: [{ type: "text", text: "Hello" }] },
+    ];
+
+    const { inputToOutputIndex } = deepRepairHistory(messages);
+
+    expect(inputToOutputIndex).toBeUndefined();
+  });
+});
+
 describe("deepRepairHistory", () => {
   test("merges consecutive same-role messages", () => {
     const messages: Message[] = [
