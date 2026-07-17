@@ -85,7 +85,7 @@ const CURSOR_MAX_Y = 8;
  * `reconnecting` rest a touch under full. Retargeted by a scale tween, so the
  * state change reads as the eyes breathing rather than sliding.
  */
-const EYE_STATE_SCALE: Record<VoiceAvatarVisual, number> = {
+export const EYE_STATE_SCALE: Record<VoiceAvatarVisual, number> = {
   idle: 0.9,
   listening: 1,
   thinking: 0.62,
@@ -176,7 +176,11 @@ export function resolveVoiceRoomLook(
  * Shared so the thinking dots can sit just above the centered eyes without
  * re-deriving the sizing from the art bbox.
  */
-function eyeDisplayHeight(art: VoiceRoomEyeArt, w: number, h: number): number {
+export function eyeDisplayHeight(
+  art: VoiceRoomEyeArt,
+  w: number,
+  h: number,
+): number {
   const maxEyesW = w * EYE_MAX_WIDTH;
   return Math.min(
     Math.min(w, h) * EYE_TARGET_HEIGHT,
@@ -724,6 +728,7 @@ function eyeLayout(
   w: number,
   h: number,
   origin: { x: number; y: number },
+  restCenterYOverride?: number,
 ): {
   restTop: number;
   startX: number;
@@ -731,7 +736,15 @@ function eyeLayout(
   dipY: number;
 } {
   const bottomRestTop = h - (1 - EYE_REST_CUTOFF) * eyesH;
-  const restTop = placement === "center" ? (h - eyesH) / 2 : bottomRestTop;
+  // A creature look pins the eyes to a body landmark (e.g. under a hat brim) via
+  // `restCenterYOverride`; the character look leaves it undefined and the eyes
+  // rest centered (or bottom-cut). Clamp so the override can't push them off.
+  const restTop =
+    restCenterYOverride != null
+      ? Math.max(0, Math.min(h - eyesH, restCenterYOverride - eyesH / 2))
+      : placement === "center"
+        ? (h - eyesH) / 2
+        : bottomRestTop;
   // Rest center (the eyes are horizontally centered: left = (w − eyesW) / 2).
   const restCenterX = w / 2;
   const restCenterY = restTop + eyesH / 2;
@@ -751,6 +764,7 @@ export function VoiceRoomEyes({
   entranceOrigin,
   sizeScale = 1,
   dimmed = false,
+  restCenterY,
 }: {
   art: VoiceRoomEyeArt;
   /** The room box the eyes are framed in (the caller's live viewport size). */
@@ -763,6 +777,10 @@ export function VoiceRoomEyes({
   sizeScale?: number;
   /** Fade the eyes back (the reconnecting state — presence dimmed while away). */
   dimmed?: boolean;
+  /** Pin the eyes' rest center to a viewport-Y (px) instead of resting centered
+   *  — the creature look anchors them to a body landmark (under the hat brim).
+   *  Overrides `placement`; clamped on-screen. */
+  restCenterY?: number;
 }) {
   const reduce = useReducedMotion();
   const { w, h } = viewport;
@@ -853,9 +871,10 @@ export function VoiceRoomEyes({
       w,
       h,
       { x: originX, y: originY },
+      restCenterY,
     );
     return { eyesW, eyesH, left: (w - eyesW) / 2, restTop, startX, startY, dipY };
-  }, [art, w, h, placement, originX, originY]);
+  }, [art, w, h, placement, originX, originY, restCenterY]);
 
   const cx = art.bbox.x + art.bbox.w / 2;
   const cy = art.bbox.y + art.bbox.h / 2;
