@@ -337,6 +337,42 @@ describe("processChannelMessageInBackground — slack thread mapping", () => {
     clearThreadTs(conversationId);
   });
 
+  test("suppresses reply delivery when the ingress deduplicated against a prior turn", async () => {
+    const conversationId = "conv-dedup-ingress";
+    const channelId = "C-DEDUP-INGRESS";
+
+    // At-least-once redelivery: the persist layer dedups on the idempotency
+    // key, so processMessage skips the agent loop and returns `deduplicated`.
+    const processMessage: MessageProcessor = async () => ({
+      messageId: "user-msg-dedup",
+      deduplicated: true,
+    });
+
+    processChannelMessageInBackground({
+      processMessage,
+      conversationId,
+      eventId: "evt-dedup",
+      content: "redelivered message",
+      sourceChannel: "slack",
+      sourceInterface: "slack",
+      externalChatId: channelId,
+      trustCtx,
+      metadataHints: [],
+      replyCallbackUrl: `https://example.test/deliver/slack?channel=${channelId}`,
+    });
+
+    await flush();
+
+    // The redelivery is recorded as processed, but the original reply is not
+    // re-delivered — no durable delivery, no terminal delivery transition.
+    expect(markedProcessedEvents).toEqual(["evt-dedup"]);
+    expect(replyDeliveryCalls).toEqual([]);
+    expect(deliveredEvents).toEqual([]);
+    expect(deliveredChannelReplies).toEqual([]);
+
+    clearThreadTs(conversationId);
+  });
+
   test("falls back to durable delivery for a non-threaded Slack DM", async () => {
     const conversationId = "conv-dm-no-thread";
     const channelId = "D-NO-THREAD";

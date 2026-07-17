@@ -261,6 +261,7 @@ export function processChannelMessageInBackground(
       };
 
       let userMessageId: string | undefined;
+      let deduplicatedIngress = false;
       try {
         const result = await processMessage(conversationId, content, {
           attachmentIds,
@@ -282,6 +283,7 @@ export function processChannelMessageInBackground(
           sourceInterface,
         });
         userMessageId = result.messageId;
+        deduplicatedIngress = result.deduplicated === true;
         linkMessage(eventId, userMessageId);
         markProcessed(eventId);
         replyMessageId ??= result.assistantMessageId;
@@ -324,7 +326,15 @@ export function processChannelMessageInBackground(
         return;
       }
 
-      if (replyCallbackUrl) {
+      if (deduplicatedIngress) {
+        // The original turn already delivered its reply; a redelivery of the
+        // same ingress must not re-emit it. `finalizeEventDelivery` would
+        // re-deliver via `sinceMessageId: userMessageId`, so skip it entirely.
+        log.info(
+          { conversationId, eventId },
+          "Skipping channel reply delivery for deduplicated ingress event",
+        );
+      } else if (replyCallbackUrl) {
         try {
           await finalizeEventDelivery({
             eventId,
