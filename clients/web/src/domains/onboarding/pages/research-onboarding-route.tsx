@@ -292,6 +292,10 @@ export function ResearchOnboardingRoute() {
   // minted — otherwise the rejected facts could still be pulled into its context.
   // Resolves immediately when nothing was corrected (never rejects).
   const researchCorrectionRef = useRef<Promise<void>>(Promise.resolve());
+  // Guards the one-shot dropped-claims correction (below) so a search that
+  // surfaced no card claims scrubs its hidden aggregator-only drops exactly
+  // once. Reset when a fresh research run starts (see fireResearch).
+  const droppedClaimsCorrectedRef = useRef(false);
   // Findings the user explicitly KEPT on the results step (claims minus the
   // X-ed ones), captured at the moment of confirmation. Null until the user
   // has actually reviewed the results — a "Skip to Chat" before that must not
@@ -371,6 +375,10 @@ export function ResearchOnboardingRoute() {
           {
             ...snapshot.research,
             pluginCatalog: snapshot.research.pluginCatalog ?? {},
+            // Not persisted: a fully-settled resume lands on the suggestions
+            // step (past the results correction), and the prior session already
+            // scrubbed any drops. Default to none so the state stays well-formed.
+            droppedClaims: [],
           },
           awaitHatchReady,
         );
@@ -474,6 +482,33 @@ export function ResearchOnboardingRoute() {
       setStep("suggestions");
     }
   }, [step, noClaims]);
+
+  // A search that surfaced no card claims still needs its aggregator-only drops
+  // scrubbed from the assistant's memory: the results step (where drops are
+  // folded into the correction) is skipped when there's nothing to show, so
+  // issue that correction here once research settles (done or timed-out error —
+  // matching how the results step itself renders on both). Gated to the
+  // empty-card case so it never double-fires with the results step, and once
+  // per run via the ref (reset in fireResearch).
+  useEffect(() => {
+    if (droppedClaimsCorrectedRef.current) return;
+    if (researchLoading || research.claims.length > 0) return;
+    if (research.droppedClaims.length === 0) return;
+    if (!researchConversationId || !hatchedAssistantId) return;
+    droppedClaimsCorrectedRef.current = true;
+    researchCorrectionRef.current = sendResearchCorrection({
+      assistantId: hatchedAssistantId,
+      conversationId: researchConversationId,
+      removedClaims: research.droppedClaims,
+      rejectedAll: false,
+    });
+  }, [
+    researchLoading,
+    research.claims.length,
+    research.droppedClaims,
+    researchConversationId,
+    hatchedAssistantId,
+  ]);
 
   // Build the pre-chat context and hand off to the chat pipeline. The chosen
   // name is applied via `assistantName`; the avatar traits are applied to the
@@ -595,6 +630,8 @@ export function ResearchOnboardingRoute() {
   // Fire the research turn; the runner awaits hatch readiness internally, so
   // it starts at the later of the caller's submit and the background hatch.
   function fireResearch(values: ResearchOnboardingValues) {
+    // A fresh run produces fresh drops — re-arm the one-shot scrub above.
+    droppedClaimsCorrectedRef.current = false;
     research.start({
       awaitAssistantId: awaitHatchReady,
       subject: researchSubjectFrom(values),
@@ -822,13 +859,20 @@ export function ResearchOnboardingRoute() {
               );
               // Pruned claims are wrong — tell the assistant to disregard them so
               // they don't leak into the real chat (the research turn taught its
-              // memory these facts). The chat handoff awaits this promise, so the
-              // correction is persisted before the first conversation is minted.
-              if (researchConversationId && hatchedAssistantId && removed.length > 0) {
+              // memory these facts). Fold in the aggregator-only claims the card
+              // hid: they live in the same memory but were never shown, so the
+              // user couldn't prune them. The chat handoff awaits this promise, so
+              // the correction is persisted before the first conversation is minted.
+              const toDisregard = [...removed, ...research.droppedClaims];
+              if (
+                researchConversationId &&
+                hatchedAssistantId &&
+                toDisregard.length > 0
+              ) {
                 researchCorrectionRef.current = sendResearchCorrection({
                   assistantId: hatchedAssistantId,
                   conversationId: researchConversationId,
-                  removedClaims: removed,
+                  removedClaims: toDisregard,
                   rejectedAll: false,
                 });
               }
