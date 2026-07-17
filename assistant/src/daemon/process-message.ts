@@ -59,7 +59,10 @@ import {
   mergeConversationOptions,
 } from "./conversation-store.js";
 import { getDbMigrationReadiness } from "./daemon-readiness.js";
-import type { ConversationCreateOptions } from "./handlers/shared.js";
+import type {
+  ConversationCreateOptions,
+  SlackInboundMessageMetadata,
+} from "./handlers/shared.js";
 import { HostAppControlProxy } from "./host-app-control-proxy.js";
 import { HostCuProxy } from "./host-cu-proxy.js";
 import {
@@ -115,7 +118,38 @@ type ProcessMessageOptions = ConversationCreateOptions & {
    * search. Every other message in the turn indexes normally.
    */
   skipUserMessageIndexing?: boolean;
+  /**
+   * Stable idempotency key for this ingress turn. Threaded to
+   * `persistUserMessage` as `clientMessageId` so an at-least-once redelivery of
+   * the same logical turn dedups on the `client_message_id` partial unique index
+   * instead of running the agent loop a second time. When omitted, a key is
+   * synthesized from the transport's native per-message id where one exists (see
+   * {@link deriveIngressIdempotencyKey}).
+   */
+  clientMessageId?: string;
 };
+
+/**
+ * Derive a stable idempotency key for a server-side ingress turn so an
+ * at-least-once redelivery (gateway/channel retry) dedups on the
+ * `client_message_id` partial unique index rather than running a second turn.
+ * An explicit caller key wins; otherwise it is synthesized from the transport's
+ * native per-message id, namespaced so it can never collide with a web-client
+ * nonce. Returns undefined when no stable id exists (behavior unchanged).
+ */
+export function deriveIngressIdempotencyKey(options?: {
+  clientMessageId?: string;
+  slackInbound?: SlackInboundMessageMetadata;
+}): string | undefined {
+  if (options?.clientMessageId) {
+    return options.clientMessageId;
+  }
+  const slack = options?.slackInbound;
+  if (slack) {
+    return `slack:${slack.channelId}:${slack.channelTs}`;
+  }
+  return undefined;
+}
 
 function buildEventEmitter(
   observer?: (msg: ServerMessage) => void,
@@ -626,15 +660,29 @@ export async function processMessage(
   const persistMetadata = options?.slackInbound
     ? { slackInbound: options.slackInbound }
     : undefined;
-  const { id: messageId } = await conversation.persistUserMessage({
-    content: resolvedContent,
-    attachments,
-    requestId,
-    metadata: persistMetadata,
-    displayContent: options?.displayContent,
-    ...(options?.skipUserMessageIndexing ? { skipIndexing: true } : {}),
-  });
+  const ingressKey = deriveIngressIdempotencyKey(options);
+  const { id: messageId, deduplicated } = await conversation.persistUserMessage(
+    {
+      content: resolvedContent,
+      attachments,
+      requestId,
+      metadata: persistMetadata,
+      displayContent: options?.displayContent,
+      ...(options?.skipUserMessageIndexing ? { skipIndexing: true } : {}),
+      ...(ingressKey ? { clientMessageId: ingressKey } : {}),
+    },
+  );
   publishConversationMessagesChanged(conversationId);
+
+  if (deduplicated) {
+    // This exact ingress (same idempotency key) already ran a turn; skip the
+    // loop so an at-least-once redelivery does not emit a second reply.
+    log.info(
+      { conversationId, messageId },
+      "Skipping agent loop for deduplicated ingress message",
+    );
+    return { messageId, turnFailure: readTurnFailure(messageId) };
+  }
 
   if (options?.isInteractive === true) {
     conversation.updateClient(broadcastMessage, false);
@@ -700,14 +748,27 @@ export async function processMessageInBackground(
   const persistMetadata = options?.slackInbound
     ? { slackInbound: options.slackInbound }
     : undefined;
-  const { id: messageId } = await conversation.persistUserMessage({
-    content,
-    attachments,
-    requestId,
-    metadata: persistMetadata,
-    displayContent: options?.displayContent,
-  });
+  const ingressKey = deriveIngressIdempotencyKey(options);
+  const { id: messageId, deduplicated } = await conversation.persistUserMessage(
+    {
+      content,
+      attachments,
+      requestId,
+      metadata: persistMetadata,
+      displayContent: options?.displayContent,
+      ...(ingressKey ? { clientMessageId: ingressKey } : {}),
+    },
+  );
   publishConversationMessagesChanged(conversationId);
+
+  if (deduplicated) {
+    // At-least-once redelivery of a turn that already ran — skip the loop.
+    log.info(
+      { conversationId, messageId },
+      "Skipping background agent loop for deduplicated ingress message",
+    );
+    return { messageId };
+  }
 
   if (options?.isInteractive === true) {
     conversation.updateClient(broadcastMessage, false);
