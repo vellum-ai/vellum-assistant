@@ -15,7 +15,6 @@
  */
 
 import { queryOptions } from "@tanstack/react-query";
-import { captureError } from "@/lib/sentry/capture-error";
 import { conversationsGet } from "@/generated/daemon/sdk.gen";
 import type { ConversationsGetData } from "@/generated/daemon/types.gen";
 import {
@@ -190,11 +189,13 @@ async function fetchConversationList(
 /**
  * Fetch active or archived conversations for an assistant — foreground and
  * background buckets fetched in parallel, deduplicated by `conversationId`,
- * and sorted. Used by the Archive page, which lists every conversation type
- * together.
+ * and sorted. Used by the Conversations browser, which lists every
+ * conversation type together.
  *
- * The background fetch is best-effort: if it fails the foreground list is
- * still returned so the calling surface remains usable.
+ * Either bucket failing rejects the whole list. The caller presents this as
+ * the complete set, so silently dropping the background rows would read as
+ * "these don't exist" rather than "these didn't load" — and an archived row
+ * that looks gone is worse than an error with a retry.
  *
  * @param archiveStatus — `"active"` or `"archived"` (archive page)
  * @param sortKey — which timestamp to sort descending by (default: `lastMessageAt`)
@@ -215,18 +216,12 @@ async function fetchMergedConversationList(
   if (foregroundResult.status === "rejected") {
     throw foregroundResult.reason;
   }
+  if (backgroundResult.status === "rejected") {
+    throw backgroundResult.reason;
+  }
 
   const foreground = foregroundResult.value;
-  let background: Conversation[] = [];
-  if (backgroundResult.status === "fulfilled") {
-    background = backgroundResult.value;
-  } else {
-    captureError(backgroundResult.reason, {
-      context: `fetchMergedConversationList.background(${archiveStatus})`,
-      level: "warning",
-      extra: { assistantId },
-    });
-  }
+  const background = backgroundResult.value;
 
   const seen = new Set<string>();
   const conversations: Conversation[] = [];

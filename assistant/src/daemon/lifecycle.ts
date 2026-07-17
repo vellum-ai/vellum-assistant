@@ -75,6 +75,7 @@ import { initializePlugins } from "./external-plugins-bootstrap.js";
 import { backfillSlackInjectionTemplates } from "./handlers/config-slack-channel.js";
 import { installAssistantSymlink } from "./install-symlink.js";
 import {
+  type InterruptedResumeTarget,
   MAX_RESUME_ATTEMPTS,
   reconcileInterruptedConversations,
   resumeInterruptedConversations,
@@ -156,8 +157,8 @@ export async function runDaemon(): Promise<void> {
   // so a fast-reconnecting client could otherwise resolve a turn against a
   // partial profile in the window between readiness and the post-overlay
   // ensure call below. Sync, DB-free, and idempotent. Skipped when an
-  // unconsumed onboarding overlay is pending: the overlay can rewrite
-  // llm.default later this boot, and baking against the pre-overlay default
+  // unconsumed onboarding overlay is pending: the overlay can rewrite the
+  // llm config later this boot, and baking against the pre-overlay default
   // would pin the wrong baseline — on that single boot (a fresh hatch, with
   // no established clients to race the window) the post-overlay pass owns
   // materialization; the overlay file is consumed on merge, so every
@@ -235,7 +236,7 @@ export async function runDaemon(): Promise<void> {
     } else {
       setDbMigrationFailed();
       log.error(
-        "Daemon startup: DB opened but one or more migrations failed — /readyz will remain unready",
+        "Daemon startup: DB opened but one or more migrations failed or were deferred — /readyz will remain unready",
       );
     }
     // Migrations have settled (successfully or in the failed degraded mode),
@@ -499,7 +500,7 @@ export async function runDaemon(): Promise<void> {
   // `conversations.resumeProcessingOnStartup` is enabled the reconciler also
   // selects conversations to resume once startup completes (the wakes need
   // providers/CES, so they are kicked off next to `setStartupComplete()`).
-  let conversationsToResume: string[] = [];
+  let conversationsToResume: InterruptedResumeTarget[] = [];
   if (dbReady) {
     try {
       const reconciled = reconcileInterruptedConversations(
@@ -522,6 +523,12 @@ export async function runDaemon(): Promise<void> {
             maxAttempts: MAX_RESUME_ATTEMPTS,
           },
           "Left interrupted conversations un-resumed after repeated interruptions",
+        );
+      }
+      if (reconciled.trustUnrecoverable.length > 0) {
+        log.warn(
+          { conversationIds: reconciled.trustUnrecoverable },
+          "Left interrupted conversations un-resumed: resting trust could not be reconstructed",
         );
       }
     } catch (err) {
@@ -553,7 +560,7 @@ export async function runDaemon(): Promise<void> {
   }
 
   // Refresh the consent cache regardless of dev mode so record-time telemetry
-  // writes (gated on getCachedShareAnalytics()) work in dev too. The usage
+  // writes (which drop on a confirmed opt-out) work in dev too. The usage
   // telemetry reporter re-checks share_analytics on every flush, so dev still
   // never sends telemetry to the platform. Fire-and-forget: startConsentRefresh()
   // runs an immediate non-blocking refresh, so the startup hot path is never

@@ -394,7 +394,7 @@ export const MemoryV3ConfigSchema = z
       .nullable()
       .default(null)
       .describe(
-        "Optional path to a file whose contents replace the bundled per-turn selector system prompt (the instructions that tell the selector which candidate pages to keep). Absolute paths are used as-is, a leading `~/` is expanded to the home directory, otherwise the path is resolved under the workspace root. The selector prompt takes no placeholders — the candidate pool is supplied separately as the user message — so the file is used verbatim. If the file is missing, unreadable, empty, or over 1 MiB, the bundled prompt is used and a warning is logged.",
+        "Optional path to a file whose contents replace the bundled per-turn selector system prompt (the instructions that tell the selector which candidate pages to keep). Relative paths resolve under the workspace root; absolute paths and a leading `~/` (expanded to the home directory) are honored only when they still resolve inside the workspace root — a path that lands outside the workspace (including via symlinks) is rejected. The selector prompt takes no placeholders — the candidate pool is supplied separately as the user message — so the file is used verbatim. If the file is rejected, missing, unreadable, empty, or over 1 MiB, the bundled prompt is used and a warning is logged.",
       ),
     edge: MemoryV3EdgeSchema.default(MemoryV3EdgeSchema.parse({})),
     entity: MemoryV3EntitySchema.default(MemoryV3EntitySchema.parse({})),

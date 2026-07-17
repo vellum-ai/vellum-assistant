@@ -45,11 +45,12 @@
  * the `post-model-call` chain — later hooks see (and may override) its decision.
  */
 
-import type {
-  ContentBlock,
-  HookFunction,
-  Message,
-  PostModelCallContext,
+import {
+  type ContentBlock,
+  type HookFunction,
+  INTERNAL_NUDGE_OUTPUT_SUPPRESSION,
+  type Message,
+  type PostModelCallContext,
 } from "@vellumai/plugin-api";
 
 import {
@@ -64,7 +65,9 @@ import {
  * is genuinely still running.
  */
 export const SURFACE_COMPLETION_NUDGE_TEXT =
-  '<system_notice>You showed the user a progress surface this turn (a task_progress card or a work_result) and are about to end the turn with it still marked in_progress. If that work is finished, advance it to a terminal state now — call ui_update to set its status to "completed" (or "failed"), or ui_dismiss it — so the user is not left watching a card spin forever. Do this only if the work it represents is actually done; if it is genuinely still running, leave it. Then give your final reply.</system_notice>';
+  '<system_notice>You showed the user a progress surface this turn (a task_progress card or a work_result) and are about to end the turn with it still marked in_progress. If that work is finished, advance it to a terminal state now — call ui_update to set its status to "completed" (or "failed"), or ui_dismiss it — so the user is not left watching a card spin forever. Do this only if the work it represents is actually done; if it is genuinely still running, leave it. Then give your final reply.' +
+  INTERNAL_NUDGE_OUTPUT_SUPPRESSION +
+  "</system_notice>";
 
 /**
  * Surface statuses that mean the progress surface has reached a terminal state

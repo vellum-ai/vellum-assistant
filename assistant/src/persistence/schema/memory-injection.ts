@@ -44,6 +44,8 @@ export const memoryV3EverInjected = sqliteTable(
 );
 
 // Per-turn log of which memory-v3 cards were selected, with lane attribution.
+// Lives in the dedicated memory database (`assistant-memory.db`), not main —
+// access it via the memory connection (`getMemoryDb()` / `getMemorySqlite()`).
 export const memoryV3Selections = sqliteTable(
   "memory_v3_selections",
   {

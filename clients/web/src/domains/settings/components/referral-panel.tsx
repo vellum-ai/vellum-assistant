@@ -1,5 +1,5 @@
 import { Check, Coins, Copy, Loader2, Users } from "lucide-react";
-import { useCallback, useState } from "react";
+import { type ReactNode, useCallback, useState } from "react";
 
 import { useQuery } from "@tanstack/react-query";
 
@@ -10,23 +10,45 @@ import { Notice } from "@vellumai/design-library/components/notice";
 import { toast } from "@vellumai/design-library/components/toast";
 import { Typography } from "@vellumai/design-library/components/typography";
 
-/** Anchor ID on the referral panel so external links can scroll to it. */
 const REFERRAL_PANEL_ANCHOR_ID = "settings-referral-panel";
 
-/** Strip a trailing `.00` from a decimal-string credit amount. */
 function stripDecimals(amount: string): string {
   return amount.replace(/\.00$/, "");
 }
 
-/**
- * ReferralPanel — "Earn Free Credits" section on the billing settings tab.
- *
- * Surfaces the same data as the user/preferences-menu Earn Credits modal:
- * how many credits the user has earned, how many friends they've referred,
- * and a one-click way to copy their personal share link. The backend
- * lazily creates the referral code on first GET, so there's no explicit
- * creation step here.
- */
+interface StatChipProps {
+  icon: ReactNode;
+  value: ReactNode;
+  label: string;
+}
+
+function StatChip({ icon, value, label }: StatChipProps) {
+  return (
+    <div className="flex h-8 min-w-0 flex-1 items-center gap-1.5 rounded-lg bg-[var(--surface-base)] px-2 py-1.5">
+      <span
+        aria-hidden="true"
+        className="flex h-3.5 w-3.5 shrink-0 items-center justify-center text-[var(--content-default)]"
+      >
+        {icon}
+      </span>
+      <Typography
+        variant="body-medium-default"
+        as="span"
+        className="text-[var(--content-default)]"
+      >
+        {value}
+      </Typography>
+      <Typography
+        variant="body-small-default"
+        as="span"
+        className="text-[var(--content-tertiary)]"
+      >
+        {label}
+      </Typography>
+    </div>
+  );
+}
+
 export function ReferralPanel() {
   const { data, isLoading, isError } = useQuery(
     referralCodesMeRetrieveOptions(),
@@ -57,29 +79,33 @@ export function ReferralPanel() {
   return (
     <Card padding="md" id={REFERRAL_PANEL_ANCHOR_ID}>
       <div className="flex flex-col gap-4">
-        <div>
+        <div className="flex flex-col gap-1">
           <Typography
             as="h2"
             variant="title-medium"
-            className="text-[var(--content-default)]"
+            className="text-[var(--content-emphasised)]"
           >
             Earn Free Credits
           </Typography>
           <Typography
             as="p"
-            variant="body-small-default"
-            className="mt-2 text-[var(--content-tertiary)]"
+            variant="body-medium-default"
+            className="text-[var(--content-tertiary)]"
           >
             {subtitle}
           </Typography>
         </div>
 
         {creditsGated && (
-          <Notice tone="info">
+          <Typography
+            as="p"
+            variant="body-medium-default"
+            className="text-[var(--content-tertiary)]"
+          >
             You're not currently earning referral credits. Buy credits or
             upgrade to Pro to start earning — your invite link still works in
             the meantime.
-          </Notice>
+          </Typography>
         )}
 
         {isLoading ? (
@@ -90,31 +116,20 @@ export function ReferralPanel() {
         ) : isError || !data ? (
           <Notice tone="error">Failed to load referral information.</Notice>
         ) : (
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="flex min-w-[200px] flex-1 items-center gap-1.5 rounded-lg bg-[var(--surface-base)] px-2 py-1.5">
-              <span aria-hidden className="flex h-6 w-6 shrink-0 items-center justify-center text-[var(--content-emphasised)]">
-                <Coins className="h-3.5 w-3.5" />
-              </span>
-              <span className="flex items-baseline gap-1 text-body-medium-default">
-                <span>{stripDecimals(data.total_earned)}</span>
-                <span className="text-body-small-default text-[var(--content-tertiary)]">
-                  Credits Earned
-                </span>
-              </span>
-            </div>
-            <div className="flex min-w-[200px] flex-1 items-center gap-1.5 rounded-lg bg-[var(--surface-base)] px-2 py-1.5">
-              <span aria-hidden className="flex h-6 w-6 shrink-0 items-center justify-center text-[var(--content-emphasised)]">
-                <Users className="h-3.5 w-3.5" />
-              </span>
-              <span className="flex items-baseline gap-1 text-body-medium-default">
-                <span>{data.referred_count}</span>
-                <span className="text-body-small-default text-[var(--content-tertiary)]">
-                  Friends Referred
-                </span>
-              </span>
-            </div>
+          <div className="flex flex-wrap items-start gap-2">
+            <StatChip
+              icon={<Coins className="h-3.5 w-3.5" />}
+              value={stripDecimals(data.total_earned)}
+              label="Credits Earned"
+            />
+            <StatChip
+              icon={<Users className="h-3.5 w-3.5" />}
+              value={data.referred_count}
+              label="Friends Referred"
+            />
             <Button
               variant="outlined"
+              className="shrink-0"
               onClick={() => handleCopy(data.referral_url)}
               leftIcon={
                 copied ? (

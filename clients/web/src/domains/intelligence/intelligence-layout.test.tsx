@@ -8,8 +8,8 @@
  * their full-bleed stage chrome — so no back link or heading appears.
  *
  * On mobile the title moves into the shared top-bar center slot (via
- * `setTopBarCenter`): the section label on section pages, "About <name>"
- * on the bare pages.
+ * `setTopBarCenter`): the section label on section pages; the bare pages
+ * set no title (the stage greeting already names the assistant).
  *
  * `useIsMobile` and the slots-store setter are mocked; the assistant name
  * is driven through the real identity store. `MemoryRouter` satisfies the
@@ -78,6 +78,14 @@ describe("IntelligenceLayout — section pages", () => {
     expect(container.querySelector("h1")?.textContent).toBe("Plugins");
   });
 
+  test("the schedules page renders as a section, including detail sub-paths", () => {
+    const { container } = renderLayoutAt("/assistant/schedules/sch_123");
+    expect(container.querySelector("h1")?.textContent).toBe("Schedules");
+    expect(container.querySelector("a")?.getAttribute("href")).toBe(
+      "/assistant/identity",
+    );
+  });
+
   test("the memory page renders as a section with the back chevron", () => {
     const { container } = renderLayoutAt("/assistant/memory");
     expect(container.querySelector("h1")?.textContent).toBe("Memory");
@@ -117,15 +125,17 @@ describe("IntelligenceLayout — bare pages (overview, personality)", () => {
     expect(container.querySelector("a")).toBeNull();
   });
 
-  test("on mobile, registers the About title for the overview", () => {
+  test("on mobile, the overview sets no top-bar title", () => {
     isMobileRef.value = true;
     renderLayoutAt("/assistant/identity");
 
-    const lastCall = setTopBarCenterMock.mock.calls.at(-1);
-    const node = lastCall?.[0];
-    expect(isValidElement(node)).toBe(true);
-    expect(renderToStaticMarkup(node as React.ReactElement)).toContain(
-      "About Ada",
-    );
+    expect(setTopBarCenterMock).toHaveBeenLastCalledWith(null);
+  });
+
+  test("on mobile, the personality page sets no top-bar title", () => {
+    isMobileRef.value = true;
+    renderLayoutAt("/assistant/personality");
+
+    expect(setTopBarCenterMock).toHaveBeenLastCalledWith(null);
   });
 });

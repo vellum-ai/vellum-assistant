@@ -114,6 +114,7 @@ import {
   hasMessages,
   isConversationProcessing,
   isHiddenMessageMetadata,
+  isSystemCardMetadata,
   type MessageRow,
   recordConversationPersistedSeq,
   setConversationInferenceProfile,
@@ -123,6 +124,7 @@ import {
   getOrCreateConversation,
 } from "../../persistence/conversation-key-store.js";
 import { searchConversations } from "../../persistence/conversation-queries.js";
+import { linkRequestLogsToMessage } from "../../persistence/llm-request-log-store.js";
 import { MEMORY_RETROSPECTIVE_FORK_SOURCE } from "../../plugins/defaults/memory/memory-retrospective-constants.js";
 import { normalizeOnboardingContext } from "../../prompts/normalize-onboarding.js";
 import { writeOnboardingSection } from "../../prompts/persona-resolver.js";
@@ -872,11 +874,17 @@ export function handleListMessages({
     let acpNotification: { acpSessionId: string; agent?: string } | undefined;
     let backgroundEventNotification: boolean | undefined;
     let backgroundToolCompletion: ConversationMessage["backgroundToolCompletion"];
+    let systemCard: boolean | undefined;
     if (msg.metadata) {
       try {
         const meta = JSON.parse(msg.metadata);
         if (typeof meta.sentAt === "number") {
           sentAt = meta.sentAt;
+        }
+        // Daemon-authored status cards (compact/clean/summarize results)
+        // render as standalone system notices, not persona speech.
+        if (isSystemCardMetadata(meta)) {
+          systemCard = true;
         }
         // Every wake persists a `<background_event source="...">` trigger row
         // (see `persistWakeTriggerMessage`) that the LLM reads. Flag any such
@@ -949,6 +957,7 @@ export function handleListMessages({
       acpNotification,
       backgroundEventNotification,
       backgroundToolCompletion,
+      systemCard,
       slackMessage,
       clientMessageId: msg.clientMessageId ?? undefined,
     };
@@ -1250,6 +1259,7 @@ export function persistOnboardingArtifacts(onboarding: {
   cohort?: string;
   websiteUrl?: string;
   contentSourceUrl?: string;
+  researchFindings?: string[];
 }): void {
   writeOnboardingSidecar(onboarding);
 
@@ -1362,6 +1372,11 @@ export async function handleSendMessage(
     // handoff to prime a proactive assistant greeting without showing the
     // triggering user message. Honored on the standard send path only.
     hidden?: boolean;
+    // How the send was initiated when it wasn't typed by hand — e.g.
+    // "nav_redirect" for UI shortcuts that send on the user's behalf.
+    // Persisted as `metadata.userMessageSource` (analytics attribution) and
+    // threaded to the agent loop as `messageSource` (per-turn steering).
+    source?: string;
     bypassSecretCheck?: boolean;
     hostHomeDir?: string;
     hostUsername?: string;
@@ -1377,6 +1392,7 @@ export async function handleSendMessage(
       tasks: string[];
       tone: string;
       userName?: string;
+      occupation?: string;
       assistantName?: string;
       googleConnected?: boolean;
       googleScopes?: string[];
@@ -1387,6 +1403,7 @@ export async function handleSendMessage(
       bootstrapTemplate?: string;
       initialMessage?: string;
       skills?: string[];
+      researchFindings?: string[];
       title?: string;
     };
   };
@@ -1403,6 +1420,12 @@ export async function handleSendMessage(
       : undefined;
   const clientMessageId =
     typeof body.clientMessageId === "string" ? body.clientMessageId : undefined;
+  // Normalized send-source tag ("nav_redirect", ...). The body is not
+  // runtime-validated, so guard the type before persisting/threading it.
+  const messageSource =
+    typeof body.source === "string" && body.source.length > 0
+      ? body.source
+      : undefined;
   const requestedInferenceProfile =
     typeof body.inferenceProfile === "string"
       ? body.inferenceProfile
@@ -2062,6 +2085,10 @@ export async function handleSendMessage(
           // hidden send that lands mid-turn stays hidden when drained —
           // the drain path persists this metadata and skips the echo.
           ...(body.hidden === true ? { hidden: true } : {}),
+          // Carry the send-source tag through the queue the same way — the
+          // drain path persists this metadata and reads it back for the
+          // turn's `messageSource` steering.
+          ...(messageSource ? { userMessageSource: messageSource } : {}),
         },
         clientMetadata,
       ),
@@ -2349,13 +2376,17 @@ export async function handleSendMessage(
         publishConversationMessagesChanged(conversationId, originClientId);
         conversation.emitActivityState("thinking", "context_compacting");
         const result = await conversation.forceCompact();
-        await persistCannedAssistantCard({
+        const cardId = await persistCannedAssistantCard({
           conversation,
           conversationId,
           text: formatCompactResult(result),
           metadata: channelMeta,
-          originClientId,
         });
+        // Attribute the compaction LLM call to the card it produced — same
+        // linkage as the summarize-up-to route.
+        if (result.summaryRequestLogId) {
+          linkRequestLogsToMessage([result.summaryRequestLogId], cardId);
+        }
       } catch (err) {
         log.error({ err, conversationId }, "Compact command failed");
         broadcastMessage({
@@ -2429,7 +2460,6 @@ export async function handleSendMessage(
           conversationId,
           text: formatCleanResult(result),
           metadata: channelMeta,
-          originClientId,
         });
       } catch (err) {
         log.error({ err, conversationId }, "Clean command failed");
@@ -2461,10 +2491,11 @@ export async function handleSendMessage(
     attachments,
     requestId,
     metadata: withClientMetadata(
-      body.automated === true || body.hidden === true
+      body.automated === true || body.hidden === true || messageSource
         ? {
             ...(body.automated === true ? { automated: true } : {}),
             ...(body.hidden === true ? { hidden: true } : {}),
+            ...(messageSource ? { userMessageSource: messageSource } : {}),
           }
         : undefined,
       clientMetadata,
@@ -2514,6 +2545,7 @@ export async function handleSendMessage(
       isInteractive,
       isUserMessage: true,
       ...(body.hidden === true ? { isHiddenPrompt: true } : {}),
+      ...(messageSource ? { messageSource } : {}),
     })
     .catch((err) => {
       log.error(
@@ -2990,6 +3022,12 @@ export const ROUTES: RouteDefinition[] = [
         .describe(
           "When true, persist the user message but suppress it from the UI transcript (it stays in LLM-side history and still drives the turn). Used for machine signals the user never typed (proactive-greeting priming, channel-setup wizard close). Suppression covers the queued path too: a hidden send that lands mid-turn returns { queued: true, requestId } but never appears in list-messages queued snapshots, emits no echo, and does not supersede pending interactions. Honored on the standard send path only — slash-command content bypasses it.",
         ),
+      source: z
+        .string()
+        .optional()
+        .describe(
+          'How the send was initiated when the message was sent on the user\'s behalf by the UI rather than typed by hand. Current value: "nav_redirect" (a navigation shortcut redirected the user into chat with a pre-filled message). Persisted onto the message metadata for analytics attribution and used to steer the assistant toward a brief, concrete reply. Omit for messages the user typed.',
+        ),
       onboarding: z
         .object({
           tools: z.array(z.string()),
@@ -3007,6 +3045,12 @@ export const ROUTES: RouteDefinition[] = [
           bootstrapTemplate: z.string().optional(),
           initialMessage: z.string().optional(),
           skills: z.array(z.string()).optional(),
+          researchFindings: z
+            .array(z.string())
+            .optional()
+            .describe(
+              "Findings from pre-chat onboarding research that the user explicitly kept on the results screen. Written into the persona's onboarding section so the first turn can reference them.",
+            ),
           title: z
             .string()
             .optional()

@@ -273,22 +273,11 @@ for (const id of schemaKeys) {
 /**
  * Canonical TTS service configuration.
  *
- * `mode` selects between the user's own provider key (`"your-own"`) and
- * Vellum-managed synthesis billed to Vellum credits (`"managed"`). The
- * `provider` field always holds the user's BYOK choice so switching back
- * from managed mode restores it; use {@link effectiveTtsProvider} to
- * resolve which provider is actually active.
+ * `provider` is the only axis: `"vellum"` synthesizes through the platform,
+ * billed to Vellum credits; any other provider uses the user's own API key.
  */
 export const TtsServiceSchema = z
   .object({
-    mode: z
-      .enum(["your-own", "managed"], {
-        error: 'services.tts.mode must be "your-own" or "managed"',
-      })
-      .default("your-own" as const)
-      .describe(
-        'TTS service mode — "your-own" uses the configured provider with your API key; "managed" synthesizes through your Vellum account',
-      ),
     provider: z
       .enum(TTS_PROVIDER_IDS, {
         error: `services.tts.provider must be one of: ${TTS_PROVIDER_IDS.join(", ")}`,
@@ -297,35 +286,8 @@ export const TtsServiceSchema = z
       .describe("Active TTS provider used for speech synthesis"),
     providers: TtsProvidersSchema.default(TtsProvidersSchema.parse({})),
   })
-  .superRefine((service, ctx) => {
-    if (service.provider === "vellum" && service.mode !== "managed") {
-      ctx.addIssue({
-        code: "custom",
-        path: ["provider"],
-        message:
-          'services.tts.provider "vellum" requires services.tts.mode "managed"',
-      });
-    }
-  })
   .describe(
     "Text-to-speech service configuration — provider selection and per-provider settings",
   );
 
 export type TtsService = z.infer<typeof TtsServiceSchema>;
-
-/**
- * Resolve the provider that is actually active for the service config.
- *
- * Managed mode always routes to the `vellum` provider while leaving the
- * user's BYOK `provider` choice untouched, so toggling back to
- * `"your-own"` restores their previous setup.
- */
-export function effectiveTtsProvider(service: {
-  mode: TtsService["mode"];
-  provider?: string;
-}): string {
-  if (service.mode === "managed") {
-    return "vellum";
-  }
-  return service.provider ?? "elevenlabs";
-}

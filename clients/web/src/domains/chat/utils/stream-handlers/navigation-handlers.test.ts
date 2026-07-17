@@ -52,9 +52,10 @@ mock.module("@/runtime/browser", () => ({
   openUrl: (url: string) => nativeOpenUrlMock(url),
 }));
 
-const { handleOpenPanel, handleOpenUrl } =
+const { handleOpenPanel, handleOpenUrl, handleOpenConversation } =
   await import("@/domains/chat/utils/stream-handlers/navigation-handlers");
 const { useViewerStore } = await import("@/stores/viewer-store");
+const { useConversationStore } = await import("@/stores/conversation-store");
 
 function makeCtx(
   overrides: Partial<StreamHandlerContext> = {},
@@ -84,7 +85,9 @@ function setMockWindow({
   open,
 }: {
   origin?: string;
-  open?: ((url?: string, target?: string, features?: string) => Window | null) | null;
+  open?:
+    | ((url?: string, target?: string, features?: string) => Window | null)
+    | null;
 } = {}): void {
   Object.defineProperty(globalThis, "window", {
     configurable: true,
@@ -201,7 +204,10 @@ describe("handleOpenUrl", () => {
     setMockWindow({ open: null });
     const { ctx, push } = makeOpenUrlCtx();
 
-    handleOpenUrl(makeOpenUrlEvent("https://app.vellum.ai/settings?tab=x"), ctx);
+    handleOpenUrl(
+      makeOpenUrlEvent("https://app.vellum.ai/settings?tab=x"),
+      ctx,
+    );
 
     expect(push).toHaveBeenCalledWith("/settings?tab=x");
   });
@@ -214,7 +220,11 @@ describe("handleOpenUrl", () => {
 
     handleOpenUrl(makeOpenUrlEvent(oauthUrl), ctx);
 
-    expect(open).toHaveBeenCalledWith(oauthUrl, "_blank", "width=500,height=600");
+    expect(open).toHaveBeenCalledWith(
+      oauthUrl,
+      "_blank",
+      "width=500,height=600",
+    );
     expect(setError).not.toHaveBeenCalled();
     expect(setNotice).not.toHaveBeenCalled();
   });
@@ -253,5 +263,45 @@ describe("handleOpenUrl", () => {
 
     expect(setError).toHaveBeenCalledTimes(1);
     expect(setNotice).not.toHaveBeenCalled();
+  });
+});
+
+describe("handleOpenConversation", () => {
+  it("switches to and focuses the target conversation by default", () => {
+    useConversationStore.getState().setActiveConversationId("conv-origin");
+    const push = mock((_url: string) => {});
+    const ctx = { router: { push } } as unknown as StreamHandlerContext;
+
+    handleOpenConversation(
+      { type: "open_conversation", conversationId: "conv-target" },
+      ctx,
+    );
+
+    expect(useViewerStore.getState().mainView).toBe("chat");
+    expect(useConversationStore.getState().activeConversationId).toBe(
+      "conv-target",
+    );
+    expect(push).toHaveBeenCalledTimes(1);
+    expect(push.mock.calls[0]?.[0]).toContain("conv-target");
+  });
+
+  it("does not switch focus when focus is false", () => {
+    useConversationStore.getState().setActiveConversationId("conv-origin");
+    const push = mock((_url: string) => {});
+    const ctx = { router: { push } } as unknown as StreamHandlerContext;
+
+    handleOpenConversation(
+      {
+        type: "open_conversation",
+        conversationId: "conv-target",
+        focus: false,
+      },
+      ctx,
+    );
+
+    expect(useConversationStore.getState().activeConversationId).toBe(
+      "conv-origin",
+    );
+    expect(push).not.toHaveBeenCalled();
   });
 });

@@ -1,6 +1,6 @@
 import { v4 as uuid } from "uuid";
 
-import { getCachedShareAnalytics } from "../platform/consent-cache.js";
+import { getRawShareAnalytics } from "../platform/consent-cache.js";
 import { insertTelemetryOutboxEvents } from "../telemetry/telemetry-events-outbox.js";
 import type { AuthFallbackTelemetryEvent } from "../telemetry/types.js";
 import { APP_VERSION } from "../version.js";
@@ -19,17 +19,18 @@ export interface AuthFallbackCount {
  * flush window, each carrying its full wire event built at record time. The
  * whole batch inserts atomically, so a failure never leaves a partial batch
  * committed (the gateway retries the full batch on `recorded === 0`). Returns
- * the number of rows recorded, or 0 when usage data collection is disabled
- * (the counts are dropped to honor the opt-out, matching the rest of
- * telemetry) or the telemetry database is unavailable (degraded mode). Callers
- * that must tell those apart check `getCachedShareAnalytics()` themselves.
+ * the number of rows recorded, or 0 when `share_analytics` is a confirmed
+ * opt-out (the counts are dropped to honor it, matching the rest of
+ * telemetry — an unknown consent state records) or the telemetry database is
+ * unavailable (degraded mode). Callers that must tell those apart check
+ * `getRawShareAnalytics()` themselves.
  */
 export function recordAuthFallbackCounts(
   windowStart: number,
   windowEnd: number,
   counts: AuthFallbackCount[],
 ): number {
-  if (!getCachedShareAnalytics()) {
+  if (getRawShareAnalytics() === false) {
     return 0;
   }
   if (counts.length === 0) {

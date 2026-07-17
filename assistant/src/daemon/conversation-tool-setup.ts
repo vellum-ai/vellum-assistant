@@ -16,6 +16,7 @@ import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
 import { getBindingByConversation } from "../persistence/external-conversation-store.js";
 import { getAllDefaultPluginNames } from "../plugins/defaults/main.js";
+import { isActivationSession } from "../plugins/defaults/memory/activation-session-store.js";
 import { isPluginDisabled } from "../plugins/disabled-state.js";
 import type { Message, ToolDefinition } from "../providers/types.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
@@ -50,6 +51,10 @@ import {
   type ToolContext,
   type ToolExecutionResult,
 } from "../tools/types.js";
+import {
+  injectActivationMomentParam,
+  projectUiToolsForChannel,
+} from "../tools/ui-surface/channel-variants.js";
 import { loadWorkspaceTools } from "../tools/workspace-tools/loader.js";
 import {
   resolveUsageAttribution,
@@ -194,10 +199,16 @@ export function createToolExecutor(
   const rejectNonAllowlistedTool = (
     toolName: string,
   ): ToolExecutionResult | null => {
+    const allowlist = ctx.subagentAllowedTools;
+    // Record any attempt at a tool outside the subagent's role allowlist — in
+    // both wire and execution gate modes — so the parent can be told what the
+    // subagent needed but lacked. Pure observation; the gating is below.
+    if (allowlist !== undefined && !allowlist.has(toolName)) {
+      ctx.subagentDeniedToolNames?.add(toolName);
+    }
     if (ctx.subagentToolGateMode !== "execution") {
       return null;
     }
-    const allowlist = ctx.subagentAllowedTools;
     if (!allowlist || allowlist.has(toolName)) {
       return null;
     }
@@ -539,7 +550,7 @@ const CROSS_CLIENT_EXPOSED_CAPABILITIES = new Set<HostProxyCapability>([
   "host_browser",
 ]);
 // Tools that require a connected client but no specific host proxy capability.
-const CLIENT_CAPABILITY_TOOL_NAMES = new Set(["app_open", "ask_question"]);
+const CLIENT_CAPABILITY_TOOL_NAMES = new Set(["ask_question"]);
 const PLATFORM_TOOL_NAMES = new Set(["request_system_permission"]);
 
 /**
@@ -551,6 +562,21 @@ export const SUBAGENT_ONLY_TOOL_NAMES = new Set<string>([
   "file_list",
   "code_search",
   "notify_parent",
+]);
+
+/**
+ * Tools that never appear on the default tool surface — they reach the wire
+ * ONLY for a wire-scoped background run that explicitly allowlists them (see
+ * `allowedTools` in `runBackgroundJob`). A normal turn carries no subagent
+ * allowlist, so these stay hidden from every interactive and injected-content
+ * turn; no user- or attacker-driven turn is ever handed the capability.
+ *
+ * `delete_memory_page` is the memory-consolidation page-maintenance primitive:
+ * the guardian consolidation pass allowlists it to retire merged/renamed/dead
+ * pages, and nothing else should be able to delete memory pages.
+ */
+export const ALLOWLIST_ONLY_TOOL_NAMES = new Set<string>([
+  "delete_memory_page",
 ]);
 
 /**
@@ -675,6 +701,15 @@ export function isToolActiveForContext(
   }
   if (SUBAGENT_ONLY_TOOL_NAMES.has(name)) {
     return ctx.isSubagent === true;
+  }
+  // Allowlist-only tools stay off the default surface: they appear ONLY when a
+  // wire-scoped background run explicitly names them in its allowlist. A normal
+  // turn has no `subagentAllowedTools`, so this reads false and the tool stays
+  // hidden. (Both gate modes are covered: wire mode also filters the wire to
+  // the allowlist downstream; execution mode keeps the full surface, so this
+  // check is what keeps the tool off it unless the run opted in.)
+  if (ALLOWLIST_ONLY_TOOL_NAMES.has(name)) {
+    return ctx.subagentAllowedTools?.has(name) === true;
   }
   return true;
 }
@@ -822,11 +857,26 @@ export function createResolveToolsCallback(
       ? currentWorkspaceDefs.filter((d) => wireAllowlist.has(d.name))
       : currentWorkspaceDefs;
     const excluded = new Set(getConfig().tools.exclude);
-    const allBaseDefs = [
-      ...scopedCoreDefs,
-      ...scopedWorkspaceDefs,
-      ...scopedMcpDefs,
-    ].filter((d) => !excluded.has(d.name));
+    // Swap UI surface tools for channel-appropriate variants (e.g. Slack's
+    // task_progress-only ui_show). Mirrors the pin handling in
+    // `isToolActiveForContext`: execution-gate-mode wakes pin channel
+    // capabilities to undefined, which resolves to the unprojected defs.
+    const channelForUiTools = ctx.toolContextPin
+      ? undefined
+      : ctx.channelCapabilities?.channel;
+    let allBaseDefs = projectUiToolsForChannel(
+      [...scopedCoreDefs, ...scopedWorkspaceDefs, ...scopedMcpDefs].filter(
+        (d) => !excluded.has(d.name),
+      ),
+      channelForUiTools,
+    );
+    // Activation-rail conversations carry the optional `activation_moment`
+    // telemetry param on ui_show. The marker is written before the first
+    // tool resolution (see `applyBootstrapTemplate` in system-prompt.ts), so
+    // the projected schema is stable for the conversation's lifetime.
+    if (isActivationSession(ctx.conversationId)) {
+      allBaseDefs = injectActivationMomentParam(allBaseDefs);
+    }
 
     const effectivePreactivated = [
       ...DEFAULT_PREACTIVATED_SKILL_IDS,

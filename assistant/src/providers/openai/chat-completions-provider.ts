@@ -28,6 +28,7 @@ import {
 import {
   captureRawErrorBodyFetch,
   formatNormalizedOpenAIAPIError,
+  normalizedErrorText,
   normalizeOpenAIAPIError,
 } from "./api-error-normalization.js";
 import {
@@ -216,8 +217,18 @@ function isReasoningOptOutRejection(error: unknown, params: unknown): boolean {
   if (typeof status !== "number" || status < 400 || status >= 500) {
     return false;
   }
-  const message = error instanceof Error ? error.message : String(error);
-  return /reasoning/i.test(message);
+  // OpenRouter wraps upstream 4xxs in a generic "Provider returned error" and
+  // stashes the real reason under `metadata.raw`, which `normalizeOpenAIAPIError`
+  // promotes into the normalized fields. Scan those, not just `error.message` —
+  // otherwise the wrapped reasoning rejection is missed and this one-shot
+  // fallback never fires.
+  const haystack =
+    error instanceof OpenAI.APIError
+      ? normalizedErrorText(normalizeOpenAIAPIError(error))
+      : error instanceof Error
+        ? error.message
+        : String(error);
+  return /reasoning/i.test(haystack);
 }
 
 /**
@@ -744,6 +755,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
       return {
         content,
         model: responseModel,
+        resolvedEndpoint: this.client.baseURL,
         usage: {
           inputTokens: promptTokens,
           outputTokens: completionTokens,

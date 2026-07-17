@@ -123,6 +123,34 @@ describe("handleAppViewerAction — set_view", () => {
   });
 });
 
+describe("handleAppViewerAction — open_conversation", () => {
+  it("navigates to the specified conversation without sending a prompt", () => {
+    useConversationStore.setState({ activeConversationId: "old-conv" });
+    const ctx = makeCtx();
+
+    handleAppViewerAction(ctx, "open_conversation", {
+      conversationId: "target-conv",
+    });
+
+    expect(useConversationStore.getState().activeConversationId).toBe(
+      "target-conv",
+    );
+    expect(ctx.navigate.mock.calls[0][0]).toContain(
+      "/assistant/conversations/target-conv",
+    );
+    // Must NOT contain a prompt param
+    expect(ctx.navigate.mock.calls[0][0]).not.toContain("prompt=");
+  });
+
+  it("is a no-op without a conversationId", () => {
+    const ctx = makeCtx();
+
+    handleAppViewerAction(ctx, "open_conversation", {});
+
+    expect(ctx.navigate).not.toHaveBeenCalled();
+  });
+});
+
 describe("handleAppViewerAction — other", () => {
   it("ignores unknown actions and empty prompts", () => {
     useConversationStore.setState({ activeConversationId: "conv-1" });

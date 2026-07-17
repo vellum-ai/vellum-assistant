@@ -52,8 +52,12 @@ mock.module("../../runtime/assistant-event-hub.js", () => ({
 
 // Dynamic imports after mock.module calls so the stubs take effect
 // before the modules under test are loaded.
-const { HOST_TOOL_NAMES, HOST_TOOL_TO_CAPABILITY, isToolActiveForContext } =
-  await import("../conversation-tool-setup.js");
+const {
+  ALLOWLIST_ONLY_TOOL_NAMES,
+  HOST_TOOL_NAMES,
+  HOST_TOOL_TO_CAPABILITY,
+  isToolActiveForContext,
+} = await import("../conversation-tool-setup.js");
 type SkillProjectionCache =
   import("../conversation-skill-tools.js").SkillProjectionCache;
 
@@ -582,19 +586,12 @@ describe("isToolActiveForContext — ask_question macOS gating", () => {
     ).toBe(false);
   });
 
-  test("other client-capability tools (app_open) are NOT affected by the macos gate", () => {
+  test("app_open is skill-owned and not client-capability gated", () => {
+    // The app-builder skill provides app_open; its executor degrades
+    // gracefully when no client is connected, so the context filter does
+    // not hide it even on clientless turns.
     expect(
-      isToolActiveForContext(
-        "app_open",
-        makeCtx({
-          hasNoClient: false,
-          channelCapabilities: {
-            channel: "macos",
-            supportsDynamicUi: true,
-            clientOS: "macos",
-          },
-        }),
-      ),
+      isToolActiveForContext("app_open", makeCtx({ hasNoClient: true })),
     ).toBe(true);
   });
 });
@@ -613,5 +610,59 @@ describe("HOST_TOOL_NAMES derivation", () => {
     // future addition to HOST_TOOL_NAMES without a matching capability entry
     // (or vice versa) would fail.
     expect(HOST_TOOL_NAMES.size).toBe(HOST_TOOL_TO_CAPABILITY.size);
+  });
+});
+
+describe("isToolActiveForContext — allowlist-only tools (delete_memory_page)", () => {
+  test("delete_memory_page is a registered allowlist-only tool", () => {
+    // Guards the wiring: the constant memory consolidation depends on must
+    // actually contain the tool, or the gate below would silently hide it
+    // from the consolidation run too.
+    expect(ALLOWLIST_ONLY_TOOL_NAMES.has("delete_memory_page")).toBe(true);
+  });
+
+  test("hidden from a normal turn that carries no subagent allowlist", () => {
+    // No user-facing or injected-content turn should ever be handed a delete
+    // primitive: with no allowlist the tool stays off the wire.
+    expect(isToolActiveForContext("delete_memory_page", makeCtx())).toBe(false);
+  });
+
+  test("visible to a wire-scoped run that allowlists it (memory consolidation)", () => {
+    expect(
+      isToolActiveForContext(
+        "delete_memory_page",
+        makeCtx({
+          subagentAllowedTools: new Set([
+            "file_read",
+            "file_write",
+            "delete_memory_page",
+          ]),
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  test("hidden from a wire-scoped run whose allowlist omits it", () => {
+    expect(
+      isToolActiveForContext(
+        "delete_memory_page",
+        makeCtx({ subagentAllowedTools: new Set(["file_read", "recall"]) }),
+      ),
+    ).toBe(false);
+  });
+
+  test("stays hidden in execution gate mode unless the allowlist names it", () => {
+    // Execution-gate runs keep the full wire surface (the allowlist is enforced
+    // at execution time), so the ALLOWLIST_ONLY gate is what keeps the tool off
+    // the wire for a run that did not opt in.
+    expect(
+      isToolActiveForContext(
+        "delete_memory_page",
+        makeCtx({
+          subagentToolGateMode: "execution",
+          subagentAllowedTools: new Set(["remember"]),
+        }),
+      ),
+    ).toBe(false);
   });
 });

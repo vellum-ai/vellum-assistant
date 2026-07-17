@@ -32,7 +32,6 @@ import {
 import { useChatLayoutSlotsStore } from "@/components/layout/chat-layout-slots-store";
 import { useElectronDockSync } from "@/domains/chat/hooks/use-electron-dock-sync";
 import { useOpenAppFromChat } from "@/domains/chat/hooks/use-open-app-from-chat";
-import { useHomeUnreadBadge } from "@/hooks/use-home-unread-badge";
 import {
   DRAWER_SLIDE_MS,
   useEdgeSwipeDrawer,
@@ -47,6 +46,11 @@ import { useChatLayoutShortcuts } from "@/domains/chat/hooks/use-chat-layout-sho
 import { useConversationActions } from "@/domains/chat/hooks/use-conversation-actions";
 import { useConversationGroupActions } from "@/domains/chat/hooks/use-conversation-group-actions";
 import { useCanUseLlmInspector } from "@/domains/chat/inspector/access";
+import { NavGateBubble } from "@/domains/chat/nav-gate/nav-gate-bubble";
+import {
+  useNavGateArm,
+  useNavGateExperimentEffects,
+} from "@/domains/chat/nav-gate/use-nav-gate";
 import {
   navigateToConversation,
   navigateToNewConversation,
@@ -131,7 +135,17 @@ interface SideMenuRenderArgs {
  *
  * @see https://reactrouter.com/start/data/routing
  */
-export function ChatLayout() {
+export function ChatLayout({
+  topBarAccessory,
+}: {
+  /**
+   * Persistent element for the header's top-right, after the per-route
+   * slot content (currently the notifications bell). Injected by
+   * `routes.tsx` because its implementation lives in another domain,
+   * which this layout must not import directly.
+   */
+  topBarAccessory?: ReactNode;
+} = {}) {
   const navigate = useNavigate();
   const location = useLocation();
   const navigationType = useNavigationType();
@@ -159,6 +173,11 @@ export function ChatLayout() {
     (s) => s.assistantState.kind,
   );
   const isAssistantActive = assistantStateKind === "active";
+
+  // SPIKE — first-session sidenav-gating experiment: one-shot sidebar
+  // collapse for the gated arm + the session-end counter-metric signal.
+  const navGateArm = useNavGateArm();
+  useNavGateExperimentEffects(navGateArm);
 
   // Live-voice session controller. Owned at layout scope — not by the
   // composer — so a session survives every chat-side navigation (thread
@@ -201,10 +220,6 @@ export function ChatLayout() {
     assistantId,
     conversationGroups,
   });
-
-  // Home page unread indicator — drives the red dot on the Home button in
-  // the layout header.
-  const { hasUnreadHome } = useHomeUnreadBadge(assistantId);
 
   // Mirror the unread count + signed-in flag into the Electron Dock
   // (no-op off Electron). Uses the conversation list this layout
@@ -255,10 +270,6 @@ export function ChatLayout() {
   const canGoBack = historyIndex > 0;
   const canGoForward = historyIndex < maxHistoryIndex;
 
-  const handleOpenHome = useCallback(() => {
-    navigate(routes.home);
-  }, [navigate]);
-
   const handleOpenIdentity = useCallback(() => {
     navigate(routes.identity);
   }, [navigate]);
@@ -271,10 +282,8 @@ export function ChatLayout() {
     navigate(1);
   }, [navigate]);
 
-  const isHomeActive =
-    location.pathname === routes.home ||
-    location.pathname === routes.schedules.root ||
-    location.pathname.startsWith(`${routes.schedules.root}/`);
+  // Schedules paths count as About Assistant (via isAboutAssistantPath) —
+  // the Schedules surface is a drill-down section under the overview.
   const isIdentityActive = isAboutAssistantPath(location.pathname);
 
   // --- Sidebar collapsed / drawer state ---
@@ -698,9 +707,6 @@ export function ChatLayout() {
       onOpenIntelligence={handleOpenIdentity}
       isLibraryActive={isLibraryActive}
       onOpenLibrary={handleOpenLibrary}
-      isHomeActive={isHomeActive}
-      onOpenHome={handleOpenHome}
-      hasUnreadHome={hasUnreadHome}
       activeAppId={activeAppId ?? undefined}
       onOpenApp={handleOpenAppFromSidebar}
       onPinConversation={handleTogglePinConversation}
@@ -755,6 +761,7 @@ export function ChatLayout() {
             <>
               {topBarRightSlot}
               <VoiceSessionPillHost />
+              {topBarAccessory}
             </>
           }
           canGoBack={canGoBack}
@@ -885,6 +892,12 @@ export function ChatLayout() {
       {/* Applies the research-onboarding picker's avatar once the assistant is
           hatched (avatar isn't part of the pre-chat handoff context). */}
       <OnboardingAvatarApplier />
+      {/* Avatar bubble for gated sidenav items — one layout-scope instance
+          anchored (virtual ref) to whichever side-menu mount took the click. */}
+      <NavGateBubble
+        assistantId={assistantId}
+        onAfterAction={() => setDrawerOpen(false)}
+      />
 
       <RenameDialogFromStore assistantId={assistantId} />
       {commandPalette.isOpen ? (

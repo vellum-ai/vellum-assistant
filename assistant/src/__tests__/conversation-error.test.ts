@@ -15,6 +15,7 @@ import {
   isUserCancellation,
 } from "../daemon/conversation-error.js";
 import { ConnectionResolutionError } from "../providers/connection-resolution.js";
+import { normalizeOpenAIAPIError } from "../providers/openai/api-error-normalization.js";
 import {
   type AbortReasonKind,
   createAbortReason,
@@ -810,6 +811,36 @@ describe("classifyConversationError", () => {
         expect(result.errorCategory).toBe("provider_billing");
         expect(result.retryable).toBe(false);
       }
+    });
+
+    it("classifies OpenRouter 403 spend-cap ('Key limit exceeded') as provider_billing, not invalid key", () => {
+      providerRoutingSources.openrouter = "user-key";
+      // Derive the reason the way the provider does — run the raw 403 body
+      // through normalizeOpenAIAPIError — so this exercises the deriveReason
+      // spend-cap regex end to end rather than asserting a hardcoded reason. A
+      // reason-less 403 would otherwise short-circuit to the invalid-key path.
+      const normalized = normalizeOpenAIAPIError(
+        {
+          status: 403,
+          message: "403 status code",
+          headers: new Headers(),
+        } as unknown as Parameters<typeof normalizeOpenAIAPIError>[0],
+        '{"error":{"code":403,"message":"Key limit exceeded"}}',
+      );
+      expect(normalized.reason).toBe("insufficient_credits");
+
+      const err = new ProviderError(
+        "OpenRouter API error (403): Key limit exceeded",
+        "openrouter",
+        403,
+        { reason: normalized.reason },
+      );
+      const result = classifyConversationError(err, baseCtx);
+
+      expect(result.code).toBe("PROVIDER_BILLING");
+      expect(result.errorCategory).toBe("provider_billing");
+      expect(result.retryable).toBe(false);
+      expect(result.code).not.toBe("PROVIDER_INVALID_KEY");
     });
 
     it("classifies managed-proxy OpenRouter insufficient_balance bodies as credits_exhausted", () => {

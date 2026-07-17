@@ -6,7 +6,7 @@ import {
   useBookmarks,
   useBookmarkToggle,
 } from "@/hooks/use-bookmarks";
-import { routes } from "@/utils/routes";
+import { navigateToConversation } from "@/utils/conversation-navigation";
 import { Button } from "@vellumai/design-library/components/button";
 import { Card } from "@vellumai/design-library/components/card";
 
@@ -167,14 +167,11 @@ export function BookmarksPage() {
             key={bookmark.id}
             bookmark={bookmark}
             isFirst={index === 0}
-            onOpen={() => {
-              navigate(
-                routes.conversationAtMessage(
-                  bookmark.conversationId,
-                  bookmark.messageId,
-                ),
-              );
-            }}
+            onOpen={() =>
+              navigateToConversation(navigate, bookmark.conversationId, {
+                messageId: bookmark.messageId,
+              })
+            }
             onRemove={() => {
               void toggleBookmark(
                 bookmark.messageId,

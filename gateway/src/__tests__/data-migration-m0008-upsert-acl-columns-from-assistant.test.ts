@@ -58,12 +58,14 @@ const fakeAssistantDb = {
   hasContactsTable: true,
   hasChannelsTable: true,
   hasInviteIdColumn: true,
+  hasAclColumns: true,
   reset(): void {
     this.contacts.clear();
     this.channels.clear();
     this.hasContactsTable = true;
     this.hasChannelsTable = true;
     this.hasInviteIdColumn = true;
+    this.hasAclColumns = true;
   },
 };
 
@@ -72,6 +74,11 @@ mock.module("../db/assistant-db-proxy.js", () => ({
     const lower = sql.toLowerCase();
     if (lower.includes("pragma_table_info('contact_channels')")) {
       return fakeAssistantDb.hasInviteIdColumn ? [{ "1": 1 }] : [];
+    }
+    if (lower.includes("pragma_table_info('contacts')")) {
+      return fakeAssistantDb.hasAclColumns
+        ? [{ name: "role" }, { name: "principal_id" }]
+        : [];
     }
     if (lower.includes("sqlite_master")) {
       if (lower.includes("'contacts'")) {
@@ -86,7 +93,10 @@ mock.module("../db/assistant-db-proxy.js", () => ({
       // Mirror SQLite: referencing the dropped column errors; the NULL alias
       // is not a column reference.
       const columnRefs = lower.replaceAll("null as invite_id", "");
-      if (!fakeAssistantDb.hasInviteIdColumn && columnRefs.includes("invite_id")) {
+      if (
+        !fakeAssistantDb.hasInviteIdColumn &&
+        columnRefs.includes("invite_id")
+      ) {
         throw new Error("no such column: invite_id");
       }
       const rows = Array.from(fakeAssistantDb.channels.values());
@@ -95,6 +105,9 @@ mock.module("../db/assistant-db-proxy.js", () => ({
         : rows.map((ch) => ({ ...ch, invite_id: null }));
     }
     if (lower.includes("from contacts")) {
+      if (!fakeAssistantDb.hasAclColumns && lower.includes("role")) {
+        throw new Error("no such column: role");
+      }
       return Array.from(fakeAssistantDb.contacts.values());
     }
     return [];
@@ -145,21 +158,23 @@ function seedGatewayContact(opts: { id: string } & Partial<FakeContact>): void {
     .run();
 }
 
-function seedGatewayChannel(opts: {
-  id: string;
-  contactId: string;
-  type: string;
-  address: string;
-} & Partial<{
-  isPrimary: boolean;
-  status: string;
-  policy: string;
-  verifiedAt: number | null;
-  verifiedVia: string | null;
-  lastSeenAt: number | null;
-  interactionCount: number;
-  lastInteraction: number | null;
-}>): void {
+function seedGatewayChannel(
+  opts: {
+    id: string;
+    contactId: string;
+    type: string;
+    address: string;
+  } & Partial<{
+    isPrimary: boolean;
+    status: string;
+    policy: string;
+    verifiedAt: number | null;
+    verifiedVia: string | null;
+    lastSeenAt: number | null;
+    interactionCount: number;
+    lastInteraction: number | null;
+  }>,
+): void {
   getGatewayDb()
     .insert(contactChannels)
     .values({
@@ -195,7 +210,12 @@ function seedAssistantContact(
 }
 
 function seedAssistantChannel(
-  opts: { id: string; contact_id: string; type: string; address: string } & Partial<FakeChannel>,
+  opts: {
+    id: string;
+    contact_id: string;
+    type: string;
+    address: string;
+  } & Partial<FakeChannel>,
 ): void {
   fakeAssistantDb.channels.set(opts.id, {
     is_primary: 0,
@@ -214,8 +234,8 @@ function seedAssistantChannel(
 }
 
 function gwContact(id: string): Record<string, unknown> | undefined {
-  return getGatewayDb().$client
-    .prepare("SELECT * FROM contacts WHERE id = ?")
+  return getGatewayDb()
+    .$client.prepare("SELECT * FROM contacts WHERE id = ?")
     .get(id) as Record<string, unknown> | undefined;
 }
 
@@ -223,15 +243,17 @@ function gwChannelByAddress(
   type: string,
   address: string,
 ): Record<string, unknown> | undefined {
-  return getGatewayDb().$client
-    .prepare("SELECT * FROM contact_channels WHERE type = ? AND address = ?")
+  return getGatewayDb()
+    .$client.prepare(
+      "SELECT * FROM contact_channels WHERE type = ? AND address = ?",
+    )
     .get(type, address) as Record<string, unknown> | undefined;
 }
 
 function gwChannelCount(): number {
   return (
-    getGatewayDb().$client
-      .prepare("SELECT count(*) AS n FROM contact_channels")
+    getGatewayDb()
+      .$client.prepare("SELECT count(*) AS n FROM contact_channels")
       .get() as { n: number }
   ).n;
 }
@@ -300,7 +322,12 @@ describe("m0008-upsert-acl-columns-from-assistant", () => {
 
   test("coerces an assistant escalate policy to deny on both upsert paths", async () => {
     // Update path: existing gateway row.
-    seedGatewayContact({ id: "c-esc", display_name: "gw", role: "contact", principal_id: null });
+    seedGatewayContact({
+      id: "c-esc",
+      display_name: "gw",
+      role: "contact",
+      principal_id: null,
+    });
     seedGatewayChannel({
       id: "ch-esc-upd",
       contactId: "c-esc",
@@ -553,6 +580,18 @@ describe("m0008-upsert-acl-columns-from-assistant", () => {
     const result = await m0008Up();
     expect(result).toBe("skip");
     expect(gwContact("ignored") ?? undefined).toBeUndefined();
+    expect(gwChannelCount()).toBe(0);
+  });
+
+  test("checkpoints instead of throwing when the assistant ACL columns are gone", async () => {
+    // Unlike the absent table above, which is transient on a fresh install,
+    // assistant persistence migration 305 dropping the columns is terminal.
+    fakeAssistantDb.hasAclColumns = false;
+    seedAssistantContact({ id: "unreachable" });
+
+    const result = await m0008Up();
+    expect(result).toBe("done");
+    expect(gwContact("unreachable") ?? undefined).toBeUndefined();
     expect(gwChannelCount()).toBe(0);
   });
 

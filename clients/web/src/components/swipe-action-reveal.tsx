@@ -198,7 +198,7 @@ export const SwipeActionReveal = forwardRef<HTMLDivElement, SwipeActionRevealPro
         {/* Content layer — slides over the action layers */}
         <div
           className={cn(
-            "relative bg-[var(--surface-base)] transition-transform",
+            "relative bg-[var(--surface-overlay)] transition-transform",
             isDragging && "transition-none",
           )}
           style={{

@@ -50,6 +50,13 @@ describe("resolveProfileParamVisibility", () => {
     expect(VISIBILITY_NONE.topP).toBe(false);
   });
 
+  test("baseten inkling enables effort and topP without the thinking toggle", () => {
+    const vis = resolveProfileParamVisibility("baseten", "thinkingmachines/inkling");
+    expect(vis.effort).toBe(true);
+    expect(vis.topP).toBe(true);
+    expect(vis.thinking).toBe(false);
+  });
+
   test("anthropic haiku disables effort but supports thinking", () => {
     const vis = resolveProfileParamVisibility("anthropic", "claude-3-5-haiku-20241022");
     expect(vis.effort).toBe(false);

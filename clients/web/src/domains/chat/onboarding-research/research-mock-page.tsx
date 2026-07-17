@@ -18,7 +18,6 @@ import { Navigate, useNavigate } from "react-router";
 import { Button } from "@vellumai/design-library/components/button";
 
 import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection";
-import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { routes } from "@/utils/routes";
 import { ResearchResultsView } from "@/domains/chat/onboarding-research/research-results-view";
@@ -88,7 +87,6 @@ type Mode = "loading" | "results" | "empty";
 
 export function ResearchMockPage() {
   const navigate = useNavigate();
-  const enabled = useClientFeatureFlagStore.use.researchOnboarding();
   const [mode, setMode] = useState<Mode>("results");
   const [removals, setRemovals] = useState<Map<number, RemovalReason | null>>(
     () => new Map(),
@@ -104,7 +102,8 @@ export function ResearchMockPage() {
     );
   };
 
-  if (!enabled) {
+  // Throwaway dev harness — keep it out of production builds without a flag.
+  if (!import.meta.env.DEV) {
     return <Navigate to={routes.assistant} replace />;
   }
 

@@ -27,9 +27,7 @@ import {
   resolveEffectiveContextWindow,
 } from "../config/llm-context-resolution.js";
 import {
-  isOverrideOrDefaultResolutionEnabled,
   resolveCallSiteConfig,
-  resolveDefaultProfileKey,
   resolveEffectiveProfileKey,
   resolveProfilelessModelKey,
   selectWinningProfile,
@@ -256,6 +254,16 @@ async function withAbortWatchdog<T>(
 
 // ── runAgentLoop ─────────────────────────────────────────────────────
 
+/**
+ * Steering block appended to the tail user message on turns whose
+ * triggering message carries `messageSource: "nav_redirect"` — a UI
+ * shortcut sent the message on the user's behalf while the user was
+ * exploring the interface. Without it the model treats the canned prompt
+ * as a hand-typed question and answers with a capability tour.
+ */
+const NAV_REDIRECT_STEERING_BLOCK =
+  "<system_reminder>\nThis message was sent by a UI shortcut while the user explored the interface, not typed by hand. Reply in a few sentences at most and end with one concrete, specific next step or question — do not enumerate capabilities or give a tour.\n</system_reminder>";
+
 export async function runAgentLoopImpl(
   ctx: Conversation,
   content: string,
@@ -272,6 +280,15 @@ export async function runAgentLoopImpl(
      * the turn.
      */
     isHiddenPrompt?: boolean;
+    /**
+     * How the triggering message was initiated when it was sent on the
+     * user's behalf by the UI rather than typed by hand (`body.source` on
+     * `POST /v1/messages`, persisted as `metadata.userMessageSource`).
+     * Current value: `"nav_redirect"`, which steers the turn toward a
+     * brief, concrete reply. Forwarded onto the user-prompt-submit hook
+     * context. Unset for hand-typed messages.
+     */
+    messageSource?: string;
     /**
      * LLM call-site identifier threaded into the per-call provider config.
      * Adapter callers (heartbeat, filing, scheduler, etc.) pass their own
@@ -367,7 +384,7 @@ export async function runAgentLoopImpl(
   // contexts (heartbeat, filing, analyze, etc.) pass their own `callSite`. The
   // provider layer resolves provider/model/maxTokens via `resolveCallSiteConfig`,
   // picking up any user overrides under `llm.callSites.<id>` (falling back to
-  // `llm.default` when absent). `resolveTurnCallSite` keeps subagent
+  // the shipped call-site defaults when absent). `resolveTurnCallSite` keeps subagent
   // conversations on `subagentSpawn` when no call site is supplied.
   const turnCallSite = resolveTurnCallSite(options?.callSite, ctx);
   // Expose the turn's call site on the live conversation so the runtime
@@ -931,21 +948,16 @@ export async function runAgentLoopImpl(
     // `modelProfileKey` is the actual profile used for this turn. The
     // notice key is narrower: it only marks turns where runtime context should
     // remind the model that the profile changed.
-    // Under override-or-default semantics the reported key must come from
-    // the same winner selection dispatch used — a hand-rolled chain would
-    // credit profiles the resolver never consulted (e.g. activeProfile on a
-    // non-mainAgent turn).
+    // The reported key must come from the same winner selection dispatch used —
+    // a hand-rolled chain would credit profiles the resolver never consulted
+    // (e.g. activeProfile on a non-mainAgent turn).
     const effectiveProfileKey =
-      (isOverrideOrDefaultResolutionEnabled()
-        ? selectWinningProfile(turnCallSite, config.llm, {
-            ...(turnOverrideProfile != null
-              ? { overrideProfile: turnOverrideProfile }
-              : {}),
-            selectionSeed: ctx.conversationId,
-          }).profileName
-        : (turnOverrideProfile ??
-          config.llm.activeProfile ??
-          resolveDefaultProfileKey("mainAgent", config.llm))) ??
+      selectWinningProfile(turnCallSite, config.llm, {
+        ...(turnOverrideProfile != null
+          ? { overrideProfile: turnOverrideProfile }
+          : {}),
+        selectionSeed: ctx.conversationId,
+      }).profileName ??
       resolveProfilelessModelKey(turnCallSite, config.llm, {
         ...(turnOverrideProfile != null
           ? { overrideProfile: turnOverrideProfile }
@@ -988,6 +1000,9 @@ export async function runAgentLoopImpl(
       requestId: reqId,
       prompt: options?.titleText ?? content,
       isHiddenPrompt: options?.isHiddenPrompt === true,
+      ...(options?.messageSource
+        ? { messageSource: options.messageSource }
+        : {}),
       originalMessages: Object.freeze([...ctx.messages]),
       latestMessages: ctx.messages,
       modelProfileKey,
@@ -999,7 +1014,29 @@ export async function runAgentLoopImpl(
       userPromptCtx,
     );
     latencyTracker.mark("prompt_hook_end");
-    const runMessages = finalUserPromptCtx.latestMessages;
+    let runMessages = finalUserPromptCtx.latestMessages;
+
+    // UI-shortcut steering: appended after the hook chain so it lands below
+    // the assembled runtime injections on the tail user message, mirroring
+    // the non-interactive block's placement in `applyRuntimeInjections`.
+    // Turn-scoped nudge, deliberately not persisted for byte-exact reload
+    // rehydration — losing it on reload costs one prefix-cache anchor, not
+    // context correctness.
+    if (options?.messageSource === "nav_redirect") {
+      const userTail = runMessages[runMessages.length - 1];
+      if (userTail && userTail.role === "user") {
+        runMessages = [
+          ...runMessages.slice(0, -1),
+          {
+            ...userTail,
+            content: [
+              ...userTail.content,
+              { type: "text" as const, text: NAV_REDIRECT_STEERING_BLOCK },
+            ],
+          },
+        ];
+      }
+    }
 
     // Reset the manager's turn-scoped overflow-recovery ladder at the turn
     // boundary so a new turn starts the ladder fresh from the emergency rung.
@@ -1590,6 +1627,21 @@ export async function runAgentLoopImpl(
       publishLoopMessagesChanged();
     }
   } finally {
+    // Clear the processing flag first. It is the release that frees the
+    // conversation for its next turn, so nothing that can throw (the
+    // turn-boundary commit, profiling) is allowed to run ahead of it and leave
+    // the row latched "mid-turn". Stamp the turn's abnormal outcome first
+    // because the telemetry reporter's settled-turn barrier only releases this
+    // turn once processing stops; null `abortController` first so a concurrent
+    // abort takes the force-clear branch rather than signalling a dead one.
+    if (abnormalOutcome) {
+      stampTurnOutcome(userMessageId, abnormalOutcome.outcome, {
+        failureCode: abnormalOutcome.failureCode,
+      });
+    }
+    ctx.abortController = null;
+    ctx.setProcessing(false);
+
     if (turnStarted) {
       ctx.turnCount++;
       const config = getConfig();
@@ -1625,24 +1677,12 @@ export async function runAgentLoopImpl(
 
     emitToolProfilingSummary(ctx.conversationId, reqId);
 
-    // Tear down this turn's per-turn state. Abort reliably drives the loop to
+    // Tear down the remaining per-turn state. Abort reliably drives the loop to
     // this `finally` within a bounded time — cooperative signal propagation
     // (provider fetch + tool race) backed by the abort watchdog — so a
     // cancelled turn always unwinds before any resend can start a new one.
     // There is therefore only ever one turn alive, and clearing the shared
     // state below cannot clobber a concurrent turn.
-    // Stamp the turn's abnormal outcome (failed / cancelled) onto its
-    // user-message row BEFORE processing clears: the telemetry reporter's
-    // settled-turn barrier only releases this turn once the conversation
-    // stops processing, so ordering the stamp first guarantees the turn
-    // event ships with the outcome. A normally-replied turn stamps nothing.
-    if (abnormalOutcome) {
-      stampTurnOutcome(userMessageId, abnormalOutcome.outcome, {
-        failureCode: abnormalOutcome.failureCode,
-      });
-    }
-    ctx.abortController = null;
-    ctx.setProcessing(false);
     ctx.onConfirmationOutcome = undefined;
     ctx.surfaceActionRequestIds.delete(ctx.currentRequestId ?? "");
     ctx.approvedViaPromptThisTurn = false;

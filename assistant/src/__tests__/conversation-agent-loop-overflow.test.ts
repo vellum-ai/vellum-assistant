@@ -12,31 +12,14 @@
  * Tests 2, 8, 9, and 10 are now active and passing against current code.
  */
 import { createRequire } from "node:module";
-import {
-  afterAll,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  mock,
-  test,
-} from "bun:test";
-
-import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
-import { setConfig } from "./helpers/set-config.js";
-
-// Legacy-shaped fixtures (llm.default-centric resolution): pinned to the
-// flag-off cascade. Override-or-default (flag-on) semantics are pinned by
-// llm-resolver-override-or-default.test.ts and its companion suites.
-beforeAll(() => {
-  setOverridesForTesting({ "override-or-default-resolution": false });
-});
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { LoopToolExecutor } from "../agent/loop.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import { resetPluginRegistryAndRegisterDefaults } from "../plugins/defaults/index.js";
 import type { Message, Provider, ToolDefinition } from "../providers/types.js";
 import { ContextOverflowError } from "../providers/types.js";
+import { setConfig } from "./helpers/set-config.js";
 
 const conversationCrudRealSnapshot = {
   ...(createRequire(import.meta.url)(
@@ -729,11 +712,14 @@ beforeEach(() => {
 describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
   test("usage update context max follows active main-agent profile budget", async () => {
     // GIVEN an active main-agent profile that narrows the context budget
+    // (complete — provider + model — so it is a usable selection winner)
     setConfig("llm", {
       activeProfile: "short-context",
       profiles: {
         "short-context": {
           source: "user",
+          provider: "anthropic",
+          model: "claude-opus-4-7",
           contextWindow: { maxInputTokens: 150_000 },
         },
       },

@@ -267,6 +267,117 @@ describe("parseResearchResultStreaming — claim evidence guards", () => {
   });
 });
 
+describe("parseResearchResultStreaming — dropped aggregator-only claims", () => {
+  const payload = (claims: unknown[]): string =>
+    JSON.stringify({ claims, suggestions: [] });
+
+  test("surfaces an aggregator-only claim's text in droppedClaims", () => {
+    // The claim is hidden from the card AND reported as dropped, so the flow can
+    // scrub the wrong-person fact from the assistant's memory (not just hide it).
+    const { claims, droppedClaims } = parseResearchResultStreaming(
+      payload([
+        {
+          claim: "Lives in Dallas",
+          confidence: "confident",
+          sources: [
+            "https://www.spokeo.com/example-user",
+            "https://profiles.beenverified.com/example-user",
+          ],
+        },
+        {
+          claim: "Founder",
+          confidence: "confident",
+          sources: ["https://linkedin.com/in/example-user"],
+        },
+      ]),
+    );
+
+    expect(claims.map((c) => c.claim)).toEqual(["Founder"]);
+    expect(droppedClaims).toEqual(["Lives in Dallas"]);
+  });
+
+  test("a claim with a real source beside an aggregator is kept, not dropped", () => {
+    const { claims, droppedClaims } = parseResearchResultStreaming(
+      payload([
+        {
+          claim: "Engineer at Acme",
+          confidence: "confident",
+          sources: [
+            "https://instantcheckmate.com/example-user",
+            "https://acme.example.com/team",
+          ],
+        },
+      ]),
+    );
+
+    expect(claims.map((c) => c.claim)).toEqual(["Engineer at Acme"]);
+    expect(droppedClaims).toEqual([]);
+  });
+
+  test("a sourceless claim is kept, never dropped", () => {
+    // Only claims that HAD sources — all of them aggregators — are dropped; a
+    // sourceless "guessing" claim is legitimate stated-info and stays.
+    const { claims, droppedClaims } = parseResearchResultStreaming(
+      payload([{ claim: "Into climbing", confidence: "guessing", sources: [] }]),
+    );
+
+    expect(claims.map((c) => c.claim)).toEqual(["Into climbing"]);
+    expect(droppedClaims).toEqual([]);
+  });
+
+  test("tracks drops on the streaming path too", () => {
+    // The hidden drop must be tracked even before the payload closes, so a
+    // mid-stream skip-to-suggestions still scrubs it from memory.
+    const partial =
+      '{ "claims": [ { "claim": "Lives in Dallas", "confidence": "confident", "sources": ["https://spokeo.com/x"] }, { "claim": "Founder", "confidence": "confident", "sources": [] }, { "claim": "half-writ';
+
+    const { claims, droppedClaims, complete } =
+      parseResearchResultStreaming(partial);
+
+    expect(complete).toBe(false);
+    expect(claims.map((c) => c.claim)).toEqual(["Founder"]);
+    expect(droppedClaims).toEqual(["Lives in Dallas"]);
+  });
+
+  test("droppedClaims is empty when nothing was dropped", () => {
+    const { droppedClaims } = parseResearchResultStreaming(
+      payload([
+        {
+          claim: "Founder",
+          confidence: "confident",
+          sources: ["https://linkedin.com/in/example-user"],
+        },
+      ]),
+    );
+
+    expect(droppedClaims).toEqual([]);
+  });
+
+  test("a claim shown with a real source is not also reported as dropped", () => {
+    // The model can emit the same claim twice — once backed by a real source
+    // (shown/kept) and once aggregator-only. The shown copy wins: the text must
+    // not surface in droppedClaims, or a memory scrub would disregard a fact the
+    // user can still see and keep on the card.
+    const { claims, droppedClaims } = parseResearchResultStreaming(
+      payload([
+        {
+          claim: "Founder of Acme",
+          confidence: "confident",
+          sources: ["https://linkedin.com/in/example-user"],
+        },
+        {
+          claim: "Founder of Acme",
+          confidence: "confident",
+          sources: ["https://www.spokeo.com/example-user"],
+        },
+      ]),
+    );
+
+    expect(claims.map((c) => c.claim)).toEqual(["Founder of Acme"]);
+    expect(droppedClaims).toEqual([]);
+  });
+});
+
 describe("pluginDisplayName", () => {
   test("title-cases a hyphenated install name", () => {
     expect(pluginDisplayName("marketing-expert")).toBe("Marketing Expert");

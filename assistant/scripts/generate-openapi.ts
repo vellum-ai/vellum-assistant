@@ -30,6 +30,14 @@ import type {
 } from "zod-openapi";
 import { createDocument } from "zod-openapi";
 
+import { jsonValueSchema } from "../src/telemetry/telemetry-wire.generated.js";
+
+// The recursive wire JSON-value schema (`claims`/`suggestions` item type) must
+// be hoisted into a named component so it can `$ref` itself; without a
+// registered id zod-openapi falls back to an anonymous `__schema0`. Name it
+// explicitly so the spec + generated SDK read as `TelemetryJsonValue`.
+z.globalRegistry.add(jsonValueSchema, { id: "TelemetryJsonValue" });
+
 const ROOT = resolve(import.meta.dir, "..");
 const ROUTES_DIR = join(ROOT, "src/runtime/routes");
 const PLUGIN_DEFAULTS_DIR = join(ROOT, "src/plugins/defaults");

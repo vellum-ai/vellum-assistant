@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
 import {
-  effectiveSttProvider,
   SttProvidersSchema,
   SttServiceSchema,
   VALID_STT_PROVIDERS,
@@ -41,40 +40,46 @@ describe("SttServiceSchema", () => {
   test("VALID_STT_PROVIDERS includes deepgram", () => {
     expect(VALID_STT_PROVIDERS).toContain("deepgram");
   });
-});
 
-describe("managed mode", () => {
-  test("accepts mode: managed with a BYOK provider preserved", () => {
-    const parsed = SttServiceSchema.parse({
-      mode: "managed",
-      provider: "deepgram",
-    });
-    expect(parsed.mode).toBe("managed");
-    expect(parsed.provider).toBe("deepgram");
+  test("normalizes the openai/whisper aliases to openai-whisper", () => {
+    expect(SttServiceSchema.parse({ provider: "openai" }).provider).toBe(
+      "openai-whisper",
+    );
+    expect(SttServiceSchema.parse({ provider: "whisper" }).provider).toBe(
+      "openai-whisper",
+    );
+    // Case- and whitespace-tolerant.
+    expect(SttServiceSchema.parse({ provider: "  OpenAI  " }).provider).toBe(
+      "openai-whisper",
+    );
   });
 
-  test("accepts provider vellum under managed mode", () => {
-    const parsed = SttServiceSchema.parse({
-      mode: "managed",
-      provider: "vellum",
-    });
+  test("a canonical provider is unchanged by the alias preprocessor", () => {
+    expect(
+      SttServiceSchema.parse({ provider: "openai-whisper" }).provider,
+    ).toBe("openai-whisper");
+  });
+
+  test("rejects an unknown provider with a helpful message", () => {
+    expect(() => SttServiceSchema.parse({ provider: "nope" })).toThrow(
+      /must be one of/,
+    );
+  });
+});
+
+describe("managed provider", () => {
+  test("accepts vellum as an ordinary provider choice", () => {
+    const parsed = SttServiceSchema.parse({ provider: "vellum" });
     expect(parsed.provider).toBe("vellum");
   });
 
-  test("rejects provider vellum under your-own mode", () => {
-    const result = SttServiceSchema.safeParse({
-      mode: "your-own",
+  // Migration 130 folds mode into provider; a stale key must not resurrect
+  // the second axis or fail the parse.
+  test("ignores a legacy mode key", () => {
+    const parsed = SttServiceSchema.parse({
+      mode: "managed",
       provider: "vellum",
     });
-    expect(result.success).toBe(false);
-  });
-
-  test("effectiveSttProvider routes managed mode to vellum and preserves BYOK otherwise", () => {
-    expect(
-      effectiveSttProvider({ mode: "managed", provider: "deepgram" }),
-    ).toBe("vellum");
-    expect(
-      effectiveSttProvider({ mode: "your-own", provider: "deepgram" }),
-    ).toBe("deepgram");
+    expect(parsed).toEqual({ provider: "vellum", providers: {} });
   });
 });

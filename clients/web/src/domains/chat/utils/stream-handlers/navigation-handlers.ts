@@ -2,13 +2,18 @@ import { dispatchOpenUrl } from "@/domains/chat/utils/oauth-popup-links";
 import { getSettingsRouteForClientTab } from "@/utils/settings-navigation";
 import { isSetupChannelId } from "@/types/channel-types";
 import { recordDiagnostic } from "@/lib/diagnostics";
+import { routes } from "@/utils/routes";
 import { submitSurfaceAction } from "@/domains/chat/api/surfaces";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
+import { useConversationStore } from "@/stores/conversation-store";
 import { useViewerStore } from "@/stores/viewer-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
+import { useSubagentStore } from "@/domains/chat/subagent-store";
+import { useWorkflowStore } from "@/domains/chat/workflow-store";
 import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types";
 import type {
   NavigateSettingsEvent,
+  OpenConversationEvent,
   OpenPanelEvent,
   OpenUrlEvent,
 } from "@vellumai/assistant-api";
@@ -37,6 +42,34 @@ export function handleOpenUrl(
       actionUrl: outcome.url,
     });
   }
+}
+
+/**
+ * Server-directed "open this conversation" command. The event's
+ * `conversationId` is the TARGET conversation (typically just created by the
+ * conversation launcher), not the stream this event travelled on — the
+ * conversation-id gate is bypassed by listing `open_conversation` as a global
+ * stream event.
+ *
+ * `focus === false` means the daemon wants the conversation registered in the
+ * sidebar without stealing focus from the origin. On web the sidebar list is
+ * driven by the conversation-list query (refreshed via `sync_changed` when a
+ * new conversation is created), so a non-focusing open needs no navigation —
+ * we simply do not switch. Any other value (including the omitted default)
+ * switches to and focuses the target, mirroring `navigateToConversation`.
+ */
+export function handleOpenConversation(
+  event: OpenConversationEvent,
+  ctx: StreamHandlerContext,
+): void {
+  if (event.focus === false) {
+    return;
+  }
+  useViewerStore.getState().setMainView("chat");
+  useSubagentStore.getState().reset();
+  useWorkflowStore.getState().reset();
+  useConversationStore.getState().setActiveConversationId(event.conversationId);
+  ctx.router.push(routes.conversation(event.conversationId));
 }
 
 export function handleNavigateSettings(

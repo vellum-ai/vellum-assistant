@@ -489,6 +489,24 @@ describe("getSpeechRelayWebsocketHandlers", () => {
     expect(ws.sent).toEqual(['{"type":"Results"}']);
   });
 
+  test("closes downstream with 1008 when pre-open buffered bytes exceed the cap", async () => {
+    FakeUpstreamWebSocket.instances = [];
+    const handlers = getSpeechRelayWebsocketHandlers();
+    const ws = new FakeDownstreamSocket(makeSocketData());
+    await handlers.open(ws as never);
+
+    // The velay leg never opens; pump binary frames up to the 1 MiB cap.
+    const frame = new Uint8Array(64 * 1024);
+    for (let i = 0; i < 16; i++) {
+      handlers.message(ws as never, frame);
+    }
+    expect(ws.closeCalled).toBeNull();
+
+    // The next frame exceeds the cap.
+    handlers.message(ws as never, frame);
+    expect(ws.closeCalled).toEqual({ code: 1008, reason: "Buffer overflow" });
+  });
+
   test("forwards upstream close codes and reasons to the daemon", async () => {
     FakeUpstreamWebSocket.instances = [];
     const handlers = getSpeechRelayWebsocketHandlers();

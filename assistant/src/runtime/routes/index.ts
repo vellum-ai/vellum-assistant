@@ -14,6 +14,7 @@ import { ROUTES as MEMORY_ITEM_ROUTES } from "../../plugins/defaults/memory/rout
 import { ROUTES as MEMORY_V2_ROUTES } from "../../plugins/defaults/memory/routes/memory-v2-routes.js";
 import { ROUTES as MEMORY_V3_ROUTES } from "../../plugins/defaults/memory/routes/memory-v3-routes.js";
 import { ROUTES as MEMORY_WORKER_ROUTES } from "../../plugins/defaults/memory/routes/memory-worker-routes.js";
+import { ROUTES as ACP_CLAUDE_AUTH_ROUTES } from "./acp-claude-auth-routes.js";
 import { ROUTES as ACP_ROUTES } from "./acp-routes.js";
 import { ROUTES as APP_MANAGEMENT_ROUTES } from "./app-management-routes.js";
 import { ROUTES as APP_ROUTES } from "./app-routes.js";
@@ -159,6 +160,7 @@ import { ROUTES as WORKSPACE_ROUTES } from "./workspace-routes.js";
 export const ROUTES: RouteDefinition[] = [
   ...ATTACHMENT_ROUTES,
   ...ACP_ROUTES,
+  ...ACP_CLAUDE_AUTH_ROUTES,
   ...APP_MANAGEMENT_ROUTES,
   ...APP_ROUTES,
   ...APPROVAL_ROUTES,

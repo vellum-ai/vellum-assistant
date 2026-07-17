@@ -20,6 +20,7 @@ interface IntelligenceSection {
  * Sub-paths (e.g. `/assistant/plugins/:name`) count as inside a section.
  */
 const CHROME_SECTIONS: readonly IntelligenceSection[] = [
+  { label: "Schedules", to: routes.schedules.root },
   { label: "Plugins", to: routes.plugins },
   { label: "Skills", to: routes.skills.root },
   { label: "Memory", to: routes.memory },
@@ -40,9 +41,9 @@ function sectionForPath(pathname: string): IntelligenceSection | null {
  * Shared layout for the "About Assistant" pages. The overview
  * (`/assistant/identity`) and the personality page render full-bleed —
  * they own their avatar-tinted stage chrome — while every other section
- * (Plugins, Skills, Memory, Workspace, Contacts, Channels) renders inside
- * the standard page shell with a back button to the overview where the
- * old tab bar used to be.
+ * (Schedules, Plugins, Skills, Memory, Workspace, Contacts, Channels)
+ * renders inside the standard page shell with a back button to the
+ * overview where the old tab bar used to be.
  *
  * Mounted as a pathless layout route in `routes.tsx` so the child routes
  * keep their existing URL paths (`/assistant/identity`, etc.) while
@@ -57,16 +58,15 @@ export function IntelligenceLayout() {
   const setTopBarCenter = useChatLayoutSlotsStore.use.setTopBarCenter();
 
   const section = sectionForPath(pathname);
-  const mobileTitle = section
-    ? section.label
-    : `About ${assistantName || "Assistant"}`;
+  const mobileTitle = section?.label ?? null;
 
-  // On mobile the title moves out of the page body and into the shared top
-  // bar — centered between the hamburger menu and the search icon. Desktop
-  // keeps the in-body <h1> (section pages only) and leaves the top-bar
-  // center empty.
+  // On mobile the section title moves out of the page body and into the
+  // shared top bar — centered between the hamburger menu and the search
+  // icon. The bare pages (overview, personality) set no title: the
+  // greeting on the stage already names the assistant. Desktop keeps the
+  // in-body <h1> (section pages only) and leaves the top-bar center empty.
   useEffect(() => {
-    if (isMobile) {
+    if (isMobile && mobileTitle) {
       setTopBarCenter(
         <Typography
           variant="body-medium-default"

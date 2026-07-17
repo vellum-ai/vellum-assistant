@@ -94,6 +94,11 @@ export function MiniAssistant({
   );
 }
 
+// Heading text shown beside the 64px avatar in the top-aligned rows below.
+// The top padding — (4rem avatar − 2.6rem line) / 2 — centers the first line
+// against the avatar while wrapped lines flow below without moving it.
+const AVATAR_HEADING_CLASS = "pt-[0.7rem] text-[2.6rem] leading-none";
+
 // ---------------------------------------------------------------------------
 // Meeting Created
 // ---------------------------------------------------------------------------
@@ -208,7 +213,7 @@ export function MeetingCreatedStep({
           )}
         </div>
         <motion.span
-          className="text-[2.6rem] leading-none"
+          className={AVATAR_HEADING_CLASS}
           style={{ fontFamily: "var(--font-serif)" }}
           initial={reduce ? false : { opacity: 0, x: -8 }}
           animate={{ opacity: 1, x: 0 }}
@@ -301,13 +306,14 @@ export function LookingYouUpStep({
     <div className="absolute inset-0 z-10" style={{ color: tone.fg }}>
       <OnboardingTopBar onBack={onBack} onNext={onForward} />
       {/* Top-align so the avatar stays put as messages change line count
-          (centering would bob it up and down between carousel lines). */}
+          (row-centering would bob it up and down between carousel lines);
+          AVATAR_HEADING_CLASS centers the first line against the avatar. */}
       <div className="absolute left-1/2 top-[14%] sm:top-[26%] flex w-full max-w-xl -translate-x-1/2 items-start gap-3 px-6">
         <MiniAssistant isAssistantBusy />
         <AnimatePresence mode="wait">
           <motion.p
             key={index}
-            className="text-[2.6rem] leading-none"
+            className={AVATAR_HEADING_CLASS}
             style={{ fontFamily: "var(--font-serif)" }}
             initial={{ y: 12, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
@@ -373,7 +379,7 @@ export function FinishingUpStep({
         <AnimatePresence mode="wait">
           <motion.p
             key={index}
-            className="text-[2.6rem] leading-none"
+            className={AVATAR_HEADING_CLASS}
             style={{ fontFamily: "var(--font-serif)" }}
             initial={{ y: 12, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
@@ -876,8 +882,9 @@ export function SuggestionsStep({
 // ---------------------------------------------------------------------------
 
 /**
- * Terminal step for the personality-onboarding flow (replaces SuggestionsStep
- * when that flag is on). The suggestions idea is retired: instead this confirms
+ * Terminal step for the research-onboarding flow (replaces SuggestionsStep,
+ * now that the "Create my personality" step is always on). The suggestions idea
+ * is retired: instead this confirms
  * the capabilities already set up for the assistant — chosen from the user's
  * role, hobby, and what the web research surfaced — and offers a single "Let's
  * chat" button. Clicking primes a fresh chat with a hidden kickoff message so
@@ -894,6 +901,7 @@ export function LetsChatReadyStep({
   onStart,
   onBack,
   onForward,
+  disabled = false,
 }: {
   /**
    * Capabilities installed for the assistant this run (deterministic floor +
@@ -912,6 +920,12 @@ export function LetsChatReadyStep({
   onBack: () => void;
   /** Redo into this step — only set when the user has stepped back. */
   onForward?: () => void;
+  /**
+   * Externally hold the "Let's chat" CTA (e.g. a resumed completed journey
+   * still waiting on the established-assistant guard). Disables the button and
+   * no-ops the handoff until cleared, so the CTA can't fire before the verdict.
+   */
+  disabled?: boolean;
 }) {
   // Constant dark surface for the UI (the plugin cards match the facts cards).
   const tone = DARK_TONE;
@@ -973,7 +987,9 @@ export function LetsChatReadyStep({
   }, [noteY, flown]);
 
   const handleStart = () => {
-    if (starting) return;
+    if (starting || disabled) {
+      return;
+    }
     setStarting(true);
     // If the handoff rejects, re-enable the button so the user can retry.
     void Promise.resolve()
@@ -1073,7 +1089,7 @@ export function LetsChatReadyStep({
         <button
           type="button"
           onClick={handleStart}
-          disabled={starting}
+          disabled={starting || disabled}
           className="mt-16 flex cursor-pointer h-11 w-[200px] items-center justify-center gap-2 rounded-[10px] text-body-medium-default transition duration-150 enabled:active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-60"
           style={{
             backgroundColor: tone.isLight ? "#1A1A1A" : "#FFFFFF",

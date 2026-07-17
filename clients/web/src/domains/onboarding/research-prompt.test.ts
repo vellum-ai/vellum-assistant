@@ -19,8 +19,35 @@ const SUBJECT = {
   firstName: "Ada",
   lastName: "Lovelace",
   occupation: "Technical founder",
-  hobby: "chess",
+  hobbies: ["chess"],
 };
+
+describe("buildResearchPrompt — hobbies rendering", () => {
+  test("joins multiple hobbies into the stated-details sentence", () => {
+    const prompt = buildResearchPrompt({
+      ...SUBJECT,
+      hobbies: ["chess", "gardening"],
+    });
+    expect(prompt).toContain("My hobby is chess, gardening.");
+  });
+
+  test("omits the hobby sentence when no hobbies were picked", () => {
+    expect(buildResearchPrompt({ ...SUBJECT, hobbies: [] })).not.toContain(
+      "My hobby is",
+    );
+    expect(
+      buildResearchPrompt({ ...SUBJECT, hobbies: undefined }),
+    ).not.toContain("My hobby is");
+  });
+
+  test("drops blank chips rather than rendering empty list items", () => {
+    const prompt = buildResearchPrompt({
+      ...SUBJECT,
+      hobbies: ["chess", "   ", ""],
+    });
+    expect(prompt).toContain("My hobby is chess.");
+  });
+});
 
 describe("buildResearchPrompt — capabilities", () => {
   test("omits the capabilities block when no catalog is passed", () => {

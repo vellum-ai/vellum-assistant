@@ -35,7 +35,7 @@ import { client as daemonClient } from "@/generated/daemon/client.gen";
 import { client as gatewayClient } from "@/generated/gateway/client.gen";
 import { ensureCsrfCookie, getCsrfToken } from "@/lib/auth/csrf";
 import { clearGatewayToken } from "@/lib/auth/gateway-session";
-import { ApiError, extractErrorMessage } from "@/utils/api-errors";
+import { ApiError, toApiError } from "@/utils/api-errors";
 import {
   isLocalMode,
   isPlatformDisabled,
@@ -470,10 +470,7 @@ export function daemonErrorInterceptor(
   if (!options.throwOnError) return error;
   if (error instanceof ApiError) return error;
   if (!response || response.ok) return error;
-  return new ApiError(
-    response.status,
-    extractErrorMessage(error, response, `HTTP ${response.status}`),
-  );
+  return toApiError(error, response);
 }
 
 daemonClient.interceptors.request.use(daemonRequestInterceptor);

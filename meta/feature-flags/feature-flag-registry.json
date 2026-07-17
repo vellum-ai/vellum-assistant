@@ -10,18 +10,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "pre-chat-onboarding-experiment-2026-06-06",
-      "scope": "client",
-      "key": "pre-chat-onboarding-experiment-2026-06-06",
-      "label": "Pre-chat Onboarding Experiment 2026-06-06",
-      "description": "Pre-chat onboarding experiment with control and variant-a arms. Control shows the full funnel; variant-a shows the condensed pared-down flow.",
-      "defaultEnabled": "control",
-      "values": [
-        "control",
-        "variant-a"
-      ]
-    },
-    {
       "id": "experiment-activation-flow-2026-06-03",
       "scope": "both",
       "key": "experiment-activation-flow-2026-06-03",
@@ -120,6 +108,14 @@
       "key": "voice-triage-escalate",
       "label": "Voice Triage & Escalate",
       "description": "Front phone-call turns with a fast model that answers simple turns and escalates tricky ones to the quality model, cutting perceived latency",
+      "defaultEnabled": false
+    },
+    {
+      "id": "voice-duplex-handoff",
+      "scope": "assistant",
+      "key": "voice-duplex-handoff",
+      "label": "Voice Duplex Handoff",
+      "description": "When a user barges in during live voice, keep the interrupted turn running as a background subagent instead of discarding it (true-duplex handoff)",
       "defaultEnabled": false
     },
     {
@@ -315,22 +311,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "research-onboarding",
-      "scope": "client",
-      "key": "research-onboarding",
-      "label": "Research onboarding (spike)",
-      "description": "Spike: replace pre-chat onboarding with a web-research \"here's what I know about you\" flow, including a Google Calendar \"Let's chat tomorrow\" step shown over the streaming research. Gates the /assistant/onboarding/research route and the research mock harness. Off by default; enable locally via the feature-flags panel.",
-      "defaultEnabled": false
-    },
-    {
-      "id": "personality-onboarding",
-      "scope": "client",
-      "key": "personality-onboarding",
-      "label": "Personality onboarding step (spike)",
-      "description": "Spike: show the \"Create my personality\" trait-slider step in the research-onboarding flow (between the pitch and the integration step). On continue it applies the sliders to the assistant's persona on a throwaway side conversation. When off, the step is skipped entirely. Off by default; enable locally via the feature-flags panel.",
-      "defaultEnabled": false
-    },
-    {
       "id": "channel-trust-floors",
       "scope": "assistant",
       "key": "channel-trust-floors",
@@ -387,28 +367,25 @@
       "defaultEnabled": false
     },
     {
-      "id": "summarize-up-to-here",
-      "scope": "both",
-      "key": "summarize-up-to-here",
-      "label": "Summarize Up To Here",
-      "description": "Show the per-message Summarize up to here action and enable the conversation summarize endpoint",
-      "defaultEnabled": false
-    },
-    {
-      "id": "override-or-default-resolution",
-      "scope": "assistant",
-      "key": "override-or-default-resolution",
-      "label": "Override-or-Default Profile Resolution",
-      "description": "Resolve inference profiles as single complete overrides (or the call site's default intent through the default provider) instead of the legacy deep-merge cascade. Ships enabled; disable as a kill switch to restore merge semantics.",
-      "defaultEnabled": true
-    },
-    {
       "id": "chat-credential-reveal",
       "scope": "assistant",
       "key": "chat-credential-reveal",
       "label": "Chat Credential Reveal",
-      "description": "Persist chat secret redactions as sentinel markers instead of the legacy HTML marker, enriched with the vault identity when the value byte-matches a credential revealed this turn. Render support in clients is unconditional; this flag gates only the daemon persist format.",
+      "description": "Persist chat secret redactions as sentinel markers instead of the legacy HTML marker, enriched with the vault identity when the value byte-matches a credential revealed this turn. Also gates the `credentials reveal --for-chat` channel and the live-stream swap that replaces an echoed reveal plaintext with its sentinel before emission. Redaction itself is NOT gated: a route-proven reveal plaintext stays out of persisted rows in both modes. Client chip rendering is gated on daemon version, not on this flag.",
       "defaultEnabled": false
+    },
+    {
+      "id": "sidenav-gating-experiment-2026-07-16",
+      "scope": "client",
+      "key": "sidenav-gating-experiment-2026-07-16",
+      "label": "Sidenav Gating Experiment 2026-07-16",
+      "description": "First-session sidenav gating experiment (activation). none = not in cohort (default; no gating, no experiment events); control = cohort control (current experience, experiment events emit); gated = sidenav items disabled until 1/5 sent messages with avatar-bubble redirects. Cohort (new signups, 50/50 control-vs-gated) targeted via LaunchDarkly.",
+      "defaultEnabled": "none",
+      "values": [
+        "none",
+        "control",
+        "gated"
+      ]
     }
   ]
 }

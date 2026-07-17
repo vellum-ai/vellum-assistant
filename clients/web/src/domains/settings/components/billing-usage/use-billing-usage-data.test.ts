@@ -9,6 +9,7 @@ import {
   buildBillingUsageSeriesQuery,
   buildBillingUsageTotalsQuery,
   getDefaultDateRange,
+  isBillingUsageDataEnabled,
   type UsageChartState,
 } from "./use-billing-usage-data";
 
@@ -43,6 +44,38 @@ describe("buildBillingUsageTotalsQuery", () => {
     expect(query.tz).toBe("America/New_York");
     expect(query.from).toBe("2026-01-01");
     expect(query.to).toBe("2026-01-31");
+  });
+});
+
+describe("isBillingUsageDataEnabled", () => {
+  // Signature: (platformGate, reachabilityGate, isPlatformHosted).
+  test("enables the queries only for a positively-resolved platform-hosted assistant with the platform API reachable", () => {
+    expect(isBillingUsageDataEnabled("full", "full", true)).toBe(true);
+  });
+
+  test("stays disabled while the gate is 'full' but hosting is not yet resolved", () => {
+    // The platformHostedOnly gate reports "full" during the lifecycle loading
+    // window; the strict isPlatformHosted check is what blocks a doomed fetch.
+    expect(isBillingUsageDataEnabled("full", "full", false)).toBe(false);
+  });
+
+  test("stays disabled when the platform API is unreachable (VELLUM_DISABLE_PLATFORM)", () => {
+    // platformHostedOnly ignores VELLUM_DISABLE_PLATFORM and can report "full"
+    // for a platform-hosted assistant even when platformFeaturesGate aborts the
+    // request. The reachability gate ("gated") is what prevents the doomed
+    // fetch and keeps the chart hidden, matching how the Billing tab hides
+    // itself for the same state.
+    expect(isBillingUsageDataEnabled("full", "gated", true)).toBe(false);
+  });
+
+  test("stays disabled for a self-hosted assistant (gate 'gated')", () => {
+    expect(isBillingUsageDataEnabled("gated", "gated", false)).toBe(false);
+    expect(isBillingUsageDataEnabled("gated", "gated", true)).toBe(false);
+  });
+
+  test("stays disabled with no platform session (gate 'disabled')", () => {
+    expect(isBillingUsageDataEnabled("disabled", "disabled", false)).toBe(false);
+    expect(isBillingUsageDataEnabled("disabled", "disabled", true)).toBe(false);
   });
 });
 

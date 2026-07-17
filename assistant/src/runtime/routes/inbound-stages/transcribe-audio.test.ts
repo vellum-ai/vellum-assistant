@@ -32,7 +32,9 @@ mock.module("../../../providers/speech-to-text/resolve.js", () => ({
 
 mock.module("../../../stt/daemon-batch-transcriber.js", () => ({
   normalizeSttError: (err: unknown): SttError => {
-    if (err instanceof SttError) return err;
+    if (err instanceof SttError) {
+      return err;
+    }
     const message = err instanceof Error ? err.message : String(err);
     if (err instanceof Error && err.name === "AbortError") {
       return new SttError("timeout", message);
@@ -151,7 +153,7 @@ describe("tryTranscribeAudioAttachments", () => {
     expect(reason).not.toContain("OpenAI");
   });
 
-  test("API failure returns error with reason", async () => {
+  test("API failure returns a friendly, non-raw reason naming the provider", async () => {
     const audio = makeAudioAttachment("a1");
     mockAttachments = [audio];
     mockTranscriber = {
@@ -165,9 +167,85 @@ describe("tryTranscribeAudioAttachments", () => {
     const result = await tryTranscribeAudioAttachments(["a1"]);
 
     expect(result.status).toBe("error");
-    expect((result as { reason: string }).reason).toBe(
-      "API rate limit exceeded",
-    );
+    const reason = (result as { reason: string }).reason;
+    // Friendly copy replaces the raw provider string.
+    expect(reason).not.toContain("API rate limit exceeded");
+    expect(reason).toContain("OpenAI Whisper");
+  });
+
+  test("auth failure returns a friendly, JSON-free reason that names the API key", async () => {
+    const audio = makeAudioAttachment("a1");
+    mockAttachments = [audio];
+    mockTranscriber = {
+      providerId: "deepgram",
+      boundaryId: "daemon-batch",
+      transcribe: async () => {
+        // Mocked normalizeSttError returns an SttError as-is, so throw the
+        // categorized error directly (a plain 401 string would classify as
+        // provider-error under the simplified mock).
+        throw new SttError(
+          "auth",
+          'Deepgram API error (401): {"err_code":"INVALID_AUTH"}',
+        );
+      },
+    };
+
+    const result = await tryTranscribeAudioAttachments(["a1"]);
+
+    expect(result.status).toBe("error");
+    const reason = (result as { reason: string }).reason;
+    expect(reason).not.toContain("{");
+    expect(reason).not.toContain("INVALID_AUTH");
+    expect(reason).toContain("API key");
+    expect(reason).toContain("Deepgram");
+  });
+
+  test("managed auth failure surfaces its remediation, not the BYOK API-key rewrite", async () => {
+    const audio = makeAudioAttachment("a1");
+    mockAttachments = [audio];
+    const managedMessage =
+      "Managed speech needs a working Vellum platform connection — reconnect with 'assistant platform connect'.";
+    mockTranscriber = {
+      providerId: "vellum",
+      boundaryId: "daemon-batch",
+      transcribe: async () => {
+        // Managed adapters flag their SttError userFacing so the friendly
+        // copy layer passes the message through verbatim.
+        throw new SttError("auth", managedMessage, { userFacing: true });
+      },
+    };
+
+    const result = await tryTranscribeAudioAttachments(["a1"]);
+
+    expect(result.status).toBe("error");
+    const reason = (result as { reason: string }).reason;
+    expect(reason).toBe(managedMessage);
+    // Managed users have no STT key — the BYOK rewrite must not appear.
+    expect(reason).not.toContain("API key");
+    expect(reason).not.toContain("Settings → Voice");
+  });
+
+  test("managed credits-exhausted failure is not hidden behind generic copy", async () => {
+    const audio = makeAudioAttachment("a1");
+    mockAttachments = [audio];
+    const creditsMessage =
+      "Vellum credits are exhausted — add funds to your Vellum account to continue using managed transcription.";
+    mockTranscriber = {
+      providerId: "vellum",
+      boundaryId: "daemon-batch",
+      transcribe: async () => {
+        throw new SttError("provider-error", creditsMessage, {
+          userFacing: true,
+        });
+      },
+    };
+
+    const result = await tryTranscribeAudioAttachments(["a1"]);
+
+    expect(result.status).toBe("error");
+    const reason = (result as { reason: string }).reason;
+    expect(reason).toBe(creditsMessage);
+    expect(reason).not.toContain("returned an error while transcribing");
   });
 
   test("30-second timeout fires and returns error without blocking", async () => {
@@ -184,7 +262,7 @@ describe("tryTranscribeAudioAttachments", () => {
     const result = await tryTranscribeAudioAttachments(["a1"]);
 
     expect(result.status).toBe("error");
-    expect((result as { reason: string }).reason).toBe(
+    expect((result as { reason: string }).reason).toContain(
       "Transcription timed out",
     );
   });

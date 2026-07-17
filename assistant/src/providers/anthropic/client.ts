@@ -1514,6 +1514,7 @@ export class AnthropicProvider implements Provider {
           this.fromAnthropicBlock(block),
         ),
         model: response.model,
+        resolvedEndpoint: this.client.baseURL,
         usage: {
           inputTokens:
             response.usage.input_tokens +

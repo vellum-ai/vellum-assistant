@@ -17,7 +17,6 @@ import {
   useBookmarkToggle,
   useIsBookmarked,
 } from "@/hooks/use-bookmarks";
-import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { BottomSheet, PanelItem } from "@vellumai/design-library";
 
 type MessageLongPressActionsProps = MessageHoverActionsProps & {
@@ -52,9 +51,6 @@ export function MessageLongPressActions({
     Boolean(conversationId) &&
     Boolean(message.id) &&
     !message.isOptimistic;
-
-  const summarizeUpToHereEnabled =
-    useClientFeatureFlagStore.use.summarizeUpToHere();
 
   const content = useMemo(() => messagePlainText(message), [message]);
 
@@ -144,7 +140,7 @@ export function MessageLongPressActions({
     );
   }
 
-  if (onSummarizeUpToHere && summarizeUpToHereEnabled) {
+  if (onSummarizeUpToHere) {
     items.push(
       buildItem({
         key: "summarize",

@@ -146,6 +146,18 @@ describe("mapRuntimeToDisplayMessage", () => {
     );
   });
 
+  test("flags a systemCard message as isSystemCard", () => {
+    const plain = makeMessage({ id: "m-plain", role: "assistant" });
+    expect(mapRuntimeToDisplayMessage(plain).isSystemCard).toBeUndefined();
+
+    const m = makeMessage({
+      id: "m-card",
+      role: "assistant",
+      systemCard: true,
+    });
+    expect(mapRuntimeToDisplayMessage(m).isSystemCard).toBe(true);
+  });
+
   test("carries server thinkingSegments and contentOrder onto the display message", () => {
     // GIVEN a persisted assistant message whose reasoning is reconstructed
     // from history as `thinkingSegments` + a `thinking` content-order entry

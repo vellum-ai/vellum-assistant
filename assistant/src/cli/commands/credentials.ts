@@ -500,6 +500,23 @@ export function registerCredentialsCommand(program: Command): void {
               process.exitCode = 130;
               return;
             }
+            // The daemon declined to prompt because a first-class in-app
+            // surface (the inline Connect Claude card) owns this credential.
+            // Neither an error nor a cancel: surface the guidance and exit 0 so
+            // the model defers to the card instead of retrying. This only fires
+            // in an interactive conversation, never a headless setup-skill chain.
+            if (ipc.result?.redirected) {
+              if (shouldOutputJson(cmd)) {
+                writeOutput(cmd, ipc.result);
+              } else {
+                log.info(
+                  ipc.result.message ??
+                    "The app is handling this credential via the inline Connect card.",
+                );
+              }
+              process.exitCode = 0;
+              return;
+            }
             writeError(cmd, ipc.result?.error ?? "Credential prompt failed");
             process.exitCode = 1;
             return;

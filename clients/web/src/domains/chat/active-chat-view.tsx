@@ -19,9 +19,9 @@ import { useParams, useSearchParams } from "react-router";
 
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import { useAutoGreetGate } from "@/domains/chat/hooks/use-auto-greet-gate";
+import { useNavGateStore } from "@/domains/chat/nav-gate/nav-gate-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useAuthStore } from "@/stores/auth-store";
-import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useActiveConversation } from "@/domains/chat/hooks/use-active-conversation";
 import { useViewerStore } from "@/stores/viewer-store";
@@ -50,11 +50,14 @@ import { useDraftPersistence } from "@/domains/chat/hooks/use-draft-persistence"
 import { useOnboardingOrchestrator } from "@/domains/chat/hooks/use-onboarding-orchestrator";
 
 import { useConversationSecondaryActions } from "@/domains/chat/hooks/use-conversation-secondary-actions";
+import { useSupportsSummarizeUpToHere } from "@/lib/backwards-compat/use-supports-summarize-up-to-here";
 import { useCanUseLlmInspector } from "@/domains/chat/inspector/access";
 import { useSendMessage } from "@/domains/chat/hooks/use-send-message";
 import { useMessageLifecycle } from "@/domains/chat/hooks/use-message-lifecycle";
 import { useActiveAppPinSync } from "@/domains/chat/hooks/use-active-app-pin-sync";
+import { useAcpAutoContinue } from "@/domains/chat/hooks/use-acp-auto-continue";
 import { useDeepLinkConsumer } from "@/domains/chat/hooks/use-deep-link-consumer";
+import { ACP_CONNECT_CONTINUE_PROMPT } from "@/domains/chat/utils/acp-connect";
 
 import { useChatDebugRegistration } from "@/domains/chat/hooks/use-chat-debug-registration";
 import { useDeepLinkApp } from "@/domains/chat/hooks/use-deep-link-app";
@@ -303,6 +306,16 @@ export function ActiveChatView() {
       peekPendingPreChatContext()?.initialMessageHidden === true,
   });
 
+  // Auto-continue after the inline "Connect Claude Code" card finishes: the card
+  // flips a store flag (it can't reach `sendMessage`), and here we turn that into
+  // a hidden continuation send so the assistant re-runs the failed spawn without
+  // the user typing "retry".
+  const sendAcpContinue = useCallback(
+    () => void sendMessage(ACP_CONNECT_CONTINUE_PROMPT, [], { hidden: true }),
+    [sendMessage],
+  );
+  useAcpAutoContinue(sendAcpContinue);
+
   // Onboarding deep-link attribution: emit the research-onboarding check-in
   // funnel step when the user lands here from the Day-2 calendar event's CTA.
   useOnboardingAttribution({
@@ -329,6 +342,18 @@ export function ActiveChatView() {
     useOnboardingFocusStore.getState().clearFollowup();
     void sendMessage(pendingFollowupMessage);
   }, [pendingFollowupMessage, sendMessage]);
+
+  // Sidenav-gating experiment: a gated item's bubble button staged a message
+  // to send on the user's behalf. Same one-shot channel as the follow-up
+  // above; tagged so analytics can tell these apart from typed messages.
+  const pendingNavGateSend = useNavGateStore.use.pendingSend();
+  useEffect(() => {
+    if (!pendingNavGateSend) return;
+    if (isSending(useTurnStore.getState().phase)) return;
+    const pending = useNavGateStore.getState().consumePendingSend();
+    if (!pending) return;
+    void sendMessage(pending.text, [], { source: "nav_redirect" });
+  }, [pendingNavGateSend, sendMessage]);
 
   // Post-hatch "Connecting…" overlay lifecycle — pre-chat detector,
   // messages-arrived clear, safety timer, conversation-switch clear.
@@ -402,12 +427,11 @@ export function ActiveChatView() {
   // "Summarize up to here" confirm dialog. The hover action only records the
   // target message; the POST fires from the dialog's confirm button — a
   // misfired summarize mutates the assistant's live context with no undo, so
-  // it always goes through an explicit confirmation. Gated by the
-  // `summarize-up-to-here` flag at the callback source: with the flag off no
-  // `onSummarizeUpToHere` is provided, so the hover button never renders and
-  // the dialog is unreachable.
-  const summarizeUpToHereEnabled =
-    useClientFeatureFlagStore.use.summarizeUpToHere();
+  // it always goes through an explicit confirmation. Version-gated at the
+  // callback source: assistants below the endpoint's release get no
+  // `onSummarizeUpToHere`, so the hover button never renders and the dialog
+  // is unreachable.
+  const supportsSummarizeUpToHere = useSupportsSummarizeUpToHere();
   const [pendingSummarizeMessageId, setPendingSummarizeMessageId] =
     useState<string | null>(null);
   const [summarizePending, setSummarizePending] = useState(false);
@@ -491,7 +515,7 @@ export function ActiveChatView() {
 
     // Conversation secondary actions
     handleForkConversation,
-    onSummarizeUpToHere: summarizeUpToHereEnabled
+    onSummarizeUpToHere: supportsSummarizeUpToHere
       ? handleSummarizeUpToHere
       : undefined,
     handleInspectMessage: showLlmInspector ? handleInspectMessage : undefined,

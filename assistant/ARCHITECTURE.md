@@ -1944,7 +1944,7 @@ Connected channels are resolved at signal emission time: vellum is always includ
 
 **Audit trail (SQLite):** `notification_events` → `notification_decisions` (with `conversationActions` in validation results) → `notification_deliveries` (with `conversation_id`, `message_id`, `conversation_strategy`, `conversation_action`, `conversation_target_id`, `conversation_fallback_used`)
 
-**Configuration:** `llm.callSites.notificationDecision` (decision engine) and `llm.callSites.preferenceExtraction` (preference extractor) in `config.json`. Both fall back to `llm.default` when unset.
+**Configuration:** `llm.callSites.notificationDecision` (decision engine) and `llm.callSites.preferenceExtraction` (preference extractor) in `config.json`. Both fall back to their shipped call-site defaults when unset.
 
 ---
 
@@ -2053,8 +2053,7 @@ A parallel **client artifact** (`meta/tts-provider-catalog.json`) captures the s
 
 | Field                         | Type   | Default        | Description                                               |
 | ----------------------------- | ------ | -------------- | --------------------------------------------------------- |
-| `services.tts.mode`           | enum   | `"your-own"`   | Service mode (only `"your-own"` is supported)             |
-| `services.tts.provider`       | enum   | `"elevenlabs"` | Active TTS provider (must be a catalog-known provider ID) |
+| `services.tts.provider`       | enum   | `"elevenlabs"` | Active TTS provider (must be a catalog-known provider ID); `"vellum"` = platform-managed |
 | `services.tts.providers.<id>` | object | _(defaults)_   | Provider-specific settings, one block per catalog entry   |
 
 Provider-specific config is nested under `services.tts.providers.<id>`. All legacy top-level keys (`elevenlabs.*`, `fishAudio.*`) were removed by workspace migration 032 — only canonical `services.tts` paths are supported at runtime.

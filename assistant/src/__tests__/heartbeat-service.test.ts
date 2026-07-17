@@ -325,33 +325,6 @@ const SCAFFOLD_PERSONA = stripCommentLines(GUARDIAN_PERSONA_TEMPLATE).trim();
 const { resolveCallSiteConfig } = await import("../config/llm-resolver.js");
 const { LLMSchema } = await import("../config/schemas/llm.js");
 
-// Minimal fully-specified `llm.default` block. The resolver requires every
-// `LLMConfigBase` field to be present in `default`, so we provide the same
-// fixture the resolver test suite uses.
-const LLM_DEFAULT = {
-  provider: "anthropic" as const,
-  model: "claude-opus-4-7",
-  maxTokens: 64000,
-  effort: "max" as const,
-  speed: "standard" as const,
-  temperature: null,
-  thinking: { enabled: true, streamThinking: true },
-  contextWindow: {
-    enabled: true,
-    maxInputTokens: 200000,
-    targetBudgetRatio: 0.3,
-    compactThreshold: 0.8,
-    summaryBudgetRatio: 0.05,
-    overflowRecovery: {
-      enabled: true,
-      safetyMarginRatio: 0.05,
-      maxAttempts: 3,
-      interactiveLatestTurnCompression: "summarize" as const,
-      nonInteractiveLatestTurnCompression: "truncate" as const,
-    },
-  },
-};
-
 // Capture broadcastMessage so tests can observe the alerts and
 // conversation-created events the heartbeat service emits directly.
 type BroadcastedMessage = { type: string; [key: string]: unknown };
@@ -808,7 +781,6 @@ describe("HeartbeatService", () => {
     // processMessage, and (b) the resolver maps that identifier to the
     // user's configured speed.
     const llm = LLMSchema.parse({
-      default: LLM_DEFAULT,
       callSites: {
         heartbeatAgent: { speed: "fast" },
       },

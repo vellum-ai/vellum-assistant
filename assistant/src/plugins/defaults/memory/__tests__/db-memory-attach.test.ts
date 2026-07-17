@@ -8,9 +8,11 @@
  *      the *main* WAL is exactly what this split exists to prevent.
  *   2. The main connection no longer ATTACHes the memory file: there is no
  *      `memory` schema on its `database_list`.
- *   3. The relocated memory tables (`memory_jobs`, `memory_v2_injection_events`)
- *      live in the dedicated memory connection, not in the main connection —
- *      proving the physical split.
+ *   3. The relocated memory tables (`memory_jobs`, `memory_v2_injection_events`,
+ *      `memory_v2_activation_logs`, `memory_recall_logs`,
+ *      `memory_v3_selections`, `activation_sessions`) live in the dedicated
+ *      memory connection, not in the main connection — proving the physical
+ *      split.
  *   4. `runAsyncSqlite({ dbPath })` targets the given file via the sqlite3
  *      CLI backend, leaving the main DB untouched.
  */
@@ -52,26 +54,30 @@ describe("memory database connection", () => {
     expect(attached.some((e) => e.name === "memory")).toBe(false);
   });
 
-  test.each(["memory_jobs", "memory_v2_injection_events"])(
-    "%s lives in the memory connection, not main",
-    (table) => {
-      const inMemory = getMemorySqlite()!
-        .query<
-          { name: string },
-          [string]
-        >(`SELECT name FROM sqlite_master WHERE type='table' AND name = ?`)
-        .get(table);
-      expect(inMemory?.name).toBe(table);
+  test.each([
+    "memory_jobs",
+    "memory_v2_injection_events",
+    "memory_v2_activation_logs",
+    "memory_recall_logs",
+    "memory_v3_selections",
+    "activation_sessions",
+  ])("%s lives in the memory connection, not main", (table) => {
+    const inMemory = getMemorySqlite()!
+      .query<
+        { name: string },
+        [string]
+      >(`SELECT name FROM sqlite_master WHERE type='table' AND name = ?`)
+      .get(table);
+    expect(inMemory?.name).toBe(table);
 
-      const inMain = getSqlite()
-        .query<
-          { name: string },
-          [string]
-        >(`SELECT name FROM main.sqlite_master WHERE name = ?`)
-        .get(table);
-      expect(inMain).toBeNull();
-    },
-  );
+    const inMain = getSqlite()
+      .query<
+        { name: string },
+        [string]
+      >(`SELECT name FROM main.sqlite_master WHERE name = ?`)
+      .get(table);
+    expect(inMain).toBeNull();
+  });
 
   test.if(sqlite3Available)(
     "runAsyncSqlite({ dbPath }) targets the given file, not the main DB",

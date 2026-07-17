@@ -42,6 +42,7 @@ mock.module("@/hooks/conversation-queries", () => ({
   useConversationListQuery: () => ({ conversations: conversationsImpl }),
   useBackgroundConversationListQuery: () => ({ conversations: [] }),
   useScheduledConversationListQuery: () => ({ conversations: [] }),
+  useArchivedConversationListQuery: () => ({ conversations: [] }),
 }));
 
 mock.module("@/utils/conversation-cache-mutations", () => ({

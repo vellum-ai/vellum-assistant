@@ -75,6 +75,7 @@ const PROVIDER_LABELS: Record<LlmProviderId, string> = {
   minimax: "MiniMax",
   atlascloud: "Atlas Cloud",
   together: "Together AI",
+  baseten: "Baseten",
 };
 
 export function formatProviderName(provider: LlmProviderId): string {
@@ -189,6 +190,9 @@ export function inferProviderFromModel(model: string): string | undefined {
   }
   if (model.startsWith("deepseek-ai/")) {
     return "atlascloud";
+  }
+  if (model.startsWith("thinkingmachines/")) {
+    return "baseten";
   }
   if (model.includes("/")) {
     return "openrouter";

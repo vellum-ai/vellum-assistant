@@ -478,6 +478,7 @@ export type PostChatMessageOptions = Pick<
   | "inferenceProfile"
   | "enabledPlugins"
   | "hidden"
+  | "source"
 > & {
   /** PreChat onboarding context — see the `postChatMessage` docs. */
   onboarding?: PreChatOnboardingContext;
@@ -500,9 +501,9 @@ export type PostChatMessageOptions = Pick<
  *     `undefined`). Empty strings ARE preserved on the wire — Swift's
  *     `if let` semantics in `MessageClient.swift` accept any non-nil value
  *     including `""`, so producers that intend to omit the field should
- *     pass `undefined` explicitly. The current caller (`PreChatFlow`)
- *     trims-or-undefined before calling, so the empty-string path is
- *     latent today; if it ever fires, the daemon sees the empty string.
+ *     pass `undefined` explicitly. Current callers trim-or-undefined
+ *     before calling, so the empty-string path is latent today; if it
+ *     ever fires, the daemon sees the empty string.
  */
 export async function postChatMessage(
   assistantId: string,
@@ -517,6 +518,7 @@ export async function postChatMessage(
     inferenceProfile,
     enabledPlugins,
     hidden,
+    source,
   } = options;
   // Wire-field selection picks exactly one of `conversationId` (0.8.6+
   // strict internal-id lookup) or `conversationKey` (legacy
@@ -591,6 +593,13 @@ export async function postChatMessage(
   if (hidden) {
     body.hidden = true;
   }
+  // Origin tag for system-initiated sends the user clicked but didn't type
+  // (e.g. "nav_redirect" from the sidenav-gate bubbles). The daemon stamps it
+  // into message metadata for funnel filtering and steers the reply; older
+  // daemons ignore the field, so no version gate is needed.
+  if (source) {
+    body.source = source;
+  }
   const normalizedOnboarding = onboarding
     ? normalizePreChatOnboardingContext(onboarding)
     : undefined;
@@ -627,6 +636,8 @@ export async function postChatMessage(
       onboardingDict.initialMessage = normalizedOnboarding.initialMessage;
     if (normalizedOnboarding.skills !== undefined)
       onboardingDict.skills = normalizedOnboarding.skills;
+    if (normalizedOnboarding.researchFindings !== undefined)
+      onboardingDict.researchFindings = normalizedOnboarding.researchFindings;
     if (normalizedOnboarding.title !== undefined)
       onboardingDict.title = normalizedOnboarding.title;
     body.onboarding = onboardingDict;

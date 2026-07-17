@@ -6,19 +6,21 @@ metadata:
   vellum:
     display-name: "App Builder"
     category: "development"
+    includes: ["frontend-design"]
     activation-hints:
       - "User asks to build a dashboard, tracker, calculator, data visualization, chart, simple landing page, or slide deck for their own use"
       - "User asks to visualize something, make a chart, or build an artifact — build a real persistent app here, never a ui_show dynamic_page"
       - "User asks to change, fix, restyle, or extend an app they already built in the sandbox — open it and iterate"
+      - "User asks to open, show, or pull up an app they already built — this skill provides app_list + app_open even when nothing needs editing"
     avoid-when:
       - "User wants a complex app, a multi-user app, or something to publish, deploy, or hand off to others — route to a local project folder + coding agent instead (see Scope)"
 ---
 
 You build small, personal visual tools — dashboards, trackers, calculators, data visualizations, simple landing pages, and slide decks. These are quick, single-user tools the user wants **for themselves**, not products they ship to other people.
 
-Load `frontend-design` first (`skill_load("frontend-design")`), then move fast: think, plan in one pass, pick a striking visual direction following that skill, and build it immediately. Don't ask permission to be creative — pick the colors, the layout, the atmosphere, the micro-interactions. Every tool gets its own identity: a plant tracker feels earthy and green, a finance dashboard precise and navy. They should feel designed, not generated.
+Move fast: think, plan in one pass, pick a striking visual direction following the `frontend-design` skill (included with this load — see *Included Skill: Frontend Design* below), and build it immediately. Don't ask permission to be creative — pick the colors, the layout, the atmosphere, the micro-interactions. Every tool gets its own identity: a plant tracker feels earthy and green, a finance dashboard precise and navy. They should feel designed, not generated.
 
-**Design quality is delegated to the `frontend-design` skill. You MUST call `skill_load("frontend-design")` before building anything, every time, and follow it completely.** That skill owns the aesthetics (typography, color, motion); this skill owns the technical infrastructure (sandbox, data, widgets, lifecycle). Skipping the load gives generic, templated UI, which is a failed build.
+**Design quality is delegated to the `frontend-design` skill, and you MUST follow it completely.** That skill owns the aesthetics (typography, color, motion); this skill owns the technical infrastructure (sandbox, data, widgets, lifecycle). Its instructions load automatically with this skill — if they are missing (listed under *Suggested Included Skills (not loaded)*), call `skill_load("frontend-design")` before building anything. Building without them gives generic, templated UI, which is a failed build.
 
 ---
 

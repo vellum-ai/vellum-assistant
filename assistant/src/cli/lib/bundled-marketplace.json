@@ -123,6 +123,20 @@
       "icon": "🕸️"
     },
     {
+      "name": "creatorland",
+      "source": {
+        "source": "github",
+        "repo": "creatorland/creatorland-mcp-skills",
+        "path": "plugins/creatorland-data",
+        "ref": "9cdbb1553645bbb746918f43d60e0df17ae91fa0"
+      },
+      "description": "Creatorland Data MCP and companion skill catalog: brief-to-shortlist, transcript-to-shortlist, brief builder, fair-price negotiation, one-number rate cards, and a guided onboarding tour for creator marketing workflows.",
+      "category": "marketing",
+      "homepage": "https://github.com/creatorland/creatorland-mcp-skills/tree/main/plugins/creatorland-data",
+      "license": "MIT",
+      "icon": "🎨"
+    },
+    {
       "name": "dynamic-notch",
       "source": {
         "source": "github",
@@ -407,6 +421,20 @@
       "homepage": "https://github.com/vellum-ai/vellum-client-qa",
       "license": "MIT",
       "icon": "🧪"
+    },
+    {
+      "name": "virlo",
+      "source": {
+        "source": "github",
+        "repo": "Virlo-AI/virlo-integrations",
+        "path": "integrations/vellum",
+        "ref": "e398cfd8a48316b9378e08efe4b42ad3dc42197e"
+      },
+      "description": "Real-time short-form video intelligence across TikTok, YouTube Shorts, and Instagram Reels, powered by Virlo Content Research Agents.",
+      "category": "marketing",
+      "homepage": "https://github.com/Virlo-AI/virlo-integrations/tree/main/integrations/vellum",
+      "license": "MIT",
+      "icon": "📱"
     },
     {
       "name": "writing-coach",

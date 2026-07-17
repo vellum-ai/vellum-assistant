@@ -15,6 +15,7 @@ import { getConfig } from "../../config/loader.js";
 import type { LLMCallSite, Speed } from "../../config/schemas/llm.js";
 import { ipcCall as gatewayIpcCall } from "../../ipc/gateway-client.js";
 import type { SecretPromptResult } from "../../permissions/secret-prompt-types.js";
+import type { ConversationCreateType } from "../../persistence/conversation-types.js";
 import { resolveMediaSourceData } from "../../providers/media-resolve.js";
 import { isPlaceholderSentinelText } from "../../providers/placeholder-sentinels.js";
 import type { MediaSource } from "../../providers/types.js";
@@ -184,6 +185,13 @@ export interface ConversationCreateOptions {
    * chronological renderer to consume.
    */
   slackInbound?: SlackInboundMessageMetadata;
+  /**
+   * Conversation type for newly created conversations. When omitted,
+   * defaults to `"standard"` (visible in the sidebar). Set to
+   * `"background"` for plugin-driven conversations that should not
+   * appear in the sidebar's Recents grouping.
+   */
+  conversationType?: ConversationCreateType;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -696,7 +704,7 @@ export function renderHistoryContent(
               continue;
             }
             const resolved = resolveMediaSourceData(source);
-            if (resolved) imageDataList.push(resolved.data);
+            if (resolved) {imageDataList.push(resolved.data);}
           }
         }
       }
@@ -704,6 +712,13 @@ export function renderHistoryContent(
       if (matched) {
         matched.result = resultContent;
         matched.isError = isError;
+        // Carry the persisted error classification onto the history row so a
+        // client can re-derive an error-specific surface after a reload (e.g.
+        // `acp_claude_oauth_missing` re-raising the inline Connect card),
+        // rather than it living only on the live `tool_result` event.
+        if (typeof block.errorCode === "string") {
+          matched.errorCode = block.errorCode;
+        }
         if (imageDataList.length > 0) {
           matched.imageData = imageDataList[0];
           matched.imageDataList = imageDataList;

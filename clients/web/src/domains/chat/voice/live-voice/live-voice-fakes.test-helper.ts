@@ -122,6 +122,7 @@ export class FakeCapture {
   startCount = 0;
   stopCount = 0;
   shutdownCount = 0;
+  flushCount = 0;
   startResult: LiveVoiceCaptureResult = { ok: true };
   /**
    * When true, `start()` stays pending until {@link resolveStart} — lets tests
@@ -149,6 +150,9 @@ export class FakeCapture {
   }
   async shutdown(): Promise<void> {
     this.shutdownCount++;
+  }
+  flush(): void {
+    this.flushCount++;
   }
 
   /** Resolve pending deferred `start()` calls with the current `startResult`. */

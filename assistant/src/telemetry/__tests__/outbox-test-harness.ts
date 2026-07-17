@@ -1,6 +1,8 @@
 import { mock, spyOn } from "bun:test";
 
-let shareAnalytics = true;
+import type { ConsentState } from "../../platform/consent-cache.js";
+
+let shareAnalytics: ConsentState = true;
 // Owner's `share_diagnostics` consent + accepted version — a second,
 // independent gate some outbox event types layer on top of
 // `share_analytics` (their payload carries content richer than metadata).
@@ -17,7 +19,7 @@ let shareDiagnosticsVersion = "2999-01-01";
 // imports are as safe as in the test files themselves (AGENTS.md "Test
 // machinery isolation" scopes its no-src/ rule to preload-time machinery).
 mock.module("../../platform/consent-cache.js", () => ({
-  getCachedShareAnalytics: () => shareAnalytics,
+  getRawShareAnalytics: () => shareAnalytics,
   getCachedShareDiagnostics: () => shareDiagnostics,
   getCachedShareDiagnosticsVersion: () => shareDiagnosticsVersion,
 }));
@@ -31,7 +33,7 @@ import { queryTelemetryOutboxBatch } from "../telemetry-events-outbox.js";
 await initializeDb();
 
 /** Flip the mocked share_analytics consent; call with true in beforeEach. */
-export function setShareAnalytics(value: boolean): void {
+export function setShareAnalytics(value: ConsentState): void {
   shareAnalytics = value;
 }
 

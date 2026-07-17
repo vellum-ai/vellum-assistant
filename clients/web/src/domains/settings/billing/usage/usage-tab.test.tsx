@@ -8,7 +8,12 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { createElement, type ReactElement } from "react";
-import { createMemoryRouter, RouterProvider } from "react-router";
+import {
+  createMemoryRouter,
+  RouterProvider,
+  useParams,
+  type NavigateFunction,
+} from "react-router";
 
 import { usageSeriesKeyForGroupValue } from "@/domains/settings/billing/usage/usage-series";
 import type {
@@ -16,6 +21,7 @@ import type {
   UsageSeriesResponse,
   UsageTotals,
 } from "@/domains/settings/billing/usage/usage-types";
+import { routes } from "@/utils/routes";
 import type { AssistantSchedule } from "@/utils/schedules";
 
 const defaultSchedules = [
@@ -58,8 +64,40 @@ const usageTotalsGetMock = mock(
 
 const usageBreakdownGetMock = mock(
   async (opts: {
-    query?: { scheduleId?: string };
+    query?: { scheduleId?: string; groupBy?: string };
   }): Promise<{ data: UsageBreakdownResponse }> => {
+    if (opts.query?.groupBy === "conversation") {
+      return {
+        data: {
+          breakdown: [
+            {
+              group: "Trip planning",
+              groupId: "conv-123",
+              groupKey: null,
+              totalInputTokens: 120,
+              totalOutputTokens: 80,
+              totalCacheCreationTokens: 0,
+              totalCacheReadTokens: 0,
+              totalEstimatedCostUsd: 0.03,
+              eventCount: 2,
+              turnCount: 3,
+            },
+            {
+              group: "Other",
+              groupId: null,
+              groupKey: null,
+              totalInputTokens: 60,
+              totalOutputTokens: 40,
+              totalCacheCreationTokens: 0,
+              totalCacheReadTokens: 0,
+              totalEstimatedCostUsd: 0.01,
+              eventCount: 1,
+              turnCount: null,
+            },
+          ],
+        },
+      };
+    }
     const selectedScheduleId = sdkScheduleId(opts) ?? "schedule-123";
     const selectedSchedule = defaultSchedules.find(
       (schedule) => schedule.id === selectedScheduleId,
@@ -179,6 +217,13 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
   usageBreakdownGet: usageBreakdownGetMock,
 }));
 mock.module("@/utils/conversation-navigation", () => ({
+  // Behavioral stub: performs the route change (the contract the navigation
+  // tests assert) without the real module's store resets and haptics.
+  navigateToConversation: mock(
+    (navigate: NavigateFunction, conversationId: string) => {
+      void navigate(routes.conversation(conversationId));
+    },
+  ),
   navigateToNewConversation: mock(() => {}),
 }));
 mock.module("@/utils/schedules", () => ({
@@ -200,6 +245,16 @@ afterEach(() => {
   usageDailyGetMock.mockClear();
 });
 
+// Marker route target so tests can assert navigation out of the usage tab.
+function ConversationPageProbe() {
+  const { conversationId } = useParams();
+  return createElement(
+    "div",
+    { "data-testid": "conversation-page" },
+    conversationId,
+  );
+}
+
 function renderUsageTab(initialEntry: string) {
   const queryClient = new QueryClient({
     defaultOptions: {
@@ -211,6 +266,10 @@ function renderUsageTab(initialEntry: string) {
       {
         path: "/assistant/settings/billing",
         element: createElement(UsageTab, { assistantId: "assistant-1" }),
+      },
+      {
+        path: "/assistant/conversations/:conversationId",
+        element: createElement(ConversationPageProbe),
       },
     ],
     { initialEntries: [initialEntry] },
@@ -317,5 +376,52 @@ describe("UsageTab", () => {
     // The mocked breakdown row has turnCount: null (a non-conversation
     // grouping), so the cell renders an em dash rather than a number.
     expect(screen.getByText("—")).toBeTruthy();
+  });
+
+  test("links conversation breakdown rows to their conversations", async () => {
+    renderUsageTab(
+      "/assistant/settings/billing?range=7d&groupBy=conversation",
+    );
+
+    const conversationLink = await screen.findByRole("link", {
+      name: "Trip planning",
+    });
+    expect(conversationLink.getAttribute("href")).toBe(
+      "/assistant/conversations/conv-123",
+    );
+
+    // The "Other" bucket aggregates usage with no conversation to open.
+    expect(screen.getByText("Other")).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "Other" })).toBeNull();
+  });
+
+  test("navigates to the conversation when a breakdown row is clicked", async () => {
+    renderUsageTab(
+      "/assistant/settings/billing?range=7d&groupBy=conversation",
+    );
+
+    const conversationLink = await screen.findByRole("link", {
+      name: "Trip planning",
+    });
+    const row = conversationLink.closest("tr")!;
+    // Click a non-link cell (Cost) to exercise the whole-row affordance.
+    fireEvent.click(row.lastElementChild!);
+
+    const probe = await screen.findByTestId("conversation-page");
+    expect(probe.textContent).toBe("conv-123");
+  });
+
+  test("does not link rows for non-conversation groupings", async () => {
+    renderUsageTab("/assistant/settings/billing?range=7d&groupBy=schedule");
+
+    await waitFor(() =>
+      expect(usageBreakdownGetMock.mock.calls.length).toBeGreaterThan(0),
+    );
+
+    expect((await screen.findAllByText("Morning digest")).length)
+      .toBeGreaterThan(0);
+    expect(
+      screen.queryByRole("link", { name: "Morning digest" }),
+    ).toBeNull();
   });
 });
