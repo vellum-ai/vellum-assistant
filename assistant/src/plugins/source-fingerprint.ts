@@ -33,13 +33,11 @@
 import { realpathSync, statSync } from "node:fs";
 
 import {
+  EXCLUDED_DIRS_ANYWHERE,
   GENERATED_APP_BUILD_DIR,
   PRESERVED_ENTRIES,
   walkPluginTree,
 } from "./plugin-tree-walk.js";
-
-/** Directory names skipped at any depth. */
-const EXCLUDED_DIRS_ANYWHERE = new Set(["node_modules"]);
 
 /**
  * The result of one source walk over a plugin directory.
