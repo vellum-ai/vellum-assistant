@@ -2274,8 +2274,14 @@ export class Conversation {
     // still trips the breaker. `summaryFailed` is `undefined` on
     // early-return paths (no eligible messages, disabled, below the auto
     // threshold, etc.) — skip those so they don't silently reset the
-    // counter.
-    if (result.summaryFailed !== undefined) {
+    // counter. A user Stop aborts the summary's provider call, which the
+    // compactor reports as `summaryFailed: true`; that is a cancellation, not
+    // a genuine failure, so skip recording when the signal is aborted rather
+    // than tripping the breaker on user cancels.
+    if (
+      result.summaryFailed !== undefined &&
+      !this.abortController?.signal.aborted
+    ) {
       await this.agentLoop.compactionCircuit.recordOutcome(
         result.summaryFailed,
         this.sendToClient,
