@@ -7289,6 +7289,10 @@ components:
           allOf:
           - $ref: '#/components/schemas/FormatEnum'
           default: mp3
+        model:
+          type: string
+          minLength: 1
+          maxLength: 64
       required:
       - text
     MfaEnrollResponse:
