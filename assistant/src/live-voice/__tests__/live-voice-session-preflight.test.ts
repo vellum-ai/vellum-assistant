@@ -128,6 +128,64 @@ describe("live-voice session credential preflight gating", () => {
     await session.close("websocket_close");
   });
 
+  test("ensureSpeechConfigured is awaited before the credential preflight", async () => {
+    const { context } = createContext();
+    const callOrder: string[] = [];
+    const ensureSpeechConfigured = mock(async () => {
+      callOrder.push("ensureSpeechConfigured");
+    });
+    const resolveCredentialReadiness = mock(
+      async (): Promise<LiveVoiceCredentialReadiness> => {
+        callOrder.push("resolveCredentialReadiness");
+        return { status: "ready" };
+      },
+    );
+    const session = new LiveVoiceSession(context, {
+      resolveTranscriber: mock(async () => new MockStreamingTranscriber()),
+      resolveCredentialReadiness,
+      ensureSpeechConfigured,
+    });
+
+    await session.start();
+
+    expect(ensureSpeechConfigured).toHaveBeenCalledTimes(1);
+    expect(callOrder).toEqual([
+      "ensureSpeechConfigured",
+      "resolveCredentialReadiness",
+    ]);
+
+    await session.close("websocket_close");
+  });
+
+  test("ensureSpeechConfigured flipping readiness to ready lets start proceed", async () => {
+    const { context, frames } = createContext();
+    let managedConfigured = false;
+    const ensureSpeechConfigured = mock(async () => {
+      managedConfigured = true;
+    });
+    const resolveCredentialReadiness = mock(
+      async (): Promise<LiveVoiceCredentialReadiness> =>
+        managedConfigured ? { status: "ready" } : NOT_READY,
+    );
+    const session = new LiveVoiceSession(context, {
+      resolveTranscriber: mock(async () => new MockStreamingTranscriber()),
+      resolveCredentialReadiness,
+      ensureSpeechConfigured,
+    });
+
+    await session.start();
+
+    expect(ensureSpeechConfigured).toHaveBeenCalledTimes(1);
+    expect(frames).toHaveLength(1);
+    expect(frames[0]).toMatchObject({
+      type: "ready",
+      sessionId: "session-123",
+      conversationId: "conversation-123",
+    });
+
+    await session.close("websocket_close");
+  });
+
   test("a rejected start frees the manager slot for a retry", async () => {
     const manager = new LiveVoiceSessionManager({
       createSession: (context) =>
