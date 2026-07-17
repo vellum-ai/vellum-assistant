@@ -78,14 +78,20 @@ function makeContentsFetch(opts: {
     const prefix = apiPath ? `${apiPath}/` : "";
     const direct = new Map<string, boolean>();
     for (const key of Object.keys(tree)) {
-      if (!key.startsWith(prefix)) {continue;}
+      if (!key.startsWith(prefix)) {
+        continue;
+      }
       const remainder = key.slice(prefix.length);
-      if (!remainder) {continue;}
+      if (!remainder) {
+        continue;
+      }
       const seg = remainder.split("/")[0]!;
       const isDir = remainder.includes("/") || tree[`${prefix}${seg}`] === null;
       direct.set(seg, (direct.get(seg) ?? false) || isDir);
     }
-    if (direct.size === 0) {return null;}
+    if (direct.size === 0) {
+      return null;
+    }
     return Array.from(direct.entries()).map(([name, isDir]) => {
       const path = `${prefix}${name}`;
       return isDir
@@ -157,7 +163,9 @@ function fakeGitRunner(opts: {
     opts.calls?.push([...args]);
     switch (args[0]) {
       case "fetch": {
-        if (opts.fetchError) {throw opts.fetchError;}
+        if (opts.fetchError) {
+          throw opts.fetchError;
+        }
         mkdirSync(join(cwd, ".git"), { recursive: true });
         writeFileSync(join(cwd, ".git", "config"), "[core]\n");
         for (const [rel, content] of Object.entries(opts.tree)) {
@@ -1281,6 +1289,90 @@ describe("installPlugin — direct (untrusted) install", () => {
     expect(pkg.name).toBe("manifest-less");
     expect(pkg.version).toBe("0.0.0");
     expect(pkg.peerDependencies["@vellumai/plugin-api"]).toBeDefined();
+  });
+});
+
+describe("installPlugin — dependency installation", () => {
+  let ws: string;
+  let pluginsDir: string;
+
+  beforeEach(() => {
+    ws = mkdtempSync(join(tmpdir(), "vellum-plugins-deps-"));
+    pluginsDir = join(ws, "plugins");
+    mkdirSync(pluginsDir, { recursive: true });
+  });
+
+  afterEach(() => {
+    rmSync(ws, { recursive: true, force: true });
+  });
+
+  test("installs the plugin's declared dependencies into the staged tree", async () => {
+    // GIVEN a plugin whose package.json declares a runtime dependency
+    const fetch = makeContentsFetch({ tree: {}, manifest: CAVEMAN_MANIFEST });
+    const runGit = fakeGitRunner({
+      tree: {
+        "package.json": JSON.stringify({
+          name: "caveman",
+          dependencies: { "date-fns": "3.0.0" },
+        }),
+      },
+      commit: CAVEMAN_SHA,
+    });
+
+    // AND a dependency installer that materializes a node_modules tree in the
+    // directory it is handed (standing in for a real `bun install`)
+    const installedInto: string[] = [];
+    const runInstallDeps = async ({ cwd }: { cwd: string }): Promise<void> => {
+      installedInto.push(cwd);
+      mkdirSync(join(cwd, "node_modules", "date-fns"), { recursive: true });
+      writeFileSync(join(cwd, "node_modules", "date-fns", "index.js"), "x");
+    };
+
+    // WHEN we install
+    await installPlugin(
+      { name: "caveman", ref: "main" },
+      { fetch, runGit, workspacePluginsDir: pluginsDir, runInstallDeps },
+    );
+
+    // THEN the installer ran against the staging dir, and its node_modules rode
+    // the atomic swap into the installed plugin
+    expect(installedInto).toHaveLength(1);
+    const target = join(pluginsDir, "caveman");
+    expect(
+      existsSync(join(target, "node_modules", "date-fns", "index.js")),
+    ).toBe(true);
+
+    // AND node_modules is excluded from the recorded fingerprint — it is a
+    // derived directory, not tracked source, so it never reads as drift
+    const meta = readInstallMeta(target);
+    const fingerprintPaths = Object.keys(meta?.fingerprint?.files ?? {});
+    expect(fingerprintPaths).toContain("package.json");
+    expect(fingerprintPaths.some((p) => p.startsWith("node_modules"))).toBe(
+      false,
+    );
+  });
+
+  test("skips dependency installation when the plugin declares none", async () => {
+    // GIVEN a plugin with no runtime dependencies
+    const fetch = makeContentsFetch({ tree: {}, manifest: CAVEMAN_MANIFEST });
+    const runGit = fakeGitRunner({
+      tree: { "package.json": '{"name":"caveman"}' },
+      commit: CAVEMAN_SHA,
+    });
+
+    let ran = false;
+    const runInstallDeps = async (): Promise<void> => {
+      ran = true;
+    };
+
+    // WHEN we install
+    await installPlugin(
+      { name: "caveman", ref: "main" },
+      { fetch, runGit, workspacePluginsDir: pluginsDir, runInstallDeps },
+    );
+
+    // THEN the dependency installer is never invoked
+    expect(ran).toBe(false);
   });
 });
 

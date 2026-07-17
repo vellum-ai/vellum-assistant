@@ -199,7 +199,7 @@ export async function installPluginFromPlatform(
   // the ETag documents exactly which bytes were verified.
   const source = buildFetchSource(meta);
   const ref = meta.ref ?? "";
-  finalizeStagedInstall(stagingDir, {
+  await finalizeStagedInstall(stagingDir, {
     name,
     source,
     ref,

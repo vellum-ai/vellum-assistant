@@ -63,6 +63,7 @@ import {
   resolveRefCommit,
   sanitizePluginName,
 } from "./install-from-github.js";
+import type { DependencyInstaller } from "./install-plugin-dependencies.js";
 import { type ConflictLabels, mergePluginTree } from "./merge-plugin-tree.js";
 /**
  * How local edits to an installed plugin are reconciled with the marketplace
@@ -118,6 +119,8 @@ export interface UpgradePluginDeps {
   readonly runGit?: GitRunner;
   /** Override the postinstall adapter runner. Forwarded to {@link installPlugin}. */
   readonly runPostinstall?: PostinstallRunner;
+  /** Override the dependency-install runner. Forwarded to {@link installPlugin} and {@link finalizeStagedInstall}. */
+  readonly runInstallDeps?: DependencyInstaller;
 }
 
 /** Result of an upgrade attempt. */
@@ -364,6 +367,7 @@ export async function upgradePlugin(
       workspacePluginsDir: deps.workspacePluginsDir,
       runGit: deps.runGit,
       runPostinstall: deps.runPostinstall,
+      runInstallDeps: deps.runInstallDeps,
     },
   );
 
@@ -531,6 +535,7 @@ async function directUpgrade(
       workspacePluginsDir: deps.workspacePluginsDir,
       runGit: deps.runGit,
       runPostinstall: deps.runPostinstall,
+      runInstallDeps: deps.runInstallDeps,
     },
   );
 
@@ -682,13 +687,14 @@ async function mergeUpgrade(
 
     const toCommit = theirs.commit ?? ctx.toCommit;
     const toTimestamp = theirs.committedAt ?? ctx.toTimestamp;
-    finalizeStagedInstall(stagingDir, {
+    await finalizeStagedInstall(stagingDir, {
       name,
       source: theirsSource,
       ref: theirsSource.ref,
       commit: toCommit,
       committedAt: toTimestamp,
       pluginsDir,
+      installDependencies: deps.runInstallDeps,
     });
 
     return {

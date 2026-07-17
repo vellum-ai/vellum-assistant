@@ -41,6 +41,20 @@ export const PRESERVED_ENTRIES = [
 ] as const;
 
 /**
+ * Directory names skipped at any depth by every plugin-tree walk. `node_modules`
+ * holds a plugin's installed dependencies — derived from the pinned
+ * `package.json` and re-installed on every (re)install and upgrade (see
+ * `../cli/lib/install-plugin-dependencies.ts`), never tracked source. Excluding
+ * it keeps installed dependencies out of the install fingerprint / content hash
+ * (`../cli/lib/plugin-fingerprint.ts`) and the live-reload source fingerprint
+ * (`./source-fingerprint.ts`), so a re-materialized baseline — which has no
+ * `node_modules/` — still matches what install recorded.
+ */
+export const EXCLUDED_DIRS_ANYWHERE: ReadonlySet<string> = new Set([
+  "node_modules",
+]);
+
+/**
  * Generated app build output: `apps/<app>/dist`. This is compiled output (the
  * plugin source watcher builds each multi-file app's `src/` into its sibling
  * `dist/`), never tracked source, so — like {@link PRESERVED_ENTRIES} — every
