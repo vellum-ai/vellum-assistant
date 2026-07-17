@@ -130,7 +130,7 @@
         "path": "plugins/creatorland-data",
         "ref": "9cdbb1553645bbb746918f43d60e0df17ae91fa0"
       },
-      "description": "Creatorland Data MCP and companion skill catalog: brief-to-shortlist, transcript-to-shortlist, brief builder, fair-price negotiation, one-number rate cards, and a guided onboarding tour for creator marketing workflows.",
+      "description": "Creatorland turns your Vellum assistant into an influencer marketer in a box: find the right creators, benchmark rates, analyze competitors, build campaign shortlists, and launch outreach from your brand context. The plugin kit includes guided workflows for brief-to-shortlist, transcript-to-shortlist, brief building, fair-price negotiation, one-number rate cards, and creator marketing onboarding.",
       "category": "marketing",
       "homepage": "https://github.com/creatorland/creatorland-mcp-skills/tree/main/plugins/creatorland-data",
       "license": "MIT",
